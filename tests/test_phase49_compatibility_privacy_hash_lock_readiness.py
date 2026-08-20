@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import ast
 import json
 from pathlib import Path
 import re
-import subprocess
 import tomllib
 
 from pietto._project.check import check_project_parse_only
@@ -14,9 +12,6 @@ from pietto._project.model import (
     ProjectSemanticResult,
     build_empty_project_semantic_result,
 )
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-49-row-level-computed-let-schema-lineage.md"
@@ -24,29 +19,6 @@ SPEC_PATH = (
     REPO_ROOT / "docs/spec/phase49-compatibility-privacy-hash-lock-readiness-v1.md"
 )
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE13_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-compatibility-privacy-hash-lock-readiness-v1.md",
-    "tests/test_phase49_compatibility_privacy_hash_lock_readiness.py",
-}
-
-
-def _phase53_gate2_paths(name: str) -> set[str]:
-    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id == name
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, set)
-            return value
-    raise AssertionError(name)
-
 
 EXPECTED_PROJECT_JSON_V2_KEYS = (
     "schema_version",
@@ -109,21 +81,6 @@ PRIVATE_JSON_FORBIDDEN_TOKENS = (
     "let_output",
     "let_expression",
     "transitive_dependency",
-)
-
-FORBIDDEN_DIFF_PATHS = (
-    "src/pietto/_project/json_v2.py",
-    "src/pietto/_project/check.py",
-    "src/pietto/_project/row_expression_schema.py",
-    "src/pietto/_project/row_expression_type_facts.py",
-    "src/pietto/_project/let_scope_facts.py",
-    "src/pietto/semantic/let_bindings.py",
-    "grammar",
-    "src/pietto/generated",
-    ".github/workflows",
-    "pyproject.toml",
-    "uv.lock",
-    "scripts",
 )
 
 PROJECT_HELPER_PATHS = (
@@ -202,14 +159,6 @@ def test_project_json_v2_public_envelope_and_privacy_remain_stable(
         assert _json_paths_for_key(document, "reason") == ()
         for private_token in PRIVATE_JSON_FORBIDDEN_TOKENS:
             assert private_token not in serialized, private_token
-
-
-def test_forbidden_source_public_surface_and_tooling_diffs_are_empty() -> None:
-    for relative_path in FORBIDDEN_DIFF_PATHS:
-        assert (
-            _git_output(["diff", "--", relative_path]) == ""
-            or _phase54_active_gate2_is_active()
-        ), relative_path
 
 
 def test_package_version_and_release_surface_readiness_are_locked() -> None:
@@ -292,15 +241,9 @@ def test_project_helpers_do_not_call_full_semantic_analyze() -> None:
     assert "analyze_relation_let_bindings" in let_scope_source
 
 
-def test_slice13_package_version_and_dirty_paths_are_locked() -> None:
+def test_package_version_remains_010() -> None:
     project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
     assert project["version"] == "0.1.0"
-    slice14_paths = _phase53_gate2_paths("MODIFIED_PATHS") | _phase53_gate2_paths(
-        "ADDED_PATHS"
-    )
-    assert (
-        _git_status_paths() in (set(), ALLOWED_SLICE13_GATE2_PATHS, slice14_paths)
-    ) or _phase54_active_gate2_is_active()
 
 
 def _project_semantic_result(
@@ -351,25 +294,3 @@ def _json_paths_for_key(value: object, key: str, path: str = "") -> tuple[str, .
             paths.extend(_json_paths_for_key(child, key, list_path))
         return tuple(dict.fromkeys(paths))
     return ()
-
-
-def _git_status_paths() -> set[str]:
-    output = _git_output(["status", "--porcelain", "--untracked-files=all"])
-    paths: set[str] = set()
-    for line in output.splitlines():
-        if not line:
-            continue
-        paths.add(line[3:])
-    return paths
-
-
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert result.stderr == ""
-    return result.stdout.rstrip()

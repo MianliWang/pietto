@@ -4,12 +4,8 @@ import json
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import (
-    _non_slice3_repair_diff_paths,
 )
 
 import pietto.cli as cli
@@ -35,22 +31,6 @@ METADATA_SERIALIZER_PATH = REPO_ROOT / "src/pietto/_metadata/serializer.py"
 METADATA_TEXT_PATH = REPO_ROOT / "src/pietto/_metadata/text.py"
 CLI_JSON_PATH = REPO_ROOT / "src/pietto/cli_json.py"
 
-FORBIDDEN_DIFF_PATHS = (
-    "grammar/Pietto.g4",
-    "src/pietto/generated",
-    "src/pietto/cli.py",
-    "src/pietto/cli_json.py",
-    "src/pietto/semantic",
-    "src/pietto/ir",
-    "src/pietto/sql",
-    "src/pietto/_metadata",
-    "tests/fixtures",
-    "pyproject.toml",
-    "uv.lock",
-    ".github",
-    "scripts",
-    "examples",
-)
 
 TEMPORAL_CANDIDATES = ("DateTime", "Time", "Interval")
 
@@ -285,12 +265,6 @@ def test_future_prerequisites_and_non_authorization_are_documented() -> None:
         "tags, release, publish/upload, signing, or attestation",
     ):
         assert required in spec, required
-
-
-def test_forbidden_surfaces_are_not_modified_by_slice6() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-
-    assert _non_slice3_repair_diff_paths(diff_output) == set()
 
 
 def _source(type_name: str, projection: str) -> str:

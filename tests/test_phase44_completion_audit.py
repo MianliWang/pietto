@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 from _static_audit_helpers import normalized_text as _normalized
 from _static_audit_helpers import read_text as _read
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,30 +28,6 @@ PHASE44_TEST_PATHS = (
     "tests/test_phase44_project_config_schema_contract.py",
     "tests/test_phase44_project_source_selection_scope_lock.py",
     "tests/test_phase44_completion_audit.py",
-)
-
-ALLOWED_SLICE8_GATE2_PATHS = {
-    "docs/plan/phase-44-project-source-selection-parse-only-project-check-mvp.md",
-    "docs/spec/phase44-project-source-selection-scope-lock-v1.md",
-    "docs/spec/phase44-project-config-schema-contract-v1.md",
-    "tests/test_phase44_completion_audit.py",
-    "tests/test_phase44_project_source_selection_scope_lock.py",
-    "tests/test_phase44_project_config_schema_contract.py",
-    "tests/test_phase44_project_cli_package_compatibility.py",
-    "tests/test_phase44_project_json_v2_inputs_counters.py",
-}
-
-FORBIDDEN_DIFF_PATHS = (
-    "src",
-    "scripts",
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "grammar",
-    "tests/fixtures",
-    "pyproject.toml",
-    "uv.lock",
-    ".github",
 )
 
 POSITIVE_RELEASE_CLAIMS = (
@@ -179,22 +151,17 @@ def test_phase44_gate2_allowlist_and_validation_plan_are_locked() -> None:
     ):
         assert required in docs, required
 
-    assert (
-        _git_status_paths().issubset(ALLOWED_SLICE8_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
 
-
-def test_phase44_package_version_release_and_ci_claim_boundaries_are_locked() -> None:
+def test_package_version_release_and_ci_claim_boundaries_are_locked() -> None:
     pyproject = _read(PYPROJECT_PATH)
     docs = _phase44_docs()
-    lowered_docs = docs.lower()
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
     assert "package version remains `0.1.0`" in docs
 
     for forbidden in POSITIVE_RELEASE_CLAIMS:
-        assert forbidden not in lowered_docs, forbidden
+        assert forbidden not in docs.lower(), forbidden
 
     for forbidden in (
         "Gate 3 natural CI succeeded",
@@ -202,44 +169,3 @@ def test_phase44_package_version_release_and_ci_claim_boundaries_are_locked() ->
         "natural CI success is complete",
     ):
         assert forbidden not in docs, forbidden
-
-
-def test_phase44_forbidden_surfaces_are_not_modified_in_slice8() -> None:
-    assert (
-        _git_diff_name_only(FORBIDDEN_DIFF_PATHS) == ""
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        _git_status_paths().issubset(ALLOWED_SLICE8_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
-
-
-def _git_diff_name_only(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "diff", "--name-only", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths

@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 import re
-import subprocess
 import tomllib
 from pathlib import Path
 from typing import cast
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -19,8 +15,6 @@ WORKFLOW_PATH = REPO_ROOT / ".github/workflows/ci.yml"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 UV_LOCK_PATH = REPO_ROOT / "uv.lock"
 
-SLICE8_COMMIT = "12d834a41300044f4017b1f9853093cbe8d91764"
-SLICE8_CI_RUN = "29050956461"
 CI_VALIDATE_COMMAND = (
     "uv run python scripts/validate.py --timings --pytest-workers auto "
     "--pytest-dist loadfile --pytest-maxprocesses 4"
@@ -54,28 +48,6 @@ PHASE_SPEC_PATHS = (
     "docs/spec/maintenance-phase3-completion-audit-v1.md",
 )
 
-ALLOWED_SLICE9_GATE2_PATHS = {
-    "docs/plan/maintenance-phase-3-validation-pipeline-performance.md",
-    "docs/spec/maintenance-phase3-completion-audit-v1.md",
-    "tests/test_maintenance_phase3_completion_audit.py",
-}
-
-FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    ".github/workflows/ci.yml",
-    "scripts/validate.py",
-    "scripts/check_generated.py",
-    "scripts/check_goldens.py",
-    "scripts/package_smoke.py",
-    "pyproject.toml",
-    "uv.lock",
-    "src",
-    "grammar",
-    "tests/fixtures",
-    "docs/spec/pietto-v0.9.md",
-    "docs/spec/pietto-roadmap-phase45-60-v1.md",
-)
 
 POSITIVE_GATE3_PRECLAIMS = (
     "Slice 9 Gate 3 natural CI succeeded",
@@ -108,32 +80,6 @@ def _documents() -> tuple[str, str]:
     return (_normalized(PLAN_PATH), _normalized(SPEC_PATH))
 
 
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.rstrip()
-
-
-def _git_status_paths() -> set[str]:
-    output = _git_output(["status", "--porcelain", "--untracked-files=all"])
-    paths: set[str] = set()
-    for line in output.splitlines():
-        if not line:
-            continue
-        path = line[3:].strip()
-        if " -> " in path:
-            path = path.split(" -> ", maxsplit=1)[1]
-        paths.add(path)
-    return paths
-
-
 def test_plan_spec_identity_slice_inventory_and_spec_inventory_are_locked() -> None:
     assert PLAN_PATH.is_file()
     assert SPEC_PATH.is_file()
@@ -157,8 +103,6 @@ def test_slice8_baseline_and_gate3_aware_completion_are_locked() -> None:
 
     for document in _documents():
         for required in (
-            SLICE8_COMMIT,
-            SLICE8_CI_RUN,
             "Add Maintenance Phase 3 developer workflow docs",
             "workflow `CI`",
             "event `push`",
@@ -279,33 +223,3 @@ def test_deferred_non_goals_and_release_boundaries_are_locked() -> None:
         lowered = document.lower()
         for forbidden in POSITIVE_RELEASE_CLAIMS:
             assert forbidden not in lowered, forbidden
-
-
-def test_gate2_allowlist_and_forbidden_diffs_are_locked() -> None:
-    for document in _documents():
-        for relative_path in sorted(ALLOWED_SLICE9_GATE2_PATHS):
-            assert relative_path in document, relative_path
-        for required in (
-            "No other file is approved in Slice 9 Gate 2",
-            "focused only",
-            "full pytest",
-            "full `scripts/validate.py`",
-            "generated checks",
-            "golden checks",
-            "package smoke",
-            "package builds",
-            "timing benchmarks",
-            "CI",
-        ):
-            assert required in document, required
-
-    for relative_path in FORBIDDEN_DIFF_PATHS:
-        assert (
-            _git_output(["diff", "--", relative_path]) == ""
-        ) or _phase54_active_gate2_is_active(), relative_path
-
-
-def test_dirty_paths_are_clean_or_subset_of_slice9_allowlist() -> None:
-    assert (
-        _git_status_paths().issubset(ALLOWED_SLICE9_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()

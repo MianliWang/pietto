@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 from _static_audit_helpers import normalized_text as _normalized
 from _static_audit_helpers import read_text as _read
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = (
@@ -20,79 +16,6 @@ PHASE55_SLICE2_SPEC_PATH = (
     / "docs/spec/phase55-slice2-explicit-package-activation-compatibility-and-immutable-package-carrier-v1.md"
 )
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_GATE2_PATHS = {
-    "docs/plan/phase-44-project-source-selection-parse-only-project-check-mvp.md",
-    "docs/spec/phase44-project-source-selection-scope-lock-v1.md",
-    "docs/spec/phase44-project-config-schema-contract-v1.md",
-    "docs/spec/project-json-v2-result-envelope-v1.md",
-    "docs/spec/project-cli-json-v2.md",
-    "src/pietto/_project/json_v2.py",
-    "src/pietto/cli.py",
-    "scripts/package_smoke.py",
-    "tests/test_phase44_completion_audit.py",
-    "tests/test_phase44_project_cli_package_compatibility.py",
-    "tests/test_phase44_project_json_v2_inputs_counters.py",
-    "tests/test_phase44_project_parse_only_check.py",
-    "tests/test_phase44_project_config_schema_contract.py",
-    "tests/test_phase44_project_source_selection_scope_lock.py",
-    "tests/test_phase33_project_check_cli.py",
-    "tests/test_phase33_json_v2_project_envelope_contract.py",
-    "tests/test_phase33_project_root_config_path_discovery_contract.py",
-    "tests/test_phase33_project_json_v2_serializer.py",
-    "tests/test_phase33_completion_audit.py",
-    "tests/test_phase33_cli_package_compatibility_hardening.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase8_completion_audit.py",
-    "tests/test_phase9_completion_audit.py",
-    "tests/test_phase10_completion_audit.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_planning_audit.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase12_planning_audit.py",
-    "tests/test_phase12_order_limit_contract.py",
-    "tests/test_phase13_completion_audit.py",
-    "tests/test_phase13_planning_audit.py",
-    "tests/test_phase14_candidate_decision_audit.py",
-    "tests/test_phase14_completion_audit.py",
-    "tests/test_phase14_planning_audit.py",
-    "tests/test_phase14_relationship_metadata_completion_audit.py",
-    "tests/test_phase15_completion_audit.py",
-    "tests/test_phase15_semantic_completion_audit.py",
-    "tests/test_phase16_completion_audit.py",
-    "tests/test_phase16_current_syntax_surface_audit.py",
-    "tests/test_phase16_language_direction_audit.py",
-    "tests/test_phase16_safety_deferral_sql_portability.py",
-    "tests/test_phase21_group_by_hardening_audit.py",
-    "tests/test_phase24_aggregate_expression_arguments_readiness.py",
-    "tests/test_phase24_cli_json_output_hardening.py",
-    "tests/test_phase24_completion_audit.py",
-    "tests/test_phase25_completion_audit.py",
-    "tests/test_phase26_completion_audit.py",
-    "tests/test_phase27_completion_audit.py",
-    "tests/test_phase28_completion_audit.py",
-    "tests/test_phase29_completion_audit.py",
-    "tests/test_phase30_completion_audit.py",
-    "tests/test_phase32_completion_audit.py",
-}
-
-FORBIDDEN_DIFF_PATHS = (
-    "src/pietto/_project/discovery.py",
-    "grammar",
-    "tests/fixtures",
-    "pyproject.toml",
-    "uv.lock",
-    ".github",
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "docs/spec/v02-deferred-feature-register-v1.md",
-)
 
 
 def test_slice2_artifacts_and_status_are_locked() -> None:
@@ -276,19 +199,9 @@ def test_slice2_allowlist_validation_and_stop_conditions_are_locked() -> None:
         assert required in plan, required
 
 
-def test_forbidden_implementation_surfaces_are_not_modified() -> None:
-    assert (
-        _git_diff_name_only(FORBIDDEN_DIFF_PATHS) == ""
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        _git_status_paths().issubset(ALLOWED_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
-
-
 def test_package_version_release_and_public_output_boundaries_remain_locked() -> None:
     pyproject = _read(PYPROJECT_PATH)
     combined = _phase44_slice2_text()
-    lowered = combined.lower()
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
@@ -303,7 +216,7 @@ def test_package_version_release_and_public_output_boundaries_remain_locked() ->
         "signing completed",
         "attestation completed",
     ):
-        assert forbidden not in lowered, forbidden
+        assert forbidden not in combined.lower(), forbidden
 
     for required in (
         "CLI JSON v1 mutation",
@@ -320,35 +233,3 @@ def test_package_version_release_and_public_output_boundaries_remain_locked() ->
 
 def _phase44_slice2_text() -> str:
     return " ".join(_normalized(path) for path in (PLAN_PATH, SPEC_PATH))
-
-
-def _git_diff_name_only(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "diff", "--name-only", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths

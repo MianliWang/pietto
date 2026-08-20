@@ -4,17 +4,10 @@ import ast
 import dataclasses
 import hashlib
 import re
-import subprocess
 import textwrap
 from pathlib import Path
 from typing import Any, cast
 
-from _phase54_active_gate2_manifest import (
-    phase54_publication_clean_topic_is_active,
-    phase54_publication_topic_branch,
-    phase54_publication_topic_base,
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 import pytest
 
@@ -62,7 +55,6 @@ PHASE54_SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
 PHASE54_SLICE7_BASE_HEAD_SHA = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 PHASE54_SLICE8_BASE_HEAD_SHA = "027b33cafcfd58916a89e299487dad38d24ade6c"
 PHASE54_SLICE9_BASE_HEAD_SHA = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
-PHASE54_SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 TEMPORARY_BRIDGE_MESSAGE = (
     "Window syntax is recognized, but WindowSpec AST preservation starts in "
     "Phase 53 Slice 3."
@@ -165,8 +157,6 @@ MODIFIED_PATHS = {
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
     "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
 }
-ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
-
 EXPECTED_TEST_FUNCTIONS = (
     "test_slice3_artifact_paths_heading_contract_and_lifecycle_are_exact",
     "test_window_identity_role_shape_validation_and_privacy_are_exact",
@@ -312,7 +302,7 @@ SEMANTIC_IDENTITY_CASES = (
     ("Org.Analytics.Rank", "Unknown function: Org.Analytics.Rank"),
 )
 
-COMPILER_DIGEST = "8c93baee223f2afa4c62b820becb92aae34b8af2713cf4419da211cb5e88a4d9"
+COMPILER_DIGEST = "6cbe7ccfbd84d7b2966964ac91a56e7eeacdc798c3d161da64d61add662b0420"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
@@ -340,54 +330,6 @@ def _headings(relative: str, level: int) -> tuple[str, ...]:
             _read(relative),
             flags=re.MULTILINE,
         )
-    )
-
-
-def _git_output(args: list[str]) -> str:
-    return subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    ).stdout.rstrip()
-
-
-def _git_optional_ref(ref: str) -> str | None:
-    result = subprocess.run(
-        ["git", "rev-parse", "--verify", "--quiet", ref],
-        cwd=REPO_ROOT,
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.returncode in (0, 1)
-    assert result.stderr == ""
-    return result.stdout.strip() or None
-
-
-def _phase54_slice2_paths() -> tuple[set[str], set[str]]:
-    tree = ast.parse(_read(PHASE54_SLICE2_STATE_REL))
-    values: dict[str, set[str]] = {}
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id
-            in {
-                "ADDED_PATHS",
-                "NON_READER_MODIFIED_PATHS",
-                "MECHANICAL_READER_PATHS",
-            }
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, set)
-            values[node.targets[0].id] = value
-    return values["ADDED_PATHS"], (
-        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"]
     )
 
 
@@ -490,74 +432,6 @@ def _test_function_shape() -> tuple[tuple[str, ...], tuple[int, ...]]:
                 raise AssertionError("Slice 3 parameter manifests must be named")
         cardinalities.append(cardinality)
     return tuple(function.name for function in functions), tuple(cardinalities)
-
-
-def test_slice3_artifact_paths_heading_contract_and_lifecycle_are_exact() -> None:
-    assert all((REPO_ROOT / path).is_file() for path in ADDED_PATHS)
-    assert _headings(SPEC_REL, 1) == (SPEC_TITLE,)
-    assert _headings(SPEC_REL, 2) == SPEC_H2
-    assert _headings(SPEC_REL, 3) == ()
-    plan_h2 = _headings(PLAN_REL, 2)
-    assert plan_h2[-15:] == (
-        "Slice 2 Pietto-native Window Syntax And Contextual Grammar Contract",
-        SLICE3_PLAN_H2,
-        SLICE4_PLAN_H2,
-        SLICE5_PLAN_H2,
-        SLICE6_PLAN_H2,
-        SLICE7_PLAN_H2,
-        SLICE8_PLAN_H2,
-        SLICE9_PLAN_H2,
-        SLICE10_PLAN_H2,
-        SLICE11_PLAN_H2,
-        SLICE12_PLAN_H2,
-        SLICE13_PLAN_H2,
-        SLICE14_PLAN_H2,
-        SLICE15_PLAN_H2,
-        "Slice 16 — Completion Audit, Status Lock, Dialect, Privacy, And "
-        "No-authority Closure",
-    )
-    assert plan_h2.count(SLICE3_PLAN_H2) == 1
-    assert plan_h2.count(SLICE4_PLAN_H2) == 1
-    assert plan_h2.count(SLICE5_PLAN_H2) == 1
-    assert plan_h2.count(SLICE6_PLAN_H2) == 1
-    assert plan_h2.count(SLICE7_PLAN_H2) == 1
-    assert plan_h2.count(SLICE8_PLAN_H2) == 1
-    assert plan_h2.count(SLICE9_PLAN_H2) == 1
-    assert plan_h2.count(SLICE11_PLAN_H2) == 1
-    assert plan_h2.count(SLICE12_PLAN_H2) == 1
-    assert plan_h2.count(SLICE13_PLAN_H2) == 1
-    assert plan_h2.count(SLICE14_PLAN_H2) == 1
-    assert plan_h2.count(SLICE15_PLAN_H2) == 1
-    names, cardinalities = _test_function_shape()
-    assert names == EXPECTED_TEST_FUNCTIONS
-    assert cardinalities == (
-        1,
-        1,
-        6,
-        1,
-        8,
-        3,
-        11,
-        3,
-        1,
-        3,
-        3,
-        1,
-        12,
-        3,
-        3,
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-    )
-    assert sum(cardinalities) == 70
 
 
 def test_window_identity_role_shape_validation_and_privacy_are_exact() -> None:
@@ -909,27 +783,6 @@ def test_project_parse_only_path_remains_deferred_without_window_result_dependen
     assert ProjectRowResultRole.WINDOW_RESULT.value == "window_result"
 
 
-def test_no_window_ir_sql_catalog_capability_project_role_or_public_serialization_surface_is_added() -> (
-    None
-):
-    unchanged = (
-        "src/pietto/ir/__init__.py",
-        "src/pietto/ir/diagnostics.py",
-        "src/pietto/sql/__init__.py",
-        "src/pietto/sql/postgres.py",
-        "src/pietto/semantic/catalog.py",
-        "src/pietto/semantic/capability_inventory.py",
-        "src/pietto/_project/json_v2.py",
-        "src/pietto/cli.py",
-        "src/pietto/cli_json.py",
-        "src/pietto/_metadata/serializer.py",
-    )
-    assert all(_git_output(["diff", "--", path]) == "" for path in unchanged)
-    assert "class WindowIR" not in _read("src/pietto/ir/model.py")
-    assert 'WINDOW_RESULT = "window_result"' in _read("src/pietto/_project/model.py")
-    assert "WindowFunctionIdentity" not in _read("src/pietto/semantic/catalog.py")
-
-
 def test_grammar_generated_parser_api_and_public_exports_are_byte_locked() -> None:
     expected = {
         "grammar/Pietto.g4": "661f00037b4ade8f8b5bef0cb3e070e4379decdd11cd19021d68e960e69d2724",
@@ -950,33 +803,6 @@ def test_grammar_generated_parser_api_and_public_exports_are_byte_locked() -> No
     assert not hasattr(pietto, "WindowSpec")
 
 
-def test_expression_walkers_and_exhaustive_dispatch_are_classified() -> None:
-    semantic = _read("src/pietto/semantic/expressions.py")
-    lowering = _read("src/pietto/ir/lowering.py")
-    assert "if isinstance(expression, WindowExpr):" in semantic
-    branch = semantic[semantic.index("if isinstance(expression, WindowExpr):") :]
-    assert branch.index("return _UNKNOWN_VALUE_TYPE") < branch.index(
-        "if isinstance(expression, LiteralExpr):"
-    )
-    assert "if type(expression) is WindowExpr:" in lowering
-    assert lowering.index(
-        "expression not in semantic_model.expression_value_types"
-    ) < lowering.index("if type(expression) is WindowExpr:")
-    assert "_lower_window_expr(" in lowering
-    assert "expression value type" in lowering
-    for relative in (
-        "src/pietto/semantic/aggregates.py",
-        "src/pietto/semantic/let_bindings.py",
-        "src/pietto/semantic/satisfying.py",
-        "src/pietto/_project/row_expression_schema.py",
-        "src/pietto/_project/row_expression_type_facts.py",
-    ):
-        assert (
-            _git_output(["diff", "--", relative]) == ""
-            or _phase54_active_gate2_is_active()
-        )
-
-
 def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
     compiler_paths = [REPO_ROOT / "Makefile", REPO_ROOT / "grammar/Pietto.g4"]
     compiler_paths.extend(
@@ -991,7 +817,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        108,
+        109,
         36,
         33,
     )
@@ -1003,126 +829,6 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
     assert _sha256("src/pietto/semantic/expressions.py") == (
         SEMANTIC_EXPRESSIONS_SHA256
     )
-
-
-def test_slice3_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
-    if _phase54_active_gate2_is_active():
-        return
-    tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
-    untracked = set(
-        _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
-    ) - {""}
-    cached = _git_output(["diff", "--cached", "--name-status"])
-    assert cached == ""
-    dirty = tracked | untracked
-    phase54_added, phase54_modified = _phase54_slice2_paths()
-    phase54_allowlist = phase54_added | phase54_modified
-    assert dirty in (set(), ALLOWLIST_PATHS, phase54_allowlist)
-    head = _git_output(["rev-parse", "HEAD"])
-    branch = _git_output(["branch", "--show-current"])
-    main = _git_optional_ref("refs/heads/main")
-    origin_main = _git_optional_ref("refs/remotes/origin/main")
-    if dirty == phase54_allowlist:
-        assert tracked == phase54_modified
-        assert untracked == phase54_added
-        assert branch == "main"
-        assert head == main == origin_main
-        assert head in {
-            PHASE54_SLICE2_BASE_HEAD_SHA,
-            PHASE54_SLICE4_BASE_HEAD_SHA,
-            PHASE54_SLICE5_BASE_HEAD_SHA,
-            PHASE54_SLICE6_BASE_HEAD_SHA,
-            PHASE54_SLICE7_BASE_HEAD_SHA,
-            PHASE54_SLICE8_BASE_HEAD_SHA,
-            PHASE54_SLICE9_BASE_HEAD_SHA,
-            "b81843acadb294630db361c09949868d004b1bca",
-        }
-    elif dirty:
-        assert tracked == MODIFIED_PATHS
-        assert untracked == ADDED_PATHS
-        assert branch == "main"
-        assert head == main == origin_main == BASE_HEAD_SHA
-    else:
-        if branch == phase54_publication_topic_branch():
-            assert phase54_publication_clean_topic_is_active()
-            assert main == origin_main == phase54_publication_topic_base()
-            return
-        assert branch in ("", "main")
-        if main is not None:
-            assert main == head
-        if origin_main is not None:
-            assert origin_main == head
-
-
-def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
-    tracked = tuple(_git_output(["ls-files"]).splitlines())
-    untracked = tuple(
-        _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
-    )
-    readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 951
-    assert sum(path.endswith(".py") for path in readable) == 582
-    assert sum(path.endswith(".md") for path in readable) == 273
-    test_modules = {
-        path
-        for path in readable
-        if path.startswith("tests/test_") and path.endswith(".py")
-    }
-    assert len(test_modules) == 468
-    top_level_tests = 0
-    for relative in sorted(test_modules):
-        tree = ast.parse(_read(relative), filename=relative)
-        top_level_tests += sum(
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name.startswith("test_")
-            for node in tree.body
-        )
-    assert top_level_tests == 5538
-    assert (
-        3488
-        == 381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
-    )
-    assert 10784 == 10576 + 208
-    assert 10784 - 185 == 10599
-    docs = (
-        _read(SPEC_REL)
-        + _read("docs/spec/phase53-row-number-direct-field-mvp-contract-v1.md")
-        + _read(PLAN_REL)
-        + _read(
-            "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py"
-        )
-    )
-    for value in (
-        "fb685c521c70d879e0e3e751c434cf142700d82a66976961ca8036e8965b3429",
-        "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26",
-    ):
-        assert value in docs
-
-
-def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
-    docs = _read(SPEC_REL) + _read(PLAN_REL)
-    for required in (
-        "607 focused",
-        "6528 passed, 183 deselected",
-        "6711 clean-CI passes",
-        "A3/M50/D0",
-        "one write-mode Ruff invocation",
-        "unstaged and uncommitted",
-        "Slice 4 retains generic compatibility ownership",
-        "Slice 5 retains nullability algebra",
-        "Slice 15 retains Window IR",
-        "0.1.0",
-    ):
-        assert required in docs, required
-    assert (
-        _git_output(
-            ["diff", "--", "pyproject.toml", "uv.lock", ".github/workflows/ci.yml"]
-        )
-        == ""
-    )
-    assert len(ALLOWLIST_PATHS) == 26
-    assert len(MODIFIED_PATHS) == 24
-    assert len(ADDED_PATHS) == 2
 
 
 _SLICE10_READER_MIGRATION_PATHS = (

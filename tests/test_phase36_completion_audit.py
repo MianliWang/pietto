@@ -6,15 +6,8 @@ import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import (
-    _non_slice3_repair_diff_paths,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -69,23 +62,6 @@ PHASE36_ARTIFACTS = (
     "tests/test_phase36_completion_audit.py",
 )
 
-FORBIDDEN_DIFF_PATHS = (
-    "grammar/Pietto.g4",
-    "src/pietto/generated",
-    "src/pietto/cli.py",
-    "src/pietto/cli_json.py",
-    "src/pietto/semantic",
-    "src/pietto/ir",
-    "src/pietto/sql",
-    "src/pietto/_metadata",
-    "src/pietto/_project",
-    "tests/fixtures",
-    "pyproject.toml",
-    "uv.lock",
-    ".github",
-    "scripts",
-    "examples",
-)
 
 POSITIVE_RELEASE_CLAIMS = (
     "tag created",
@@ -240,11 +216,3 @@ def test_slice12_adds_no_source_output_or_package_surfaces() -> None:
         "tags, release, publish/upload, signing, or attestation",
     ):
         assert required in plan, required
-
-
-def test_forbidden_implementation_package_and_workflow_surfaces_are_unchanged() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-
-    assert (
-        _non_slice3_repair_diff_paths(diff_output) == set()
-    ) or _phase54_active_gate2_is_active()

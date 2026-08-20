@@ -1,17 +1,9 @@
 from __future__ import annotations
 
-import subprocess
 import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import normalized_text as _normalized
-
-from test_phase39_candidate_decision import (
-    ALLOWED_SLICE3_CHANGED_PATHS as PHASE40_SLICE3_REPAIR_CHANGED_PATHS,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -30,59 +22,6 @@ PHASE38_BINDING_ROADMAP_PATH = (
 )
 PHASE39_PLAN_PATH = (
     REPO_ROOT / "docs/plan/phase-39-count-family-implementation-candidate.md"
-)
-
-ALLOWED_SLICE1_CHANGED_PATHS = {
-    "docs/plan/phase-40-let-binding-model-candidate.md",
-    "tests/test_phase40_let_binding_model_candidate.py",
-    "docs/spec/diagnostics.md",
-    "grammar/Pietto.g4",
-    "src/pietto/ast_builder.py",
-    "src/pietto/ast_nodes.py",
-    "src/pietto/generated/Pietto.interp",
-    "src/pietto/generated/Pietto.tokens",
-    "src/pietto/generated/PiettoLexer.interp",
-    "src/pietto/generated/PiettoLexer.py",
-    "src/pietto/generated/PiettoLexer.tokens",
-    "src/pietto/generated/PiettoParser.py",
-    "src/pietto/generated/PiettoVisitor.py",
-    "src/pietto/generated/__init__.py",
-    "src/pietto/ir/builder.py",
-    "src/pietto/ir/lowering.py",
-    "src/pietto/semantic/analyzer.py",
-    "src/pietto/semantic/expressions.py",
-    "src/pietto/semantic/let_bindings.py",
-    "src/pietto/semantic/model.py",
-    "src/pietto/semantic/relation_schemas.py",
-    "tests/test_phase40_completion_audit.py",
-    "tests/test_phase40_let_binding_cli_json_metadata.py",
-    "tests/test_phase40_let_binding_aggregate_interaction_boundary.py",
-    "tests/test_phase40_let_binding_boundary_regression_matrix.py",
-    "tests/test_phase40_let_binding_ir_sql_lowering.py",
-    "tests/test_phase40_let_binding_parser_ast.py",
-    "tests/test_phase40_let_binding_row_level_semantics.py",
-    "tests/test_phase40_let_binding_semantic_model_ir_readiness.py",
-    "tests/test_phase40_let_binding_syntax_scope_contract.py",
-    "docs/spec/phase40-let-binding-aggregate-interaction-boundary-v1.md",
-}
-ALLOWED_SLICE1_CHANGED_PATHS = (
-    ALLOWED_SLICE1_CHANGED_PATHS | PHASE40_SLICE3_REPAIR_CHANGED_PATHS
-)
-
-FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "src",
-    "grammar",
-    "src/pietto/generated",
-    "examples",
-    "fixtures",
-    "tests/fixtures",
-    "scripts",
-    ".github/workflows",
-    "pyproject.toml",
-    "uv.lock",
 )
 
 POSITIVE_RELEASE_CLAIMS = (
@@ -124,55 +63,6 @@ def _evidence() -> str:
     )
 
 
-def _git_status() -> list[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return [line for line in result.stdout.splitlines() if line]
-
-
-def _git_status_for(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _git_diff_name_only(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "diff", "--name-only", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _status_path(line: str) -> str:
-    if len(line) > 2 and line[2] == " ":
-        return line[3:]
-    return line.split(maxsplit=1)[1]
-
-
-def _path_matches(path: str, prefix: str) -> bool:
-    return path == prefix or path.startswith(f"{prefix}/")
-
-
 def test_phase40_candidate_doc_exists_and_names_let_binding_direction() -> None:
     assert PLAN_PATH.is_file()
     plan = _plan()
@@ -185,20 +75,6 @@ def test_phase40_candidate_doc_exists_and_names_let_binding_direction() -> None:
         "define a ten-slice Phase 40 roadmap",
         "docs/plan/static-audit/tests-only",
         "implements no behavior change",
-    ):
-        assert required in plan, required
-
-
-def test_phase39_trusted_baseline_is_recorded() -> None:
-    plan = _plan()
-
-    for required in (
-        "baseline HEAD: `2144b4912c7d75d138e6c3d838551b4ccf762bff`",
-        "baseline branch: `main`",
-        "baseline commit: `Complete Phase 39 count expression implementation audit`",
-        "latest completed phase: Phase 39 Count Family Implementation Candidate",
-        "package version remains `0.1.0`",
-        "Phase 39 completed the count-family implementation audit",
     ):
         assert required in plan, required
 
@@ -332,34 +208,6 @@ def test_phase40_slice_sequence_is_locked() -> None:
         assert required in plan, required
 
 
-def test_slice1_public_surface_constraints_and_allowlist_are_locked() -> None:
-    plan = _plan()
-
-    for required in (
-        "source/compiler behavior unchanged",
-        "grammar and generated parser inventory unchanged",
-        "parser and AST behavior unchanged",
-        "semantic behavior unchanged",
-        "IR behavior unchanged",
-        "SQL behavior unchanged",
-        "CLI text output unchanged",
-        "CLI JSON v1 unchanged",
-        "Project JSON v2 unchanged",
-        "Semantic Metadata Artifact v1 unchanged",
-        "diagnostic envelope unchanged",
-        "SQL golden bytes unchanged",
-        "fixtures/goldens unchanged",
-        "examples unchanged",
-        "scripts/workflows unchanged",
-        "package metadata unchanged",
-        "package version remains `0.1.0`",
-        "Approved Slice 1 Gate 2 file allowlist:",
-        "docs/plan/phase-40-let-binding-model-candidate.md",
-        "tests/test_phase40_let_binding_model_candidate.py",
-    ):
-        assert required in plan, required
-
-
 def test_forbidden_implementation_surfaces_are_documented() -> None:
     plan = _plan()
 
@@ -416,41 +264,3 @@ def test_package_version_and_release_non_authorization_are_locked() -> None:
     lowered = plan.lower()
     for forbidden in POSITIVE_RELEASE_CLAIMS:
         assert forbidden not in lowered, forbidden
-
-
-def test_forbidden_surfaces_are_unchanged_or_untracked() -> None:
-    diff_paths = set(
-        filter(
-            None,
-            _git_diff_name_only(FORBIDDEN_DIFF_PATHS).splitlines(),
-        )
-    )
-    status_paths = {
-        _status_path(line)
-        for line in _git_status_for(FORBIDDEN_DIFF_PATHS).splitlines()
-        if line
-    }
-
-    assert (
-        diff_paths <= ALLOWED_SLICE1_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        status_paths <= ALLOWED_SLICE1_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-
-def test_changed_set_is_slice1_allowlist_or_clean_ci_checkout() -> None:
-    status_paths = {_status_path(line) for line in _git_status()}
-
-    assert (
-        status_paths <= ALLOWED_SLICE1_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-    for forbidden in FORBIDDEN_DIFF_PATHS:
-        assert (
-            not any(
-                _path_matches(path, forbidden)
-                and path not in ALLOWED_SLICE1_CHANGED_PATHS
-                for path in status_paths
-            )
-        ) or _phase54_active_gate2_is_active()

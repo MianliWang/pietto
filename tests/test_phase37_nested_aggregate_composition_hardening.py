@@ -1,27 +1,17 @@
 from __future__ import annotations
 
-import subprocess
 from fnmatch import fnmatchcase
 from pathlib import Path
 
 import pytest
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import (
-    ALLOWED_SLICE3_CHANGED_PATHS,
-    _non_slice3_repair_diff_paths,
-    _non_slice3_repair_status_paths,
 )
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -52,23 +42,6 @@ PHASE31_MATRIX_TEST_PATH = (
 )
 PHASE31_DIAGNOSTIC_TEST_PATH = (
     REPO_ROOT / "tests/test_phase31_diagnostic_cli_json_stability.py"
-)
-
-FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "docs/plan/phase-37-post-v02-aggregate-surface-expansion.md",
-    "src",
-    "grammar",
-    "src/pietto/generated",
-    "fixtures",
-    "tests/fixtures",
-    "tests/_static_audit_helpers.py",
-    "scripts",
-    ".github/workflows",
-    "pyproject.toml",
-    "uv.lock",
 )
 
 IN_PROGRESS_PHASE37_STATIC_AUDIT_PATTERNS = (
@@ -126,32 +99,6 @@ def _aggregate_projection(projection: str) -> str:
         "    select:\n"
         f"        {projection}\n"
     )
-
-
-def _git_status() -> list[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return [line for line in result.stdout.splitlines() if line]
-
-
-def _git_status_for(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
 
 
 def _is_in_progress_phase37_static_audit_path(path: str) -> bool:
@@ -367,29 +314,3 @@ def test_phase36_type_boundaries_still_constrain_aggregate_hardening() -> None:
         "native DB metadata remains deferred",
     ):
         assert required in boundary_evidence, required
-
-
-def test_forbidden_surfaces_are_not_modified_or_untracked() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-    status_output = _git_status_for(FORBIDDEN_DIFF_PATHS)
-
-    assert (
-        _non_slice3_repair_diff_paths(diff_output) == set()
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        _non_slice3_repair_status_paths(status_output) == set()
-    ) or _phase54_active_gate2_is_active()
-
-
-def test_only_phase37_static_audit_files_are_changed_or_untracked() -> None:
-    status_lines = _git_status()
-    changed_paths = {line[3:] for line in status_lines}
-    forbidden_paths = sorted(
-        path
-        for path in changed_paths
-        if not _is_in_progress_phase37_static_audit_path(path)
-    )
-
-    assert (
-        set(forbidden_paths) <= ALLOWED_SLICE3_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()

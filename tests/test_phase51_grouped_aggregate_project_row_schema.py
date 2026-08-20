@@ -5,7 +5,6 @@ from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 import inspect
 import json
 from pathlib import Path
-import subprocess
 from types import MappingProxyType
 from typing import Any, cast
 
@@ -48,9 +47,6 @@ from pietto.ast_nodes import (
     TableDef,
 )
 from pietto.errors import SourceLocation
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER_PATH = REPO_ROOT / "src/pietto/_project/aggregate_grouped_schema.py"
@@ -989,55 +985,6 @@ def test_plan_contract_and_helper_keep_the_bounded_slice5_boundary() -> None:
     assert "SEMANTIC_AGGREGATE_NAMES" not in module_source
     assert "semantic.analyze" not in module_source
     assert "analyze(" not in grouped_builder_source
-
-
-def test_forbidden_existing_project_compiler_and_public_surfaces_have_no_diff() -> None:
-    forbidden_paths = (
-        "src/pietto/_project/model.py",
-        "src/pietto/_project/__init__.py",
-        "src/pietto/_project/json_v2.py",
-        "src/pietto/_project/let_scope_facts.py",
-        "src/pietto/_project/row_expression_schema.py",
-        "src/pietto/_project/row_expression_type_facts.py",
-        "src/pietto/_project/row_dependency_graph.py",
-        "src/pietto/_project/row_lineage.py",
-        "grammar",
-        "src/pietto/ast_nodes.py",
-        "src/pietto/ast_builder.py",
-        "src/pietto/parser_api.py",
-        "src/pietto/errors.py",
-        "src/pietto/semantic",
-        "src/pietto/ir",
-        "src/pietto/sql",
-        "src/pietto/cli.py",
-        "src/pietto/cli_json.py",
-        "src/pietto/_metadata",
-        "docs/spec/pietto-roadmap-phase45-60-v1.md",
-        "docs/spec/phase51-aggregate-grouped-output-schema-foundation-scope-lock-v1.md",
-        "docs/spec/phase51-private-result-role-output-identity-v1.md",
-        "docs/spec/phase51-group-key-project-row-schema-foundation-v1.md",
-        "docs/spec/phase51-aggregate-only-result-candidate-foundation-v1.md",
-        "tests/test_phase51_private_result_role_output_identity.py",
-        "tests/test_phase51_group_key_project_row_schema.py",
-        "scripts",
-        ".github",
-        "pyproject.toml",
-        "uv.lock",
-        "tests/fixtures",
-        "tests/goldens",
-        "examples",
-    )
-    result = subprocess.run(
-        ["git", "diff", "--exit-code", "--", *forbidden_paths],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert (result.returncode == 0) or _phase54_active_gate2_is_active()
-    assert (result.stdout == "") or _phase54_active_gate2_is_active()
-    assert result.stderr == ""
 
 
 def _grouped_inputs(

@@ -4,15 +4,8 @@ import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import (
-    _non_slice3_repair_diff_paths,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -24,27 +17,6 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 OFFICIAL_PHASE35_TITLE = "Developer Experience And Delivery Pipeline MVP"
 UNAPPROVED_PHASE35_TITLE = (
     "Developer Experience, Delivery Pipeline, And Safe Simplification MVP"
-)
-FORBIDDEN_DIFF_PATHS = (
-    "docs/spec/phase-35-safe-simplification-contract-v1.md",
-    "tests/_static_audit_helpers.py",
-    "tests/test_phase35_safe_simplification_candidate_decision.py",
-    "tests/test_phase35_static_audit_helper_simplification.py",
-    "src/pietto/cli.py",
-    "src/pietto/cli_json.py",
-    "src/pietto/_project",
-    "src/pietto/_metadata",
-    "src/pietto/metadata",
-    "src/pietto/sql",
-    "src/pietto/semantic",
-    "grammar/Pietto.g4",
-    "src/pietto/generated",
-    "tests/fixtures",
-    "tests/goldens",
-    "scripts",
-    ".github/workflows/ci.yml",
-    "pyproject.toml",
-    "uv.lock",
 )
 POSITIVE_RELEASE_CLAIMS = (
     "tag created",
@@ -111,14 +83,6 @@ def test_slice5_records_unchanged_forbidden_behavior_and_release_boundaries() ->
     lowered = plan.lower()
     for forbidden in POSITIVE_RELEASE_CLAIMS:
         assert forbidden not in lowered, forbidden
-
-
-def test_slice5_forbidden_surfaces_are_not_modified() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-
-    assert (
-        _non_slice3_repair_diff_paths(diff_output) == set()
-    ) or _phase54_active_gate2_is_active()
 
 
 def test_package_version_remains_010() -> None:

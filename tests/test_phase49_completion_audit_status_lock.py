@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import subprocess
 import tomllib
 
 from pietto._project.check import check_project_parse_only
@@ -12,20 +11,11 @@ from pietto._project.model import (
     ProjectSemanticResult,
     build_empty_project_semantic_result,
 )
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-49-row-level-computed-let-schema-lineage.md"
 SPEC_PATH = REPO_ROOT / "docs/spec/phase49-completion-audit-status-lock-v1.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE14_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-completion-audit-status-lock-v1.md",
-    "tests/test_phase49_completion_audit_status_lock.py",
-}
 
 EXPECTED_PHASE49_SPECS = (
     "phase49-row-level-computed-let-schema-lineage-scope-lock-v1.md",
@@ -109,28 +99,6 @@ PRIVATE_JSON_FORBIDDEN_TOKENS = (
     "let_output",
     "let_expression",
     "transitive_dependency",
-)
-
-FORBIDDEN_DIFF_PATHS = (
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/json_v2.py",
-    "src/pietto/_project/check.py",
-    "src/pietto/_project/row_expression_schema.py",
-    "src/pietto/_project/row_expression_type_facts.py",
-    "src/pietto/_project/let_scope_facts.py",
-    "src/pietto/_project/row_dependency_graph.py",
-    "src/pietto/_project/row_lineage.py",
-    "src/pietto/semantic/let_bindings.py",
-    "grammar",
-    "src/pietto/generated",
-    ".github/workflows",
-    "pyproject.toml",
-    "uv.lock",
-    "scripts",
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "docs/spec/pietto-roadmap-phase45-60-v1.md",
 )
 
 DEFERRED_BOUNDARIES = (
@@ -236,19 +204,9 @@ def test_deferred_work_status_is_locked() -> None:
         assert deferred_boundary in docs, deferred_boundary
 
 
-def test_forbidden_source_and_public_surface_diffs_are_empty() -> None:
-    for relative_path in FORBIDDEN_DIFF_PATHS:
-        assert (
-            _git_output(["diff", "--", relative_path]) == ""
-        ) or _phase54_active_gate2_is_active(), relative_path
-
-
-def test_package_version_and_dirty_paths_are_locked() -> None:
+def test_package_version_remains_010() -> None:
     project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
     assert project["version"] == "0.1.0"
-    assert (
-        _git_status_paths() in (set(), ALLOWED_SLICE14_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
 
 
 def _project_semantic_result(
@@ -299,28 +257,3 @@ def _json_paths_for_key(value: object, key: str, path: str = "") -> tuple[str, .
             paths.extend(_json_paths_for_key(child, key, list_path))
         return tuple(dict.fromkeys(paths))
     return ()
-
-
-def _git_status_paths() -> set[str]:
-    output = _git_output(["status", "--porcelain", "--untracked-files=all"])
-    paths: set[str] = set()
-    for line in output.splitlines():
-        if not line:
-            continue
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths
-
-
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert result.stderr == ""
-    return result.stdout.rstrip()

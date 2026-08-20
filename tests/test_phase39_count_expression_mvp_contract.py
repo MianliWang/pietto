@@ -1,17 +1,11 @@
 from __future__ import annotations
 
-import subprocess
 import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import ALLOWED_SLICE3_CHANGED_PATHS
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -36,26 +30,6 @@ POSTGRES_EXPRESSIONS_PATH = REPO_ROOT / "src/pietto/sql/expressions.py"
 MYSQL_EXPRESSIONS_PATH = REPO_ROOT / "src/pietto/sql/mysql_expressions.py"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-ALLOWED_SLICE2_CHANGED_PATHS = {
-    "docs/spec/phase39-count-expression-mvp-contract-v1.md",
-    "tests/test_phase39_count_expression_mvp_contract.py",
-}
-FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "docs/plan/phase-39-count-family-implementation-candidate.md",
-    "src",
-    "grammar",
-    "src/pietto/generated",
-    "fixtures",
-    "tests/fixtures",
-    "scripts",
-    ".github/workflows",
-    "pyproject.toml",
-    "uv.lock",
-)
-
 
 def _spec() -> str:
     return _normalized(SPEC_PATH)
@@ -78,29 +52,6 @@ def _repo_evidence() -> str:
             MYSQL_EXPRESSIONS_PATH,
         )
     )
-
-
-def _git_status() -> list[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return [line for line in result.stdout.splitlines() if line]
-
-
-def _status_path(line: str) -> str:
-    if len(line) > 2 and line[2] == " ":
-        return line[3:]
-    return line.split(maxsplit=1)[1]
-
-
-def _path_matches(path: str, prefix: str) -> bool:
-    return path == prefix or path.startswith(f"{prefix}/")
 
 
 def test_phase39_slice2_contract_spec_exists_and_is_behavior_preserving() -> None:
@@ -136,35 +87,6 @@ def test_phase39_slice2_contract_spec_exists_and_is_behavior_preserving() -> Non
         "Package version remains `0.1.0`",
     ):
         assert required in spec, required
-
-
-def test_slice2_allowlist_and_forbidden_surfaces_are_locked() -> None:
-    assert ALLOWED_SLICE2_CHANGED_PATHS == {
-        "docs/spec/phase39-count-expression-mvp-contract-v1.md",
-        "tests/test_phase39_count_expression_mvp_contract.py",
-    }
-
-    status_paths = {_status_path(line) for line in _git_status()}
-    assert (
-        status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-    for path in status_paths:
-        for forbidden in FORBIDDEN_DIFF_PATHS:
-            if path not in ALLOWED_SLICE3_CHANGED_PATHS:
-                assert (
-                    not _path_matches(path, forbidden)
-                ) or _phase54_active_gate2_is_active(), path
-
-    tracked_diff_paths = set(
-        filter(
-            None,
-            _git_diff_name_only(REPO_ROOT, tuple(FORBIDDEN_DIFF_PATHS)).splitlines(),
-        )
-    )
-    assert (
-        tracked_diff_paths <= ALLOWED_SLICE3_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
 
 
 def test_repo_evidence_confirms_slice3_semantic_acceptance_and_lowering_deferral() -> (

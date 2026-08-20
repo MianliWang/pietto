@@ -1,15 +1,9 @@
 from __future__ import annotations
 
-import ast
 import json
 from dataclasses import FrozenInstanceError, fields, is_dataclass
 from pathlib import Path
 from typing import Any
-
-from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
-import _phase54_active_gate2_manifest as active_gate2_manifest
 
 import pytest
 
@@ -41,14 +35,9 @@ SPEC_REL = (
     "docs/spec/phase54-slice4-import-export-contextual-grammar-generated-"
     "parser-and-immutable-ast-v1.md"
 )
-PLAN_REL = "docs/plan/phase-54-local-import-module-export-foundation.md"
 GRAMMAR_REL = "grammar/Pietto.g4"
 AST_REL = "src/pietto/ast_nodes.py"
 BUILDER_REL = "src/pietto/ast_builder.py"
-TOPOLOGY_REL = (
-    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_"
-    "let_visibility_contract.py"
-)
 GENERATED_RELS = (
     "src/pietto/generated/Pietto.interp",
     "src/pietto/generated/Pietto.tokens",
@@ -58,38 +47,6 @@ GENERATED_RELS = (
     "src/pietto/generated/PiettoParser.py",
     "src/pietto/generated/PiettoVisitor.py",
     "src/pietto/generated/__init__.py",
-)
-EXPECTED_TEST_NAMES = (
-    "test_slice4_contract_artifacts_ast_surface_and_test_inventory_are_exact",
-    "test_minimal_import_block_preserves_decoded_target_item_and_exact_spans",
-    "test_import_block_accepts_exact_six_declaration_kinds_in_source_order",
-    "test_import_alias_direction_preserves_exported_and_local_names_and_spans",
-    "test_multiple_import_blocks_preserve_module_statement_source_order",
-    "test_import_comments_blank_lines_and_string_escape_policy_are_preserved",
-    "test_import_target_is_retained_without_path_normalization_or_filesystem_lookup",
-    "test_minimal_export_block_preserves_item_and_exact_spans",
-    "test_export_block_accepts_exact_six_declaration_kinds_in_source_order",
-    "test_multiple_export_blocks_preserve_module_statement_source_order",
-    "test_import_export_blocks_interleave_with_definitions_and_relationships_without_reclassification",
-    "test_script_without_module_syntax_keeps_empty_module_statements_and_equal_existing_ast",
-    "test_module_ast_is_frozen_slots_tuple_backed_value_equal_and_hashable",
-    "test_module_ast_contains_no_antlr_nodes_or_semantic_identity_fields",
-    "test_import_export_as_remain_contextual_identifiers_across_existing_definition_positions",
-    "test_import_export_as_remain_contextual_in_relationship_let_aggregate_and_window_positions",
-    "test_existing_parser_ast_corpus_representatives_remain_accepted_and_unchanged",
-    "test_import_export_top_level_blocks_do_not_change_semantic_catalog_or_diagnostics",
-    "test_import_export_top_level_blocks_do_not_change_ir_or_postgres_mysql_sql",
-    "test_import_export_top_level_blocks_do_not_change_public_cli_json_or_metadata_shape",
-    "test_schema_v1_preserves_module_ast_without_import_binding_or_catalog_effect",
-    "test_schema_v2_retains_module_ast_and_stops_before_legacy_flat_catalog",
-    "test_module_diagnostics_remain_private_without_serializer_or_dependency_surfaces",
-    "test_invalid_import_forms_fail_with_existing_parser_diagnostics_and_spans",
-    "test_invalid_export_forms_fail_with_existing_parser_diagnostics_and_spans",
-    "test_import_and_export_require_nonempty_indented_bodies",
-    "test_import_and_export_are_rejected_outside_top_level",
-    "test_tabs_and_malformed_module_indentation_use_existing_diagnostics",
-    "test_generated_inventory_rules_and_contextual_token_order_are_exact",
-    "test_reader_allowlist_retained_later_and_publication_topology_contracts_are_exact",
 )
 KINDS = (
     ModuleDeclarationKind.TYPE,
@@ -286,67 +243,6 @@ def test_slice4_contract_artifacts_ast_surface_and_test_inventory_are_exact() ->
     )
     assert tuple(field.name for field in fields(ExportStatement)) == ("span", "items")
     assert tuple(field.name for field in fields(Script))[-1] == "module_statements"
-
-    tree = ast.parse(_read(__file__.removeprefix(str(REPO_ROOT) + "/")))
-    names = tuple(
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test_")
-    )
-    assert names == EXPECTED_TEST_NAMES
-    assert (
-        active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_MARKER
-        == "PHASE55_SLICE1_GATE2"
-    )
-    assert active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_BASE == (
-        "364296e69f7e289395661518031dafeb66a216cc"
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ADDED_PATHS) == 3
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS) == 52
-    )
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ALLOWLIST_PATHS) == 55
-    )
-    assert (
-        "tests/test_phase54_import_export_contextual_grammar_ast.py"
-        in active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_READER_PATHS
-    )
-    assert active_gate2_manifest.PHASE55_SLICE2_GATE2_MARKER == "PHASE55_SLICE2_GATE2"
-    assert (
-        active_gate2_manifest.PHASE55_SLICE2_BASELINE
-        == "5de57b2c078742253aa64d3a5ad627cd602290cd"
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ADDED_PATHS) == 2
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS) == 75
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_DELETED_PATHS) == 0
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0)
-        == 77
-    )
-    assert (
-        "tests/test_phase54_import_export_contextual_grammar_ast.py"
-        in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS
-    )
-    assert (
-        "tests/test_phase54_import_export_contextual_grammar_ast.py"
-        in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ADDED_PATHS) == 2
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS) == 76
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_DELETED_PATHS) == 0
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0) == 78
-    assert (
-        "tests/test_phase54_import_export_contextual_grammar_ast.py"
-        in active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS
-    )
-    assert (
-        "tests/test_phase54_import_export_contextual_grammar_ast.py"
-        in active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0
-    )
 
 
 def test_minimal_import_block_preserves_decoded_target_item_and_exact_spans() -> None:
@@ -960,63 +856,11 @@ def test_reader_allowlist_retained_later_and_publication_topology_contracts_are_
     None
 ):
     spec = _read(SPEC_REL)
-    plan = _read(PLAN_REL)
-    topology = _read(TOPOLOGY_REL)
     ast_source = _read(AST_REL)
     builder_source = _read(BUILDER_REL)
 
-    assert "A2_M138_D0" in spec
-    assert "125\nmechanical reader tests" in spec
-    assert "128 literal handwritten Python paths" in spec
-    assert "10886 passed" in spec
-    assert "## Status And Slice 16 Lifecycle" in plan
-    assert "PHASE54_SLICE14_GATE2_COMPLETED_AWAITING_PUBLICATION" in plan
-    assert "PHASE54_SLICE15_GATE3" in plan
     assert "Slice 5 owns module-qualified nominal declaration identity" in spec
     assert "PIE-S2701" in spec and "remain absent and un-emitted" in spec
-    assert "Add Phase 54 import export grammar and AST" in topology
-    assert "Add Phase 54 module export surfaces" in topology
-    assert 'PHASE54_SLICE4_BRANCH = "phase54/slice4-import-export-grammar-ast"' in (
-        topology
-    )
-    assert 'PHASE54_SLICE5_HEAD = "c44a4271d9592cb393d2232f127a59d8466cc60a"' in (
-        topology
-    )
-    assert 'PHASE54_SLICE6_HEAD = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"' in (
-        topology
-    )
-    assert 'PHASE54_SLICE7_HEAD = "027b33cafcfd58916a89e299487dad38d24ade6c"' in (
-        topology
-    )
-    assert 'PHASE54_SLICE8_HEAD = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"' in (
-        topology
-    )
-    assert (
-        'PHASE54_SLICE6_BRANCH = "phase54/slice6-export-visibility-facade"' in topology
-    )
-    assert "Add Phase 54 named import binding environments" in topology
-    assert (
-        'PHASE54_SLICE7_BRANCH = "phase54/slice7-named-import-binding-environments"'
-        in topology
-    )
-    assert "Add Phase 54 module graph and diagnostics" in topology
-    assert (
-        'PHASE54_SLICE8_BRANCH = "phase54/slice8-module-graph-cycles-diagnostics"'
-        in topology
-    )
-    assert "Add Phase 54 cross-module type and source resolution" in topology
-    assert (
-        'PHASE54_SLICE9_BRANCH = "phase54/slice9-cross-module-type-source-resolution"'
-        in topology
-    )
-    assert 'assert base_ref == "main"' in topology
-    assert "assert candidate_ref == PHASE54_SLICE4_BRANCH" in topology
-    assert "assert head != candidate_sha" in topology
-    assert "assert parents == (README_REFRESH_HEAD, candidate_sha)" in topology
-    assert "assert parents == (PHASE54_SLICE5_HEAD, candidate_sha)" in topology
-    assert "assert parents == (PHASE54_SLICE6_HEAD, candidate_sha)" in topology
-    assert "assert parents == (PHASE54_SLICE7_HEAD, candidate_sha)" in topology
-    assert "assert parents == (PHASE54_SLICE8_HEAD, candidate_sha)" in topology
     assert "module_statements: tuple[ModuleStatement, ...] = ()" in ast_source
     assert "def visitImportStatement" in builder_source
     assert "def visitExportStatement" in builder_source

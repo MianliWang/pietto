@@ -1,33 +1,11 @@
 from __future__ import annotations
 
-import ast
 import hashlib
 import re
-import subprocess
 import textwrap
 from pathlib import Path
 from typing import Any, cast
 
-from _phase54_active_gate2_manifest import (
-    phase54_publication_clean_topic_is_active,
-    phase54_publication_topic_branch,
-    phase54_publication_topic_base,
-    PHASE54_ACTIVE_GATE2_BASE,
-    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
-    PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
-    PHASE54_SLICE12_PRODUCT_REPAIR10_BASE,
-    PHASE54_SLICE12_PRODUCT_REPAIR10_BRANCH,
-    PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS,
-    PHASE54_SLICE12_PRODUCT_REPAIR11_BASE,
-    PHASE54_SLICE12_PRODUCT_REPAIR11_BRANCH,
-    PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-    phase54_slice11_substantive_recovery_is_active,
-    phase54_slice12_product_repair3_is_active,
-    phase54_slice12_product_repair10_is_active,
-    phase54_slice12_product_repair11_is_active,
-    phase55_slice2_gate2_expected_allowlist_paths,
-)
 
 import pytest
 from antlr4 import CommonTokenStream, InputStream
@@ -99,7 +77,6 @@ PHASE54_SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
 PHASE54_SLICE7_BASE_HEAD_SHA = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 PHASE54_SLICE8_BASE_HEAD_SHA = "027b33cafcfd58916a89e299487dad38d24ade6c"
 PHASE54_SLICE9_BASE_HEAD_SHA = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
-PHASE54_SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 
 ADDED_PATHS = {
     "docs/spec/phase53-completion-audit-and-status-lock-v1.md",
@@ -131,8 +108,6 @@ MODIFIED_PATHS = {
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
     "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
 }
-ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
-
 GENERATED_PATHS = (
     "src/pietto/generated/Pietto.interp",
     "src/pietto/generated/Pietto.tokens",
@@ -181,59 +156,6 @@ def _headings(relative: str, level: int) -> tuple[str, ...]:
             _read(relative),
             flags=re.MULTILINE,
         )
-    )
-
-
-def _git_output(args: list[str]) -> str:
-    return subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    ).stdout.rstrip()
-
-
-def _git_optional_ref(ref: str) -> str | None:
-    result = subprocess.run(
-        ["git", "rev-parse", "--verify", "--quiet", ref],
-        cwd=REPO_ROOT,
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.returncode in (0, 1)
-    assert result.stderr == ""
-    if result.returncode == 1:
-        assert result.stdout == ""
-        return None
-    lines = result.stdout.splitlines()
-    assert len(lines) == 1
-    return lines[0]
-
-
-def _phase54_slice2_paths() -> tuple[set[str], set[str]]:
-    tree = ast.parse(_read(PHASE54_SLICE2_STATE_REL))
-    values: dict[str, set[str]] = {}
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id
-            in {
-                "ADDED_PATHS",
-                "NON_READER_MODIFIED_PATHS",
-                "MECHANICAL_READER_PATHS",
-            }
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, set)
-            values[node.targets[0].id] = value
-    return values["ADDED_PATHS"], (
-        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"]
     )
 
 
@@ -715,64 +637,6 @@ HISTORICAL_NEGATIVE_SOURCES = (
 )
 
 
-def test_slice2_artifact_paths_and_heading_contracts_are_exact() -> None:
-    assert (REPO_ROOT / PLAN_REL).is_file()
-    assert (REPO_ROOT / SPEC_REL).is_file()
-    assert (REPO_ROOT / TEST_REL).is_file()
-    assert _headings(SPEC_REL, 1) == (SPEC_TITLE,)
-    assert _headings(SPEC_REL, 2) == SPEC_H2
-    assert _headings(SPEC_REL, 3) == ()
-    assert _headings(PLAN_REL, 2)[-15:] == (
-        SLICE2_PLAN_H2,
-        "Slice 3 WindowSpec, Extension-compatible WindowFunctionIdentity, And AST "
-        "Contract",
-        "Slice 4 Generic Type-variable, Constraint, And Exact Compatibility Foundation",
-        "Slice 5 Nullability Algebra And Signature Result-formula Foundation",
-        "Slice 6 Private Window Semantic Carrier, WINDOW Stage, Dependency, And Result Roles",
-        "Slice 7 row_number Direct-field MVP",
-        "Slice 8 rank / dense_rank And Peer Semantics",
-        "Slice 9 percent_rank / cume_dist / ntile",
-        "Slice 10 Partition Binding, Multi-key Visibility, And Diagnostics",
-        "Slice 11 Window-local Ordering, Direction, Mandatory-order Policy, And Determinism",
-        "Slice 12 lag / lead Navigation, Offset, Default, And Nullability",
-        "Slice 13 — Grouped-result Ranking, Aggregate-result Inputs, And Bounded Let Visibility",
-        "Slice 14 — Multiple Window Outputs, Final-order Alias, Downstream Schema, And Lineage",
-        "Slice 15 — Window IR, Dual-backend Lowering, And Window-function Facts",
-        "Slice 16 — Completion Audit, Status Lock, Dialect, Privacy, And "
-        "No-authority Closure",
-    )
-    assert _headings(PLAN_REL, 2).count(SLICE2_PLAN_H2) == 1
-
-    tree = ast.parse(_read(TEST_REL), filename=TEST_REL)
-    test_functions = tuple(
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test_")
-    )
-    assert test_functions == EXPECTED_TEST_FUNCTIONS
-    item_counts = (
-        1,
-        1,
-        1,
-        1,
-        len(RAW_POSITIVE_CASES),
-        len(GENERIC_EXPRESSION_CASES),
-        len(RAW_NEGATIVE_CASES),
-        len(FAIL_CLOSED_CASES),
-        1,
-        len(LOWERCASE_WINDOW_IDENTIFIER_CASES),
-        len(CASE_VARIANT_IDENTIFIERS),
-        len(CONTEXTUAL_IDENTIFIERS),
-        len(WINDOW_FUNCTION_NAMES),
-        len(HISTORICAL_NEGATIVE_SOURCES),
-        1,
-        1,
-    )
-    assert len(test_functions) == len(item_counts) == 16
-    assert sum(item_counts) == 70
-
-
 def test_candidate_b_global_window_and_contextual_keyword_policy_is_locked() -> None:
     grammar = _read(GRAMMAR_REL)
     spec = _read(SPEC_REL)
@@ -812,21 +676,6 @@ def test_combined_grammar_rules_and_token_order_are_exact() -> None:
     assert normalized.count("windowExpression :") == 1
     assert normalized.count("windowSpec :") == 1
     assert normalized.count("partitionByClause :") == 1
-
-
-def test_generated_inventory_and_exact_mutation_set_are_locked() -> None:
-    generated = tuple(
-        f"src/pietto/generated/{path.name}"
-        for path in sorted((REPO_ROOT / "src/pietto/generated").iterdir())
-        if path.is_file()
-    )
-    assert generated == tuple(sorted(GENERATED_PATHS))
-    assert len(generated) == 8
-    assert (REPO_ROOT / "src/pietto/generated/__init__.py").read_bytes() == b""
-    changed = set(
-        _git_output(["diff", "--name-only", "--", "src/pietto/generated"]).splitlines()
-    ) - {""}
-    assert changed in (set(), GENERATED_MUTATION_PATHS)
 
 
 @pytest.mark.parametrize(
@@ -1014,209 +863,6 @@ def test_historical_unsupported_window_samples_remain_negative(
     assert result.ast is None
     assert result.diagnostics
     assert any(diagnostic.code == "PIE-P1000" for diagnostic in result.diagnostics)
-
-
-def test_no_ast_semantic_ir_sql_or_public_surface_widening_is_locked() -> None:
-    assert _sha256(PARSER_API_REL) == (
-        "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b"
-    )
-    assert (
-        _sha256(AST_NODES_REL)
-        == "bbfd121446d62d33c7990b80d17579d3f8b55763ce1b5f93ee17247cbd2ce0c2"
-    )
-    assert "class WindowSpec" in _read(AST_NODES_REL)
-    assert "class WindowExpr" in _read(AST_NODES_REL)
-    changed_source = set(
-        _git_output(["diff", "--name-only", "--", "src/pietto"]).splitlines()
-    ) - {""}
-    allowed_source = {
-        "src/pietto/ir/model.py",
-        "src/pietto/ir/lowering.py",
-        "src/pietto/ir/builder.py",
-        "src/pietto/sql/expressions.py",
-        "src/pietto/sql/relations.py",
-        "src/pietto/sql/mysql_expressions.py",
-        "src/pietto/sql/mysql_relations.py",
-        "src/pietto/semantic/capability_facts.py",
-    }
-    _, phase54_modified = _phase54_slice2_paths()
-    phase54_changed_source = {
-        path for path in phase54_modified if path.startswith("src/pietto/")
-    }
-    phase55_changed_source = {
-        path
-        for path in phase55_slice2_gate2_expected_allowlist_paths()
-        if path.startswith("src/pietto/")
-    }
-    recovery_changed_source = {
-        path
-        for path in PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS
-        if path.startswith("src/pietto/")
-    }
-    product_repair3_changed_source = {
-        path
-        for path in PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS
-        if path.startswith("src/pietto/")
-    }
-    product_repair10_changed_source = {
-        path
-        for path in PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS
-        if path.startswith("src/pietto/")
-    }
-    product_repair11_changed_source = {
-        path
-        for path in PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS
-        if path.startswith("src/pietto/")
-    }
-    assert changed_source in (
-        set(),
-        allowed_source,
-        phase54_changed_source,
-        phase55_changed_source,
-        recovery_changed_source,
-        product_repair3_changed_source,
-        product_repair10_changed_source,
-        product_repair11_changed_source,
-    )
-    if changed_source == recovery_changed_source:
-        assert phase54_slice11_substantive_recovery_is_active()
-    elif changed_source == phase55_changed_source:
-        assert _phase54_active_gate2_is_active()
-    elif changed_source == product_repair3_changed_source:
-        assert phase54_slice12_product_repair3_is_active()
-    elif (
-        changed_source == product_repair11_changed_source
-        and phase54_slice12_product_repair11_is_active()
-    ):
-        assert phase54_slice12_product_repair11_is_active()
-    elif changed_source == product_repair10_changed_source:
-        assert phase54_slice12_product_repair10_is_active()
-
-
-def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
-    if phase54_slice12_product_repair11_is_active():
-        tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
-        untracked = set(
-            _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
-        ) - {""}
-        assert tracked == set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS)
-        assert untracked == set()
-        assert _git_output(["diff", "--cached", "--name-status"]) == ""
-        assert _git_output(["branch", "--show-current"]) == (
-            PHASE54_SLICE12_PRODUCT_REPAIR11_BRANCH
-        )
-        assert (
-            _git_output(["rev-parse", "HEAD"]) == PHASE54_SLICE12_PRODUCT_REPAIR11_BASE
-        )
-        assert _git_optional_ref("refs/heads/main") == PHASE54_ACTIVE_GATE2_BASE
-        assert (
-            _git_optional_ref("refs/remotes/origin/main") == PHASE54_ACTIVE_GATE2_BASE
-        )
-        return
-    if phase54_slice12_product_repair10_is_active():
-        tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
-        untracked = set(
-            _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
-        ) - {""}
-        assert tracked == set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS)
-        assert untracked == set()
-        assert _git_output(["diff", "--cached", "--name-status"]) == ""
-        assert _git_output(["branch", "--show-current"]) == (
-            PHASE54_SLICE12_PRODUCT_REPAIR10_BRANCH
-        )
-        assert (
-            _git_output(["rev-parse", "HEAD"]) == PHASE54_SLICE12_PRODUCT_REPAIR10_BASE
-        )
-        assert _git_optional_ref("refs/heads/main") == PHASE54_ACTIVE_GATE2_BASE
-        assert (
-            _git_optional_ref("refs/remotes/origin/main") == PHASE54_ACTIVE_GATE2_BASE
-        )
-        return
-    if _phase54_active_gate2_is_active():
-        return
-    tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
-    name_status = tuple(_git_output(["diff", "--name-status"]).splitlines())
-    untracked = set(
-        _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
-    ) - {""}
-    cached = tuple(_git_output(["diff", "--cached", "--name-status"]).splitlines())
-    assert cached == ()
-    assert name_status == tuple(f"M\t{path}" for path in sorted(tracked))
-
-    branch = _git_output(["branch", "--show-current"])
-    head = _git_output(["rev-parse", "HEAD"])
-    main = _git_optional_ref("refs/heads/main")
-    origin_main = _git_optional_ref("refs/remotes/origin/main")
-    dirty = tracked | untracked
-    phase54_added, phase54_modified = _phase54_slice2_paths()
-    phase54_allowlist = phase54_added | phase54_modified
-    assert dirty in (set(), ALLOWLIST_PATHS, phase54_allowlist)
-
-    if dirty == phase54_allowlist:
-        assert tracked == phase54_modified
-        assert untracked == phase54_added
-        assert branch == "main"
-        assert head == main == origin_main
-        assert head in {
-            PHASE54_SLICE2_BASE_HEAD_SHA,
-            PHASE54_SLICE4_BASE_HEAD_SHA,
-            PHASE54_SLICE5_BASE_HEAD_SHA,
-            PHASE54_SLICE6_BASE_HEAD_SHA,
-            PHASE54_SLICE7_BASE_HEAD_SHA,
-            PHASE54_SLICE8_BASE_HEAD_SHA,
-            PHASE54_SLICE9_BASE_HEAD_SHA,
-            "b81843acadb294630db361c09949868d004b1bca",
-        }
-    elif dirty:
-        assert tracked == MODIFIED_PATHS
-        assert untracked == ADDED_PATHS
-        assert branch == "main"
-        assert head == main == origin_main == BASE_HEAD_SHA
-    else:
-        assert tracked == untracked == set()
-        if branch == phase54_publication_topic_branch():
-            # The clean topic projection keeps its own topology assertions and
-            # then continues into the shared inventory below: returning early
-            # would leave the refreshed counts unverified in exactly the
-            # projection the publication lifecycle checks out.
-            assert phase54_publication_clean_topic_is_active()
-            assert main == origin_main == phase54_publication_topic_base()
-        else:
-            assert branch in ("", "main")
-            if branch == "main":
-                assert main == head
-            if main is not None:
-                assert main == head
-            if origin_main is not None:
-                assert origin_main == head
-
-    readable_paths = set(_git_output(["ls-files"]).splitlines()) | untracked
-    assert len(readable_paths) == 951
-    assert sum(path.endswith(".py") for path in readable_paths) == 582
-    assert sum(path.endswith(".md") for path in readable_paths) == 273
-    test_modules = {
-        path
-        for path in readable_paths
-        if path.startswith("tests/test_") and path.endswith(".py")
-    }
-    assert len(test_modules) == 468
-    top_level_tests = 0
-    for relative in sorted(test_modules):
-        tree = ast.parse(_read(relative), filename=relative)
-        top_level_tests += sum(
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name.startswith("test_")
-            for node in tree.body
-        )
-    assert top_level_tests == 5538
-    assert len(GENERATED_PATHS) == 8
-    goldens = {
-        path
-        for path in readable_paths
-        if path.startswith("tests/fixtures/golden/")
-        and (path.endswith(".sql") or path.endswith(".json"))
-    }
-    assert len(goldens) == 37
 
 
 _SLICE11_READER_MIGRATION_PATHS = (

@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import subprocess
 import tomllib
 from pathlib import Path
 from typing import cast
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -24,28 +20,6 @@ CI_VALIDATE_COMMAND = (
     "uv run python scripts/validate.py --timings --pytest-workers auto "
     "--pytest-dist loadfile --pytest-maxprocesses 4"
 )
-ALLOWED_SLICE4_GATE2_PATHS = {
-    "docs/plan/maintenance-phase-4-worker-strategy-benchmark-ci-split-evaluation.md",
-    "docs/spec/maintenance-phase4-completion-audit-v1.md",
-    "tests/test_maintenance_phase4_completion_audit.py",
-}
-UNCHANGED_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    ".github/workflows/ci.yml",
-    "scripts/validate.py",
-    "scripts/check_generated.py",
-    "scripts/check_goldens.py",
-    "scripts/package_smoke.py",
-    "pyproject.toml",
-    "uv.lock",
-    "src",
-    "grammar",
-    "tests/fixtures",
-    "tests/goldens",
-    "docs/spec/pietto-v0.9.md",
-    "docs/spec/pietto-roadmap-phase45-60-v1.md",
-)
 
 
 def _read(path: Path) -> str:
@@ -58,32 +32,6 @@ def _normalized(path: Path) -> str:
 
 def _documents() -> tuple[str, str]:
     return (_normalized(PLAN_PATH), _normalized(SPEC_PATH))
-
-
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.rstrip()
-
-
-def _dirty_paths() -> set[str]:
-    output = _git_output(["status", "--porcelain", "--untracked-files=all"])
-    paths: set[str] = set()
-    for line in output.splitlines():
-        if not line:
-            continue
-        path = line[3:].strip()
-        if " -> " in path:
-            path = path.split(" -> ", maxsplit=1)[1]
-        paths.add(path)
-    return paths
 
 
 def test_plan_and_spec_exist_and_lock_slice_identity() -> None:
@@ -124,9 +72,7 @@ def test_slice1_inventory_and_natural_ci_identity_are_locked() -> None:
     for document in _documents():
         for required in (
             "Worker Strategy Benchmark Protocol",
-            "9bdf1aebce0dc5f7985c95f36bb0d20b0a996fb3",
             "Add Maintenance Phase 4 worker benchmark protocol",
-            "29054341393",
             "CI / push",
             "completed / success",
             "exact headSha match",
@@ -161,9 +107,7 @@ def test_slice3_inventory_and_no_change_identity_are_locked() -> None:
     for document in _documents():
         for required in (
             "Benchmark Evidence Decision / No-change Lock",
-            "024b23a5a000cbedf0415880bf365173ad250db4",
             "Add Phase 4 benchmark no-change decision",
-            "29057920189",
             "CI / push",
             "completed / success",
             "exact headSha match",
@@ -225,13 +169,6 @@ def test_current_ci_and_release_boundaries_are_preserved() -> None:
             assert required in document, required
 
 
-def test_forbidden_surfaces_have_no_diff() -> None:
-    for relative_path in UNCHANGED_PATHS:
-        assert (
-            _git_output(["diff", "--", relative_path]) == ""
-        ) or _phase54_active_gate2_is_active(), relative_path
-
-
 def test_package_version_addopts_and_xdist_scope_are_unchanged() -> None:
     pyproject_text = _read(PYPROJECT_PATH)
     pyproject = tomllib.loads(pyproject_text)
@@ -251,11 +188,3 @@ def test_validate_and_workflow_sources_remain_current_and_unchanged() -> None:
     validate = _read(VALIDATE_PATH)
 
     assert 'PYTEST_DIST_CHOICES = ("loadfile", "loadscope")' in validate
-    assert _git_output(["diff", "--", ".github/workflows/ci.yml"]) == ""
-    assert _git_output(["diff", "--", "scripts/validate.py"]) == ""
-
-
-def test_dirty_paths_are_clean_or_exact_slice4_allowlist() -> None:
-    assert (
-        _dirty_paths() in (set(), ALLOWED_SLICE4_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()

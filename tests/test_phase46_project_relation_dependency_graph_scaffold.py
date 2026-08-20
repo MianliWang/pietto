@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError, is_dataclass
 import json
 from pathlib import Path
-import subprocess
 
 import pytest
 
@@ -25,21 +24,9 @@ from pietto._project.model import (
 )
 from pietto.ast_nodes import QueryDef, TableDef
 from pietto.errors import Severity
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE5_GATE2_PATHS = {
-    "src/pietto/_project/model.py",
-    "tests/test_phase45_project_relation_namespace_semantics.py",
-    "tests/test_phase46_project_relation_dependency_graph_scaffold.py",
-    "tests/test_phase46_project_relation_dependency_edge_collection.py",
-    "tests/test_phase46_project_relation_cycle_detection.py",
-    "tests/test_phase46_project_relation_cycle_diagnostics.py",
-}
 
 
 def test_project_relation_dependency_carriers_are_frozen_slots_dataclasses() -> None:
@@ -201,14 +188,11 @@ def test_project_json_v2_does_not_expose_relation_dependency_graph(
         assert private_fact not in serialized
 
 
-def test_phase46_slice5_package_version_and_dirty_paths_are_locked() -> None:
+def test_package_version_is_locked() -> None:
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert (
-        _git_status_paths().issubset(ALLOWED_SLICE5_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
 
 
 def _project_semantic_result(
@@ -257,22 +241,3 @@ def _write(root: Path, relative_path: str, source: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
     return path
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths

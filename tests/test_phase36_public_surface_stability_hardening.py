@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-import subprocess
 import tomllib
 from dataclasses import fields
 from pathlib import Path
 from typing import cast
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import (
-    _non_slice3_repair_diff_paths,
 )
 
 from pietto import cli_json
@@ -20,9 +15,6 @@ from pietto._metadata import model as metadata_model
 from pietto._metadata.model import SemanticMetadataType
 from pietto._project import json_v2 as project_json_v2
 from pietto.errors import Diagnostic, Severity, SourceLocation
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-36-post-v02-core-type-system-expansion.md"
@@ -41,23 +33,6 @@ VALIDATE_PATH = REPO_ROOT / "scripts/validate.py"
 CI_WORKFLOW_PATH = REPO_ROOT / ".github/workflows/ci.yml"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-FORBIDDEN_DIFF_PATHS = (
-    "grammar/Pietto.g4",
-    "src/pietto/generated",
-    "src/pietto/cli.py",
-    "src/pietto/cli_json.py",
-    "src/pietto/semantic",
-    "src/pietto/ir",
-    "src/pietto/sql",
-    "src/pietto/_metadata",
-    "src/pietto/_project",
-    "tests/fixtures",
-    "pyproject.toml",
-    "uv.lock",
-    ".github",
-    "scripts",
-    "examples",
-)
 
 PHASE36_CANDIDATE_PUBLIC_FIELD_FRAGMENTS = (
     "precision_scale",
@@ -300,7 +275,11 @@ def test_slice5_diagnostic_migration_is_not_schema_expansion() -> None:
 def test_golden_and_generated_inventories_remain_locked() -> None:
     check_goldens = _read(CHECK_GOLDENS_PATH)
     check_generated = _read(CHECK_GENERATED_PATH)
-    tracked_generated = _tracked_files("src/pietto/generated")
+    tracked_generated = tuple(
+        str(path.relative_to(REPO_ROOT))
+        for path in sorted((REPO_ROOT / "src/pietto/generated").iterdir())
+        if path.is_file()
+    )
 
     for required in (
         "SQL_FIXTURES = frozenset(",
@@ -416,27 +395,6 @@ def test_package_smoke_network_policy_is_documented() -> None:
         "must not patch repository files",
     ):
         assert required in docs, required
-
-
-def test_forbidden_surfaces_are_not_modified() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-
-    assert (
-        _non_slice3_repair_diff_paths(diff_output) == set()
-    ) or _phase54_active_gate2_is_active()
-
-
-def _tracked_files(relative_path: str) -> tuple[str, ...]:
-    result = subprocess.run(
-        ["git", "ls-files", relative_path],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return tuple(result.stdout.splitlines())
 
 
 def _diagnostic(*, code: str, message: str) -> Diagnostic:

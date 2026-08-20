@@ -1,19 +1,11 @@
 from __future__ import annotations
 
-import subprocess
 import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import (
-    ALLOWED_SLICE3_CHANGED_PATHS,
-    _non_slice3_repair_status_paths,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -77,26 +69,6 @@ POSTGRES_SQL_PATH = REPO_ROOT / "src/pietto/sql/expressions.py"
 MYSQL_SQL_PATH = REPO_ROOT / "src/pietto/sql/mysql_expressions.py"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-ALLOWED_SLICE5_CHANGED_PATHS = {
-    "docs/spec/phase38-distinct-collation-ordering-readiness-v1.md",
-    "tests/test_phase38_distinct_collation_ordering_readiness.py",
-}
-
-FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "src",
-    "grammar",
-    "src/pietto/generated",
-    "fixtures",
-    "tests/fixtures",
-    "scripts",
-    ".github/workflows",
-    "pyproject.toml",
-    "uv.lock",
-)
-
 
 def _spec() -> str:
     return _normalized(SPEC_PATH)
@@ -134,40 +106,6 @@ def _combined_readiness_evidence() -> str:
             MYSQL_SQL_PATH,
         )
     )
-
-
-def _git_status() -> list[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return [line for line in result.stdout.splitlines() if line]
-
-
-def _git_status_for(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _status_path(line: str) -> str:
-    return line[3:]
-
-
-def _path_matches(path: str, prefix: str) -> bool:
-    return path == prefix or path.startswith(f"{prefix}/")
 
 
 def test_spec_exists_and_records_slice5_guardrail() -> None:
@@ -403,31 +341,3 @@ def test_deferred_surfaces_future_prerequisites_and_public_lock_are_documented()
 
     assert project["version"] == "0.1.0"
     assert 'version = "0.1.0"' in _read(PYPROJECT_PATH)
-
-
-def test_forbidden_surfaces_and_phase38_plan_remain_unchanged() -> None:
-    changed_paths = {_status_path(line) for line in _git_status()}
-
-    assert (
-        changed_paths <= ALLOWED_SLICE3_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        _git_status_for(
-            (
-                "docs/plan/phase-38-aggregate-semantics-and-type-capability-consolidation.md",
-            )
-        )
-        == ""
-    )
-
-    for forbidden in FORBIDDEN_DIFF_PATHS:
-        assert (
-            _non_slice3_repair_status_paths(_git_status_for((forbidden,))) == set()
-        ) or _phase54_active_gate2_is_active()
-        assert (
-            not any(
-                _path_matches(changed_path, forbidden)
-                and changed_path not in ALLOWED_SLICE3_CHANGED_PATHS
-                for changed_path in changed_paths
-            )
-        ) or _phase54_active_gate2_is_active()

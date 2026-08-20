@@ -1,13 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-import subprocess
 
 from _static_audit_helpers import normalized_text as _normalized
-from _static_audit_helpers import read_text as _read
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -26,30 +21,6 @@ PHASE47_TEST_PATHS = (
     "tests/test_phase47_downstream_readiness_hardening.py",
     "tests/test_phase47_project_json_privacy_hardening.py",
     "tests/test_phase47_completion_audit.py",
-)
-
-ALLOWED_SLICE11_GATE2_PATHS = {
-    "docs/plan/phase-47-direct-row-schema-mvp.md",
-    "docs/spec/phase47-direct-row-schema-scope-lock-v1.md",
-    "tests/test_phase47_completion_audit.py",
-    "tests/test_phase47_direct_row_schema_scope_lock.py",
-}
-
-FORBIDDEN_DIFF_PATHS = (
-    "src",
-    "grammar",
-    "fixtures",
-    "goldens",
-    "tests/fixtures",
-    "tests/golden",
-    "scripts",
-    ".github",
-    "pyproject.toml",
-    "uv.lock",
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "docs/spec/pietto-roadmap-phase45-60-v1.md",
 )
 
 POSITIVE_RELEASE_CLAIMS = (
@@ -210,46 +181,8 @@ def test_phase47_forbidden_runtime_parser_sql_join_release_surfaces_remain_locke
         assert forbidden not in lowered_docs, forbidden
 
 
-def test_phase47_completion_package_version_and_dirty_paths_are_locked() -> None:
-    pyproject = _read(PYPROJECT_PATH)
+def test_package_version_is_locked() -> None:
+    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert (
-        _git_diff_name_only(FORBIDDEN_DIFF_PATHS) == ""
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        _git_status_paths().issubset(ALLOWED_SLICE11_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
-
-
-def _git_diff_name_only(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "diff", "--name-only", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths

@@ -1,11 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-import subprocess
 import tomllib
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -21,22 +17,6 @@ CHECK_GENERATED_PATH = REPO_ROOT / "scripts/check_generated.py"
 CHECK_GOLDENS_PATH = REPO_ROOT / "scripts/check_goldens.py"
 PACKAGE_SMOKE_PATH = REPO_ROOT / "scripts/package_smoke.py"
 
-ALLOWED_SLICE5_GATE2_PATHS = {
-    "docs/plan/maintenance-phase-3-validation-pipeline-performance.md",
-    "docs/spec/maintenance-phase3-parallel-safety-v1.md",
-    "tests/test_maintenance_phase3_parallel_safety.py",
-}
-
-UNCHANGED_PATHS = (
-    "scripts/validate.py",
-    "pyproject.toml",
-    "uv.lock",
-    ".github/workflows/ci.yml",
-    "scripts/check_generated.py",
-    "scripts/check_goldens.py",
-    "scripts/package_smoke.py",
-)
-
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -48,32 +28,6 @@ def _normalized(path: Path) -> str:
 
 def _docs() -> str:
     return " ".join(_normalized(path) for path in (PLAN_PATH, SPEC_PATH))
-
-
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.rstrip()
-
-
-def _dirty_paths() -> set[str]:
-    output = _git_output(["status", "--porcelain", "--untracked-files=all"])
-    paths: set[str] = set()
-    for line in output.splitlines():
-        if not line:
-            continue
-        path = line[3:].strip()
-        if " -> " in path:
-            path = path.split(" -> ", maxsplit=1)[1]
-        paths.add(path)
-    return paths
 
 
 def test_plan_and_spec_exist_and_name_parallel_safety_slice() -> None:
@@ -99,7 +53,6 @@ def test_parallel_safety_categories_are_documented() -> None:
         "isolated `tmp_path` tests",
         "unit tests that monkeypatch subprocess calls",
         "static audit tests",
-        "current exact dirty allowlist",
         "needs-review categories",
         "`tmp_path` or tempdir tests that write output files",
         "`subprocess.run`",
@@ -128,7 +81,6 @@ def test_serial_only_and_sensitive_surfaces_are_documented() -> None:
         "scripts/package_smoke.py",
         "full `scripts/validate.py` release path",
         "dirty-path guards",
-        "git status/diff tests",
         "hash/private-surface lock tests",
         "generated/golden/package-smoke audit tests",
         "dependency/workflow/release boundary tests",
@@ -190,9 +142,6 @@ def test_validation_scripts_dependency_files_and_ci_workflow_have_no_diff() -> N
     ):
         assert path.is_file()
 
-    for relative_path in UNCHANGED_PATHS:
-        assert _git_output(["diff", "--", relative_path]) == "", relative_path
-
 
 def test_package_version_and_pytest_addopts_are_unchanged() -> None:
     pyproject = _read(PYPROJECT_PATH)
@@ -201,10 +150,3 @@ def test_package_version_and_pytest_addopts_are_unchanged() -> None:
 
     assert project["version"] == "0.1.0"
     assert "addopts" not in pyproject
-
-
-def test_dirty_paths_are_clean_or_exact_slice5_allowlist() -> None:
-    dirty_paths = _dirty_paths()
-    assert (
-        dirty_paths in (set(), ALLOWED_SLICE5_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()

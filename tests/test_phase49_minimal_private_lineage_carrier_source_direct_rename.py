@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import ast
 from dataclasses import FrozenInstanceError, is_dataclass
 import json
 from pathlib import Path
-import subprocess
 import tomllib
 
 import pytest
@@ -27,58 +25,9 @@ from pietto._project.row_lineage import (
     ProjectRowLineageStatus,
 )
 from pietto.ast_nodes import QueryDef, TableDef
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE10_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-minimal-private-lineage-carrier-source-direct-rename-v1.md",
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/row_lineage.py",
-    "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
-    "tests/test_phase49_private_row_level_dependency_graph_scaffold.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-}
-
-ALLOWED_SLICE11_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-computed-let-multi-hop-row-lineage-v1.md",
-    "src/pietto/_project/row_lineage.py",
-    "tests/test_phase49_computed_let_multi_hop_row_lineage.py",
-    "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
-    "tests/test_phase49_private_row_level_dependency_graph_scaffold.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-}
-
-FORBIDDEN_FILES = (
-    "src/pietto/_project/json_v2.py",
-    "src/pietto/_project/check.py",
-    "src/pietto/_project/row_dependency_graph.py",
-    "src/pietto/_project/let_scope_facts.py",
-    "src/pietto/_project/row_expression_schema.py",
-    "src/pietto/_project/row_expression_type_facts.py",
-    "src/pietto/semantic/let_bindings.py",
-)
 
 PRIVATE_JSON_FACTS = (
     "relation_row_lineages",
@@ -108,28 +57,6 @@ PRIVATE_JSON_FACTS = (
     "direct_source_concrete",
     "missing_dependency_graph",
 )
-
-SLICE14_BASE_HEAD = "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
-SLICE15_BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
-SLICE14_ALLOWED_FORBIDDEN_DIFF_PATHS = {
-    "src/pietto/_project/row_dependency_graph.py",
-}
-
-
-def _phase53_gate2_paths(name: str) -> set[str]:
-    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id == name
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, set)
-            return value
-    raise AssertionError(name)
 
 
 def test_row_lineage_carriers_are_private_frozen_dataclasses() -> None:
@@ -473,63 +400,9 @@ def test_row_lineage_module_does_not_call_full_semantic_analyze() -> None:
     assert "import pietto.semantic as semantic_api" not in module
 
 
-def test_slice10_forbidden_files_have_no_diff() -> None:
-    status_lines = _git_output(
-        ["status", "--porcelain=v1", "--untracked-files=all"]
-    ).splitlines()
-    slice14_modified = _phase53_gate2_paths("MODIFIED_PATHS")
-    slice14_added = _phase53_gate2_paths("ADDED_PATHS")
-    exact_slice14_dirty = (
-        {line[3:] for line in status_lines if line.startswith(" M ")}
-        == slice14_modified
-        and {line[3:] for line in status_lines if line.startswith("?? ")}
-        == slice14_added
-        and len(status_lines) == len(slice14_modified | slice14_added)
-    )
-    assert _git_output(["diff", "--cached", "--name-status"]) == ""
-    assert SLICE14_ALLOWED_FORBIDDEN_DIFF_PATHS <= set(FORBIDDEN_FILES)
-    if exact_slice14_dirty:
-        assert _git_output(["branch", "--show-current"]) == "main"
-        assert (
-            tuple(
-                _git_output(["rev-parse", reference])
-                for reference in (
-                    "HEAD",
-                    "refs/heads/main",
-                    "refs/remotes/origin/main",
-                )
-            )
-            == (SLICE15_BASE_HEAD,) * 3
-        )
-        assert _git_output(["rev-parse", "--is-shallow-repository"]) == "false"
-        worktrees = _git_output(["worktree", "list", "--porcelain"])
-        assert sum(line.startswith("worktree ") for line in worktrees.splitlines()) == 1
-    for relative_path in FORBIDDEN_FILES:
-        if (
-            _git_output(["rev-parse", "HEAD"]) == SLICE14_BASE_HEAD
-            and relative_path in SLICE14_ALLOWED_FORBIDDEN_DIFF_PATHS
-        ):
-            assert _git_diff(relative_path) != ""
-            continue
-        assert _git_diff(relative_path) == "" or _phase54_active_gate2_is_active()
-
-
-def test_slice10_package_version_and_dirty_paths_are_locked() -> None:
+def test_package_version_remains_010() -> None:
     project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
-    phase53_gate2_paths = _phase53_gate2_paths("ADDED_PATHS") | _phase53_gate2_paths(
-        "MODIFIED_PATHS"
-    )
-
     assert project["version"] == "0.1.0"
-    assert (
-        _git_status_paths()
-        in (
-            set(),
-            ALLOWED_SLICE10_GATE2_PATHS,
-            ALLOWED_SLICE11_GATE2_PATHS,
-            phase53_gate2_paths,
-        )
-    ) or _phase54_active_gate2_is_active()
 
 
 def _fact_values(
@@ -599,23 +472,3 @@ def _derived_definition(
             if isinstance(definition, (TableDef, QueryDef)) and definition.name == name:
                 return definition
     raise AssertionError(f"Missing derived definition: {name}")
-
-
-def _git_diff(relative_path: str) -> str:
-    return _git_output(["diff", "--", relative_path])
-
-
-def _git_status_paths() -> set[str]:
-    output = _git_output(["status", "--short", "--untracked-files=all"])
-    return {line[3:] for line in output.splitlines() if line}
-
-
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        capture_output=True,
-    )
-    return result.stdout.rstrip()

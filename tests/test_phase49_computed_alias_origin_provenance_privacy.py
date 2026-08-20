@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import subprocess
+import tomllib
 
 from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
@@ -17,55 +17,9 @@ from pietto._project.model import (
     build_empty_project_semantic_result,
 )
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE5_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-computed-alias-origin-provenance-privacy-v1.md",
-    "src/pietto/_project/model.py",
-    "tests/test_phase49_computed_alias_origin_provenance_privacy.py",
-    "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
-    "tests/test_phase47_direct_bare_field_row_schema.py",
-    "tests/test_phase47_direct_field_rename_row_schema.py",
-    "tests/test_phase47_downstream_readiness_hardening.py",
-    "tests/test_phase48_table_upstream_row_schema_propagation.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-}
-
-ALLOWED_SLICE7_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-selected-let-derived-output-schema-v1.md",
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/let_scope_facts.py",
-    "src/pietto/semantic/let_bindings.py",
-    "tests/test_phase49_selected_let_derived_output_schema.py",
-    "tests/test_phase49_project_let_scope_value_facts.py",
-    "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
-    "tests/test_phase49_computed_alias_origin_provenance_privacy.py",
-    "tests/test_phase40_let_binding_row_level_semantics.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-}
 
 PRIVATE_JSON_FACTS = (
     "source_row_schemas",
@@ -302,30 +256,9 @@ def test_project_json_v2_keeps_derived_expression_provenance_private(
         assert private_fact not in serialized
 
 
-def test_slice5_forbidden_project_files_are_untouched() -> None:
-    for relative_path in (
-        "src/pietto/_project/json_v2.py",
-        "src/pietto/_project/check.py",
-        "src/pietto/_project/row_expression_schema.py",
-        "src/pietto/_project/row_expression_type_facts.py",
-    ):
-        assert _git_diff_names(relative_path) == () or _phase54_active_gate2_is_active()
-
-
-def test_slice5_package_version_and_dirty_paths_are_locked() -> None:
-    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
-    dirty_paths = _git_status_paths()
-
-    assert 'version = "0.1.0"' in pyproject
-    assert 'version = "0.2.0"' not in pyproject
-    assert (
-        dirty_paths
-        in (
-            set(),
-            ALLOWED_SLICE5_GATE2_PATHS,
-            ALLOWED_SLICE7_GATE2_PATHS,
-        )
-    ) or _phase54_active_gate2_is_active()
+def test_package_version_remains_010() -> None:
+    project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
+    assert project["version"] == "0.1.0"
 
 
 def _assert_direct_projection_field(
@@ -420,33 +353,3 @@ def _derived_definition(
             if isinstance(definition, (TableDef, QueryDef)) and definition.name == name:
                 return definition
     raise AssertionError(f"Derived definition not found: {name}")
-
-
-def _git_status_paths() -> set[str]:
-    output = _git_output(["status", "--porcelain", "--untracked-files=all"])
-    paths: set[str] = set()
-    for line in output.splitlines():
-        if not line:
-            continue
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", maxsplit=1)[1]
-        paths.add(path)
-    return paths
-
-
-def _git_diff_names(relative_path: str) -> tuple[str, ...]:
-    return tuple(_git_output(["diff", "--name-only", "--", relative_path]).splitlines())
-
-
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout

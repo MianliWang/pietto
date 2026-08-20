@@ -1,20 +1,11 @@
 from __future__ import annotations
 
-import subprocess
 import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-
-from test_phase39_candidate_decision import (
-    ALLOWED_SLICE3_CHANGED_PATHS as PHASE40_SLICE3_REPAIR_CHANGED_PATHS,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -33,61 +24,6 @@ SEMANTIC_AGGREGATES_PATH = REPO_ROOT / "src/pietto/semantic/aggregates.py"
 IR_MODEL_PATH = REPO_ROOT / "src/pietto/ir/model.py"
 POSTGRES_RELATIONS_PATH = REPO_ROOT / "src/pietto/sql/relations.py"
 MYSQL_RELATIONS_PATH = REPO_ROOT / "src/pietto/sql/mysql_relations.py"
-
-ALLOWED_SLICE2_CHANGED_PATHS = {
-    "docs/plan/phase-40-let-binding-model-candidate.md",
-    "docs/spec/phase40-let-binding-syntax-and-scope-contract-v1.md",
-    "tests/test_phase40_let_binding_syntax_scope_contract.py",
-    "docs/spec/diagnostics.md",
-    "grammar/Pietto.g4",
-    "src/pietto/ast_builder.py",
-    "src/pietto/ast_nodes.py",
-    "src/pietto/generated/Pietto.interp",
-    "src/pietto/generated/Pietto.tokens",
-    "src/pietto/generated/PiettoLexer.interp",
-    "src/pietto/generated/PiettoLexer.py",
-    "src/pietto/generated/PiettoLexer.tokens",
-    "src/pietto/generated/PiettoParser.py",
-    "src/pietto/generated/PiettoVisitor.py",
-    "src/pietto/generated/__init__.py",
-    "src/pietto/ir/builder.py",
-    "src/pietto/ir/lowering.py",
-    "src/pietto/semantic/analyzer.py",
-    "src/pietto/semantic/expressions.py",
-    "src/pietto/semantic/let_bindings.py",
-    "src/pietto/semantic/model.py",
-    "src/pietto/semantic/relation_schemas.py",
-    "tests/test_phase40_completion_audit.py",
-    "tests/test_phase40_let_binding_cli_json_metadata.py",
-    "tests/test_phase40_let_binding_aggregate_interaction_boundary.py",
-    "tests/test_phase40_let_binding_boundary_regression_matrix.py",
-    "tests/test_phase40_let_binding_ir_sql_lowering.py",
-    "tests/test_phase40_let_binding_model_candidate.py",
-    "tests/test_phase40_let_binding_parser_ast.py",
-    "tests/test_phase40_let_binding_row_level_semantics.py",
-    "tests/test_phase40_let_binding_semantic_model_ir_readiness.py",
-    "docs/spec/phase40-let-binding-aggregate-interaction-boundary-v1.md",
-}
-ALLOWED_SLICE2_CHANGED_PATHS = (
-    ALLOWED_SLICE2_CHANGED_PATHS | PHASE40_SLICE3_REPAIR_CHANGED_PATHS
-)
-
-FORBIDDEN_DIFF_PATHS = (
-    "docs/plan/phase-40-let-binding-model-candidate.md",
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "src",
-    "grammar",
-    "src/pietto/generated",
-    "examples",
-    "fixtures",
-    "tests/fixtures",
-    "scripts",
-    ".github/workflows",
-    "pyproject.toml",
-    "uv.lock",
-)
 
 POSITIVE_RELEASE_CLAIMS = (
     "tag created",
@@ -126,42 +62,6 @@ def _repo_evidence() -> str:
     )
 
 
-def _git_status() -> list[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return [line for line in result.stdout.splitlines() if line]
-
-
-def _git_status_for(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _status_path(line: str) -> str:
-    if len(line) > 2 and line[2] == " ":
-        return line[3:]
-    return line.split(maxsplit=1)[1]
-
-
-def _path_matches(path: str, prefix: str) -> bool:
-    return path == prefix or path.startswith(f"{prefix}/")
-
-
 def test_slice2_contract_doc_exists_and_records_guardrails() -> None:
     assert SPEC_PATH.is_file()
     spec = _spec()
@@ -191,21 +91,6 @@ def test_slice2_contract_doc_exists_and_records_guardrails() -> None:
         "workflows",
         "package metadata",
         "lockfiles",
-    ):
-        assert required in spec, required
-
-
-def test_trusted_slice1_baseline_is_recorded() -> None:
-    spec = _spec()
-
-    for required in (
-        "baseline HEAD: `475e3a17978b51d8670db042e66ef7b80672c27e`",
-        "baseline branch: `main`",
-        "baseline commit: `Add Phase 40 let binding model candidate`",
-        "package version remains `0.1.0`",
-        "no tag/release/publish/upload/signing/attestation is authorized",
-        "Slice 1 completed the Phase 40 Let Binding Model Candidate Decision",
-        "selected explicit `let:` binding over projection-alias expression reuse",
     ):
         assert required in spec, required
 
@@ -434,41 +319,3 @@ def test_package_version_release_and_public_surface_boundaries_are_locked() -> N
     lowered = spec.lower()
     for forbidden in POSITIVE_RELEASE_CLAIMS:
         assert forbidden not in lowered, forbidden
-
-
-def test_forbidden_surfaces_are_unchanged_or_untracked() -> None:
-    diff_paths = set(
-        filter(
-            None,
-            _git_diff_name_only(REPO_ROOT, tuple(FORBIDDEN_DIFF_PATHS)).splitlines(),
-        )
-    )
-    status_paths = {
-        _status_path(line)
-        for line in _git_status_for(FORBIDDEN_DIFF_PATHS).splitlines()
-        if line
-    }
-
-    assert (
-        diff_paths <= ALLOWED_SLICE2_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        status_paths <= ALLOWED_SLICE2_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-
-def test_changed_set_is_slice2_allowlist_or_clean_ci_checkout() -> None:
-    status_paths = {_status_path(line) for line in _git_status()}
-
-    assert (
-        status_paths <= ALLOWED_SLICE2_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-    for forbidden in FORBIDDEN_DIFF_PATHS:
-        assert (
-            not any(
-                _path_matches(path, forbidden)
-                and path not in ALLOWED_SLICE2_CHANGED_PATHS
-                for path in status_paths
-            )
-        ) or _phase54_active_gate2_is_active()

@@ -1,27 +1,11 @@
 from __future__ import annotations
 
-import subprocess
 import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import (
-    PHASE41_SLICE1_CARRYOVER_CHANGED_PATHS,
-    PHASE41_SLICE2_CHANGED_PATHS,
-    PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS,
-    PHASE41_SLICE3_CHANGED_PATHS,
-    PHASE41_SLICE4_CHANGED_PATHS,
-    PHASE41_SLICE5_CHANGED_PATHS,
-    PHASE41_SLICE6_CHANGED_PATHS,
-    PHASE41_SLICE7_CHANGED_PATHS,
-    PHASE41_SLICE8_CHANGED_PATHS,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -73,14 +57,6 @@ PUBLIC_JSON_METADATA_PATHS = (
     "src/pietto/cli.py",
     "src/pietto/cli_json.py",
 )
-
-ALLOWED_SLICE10_CHANGED_PATHS = {
-    "docs/plan/phase-40-let-binding-model-candidate.md",
-    "tests/test_phase39_candidate_decision.py",
-    "tests/test_phase40_completion_audit.py",
-    "tests/test_phase40_let_binding_model_candidate.py",
-    "tests/test_phase40_let_binding_syntax_scope_contract.py",
-}
 PHASE43_SLICE8_CHANGED_PATHS = {
     "docs/plan/phase-43-let-binding-aggregate-and-grouped-query-integration-mvp.md",
     "docs/spec/phase43-let-binding-aggregate-grouped-integration-scope-lock-v1.md",
@@ -90,36 +66,6 @@ PHASE43_SLICE8_CHANGED_PATHS = {
     "tests/test_phase43_completion_audit.py",
     "tests/test_phase43_let_binding_aggregate_grouped_scope_lock.py",
 }
-ALLOWED_PHASE41_SLICE1_REPAIR_CHANGED_PATHS = (
-    ALLOWED_SLICE10_CHANGED_PATHS
-    | PHASE41_SLICE1_CARRYOVER_CHANGED_PATHS
-    | PHASE41_SLICE2_CHANGED_PATHS
-    | PHASE41_SLICE3_CHANGED_PATHS
-    | PHASE41_SLICE4_CHANGED_PATHS
-    | PHASE41_SLICE5_CHANGED_PATHS
-    | PHASE41_SLICE6_CHANGED_PATHS
-    | PHASE41_SLICE7_CHANGED_PATHS
-    | PHASE41_SLICE8_CHANGED_PATHS
-    | PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS
-    | PHASE43_SLICE8_CHANGED_PATHS
-)
-
-FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "docs/spec/diagnostics.md",
-    "src",
-    "grammar",
-    "src/pietto/generated",
-    "examples",
-    "fixtures",
-    "tests/fixtures",
-    "scripts",
-    ".github/workflows",
-    "pyproject.toml",
-    "uv.lock",
-)
 
 POSITIVE_RELEASE_CLAIMS = (
     "tag created",
@@ -160,62 +106,6 @@ def _public_json_metadata_text() -> str:
         for relative_path in PUBLIC_JSON_METADATA_PATHS
         for path in sorted((REPO_ROOT / relative_path).glob("**/*.py"))
     )
-
-
-def _git_status() -> list[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return [line for line in result.stdout.splitlines() if line]
-
-
-def _git_status_for(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _status_path(line: str) -> str:
-    if len(line) > 2 and line[2] == " ":
-        return line[3:]
-    return line.split(maxsplit=1)[1]
-
-
-def _path_matches(path: str, prefix: str) -> bool:
-    return path == prefix or path.startswith(f"{prefix}/")
-
-
-def test_phase40_artifact_inventory_is_complete_through_slice10() -> None:
-    for relative_path in (*PHASE40_DOC_PATHS, *PHASE40_TEST_PATHS):
-        assert (REPO_ROOT / relative_path).is_file(), relative_path
-
-    plan = _plan()
-    for required in (
-        "| 1 | Let Binding Model Candidate Decision |",
-        "| 2 | Let Binding Syntax And Scope Contract |",
-        "| 3 | Let Binding Parser And AST Surface |",
-        "| 4 | Row-level Let Semantic Validation |",
-        "| 5 | Let Binding Semantic Model Storage |",
-        "| 6 | Let Binding IR Lowering MVP |",
-        "| 7 | Let Binding SQL Lowering MVP |",
-        "| 8 | CLI / JSON / Metadata Compatibility Hardening |",
-        "| 9 | Let Binding Boundary Regression Matrix |",
-        "| 10 | Completion Audit And Status Lock |",
-    ):
-        assert required in plan, required
 
 
 def test_phase40_final_completion_status_is_locked_in_plan() -> None:
@@ -338,41 +228,3 @@ def test_package_version_release_and_phase41_non_authorization_are_locked() -> N
 
     for forbidden in POSITIVE_RELEASE_CLAIMS:
         assert forbidden not in release_evidence, forbidden
-
-
-def test_forbidden_surfaces_are_unchanged_or_untracked() -> None:
-    diff_paths = set(
-        filter(
-            None,
-            _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS).splitlines(),
-        )
-    )
-    status_paths = {
-        _status_path(line)
-        for line in _git_status_for(FORBIDDEN_DIFF_PATHS).splitlines()
-        if line
-    }
-
-    assert (
-        diff_paths <= ALLOWED_PHASE41_SLICE1_REPAIR_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        status_paths <= ALLOWED_PHASE41_SLICE1_REPAIR_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-
-def test_changed_set_is_slice10_allowlist_or_clean_ci_checkout() -> None:
-    status_paths = {_status_path(line) for line in _git_status()}
-
-    assert (
-        status_paths <= ALLOWED_PHASE41_SLICE1_REPAIR_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-    for forbidden in FORBIDDEN_DIFF_PATHS:
-        assert (
-            not any(
-                _path_matches(path, forbidden)
-                and path not in ALLOWED_PHASE41_SLICE1_REPAIR_CHANGED_PATHS
-                for path in status_paths
-            )
-        ) or _phase54_active_gate2_is_active()

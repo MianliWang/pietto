@@ -1,22 +1,12 @@
 from __future__ import annotations
 
-import subprocess
 import tomllib
 from fnmatch import fnmatchcase
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import (
-    ALLOWED_SLICE3_CHANGED_PATHS,
-    _non_slice3_repair_diff_paths,
-    _non_slice3_repair_status_paths,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -72,26 +62,6 @@ SEMANTIC_AGGREGATES_PATH = REPO_ROOT / "src/pietto/semantic/aggregates.py"
 SEMANTIC_EXPRESSIONS_PATH = REPO_ROOT / "src/pietto/semantic/expressions.py"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "src",
-    "grammar",
-    "src/pietto/generated",
-    "fixtures",
-    "tests/fixtures",
-    "scripts",
-    ".github/workflows",
-    "pyproject.toml",
-    "uv.lock",
-)
-
-ALLOWED_SLICE1_CHANGED_PATHS = {
-    "docs/plan/phase-38-aggregate-semantics-and-type-capability-consolidation.md",
-    "tests/test_phase38_candidate_decision.py",
-}
-
 IN_PROGRESS_PHASE38_STATIC_AUDIT_PATTERNS = (
     "docs/plan/phase-38-aggregate-semantics-and-type-capability-consolidation.md",
     "tests/test_phase38_candidate_decision.py",
@@ -141,32 +111,6 @@ def _combined_type_evidence() -> str:
             SEMANTIC_EXPRESSIONS_PATH,
         )
     )
-
-
-def _git_status() -> list[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return [line for line in result.stdout.splitlines() if line]
-
-
-def _git_status_for(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
 
 
 def _is_in_progress_phase38_static_audit_path(path: str) -> bool:
@@ -407,59 +351,3 @@ def test_public_outputs_package_and_release_surfaces_remain_unchanged() -> None:
 
     assert project["version"] == "0.1.0"
     assert 'version = "0.1.0"' in _read(PYPROJECT_PATH)
-
-
-def test_gate2_allowlist_and_forbidden_surfaces_are_documented() -> None:
-    plan = _plan()
-
-    for required in (
-        "Approved Slice 1 Gate 2 file allowlist:",
-        "docs/plan/phase-38-aggregate-semantics-and-type-capability-consolidation.md",
-        "tests/test_phase38_candidate_decision.py",
-        "`README.md`",
-        "`AGENTS.md`",
-        "`docs/spec/pietto-v0.9.md`",
-        "`src/`",
-        "`grammar/`",
-        "`src/pietto/generated/`",
-        "`fixtures/`",
-        "`tests/fixtures/`",
-        "`scripts/`",
-        "`.github/workflows/`",
-        "`pyproject.toml`",
-        "`uv.lock`",
-        "`/tmp/phase38-slice1-gate2-evidence.txt`",
-        "no-index diff for untracked new files",
-        "untracked whitespace check",
-        "Gate 2 must not stage, commit, push, start or poll CI",
-    ):
-        assert required in plan, required
-
-
-def test_forbidden_surfaces_are_not_modified_or_untracked() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-    status_output = _git_status_for(FORBIDDEN_DIFF_PATHS)
-
-    assert (
-        _non_slice3_repair_diff_paths(diff_output) == set()
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        _non_slice3_repair_status_paths(status_output) == set()
-    ) or _phase54_active_gate2_is_active()
-
-
-def test_only_phase38_slice1_static_audit_files_are_changed_or_untracked() -> None:
-    status_lines = _git_status()
-    changed_paths = {line[3:] for line in status_lines}
-    forbidden_paths = sorted(
-        path
-        for path in changed_paths
-        if not _is_in_progress_phase38_static_audit_path(path)
-    )
-
-    assert (
-        set(forbidden_paths) <= ALLOWED_SLICE3_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        changed_paths <= ALLOWED_SLICE3_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()

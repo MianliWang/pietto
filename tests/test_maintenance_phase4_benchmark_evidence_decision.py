@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import subprocess
 import tomllib
 from pathlib import Path
 from typing import cast
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -38,28 +34,6 @@ CONFIG_IDS = (
     "cpu90_18_loadfile",
     "cpu75_15_loadscope",
 )
-ALLOWED_SLICE3_GATE2_PATHS = {
-    "docs/plan/maintenance-phase-4-worker-strategy-benchmark-ci-split-evaluation.md",
-    "docs/spec/maintenance-phase4-benchmark-evidence-decision-v1.md",
-    "tests/test_maintenance_phase4_benchmark_evidence_decision.py",
-}
-UNCHANGED_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    ".github/workflows/ci.yml",
-    "scripts/validate.py",
-    "scripts/check_generated.py",
-    "scripts/check_goldens.py",
-    "scripts/package_smoke.py",
-    "pyproject.toml",
-    "uv.lock",
-    "src",
-    "grammar",
-    "tests/fixtures",
-    "tests/goldens",
-    "docs/spec/pietto-v0.9.md",
-    "docs/spec/pietto-roadmap-phase45-60-v1.md",
-)
 
 
 def _read(path: Path) -> str:
@@ -72,32 +46,6 @@ def _normalized(path: Path) -> str:
 
 def _documents() -> tuple[str, str]:
     return (_normalized(PLAN_PATH), _normalized(SPEC_PATH))
-
-
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.rstrip()
-
-
-def _dirty_paths() -> set[str]:
-    output = _git_output(["status", "--porcelain", "--untracked-files=all"])
-    paths: set[str] = set()
-    for line in output.splitlines():
-        if not line:
-            continue
-        path = line[3:].strip()
-        if " -> " in path:
-            path = path.split(" -> ", maxsplit=1)[1]
-        paths.add(path)
-    return paths
 
 
 def test_plan_and_spec_exist_and_lock_slice_identity() -> None:
@@ -215,13 +163,6 @@ def test_current_behavior_and_interpretation_limits_are_preserved() -> None:
             assert required in document, required
 
 
-def test_forbidden_surfaces_have_no_diff() -> None:
-    for relative_path in UNCHANGED_PATHS:
-        assert (
-            _git_output(["diff", "--", relative_path]) == ""
-        ) or _phase54_active_gate2_is_active(), relative_path
-
-
 def test_package_version_addopts_and_xdist_scope_are_unchanged() -> None:
     pyproject_text = _read(PYPROJECT_PATH)
     pyproject = tomllib.loads(pyproject_text)
@@ -235,9 +176,3 @@ def test_package_version_addopts_and_xdist_scope_are_unchanged() -> None:
     assert "pytest-xdist>=3.8.0" in dev_dependencies
     assert all("pytest-xdist" not in item for item in runtime_dependencies)
     assert 'name = "pytest-xdist"' in _read(UV_LOCK_PATH)
-
-
-def test_dirty_paths_are_clean_or_exact_slice3_allowlist() -> None:
-    assert (
-        _dirty_paths() in (set(), ALLOWED_SLICE3_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()

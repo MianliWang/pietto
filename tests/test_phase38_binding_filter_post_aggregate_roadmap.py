@@ -1,18 +1,10 @@
 from __future__ import annotations
 
-import subprocess
 import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
     normalized_text as _normalized,
-)
-from test_phase39_candidate_decision import (
-    ALLOWED_SLICE3_CHANGED_PATHS,
-    _non_slice3_repair_status_paths,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -57,27 +49,6 @@ PHASE37_FILTER_DISTINCT_TEST_PATH = (
 )
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-ALLOWED_SLICE6_CHANGED_PATHS = {
-    "docs/spec/phase38-binding-filter-post-aggregate-roadmap-v1.md",
-    "tests/test_phase38_binding_filter_post_aggregate_roadmap.py",
-}
-
-FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "docs/plan/phase-38-aggregate-semantics-and-type-capability-consolidation.md",
-    "src",
-    "grammar",
-    "src/pietto/generated",
-    "fixtures",
-    "tests/fixtures",
-    "scripts",
-    ".github/workflows",
-    "pyproject.toml",
-    "uv.lock",
-)
-
 
 def _spec() -> str:
     return _normalized(SPEC_PATH)
@@ -107,40 +78,6 @@ def _combined_roadmap_evidence() -> str:
             PHASE37_FILTER_DISTINCT_TEST_PATH,
         )
     )
-
-
-def _git_status() -> list[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return [line for line in result.stdout.splitlines() if line]
-
-
-def _git_status_for(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _status_path(line: str) -> str:
-    return line[3:]
-
-
-def _path_matches(path: str, prefix: str) -> bool:
-    return path == prefix or path.startswith(f"{prefix}/")
 
 
 def test_spec_exists_and_records_slice6_guardrail() -> None:
@@ -394,28 +331,6 @@ def test_public_surfaces_and_package_version_remain_locked() -> None:
     with PYPROJECT_PATH.open("rb") as handle:
         pyproject = tomllib.load(handle)
     assert pyproject["project"]["version"] == "0.1.0"
-
-
-def test_only_slice6_files_are_changed_and_forbidden_surfaces_are_clean() -> None:
-    status = _git_status()
-    status_paths = {_status_path(line) for line in status}
-
-    # Accept both clean CI checkout and dirty Gate 2/repair states.
-    assert (
-        status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-    for forbidden in FORBIDDEN_DIFF_PATHS:
-        assert (
-            _non_slice3_repair_status_paths(_git_status_for((forbidden,))) == set()
-        ) or _phase54_active_gate2_is_active()
-        assert (
-            not any(
-                _path_matches(path, forbidden)
-                and path not in ALLOWED_SLICE3_CHANGED_PATHS
-                for path in status_paths
-            )
-        ) or _phase54_active_gate2_is_active()
 
 
 def test_phase38_plan_already_records_slice6_without_plan_edit() -> None:

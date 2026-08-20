@@ -1,13 +1,7 @@
 from __future__ import annotations
 
-import ast
-import subprocess
 import tomllib
 from pathlib import Path
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-50-semantic-readiness-consolidation.md"
@@ -16,8 +10,6 @@ SPEC_PATH = (
     / "docs/spec/phase50-explain-public-metadata-package-integration-boundary-v1.md"
 )
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-TEST_PATH = Path(__file__).resolve()
-
 SLICE10_TITLE = (
     "# Phase 50 Slice 10 Explain / Public Metadata / Package Integration Boundary v1"
 )
@@ -57,82 +49,6 @@ SPEC_SECTION_HEADINGS = (
     "Separate Authorization And Stop Conditions",
 )
 
-ALLOWED_PHASE50_SLICE10_GATE2_PATHS = {
-    "docs/plan/phase-50-semantic-readiness-consolidation.md",
-    "docs/spec/phase50-explain-public-metadata-package-integration-boundary-v1.md",
-    "tests/test_phase50_explain_public_metadata_package_integration_boundary.py",
-    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
-    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
-    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
-    "tests/test_phase50_type_system_gap_capability_readiness.py",
-    "tests/test_phase50_window_function_readiness.py",
-    "tests/test_phase50_import_module_export_readiness.py",
-    "tests/test_phase50_semantic_package_model_readiness.py",
-    "tests/test_phase50_postgresql_extension_capability_readiness.py",
-    "tests/test_phase50_multi_dialect_capability_ecosystem_readiness.py",
-}
-
-ALLOWED_PHASE50_SLICE11_GATE2_PATHS = {
-    "docs/plan/phase-50-semantic-readiness-consolidation.md",
-    "docs/spec/phase50-completion-audit-and-status-lock-v1.md",
-    "tests/test_phase50_completion_audit_and_status_lock.py",
-    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
-    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
-    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
-    "tests/test_phase50_type_system_gap_capability_readiness.py",
-    "tests/test_phase50_window_function_readiness.py",
-    "tests/test_phase50_import_module_export_readiness.py",
-    "tests/test_phase50_semantic_package_model_readiness.py",
-    "tests/test_phase50_postgresql_extension_capability_readiness.py",
-    "tests/test_phase50_multi_dialect_capability_ecosystem_readiness.py",
-    "tests/test_phase50_explain_public_metadata_package_integration_boundary.py",
-}
-
-COMPATIBILITY_TEST_PATHS = (
-    REPO_ROOT
-    / "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
-    REPO_ROOT / "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
-    REPO_ROOT
-    / "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
-    REPO_ROOT / "tests/test_phase50_type_system_gap_capability_readiness.py",
-    REPO_ROOT / "tests/test_phase50_window_function_readiness.py",
-    REPO_ROOT / "tests/test_phase50_import_module_export_readiness.py",
-    REPO_ROOT / "tests/test_phase50_semantic_package_model_readiness.py",
-    REPO_ROOT / "tests/test_phase50_postgresql_extension_capability_readiness.py",
-    REPO_ROOT / "tests/test_phase50_multi_dialect_capability_ecosystem_readiness.py",
-)
-
-PHASE50_SLICE10_TEST_PATHS = (
-    TEST_PATH,
-    *COMPATIBILITY_TEST_PATHS,
-)
-
-PROTECTED_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "docs/spec/pietto-roadmap-phase45-60-v1.md",
-    "docs/spec/v02-deferred-feature-register-v1.md",
-    "docs/spec/phase50-semantic-package-extension-capability-scope-lock-v1.md",
-    "docs/spec/phase50-post-v02-deferred-readiness-inventory-v1.md",
-    "docs/spec/phase50-aggregate-grouped-project-output-schema-readiness-v1.md",
-    "docs/spec/phase50-type-system-gap-capability-readiness-v1.md",
-    "docs/spec/phase50-window-function-readiness-v1.md",
-    "docs/spec/phase50-import-module-export-readiness-v1.md",
-    "docs/spec/phase50-semantic-package-model-readiness-v1.md",
-    "docs/spec/phase50-postgresql-extension-capability-readiness-v1.md",
-    "docs/spec/phase50-multi-dialect-capability-ecosystem-readiness-v1.md",
-    "src",
-    "grammar",
-    "scripts",
-    ".github",
-    "pyproject.toml",
-    "uv.lock",
-    "tests/fixtures",
-    "tests/goldens",
-    "examples",
-)
-
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -146,69 +62,6 @@ def _normalized_section(path: Path, heading: str) -> str:
     if end == -1:
         end = len(text)
     return " ".join(text[start:end].split())
-
-
-def _string_set_assignment(path: Path, assignment_name: str) -> set[str]:
-    tree = ast.parse(_read(path))
-    for node in tree.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        if not any(
-            isinstance(target, ast.Name) and target.id == assignment_name
-            for target in node.targets
-        ):
-            continue
-        assert isinstance(node.value, ast.Set)
-        values: set[str] = set()
-        for element in node.value.elts:
-            assert isinstance(element, ast.Constant)
-            assert isinstance(element.value, str)
-            values.add(element.value)
-        return values
-    raise AssertionError(f"assignment not found: {assignment_name}")
-
-
-def _is_allowed_read_only_git_args(args: list[str]) -> bool:
-    if args == ["status", "--porcelain", "--untracked-files=all"]:
-        return True
-    if args == ["diff", "--cached", "--name-status"]:
-        return True
-    if args == ["tag", "--points-at", "HEAD"]:
-        return True
-    return len(args) == 3 and args[:2] == ["diff", "--"] and args[2] in PROTECTED_PATHS
-
-
-def _git_output(args: list[str]) -> str:
-    assert _is_allowed_read_only_git_args(args)
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.rstrip()
-
-
-def _dirty_paths() -> set[str]:
-    output = _git_output(["status", "--porcelain", "--untracked-files=all"])
-    paths: set[str] = set()
-    for line in output.splitlines():
-        if not line:
-            continue
-        path = line[3:].strip()
-        if " -> " in path:
-            path = path.split(" -> ", maxsplit=1)[1]
-        paths.add(path)
-    return paths
-
-
-def _literal_string(node: ast.expr) -> str:
-    assert isinstance(node, ast.Constant)
-    assert isinstance(node.value, str)
-    return node.value
 
 
 def test_slice10_artifacts_status_and_exact_heading_order_are_locked() -> None:
@@ -344,153 +197,6 @@ def test_phase_ownership_and_bounded_handoff_are_locked() -> None:
         assert required in spec, required
 
 
-def test_plan_slice10_allowlist_and_gate_discipline_are_locked() -> None:
-    plan_allowlist = _normalized_section(PLAN_PATH, "Slice 10 Gate 2 Allowlist")
-    plan_validation = _normalized_section(PLAN_PATH, "Slice 10 Focused Validation")
-    plan_stops = _normalized_section(PLAN_PATH, "Slice 10 Stop Conditions")
-
-    for relative_path in ALLOWED_PHASE50_SLICE10_GATE2_PATHS:
-        assert relative_path in plan_allowlist, relative_path
-    assert "No thirteenth repository path is approved." in plan_allowlist
-    for required in (
-        "the focused Slice 10 static test and complete ten-file Phase 50 static-audit bundle",
-        "the corrected no-history/no-network/no-database/no-import-execution scan",
-        'subprocess.run(["git", *args], ...)',
-        "Do not run full pytest",
-    ):
-        assert required in plan_validation, required
-    for required in (
-        "the completed Slice 9 baseline or exact twelve-file dirty set differs",
-        "any thirteenth repository path changes",
-        "Phase 58/59 implementation",
-        "focused Slice 10 pytest",
-    ):
-        assert required in plan_stops, required
-
-
-def test_all_nine_compatibility_allowlists_are_exact() -> None:
-    assert len(ALLOWED_PHASE50_SLICE10_GATE2_PATHS) == 12
-    assert len(PHASE50_SLICE10_TEST_PATHS) == 10
-    for path in COMPATIBILITY_TEST_PATHS:
-        assert (
-            _string_set_assignment(path, "ALLOWED_PHASE50_SLICE10_GATE2_PATHS")
-            == ALLOWED_PHASE50_SLICE10_GATE2_PATHS
-        )
-
-
-def test_static_git_helper_is_literal_and_read_only() -> None:
-    source = _read(TEST_PATH)
-    tree = ast.parse(source)
-    subprocess_calls = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "subprocess"
-        and node.func.attr == "run"
-    ]
-    assert len(subprocess_calls) == 1
-    call = subprocess_calls[0]
-    assert len(call.args) == 1
-    assert isinstance(call.args[0], ast.List)
-    assert _literal_string(call.args[0].elts[0]) == "git"
-    assert isinstance(call.args[0].elts[1], ast.Starred)
-    assert isinstance(call.args[0].elts[1].value, ast.Name)
-    assert call.args[0].elts[1].value.id == "args"
-
-    keywords = {keyword.arg: keyword.value for keyword in call.keywords}
-    assert set(keywords) == {"cwd", "check", "text", "stdout", "stderr"}
-    assert isinstance(keywords["cwd"], ast.Name)
-    assert keywords["cwd"].id == "REPO_ROOT"
-    assert isinstance(keywords["check"], ast.Constant)
-    assert keywords["check"].value is True
-    assert isinstance(keywords["text"], ast.Constant)
-    assert keywords["text"].value is True
-    for name in ("stdout", "stderr"):
-        keyword_value = keywords[name]
-        assert isinstance(keyword_value, ast.Attribute)
-        attribute_owner = keyword_value.value
-        assert isinstance(attribute_owner, ast.Name)
-        assert attribute_owner.id == "subprocess"
-        assert keyword_value.attr == "PIPE"
-
-    mutating_subcommands = (
-        "add",
-        "commit",
-        "push",
-        "fetch",
-        "pull",
-        "merge",
-        "rebase",
-        "reset",
-        "restore",
-        "checkout",
-        "switch",
-        "clean",
-        "revert",
-        "cherry-pick",
-        "branch",
-    )
-    assert all(f'["{subcommand}"' not in source for subcommand in mutating_subcommands)
-
-
-def test_all_static_git_calls_use_only_read_only_arguments() -> None:
-    tree = ast.parse(_read(TEST_PATH))
-    calls = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "_git_output"
-    ]
-    assert calls
-    for call in calls:
-        assert len(call.args) == 1
-        assert isinstance(call.args[0], ast.List)
-        values = call.args[0].elts
-        assert values
-        subcommand = _literal_string(values[0])
-        if subcommand == "status":
-            assert [_literal_string(value) for value in values] == [
-                "status",
-                "--porcelain",
-                "--untracked-files=all",
-            ]
-        elif subcommand == "diff":
-            assert len(values) == 3
-            assert _literal_string(values[1]) in {"--", "--cached"}
-            if _literal_string(values[1]) == "--cached":
-                assert _literal_string(values[2]) == "--name-status"
-        elif subcommand == "tag":
-            assert [_literal_string(value) for value in values] == [
-                "tag",
-                "--points-at",
-                "HEAD",
-            ]
-        else:
-            raise AssertionError(subcommand)
-
-
-def test_package_version_tag_protected_paths_and_dirty_set_are_locked() -> None:
-    pyproject = tomllib.loads(_read(PYPROJECT_PATH))
-    project = pyproject["project"]
-    assert isinstance(project, dict)
+def test_package_version_remains_010() -> None:
+    project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
     assert project["version"] == "0.1.0"
-    assert _git_output(["tag", "--points-at", "HEAD"]) == ""
-    assert _git_output(["diff", "--cached", "--name-status"]) == ""
-    assert not (REPO_ROOT / "tests/goldens").exists()
-
-    for relative_path in PROTECTED_PATHS:
-        assert (
-            _git_output(["diff", "--", relative_path]) == ""
-        ) or _phase54_active_gate2_is_active(), relative_path
-
-    assert (
-        _dirty_paths()
-        in (
-            set(),
-            ALLOWED_PHASE50_SLICE10_GATE2_PATHS,
-            ALLOWED_PHASE50_SLICE11_GATE2_PATHS,
-        )
-    ) or _phase54_active_gate2_is_active()

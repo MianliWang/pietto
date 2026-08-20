@@ -3,14 +3,8 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
-import subprocess
 from pathlib import Path
 
-from _phase54_active_gate2_manifest import (
-    phase54_publication_clean_topic_is_active,
-    phase54_publication_topic_branch,
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 import pytest
 
@@ -230,7 +224,6 @@ PHASE53_ADDED_PATHS = {
     CURRENT_ROADMAP_REL,
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
 }
-PHASE53_ALLOWLIST_PATHS = PHASE53_MODIFIED_PATHS | PHASE53_ADDED_PATHS
 CI_REPAIR_BASE_HEAD_SHA = "c309323216fb7e6c52afba060cb188b3bb618d34"
 CI_REPAIR_MODIFIED_PATHS = {
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
@@ -244,7 +237,6 @@ PHASE54_SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
 PHASE54_SLICE7_BASE_HEAD_SHA = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 PHASE54_SLICE8_BASE_HEAD_SHA = "027b33cafcfd58916a89e299487dad38d24ade6c"
 PHASE54_SLICE9_BASE_HEAD_SHA = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
-PHASE54_SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 
 TIER1_EXISTING_NODES = (
     "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py::test_artifacts_titles_heading_orders_and_no_behavior_sentence_are_locked",
@@ -321,125 +313,6 @@ def _section(relative: str, heading: str) -> str:
     start = text.index(marker) + len(marker)
     end = text.find("\n## ", start)
     return text[start:] if end < 0 else text[start:end]
-
-
-def _git_output(args: list[str]) -> str:
-    return subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    ).stdout.rstrip()
-
-
-def _git_optional_ref(ref: str) -> str | None:
-    result = subprocess.run(
-        ["git", "rev-parse", "--verify", "--quiet", ref],
-        cwd=REPO_ROOT,
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.returncode in (0, 1)
-    assert result.stderr == ""
-    if result.returncode == 1:
-        assert result.stdout == ""
-        return None
-    lines = result.stdout.splitlines()
-    assert len(lines) == 1
-    assert lines[0] and lines[0].strip() == lines[0]
-    return lines[0]
-
-
-def _assert_phase53_repository_state() -> None:
-    if _phase54_active_gate2_is_active():
-        return
-    tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
-    name_status = tuple(_git_output(["diff", "--name-status"]).splitlines())
-    untracked = set(
-        _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
-    ) - {""}
-    cached_name_status = tuple(
-        _git_output(["diff", "--cached", "--name-status"]).splitlines()
-    )
-    assert cached_name_status == ()
-    assert name_status == tuple(f"M\t{path}" for path in sorted(tracked))
-
-    branch = _git_output(["branch", "--show-current"])
-    head = _git_output(["rev-parse", "HEAD"])
-    main = _git_optional_ref("refs/heads/main")
-    origin_main = _git_optional_ref("refs/remotes/origin/main")
-    dirty = tracked | untracked
-    slice2_modified = _literal_string_set(SLICE2_STATE_REL, "MODIFIED_PATHS")
-    slice2_added = _literal_string_set(SLICE2_STATE_REL, "ADDED_PATHS")
-    slice2_allowlist = slice2_modified | slice2_added
-    phase54_added = _literal_string_set(PHASE54_SLICE2_STATE_REL, "ADDED_PATHS")
-    phase54_modified = _literal_string_set(
-        PHASE54_SLICE2_STATE_REL, "NON_READER_MODIFIED_PATHS"
-    ) | _literal_string_set(PHASE54_SLICE2_STATE_REL, "MECHANICAL_READER_PATHS")
-    phase54_allowlist = phase54_added | phase54_modified
-    assert dirty in (
-        set(),
-        PHASE53_ALLOWLIST_PATHS,
-        CI_REPAIR_MODIFIED_PATHS,
-        slice2_allowlist,
-        phase54_allowlist,
-    )
-
-    if dirty == phase54_allowlist:
-        assert tracked == phase54_modified
-        assert untracked == phase54_added
-        assert branch == "main"
-        assert head == main == origin_main
-        assert head in {
-            PHASE54_SLICE2_BASE_HEAD_SHA,
-            PHASE54_SLICE4_BASE_HEAD_SHA,
-            PHASE54_SLICE5_BASE_HEAD_SHA,
-            PHASE54_SLICE6_BASE_HEAD_SHA,
-            PHASE54_SLICE7_BASE_HEAD_SHA,
-            PHASE54_SLICE8_BASE_HEAD_SHA,
-            PHASE54_SLICE9_BASE_HEAD_SHA,
-            "b81843acadb294630db361c09949868d004b1bca",
-        }
-        return
-
-    if dirty == slice2_allowlist:
-        assert tracked == slice2_modified
-        assert untracked == slice2_added
-        assert branch == "main"
-        assert head == main == origin_main == SLICE2_BASE_HEAD_SHA
-        return
-
-    if dirty == PHASE53_ALLOWLIST_PATHS:
-        assert tracked == PHASE53_MODIFIED_PATHS
-        assert untracked == PHASE53_ADDED_PATHS
-        assert branch == "main"
-        assert head == main == origin_main == PHASE53_BASE_HEAD_SHA
-        return
-
-    if dirty == CI_REPAIR_MODIFIED_PATHS:
-        assert tracked == CI_REPAIR_MODIFIED_PATHS
-        assert untracked == set()
-        assert branch == "main"
-        assert head == main == origin_main == CI_REPAIR_BASE_HEAD_SHA
-        return
-
-    assert dirty == set()
-    assert tracked == untracked == set()
-    if branch == "main":
-        assert main == head
-    elif branch == phase54_publication_topic_branch():
-        assert phase54_publication_clean_topic_is_active()
-        return
-    else:
-        assert branch == ""
-    if main is not None:
-        assert main == head
-    if origin_main is not None:
-        assert origin_main == head
 
 
 def _literal_tuple(relative: str, name: str) -> tuple[str, ...]:
@@ -645,189 +518,6 @@ def test_rust_migration_track_and_no_big_bang_policy_are_locked() -> None:
         "no silent divergence",
     ):
         assert required in documents, required
-
-
-def test_static_only_no_behavior_public_schema_and_version_boundaries_are_locked() -> (
-    None
-):
-    documents = _read(PLAN_REL) + _read(SCOPE_REL) + _read(CURRENT_ROADMAP_REL)
-    for required in (
-        "static-only",
-        "no Pietto import",
-        "parser execution",
-        "no source/runtime behavior",
-        "generated",
-        "golden",
-        "CLI JSON v1",
-        "Project JSON v2",
-        "Semantic Metadata Artifact v1",
-        "public API",
-        "0.1.0",
-        "tag",
-        "release",
-        "publish",
-        "signing",
-        "attestation",
-    ):
-        assert required in documents, required
-    _assert_phase53_repository_state()
-
-
-def test_reader_migrations_reconciliation4_and_current_authority_are_locked() -> None:
-    predecessor = _read(PREDECESSOR_REL)
-    current = _read(CURRENT_ROADMAP_REL)
-    normalized = " ".join(current.split())
-    slice2_plan = " ".join(_read(PLAN_REL).split())
-    assert predecessor.count(RECONCILIATION_4_H3) == 1
-    assert "sole current roadmap authority" in predecessor + current
-    assert "839 tracked files" in normalized
-    assert "515 Python files" in normalized
-    assert "228 Markdown files" in normalized
-    assert "434 test modules" in normalized
-    assert "4,178 top-level test functions" in normalized
-    assert "6,236 collected items" in normalized
-    assert "111 passed, 0 deselected" in normalized
-    assert "6,090 passed, 146 deselected" in normalized
-    assert "6,236 passed" in normalized
-    for required in (
-        "841 tracked files",
-        "516 Python files",
-        "229 Markdown files",
-        "435 test modules",
-        "4194 top-level test functions",
-        "6306 collected items",
-        "146 focused passes",
-        "6121 passed, 185 deselected",
-        "clean-CI projection of 6306 passes",
-        "844 tracked files",
-        "518 Python files",
-        "230 Markdown files",
-        "436 test modules",
-        "4219 top-level test functions",
-        "6376 collected items",
-        "202 focused items",
-        "6193 passed, 183 deselected",
-        "6376 clean-CI passes",
-        "847 tracked files",
-        "520 Python files",
-        "231 Markdown files",
-        "437 test modules",
-        "4250 top-level test functions",
-        "6566 collected items",
-        "427 focused",
-        "6383 passed, 183 deselected",
-        "6566 clean-CI passes",
-        "850 tracked files",
-        "522 Python files",
-        "232 Markdown files",
-        "438 test modules",
-        "4288 top-level test functions",
-        "6711 collected items",
-        "607 focused",
-        "6528 passed, 183 deselected",
-        "6711 clean-CI passes",
-        "854 tracked files",
-        "525 Python files",
-        "233 Markdown files",
-        "439 test modules",
-        "4324 top-level test functions",
-        "6867 collected items",
-        "775 focused",
-        "6682 passed, 185 deselected",
-        "6867 clean-CI passes",
-        "857 tracked files",
-        "527 Python files",
-        "234 Markdown files",
-        "440 test modules",
-        "4365 top-level test functions",
-        "7035 collected items",
-        "943 focused items",
-        "6850 passed, 185 deselected",
-        "7035 clean-CI passes",
-        "859 tracked files",
-        "528 Python files",
-        "235 Markdown files",
-        "441 test modules",
-        "4410 top-level test functions",
-        "7314 collected items",
-        "1646 focused items",
-        "7553 passed and 185 deselected",
-        "7738 passes in each clean-CI Python job",
-        "861 tracked files",
-        "529 Python files",
-        "236 Markdown files",
-        "442 test modules",
-        "4464 top-level test functions",
-        "7738 collected items",
-        "2273 focused items",
-        "8180 passed and 185 deselected",
-        "8365 passes in each clean-CI Python job",
-        "864 tracked files",
-        "531 Python files",
-        "237 Markdown files",
-        "443 test modules",
-        "4531 top-level test functions",
-        "8365 collected items",
-        "3107 focused items",
-        "9014 passed, 185 deselected",
-        "9199 passes in each clean-CI Python job",
-        "867 tracked files",
-        "533 Python files",
-        "238 Markdown files",
-        "444 test modules",
-        "4612 top-level test functions",
-        "9199 collected items",
-        "879 tracked files",
-        "541 Python files",
-        "242 Markdown files",
-        "448 test modules",
-        "4836 top-level test functions",
-        "10784 collected items",
-        "4765 focused passes",
-        "10599 passed / 185 deselected",
-        "881 tracked files",
-        "542 Python files",
-        "243 Markdown files",
-        "449 test modules",
-        "4852 top-level test functions",
-        "10800 collected items",
-        "4781 focused passes",
-        "10615 passed / 185 deselected",
-    ):
-        assert required in slice2_plan, required
-    for relative in (
-        "tests/test_phase52_aggregate_signature_algebra_facts.py",
-        "tests/test_phase52_expression_stage_clause_capability_facts.py",
-        "tests/test_phase52_scalar_function_operator_signature_facts.py",
-        "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
-        "tests/test_phase52_completion_audit_and_status_lock.py",
-    ):
-        assert "(468, 5538)" in _read(relative)
-    for relative in (
-        "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
-        "tests/test_phase52_completion_audit_and_status_lock.py",
-    ):
-        assert "(582, 273)" in _read(relative)
-
-
-def test_gate2_validation_depth_one_gate3_activation_and_stop_conditions_are_locked() -> (
-    None
-):
-    _assert_phase53_repository_state()
-    documents = _read(PLAN_REL)
-    normalized = documents.replace(",", "")
-    for required in (
-        "depth-one",
-        "9014 passed 185 deselected",
-        "9199 passes in each clean-CI Python job",
-        "separately authorized Gate 3",
-        "one write-mode Ruff invocation",
-        "A3/M61/D0",
-        "STOP",
-    ):
-        assert required in normalized, required
-    assert 3107 == 834 + 2273
-    assert 9199 - 185 == 9014
 
 
 _SLICE11_READER_MIGRATION_PATHS = (

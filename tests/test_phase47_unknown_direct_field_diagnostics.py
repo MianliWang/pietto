@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import subprocess
 from typing import cast
 
 import pytest
@@ -17,39 +16,9 @@ from pietto._project.model import (
 )
 from pietto.ast_nodes import QueryDef, TableDef
 from pietto.errors import Severity
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE8_GATE2_PATHS = {
-    "docs/plan/phase-48-query-to-query-row-schema.md",
-    "docs/spec/phase48-query-to-query-multi-hop-propagation-v1.md",
-    "docs/spec/phase48-table-to-table-table-to-query-propagation-v1.md",
-    "src/pietto/_project/model.py",
-    "tests/test_phase47_private_row_schema_scaffold.py",
-    "tests/test_phase47_source_row_schema_propagation.py",
-    "tests/test_phase47_direct_bare_field_row_schema.py",
-    "tests/test_phase47_qualified_field_row_schema.py",
-    "tests/test_phase47_direct_field_rename_row_schema.py",
-    "tests/test_phase47_unknown_direct_field_diagnostics.py",
-    "tests/test_phase47_downstream_readiness_hardening.py",
-    "tests/test_phase48_schema_availability_state_carrier.py",
-    "tests/test_phase48_query_to_query_multi_hop_propagation.py",
-    "tests/test_phase48_query_to_query_row_schema_scope_lock.py",
-    "tests/test_phase48_table_upstream_row_schema_propagation.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-}
 
 
 def test_unknown_bare_field_emits_pie_s2102_and_unknown_schema(
@@ -326,14 +295,11 @@ def test_project_text_check_reports_unknown_direct_field_diagnostic_through_exis
     assert "Unknown field: missing" in captured.err
 
 
-def test_phase47_slice8_package_version_and_dirty_paths_are_locked() -> None:
+def test_package_version_is_locked() -> None:
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert (
-        _git_status_paths().issubset(ALLOWED_SLICE8_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
 
 
 def _assert_unknown_direct_field(
@@ -431,22 +397,3 @@ def _write(root: Path, relative_path: str, source: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
     return path
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths

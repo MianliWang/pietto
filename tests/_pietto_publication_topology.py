@@ -26,8 +26,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import _phase54_active_gate2_manifest
-
 TOPOLOGY_DIRTY_GATE2 = "dirty_gate2_candidate"
 TOPOLOGY_CLEAN_TOPIC = "clean_topic_candidate"
 TOPOLOGY_REPAIR_CHILD = "non_amend_repair_child"
@@ -36,19 +34,15 @@ TOPOLOGY_SHALLOW_PULL_REQUEST = "shallow_pull_request_checkout"
 TOPOLOGY_SQUASH_MAIN = "squash_main"
 TOPOLOGY_MAIN_PUSH = "natural_main_push"
 
-# Slice 2 publishes directly from ``main``.  Keep this sequence separate from
-# the historical PR/squash fixtures: combining them would accidentally let a
-# later direct-main reader accept a lifecycle that Slice 2 never produces.
-TOPOLOGY_SLICE2_DIRECT_MAIN_DIRTY_CANDIDATE = "slice2_direct_main_dirty_candidate"
-TOPOLOGY_SLICE2_DIRECT_MAIN_PRE_PUSH = "slice2_direct_main_clean_pre_push"
-TOPOLOGY_SLICE2_DIRECT_MAIN_SHALLOW_PUSH = "slice2_direct_main_shallow_push"
-TOPOLOGY_SLICE2_DIRECT_MAIN_RECONCILED = "slice2_direct_main_reconciled"
+# Direct-main publication has only the three generic supported projections.
+TOPOLOGY_DIRECT_MAIN_DIRTY_CANDIDATE = "direct_main_dirty_candidate"
+TOPOLOGY_DIRECT_MAIN_PRE_PUSH = "direct_main_clean_pre_push"
+TOPOLOGY_DIRECT_MAIN_SHALLOW_PUSH = "direct_main_shallow_push"
 
-SLICE2_DIRECT_MAIN_TOPOLOGY_KINDS: tuple[str, ...] = (
-    TOPOLOGY_SLICE2_DIRECT_MAIN_DIRTY_CANDIDATE,
-    TOPOLOGY_SLICE2_DIRECT_MAIN_PRE_PUSH,
-    TOPOLOGY_SLICE2_DIRECT_MAIN_SHALLOW_PUSH,
-    TOPOLOGY_SLICE2_DIRECT_MAIN_RECONCILED,
+DIRECT_MAIN_TOPOLOGY_KINDS: tuple[str, ...] = (
+    TOPOLOGY_DIRECT_MAIN_DIRTY_CANDIDATE,
+    TOPOLOGY_DIRECT_MAIN_PRE_PUSH,
+    TOPOLOGY_DIRECT_MAIN_SHALLOW_PUSH,
 )
 
 TOPOLOGY_KINDS: tuple[str, ...] = (
@@ -78,7 +72,7 @@ CI_EVENT_VARIABLES: tuple[str, ...] = (
 # The topic branch that carries a publication moves with every Gate. Reading it
 # from the active Gate 2 manifest keeps one authority for the name instead of
 # freezing a stale branch into the fixtures every later Slice must work around.
-TOPIC_BRANCH = _phase54_active_gate2_manifest.phase54_publication_topic_branch()
+TOPIC_BRANCH = "topic"
 MAIN_BRANCH = "main"
 BASE_SUBJECT = "Base commit"
 TOPIC_SUBJECT = "Add Pietto workflow convergence tooling"
@@ -143,7 +137,7 @@ class TopologyExpectation:
     behind: int = 0
 
     def __post_init__(self) -> None:
-        if self.kind not in TOPOLOGY_KINDS + SLICE2_DIRECT_MAIN_TOPOLOGY_KINDS:
+        if self.kind not in TOPOLOGY_KINDS + DIRECT_MAIN_TOPOLOGY_KINDS:
             raise TopologyError(f"unknown topology kind: {self.kind}")
 
 
@@ -1157,7 +1151,7 @@ def _working_tree_candidate_tree(root: Path) -> str:
     git_dir = Path(_git(root, "rev-parse", "--git-dir"))
     if not git_dir.is_absolute():
         git_dir = root / git_dir
-    temporary_index = git_dir / "pietto-slice2-candidate.index"
+    temporary_index = git_dir / "pietto-direct-main-candidate.index"
     temporary_lock = temporary_index.with_name(f"{temporary_index.name}.lock")
     if temporary_index.exists() or temporary_lock.exists():
         raise TopologyError(f"temporary candidate index is occupied: {temporary_index}")
@@ -1808,23 +1802,25 @@ def build_all(
     return tuple(fixtures)
 
 
-def build_slice2_direct_main_topology(
+def build_direct_main_topology(
     kind: str,
     root: Path,
     *,
     sealed_tree: str,
+    subject: str,
+    trailer: str | None = None,
     source: Path | None = None,
     _sealed_baseline: str | None = None,
 ) -> TopologyFixture:
-    """Build one exact Slice 2 direct-main publication projection.
+    """Build one direct-main publication projection.
 
     These fixtures intentionally create a single-parent commit on ``main``.
     They do not synthesize a topic branch, pull-request merge, or squash
-    commit, because none is an authorized Slice 2 publication shape.
+    commit.
     """
 
-    if kind not in SLICE2_DIRECT_MAIN_TOPOLOGY_KINDS:
-        raise TopologyError(f"unknown Slice 2 direct-main topology kind: {kind}")
+    if kind not in DIRECT_MAIN_TOPOLOGY_KINDS:
+        raise TopologyError(f"unknown direct-main topology kind: {kind}")
     _require_sealed_tree(sealed_tree)
     if root.is_symlink():
         raise TopologyError(f"topology root must not be a symbolic link: {root}")
@@ -1842,7 +1838,7 @@ def build_slice2_direct_main_topology(
     _set_upstream(root, MAIN_BRANCH, baseline)
     refs: dict[str, str] = {"baseline": baseline}
 
-    if kind == TOPOLOGY_SLICE2_DIRECT_MAIN_DIRTY_CANDIDATE:
+    if kind == TOPOLOGY_DIRECT_MAIN_DIRTY_CANDIDATE:
         if source is not None and not source_is_dirty(source):
             raise TopologyError(f"source has no uncommitted candidate: {source}")
         _apply_candidate(root, source, _SYNTHETIC_CANDIDATE)
@@ -1907,12 +1903,9 @@ def build_slice2_direct_main_topology(
         )
     direct = _commit(
         root,
-        _phase54_active_gate2_manifest.PHASE55_SLICE2_DIRECT_MAIN_SUBJECT,
+        subject,
         allow_empty=source is not None,
-        trailer=(
-            f"{_phase54_active_gate2_manifest.PHASE55_SLICE2_REVIEWED_TREE_TRAILER}: "
-            f"{sealed_tree}"
-        ),
+        trailer=f"{trailer}: {sealed_tree}" if trailer else "",
     )
     if source is not None:
         _verify_candidate(root, source, committed=True)
@@ -1924,7 +1917,7 @@ def build_slice2_direct_main_topology(
             f"direct-main commit tree {direct_tree} is not sealed tree {sealed_tree}"
         )
 
-    if kind == TOPOLOGY_SLICE2_DIRECT_MAIN_PRE_PUSH:
+    if kind == TOPOLOGY_DIRECT_MAIN_PRE_PUSH:
         observation = observe(
             root,
             event_name=EVENT_LOCAL,
@@ -1961,10 +1954,10 @@ def build_slice2_direct_main_topology(
         )
 
     _set_upstream(root, MAIN_BRANCH, direct)
-    if kind == TOPOLOGY_SLICE2_DIRECT_MAIN_SHALLOW_PUSH:
-        checkout = _reserve_sibling(root, "slice2-mainpush")
+    if kind == TOPOLOGY_DIRECT_MAIN_SHALLOW_PUSH:
+        checkout = _reserve_sibling(root, "direct-main-shallow")
         _git(root, "init", "--quiet", str(checkout))
-        _git(checkout, "remote", "add", "origin", str(root))
+        _git(checkout, "remote", "add", "origin", root.resolve().as_uri())
         _git(
             checkout,
             "fetch",
@@ -2008,46 +2001,16 @@ def build_slice2_direct_main_topology(
             observation=observation,
             refs=refs,
         )
-
-    observation = observe(
-        root,
-        event_name=EVENT_LOCAL,
-        event_head_ref="",
-        event_base_ref="",
-        base_ref=f"refs/remotes/origin/{MAIN_BRANCH}",
-        include_sync=True,
-    )
-    expectation = TopologyExpectation(
-        kind=kind,
-        branch=MAIN_BRANCH,
-        head=direct,
-        head_tree=direct_tree,
-        head_parents=(baseline,),
-        head_subject=observation.head_subject,
-        head_message=observation.head_message,
-        head_trailer=observation.head_trailer,
-        merge_base="",
-        shallow=False,
-        event_name=EVENT_LOCAL,
-        event_head_ref="",
-        event_base_ref="",
-        upstream=f"origin/{MAIN_BRANCH}",
-        origin_main=direct,
-    )
-    return TopologyFixture(
-        kind=kind,
-        root=root,
-        expectation=expectation,
-        observation=observation,
-        refs=refs,
-    )
+    raise AssertionError(f"unhandled direct-main topology kind: {kind}")
 
 
-def build_slice2_direct_main_all(
+def build_direct_main_all(
     root: Path,
     *,
     sealed_baseline: str,
     sealed_tree: str,
+    subject: str,
+    trailer: str | None = None,
     source: Path,
 ) -> tuple[TopologyFixture, ...]:
     """Build one sealed direct-main lifecycle from one captured candidate."""
@@ -2069,10 +2032,12 @@ def build_slice2_direct_main_all(
             f"source main {source_baseline} is not sealed baseline {sealed_baseline}"
         )
 
-    dirty = build_slice2_direct_main_topology(
-        TOPOLOGY_SLICE2_DIRECT_MAIN_DIRTY_CANDIDATE,
-        root / TOPOLOGY_SLICE2_DIRECT_MAIN_DIRTY_CANDIDATE,
+    dirty = build_direct_main_topology(
+        TOPOLOGY_DIRECT_MAIN_DIRTY_CANDIDATE,
+        root / TOPOLOGY_DIRECT_MAIN_DIRTY_CANDIDATE,
         sealed_tree=sealed_tree,
+        subject=subject,
+        trailer=trailer,
         source=source,
         _sealed_baseline=sealed_baseline,
     )
@@ -2087,12 +2052,14 @@ def build_slice2_direct_main_all(
         raise TopologyError(f"snapshot has no uncommitted candidate: {snapshot}")
 
     projections: list[TopologyFixture] = [dirty]
-    for kind in SLICE2_DIRECT_MAIN_TOPOLOGY_KINDS[1:]:
+    for kind in DIRECT_MAIN_TOPOLOGY_KINDS[1:]:
         projections.append(
-            build_slice2_direct_main_topology(
+            build_direct_main_topology(
                 kind,
                 root / kind,
                 sealed_tree=sealed_tree,
+                subject=subject,
+                trailer=trailer,
                 source=snapshot,
                 _sealed_baseline=sealed_baseline,
             )
@@ -2100,24 +2067,20 @@ def build_slice2_direct_main_all(
 
     direct = projections[1].refs["direct_main"]
     if any(fixture.refs["baseline"] != sealed_baseline for fixture in projections):
-        raise TopologyError("Slice 2 direct-main projections disagree on the baseline")
+        raise TopologyError("direct-main projections disagree on the baseline")
     if dirty.refs["sealed_tree"] != sealed_tree or any(
         fixture.expectation.head_tree != sealed_tree for fixture in projections[1:]
     ):
-        raise TopologyError(
-            "Slice 2 direct-main projections disagree on the sealed tree"
-        )
+        raise TopologyError("direct-main projections disagree on the sealed tree")
     if any(fixture.refs.get("direct_main") != direct for fixture in projections[1:]):
-        raise TopologyError(
-            "Slice 2 direct-main projections disagree on the direct head"
-        )
+        raise TopologyError("direct-main projections disagree on the direct head")
     return tuple(projections)
 
 
-def slice2_direct_main_sequence_is_complete(kinds: Sequence[str]) -> bool:
-    """Return whether ``kinds`` covers the exact Slice 2 direct-main lifecycle."""
+def direct_main_sequence_is_complete(kinds: Sequence[str]) -> bool:
+    """Return whether ``kinds`` covers the supported direct-main lifecycle."""
 
-    return tuple(kinds) == SLICE2_DIRECT_MAIN_TOPOLOGY_KINDS
+    return tuple(kinds) == DIRECT_MAIN_TOPOLOGY_KINDS
 
 
 def rejected_variants(

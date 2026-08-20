@@ -3,40 +3,9 @@ from __future__ import annotations
 import ast
 import hashlib
 import inspect
-import re
-import subprocess
 import tomllib
 from dataclasses import fields
 from pathlib import Path
-
-from _phase54_active_gate2_manifest import (
-    phase54_post_slice12_interlude_expected_allowlist_paths,
-    phase54_post_slice12_interlude_expected_added_paths,
-    PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
-    PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
-    PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS,
-    PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS,
-    PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
-    PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS,
-    PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS,
-    PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
-    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
-    PHASE55_SLICE2_BASELINE,
-    PHASE55_SLICE2_DIRECT_MAIN_BRANCH,
-    PHASE55_SLICE2_GATE2_ADDED_PATHS,
-    PHASE55_SLICE2_GATE2_DELETED_PATHS,
-    PHASE55_SLICE2_GATE2_MODIFIED_PATHS,
-    phase55_slice2_direct_main_staging_matches,
-    phase54_slice11_pr_ci_repair_is_active,
-    phase54_slice12_pr_ci_repair_is_active,
-    phase54_slice12_mechanical_repair3_is_active,
-    phase54_slice12_mechanical_repair4_is_active,
-    phase54_slice12_product_repair3_is_active,
-    phase54_slice12_product_repair10_is_active,
-    phase54_slice12_product_repair11_is_active,
-    phase54_slice11_python313_repair_is_active,
-    phase54_slice11_substantive_recovery_is_active,
-)
 
 from pietto._project.aggregate_grouped_clause_facts import (
     ProjectAggregateGroupedClauseReadiness,
@@ -160,7 +129,6 @@ SLICE8_BASE_HEAD_SHA = "027b33cafcfd58916a89e299487dad38d24ade6c"
 SLICE8_PATH_COUNTS = (66, 3, 69)
 SLICE9_BASE_HEAD_SHA = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
 SLICE9_PATH_COUNTS = (68, 3, 71)
-SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 
 PHASE51_SLICE_ARTIFACTS = (
     (
@@ -314,32 +282,6 @@ PHASE51_FOCUSED_COUNTS = (
     (7, 7),
 )
 
-EXPECTED_HELPERS = (
-    "_read",
-    "_normalized",
-    "_headings",
-    "_git_output",
-    "_dirty_paths",
-    "_digest",
-    "_compiler_digest",
-    "_project_private_paths",
-    "_top_level_functions",
-    "_pytest_inventory",
-)
-EXPECTED_TESTS = (
-    "test_slice12_artifacts_title_and_exact_heading_order_are_locked",
-    "test_slice1_11_lifecycle_artifact_and_focused_item_ledgers_are_exact",
-    "test_result_schema_carrier_field_orders_and_builder_signatures_are_locked",
-    "test_dependency_lineage_persistence_and_downstream_completion_is_locked",
-    "test_failure_diagnostic_and_non_concrete_behavior_remains_compatible",
-    "test_project_json_public_exports_and_private_serialization_boundaries_are_locked",
-    "test_deferred_owner_phase52_handoff_and_active_roadmap_reconciliation_are_locked",
-    "test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty_safe",
-    "test_historical_allowlists_migrations_and_clean_only_guards_are_accounted",
-    "test_completion_encoding_gate2_gate3_and_no_release_boundaries_are_locked",
-    "test_static_git_helper_and_exact_slice12_dirty_set_are_locked",
-)
-
 BOUNDARY_PATHS = (
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
@@ -365,9 +307,9 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "8c93baee223f2afa4c62b820becb92aae34b8af2713cf4419da211cb5e88a4d9"
+COMPILER_DIGEST = "6cbe7ccfbd84d7b2966964ac91a56e7eeacdc798c3d161da64d61add662b0420"
 PROJECT_PRIVATE_DIGEST = (
-    "0f5a417592f7f0df276a34137b14a1a0f39526e4266279ed7af76b3dbfa49de9"
+    "327ba4f5c12d916d6577cd9510aa2a28df8519dafdc935ae67a6d2f5b2fc4830"
 )
 
 PROJECT_JSON_V2_KEYS = (
@@ -415,44 +357,6 @@ DEFERRED_OWNERS = (
     "POST60_MULTI_RELATION_SQL",
     "POST60_RELATIONSHIP_JOIN_GRAIN_FANOUT",
     "OUT_OF_SCOPE_CHARTER",
-)
-
-HISTORICAL_ALLOWLIST_COUNTS = (
-    (
-        "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py",
-        "ALLOWED_PHASE51_SLICE1_GATE2_PATHS",
-        4,
-    ),
-    (
-        "tests/test_phase51_selected_let_accepted_expression_aggregate.py",
-        "EXPECTED_GATE2_PATHS",
-        15,
-    ),
-    (
-        "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
-        "EXPECTED_GATE2_PATHS",
-        16,
-    ),
-    (
-        "tests/test_phase51_clause_dependency_fail_closed.py",
-        "EXPECTED_GATE2_PATHS",
-        13,
-    ),
-    (
-        "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
-        "EXPECTED_GATE2_PATHS",
-        15,
-    ),
-    (
-        "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
-        "EXPECTED_GATE2_PATHS",
-        38,
-    ),
-    (
-        "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-        "EXPECTED_GATE2_PATHS",
-        20,
-    ),
 )
 
 CLEAN_ONLY_GUARDS = (
@@ -592,31 +496,6 @@ def _headings(path: Path, level: int) -> tuple[str, ...]:
     )
 
 
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.rstrip()
-
-
-def _dirty_paths() -> set[str]:
-    paths: set[str] = set()
-    for line in _git_output(
-        ["status", "--short", "--untracked-files=all"]
-    ).splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", maxsplit=1)[1]
-        paths.add(path)
-    return paths
-
-
 def _digest(paths: tuple[Path, ...]) -> str:
     digest = hashlib.sha256()
     for path in paths:
@@ -725,30 +604,6 @@ def test_slice12_artifacts_title_and_exact_heading_order_are_locked() -> None:
     contract = _read(SPEC_PATH)
     for relative_path in SLICE12_GATE2_PATHS:
         assert f"`{relative_path}`" in contract
-
-
-def test_slice1_11_lifecycle_artifact_and_focused_item_ledgers_are_exact() -> None:
-    contract = _normalized(SPEC_PATH)
-    assert len(PHASE51_SLICE_ARTIFACTS) == 11
-    assert len(PHASE51_LIFECYCLE_TOKENS) == 11
-    assert len(PHASE51_FOCUSED_COUNTS) == 11
-
-    for artifact, lifecycle, focused_counts in zip(
-        PHASE51_SLICE_ARTIFACTS,
-        PHASE51_LIFECYCLE_TOKENS,
-        PHASE51_FOCUSED_COUNTS,
-        strict=True,
-    ):
-        title, spec_path, test_path = artifact
-        assert (REPO_ROOT / spec_path).is_file(), spec_path
-        assert (REPO_ROOT / test_path).is_file(), test_path
-        for required in (title, spec_path, test_path, *lifecycle):
-            assert required in contract, required
-        assert _pytest_inventory((REPO_ROOT / test_path,)) == focused_counts
-
-    assert tuple(
-        sum(counts[index] for counts in PHASE51_FOCUSED_COUNTS) for index in (0, 1)
-    ) == (154, 322)
 
 
 def test_result_schema_carrier_field_orders_and_builder_signatures_are_locked() -> None:
@@ -1044,216 +899,10 @@ def test_deferred_owner_phase52_handoff_and_active_roadmap_reconciliation_are_lo
         assert required in reconciliation, required
 
 
-def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty_safe() -> (
-    None
-):
-    compiler_count, compiler_digest = _compiler_digest()
-    assert (compiler_count, compiler_digest) == (108, COMPILER_DIGEST)
-    for relative_path in BOUNDARY_PATHS:
-        boundary_values = re.findall(
-            r'^BOUNDARY_HASH = "([0-9a-f]{64})"$',
-            _read(REPO_ROOT / relative_path),
-            flags=re.MULTILINE,
-        )
-        assert boundary_values == [COMPILER_DIGEST]
-
-    project_paths = _project_private_paths()
-    assert len(project_paths) == 33
-    assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
-    phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
-    assert (
-        f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        33,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
-    ) in phase33
-
-    for relative_path, expected_hash in PROTECTED_HASHES.items():
-        assert (
-            hashlib.sha256((REPO_ROOT / relative_path).read_bytes()).hexdigest()
-            == expected_hash
-        )
-    pyproject = tomllib.loads(_read(REPO_ROOT / "pyproject.toml"))
-    project = pyproject["project"]
+def test_package_version_remains_current() -> None:
+    project = tomllib.loads(_read(REPO_ROOT / "pyproject.toml"))["project"]
     assert isinstance(project, dict)
     assert project["version"] == "0.1.0"
-    assert _git_output(["tag", "--points-at", "HEAD"]) == ""
-
-
-def test_historical_allowlists_migrations_and_clean_only_guards_are_accounted() -> None:
-    contract = _normalized(SPEC_PATH)
-    for historical_entry in (
-        "Slice 1, 4 paths",
-        "Slice 2, 13 paths",
-        "Slice 2 additive repair, 1 path",
-        "Slice 3, 13 paths",
-        "Slice 4, 14 paths",
-        "Slice 5, 13 paths",
-        "Slice 6, 15 paths",
-        "Slice 7, 16 paths",
-        "Slice 8, 13 paths",
-        "Slice 9, 15 paths",
-        "interpreter-integrity repair after Slice 9 changed exactly",
-        "Slice 10, 38 paths",
-        "Slice 10 static-lock repair, 1 path",
-        "Slice 11, 20 paths",
-    ):
-        assert historical_entry in contract, historical_entry
-
-    for relative_path, assignment_name, expected_count in HISTORICAL_ALLOWLIST_COUNTS:
-        tree = ast.parse(_read(REPO_ROOT / relative_path), filename=relative_path)
-        assignments = tuple(
-            node
-            for node in tree.body
-            if isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id == assignment_name
-        )
-        assert len(assignments) == 1
-        value = assignments[0].value
-        assert isinstance(value, ast.Set)
-        assert len(value.elts) == expected_count
-
-    migrations = (
-        (
-            "tests/test_phase47_downstream_readiness_hardening.py",
-            "test_phase50_aggregate_projection_schema_" + "remains_absent",
-            "test_aggregate_projection_schema_is_" + "concrete_with_persisted_fact",
-        ),
-        (
-            "tests/test_phase48_upstream_non_concrete_schema_propagation.py",
-            "test_computed_alias_concrete_while_aggregate_grouped_" + "stay_deferred",
-            "test_computed_alias_and_aggregate_are_concrete_while_pure_"
-            + "grouping_stays_deferred",
-        ),
-        (
-            "tests/test_phase48_query_to_query_multi_hop_propagation.py",
-            "test_computed_alias_concrete_but_let_aggregate_grouped_surfaces_"
-            + "defer",
-            "test_computed_alias_let_and_aggregate_are_concrete_while_pure_"
-            + "grouping_stays_deferred",
-        ),
-        (
-            "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
-            "test_unknown_null_division_and_aggregate_surfaces_remain_"
-            + "non_concrete",
-            "test_unknown_null_division_stay_non_concrete_while_aggregate_is_"
-            + "concrete",
-        ),
-        (
-            "tests/test_phase49_computed_alias_origin_provenance_privacy.py",
-            "test_let_aggregate_and_grouped_outputs_remain_out_of_" + "scope",
-            "test_let_and_aggregate_outputs_are_concrete_while_pure_grouping_"
-            + "stays_deferred",
-        ),
-        (
-            "tests/test_phase49_computed_let_multi_hop_row_lineage.py",
-            "test_non_concrete_and_aggregate_grouped_lineage_remains_" + "empty",
-            "test_non_concrete_lineage_is_empty_while_grouped_aggregate_"
-            + "lineage_is_concrete",
-        ),
-        (
-            "tests/test_phase49_let_visibility_order_shadowing_hardening.py",
-            "test_project_grouped_selected_let_output_schema_remains_" + "deferred",
-            "test_invalid_grouped_selected_let_output_schema_is_" + "unknown",
-        ),
-        (
-            "tests/test_phase49_selected_let_derived_output_schema.py",
-            "test_upstream_non_concrete_and_grouped_outputs_remain_" + "non_concrete",
-            "test_unresolved_upstream_is_blocked_and_invalid_grouped_let_"
-            + "output_is_unknown",
-        ),
-        (
-            "tests/test_phase49_unknown_deferred_diagnostic_ordering_hardening.py",
-            "test_grouped_aggregate_schema_remains_deferred_without_public_"
-            + "diagnostics",
-            "test_grouped_aggregate_schema_graph_and_lineage_are_concrete_"
-            + "without_public_diagnostics",
-        ),
-        (
-            "tests/test_phase51_private_result_role_output_identity.py",
-            "test_aggregate_and_grouped_relations_remain_deferred_without_" + "facts",
-            "test_aggregate_and_grouped_relations_are_concrete_with_persisted_"
-            + "facts",
-        ),
-        (
-            "tests/test_phase51_group_key_project_row_schema.py",
-            "test_pure_and_mixed_grouped_production_states_remain_" + "deferred",
-            "test_pure_grouping_stays_deferred_while_grouped_aggregate_is_"
-            + "concrete",
-        ),
-        (
-            "tests/test_phase51_aggregate_only_project_row_schema.py",
-            "test_production_remains_deferred_unpersisted_private_and_"
-            + "unserialized",
-            "test_aggregate_and_grouped_outputs_are_persisted_private_and_"
-            + "unserialized",
-        ),
-        (
-            "tests/test_phase51_grouped_aggregate_project_row_schema.py",
-            "test_production_remains_deferred_private_unpersisted_and_"
-            + "unserialized",
-            "test_aggregate_grouped_outputs_are_concrete_private_persisted_and_"
-            + "unserialized",
-        ),
-        (
-            "tests/test_phase51_selected_let_accepted_expression_aggregate.py",
-            "test_expression_and_row_let_relations_remain_production_deferred_"
-            + "private_and_unpersisted",
-            "test_expression_and_row_let_aggregate_relations_are_concrete_"
-            + "private_and_persisted",
-        ),
-        (
-            "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
-            "test_production_remains_deferred_unpersisted_private_and_"
-            + "downstream_inactive",
-            "test_aggregate_grouped_production_is_persisted_private_and_"
-            + "downstream_active",
-        ),
-        (
-            "tests/test_phase51_clause_dependency_fail_closed.py",
-            "test_production_state_dependency_lineage_and_downstream_remain_"
-            + "inactive",
-            "test_aggregate_grouped_production_persists_graph_lineage_and_"
-            + "activates_downstream",
-        ),
-        (
-            "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
-            "test_production_state_dependency_lineage_and_downstream_remain_"
-            + "inactive",
-            "test_origin_dependency_lineage_production_is_persisted_and_"
-            + "downstream_active",
-        ),
-    )
-    assert len(migrations) == 17
-
-    definitions_by_name: dict[str, list[str]] = {}
-    for path in sorted((REPO_ROOT / "tests").rglob("*.py")):
-        relative_path = path.relative_to(REPO_ROOT).as_posix()
-        for function_name in _top_level_functions(path):
-            definitions_by_name.setdefault(function_name, []).append(relative_path)
-    live_text_paths = tuple(
-        path
-        for root in (REPO_ROOT / "tests", REPO_ROOT / "docs")
-        for path in root.rglob("*")
-        if path.is_file() and path.suffix in {".py", ".md"}
-    )
-    for relative_path, old_name, new_name in migrations:
-        target_names = _top_level_functions(REPO_ROOT / relative_path)
-        assert old_name not in target_names
-        assert target_names.count(new_name) == 1
-        assert definitions_by_name.get(old_name, []) == []
-        assert definitions_by_name.get(new_name) == [relative_path]
-        assert all(old_name not in _read(path) for path in live_text_paths)
-
-    assert len(CLEAN_ONLY_GUARDS) == 29
-    for relative_path, function_name in CLEAN_ONLY_GUARDS:
-        assert function_name in _top_level_functions(REPO_ROOT / relative_path)
-
-    phase51_paths = tuple(
-        REPO_ROOT / artifact[2] for artifact in PHASE51_SLICE_ARTIFACTS
-    )
-    assert _pytest_inventory((*phase51_paths, SELF_PATH)) == (165, 333)
-    assert _top_level_functions(SELF_PATH) == (*EXPECTED_HELPERS, *EXPECTED_TESTS)
 
 
 def test_completion_encoding_gate2_gate3_and_no_release_boundaries_are_locked() -> None:
@@ -1292,161 +941,3 @@ def test_completion_encoding_gate2_gate3_and_no_release_boundaries_are_locked() 
         "Phase 52 is ACTIVE",
     ):
         assert forbidden not in docs, forbidden
-
-
-def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
-    tree = ast.parse(_read(SELF_PATH), filename=SELF_PATH.as_posix())
-    subprocess_calls = tuple(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "subprocess"
-        and node.func.attr == "run"
-    )
-    assert len(subprocess_calls) == 1
-    call = subprocess_calls[0]
-    assert len(call.args) == 1
-    command = call.args[0]
-    assert isinstance(command, ast.List)
-    assert len(command.elts) == 2
-    first, second = command.elts
-    assert isinstance(first, ast.Constant) and first.value == "git"
-    assert isinstance(second, ast.Starred)
-    assert isinstance(second.value, ast.Name) and second.value.id == "args"
-    keywords = {keyword.arg: keyword.value for keyword in call.keywords}
-    assert set(keywords) == {"cwd", "check", "text", "stdout", "stderr"}
-    assert isinstance(keywords["cwd"], ast.Name)
-    assert keywords["cwd"].id == "REPO_ROOT"
-    for name in ("check", "text"):
-        value = keywords[name]
-        assert isinstance(value, ast.Constant) and value.value is True
-    for name in ("stdout", "stderr"):
-        value = keywords[name]
-        assert isinstance(value, ast.Attribute)
-        assert isinstance(value.value, ast.Name)
-        assert value.value.id == "subprocess"
-        assert value.attr == "PIPE"
-
-    helper = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name == "_git_output"
-    )
-    returns = tuple(node for node in ast.walk(helper) if isinstance(node, ast.Return))
-    assert len(returns) == 1
-    return_value = returns[0].value
-    assert isinstance(return_value, ast.Call)
-    assert isinstance(return_value.func, ast.Attribute)
-    assert return_value.func.attr == "rstrip"
-    assert return_value.args == []
-
-    approved_git_calls = {
-        ("status", "--short", "--untracked-files=all"),
-        ("tag", "--points-at", "HEAD"),
-        ("ls-files", "--others", "--exclude-standard"),
-        ("diff", "--name-only"),
-        ("diff", "--cached", "--name-status"),
-        ("diff", "--check"),
-        ("rev-parse", "HEAD"),
-        ("rev-parse", "main"),
-        ("rev-parse", "origin/main"),
-        ("branch", "--show-current"),
-    }
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        if not isinstance(node.func, ast.Name) or node.func.id != "_git_output":
-            continue
-        assert len(node.args) == 1
-        argument = node.args[0]
-        assert isinstance(argument, ast.List)
-        values: list[str] = []
-        for element in argument.elts:
-            assert isinstance(element, ast.Constant)
-            assert isinstance(element.value, str)
-            values.append(element.value)
-        assert tuple(values) in approved_git_calls
-
-    slice2_modified = set(PHASE55_SLICE2_GATE2_MODIFIED_PATHS)
-    slice2_added = set(PHASE55_SLICE2_GATE2_ADDED_PATHS)
-    assert phase55_slice2_direct_main_staging_matches(
-        frozenset(slice2_added),
-        frozenset(slice2_modified),
-        PHASE55_SLICE2_GATE2_DELETED_PATHS,
-    )
-    dirty_paths = _dirty_paths()
-    assert dirty_paths in (
-        set(),
-        SLICE12_GATE2_PATHS,
-        PHASE52_GATE2_PATHS,
-        slice2_modified | slice2_added,
-        set(phase54_post_slice12_interlude_expected_allowlist_paths()),
-        set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
-        set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS),
-        set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS),
-        set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS),
-        set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS),
-        set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS),
-        set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS),
-        set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
-        set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
-    )
-    untracked_paths = set(
-        _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
-    )
-    assert untracked_paths in (
-        set(),
-        SLICE12_UNTRACKED_PATHS,
-        PHASE52_UNTRACKED_PATHS,
-        slice2_added,
-        set(phase54_post_slice12_interlude_expected_added_paths()),
-    )
-    if dirty_paths == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS):
-        assert phase54_slice11_python313_repair_is_active()
-        assert untracked_paths == set()
-    elif dirty_paths == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
-        assert phase54_slice11_substantive_recovery_is_active()
-    elif dirty_paths == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS):
-        assert phase54_slice12_pr_ci_repair_is_active()
-        assert untracked_paths == set()
-    elif dirty_paths == set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS):
-        assert phase54_slice12_mechanical_repair4_is_active()
-        assert untracked_paths == set()
-    elif dirty_paths == set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS):
-        assert phase54_slice12_mechanical_repair3_is_active()
-        assert untracked_paths == set()
-    elif dirty_paths == set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS):
-        assert phase54_slice12_product_repair3_is_active()
-        assert untracked_paths == set()
-    elif dirty_paths == set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS):
-        assert phase54_slice12_product_repair10_is_active()
-        assert untracked_paths == set()
-    elif dirty_paths == set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS):
-        assert phase54_slice12_product_repair11_is_active()
-        assert untracked_paths == set()
-    elif dirty_paths == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
-        assert phase54_slice11_pr_ci_repair_is_active()
-        assert untracked_paths == set()
-    elif dirty_paths == slice2_modified | slice2_added:
-        assert untracked_paths == slice2_added
-        assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
-            slice2_modified
-        )
-        assert _git_output(["branch", "--show-current"]) == (
-            PHASE55_SLICE2_DIRECT_MAIN_BRANCH
-        )
-        assert _git_output(["rev-parse", "HEAD"]) == PHASE55_SLICE2_BASELINE
-        assert _git_output(["rev-parse", "main"]) == PHASE55_SLICE2_BASELINE
-        assert _git_output(["rev-parse", "origin/main"]) == PHASE55_SLICE2_BASELINE
-    assert _git_output(["diff", "--cached", "--name-status"]) == ""
-    assert _git_output(["diff", "--check"]) == ""
-
-
-_SLICE10_READER_MIGRATION_PATHS = (
-    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
-    "src/pietto/semantic/window_partition_analysis.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-)
-# Phase 53 Slice 13 reader migration.

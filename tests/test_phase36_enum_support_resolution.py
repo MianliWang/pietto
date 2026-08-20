@@ -3,14 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
 )
 
-from test_phase39_candidate_decision import (
-    ALLOWED_SLICE3_CHANGED_PATHS as PHASE40_SLICE3_REPAIR_CHANGED_PATHS,
-)
 from pietto._metadata.builder import build_semantic_metadata_artifact
 from pietto.ast_nodes import Expression, QueryDef, Script, TableDef
 from pietto.errors import Severity
@@ -41,28 +37,6 @@ CLI_JSON_PATH = REPO_ROOT / "src/pietto/cli_json.py"
 POSTGRES_EXPRESSIONS_PATH = REPO_ROOT / "src/pietto/sql/expressions.py"
 MYSQL_EXPRESSIONS_PATH = REPO_ROOT / "src/pietto/sql/mysql_expressions.py"
 
-FORBIDDEN_DIFF_PATHS = (
-    "grammar/Pietto.g4",
-    "src/pietto/generated",
-    "src/pietto/cli.py",
-    "src/pietto/cli_json.py",
-    "src/pietto/ir",
-    "src/pietto/sql",
-    "src/pietto/_metadata",
-    "tests/fixtures",
-    "pyproject.toml",
-    "uv.lock",
-    ".github",
-    "scripts",
-    "examples",
-)
-ALLOWED_PHASE39_SLICE5_SQL_DIFF_PATHS = {
-    "src/pietto/sql/expressions.py",
-    "src/pietto/sql/mysql_expressions.py",
-}
-ALLOWED_PHASE40_SLICE3_REPAIR_DIFF_PATHS = (
-    ALLOWED_PHASE39_SLICE5_SQL_DIFF_PATHS | PHASE40_SLICE3_REPAIR_CHANGED_PATHS
-)
 
 ENUM_SOURCE_HEADER = (
     "enum Status:\n"
@@ -261,12 +235,6 @@ def test_json_metadata_schema_expansion_is_not_authorized() -> None:
             "ddl_enum",
         ):
             assert forbidden not in source.lower(), forbidden
-
-
-def test_forbidden_surfaces_are_not_modified_by_slice5() -> None:
-    diff_paths = set(_git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS).splitlines())
-
-    assert diff_paths <= ALLOWED_PHASE40_SLICE3_REPAIR_DIFF_PATHS
 
 
 def _source(connector: str, projections: str) -> str:

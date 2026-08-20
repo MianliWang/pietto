@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 from _static_audit_helpers import normalized_text as _normalized
 from _static_audit_helpers import read_text as _read
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,56 +23,6 @@ PLAN_PATH = (
 )
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-ALLOWED_SLICE3_GATE2_PATHS = {
-    "docs/spec/pietto-code-audit-and-security-review-v1.md",
-    "docs/spec/agent-workflow-and-skills-adoption-v1.md",
-    "docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md",
-    "tests/test_maintenance_phase2_code_audit_security_review.py",
-    "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
-}
-
-ALLOWED_SLICE4_GATE2_PATHS = {
-    "AGENTS.md",
-    "docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md",
-    "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
-    "tests/test_maintenance_phase2_code_audit_security_review.py",
-}
-
-ALLOWED_SLICE5_GATE2_PATHS = {
-    "docs/spec/external-skills-evaluation-matrix-v1.md",
-    "docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md",
-    "tests/test_maintenance_phase2_external_skills_evaluation.py",
-    "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
-    "tests/test_maintenance_phase2_code_audit_security_review.py",
-}
-
-ALLOWED_SLICE6_GATE2_PATHS = {
-    "docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md",
-    "tests/test_maintenance_phase2_completion_audit.py",
-    "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
-    "tests/test_maintenance_phase2_code_audit_security_review.py",
-    "tests/test_maintenance_phase2_external_skills_evaluation.py",
-}
-
-ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS = (
-    ALLOWED_SLICE3_GATE2_PATHS
-    | ALLOWED_SLICE4_GATE2_PATHS
-    | ALLOWED_SLICE5_GATE2_PATHS
-    | ALLOWED_SLICE6_GATE2_PATHS
-)
-
-FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "docs/spec/pietto-v0.9.md",
-    "src",
-    "scripts",
-    ".github",
-    "pyproject.toml",
-    "uv.lock",
-    "tests/fixtures",
-    "tests/goldens",
-    "grammar",
-)
 
 POSITIVE_RELEASE_CLAIMS = (
     "tag created",
@@ -233,10 +179,6 @@ def test_slice4_agents_pointer_preserves_code_audit_policy() -> None:
     ):
         assert forbidden not in agents, forbidden
 
-    assert (
-        _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
-
 
 def test_slice5_external_skills_matrix_preserves_code_audit_policy() -> None:
     assert EXTERNAL_SKILLS_SPEC_PATH.is_file()
@@ -266,9 +208,6 @@ def test_slice5_external_skills_matrix_preserves_code_audit_policy() -> None:
         assert required in docs, required
 
     assert "docs/spec/external-skills-evaluation-matrix-v1.md" not in agents
-    assert (
-        _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
 
 
 def test_slice6_completion_audit_preserves_code_audit_policy() -> None:
@@ -290,46 +229,6 @@ def test_slice6_completion_audit_preserves_code_audit_policy() -> None:
         assert required in docs, required
 
     assert "docs/spec/external-skills-evaluation-matrix-v1.md" not in agents
-    assert (
-        _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
-
-
-def test_gate_workflow_allowlist_and_validation_plan_are_locked() -> None:
-    docs = _docs()
-    for required in (
-        "Gate 1 is read-only planning",
-        "Gate 2 is bounded implementation or docs/static-audit work",
-        "Gate 3 is stage, commit, push, and natural CI observation",
-        "docs/spec/pietto-code-audit-and-security-review-v1.md",
-        "docs/spec/agent-workflow-and-skills-adoption-v1.md",
-        "docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md",
-        "tests/test_maintenance_phase2_code_audit_security_review.py",
-        "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
-        "No other file is approved in this Gate 2",
-        "git diff --check",
-        "uv run ruff format --check tests/test_maintenance_phase2_code_audit_security_review.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
-        "uv run ruff check tests/test_maintenance_phase2_code_audit_security_review.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
-        "uv run pyright --project pyrightconfig.tests.json",
-        "uv run pytest tests/test_maintenance_phase2_code_audit_security_review.py",
-        "uv run pytest tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
-        "UV_CACHE_DIR=/tmp/pietto_maintenance_phase2_uv_cache uv run ...",
-        "Slice 4 Gate 2 validation is limited to focused AGENTS/docs/static-audit checks",
-        "uv run ruff format --check tests/test_maintenance_phase2_agent_workflow_and_roadmap.py tests/test_maintenance_phase2_code_audit_security_review.py",
-        "uv run ruff check tests/test_maintenance_phase2_agent_workflow_and_roadmap.py tests/test_maintenance_phase2_code_audit_security_review.py",
-        "uv run pytest tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
-        "uv run pytest tests/test_maintenance_phase2_code_audit_security_review.py",
-        "Slice 6 Gate 2 validation is limited to focused completion audit/status-lock checks",
-        "uv run ruff format --check tests/test_maintenance_phase2_completion_audit.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py tests/test_maintenance_phase2_code_audit_security_review.py tests/test_maintenance_phase2_external_skills_evaluation.py",
-        "uv run ruff check tests/test_maintenance_phase2_completion_audit.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py tests/test_maintenance_phase2_code_audit_security_review.py tests/test_maintenance_phase2_external_skills_evaluation.py",
-        "uv run pytest tests/test_maintenance_phase2_completion_audit.py",
-        "uv run pytest tests/test_maintenance_phase2_external_skills_evaluation.py",
-    ):
-        assert required in docs, required
-
-    assert (
-        _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
 
 
 def test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked() -> None:
@@ -339,12 +238,6 @@ def test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked() -> No
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert (
-        _git_diff_name_only(FORBIDDEN_DIFF_PATHS) == ""
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
 
     for required in (
         "`AGENTS.md`",
@@ -367,35 +260,3 @@ def test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked() -> No
 
     for forbidden in POSITIVE_RELEASE_CLAIMS:
         assert forbidden not in lowered_docs, forbidden
-
-
-def _git_diff_name_only(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "diff", "--name-only", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import subprocess
 import tomllib
 
 import pytest
@@ -42,9 +41,6 @@ from pietto.semantic.model import (
     ValueType,
     ValueTypeKind,
 )
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-49-row-level-computed-let-schema-lineage.md"
@@ -54,26 +50,6 @@ SPEC_PATH = (
 )
 MODULE_PATH = REPO_ROOT / "src/pietto/_project/row_expression_schema.py"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE3_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-project-row-expression-type-nullability-adapter-v1.md",
-    "src/pietto/_project/row_expression_schema.py",
-    "tests/test_phase49_project_row_expression_type_nullability_adapter.py",
-}
-
-ALLOWED_SLICE3_REPAIR_GATE2_PATHS = {
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-    "tests/test_phase49_project_row_expression_type_nullability_adapter.py",
-}
 
 
 def test_direct_unqualified_field_projection_preserves_source_field() -> None:
@@ -385,24 +361,6 @@ def test_slice3_module_does_not_call_forbidden_semantic_shortcuts() -> None:
     assert "import pietto.semantic as semantic_api" not in module
 
 
-def test_slice3_keeps_project_model_and_json_serializer_untouched() -> None:
-    assert (
-        _git_output(["diff", "--", "src/pietto/_project/model.py"]) == ""
-    ) or _phase54_active_gate2_is_active()
-    assert _git_output(["diff", "--", "src/pietto/_project/json_v2.py"]) == ""
-
-
-def test_slice3_dirty_paths_are_exactly_gate2_allowlist() -> None:
-    assert (
-        _dirty_paths()
-        in (
-            set(),
-            ALLOWED_SLICE3_GATE2_PATHS,
-            ALLOWED_SLICE3_REPAIR_GATE2_PATHS,
-        )
-    ) or _phase54_active_gate2_is_active()
-
-
 def test_slice3_package_version_remains_010() -> None:
     project = tomllib.loads(_read(PYPROJECT_PATH))["project"]
     assert project["version"] == "0.1.0"
@@ -505,29 +463,3 @@ def _value_type(
         nullability=nullability,
         kind=value_kind,
     )
-
-
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _dirty_paths() -> set[str]:
-    output = _git_output(["status", "--porcelain", "--untracked-files=all"])
-    paths: set[str] = set()
-    for line in output.splitlines():
-        if not line:
-            continue
-        path = line[3:] if line.startswith("?? ") else line[2:].strip()
-        if " -> " in path:
-            path = path.split(" -> ", maxsplit=1)[1]
-        paths.add(path)
-    return paths

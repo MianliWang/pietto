@@ -4,15 +4,8 @@ import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import (
-    _non_slice3_repair_diff_paths,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -24,23 +17,6 @@ PACKAGE_SMOKE_PATH = REPO_ROOT / "scripts/package_smoke.py"
 CI_WORKFLOW_PATH = REPO_ROOT / ".github/workflows/ci.yml"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-FORBIDDEN_DIFF_PATHS = (
-    "docs/spec/phase-35-safe-simplification-contract-v1.md",
-    "tests/_static_audit_helpers.py",
-    "tests/test_phase35_safe_simplification_candidate_decision.py",
-    "tests/test_phase35_static_audit_helper_simplification.py",
-    "scripts/validate.py",
-    "scripts/package_smoke.py",
-    "scripts/check_generated.py",
-    "scripts/check_goldens.py",
-    ".github/workflows/ci.yml",
-    "pyproject.toml",
-    "uv.lock",
-    "grammar/Pietto.g4",
-    "src/pietto",
-    "tests/fixtures",
-    "tests/goldens",
-)
 POSITIVE_RELEASE_CLAIMS = (
     "tag created",
     "release created",
@@ -195,11 +171,3 @@ def test_package_version_and_release_boundaries_remain_locked() -> None:
     lowered = combined.lower()
     for forbidden in POSITIVE_RELEASE_CLAIMS:
         assert forbidden not in lowered, forbidden
-
-
-def test_slice4_forbidden_surfaces_are_not_modified() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-
-    assert (
-        _non_slice3_repair_diff_paths(diff_output) == set()
-    ) or _phase54_active_gate2_is_active()

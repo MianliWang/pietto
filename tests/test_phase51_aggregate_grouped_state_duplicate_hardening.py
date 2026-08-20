@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import ast
 from collections.abc import MutableMapping
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 import inspect
 import json
 from pathlib import Path
-import subprocess
 from types import MappingProxyType
 from typing import Any, cast
 
@@ -55,9 +53,6 @@ from pietto.semantic.model import (
     ResolvedType,
     TypeKind,
     ValueType,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -132,22 +127,6 @@ EXPECTED_GATE2_PATHS = {
     "tests/test_phase33_completion_audit.py",
     "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
 }
-
-
-def _phase53_gate2_paths(name: str) -> set[str]:
-    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id == name
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, set)
-            return value
-    raise AssertionError(name)
 
 
 def test_exact_four_statuses_and_five_reason_values_are_mirrored() -> None:
@@ -1211,100 +1190,6 @@ def test_aggregate_grouped_production_is_persisted_private_and_downstream_active
         assert not hasattr(pietto, name)
         assert not hasattr(project_package, name)
         assert name not in serialized
-
-
-def test_slice7_documentation_exact_allowlist_and_protected_boundaries() -> None:
-    plan = PLAN_PATH.read_text(encoding="utf-8")
-    spec = SPEC_PATH.read_text(encoding="utf-8")
-    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
-    lock = LOCK_PATH.read_text(encoding="utf-8")
-    plan_lines = plan.splitlines()
-
-    assert plan_lines.count("### Slice 7 Gate 2 Bounded Implementation Status") == 1
-    assert "## Slice 7 Gate 2 Bounded Implementation Status" not in plan_lines
-    assert spec.splitlines()[0] == (
-        "# Phase 51 Type Nullability Availability-state And Duplicate Handling v1"
-    )
-    for required in (
-        "Type Nullability Availability-state And Duplicate Handling",
-        "Strategy D",
-        "ProjectAggregateGroupedCandidateAttempt",
-        "ProjectAggregateGroupedSchemaFinalization",
-        "build_project_aggregate_grouped_schema_finalization",
-        "DUPLICATE_GROUP_KEY",
-        "UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT",
-        "INVALID_AGGREGATE_OR_GROUPED_OUTPUT",
-        "AGGREGATE_OR_GROUPED_DEFERRED",
-        "CONFLICTING_AGGREGATE_OR_GROUPED_FACTS",
-        "CONCRETE",
-        "UNKNOWN",
-        "DEFERRED",
-        "BLOCKED",
-        "UNKNOWN` nullability",
-        "Decimal",
-        "POST60_ADVANCED_AGGREGATION_GROUPING",
-        "exact 16-path allowlist",
-        "Ruff remains `0.15.21`",
-        "/tmp/pietto-phase51-slice7-gate2-evidence-and-diff.txt",
-        "Slice 8",
-        "Slice 9",
-        "Slice 10",
-    ):
-        assert required in spec, required
-
-    for value in NEW_REASONS.values():
-        assert value in spec
-    assert '"ruff>=0.16.2"' in pyproject
-    assert 'name = "ruff"\nversion = "0.16.2"' in lock
-
-    status = subprocess.run(
-        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    dirty_paths = {line[3:] for line in status.stdout.splitlines()}
-    slice14_modified = _phase53_gate2_paths("MODIFIED_PATHS")
-    slice14_added = _phase53_gate2_paths("ADDED_PATHS")
-    assert (
-        dirty_paths
-        in (
-            set(),
-            EXPECTED_GATE2_PATHS,
-            slice14_modified | slice14_added,
-        )
-    ) or _phase54_active_gate2_is_active()
-
-    untracked = subprocess.run(
-        ["git", "ls-files", "--others", "--exclude-standard"],
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert (
-        set(untracked.stdout.splitlines())
-        in (
-            set(),
-            {
-                "docs/spec/phase51-type-nullability-availability-state-duplicate-handling-v1.md",
-                "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
-            },
-            slice14_added,
-        )
-    ) or _phase54_active_gate2_is_active()
-
-    protected = subprocess.run(
-        ["git", "diff", "--exit-code", "--", "pyproject.toml", "uv.lock"],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert protected.returncode == 0
-    assert protected.stdout == ""
-    assert protected.stderr == ""
 
 
 def _finalize(

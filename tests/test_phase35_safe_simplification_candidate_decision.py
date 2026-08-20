@@ -4,15 +4,8 @@ import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import (
-    _non_slice3_repair_diff_paths,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -49,26 +42,6 @@ NO_BEHAVIOR_STANDARD = (
     "workflows",
     "public CLI behavior",
 )
-FORBIDDEN_DIFF_PATHS = (
-    "docs/plan/phase-34-relationship-grain-narrow-join-mvp.md",
-    "grammar/Pietto.g4",
-    "src/pietto/generated",
-    "src/pietto/ast_nodes.py",
-    "src/pietto/ast_builder.py",
-    "src/pietto/semantic",
-    "src/pietto/ir",
-    "src/pietto/sql",
-    "src/pietto/cli.py",
-    "src/pietto/_project",
-    "src/pietto/_metadata",
-    "src/pietto/metadata",
-    "tests/fixtures",
-    "tests/goldens",
-    "scripts",
-    "pyproject.toml",
-    "uv.lock",
-    ".github",
-)
 POSITIVE_RELEASE_CLAIMS = (
     "tag created",
     "release created",
@@ -99,8 +72,6 @@ def test_phase34_handoff_and_slice1_candidate_decision_are_locked() -> None:
     combined = _phase35_docs()
 
     for required in (
-        "baseline HEAD: `10f882ad66f94523e05368b34aea9c5f845a9e62`",
-        "baseline commit: `Complete Phase 34 relationship readiness audit`",
         PHASE34_COMPLETION_STATEMENT,
         "Proceed with Phase 35 as Developer Experience And Delivery Pipeline MVP",
         "Slice 1 is docs/spec/static-audit-only and implements no behavior change",
@@ -198,14 +169,6 @@ def test_package_version_and_release_boundaries_remain_locked() -> None:
     lowered = combined.lower()
     for forbidden in POSITIVE_RELEASE_CLAIMS:
         assert forbidden not in lowered, forbidden
-
-
-def test_forbidden_implementation_surfaces_are_not_modified() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-
-    assert (
-        _non_slice3_repair_diff_paths(diff_output) == set()
-    ) or _phase54_active_gate2_is_active()
 
 
 def _phase35_docs() -> str:

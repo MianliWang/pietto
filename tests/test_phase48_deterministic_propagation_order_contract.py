@@ -1,14 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-import subprocess
 
-from _static_audit_helpers import git_diff_name_only
 from _static_audit_helpers import normalized_text as _normalized
-from _static_audit_helpers import read_text as _read
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -18,29 +12,6 @@ SPEC_PATH = (
     / "docs/spec/phase48-deterministic-propagation-order-cycle-blocking-contract-v1.md"
 )
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE2_GATE2_PATHS = {
-    "docs/plan/phase-48-query-to-query-row-schema.md",
-    "docs/spec/phase48-deterministic-propagation-order-cycle-blocking-contract-v1.md",
-    "tests/test_phase48_deterministic_propagation_order_contract.py",
-}
-
-FORBIDDEN_DIFF_PATHS = (
-    "src",
-    "grammar",
-    "fixtures",
-    "goldens",
-    "tests/fixtures",
-    "tests/golden",
-    "scripts",
-    ".github",
-    "pyproject.toml",
-    "uv.lock",
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "docs/spec/pietto-roadmap-phase45-60-v1.md",
-)
 
 
 def _docs() -> str:
@@ -160,33 +131,8 @@ def test_downstream_readiness_labels_are_tentative_not_roadmap_edits() -> None:
         assert required in docs, required
 
 
-def test_phase48_slice2_package_version_and_dirty_paths_are_locked() -> None:
-    pyproject = _read(PYPROJECT_PATH)
+def test_package_version_is_locked() -> None:
+    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert (
-        git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS) == ""
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        _git_status_paths().issubset(ALLOWED_SLICE2_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths

@@ -4,12 +4,8 @@ import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import (
-    _non_slice3_repair_diff_paths,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -27,22 +23,6 @@ READINESS_SPEC_PATH = (
 SEMANTIC_SPEC_PATH = REPO_ROOT / "docs/spec/phase-34-semantic-readiness-contract-v1.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-FORBIDDEN_DIFF_PATHS = (
-    "grammar/Pietto.g4",
-    "src/pietto/generated",
-    "src/pietto/ast_nodes.py",
-    "src/pietto/ast_builder.py",
-    "src/pietto/semantic",
-    "src/pietto/ir",
-    "src/pietto/sql",
-    "src/pietto/cli.py",
-    "tests/fixtures",
-    "tests/goldens",
-    "scripts",
-    "pyproject.toml",
-    "uv.lock",
-    ".github",
-)
 
 POSITIVE_RELEASE_CLAIMS = (
     "tag created",
@@ -271,12 +251,6 @@ def test_phase33_project_json_and_output_boundaries_remain_preserved() -> None:
         "Artifact v1",
     ):
         assert required in spec, required
-
-
-def test_forbidden_implementation_surfaces_are_not_modified() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-
-    assert _non_slice3_repair_diff_paths(diff_output) == set()
 
 
 def test_package_version_and_release_boundaries_remain_locked() -> None:

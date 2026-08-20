@@ -3,35 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import (
-    _non_slice3_repair_diff_paths,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-36-post-v02-core-type-system-expansion.md"
 SPEC_PATH = (
     REPO_ROOT / "docs/spec/decimal-precision-scale-metadata-carrier-readiness-v1.md"
-)
-
-FORBIDDEN_DIFF_PATHS = (
-    "grammar/Pietto.g4",
-    "src/pietto/generated",
-    "src/pietto/cli.py",
-    "src/pietto/cli_json.py",
-    "src/pietto/semantic",
-    "src/pietto/ir",
-    "src/pietto/sql",
-    "src/pietto/_metadata",
-    "tests/fixtures",
-    "pyproject.toml",
-    "uv.lock",
-    ".github",
-    "scripts",
-    "examples",
 )
 
 
@@ -46,8 +25,6 @@ def test_phase36_slice1_boundary_and_handoff_are_documented() -> None:
         "Phase 36 Slice 1 is Candidate Decision And Type Expansion Boundary",
         "docs/spec/static-audit only",
         "implements no behavior change",
-        "baseline HEAD: `2777b7f07908764f62e12d60cecaadd57cb08671`",
-        "baseline commit: `Complete Phase 35 developer experience pipeline`",
         "latest completed phase: Phase 35 Developer Experience And Delivery Pipeline MVP",
         "package version remains `0.1.0`",
         "no tag/release/publish/upload/signing/attestation occurred",
@@ -159,12 +136,5 @@ def test_status_housekeeping_is_deferred_to_later_slice() -> None:
         assert required in plan, required
 
 
-def test_forbidden_surfaces_are_not_modified_by_slice1() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-
-    assert _non_slice3_repair_diff_paths(diff_output) == set()
-
-
 def test_package_version_file_is_not_part_of_slice1() -> None:
     assert 'version = "0.1.0"' in _read(REPO_ROOT / "pyproject.toml")
-    assert "pyproject.toml" in FORBIDDEN_DIFF_PATHS

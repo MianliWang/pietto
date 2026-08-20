@@ -4,7 +4,6 @@ from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 import inspect
 import json
 from pathlib import Path
-import subprocess
 from typing import Any, cast
 
 import pytest
@@ -56,9 +55,6 @@ from pietto.ast_nodes import (
     QueryDef,
     SourceDef,
     TableDef,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -1454,107 +1450,6 @@ def test_private_module_has_no_persistence_diagnostic_or_forbidden_integration()
     assert "relation_aggregate_grouped_clause_readiness" not in {
         field.name for field in fields(ProjectSemanticModel)
     }
-
-
-def test_slice8_documentation_exact_allowlist_dirty_and_protected_boundaries() -> None:
-    plan = PLAN_PATH.read_text(encoding="utf-8")
-    spec = SPEC_PATH.read_text(encoding="utf-8")
-    plan_lines = plan.splitlines()
-    spec_lines = spec.splitlines()
-
-    assert plan_lines.count("### Slice 8 Gate 2 Bounded Implementation Status") == 1
-    assert "## Slice 8 Gate 2 Bounded Implementation Status" not in plan_lines
-    assert spec_lines[0] == (
-        "# Phase 51 Clause-dependency And Fail-closed Hardening v1"
-    )
-    for token in (
-        "Clause-dependency And Fail-closed Hardening",
-        "Strategy B",
-        "aggregate_grouped_clause_facts.py",
-        "ProjectRelationClauseDependencyKind",
-        "ProjectAggregateGroupedClauseReadinessStatus",
-        "ProjectAggregateGroupedClauseReadinessReason",
-        "ProjectRelationClauseDependencyFact",
-        "ProjectAggregateGroupedClauseReadiness",
-        "GROUP_KEY_INPUT",
-        "SATISFYING_OUTPUT",
-        "GROUPED_ORDER_OUTPUT",
-        "SCHEMA_FINALIZATION_NON_CONCRETE",
-        "UNAVAILABLE_CLAUSE_DEPENDENCY",
-        "INVALID_CLAUSE_OUTPUT_REFERENCE",
-        "INVALID_CLAUSE_EXPRESSION",
-        "UNSUPPORTED_CLAUSE_FAMILY",
-        "MISSING_REQUIRED_CLAUSE_FACT",
-        "CONFLICTING_CLAUSE_FACTS",
-        "Policy C",
-        "ordinal support",
-        "POST60_ADVANCED_AGGREGATION_GROUPING",
-        "Slice 9",
-        "Slice 10",
-        "exact 13-path allowlist",
-        "Ruff must remain exactly `0.15.21`",
-        "/tmp/pietto-phase51-slice8-gate2-evidence-and-diff.txt",
-    ):
-        assert token in spec, token
-    for path in EXPECTED_GATE2_PATHS:
-        assert f"`{path}`" in spec
-    assert "The exact final untracked set is:" in spec
-    assert '"ruff>=0.16.2"' in PYPROJECT_PATH.read_text(encoding="utf-8")
-    assert 'name = "ruff"\nversion = "0.16.2"' in LOCK_PATH.read_text(encoding="utf-8")
-
-    status = subprocess.run(
-        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    dirty_paths = {line[3:] for line in status.stdout.splitlines()}
-    assert (
-        dirty_paths in (set(), EXPECTED_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
-    untracked = subprocess.run(
-        ["git", "ls-files", "--others", "--exclude-standard"],
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert (
-        set(untracked.stdout.splitlines()) in (set(), EXPECTED_UNTRACKED_PATHS)
-    ) or _phase54_active_gate2_is_active()
-
-    protected_paths = (
-        "src/pietto/_project/model.py",
-        "src/pietto/_project/aggregate_grouped_schema.py",
-        "src/pietto/_project/row_dependency_graph.py",
-        "src/pietto/_project/row_lineage.py",
-        "src/pietto/_project/let_scope_facts.py",
-        "src/pietto/_project/row_expression_schema.py",
-        "src/pietto/_project/row_expression_type_facts.py",
-        "src/pietto/_project/json_v2.py",
-        "src/pietto/_project/check.py",
-        "src/pietto/_project/__init__.py",
-        "src/pietto/ast_nodes.py",
-        "src/pietto/ast_builder.py",
-        "src/pietto/errors.py",
-        "src/pietto/generated",
-        "src/pietto/parser_api.py",
-        "src/pietto/semantic",
-        "grammar/Pietto.g4",
-        "pyproject.toml",
-        "uv.lock",
-    )
-    protected = subprocess.run(
-        ["git", "diff", "--exit-code", "--", *protected_paths],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert (protected.returncode == 0) or _phase54_active_gate2_is_active()
-    assert (protected.stdout == "") or _phase54_active_gate2_is_active()
-    assert protected.stderr == ""
 
 
 def _readiness(

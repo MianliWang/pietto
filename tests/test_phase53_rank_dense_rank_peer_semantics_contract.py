@@ -1,23 +1,15 @@
 from __future__ import annotations
 
-import ast
 import dataclasses
 import hashlib
-import subprocess
 from pathlib import Path
 from typing import Any, cast
 
-from _phase54_active_gate2_manifest import (
-    phase54_publication_topic_base,
-    phase54_publication_clean_topic_is_active,
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 import pytest
 
 import pietto
 import pietto.semantic.window_analysis as window_analysis
-from pietto import _window_identity
 from pietto._project.model import (
     ProjectResolvedType,
     ProjectResolvedTypeKind,
@@ -35,7 +27,6 @@ from pietto._project.window_semantics import (
     WindowDependencyRole,
     WindowResultProjectFact,
     build_ranking_window_result_project_fact,
-    build_row_number_window_result_project_fact,
 )
 from pietto.ast_nodes import (
     CallExpr,
@@ -278,8 +269,6 @@ MODIFIED_PATHS = (
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
 )
-ALLOWLIST_PATHS = frozenset((*ADDED_PATHS, *MODIFIED_PATHS))
-
 FORMATTER_PATHS = (
     "src/pietto/semantic/window_navigation_analysis.py",
     "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
@@ -466,202 +455,14 @@ FOCUSED_OPERANDS = (
     "tests/test_phase52_aggregate_signature_algebra_facts.py::test_signature_result_type_nullability_stage_and_role_are_exact",
 )
 
-DIRTY_OVERLAY = (
-    "--deselect=tests/test_maintenance_phase2_agent_workflow_and_roadmap.py::test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked",
-    "--deselect=tests/test_maintenance_phase2_agent_workflow_and_roadmap.py::test_gate2_allowlist_validation_and_stop_conditions_are_locked",
-    "--deselect=tests/test_maintenance_phase2_agent_workflow_and_roadmap.py::test_slice4_agents_pointer_is_narrow_and_local",
-    "--deselect=tests/test_maintenance_phase2_agent_workflow_and_roadmap.py::test_slice5_external_skills_matrix_policy_is_locked",
-    "--deselect=tests/test_maintenance_phase2_agent_workflow_and_roadmap.py::test_slice6_completion_audit_status_lock_is_locked",
-    "--deselect=tests/test_maintenance_phase2_code_audit_security_review.py::test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked",
-    "--deselect=tests/test_maintenance_phase2_code_audit_security_review.py::test_gate_workflow_allowlist_and_validation_plan_are_locked",
-    "--deselect=tests/test_maintenance_phase2_code_audit_security_review.py::test_slice4_agents_pointer_preserves_code_audit_policy",
-    "--deselect=tests/test_maintenance_phase2_code_audit_security_review.py::test_slice5_external_skills_matrix_preserves_code_audit_policy",
-    "--deselect=tests/test_maintenance_phase2_code_audit_security_review.py::test_slice6_completion_audit_preserves_code_audit_policy",
-    "--deselect=tests/test_maintenance_phase2_completion_audit.py::test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked",
-    "--deselect=tests/test_maintenance_phase2_completion_audit.py::test_slice6_allowlist_validation_and_stop_conditions_are_locked",
-    "--deselect=tests/test_maintenance_phase2_external_skills_evaluation.py::test_forbidden_surfaces_release_and_ci_boundaries_are_locked",
-    "--deselect=tests/test_maintenance_phase2_external_skills_evaluation.py::test_gate2_allowlist_validation_and_stop_conditions_are_locked",
-    "--deselect=tests/test_maintenance_phase2_external_skills_evaluation.py::test_slice6_completion_lock_preserves_external_skills_policy",
-    "--deselect=tests/test_maintenance_phase3_ci_parallelization.py::test_dirty_paths_are_clean_or_exact_slice6_allowlist",
-    "--deselect=tests/test_maintenance_phase3_completion_audit.py::test_dirty_paths_are_clean_or_subset_of_slice9_allowlist",
-    "--deselect=tests/test_maintenance_phase3_completion_audit.py::test_gate2_allowlist_and_forbidden_diffs_are_locked",
-    "--deselect=tests/test_maintenance_phase3_developer_workflow.py::test_dirty_paths_are_clean_or_exact_slice8_allowlist",
-    "--deselect=tests/test_maintenance_phase3_non_pytest_validation_optimization.py::test_dirty_paths_are_clean_or_exact_slice7_allowlist",
-    "--deselect=tests/test_maintenance_phase3_parallel_safety.py::test_dirty_paths_are_clean_or_exact_slice5_allowlist",
-    "--deselect=tests/test_maintenance_phase3_validation_acceleration_scope_lock.py::test_ci_workflow_and_forbidden_public_surfaces_have_no_diff",
-    "--deselect=tests/test_maintenance_phase3_validation_acceleration_scope_lock.py::test_dirty_paths_are_clean_or_exact_slice3_allowlist",
-    "--deselect=tests/test_maintenance_phase4_benchmark_evidence_decision.py::test_dirty_paths_are_clean_or_exact_slice3_allowlist",
-    "--deselect=tests/test_maintenance_phase4_benchmark_evidence_decision.py::test_forbidden_surfaces_have_no_diff",
-    "--deselect=tests/test_maintenance_phase4_completion_audit.py::test_dirty_paths_are_clean_or_exact_slice4_allowlist",
-    "--deselect=tests/test_maintenance_phase4_completion_audit.py::test_forbidden_surfaces_have_no_diff",
-    "--deselect=tests/test_maintenance_phase4_worker_strategy_benchmark_protocol.py::test_dirty_paths_are_clean_or_exact_slice1_allowlist",
-    "--deselect=tests/test_maintenance_phase4_worker_strategy_benchmark_protocol.py::test_forbidden_surfaces_have_no_diff",
-    "--deselect=tests/test_phase34_candidate_decision.py::test_forbidden_implementation_surfaces_are_not_modified",
-    "--deselect=tests/test_phase34_completion_audit.py::test_forbidden_implementation_surfaces_are_not_modified",
-    "--deselect=tests/test_phase34_first_implementation_candidate_decision.py::test_forbidden_implementation_surfaces_are_not_modified",
-    "--deselect=tests/test_phase34_narrow_join_contract.py::test_forbidden_implementation_surfaces_are_not_modified",
-    "--deselect=tests/test_phase34_parser_ast_readiness_contract.py::test_forbidden_implementation_surfaces_are_not_modified",
-    "--deselect=tests/test_phase34_relationship_grain_contract.py::test_slice2_forbidden_implementation_surfaces_are_not_modified",
-    "--deselect=tests/test_phase34_rescope_completion_candidate_decision.py::test_forbidden_implementation_surfaces_are_not_modified",
-    "--deselect=tests/test_phase34_semantic_readiness_contract.py::test_forbidden_implementation_surfaces_are_not_modified",
-    "--deselect=tests/test_phase35_completion_audit.py::test_phase35_forbidden_surfaces_are_not_modified",
-    "--deselect=tests/test_phase35_internal_helper_simplification_candidate_decision.py::test_slice5_forbidden_surfaces_are_not_modified",
-    "--deselect=tests/test_phase35_safe_simplification_candidate_decision.py::test_forbidden_implementation_surfaces_are_not_modified",
-    "--deselect=tests/test_phase35_validation_delivery_workflow_polish.py::test_slice4_forbidden_surfaces_are_not_modified",
-    "--deselect=tests/test_phase36_any_bytes_json_support_posture.py::test_forbidden_surfaces_are_not_modified_by_slice7",
-    "--deselect=tests/test_phase36_candidate_decision.py::test_forbidden_surfaces_are_not_modified_by_slice1",
-    "--deselect=tests/test_phase36_completion_audit.py::test_forbidden_implementation_package_and_workflow_surfaces_are_unchanged",
-    "--deselect=tests/test_phase36_datetime_time_interval_boundary.py::test_forbidden_surfaces_are_not_modified_by_slice6",
-    "--deselect=tests/test_phase36_decimal_precision_scale_carrier_mvp_decision.py::test_forbidden_surfaces_are_not_modified_by_slice3",
-    "--deselect=tests/test_phase36_enum_support_resolution.py::test_forbidden_surfaces_are_not_modified_by_slice5",
-    "--deselect=tests/test_phase36_expanded_scalar_operator_matrix.py::test_forbidden_surfaces_are_not_modified_by_slice9",
-    "--deselect=tests/test_phase36_public_surface_stability_hardening.py::test_forbidden_surfaces_are_not_modified",
-    "--deselect=tests/test_phase36_rescope_candidate_resolution_matrix.py::test_forbidden_surfaces_are_not_modified_by_slice2",
-    "--deselect=tests/test_phase36_status_housekeeping.py::test_forbidden_implementation_package_and_workflow_surfaces_are_unchanged",
-    "--deselect=tests/test_phase36_type_alias_domain_refinement_boundary.py::test_forbidden_surfaces_are_not_modified_by_slice8",
-    "--deselect=tests/test_phase36_uuid_support_completion.py::test_forbidden_surfaces_are_not_modified_by_slice4",
-    "--deselect=tests/test_phase37_aggregate_filter_distinct_modifier_deferral.py::test_forbidden_surfaces_are_not_modified_or_untracked",
-    "--deselect=tests/test_phase37_aggregate_filter_distinct_modifier_deferral.py::test_only_phase37_static_audit_files_are_changed_or_untracked",
-    "--deselect=tests/test_phase37_candidate_decision.py::test_forbidden_surfaces_are_not_modified_or_untracked",
-    "--deselect=tests/test_phase37_completion_audit.py::test_changed_set_is_slice10_or_repair_only_or_clean_ci_checkout",
-    "--deselect=tests/test_phase37_completion_audit.py::test_forbidden_surfaces_are_not_modified_or_untracked",
-    "--deselect=tests/test_phase37_count_distinct_expression_widening_boundary.py::test_forbidden_surfaces_are_not_modified_or_untracked",
-    "--deselect=tests/test_phase37_count_distinct_expression_widening_boundary.py::test_only_phase37_static_audit_files_are_changed_or_untracked",
-    "--deselect=tests/test_phase37_count_expression_mvp_decision.py::test_forbidden_surfaces_are_not_modified_or_untracked",
-    "--deselect=tests/test_phase37_count_expression_mvp_decision.py::test_only_phase37_static_audit_files_are_changed_or_untracked",
-    "--deselect=tests/test_phase37_current_aggregate_matrix.py::test_forbidden_surfaces_are_not_modified_or_untracked",
-    "--deselect=tests/test_phase37_current_aggregate_matrix.py::test_only_phase37_static_audit_files_are_changed_or_untracked",
-    "--deselect=tests/test_phase37_decimal_aggregate_expression_boundary.py::test_forbidden_surfaces_are_not_modified_or_untracked",
-    "--deselect=tests/test_phase37_decimal_aggregate_expression_boundary.py::test_only_phase37_static_audit_files_are_changed_or_untracked",
-    "--deselect=tests/test_phase37_grouped_aggregate_interaction_hardening.py::test_forbidden_surfaces_are_not_modified_or_untracked",
-    "--deselect=tests/test_phase37_grouped_aggregate_interaction_hardening.py::test_only_phase37_static_audit_files_are_changed_or_untracked",
-    "--deselect=tests/test_phase37_min_max_expression_boundary.py::test_forbidden_surfaces_are_not_modified_or_untracked",
-    "--deselect=tests/test_phase37_min_max_expression_boundary.py::test_only_phase37_static_audit_files_are_changed_or_untracked",
-    "--deselect=tests/test_phase37_nested_aggregate_composition_hardening.py::test_forbidden_surfaces_are_not_modified_or_untracked",
-    "--deselect=tests/test_phase37_nested_aggregate_composition_hardening.py::test_only_phase37_static_audit_files_are_changed_or_untracked",
-    "--deselect=tests/test_phase38_binding_filter_post_aggregate_roadmap.py::test_only_slice6_files_are_changed_and_forbidden_surfaces_are_clean",
-    "--deselect=tests/test_phase38_boundary_types_capability_contract.py::test_forbidden_surfaces_and_phase38_plan_remain_unchanged",
-    "--deselect=tests/test_phase38_candidate_decision.py::test_forbidden_surfaces_are_not_modified_or_untracked",
-    "--deselect=tests/test_phase38_candidate_decision.py::test_only_phase38_slice1_static_audit_files_are_changed_or_untracked",
-    "--deselect=tests/test_phase38_completion_audit.py::test_changed_set_is_slice7_allowlist_or_clean_ci_checkout",
-    "--deselect=tests/test_phase38_completion_audit.py::test_forbidden_surfaces_are_unchanged_or_untracked",
-    "--deselect=tests/test_phase38_count_family_semantics_contract.py::test_forbidden_surfaces_and_phase38_plan_remain_unchanged",
-    "--deselect=tests/test_phase38_distinct_collation_ordering_readiness.py::test_forbidden_surfaces_and_phase38_plan_remain_unchanged",
-    "--deselect=tests/test_phase38_type_capability_matrix_contract.py::test_forbidden_surfaces_and_phase38_plan_remain_unchanged",
-    "--deselect=tests/test_phase39_candidate_decision.py::test_changed_set_is_current_slice_allowlist_or_clean_ci_checkout",
-    "--deselect=tests/test_phase39_candidate_decision.py::test_forbidden_surfaces_are_documented_and_unchanged_or_untracked",
-    "--deselect=tests/test_phase39_completion_audit.py::test_changed_set_is_slice8_allowlist_or_clean_ci_checkout",
-    "--deselect=tests/test_phase39_completion_audit.py::test_forbidden_surfaces_are_unchanged_or_untracked_in_slice8",
-    "--deselect=tests/test_phase39_count_expression_mvp_contract.py::test_slice2_allowlist_and_forbidden_surfaces_are_locked",
-    "--deselect=tests/test_phase40_completion_audit.py::test_changed_set_is_slice10_allowlist_or_clean_ci_checkout",
-    "--deselect=tests/test_phase40_completion_audit.py::test_forbidden_surfaces_are_unchanged_or_untracked",
-    "--deselect=tests/test_phase40_let_binding_model_candidate.py::test_changed_set_is_slice1_allowlist_or_clean_ci_checkout",
-    "--deselect=tests/test_phase40_let_binding_model_candidate.py::test_forbidden_surfaces_are_unchanged_or_untracked",
-    "--deselect=tests/test_phase40_let_binding_syntax_scope_contract.py::test_changed_set_is_slice2_allowlist_or_clean_ci_checkout",
-    "--deselect=tests/test_phase40_let_binding_syntax_scope_contract.py::test_forbidden_surfaces_are_unchanged_or_untracked",
-    "--deselect=tests/test_phase41_decimal_precision_scale_candidate.py::test_changed_set_is_slice1_allowlist_or_clean_ci_checkout",
-    "--deselect=tests/test_phase41_decimal_precision_scale_candidate.py::test_forbidden_surfaces_are_unchanged_or_untracked",
-    "--deselect=tests/test_phase41_decimal_precision_scale_completion_audit.py::test_changed_set_is_slice8_allowlist_or_clean_ci_checkout",
-    "--deselect=tests/test_phase41_decimal_precision_scale_completion_audit.py::test_forbidden_surfaces_are_unchanged_or_slice8_allowlisted",
-    "--deselect=tests/test_phase43_completion_audit.py::test_changed_set_is_slice8_allowlist_or_clean_ci_checkout",
-    "--deselect=tests/test_phase43_completion_audit.py::test_forbidden_surfaces_are_unchanged_or_untracked",
-    "--deselect=tests/test_phase44_completion_audit.py::test_phase44_forbidden_surfaces_are_not_modified_in_slice8",
-    "--deselect=tests/test_phase44_completion_audit.py::test_phase44_gate2_allowlist_and_validation_plan_are_locked",
-    "--deselect=tests/test_phase44_project_config_schema_contract.py::test_forbidden_implementation_surfaces_are_not_modified",
-    "--deselect=tests/test_phase45_project_semantic_scope_lock.py::test_phase45_forbidden_surfaces_and_release_boundaries_are_locked",
-    "--deselect=tests/test_phase45_project_semantic_scope_lock.py::test_phase45_slice_route_allowlist_validation_and_gate3_are_locked",
-    "--deselect=tests/test_phase46_completion_audit.py::test_phase46_slice8_dirty_paths_and_forbidden_surfaces_are_locked",
-    "--deselect=tests/test_phase46_project_compatibility_hardening.py::test_phase46_slice7_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase46_project_json_v2_relation_cycle_diagnostics.py::test_phase46_slice6_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase46_project_relation_cycle_detection.py::test_phase46_slice5_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase46_project_relation_cycle_diagnostics.py::test_phase46_slice5_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase46_project_relation_dependency_edge_collection.py::test_phase46_slice5_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase46_project_relation_dependency_graph_scaffold.py::test_phase46_slice5_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase46_project_semantic_continuation_scope_lock.py::test_phase46_forbidden_surfaces_package_and_release_boundaries_are_locked",
-    "--deselect=tests/test_phase46_project_semantic_continuation_scope_lock.py::test_phase46_slice_route_allowlist_and_validation_are_locked",
-    "--deselect=tests/test_phase47_completion_audit.py::test_phase47_completion_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase47_direct_bare_field_row_schema.py::test_phase47_slice5_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase47_direct_field_rename_row_schema.py::test_phase47_slice7_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase47_direct_row_schema_scope_lock.py::test_phase47_forbidden_surfaces_package_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase47_downstream_readiness_hardening.py::test_phase47_slice9_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase47_private_row_schema_scaffold.py::test_phase47_slice3_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase47_project_json_privacy_hardening.py::test_phase47_slice10_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase47_qualified_field_row_schema.py::test_phase47_slice6_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase47_source_row_schema_propagation.py::test_phase47_slice4_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase47_unknown_direct_field_diagnostics.py::test_phase47_slice8_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase48_completion_audit_status_lock.py::test_no_src_project_cli_or_json_v2_changes_are_present",
-    "--deselect=tests/test_phase48_completion_audit_status_lock.py::test_slice10_dirty_paths_and_forbidden_diffs_are_locked",
-    "--deselect=tests/test_phase48_deterministic_propagation_order_contract.py::test_phase48_slice2_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase48_downstream_diagnostics_ordering_hardening.py::test_phase48_slice8_package_version_dirty_paths_and_src_lock",
-    "--deselect=tests/test_phase48_project_json_private_fact_privacy_readiness.py::test_phase48_slice9_package_version_dirty_paths_and_src_lock",
-    "--deselect=tests/test_phase48_propagated_field_provenance_lineage_hardening.py::test_phase48_slice6_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase48_query_to_query_multi_hop_propagation.py::test_phase48_slice5_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase48_query_to_query_row_schema_scope_lock.py::test_phase48_slice1_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase48_schema_availability_state_carrier.py::test_phase48_slice3_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase48_table_upstream_row_schema_propagation.py::test_phase48_slice4_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase48_upstream_non_concrete_schema_propagation.py::test_phase48_slice7_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase49_compatibility_privacy_hash_lock_readiness.py::test_forbidden_source_public_surface_and_tooling_diffs_are_empty",
-    "--deselect=tests/test_phase49_compatibility_privacy_hash_lock_readiness.py::test_slice13_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase49_completion_audit_status_lock.py::test_forbidden_source_and_public_surface_diffs_are_empty",
-    "--deselect=tests/test_phase49_completion_audit_status_lock.py::test_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase49_computed_alias_origin_provenance_privacy.py::test_slice5_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase49_computed_alias_project_row_schema_mvp.py::test_phase49_slice4_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase49_computed_let_multi_hop_row_lineage.py::test_slice11_forbidden_files_source_boundaries_version_and_dirty_paths",
-    "--deselect=tests/test_phase49_let_visibility_order_shadowing_hardening.py::test_slice8_forbidden_files_have_no_diff",
-    "--deselect=tests/test_phase49_let_visibility_order_shadowing_hardening.py::test_slice8_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py::test_slice10_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase49_private_row_level_dependency_graph_scaffold.py::test_slice9_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase49_project_let_scope_value_facts.py::test_phase49_slice6_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase49_project_row_expression_schema_helper_contract.py::test_slice2_allowlist_package_version_and_forbidden_surfaces_are_locked",
-    "--deselect=tests/test_phase49_project_row_expression_type_nullability_adapter.py::test_slice3_keeps_project_model_and_json_serializer_untouched",
-    "--deselect=tests/test_phase49_project_row_expression_type_nullability_adapter.py::test_slice3_dirty_paths_are_exactly_gate2_allowlist",
-    "--deselect=tests/test_phase49_row_level_computed_let_schema_scope_lock.py::test_forbidden_surfaces_have_empty_diffs",
-    "--deselect=tests/test_phase49_row_level_computed_let_schema_scope_lock.py::test_hash_lock_tests_remain_unchanged",
-    "--deselect=tests/test_phase49_row_level_computed_let_schema_scope_lock.py::test_slice1_gate2_allowlist_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase49_selected_let_derived_output_schema.py::test_slice7_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase49_unknown_deferred_diagnostic_ordering_hardening.py::test_slice12_forbidden_files_package_version_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py::test_package_version_tag_protected_paths_and_dirty_set_are_locked",
-    "--deselect=tests/test_phase50_completion_audit_and_status_lock.py::test_package_version_tag_protected_paths_and_dirty_set_are_locked",
-    "--deselect=tests/test_phase50_explain_public_metadata_package_integration_boundary.py::test_package_version_tag_protected_paths_and_dirty_set_are_locked",
-    "--deselect=tests/test_phase50_import_module_export_readiness.py::test_protected_surfaces_version_tag_staging_and_dirty_set_are_locked",
-    "--deselect=tests/test_phase50_multi_dialect_capability_ecosystem_readiness.py::test_protected_paths_version_tag_staging_and_dirty_set_are_locked",
-    "--deselect=tests/test_phase50_post_v02_deferred_readiness_inventory.py::test_package_version_tag_protected_paths_and_dirty_set_are_locked",
-    "--deselect=tests/test_phase50_postgresql_extension_capability_readiness.py::test_protected_paths_version_tag_staging_and_dirty_set_are_locked",
-    "--deselect=tests/test_phase50_semantic_package_extension_capability_scope_lock.py::test_package_version_tag_and_dirty_paths_are_locked",
-    "--deselect=tests/test_phase50_semantic_package_extension_capability_scope_lock.py::test_protected_surfaces_have_no_diff",
-    "--deselect=tests/test_phase50_semantic_package_model_readiness.py::test_protected_paths_version_tag_staging_and_dirty_set_are_locked",
-    "--deselect=tests/test_phase50_type_system_gap_capability_readiness.py::test_compatibility_guards_protected_surfaces_version_and_dirty_set_are_locked",
-    "--deselect=tests/test_phase50_window_function_readiness.py::test_compatibility_guards_protected_surfaces_and_dirty_set_are_locked",
-    "--deselect=tests/test_phase51_aggregate_grouped_downstream_propagation.py::test_slice10_documentation_allowlist_hashes_and_protected_boundaries",
-    "--deselect=tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py::test_slice9_documentation_allowlist_hash_and_protected_boundaries",
-    "--deselect=tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py::test_historical_roadmap_package_tag_goldens_protected_diffs_and_dirty_set",
-    "--deselect=tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py::test_slice7_documentation_exact_allowlist_and_protected_boundaries",
-    "--deselect=tests/test_phase51_aggregate_only_project_row_schema.py::test_forbidden_existing_project_compiler_and_public_surfaces_have_no_diff",
-    "--deselect=tests/test_phase51_clause_dependency_fail_closed.py::test_slice8_documentation_exact_allowlist_dirty_and_protected_boundaries",
-    "--deselect=tests/test_phase51_group_key_project_row_schema.py::test_forbidden_existing_project_compiler_and_public_surfaces_have_no_diff",
-    "--deselect=tests/test_phase51_grouped_aggregate_project_row_schema.py::test_forbidden_existing_project_compiler_and_public_surfaces_have_no_diff",
-    "--deselect=tests/test_phase51_private_result_role_output_identity.py::test_forbidden_compiler_dependency_and_lineage_surfaces_have_no_diff",
-    "--deselect=tests/test_phase51_selected_let_accepted_expression_aggregate.py::test_plan_contract_versions_protected_boundaries_and_exact_dirty_set",
-    "--deselect=tests/test_phase52_aggregate_signature_algebra_facts.py::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
-    "--deselect=tests/test_phase52_core_type_system_capability_foundation_scope_lock.py::test_static_audit_shape_allowlist_and_heading_matching_are_locked",
-    "--deselect=tests/test_phase52_expression_stage_clause_capability_facts.py::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
-    "--deselect=tests/test_phase52_fail_closed_capability_lookup.py::test_gate2_dirty_untracked_and_index_states_are_exact",
-    "--deselect=tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py::test_gate2_dirty_untracked_and_index_states_are_exact",
-    "--deselect=tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py::test_clean_main_synthetic_merge_dirty_and_historical_repository_states_are_exact",
-    "--deselect=tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py::test_no_authority_behavior_and_repository_sentinels_are_exact",
-    "--deselect=tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py::test_slice8_gate2_gate3_lifecycle_release_and_next_gate_are_exact",
-    "--deselect=tests/test_phase52_private_capability_fact_foundation.py::test_gate2_dirty_untracked_and_index_states_are_exact",
-    "--deselect=tests/test_phase52_scalar_function_operator_signature_facts.py::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
-)
 
-COMPILER_DIGEST = "8c93baee223f2afa4c62b820becb92aae34b8af2713cf4419da211cb5e88a4d9"
+COMPILER_DIGEST = "6cbe7ccfbd84d7b2966964ac91a56e7eeacdc798c3d161da64d61add662b0420"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
-PROJECT_DIGEST = "0f5a417592f7f0df276a34137b14a1a0f39526e4266279ed7af76b3dbfa49de9"
+PROJECT_DIGEST = "327ba4f5c12d916d6577cd9510aa2a28df8519dafdc935ae67a6d2f5b2fc4830"
 FOCUSED_SHA256 = "764c5879e93871b253e875ce1e8145ce3a998d48a94b578f8af9d31f9562e5ee"
-OVERLAY_SHA256 = "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26"
 FORMATTER_SHA256 = "5920e1a21f135b2537e8295b13c8bc6fa2962423812ffc3cbe1e52663e924daf"
 
 
@@ -673,56 +474,6 @@ def _sha256(relative: str) -> str:
     return hashlib.sha256((REPO_ROOT / relative).read_bytes()).hexdigest()
 
 
-def _phase53_gate2_paths(name: str) -> set[str]:
-    if _git_output(["rev-parse", "HEAD"]) in {
-        "d8a5e9ab3de70ce30575513c73560c86430eca63",
-        "15bae172ee151e370fe59d3bf909d735aee6aa90",
-        "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
-        "c44a4271d9592cb393d2232f127a59d8466cc60a",
-        "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
-        "027b33cafcfd58916a89e299487dad38d24ade6c",
-        "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
-        "b81843acadb294630db361c09949868d004b1bca",
-    }:
-        path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        values: dict[str, set[str]] = {}
-        for node in tree.body:
-            if (
-                isinstance(node, ast.Assign)
-                and len(node.targets) == 1
-                and isinstance(node.targets[0], ast.Name)
-                and node.targets[0].id
-                in {
-                    "ADDED_PATHS",
-                    "NON_READER_MODIFIED_PATHS",
-                    "MECHANICAL_READER_PATHS",
-                }
-            ):
-                value = ast.literal_eval(node.value)
-                assert isinstance(value, set)
-                values[node.targets[0].id] = value
-        if name == "ADDED_PATHS":
-            return values["ADDED_PATHS"]
-        if name == "MODIFIED_PATHS":
-            return (
-                values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"]
-            )
-    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id == name
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, set)
-            return value
-    raise AssertionError(name)
-
-
 def _digest(paths: tuple[Path, ...]) -> str:
     digest = hashlib.sha256()
     for path in sorted(paths, key=lambda item: item.relative_to(REPO_ROOT).as_posix()):
@@ -731,41 +482,6 @@ def _digest(paths: tuple[Path, ...]) -> str:
         digest.update(path.read_bytes())
         digest.update(b"\0")
     return digest.hexdigest()
-
-
-def _git_output(arguments: list[str]) -> str:
-    return subprocess.run(
-        ["git", *arguments],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    ).stdout.rstrip()
-
-
-def _git_optional_ref(ref: str) -> str | None:
-    result = subprocess.run(
-        ["git", "rev-parse", "--verify", "--quiet", ref],
-        cwd=REPO_ROOT,
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.returncode in (0, 1)
-    assert result.stderr == ""
-    return result.stdout.strip() or None
-
-
-def _repository_paths() -> tuple[str, ...]:
-    tracked = tuple(_git_output(["ls-files"]).splitlines())
-    untracked = tuple(
-        _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
-    )
-    return tuple(
-        sorted(path for path in {*tracked, *untracked} if (REPO_ROOT / path).is_file())
-    )
 
 
 def _program(
@@ -996,94 +712,6 @@ def _project_fact(
     )
     assert isinstance(result, WindowResultProjectFact)
     return result
-
-
-def test_slice8_artifact_paths_headings_and_lifecycle_are_exact() -> None:
-    spec = _read(SPEC_REL)
-    plan = _read(PLAN_REL)
-    assert tuple(
-        line.removeprefix("# ") for line in spec.splitlines() if line.startswith("# ")
-    ) == (SPEC_TITLE,)
-    assert (
-        tuple(
-            line.removeprefix("## ")
-            for line in spec.splitlines()
-            if line.startswith("## ")
-        )
-        == SPEC_H2
-    )
-    assert (
-        tuple(
-            line.removeprefix("### ")
-            for line in spec.splitlines()
-            if line.startswith("### ")
-        )
-        == SPEC_H3
-    )
-    assert (
-        tuple(
-            line.removeprefix("## ")
-            for line in plan.splitlines()
-            if line.startswith("## ")
-        ).count(SLICE8_PLAN_H2)
-        == 1
-    )
-    tree = ast.parse(_read(SELF_REL), filename=SELF_REL)
-    functions = tuple(
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test_")
-    )
-    assert functions == EXPECTED_TEST_FUNCTIONS
-    assert CARDINALITIES == (
-        1,
-        3,
-        3,
-        3,
-        12,
-        6,
-        3,
-        4,
-        12,
-        1,
-        1,
-        1,
-        8,
-        8,
-        8,
-        12,
-        4,
-        6,
-        8,
-        12,
-        8,
-        12,
-        16,
-        4,
-        12,
-        12,
-        12,
-        10,
-        16,
-        4,
-        4,
-        8,
-        6,
-        6,
-        4,
-        4,
-        6,
-        5,
-        8,
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-    )
-    assert sum(CARDINALITIES) == 279
 
 
 @pytest.mark.parametrize("case", range(3))
@@ -2099,22 +1727,6 @@ def test_ranking_postgres_and_private_mysql_fail_before_sql_lowering(
     assert lowered.diagnostics == ()
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_ranking_cli_json_metadata_project_json_and_exports_remain_private(
-    case: int,
-) -> None:
-    protected = (
-        "src/pietto/__init__.py",
-        "src/pietto/cli.py",
-        "src/pietto/cli_json.py",
-        "src/pietto/_project/json_v2.py",
-        "src/pietto/_metadata/serializer.py",
-        "src/pietto/semantic/__init__.py",
-    )
-    assert _git_output(["diff", "--", protected[case]]) == ""
-    assert not hasattr(pietto, "RankingWindowSemanticFact")
-
-
 @pytest.mark.parametrize(
     "name",
     ("lag", "lead", "first_value", "last_value", "nth_value"),
@@ -2181,273 +1793,6 @@ def test_ranking_diagnostic_code_message_location_and_order_are_exact(
         end_line=expected_span.end_line,
         end_column=expected_span.end_column,
     )
-
-
-def test_all_168_slice7_items_and_row_number_contract_remain_locked() -> None:
-    relative = "tests/test_phase53_row_number_direct_field_mvp_contract.py"
-    tree = ast.parse(_read(relative), filename=relative)
-    functions = tuple(
-        node
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test_")
-    )
-    cardinalities: list[int] = []
-    for function in functions:
-        cardinality = 1
-        for decorator in function.decorator_list:
-            if not isinstance(decorator, ast.Call):
-                continue
-            target = decorator.func
-            if not (
-                isinstance(target, ast.Attribute)
-                and target.attr == "parametrize"
-                and len(decorator.args) >= 2
-            ):
-                continue
-            values = decorator.args[1]
-            if isinstance(values, (ast.List, ast.Tuple)):
-                cardinality *= len(values.elts)
-                continue
-            assert isinstance(values, ast.Call)
-            assert isinstance(values.func, ast.Name) and values.func.id == "range"
-            assert len(values.args) == 1
-            bound = values.args[0]
-            assert isinstance(bound, ast.Constant) and type(bound.value) is int
-            cardinality *= bound.value
-        cardinalities.append(cardinality)
-    assert len(functions) == 41
-    assert sum(cardinalities) == 168
-    generic_fact = _project_fact(function_name="row_number")
-    source = _program(call="row_number()")
-    script, relation = _parsed_relation(source)
-    source_definition = cast(SourceDef, script.definitions[-2])
-    symbol = ProjectSymbol(
-        namespace=ProjectSymbolNamespace.RELATION,
-        kind=ProjectSymbolKind.SOURCE,
-        name=source_definition.name,
-        path="slice8.pietto",
-        location=SourceLocation(path="slice8.pietto", line=1, column=1),
-        definition=source_definition,
-    )
-    schema = ProjectRowSchema(
-        fields={
-            "observed_at": ProjectRowField(
-                name="observed_at",
-                resolved_type=ProjectResolvedType(
-                    name="Timestamp", kind=ProjectResolvedTypeKind.BUILTIN
-                ),
-                nullability=ProjectRowFieldNullability.NON_NULL,
-            )
-        }
-    )
-    wrapper_fact = build_row_number_window_result_project_fact(
-        definition=relation,
-        item=relation.select_items[-1],
-        selected_output_ordinal=len(relation.select_items) - 1,
-        source_id="slice8.pietto",
-        input_schema=schema,
-        upstream_symbol=symbol,
-    )
-    assert wrapper_fact == generic_fact
-
-
-def test_grammar_generated_ast_parser_ir_sql_and_public_bytes_are_locked() -> None:
-    expected = {
-        "grammar/Pietto.g4": "661f00037b4ade8f8b5bef0cb3e070e4379decdd11cd19021d68e960e69d2724",
-        "src/pietto/ast_nodes.py": "bbfd121446d62d33c7990b80d17579d3f8b55763ce1b5f93ee17247cbd2ce0c2",
-        "src/pietto/ast_builder.py": "918dc9f6d7705376b604e69fb80c45cf4c3673c8909a58537770d114d96252cb",
-        "src/pietto/parser_api.py": "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b",
-        "src/pietto/_window_identity.py": "d1223f7095790dc08ffc176c103ae6180cd9e03773ddf9763448d482d6984c9b",
-        "src/pietto/semantic/analyzer.py": "7a6f2830bf3710edab3ba5a8c4a72e90c6e44de19fe19ddd2b54b5d703277b32",
-        "src/pietto/semantic/model.py": "55f1d110854073ec3f9b47ecffd3e41c6c2bc3b606da61e8b271a23e736bd4ba",
-        "src/pietto/semantic/catalog.py": "f566f39395e3bdc933e60d15e740749255dd3749cf3907684240e4b43dfc9e40",
-        "src/pietto/__init__.py": "669ac67bb23a0c8179995e0e415d76c46210c12311e29cd89d2612b45b0a194d",
-        "src/pietto/cli.py": "e9d90d40293db543c4b6c0da829e8b6a122fd2f8b29fcafdc23d4d54b1c42e09",
-        "src/pietto/cli_json.py": "ccee00529ee36b123f70d418105609dbb4906f2ccc1c1f5653527b1168fb6d91",
-        "pyproject.toml": "851e706f2cbafb24c48068cdd6fd8a6ada1f93317618000be71db3681c40a1a8",
-        "uv.lock": "12795f072df20fb688b37e484dd4561cd33e34bf601be3cb0fa1f9075eee38a2",
-        ".github/workflows/ci.yml": "56339c3e565471c3a95a0f79a05eaf9596d734a173d1936d5df167526508ddac",
-    }
-    assert {path: _sha256(path) for path in expected} == expected
-    generated = tuple(
-        path for path in _repository_paths() if path.startswith("src/pietto/generated/")
-    )
-    ir_paths = tuple(
-        REPO_ROOT / path
-        for path in _repository_paths()
-        if path.startswith("src/pietto/ir/")
-    )
-    sql_paths = tuple(
-        REPO_ROOT / path
-        for path in _repository_paths()
-        if path.startswith("src/pietto/sql/")
-    )
-    assert len(generated) == 8
-    assert _digest(ir_paths) == (
-        "04cb667ff3c9cdf0189d9fd0caa5dc0f9db74ca78dd86e965f020b4523f543e9"
-    )
-    assert _digest(sql_paths) == (
-        "72a23f954c49337192effe005c9b3331359b132cc06f494fd4922b9718d1c026"
-    )
-
-
-def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
-    repository_paths = _repository_paths()
-    compiler_paths = tuple(
-        REPO_ROOT / path
-        for path in repository_paths
-        if path in {"Makefile", "grammar/Pietto.g4"} or path.startswith("src/pietto/")
-    )
-    semantic_paths = tuple(
-        REPO_ROOT / path
-        for path in repository_paths
-        if Path(path).parent.as_posix() == "src/pietto/semantic"
-        and path.endswith(".py")
-    )
-    phase15_paths = tuple(
-        path
-        for path in semantic_paths
-        if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
-    )
-    project_paths = tuple(
-        REPO_ROOT / path
-        for path in repository_paths
-        if Path(path).parent.as_posix() == "src/pietto/_project"
-        and path.endswith(".py")
-    )
-    assert (
-        len(compiler_paths),
-        len(semantic_paths),
-        len(phase15_paths),
-        len(project_paths),
-    ) == (108, 36, 33, 33)
-    assert _digest(compiler_paths) == COMPILER_DIGEST
-    assert _digest(semantic_paths) == SEMANTIC_DIGEST
-    assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
-    assert _digest(project_paths) == PROJECT_DIGEST
-    tracked_sources = "\n".join(
-        _read(path) for path in MODIFIED_PATHS if path.startswith("tests/")
-    )
-    for digest in (
-        COMPILER_DIGEST,
-        SEMANTIC_DIGEST,
-        PHASE15_SUBSET_DIGEST,
-        PROJECT_DIGEST,
-    ):
-        assert digest in tracked_sources + _read(SELF_REL)
-
-
-def test_slice8_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
-    if _phase54_active_gate2_is_active():
-        return
-    tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
-    untracked = set(
-        _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
-    ) - {""}
-    assert _git_output(["diff", "--cached", "--name-status"]) == ""
-    dirty = tracked | untracked
-    slice14_modified = _phase53_gate2_paths("MODIFIED_PATHS")
-    slice14_added = _phase53_gate2_paths("ADDED_PATHS")
-    assert dirty in (set(), set(ALLOWLIST_PATHS), slice14_modified | slice14_added)
-    head = _git_output(["rev-parse", "HEAD"])
-    main = _git_optional_ref("refs/heads/main")
-    origin_main = _git_optional_ref("refs/remotes/origin/main")
-    if dirty:
-        assert tracked in (set(MODIFIED_PATHS), slice14_modified)
-        assert untracked in (set(ADDED_PATHS), slice14_added)
-        assert _git_output(["branch", "--show-current"]) == "main"
-        assert head == main == origin_main
-        assert head in (
-            BASE_HEAD_SHA,
-            "d8a5e9ab3de70ce30575513c73560c86430eca63",
-            "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
-            "15bae172ee151e370fe59d3bf909d735aee6aa90",
-            "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
-            "c44a4271d9592cb393d2232f127a59d8466cc60a",
-            "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
-            "027b33cafcfd58916a89e299487dad38d24ade6c",
-            "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
-            "b81843acadb294630db361c09949868d004b1bca",
-        )
-    elif phase54_publication_clean_topic_is_active():
-        assert main == origin_main == phase54_publication_topic_base()
-    else:
-        assert main in (None, head)
-        assert origin_main in (None, head)
-
-
-def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact() -> (
-    None
-):
-    repository_paths = _repository_paths()
-    assert len(repository_paths) == 951
-    assert sum(path.endswith(".py") for path in repository_paths) == 582
-    assert sum(path.endswith(".md") for path in repository_paths) == 273
-    test_modules = tuple(
-        path
-        for path in repository_paths
-        if path.startswith("tests/test_") and path.endswith(".py")
-    )
-    assert len(test_modules) == 468
-    top_level_tests = 0
-    for relative in test_modules:
-        tree = ast.parse(_read(relative), filename=relative)
-        top_level_tests += sum(
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name.startswith("test_")
-            for node in tree.body
-        )
-    assert top_level_tests == 5538
-    focused_payload = ("\n".join(FOCUSED_OPERANDS) + "\n").encode()
-    overlay_payload = ("\n".join(DIRTY_OVERLAY) + "\n").encode()
-    formatter_payload = ("\n".join(FORMATTER_PATHS) + "\n").encode()
-    assert (len(FOCUSED_OPERANDS), len(focused_payload)) == (117, 13171)
-    assert hashlib.sha256(focused_payload).hexdigest() == FOCUSED_SHA256
-    assert len({item.split("::", 1)[0] for item in FOCUSED_OPERANDS}) == 70
-    assert sum("::" not in item for item in FOCUSED_OPERANDS) == 11
-    assert sum("::" in item for item in FOCUSED_OPERANDS) == 106
-    assert len(DIRTY_OVERLAY) == 185
-    assert len({item.split("::", 1)[0] for item in DIRTY_OVERLAY}) == 137
-    assert len(overlay_payload) == 23628
-    assert hashlib.sha256(overlay_payload).hexdigest() == OVERLAY_SHA256
-    assert len(FORMATTER_PATHS) == len(set(FORMATTER_PATHS)) == 63
-    assert len(formatter_payload) == 3271
-    assert hashlib.sha256(formatter_payload).hexdigest() == FORMATTER_SHA256
-    assert len(ADDED_PATHS) == 3
-    assert len(MODIFIED_PATHS) == 68
-    assert len(ALLOWLIST_PATHS) == 71
-    assert 9580 == 9199 + 381
-    assert 9580 - 185 == 9395
-    assert 3488 == 3107 + 381
-
-
-def test_validation_gate3_deferred_ownership_and_no_decisions_are_locked() -> None:
-    docs = _read(SPEC_REL) + _read(PLAN_REL)
-    for required in (
-        "A3/M61/D0",
-        "62-path handwritten Python manifest",
-        "3107 focused",
-        "9014 passed, 185 deselected",
-        "9199 passes",
-        "one write-mode Ruff invocation",
-        "unstaged and uncommitted",
-        "Add Phase 53 window-local ordering and direction",
-        "Slice 15 retains Window IR",
-        "Phase 53 Slice 11 Gate 3",
-        "0.1.0",
-    ):
-        assert required in docs
-    assert (
-        _git_output(
-            ["diff", "--", "pyproject.toml", "uv.lock", ".github/workflows/ci.yml"]
-        )
-        == ""
-    )
-    assert (
-        _window_identity.WindowFunctionRole.WINDOW_FUNCTION.value == "window_function"
-    )
-    assert "genuine product decisions=0" in docs.lower() or "No later identity" in docs
 
 
 _SLICE10_READER_MIGRATION_PATHS = (

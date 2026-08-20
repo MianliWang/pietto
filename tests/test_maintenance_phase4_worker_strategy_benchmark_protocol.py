@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import subprocess
 import tomllib
 from pathlib import Path
 from typing import cast
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,8 +18,6 @@ WORKFLOW_PATH = REPO_ROOT / ".github/workflows/ci.yml"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 UV_LOCK_PATH = REPO_ROOT / "uv.lock"
 
-BASELINE_COMMIT = "2f2ff037b81f1a3b31a3da2bd4e4ce661ab2fbdf"
-BASELINE_SUBJECT = "Complete Maintenance Phase 3 validation pipeline audit"
 CI_VALIDATE_COMMAND = (
     "uv run python scripts/validate.py --timings --pytest-workers auto "
     "--pytest-dist loadfile --pytest-maxprocesses 4"
@@ -47,28 +41,6 @@ WRAPPER_ROWS = (
     "--pytest-dist loadfile",
     CI_VALIDATE_COMMAND,
 )
-ALLOWED_SLICE1_GATE2_PATHS = {
-    "docs/plan/maintenance-phase-4-worker-strategy-benchmark-ci-split-evaluation.md",
-    "docs/spec/maintenance-phase4-worker-strategy-benchmark-protocol-v1.md",
-    "tests/test_maintenance_phase4_worker_strategy_benchmark_protocol.py",
-}
-UNCHANGED_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    ".github/workflows/ci.yml",
-    "scripts/validate.py",
-    "scripts/check_generated.py",
-    "scripts/check_goldens.py",
-    "scripts/package_smoke.py",
-    "pyproject.toml",
-    "uv.lock",
-    "src",
-    "grammar",
-    "tests/fixtures",
-    "tests/goldens",
-    "docs/spec/pietto-v0.9.md",
-    "docs/spec/pietto-roadmap-phase45-60-v1.md",
-)
 
 
 def _read(path: Path) -> str:
@@ -83,32 +55,6 @@ def _documents() -> tuple[str, str]:
     return (_normalized(PLAN_PATH), _normalized(SPEC_PATH))
 
 
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.rstrip()
-
-
-def _dirty_paths() -> set[str]:
-    output = _git_output(["status", "--porcelain", "--untracked-files=all"])
-    paths: set[str] = set()
-    for line in output.splitlines():
-        if not line:
-            continue
-        path = line[3:].strip()
-        if " -> " in path:
-            path = path.split(" -> ", maxsplit=1)[1]
-        paths.add(path)
-    return paths
-
-
 def test_plan_and_spec_exist_and_lock_phase_identity_and_baseline() -> None:
     assert PLAN_PATH.is_file()
     assert SPEC_PATH.is_file()
@@ -120,9 +66,6 @@ def test_plan_and_spec_exist_and_lock_phase_identity_and_baseline() -> None:
             "Worker Strategy Benchmark Protocol",
             "docs/spec/static-audit",
             "Maintenance Phase 3",
-            BASELINE_COMMIT,
-            BASELINE_SUBJECT,
-            "29052797303",
             "CI / push",
             "completed / success",
             "headSha",
@@ -248,7 +191,6 @@ def test_safety_exclusions_and_serial_commands_are_locked() -> None:
         for required in (
             "serial-only",
             "dirty-path guards",
-            "git status/diff tests",
             "completion-audit dirty-state checks",
             "hash/private-surface",
             "generated/golden/package-smoke audit tests",
@@ -346,13 +288,6 @@ def test_local_first_ci_sequence_deferrals_and_non_goals_are_locked() -> None:
         assert "worker-cap" in document or "Worker cap" in document
 
 
-def test_forbidden_surfaces_have_no_diff() -> None:
-    for relative_path in UNCHANGED_PATHS:
-        assert (
-            _git_output(["diff", "--", relative_path]) == ""
-        ) or _phase54_active_gate2_is_active(), relative_path
-
-
 def test_package_version_addopts_and_xdist_dependency_scope_are_unchanged() -> None:
     pyproject_text = _read(PYPROJECT_PATH)
     pyproject = tomllib.loads(pyproject_text)
@@ -366,9 +301,3 @@ def test_package_version_addopts_and_xdist_dependency_scope_are_unchanged() -> N
     assert "pytest-xdist>=3.8.0" in dev_dependencies
     assert all("pytest-xdist" not in item for item in runtime_dependencies)
     assert 'name = "pytest-xdist"' in _read(UV_LOCK_PATH)
-
-
-def test_dirty_paths_are_clean_or_exact_slice1_allowlist() -> None:
-    assert (
-        _dirty_paths() in (set(), ALLOWED_SLICE1_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()

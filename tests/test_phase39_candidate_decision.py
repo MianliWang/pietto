@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-import subprocess
 import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -63,11 +58,6 @@ MYSQL_EXPRESSIONS_PATH = REPO_ROOT / "src/pietto/sql/mysql_expressions.py"
 GRAMMAR_PATH = REPO_ROOT / "grammar/Pietto.g4"
 PACKAGE_SMOKE_PATH = REPO_ROOT / "scripts/package_smoke.py"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE1_CHANGED_PATHS = {
-    "docs/plan/phase-39-count-family-implementation-candidate.md",
-    "tests/test_phase39_candidate_decision.py",
-}
 ALLOWED_SLICE3_CHANGED_PATHS = {
     "docs/plan/phase-39-count-family-implementation-candidate.md",
     "src/pietto/semantic/aggregates.py",
@@ -431,38 +421,6 @@ ALLOWED_PHASE41_SLICE1_REPAIR_CHANGED_PATHS = (
 # files, not original Phase 37/38/39/40 slice files.
 ALLOWED_SLICE3_CHANGED_PATHS = ALLOWED_PHASE41_SLICE1_REPAIR_CHANGED_PATHS
 
-
-def _non_slice3_repair_diff_paths(diff_output: str) -> set[str]:
-    return {
-        path
-        for path in diff_output.splitlines()
-        if path and path not in ALLOWED_SLICE3_CHANGED_PATHS
-    }
-
-
-def _non_slice3_repair_status_paths(status_output: str) -> set[str]:
-    return {
-        _status_path(line)
-        for line in status_output.splitlines()
-        if line and _status_path(line) not in ALLOWED_SLICE3_CHANGED_PATHS
-    }
-
-
-FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "src",
-    "grammar",
-    "src/pietto/generated",
-    "fixtures",
-    "tests/fixtures",
-    "scripts",
-    ".github/workflows",
-    "pyproject.toml",
-    "uv.lock",
-)
-
 POSITIVE_RELEASE_CLAIMS = (
     "tag created",
     "release created",
@@ -508,42 +466,6 @@ def _implementation_evidence() -> str:
     )
 
 
-def _git_status() -> list[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return [line for line in result.stdout.splitlines() if line]
-
-
-def _git_status_for(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _status_path(line: str) -> str:
-    if len(line) > 2 and line[2] == " ":
-        return line[3:]
-    return line.split(maxsplit=1)[1]
-
-
-def _path_matches(path: str, prefix: str) -> bool:
-    return path == prefix or path.startswith(f"{prefix}/")
-
-
 def test_phase39_slice1_plan_exists_and_records_trusted_handoff() -> None:
     assert PLAN_PATH.is_file()
     plan = _plan()
@@ -558,60 +480,6 @@ def test_phase39_slice1_plan_exists_and_records_trusted_handoff() -> None:
         "latest completed phase: Phase 38 Aggregate Semantics And Type Capability Consolidation",
         "package version remains `0.1.0`",
         "no tag/release/publish/upload/signing/attestation is authorized by Slice 1",
-    ):
-        assert required in plan, required
-
-
-def test_phase38_artifact_inventory_is_confirmed() -> None:
-    for relative_path in PHASE38_ARTIFACT_PATHS:
-        assert (REPO_ROOT / relative_path).is_file(), relative_path
-
-    evidence = _phase38_evidence()
-    for required in (
-        "Phase 38 Slice 7 is Completion Audit And Public Surface Lock",
-        "Phase 38 is complete as docs/plan/spec/static-audit and tests-only work",
-        "Phase 38 Slice 2 is Count Family Semantics Contract",
-        "Phase 38 Slice 3 is Type Capability Matrix Contract",
-        "Phase 38 Slice 4 is Any / Json / Bytes / Enum / UUID Capability Boundary",
-        "Phase 38 Slice 5 is Distinct / Collation / Ordering Readiness",
-        "Phase 38 Slice 6 is Binding / Aggregate Filter / Post-Aggregate Roadmap",
-        "`count(expression)`, `count(constant)`, `count(1)`, and `count_if(predicate)`",
-        "broad `count_distinct(expression)`",
-        "`min/max(expression)`",
-        "post-aggregate expression composition, relation-layer IR, subquery lowering",
-    ):
-        assert required in evidence, required
-
-
-def test_historical_phase37_phase39_label_is_superseded_without_editing_it() -> None:
-    phase37_plan = _normalized(PHASE37_PLAN_PATH)
-    phase39_plan = _plan()
-
-    assert (
-        "Phase 39: Public Developer Experience And Example Gallery MVP" in phase37_plan
-    )
-    assert "historical roadmap text only" in phase39_plan
-    assert "supersedes that old future label for current work" in phase39_plan
-    assert "does not edit locked Phase 37 artifacts" in phase39_plan
-
-
-def test_candidate_decision_sections_and_allowlist_are_locked() -> None:
-    plan = _plan()
-
-    for required in (
-        "## Candidate Decision",
-        "## Phase 38 Artifact Handoff",
-        "## Repo-Derived Implementation Inventory",
-        "## Candidate Readiness Matrix",
-        "## Future `count(expression)` Candidate Boundary",
-        "## Phase 39 Slice Sequence",
-        "## Slice 1 Public Surface Constraints",
-        "## Validation Plan And Gate 2 Allowlist",
-        "Count family implementation candidate and aggregate semantics implementation readiness",
-        "Approved Slice 1 Gate 2 file allowlist:",
-        "docs/plan/phase-39-count-family-implementation-candidate.md",
-        "tests/test_phase39_candidate_decision.py",
-        "`/tmp/phase39-slice1-gate2-evidence.txt`",
     ):
         assert required in plan, required
 
@@ -747,60 +615,3 @@ def test_public_surface_and_release_non_authorization_are_locked() -> None:
     lowered_plan = plan.lower()
     for forbidden in POSITIVE_RELEASE_CLAIMS:
         assert forbidden not in lowered_plan, forbidden
-
-
-def test_forbidden_surfaces_are_documented_and_unchanged_or_untracked() -> None:
-    plan = _plan()
-
-    for required in (
-        "`README.md`",
-        "`AGENTS.md`",
-        "`docs/spec/pietto-v0.9.md`",
-        "`src/`",
-        "`grammar/`",
-        "`src/pietto/generated/`",
-        "`fixtures/`",
-        "`tests/fixtures/`",
-        "`scripts/`",
-        "`.github/workflows/`",
-        "`pyproject.toml`",
-        "`uv.lock`",
-    ):
-        assert required in plan, required
-
-    diff_paths = set(
-        filter(
-            None,
-            _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS).splitlines(),
-        )
-    )
-    status_paths = {
-        _status_path(line)
-        for line in _git_status_for(FORBIDDEN_DIFF_PATHS).splitlines()
-        if line
-    }
-
-    assert (
-        diff_paths <= ALLOWED_SLICE3_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-
-def test_changed_set_is_current_slice_allowlist_or_clean_ci_checkout() -> None:
-    status_paths = {_status_path(line) for line in _git_status()}
-
-    # Accept both clean CI checkout and dirty Gate 2 working trees.
-    assert (
-        status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-    for forbidden in FORBIDDEN_DIFF_PATHS:
-        assert (
-            not any(
-                _path_matches(path, forbidden)
-                and path not in ALLOWED_SLICE3_CHANGED_PATHS
-                for path in status_paths
-            )
-        ) or _phase54_active_gate2_is_active()

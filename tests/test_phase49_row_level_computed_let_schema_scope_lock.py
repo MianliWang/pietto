@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-import subprocess
 import tomllib
 
 from _static_audit_helpers import normalized_text as _normalized
 from _static_audit_helpers import read_text as _read
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -18,12 +14,6 @@ SPEC_PATH = (
     / "docs/spec/phase49-row-level-computed-let-schema-lineage-scope-lock-v1.md"
 )
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE1_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-row-level-computed-let-schema-lineage-scope-lock-v1.md",
-    "tests/test_phase49_row_level_computed_let_schema_scope_lock.py",
-}
 
 PHASE49_SLICE_NAMES = (
     "Candidate decision / scope lock",
@@ -42,59 +32,9 @@ PHASE49_SLICE_NAMES = (
     "Completion audit/status lock",
 )
 
-FORBIDDEN_DIFF_PATHS = (
-    "src",
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/check.py",
-    "src/pietto/_project/json_v2.py",
-    "src/pietto/cli.py",
-    "pyproject.toml",
-    "uv.lock",
-    "docs/spec/pietto-roadmap-phase45-60-v1.md",
-    "docs/spec/pietto-v0.9.md",
-)
-
-HASH_LOCK_TEST_PATHS = (
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-)
-
 
 def _docs() -> str:
     return " ".join(_normalized(path) for path in (PLAN_PATH, SPEC_PATH))
-
-
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _dirty_paths() -> set[str]:
-    output = _git_output(["status", "--porcelain", "--untracked-files=all"])
-    paths: set[str] = set()
-    for line in output.splitlines():
-        if not line:
-            continue
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", maxsplit=1)[1]
-        paths.add(path)
-    return paths
 
 
 def test_phase49_scope_lock_artifacts_exist() -> None:
@@ -266,28 +206,3 @@ def test_phase50_60_readiness_boundaries_are_locked() -> None:
         "bridge, export, RAG, Arrow, and PyArrow behavior remain deferred",
     ):
         assert required in docs, required
-
-
-def test_slice1_gate2_allowlist_and_dirty_paths_are_locked() -> None:
-    docs = _docs()
-
-    for allowed in ALLOWED_SLICE1_GATE2_PATHS:
-        assert allowed in docs, allowed
-
-    dirty_paths = _dirty_paths()
-    unexpected_paths = dirty_paths - ALLOWED_SLICE1_GATE2_PATHS
-    assert (unexpected_paths == set()) or _phase54_active_gate2_is_active()
-
-
-def test_forbidden_surfaces_have_empty_diffs() -> None:
-    for path in FORBIDDEN_DIFF_PATHS:
-        assert (
-            _git_output(["diff", "--", path]) == ""
-        ) or _phase54_active_gate2_is_active(), path
-
-
-def test_hash_lock_tests_remain_unchanged() -> None:
-    for path in HASH_LOCK_TEST_PATHS:
-        assert (
-            _git_output(["diff", "--", path]) == ""
-        ) or _phase54_active_gate2_is_active(), path

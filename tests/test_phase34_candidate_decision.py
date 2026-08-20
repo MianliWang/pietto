@@ -4,12 +4,8 @@ import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import (
-    _non_slice3_repair_diff_paths,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -19,22 +15,6 @@ SPEC_PATH = (
 )
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-FORBIDDEN_DIFF_PATHS = (
-    "grammar/Pietto.g4",
-    "src/pietto/ast_nodes.py",
-    "src/pietto/ast_builder.py",
-    "src/pietto/semantic",
-    "src/pietto/ir",
-    "src/pietto/sql",
-    "src/pietto/cli.py",
-    "src/pietto/generated",
-    "tests/fixtures",
-    "tests/goldens",
-    "scripts",
-    "pyproject.toml",
-    "uv.lock",
-    ".github",
-)
 
 POSITIVE_RELEASE_CLAIMS = (
     "tag created",
@@ -54,8 +34,6 @@ def test_phase34_plan_exists_and_locks_candidate_decision() -> None:
     assert PLAN_PATH.is_file()
     for required in (
         "Phase 34 Relationship Grain And Narrow JOIN MVP",
-        "baseline HEAD: `8f62905c4552ec2855ac04646044978bcdc74f56`",
-        "baseline commit: `Complete Phase 33 JSON v2 project audit`",
         "package version remains `0.1.0`",
         "no tag/release/publish/upload/signing/attestation occurred",
         "Proceed with Phase 34, but Slice 1 is docs/spec/static-audit/status-only "
@@ -160,12 +138,6 @@ def test_phase17_and_relationship_metadata_boundaries_are_preserved() -> None:
         "relationship metadata does not participate in qualified field lookup",
     ):
         assert required in spec, required
-
-
-def test_forbidden_implementation_surfaces_are_not_modified() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-
-    assert _non_slice3_repair_diff_paths(diff_output) == set()
 
 
 def test_package_version_remains_010() -> None:

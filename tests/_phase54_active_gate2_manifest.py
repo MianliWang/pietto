@@ -3503,7 +3503,7 @@ def _read_phase54_gate2_repository_state() -> Phase54Gate2RepositoryState:
         # window, so these facts never described one repository state.
         raise ValueError("repository state moved while reading the gate state")
     return Phase54Gate2RepositoryState(
-        marker=PHASE55_SLICE2_GATE2_MARKER,
+        marker=PHASE55_SLICE3_GATE2_MARKER,
         branch_oid=branch_oid,
         branch_head=branch_head,
         branch_upstream=branch_upstream,
@@ -3560,6 +3560,49 @@ def _matches_phase55_slice2_gate2_manifest(
         and state.added_paths == PHASE55_SLICE2_GATE2_ADDED_PATHS
         and state.modified_paths == PHASE55_SLICE2_GATE2_MODIFIED_PATHS
         and state.deleted_paths == PHASE55_SLICE2_GATE2_DELETED_PATHS
+        and state.staged_paths == frozenset()
+        and state.other_paths == frozenset()
+        and state.worktree_count == 1
+        and not state.shallow
+        and not state.active_git_operation
+    )
+
+
+def _matches_phase55_slice3_gate2_manifest(
+    state: Phase54Gate2RepositoryState,
+) -> bool:
+    """Return whether supplied facts are the exact Slice 3 dirty-main candidate."""
+
+    return (
+        type(state) is Phase54Gate2RepositoryState
+        and type(state.marker) is str
+        and type(state.branch_oid) is str
+        and type(state.branch_head) is str
+        and type(state.branch_upstream) is str
+        and type(state.ahead) is int
+        and type(state.behind) is int
+        and type(state.added_paths) is frozenset
+        and all(type(path) is str for path in state.added_paths)
+        and type(state.modified_paths) is frozenset
+        and all(type(path) is str for path in state.modified_paths)
+        and type(state.deleted_paths) is frozenset
+        and all(type(path) is str for path in state.deleted_paths)
+        and type(state.staged_paths) is frozenset
+        and all(type(path) is str for path in state.staged_paths)
+        and type(state.other_paths) is frozenset
+        and all(type(path) is str for path in state.other_paths)
+        and type(state.worktree_count) is int
+        and type(state.shallow) is bool
+        and type(state.active_git_operation) is bool
+        and state.marker == PHASE55_SLICE3_GATE2_MARKER
+        and state.branch_oid == PHASE55_SLICE3_BASELINE
+        and state.branch_head == PHASE55_SLICE3_DIRECT_MAIN_BRANCH
+        and state.branch_upstream == f"origin/{PHASE55_SLICE3_DIRECT_MAIN_BRANCH}"
+        and state.ahead == 0
+        and state.behind == 0
+        and state.added_paths == PHASE55_SLICE3_GATE2_ADDED_PATHS
+        and state.modified_paths == PHASE55_SLICE3_GATE2_MODIFIED_PATHS
+        and state.deleted_paths == PHASE55_SLICE3_GATE2_DELETED_PATHS
         and state.staged_paths == frozenset()
         and state.other_paths == frozenset()
         and state.worktree_count == 1
@@ -4768,7 +4811,8 @@ def phase54_active_gate2_manifest_is_active() -> bool:
     except (OSError, subprocess.SubprocessError, ValueError):
         return False
     return (
-        _matches_phase55_slice2_gate2_manifest(state)
+        _matches_phase55_slice3_gate2_manifest(state)
+        or _matches_phase55_slice2_gate2_manifest(state)
         or _matches_phase55_active_gate2_manifest(state)
         or _matches_phase54_active_gate2_manifest(state)
         or _matches_phase54_slice12_mechanical_repair4_clean_topic(state)
@@ -4780,6 +4824,16 @@ def phase54_active_gate2_manifest_is_active() -> bool:
         or _matches_phase54_slice12_product_repair10_clean_topic(state)
         or _matches_phase54_slice12_product_repair3_clean_topic(state)
     )
+
+
+def phase55_slice3_gate2_manifest_is_active() -> bool:
+    """Read exact local Git facts and recognize only Slice 3's Gate 2 state."""
+
+    try:
+        state = _read_phase54_gate2_repository_state()
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return _matches_phase55_slice3_gate2_manifest(state)
 
 
 def phase54_slice12_product_repair3_clean_topic_is_active() -> bool:
@@ -6917,6 +6971,84 @@ PHASE55_SLICE2_GATE2_MODIFIED_PATHS = frozenset(
 PHASE55_SLICE2_GATE2_DELETED_PATHS = frozenset[str]()
 PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0 = frozenset(
     PHASE55_SLICE2_GATE2_ADDED_PATHS | PHASE55_SLICE2_GATE2_MODIFIED_PATHS
+)
+
+PHASE55_SLICE3_GATE2_MARKER = "PHASE55_SLICE3_GATE2"
+PHASE55_SLICE3_BASELINE = "019f7355c1556d918f180209736fec2b75a9e964"
+PHASE55_SLICE3_DIRECT_MAIN_BRANCH = "main"
+PHASE55_SLICE3_DIRECT_MAIN_SUBJECT = "Add Phase 55 package manifest normalization"
+PHASE55_SLICE3_REVIEWED_TREE_TRAILER = "Pietto-Reviewed-Tree"
+PHASE55_SLICE3_GATE2_ADDED_PATHS = frozenset(
+    {
+        "docs/spec/phase55-slice3-package-manifest-input-schema-and-canonical-normalization-v1.md",
+        "src/pietto/_project/package_manifest.py",
+        "tests/test_phase55_slice3_package_manifest_input_schema_and_canonical_normalization.py",
+    }
+)
+PHASE55_SLICE3_GATE2_MODIFIED_PATHS = frozenset(
+    {
+        "README.md",
+        "docs/plan/phase-55-semantic-package-asset-schema-and-deterministic-local-loading.md",
+        "docs/spec/pietto-active-roadmap-phase53-70-v2.md",
+        "docs/spec/pietto-v0.9.md",
+        "tests/_phase54_active_gate2_manifest.py",
+        "tests/test_phase11_ci_workflow.py",
+        "tests/test_phase11_completion_audit.py",
+        "tests/test_phase11_generated_guard.py",
+        "tests/test_phase11_golden_policy.py",
+        "tests/test_phase11_packaging_smoke.py",
+        "tests/test_phase11_validation_entrypoint.py",
+        "tests/test_phase12_completion_audit.py",
+        "tests/test_phase12_composition_cli_json_goldens.py",
+        "tests/test_phase21_group_by_hardening_audit.py",
+        "tests/test_phase24_aggregate_expression_arguments_readiness.py",
+        "tests/test_phase24_cli_json_output_hardening.py",
+        "tests/test_phase24_completion_audit.py",
+        "tests/test_phase26_completion_audit.py",
+        "tests/test_phase27_completion_audit.py",
+        "tests/test_phase28_completion_audit.py",
+        "tests/test_phase29_completion_audit.py",
+        "tests/test_phase30_completion_audit.py",
+        "tests/test_phase33_completion_audit.py",
+        "tests/test_phase50_import_module_export_readiness.py",
+        "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+        "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
+        "tests/test_phase51_completion_audit_and_status_lock.py",
+        "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+        "tests/test_phase52_aggregate_signature_algebra_facts.py",
+        "tests/test_phase52_completion_audit_and_status_lock.py",
+        "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+        "tests/test_phase52_expression_stage_clause_capability_facts.py",
+        "tests/test_phase52_fail_closed_capability_lookup.py",
+        "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py",
+        "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+        "tests/test_phase52_private_capability_fact_foundation.py",
+        "tests/test_phase52_scalar_function_operator_signature_facts.py",
+        "tests/test_phase53_completion_audit_and_status_lock.py",
+        "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+        "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
+        "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+        "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
+        "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
+        "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+        "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+        "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+        "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+        "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+        "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+        "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
+        "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+        "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+        "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
+        "tests/test_phase54_local_export_visibility_module_facades.py",
+        "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
+        "tests/test_phase54_post_slice12_workflow_hardening.py",
+        "tests/test_phase9_completion_audit.py",
+    }
+)
+PHASE55_SLICE3_GATE2_DELETED_PATHS = frozenset[str]()
+PHASE55_SLICE3_GATE2_ALLOWLIST_PATHS = frozenset(
+    PHASE55_SLICE3_GATE2_ADDED_PATHS | PHASE55_SLICE3_GATE2_MODIFIED_PATHS
 )
 
 

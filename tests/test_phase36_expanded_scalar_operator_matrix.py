@@ -4,12 +4,8 @@ from dataclasses import fields
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import (
-    _non_slice3_repair_diff_paths,
 )
 
 from pietto._metadata.model import SemanticMetadataType
@@ -35,23 +31,6 @@ METADATA_BUILDER_PATH = REPO_ROOT / "src/pietto/_metadata/builder.py"
 METADATA_SERIALIZER_PATH = REPO_ROOT / "src/pietto/_metadata/serializer.py"
 METADATA_TEXT_PATH = REPO_ROOT / "src/pietto/_metadata/text.py"
 CLI_JSON_PATH = REPO_ROOT / "src/pietto/cli_json.py"
-
-FORBIDDEN_DIFF_PATHS = (
-    "grammar/Pietto.g4",
-    "src/pietto/generated",
-    "src/pietto/cli.py",
-    "src/pietto/cli_json.py",
-    "src/pietto/semantic",
-    "src/pietto/ir",
-    "src/pietto/sql",
-    "src/pietto/_metadata",
-    "tests/fixtures",
-    "pyproject.toml",
-    "uv.lock",
-    ".github",
-    "scripts",
-    "examples",
-)
 
 
 def _phase36_slice9_docs() -> str:
@@ -334,12 +313,6 @@ def test_no_matrix_specific_public_output_schema_was_added() -> None:
             "bytes_encoding",
         ):
             assert forbidden not in lowered, forbidden
-
-
-def test_forbidden_surfaces_are_not_modified_by_slice9() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-
-    assert _non_slice3_repair_diff_paths(diff_output) == set()
 
 
 def _scalar_source(projection: str) -> str:

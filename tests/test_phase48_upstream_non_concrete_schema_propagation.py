@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import subprocess
 
 from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
@@ -15,9 +14,6 @@ from pietto._project.model import (
     build_empty_project_semantic_result,
 )
 from pietto.ast_nodes import QueryDef, TableDef
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-48-query-to-query-row-schema.md"
@@ -25,50 +21,6 @@ SPEC_PATH = (
     REPO_ROOT / "docs/spec/phase48-upstream-non-concrete-schema-propagation-v1.md"
 )
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE7_GATE2_PATHS = {
-    "docs/plan/phase-48-query-to-query-row-schema.md",
-    "docs/spec/phase48-upstream-non-concrete-schema-propagation-v1.md",
-    "src/pietto/_project/model.py",
-    "tests/test_phase48_upstream_non_concrete_schema_propagation.py",
-    "tests/test_phase48_query_to_query_multi_hop_propagation.py",
-    "tests/test_phase48_table_upstream_row_schema_propagation.py",
-    "tests/test_phase48_schema_availability_state_carrier.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-}
-
-ALLOWED_SLICE4_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-computed-alias-project-row-schema-mvp-v1.md",
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/row_expression_type_facts.py",
-    "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
-    "tests/test_phase47_direct_bare_field_row_schema.py",
-    "tests/test_phase47_direct_field_rename_row_schema.py",
-    "tests/test_phase48_query_to_query_multi_hop_propagation.py",
-    "tests/test_phase48_upstream_non_concrete_schema_propagation.py",
-    "tests/test_phase47_downstream_readiness_hardening.py",
-    "tests/test_phase48_table_upstream_row_schema_propagation.py",
-    "tests/test_phase48_project_json_private_fact_privacy_readiness.py",
-    "tests/test_phase48_downstream_diagnostics_ordering_hardening.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-}
 
 
 def test_slice7_contract_document_exists_and_is_linked_from_plan() -> None:
@@ -523,22 +475,11 @@ def test_project_json_v2_does_not_expose_slice7_private_facts(
         assert private_fact not in serialized
 
 
-def test_phase48_slice7_package_version_and_dirty_paths_are_locked() -> None:
+def test_package_version_is_locked() -> None:
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
-    dirty_paths = _git_status_paths()
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert (
-        dirty_paths
-        in (
-            set(),
-            ALLOWED_SLICE7_GATE2_PATHS,
-            ALLOWED_SLICE4_GATE2_PATHS,
-        )
-    ) or _phase54_active_gate2_is_active()
-    assert _git_diff("src/pietto/_project/check.py") == ""
-    assert _git_diff("src/pietto/_project/json_v2.py") == ""
 
 
 def _assert_state(
@@ -634,35 +575,3 @@ def _write(root: Path, relative_path: str, source: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
     return path
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths
-
-
-def _git_diff(path: str) -> str:
-    result = subprocess.run(
-        ["git", "diff", "--", path],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout

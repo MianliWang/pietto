@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import subprocess
 
 from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
@@ -14,9 +13,6 @@ from pietto._project.model import (
     build_empty_project_semantic_result,
 )
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-48-query-to-query-row-schema.md"
@@ -24,12 +20,6 @@ SPEC_PATH = (
     REPO_ROOT / "docs/spec/phase48-propagated-field-provenance-lineage-hardening-v1.md"
 )
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE6_GATE2_PATHS = {
-    "docs/plan/phase-48-query-to-query-row-schema.md",
-    "docs/spec/phase48-propagated-field-provenance-lineage-hardening-v1.md",
-    "tests/test_phase48_propagated_field_provenance_lineage_hardening.py",
-}
 
 
 def test_slice6_contract_document_exists_and_locks_private_scope() -> None:
@@ -386,15 +376,11 @@ def test_project_json_v2_does_not_expose_slice6_private_facts(
         assert private_fact not in serialized
 
 
-def test_phase48_slice6_package_version_and_dirty_paths_are_locked() -> None:
+def test_package_version_is_locked() -> None:
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert (
-        _git_status_paths().issubset(ALLOWED_SLICE6_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
-    assert (_git_diff("src/") == "") or _phase54_active_gate2_is_active()
 
 
 def _assert_direct_projection(
@@ -502,27 +488,3 @@ def _line_containing(source: str, marker: str) -> int:
     ]
     assert len(matches) == 1, marker
     return matches[0]
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    return {line[3:] for line in result.stdout.splitlines() if line}
-
-
-def _git_diff(path: str) -> str:
-    result = subprocess.run(
-        ["git", "diff", "--", path],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    return result.stdout

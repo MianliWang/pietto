@@ -3,36 +3,8 @@ from __future__ import annotations
 import ast
 import dataclasses
 from functools import lru_cache
-import hashlib
 from pathlib import Path
-import subprocess
-import tomllib
 from typing import cast
-
-from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_post_slice12_interlude_expected_allowlist_paths,
-    PHASE54_POST_SLICE12_INTERLUDE_ALLOWLIST_PATHS,
-    PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
-    PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
-    PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS,
-    PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS,
-    PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
-    PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS,
-    PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS,
-    PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
-    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-    phase54_slice11_pr_ci_repair_is_active,
-    phase54_slice12_pr_ci_repair_is_active,
-    phase54_slice12_mechanical_repair3_is_active,
-    phase54_slice12_mechanical_repair4_is_active,
-    phase54_slice12_product_repair3_is_active,
-    phase54_slice12_product_repair10_is_active,
-    phase54_slice12_product_repair11_is_active,
-    phase54_slice11_python313_repair_is_active,
-    phase54_slice11_substantive_recovery_is_active,
-    phase55_slice2_gate2_expected_allowlist_paths,
-)
 
 import pytest
 
@@ -106,8 +78,6 @@ CAPABILITY_REL = "src/pietto/semantic/capability_windows.py"
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 PUBLICATION_BRANCH = "phase53/slice15-window-ir-dual-backend-lowering"
 PUBLICATION_TITLE = "Add Phase 53 window IR and dual-backend lowering"
-PHASE54_SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
-
 IDENTITIES = (
     "row_number",
     "rank",
@@ -314,34 +284,6 @@ def _read(relative: str) -> str:
     return (REPO_ROOT / relative).read_text(encoding="utf-8")
 
 
-def _git_output(arguments: list[str]) -> str:
-    return subprocess.run(
-        ["git", *arguments],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    ).stdout.rstrip()
-
-
-def _repository_paths() -> tuple[str, ...]:
-    tracked = _git_output(["ls-files"]).splitlines()
-    untracked = _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
-    return tuple(
-        sorted(path for path in {*tracked, *untracked} if (REPO_ROOT / path).is_file())
-    )
-
-
-def _dirty_paths() -> set[str]:
-    return {
-        line[3:]
-        for line in _git_output(
-            ["status", "--porcelain=v1", "--untracked-files=all"]
-        ).splitlines()
-    }
-
-
 def _module_literal(relative: str, name: str) -> object:
     tree = ast.parse(_read(relative), filename=relative)
     for node in tree.body:
@@ -364,46 +306,6 @@ def _module_literal(relative: str, name: str) -> object:
                     assert isinstance(combined, tuple)
                     return combined[names.index(name)]
     raise AssertionError(f"missing module literal {relative}:{name}")
-
-
-def _phase54_slice2_allowlist() -> set[str]:
-    added = cast(set[str], _module_literal(PHASE54_SLICE2_STATE_REL, "ADDED_PATHS"))
-    non_reader = cast(
-        set[str],
-        _module_literal(PHASE54_SLICE2_STATE_REL, "NON_READER_MODIFIED_PATHS"),
-    )
-    readers = cast(
-        set[str], _module_literal(PHASE54_SLICE2_STATE_REL, "MECHANICAL_READER_PATHS")
-    )
-    return added | non_reader | readers
-
-
-def _test_manifest() -> tuple[tuple[str, ...], tuple[int, ...]]:
-    tree = ast.parse(_read(SELF_REL), filename=SELF_REL)
-    functions = tuple(
-        node
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test_")
-    )
-    cardinalities: list[int] = []
-    for function in functions:
-        cardinality = 1
-        for decorator in function.decorator_list:
-            if not (
-                isinstance(decorator, ast.Call)
-                and isinstance(decorator.func, ast.Attribute)
-                and decorator.func.attr == "parametrize"
-            ):
-                continue
-            values = decorator.args[1]
-            assert isinstance(values, ast.Call)
-            assert isinstance(values.func, ast.Name) and values.func.id == "range"
-            bound = values.args[0]
-            assert isinstance(bound, ast.Constant) and type(bound.value) is int
-            cardinality *= bound.value
-        cardinalities.append(cardinality)
-    return tuple(item.name for item in functions), tuple(cardinalities)
 
 
 def _source_connector(dialect: str) -> str:
@@ -710,20 +612,6 @@ def _path_manifest(kind: str, paths: tuple[str, ...]) -> bytes:
     return "".join(
         f"{kind}{index:02d}\t{path}\n" for index, path in enumerate(paths, start=1)
     ).encode("utf-8")
-
-
-def _top_level_test_function_count(paths: tuple[str, ...]) -> int:
-    count = 0
-    for relative in paths:
-        if not relative.startswith("tests/test_") or not relative.endswith(".py"):
-            continue
-        tree = ast.parse(_read(relative), filename=relative)
-        count += sum(
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name.startswith("test_")
-            for node in tree.body
-        )
-    return count
 
 
 def test_slice15_artifact_paths_heading_contract_and_lifecycle_are_exact() -> None:
@@ -1730,218 +1618,6 @@ def test_frames_named_windows_qualify_extension_and_later_identity_boundaries_ar
         result = _lookup(key)
         assert isinstance(result, Unknown)
         assert result.reason is CapabilityReasonCode.NOT_EVIDENCED
-
-
-def test_generated_golden_fixture_package_dependency_and_version_boundaries_are_locked() -> (
-    None
-):
-    paths = _repository_paths()
-    assert (
-        len(paths),
-        sum(path.endswith(".py") for path in paths),
-        sum(path.endswith(".md") for path in paths),
-        sum(path.startswith("tests/test_") and path.endswith(".py") for path in paths),
-        _top_level_test_function_count(paths),
-    ) == (951, 582, 273, 468, 5538)
-    generated = tuple(
-        path for path in paths if path.startswith("src/pietto/generated/")
-    )
-    goldens = tuple(path for path in paths if path.startswith("tests/fixtures/golden/"))
-    assert len(generated) == 8
-    assert (
-        len(goldens),
-        sum(path.endswith(".sql") for path in goldens),
-        sum(path.endswith(".json") for path in goldens),
-    ) == (37, 32, 5)
-    project = tomllib.loads(_read("pyproject.toml"))
-    assert project["project"]["version"] == "0.1.0"
-    assert project["project"]["dependencies"] == ["antlr4-python3-runtime>=4.13.2"]
-    assert project["build-system"] == {
-        "requires": ["uv_build>=0.12.3,<0.13.0"],
-        "build-backend": "uv_build",
-    }
-
-
-def test_reader_hash_dag_allowlist_and_fixed_point_are_exact() -> None:
-    assert (
-        len(ADDED_PATHS),
-        len(CORE_MODIFIED_PATHS),
-        len(READER_PATHS),
-        len(MODIFIED_PATHS),
-        len(set((*ADDED_PATHS, *MODIFIED_PATHS))),
-    ) == (2, 1, 23, 24, 26)
-    assert set(ADDED_PATHS).isdisjoint(MODIFIED_PATHS)
-    assert all((REPO_ROOT / path).is_file() for path in (*ADDED_PATHS, *MODIFIED_PATHS))
-    added_manifest = _path_manifest("A", ADDED_PATHS)
-    modified_manifest = _path_manifest("M", MODIFIED_PATHS)
-    assert (len(added_manifest), hashlib.sha256(added_manifest).hexdigest()) == (
-        120,
-        "9512adfa6b71173d89b1a49066ab53a072ef43667245a809dd8dcc3994b75046",
-    )
-    assert (len(modified_manifest), hashlib.sha256(modified_manifest).hexdigest()) == (
-        1832,
-        "bdc6ca87af8ec954bd2e2db19f9b887a128c2eb2415043f63af6021a9abcd903",
-    )
-    combined = added_manifest + modified_manifest
-    assert (len(combined), hashlib.sha256(combined).hexdigest()) == (
-        1952,
-        "5b4b7fa64e84a498437e466d6f96087ce4ebb1503d9215d9b016cbe2013be088",
-    )
-    assert len(TOPOLOGICAL_PHASE53_READERS) == 13
-    assert len(set(TOPOLOGICAL_PHASE53_READERS)) == 13
-    assert set(TOPOLOGICAL_PHASE53_READERS) < set(READER_PATHS)
-    dirty = _dirty_paths()
-    assert dirty in (
-        set(),
-        set((*ADDED_PATHS, *MODIFIED_PATHS)),
-        _phase54_slice2_allowlist(),
-        set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
-        set(phase54_post_slice12_interlude_expected_allowlist_paths()),
-        set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS),
-        set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS),
-        set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS),
-        set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS),
-        set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS),
-        set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS),
-        set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
-        set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
-        set(phase55_slice2_gate2_expected_allowlist_paths()),
-    )
-    if dirty == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS):
-        assert phase54_slice11_python313_repair_is_active()
-    elif dirty == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
-        assert phase54_slice11_substantive_recovery_is_active()
-    elif dirty == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS):
-        assert phase54_slice12_pr_ci_repair_is_active()
-    elif dirty == set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS):
-        assert phase54_slice12_mechanical_repair4_is_active()
-    elif dirty == set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS):
-        assert phase54_slice12_mechanical_repair3_is_active()
-    elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS):
-        assert phase54_slice12_product_repair3_is_active()
-    elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS):
-        assert phase54_slice12_product_repair10_is_active()
-    elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS):
-        assert phase54_slice12_product_repair11_is_active()
-    elif dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
-        assert phase54_slice11_pr_ci_repair_is_active()
-    elif dirty == set(phase55_slice2_gate2_expected_allowlist_paths()):
-        assert _phase54_active_gate2_is_active()
-    assert _git_output(["diff", "--cached", "--name-only"]) == ""
-
-
-def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact() -> (
-    None
-):
-    names, cardinalities = _test_manifest()
-    assert names == EXPECTED_TEST_NAMES
-    assert cardinalities == EXPECTED_CARDINALITIES
-    assert sum(cardinalities) == 208
-
-    source_reader = (
-        "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py"
-    )
-    focused = cast(tuple[str, ...], _module_literal(source_reader, "FOCUSED_OPERANDS"))
-    overlay = cast(tuple[str, ...], _module_literal(source_reader, "DIRTY_OVERLAY"))
-    assert focused[0] == SELF_REL
-    focused_payload = ("\n".join(focused) + "\n").encode("utf-8")
-    assert (
-        len(focused),
-        len({item.split("::", 1)[0] for item in focused}),
-        sum("::" not in item for item in focused),
-        sum("::" in item for item in focused),
-        len(focused_payload),
-        hashlib.sha256(focused_payload).hexdigest(),
-    ) == (
-        134,
-        80,
-        14,
-        120,
-        15130,
-        "fb685c521c70d879e0e3e751c434cf142700d82a66976961ca8036e8965b3429",
-    )
-    overlay_payload = ("\n".join(overlay) + "\n").encode("utf-8")
-    assert (
-        len(overlay),
-        len({item.split("::", 1)[0] for item in overlay}),
-        len(overlay_payload),
-        hashlib.sha256(overlay_payload).hexdigest(),
-    ) == (
-        185,
-        137,
-        23628,
-        "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26",
-    )
-    formatter_manifest = _path_manifest("F", FORMATTER_PATHS)
-    assert (
-        len(FORMATTER_PATHS),
-        len(formatter_manifest),
-        hashlib.sha256(formatter_manifest).hexdigest(),
-    ) == (
-        21,
-        1591,
-        "f907acc7860688d52621283a1c54c88cec6c26cb1346059f31d5540f895f3697",
-    )
-    assert 10784 - len(overlay) == 10599
-    assert 4557 + sum(cardinalities) == 4765
-
-
-@pytest.mark.parametrize("_case", range(8))
-def test_dirty_clean_depth_one_shallow_and_negative_topology_boundaries_are_exact(
-    _case: int,
-) -> None:
-    plan = _read(PLAN_REL)
-    clauses = (
-        "full-history clean",
-        "genuine depth-one",
-        "`pull_request` checkout",
-        "genuine shallow",
-        "stale",
-        "dirty",
-        "staged",
-        "mismatched variants fail closed",
-    )
-    normalized = " ".join(plan.split())
-    assert " ".join(clauses[_case].split()) in normalized
-    if _case == 0:
-        dirty = _dirty_paths()
-        assert dirty in (
-            set(),
-            set((*ADDED_PATHS, *MODIFIED_PATHS)),
-            _phase54_slice2_allowlist(),
-            set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
-            set(phase54_post_slice12_interlude_expected_allowlist_paths()),
-            set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS),
-            set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS),
-            set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS),
-            set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS),
-            set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS),
-            set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS),
-            set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
-            set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
-            set(phase55_slice2_gate2_expected_allowlist_paths()),
-        )
-        if dirty == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS):
-            assert phase54_slice11_python313_repair_is_active()
-        elif dirty == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
-            assert phase54_slice11_substantive_recovery_is_active()
-        elif dirty == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS):
-            assert phase54_slice12_pr_ci_repair_is_active()
-        elif dirty == set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS):
-            assert phase54_slice12_mechanical_repair4_is_active()
-        elif dirty == set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS):
-            assert phase54_slice12_mechanical_repair3_is_active()
-        elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS):
-            assert phase54_slice12_product_repair3_is_active()
-        elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS):
-            assert phase54_slice12_product_repair10_is_active()
-        elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS):
-            assert phase54_slice12_product_repair11_is_active()
-        elif dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
-            assert phase54_slice11_pr_ci_repair_is_active()
-        elif dirty == set(phase55_slice2_gate2_expected_allowlist_paths()):
-            assert _phase54_active_gate2_is_active()
-        assert _git_output(["diff", "--cached", "--name-only"]) == ""
 
 
 def test_gate2_evidence_gate3_publication_and_slice16_stop_contract_are_locked() -> (

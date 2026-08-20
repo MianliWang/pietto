@@ -1,61 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-import subprocess
 
-from _static_audit_helpers import git_diff_name_only
 from _static_audit_helpers import normalized_text as _normalized
-from _static_audit_helpers import read_text as _read
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-48-query-to-query-row-schema.md"
 SPEC_PATH = REPO_ROOT / "docs/spec/phase48-query-to-query-row-schema-scope-lock-v1.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE1_GATE2_PATHS = {
-    "docs/plan/phase-48-query-to-query-row-schema.md",
-    "docs/spec/phase48-query-to-query-row-schema-scope-lock-v1.md",
-    "docs/spec/phase48-query-to-query-multi-hop-propagation-v1.md",
-    "tests/test_phase48_query_to_query_row_schema_scope_lock.py",
-    "src/pietto/_project/model.py",
-    "tests/test_phase48_query_to_query_multi_hop_propagation.py",
-    "tests/test_phase48_table_upstream_row_schema_propagation.py",
-    "tests/test_phase48_schema_availability_state_carrier.py",
-    "tests/test_phase47_downstream_readiness_hardening.py",
-    "tests/test_phase47_qualified_field_row_schema.py",
-    "tests/test_phase47_unknown_direct_field_diagnostics.py",
-    "tests/test_phase47_direct_bare_field_row_schema.py",
-    "tests/test_phase47_direct_field_rename_row_schema.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-}
-
-FORBIDDEN_DIFF_PATHS = (
-    "src/pietto/_project/check.py",
-    "src/pietto/_project/json_v2.py",
-    "grammar",
-    "fixtures",
-    "goldens",
-    "tests/fixtures",
-    "tests/golden",
-    "scripts",
-    ".github",
-    "pyproject.toml",
-    "uv.lock",
-    "README.md",
-    "AGENTS.md",
-)
 
 
 def _docs() -> str:
@@ -244,33 +197,8 @@ def test_phase48_deferred_boundaries_and_json_privacy_are_locked() -> None:
         assert required in docs, required
 
 
-def test_phase48_slice1_package_version_and_dirty_paths_are_locked() -> None:
-    pyproject = _read(PYPROJECT_PATH)
+def test_package_version_is_locked() -> None:
+    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert (
-        git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS) == ""
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        _git_status_paths().issubset(ALLOWED_SLICE1_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths

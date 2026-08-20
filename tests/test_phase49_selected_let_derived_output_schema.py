@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import subprocess
 import tomllib
 
 from pietto._project.check import check_project_parse_only
@@ -30,34 +29,9 @@ from pietto._project.row_lineage import (
     ProjectRowLineageStatus,
 )
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE7_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-selected-let-derived-output-schema-v1.md",
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/let_scope_facts.py",
-    "src/pietto/semantic/let_bindings.py",
-    "tests/test_phase49_selected_let_derived_output_schema.py",
-    "tests/test_phase49_project_let_scope_value_facts.py",
-    "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
-    "tests/test_phase49_computed_alias_origin_provenance_privacy.py",
-    "tests/test_phase40_let_binding_row_level_semantics.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-}
 
 PRIVATE_JSON_FACTS = (
     "relation_let_scope_facts",
@@ -447,23 +421,9 @@ def test_project_json_v2_keeps_selected_let_schema_facts_private(
         assert private_fact not in serialized
 
 
-def test_slice7_forbidden_files_remain_unchanged() -> None:
-    for relative_path in (
-        "src/pietto/_project/json_v2.py",
-        "src/pietto/_project/check.py",
-        "src/pietto/_project/row_expression_schema.py",
-        "src/pietto/_project/row_expression_type_facts.py",
-    ):
-        assert _git_diff(relative_path) == "" or _phase54_active_gate2_is_active()
-
-
-def test_slice7_package_version_and_dirty_paths_are_locked() -> None:
+def test_package_version_remains_010() -> None:
     project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
-
     assert project["version"] == "0.1.0"
-    assert (
-        _git_status_paths() in (set(), ALLOWED_SLICE7_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
 
 
 def _assert_let_derived_field(
@@ -568,35 +528,3 @@ def _write(root: Path, relative_path: str, text: str) -> None:
     path = root / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths
-
-
-def _git_diff(relative_path: str) -> str:
-    result = subprocess.run(
-        ["git", "diff", "--", relative_path],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout

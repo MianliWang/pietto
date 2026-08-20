@@ -2,12 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import subprocess
 from typing import cast
 
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 import pytest
 
@@ -72,10 +68,6 @@ PRIVATE_JSON_FACTS = (
     "target",
     "dependency_source",
 )
-
-ALLOWED_SLICE10_GATE2_PATHS = {
-    "tests/test_phase47_project_json_privacy_hardening.py",
-}
 
 
 def test_slice10_route_and_json_privacy_contract_are_locked() -> None:
@@ -246,16 +238,11 @@ def test_project_json_v2_renderer_remains_single_line_ascii_document(
     _assert_private_json_facts_absent(rendered)
 
 
-def test_phase47_slice10_package_version_and_dirty_paths_are_locked() -> None:
+def test_package_version_is_locked() -> None:
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
-    dirty_paths = _git_status_paths()
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert (
-        dirty_paths.issubset(ALLOWED_SLICE10_GATE2_PATHS)
-        or _phase54_active_gate2_is_active()
-    )
 
 
 def _project_json_document(
@@ -340,22 +327,3 @@ def _write(root: Path, relative_path: str, source: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
     return path
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths

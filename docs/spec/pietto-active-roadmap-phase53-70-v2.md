@@ -410,3 +410,18 @@ Package and installed CLI version remain `0.1.0`. The Phase 55-70 owner tables
 above remain unchanged; in particular Phase 59 retains the package graph
 product, Phase 67 remote package management, and Phase 68 ranges, solver,
 canonical lockfile, and production Rust.
+
+## Phase 55 Slice 3 Current Gate 2 Authority
+
+The Slice 2 authority above is retained as a historical checkpoint. Slice 3
+Gate 2 starts from baseline `019f7355c1556d918f180209736fec2b75a9e964`, tree
+`ba285171d8d9b4a1cf34556990fff0b7b6181a69`, whose natural `push` CI attempt 1
+run `32078392127` succeeded. Phase 54 is `COMPLETED`, Phase 55 is `ACTIVE`,
+Slices 1 and 2 are `COMPLETED`, Slice 3 is `IMPLEMENTED_UNPUBLISHED`, Slices 4
+through 12 are `UNSTARTED`, and `next=PHASE55_SLICE3_GATE3`.
+
+Slice 3 adds only private `pietto-package.toml` v1 schema validation and
+canonical manifest normalization. Schema v1, package-absent schema v2, and the
+Slice 2 schema-v3 activation carrier remain exact. Package identity, exact
+version semantics, digest, typed asset catalog, locator trust, loading,
+dependencies, public package output, and release behavior remain later work.

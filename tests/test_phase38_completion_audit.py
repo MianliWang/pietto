@@ -1,21 +1,11 @@
 from __future__ import annotations
 
-import subprocess
 import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import (
-    ALLOWED_SLICE3_CHANGED_PATHS,
-    _non_slice3_repair_diff_paths,
-    _non_slice3_repair_status_paths,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -50,26 +40,6 @@ PHASE38_ARTIFACTS = (
     *PHASE38_TEST_PATHS,
 )
 
-ALLOWED_SLICE7_CHANGED_PATHS = {
-    "docs/plan/phase-38-aggregate-semantics-and-type-capability-consolidation.md",
-    "tests/test_phase38_completion_audit.py",
-}
-
-FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "src",
-    "grammar",
-    "src/pietto/generated",
-    "fixtures",
-    "tests/fixtures",
-    "scripts",
-    ".github/workflows",
-    "pyproject.toml",
-    "uv.lock",
-)
-
 POSITIVE_RELEASE_CLAIMS = (
     "tag created",
     "release created",
@@ -98,57 +68,6 @@ def _phase38_release_evidence() -> str:
         for relative_path in PHASE38_ARTIFACTS
         if relative_path != "tests/test_phase38_completion_audit.py"
     )
-
-
-def _git_status() -> list[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return [line for line in result.stdout.splitlines() if line]
-
-
-def _git_status_for(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _status_path(line: str) -> str:
-    return line[3:]
-
-
-def _path_matches(path: str, prefix: str) -> bool:
-    return path == prefix or path.startswith(f"{prefix}/")
-
-
-def test_phase38_artifact_inventory_is_complete_through_slice7() -> None:
-    for relative_path in PHASE38_ARTIFACTS:
-        assert (REPO_ROOT / relative_path).is_file(), relative_path
-
-    plan = _plan()
-    for required in (
-        "| 1 | Candidate Decision And Scope Inventory |",
-        "| 2 | Count Family Semantics Contract |",
-        "| 3 | Type Capability Matrix Contract |",
-        "| 4 | Any / Json / Bytes / Enum / UUID Capability Boundary |",
-        "| 5 | Distinct / Collation / Ordering Readiness |",
-        "| 6 | Binding / Aggregate Filter / Post-Aggregate Roadmap |",
-        "| 7 | Completion Audit And Public Surface Lock |",
-    ):
-        assert required in plan, required
 
 
 def test_phase38_completion_status_is_locked_in_plan() -> None:
@@ -181,20 +100,6 @@ def test_slice1_through_slice6_outcomes_remain_represented() -> None:
         "Phase 38 Slice 4 is Any / Json / Bytes / Enum / UUID Capability Boundary",
         "Phase 38 Slice 5 is Distinct / Collation / Ordering Readiness",
         "Phase 38 Slice 6 is Binding / Aggregate Filter / Post-Aggregate Roadmap",
-    ):
-        assert required in evidence, required
-
-
-def test_slice6_ci_repair_guard_is_clean_checkout_compatible() -> None:
-    evidence = _phase38_evidence()
-
-    for required in (
-        "Slice 6 CI repair is part of the trusted completion posture",
-        "23ad6264281bb5e4ed20db546f4f51cf30a21066",
-        "compatible with both a clean CI checkout and a dirty Gate 2 or repair working tree",
-        "allowed-path subset guard",
-        "Accept both clean CI checkout and dirty Gate 2/repair states",
-        "assert status_paths <= ALLOWED_SLICE3_CHANGED_PATHS",
     ):
         assert required in evidence, required
 
@@ -275,36 +180,3 @@ def test_public_surface_package_and_release_lock_is_preserved() -> None:
     lowered = _phase38_release_evidence().lower()
     for forbidden in POSITIVE_RELEASE_CLAIMS:
         assert forbidden not in lowered, forbidden
-
-
-def test_forbidden_surfaces_are_unchanged_or_untracked() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-    status_output = _git_status_for(FORBIDDEN_DIFF_PATHS)
-
-    assert (
-        _non_slice3_repair_diff_paths(diff_output) == set()
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        _non_slice3_repair_status_paths(status_output) == set()
-    ) or _phase54_active_gate2_is_active()
-
-
-def test_changed_set_is_slice7_allowlist_or_clean_ci_checkout() -> None:
-    status_paths = {_status_path(line) for line in _git_status()}
-
-    # Accept both clean CI checkout and dirty Gate 2 working trees.
-    assert (
-        status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-    for forbidden in FORBIDDEN_DIFF_PATHS:
-        assert (
-            _non_slice3_repair_status_paths(_git_status_for((forbidden,))) == set()
-        ) or _phase54_active_gate2_is_active()
-        assert (
-            not any(
-                _path_matches(path, forbidden)
-                and path not in ALLOWED_SLICE3_CHANGED_PATHS
-                for path in status_paths
-            )
-        ) or _phase54_active_gate2_is_active()

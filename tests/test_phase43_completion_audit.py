@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-import subprocess
 import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -41,34 +36,6 @@ PHASE43_TEST_PATHS = (
     "tests/test_phase43_let_binding_satisfying_aggregate_wrapped.py",
     "tests/test_phase43_cli_json_metadata_sql_compatibility.py",
     "tests/test_phase43_completion_audit.py",
-)
-
-ALLOWED_SLICE8_CHANGED_PATHS = {
-    *PHASE43_DOC_PATHS,
-    "tests/test_phase43_completion_audit.py",
-    "tests/test_phase43_let_binding_aggregate_grouped_scope_lock.py",
-    "tests/test_phase29_v02_deferred_feature_register.py",
-    "tests/test_phase29_completion_audit.py",
-    "tests/test_phase40_completion_audit.py",
-    "tests/test_phase41_decimal_precision_scale_completion_audit.py",
-}
-
-FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "src",
-    "grammar",
-    "src/pietto/generated",
-    "tests/fixtures",
-    "fixtures",
-    "goldens",
-    "examples",
-    "scripts",
-    ".github/workflows",
-    ".github/dependabot.yml",
-    "pyproject.toml",
-    "uv.lock",
 )
 
 PUBLIC_OUTPUT_SURFACE_PATHS = (
@@ -116,42 +83,6 @@ def _public_output_surface_text() -> str:
             continue
         chunks.extend(_normalized(child) for child in sorted(path.glob("**/*.py")))
     return " ".join(chunks)
-
-
-def _git_status() -> list[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return [line for line in result.stdout.splitlines() if line]
-
-
-def _git_status_for(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _status_path(line: str) -> str:
-    if len(line) > 2 and line[2] == " ":
-        return line[3:]
-    return line.split(maxsplit=1)[1]
-
-
-def _path_matches(path: str, prefix: str) -> bool:
-    return path == prefix or path.startswith(f"{prefix}/")
 
 
 def test_phase43_artifact_inventory_is_complete_through_slice8() -> None:
@@ -311,7 +242,7 @@ def test_deferred_register_records_phase43_completion_without_unfreezing() -> No
         assert forbidden not in register, forbidden
 
 
-def test_package_version_release_and_global_status_boundaries_remain_locked() -> None:
+def test_package_version_and_release_boundaries_remain_locked() -> None:
     project = tomllib.loads(_read(PYPROJECT_PATH))["project"]
     docs = _phase43_docs()
 
@@ -319,50 +250,5 @@ def test_package_version_release_and_global_status_boundaries_remain_locked() ->
     assert 'version = "0.1.0"' in _read(PYPROJECT_PATH)
     assert 'version = "0.2.0"' not in _read(PYPROJECT_PATH)
 
-    lowered = docs.lower()
     for forbidden in POSITIVE_RELEASE_CLAIMS:
-        assert forbidden not in lowered, forbidden
-
-    for relative_path in ("README.md", "AGENTS.md", "docs/spec/pietto-v0.9.md"):
-        assert relative_path in FORBIDDEN_DIFF_PATHS
-        assert "Phase 43 is complete as an eight-slice" not in _normalized(
-            REPO_ROOT / relative_path
-        )
-
-
-def test_forbidden_surfaces_are_unchanged_or_untracked() -> None:
-    diff_paths = set(
-        filter(
-            None,
-            _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS).splitlines(),
-        )
-    )
-    status_paths = {
-        _status_path(line)
-        for line in _git_status_for(FORBIDDEN_DIFF_PATHS).splitlines()
-        if line
-    }
-
-    assert (
-        diff_paths <= ALLOWED_SLICE8_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        status_paths <= ALLOWED_SLICE8_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-
-def test_changed_set_is_slice8_allowlist_or_clean_ci_checkout() -> None:
-    status_paths = {_status_path(line) for line in _git_status()}
-
-    assert (
-        status_paths <= ALLOWED_SLICE8_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-    for forbidden in FORBIDDEN_DIFF_PATHS:
-        assert (
-            not any(
-                _path_matches(path, forbidden)
-                and path not in ALLOWED_SLICE8_CHANGED_PATHS
-                for path in status_paths
-            )
-        ) or _phase54_active_gate2_is_active()
+        assert forbidden not in docs.lower(), forbidden

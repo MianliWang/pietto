@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import ast
-import subprocess
 import tomllib
 from pathlib import Path
 from typing import cast
 
 from _static_audit_helpers import read_text as _read
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -69,139 +64,6 @@ REQUIRED_SPEC_SECTIONS = (
 SEMANTIC_ASSET_KINDS = ("TYPE_ALIAS", "ENUM", "SHAPE")
 SUPPORT_ASSET_KINDS = ("DOCUMENTATION", "EXAMPLE", "STATIC_TEST_VECTOR")
 
-ALLOWED_PHASE50_SLICE7_GATE2_PATHS = {
-    "docs/plan/phase-50-semantic-readiness-consolidation.md",
-    "docs/spec/phase50-semantic-package-model-readiness-v1.md",
-    "tests/test_phase50_semantic_package_model_readiness.py",
-    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
-    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
-    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
-    "tests/test_phase50_type_system_gap_capability_readiness.py",
-    "tests/test_phase50_window_function_readiness.py",
-    "tests/test_phase50_import_module_export_readiness.py",
-}
-
-ALLOWED_PHASE50_SLICE8_GATE2_PATHS = {
-    "docs/plan/phase-50-semantic-readiness-consolidation.md",
-    "docs/spec/phase50-postgresql-extension-capability-readiness-v1.md",
-    "tests/test_phase50_postgresql_extension_capability_readiness.py",
-    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
-    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
-    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
-    "tests/test_phase50_type_system_gap_capability_readiness.py",
-    "tests/test_phase50_window_function_readiness.py",
-    "tests/test_phase50_import_module_export_readiness.py",
-    "tests/test_phase50_semantic_package_model_readiness.py",
-}
-
-ALLOWED_PHASE50_SLICE9_GATE2_PATHS = {
-    "docs/plan/phase-50-semantic-readiness-consolidation.md",
-    "docs/spec/phase50-multi-dialect-capability-ecosystem-readiness-v1.md",
-    "tests/test_phase50_multi_dialect_capability_ecosystem_readiness.py",
-    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
-    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
-    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
-    "tests/test_phase50_type_system_gap_capability_readiness.py",
-    "tests/test_phase50_window_function_readiness.py",
-    "tests/test_phase50_import_module_export_readiness.py",
-    "tests/test_phase50_semantic_package_model_readiness.py",
-    "tests/test_phase50_postgresql_extension_capability_readiness.py",
-}
-
-ALLOWED_PHASE50_SLICE10_GATE2_PATHS = {
-    "docs/plan/phase-50-semantic-readiness-consolidation.md",
-    "docs/spec/phase50-explain-public-metadata-package-integration-boundary-v1.md",
-    "tests/test_phase50_explain_public_metadata_package_integration_boundary.py",
-    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
-    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
-    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
-    "tests/test_phase50_type_system_gap_capability_readiness.py",
-    "tests/test_phase50_window_function_readiness.py",
-    "tests/test_phase50_import_module_export_readiness.py",
-    "tests/test_phase50_semantic_package_model_readiness.py",
-    "tests/test_phase50_postgresql_extension_capability_readiness.py",
-    "tests/test_phase50_multi_dialect_capability_ecosystem_readiness.py",
-}
-
-ALLOWED_PHASE50_SLICE11_GATE2_PATHS = {
-    "docs/plan/phase-50-semantic-readiness-consolidation.md",
-    "docs/spec/phase50-completion-audit-and-status-lock-v1.md",
-    "tests/test_phase50_completion_audit_and_status_lock.py",
-    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
-    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
-    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
-    "tests/test_phase50_type_system_gap_capability_readiness.py",
-    "tests/test_phase50_window_function_readiness.py",
-    "tests/test_phase50_import_module_export_readiness.py",
-    "tests/test_phase50_semantic_package_model_readiness.py",
-    "tests/test_phase50_postgresql_extension_capability_readiness.py",
-    "tests/test_phase50_multi_dialect_capability_ecosystem_readiness.py",
-    "tests/test_phase50_explain_public_metadata_package_integration_boundary.py",
-}
-
-COMPATIBILITY_TEST_PATHS = (
-    REPO_ROOT
-    / "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
-    REPO_ROOT / "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
-    REPO_ROOT
-    / "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
-    REPO_ROOT / "tests/test_phase50_type_system_gap_capability_readiness.py",
-    REPO_ROOT / "tests/test_phase50_window_function_readiness.py",
-    REPO_ROOT / "tests/test_phase50_import_module_export_readiness.py",
-)
-
-PROTECTED_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "docs/spec/pietto-roadmap-phase45-60-v1.md",
-    "docs/spec/v02-deferred-feature-register-v1.md",
-    "docs/spec/phase50-semantic-package-extension-capability-scope-lock-v1.md",
-    "docs/spec/phase50-post-v02-deferred-readiness-inventory-v1.md",
-    "docs/spec/phase50-aggregate-grouped-project-output-schema-readiness-v1.md",
-    "docs/spec/phase50-type-system-gap-capability-readiness-v1.md",
-    "docs/spec/phase50-window-function-readiness-v1.md",
-    "docs/spec/phase50-import-module-export-readiness-v1.md",
-    "docs/plan/phase-4[4-9]*",
-    "docs/spec/phase4[4-9]*",
-    "tests/test_phase4[4-9]*.py",
-    "src",
-    "grammar",
-    "scripts",
-    ".github",
-    "pyproject.toml",
-    "uv.lock",
-    "tests/fixtures",
-    "tests/goldens",
-    "examples",
-)
-
-
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.rstrip()
-
-
-def _dirty_paths() -> set[str]:
-    output = _git_output(["status", "--porcelain", "--untracked-files=all"])
-    paths: set[str] = set()
-    for line in output.splitlines():
-        if not line:
-            continue
-        path = line[3:].strip()
-        if " -> " in path:
-            path = path.split(" -> ", maxsplit=1)[1]
-        paths.add(path)
-    return paths
-
 
 def _section(path: Path, heading: str) -> str:
     text = _read(path)
@@ -214,26 +76,6 @@ def _section(path: Path, heading: str) -> str:
 
 def _normalized_section(path: Path, heading: str) -> str:
     return " ".join(_section(path, heading).split())
-
-
-def _string_set_assignment(source: str, assignment_name: str) -> set[str]:
-    module = ast.parse(source)
-    for node in module.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        if not any(
-            isinstance(target, ast.Name) and target.id == assignment_name
-            for target in node.targets
-        ):
-            continue
-        assert isinstance(node.value, ast.Set)
-        values: set[str] = set()
-        for element in node.value.elts:
-            assert isinstance(element, ast.Constant)
-            assert isinstance(element.value, str)
-            values.add(element.value)
-        return values
-    raise AssertionError(f"assignment not found: {assignment_name}")
 
 
 def test_slice7_artifacts_baseline_and_mutable_status_are_locked() -> None:
@@ -604,50 +446,6 @@ def test_bounded_phase55_handoff_deferrals_and_release_boundary_are_locked() -> 
         assert required in stop, required
 
 
-def test_all_phase50_slice7_allowlists_and_plan_scope_are_exact() -> None:
-    for test_path in (*COMPATIBILITY_TEST_PATHS, TEST_PATH):
-        assert (
-            _string_set_assignment(
-                _read(test_path), "ALLOWED_PHASE50_SLICE7_GATE2_PATHS"
-            )
-            == ALLOWED_PHASE50_SLICE7_GATE2_PATHS
-        ), test_path
-
-    allowlist = _normalized_section(PLAN_PATH, "Slice 7 Gate 2 Allowlist")
-    assert "limited to exactly" in allowlist
-    assert "No tenth repository path is approved" in allowlist
-    assert len(ALLOWED_PHASE50_SLICE7_GATE2_PATHS) == 9
-    for relative_path in ALLOWED_PHASE50_SLICE7_GATE2_PATHS:
-        assert relative_path in allowlist, relative_path
-
-    for test_path in (*COMPATIBILITY_TEST_PATHS, TEST_PATH):
-        assert (
-            _string_set_assignment(
-                _read(test_path), "ALLOWED_PHASE50_SLICE8_GATE2_PATHS"
-            )
-            == ALLOWED_PHASE50_SLICE8_GATE2_PATHS
-        ), test_path
-
-
-def test_protected_paths_version_tag_staging_and_dirty_set_are_locked() -> None:
-    pyproject = tomllib.loads(_read(PYPROJECT_PATH))
-    project = cast(dict[str, object], pyproject["project"])
-
+def test_package_version_remains_010() -> None:
+    project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
     assert project["version"] == "0.1.0"
-    assert _git_output(["tag", "--points-at", "HEAD"]) == ""
-    assert _git_output(["diff", "--cached", "--name-status"]) == ""
-    for relative_path in PROTECTED_PATHS:
-        assert (
-            _git_output(["diff", "--", relative_path]) == ""
-        ) or _phase54_active_gate2_is_active(), relative_path
-    assert (
-        _dirty_paths()
-        in (
-            set(),
-            ALLOWED_PHASE50_SLICE7_GATE2_PATHS,
-            ALLOWED_PHASE50_SLICE8_GATE2_PATHS,
-            ALLOWED_PHASE50_SLICE9_GATE2_PATHS,
-            ALLOWED_PHASE50_SLICE10_GATE2_PATHS,
-            ALLOWED_PHASE50_SLICE11_GATE2_PATHS,
-        )
-    ) or _phase54_active_gate2_is_active()

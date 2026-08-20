@@ -19,6 +19,9 @@ import pietto.sql as sql_api
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_CONFIG_SOURCE = REPO_ROOT / "src" / "pietto" / "_project" / "config.py"
 PROJECT_CHECK_SOURCE = REPO_ROOT / "src" / "pietto" / "_project" / "check.py"
+PACKAGE_MANIFEST_SOURCE = (
+    REPO_ROOT / "src" / "pietto" / "_project" / "package_manifest.py"
+)
 PHASE9_PLAN = "docs/plan/phase-9-sql-backend-architecture-dialect-strategy.md"
 PHASE9_DOCUMENTS = (
     "docs/spec/sql-dialect-source-contract-v1.md",
@@ -282,7 +285,6 @@ def test_phase9_prohibited_production_capabilities_remain_absent() -> None:
         "sqlalchemy",
         "sqlglot",
         "tomli",
-        "tomllib",
         "typer",
         "urllib",
         "watchdog",
@@ -293,6 +295,9 @@ def test_phase9_prohibited_production_capabilities_remain_absent() -> None:
     assert _runtime_call_attributes(runtime_sources).isdisjoint(
         {"connect", "execute", "glob", "rglob", "walk"}
     )
+    assert {
+        path for path in runtime_sources if "tomllib" in _runtime_import_roots((path,))
+    } == {PROJECT_CONFIG_SOURCE, PACKAGE_MANIFEST_SOURCE}
 
 
 def test_phase9_dependencies_lock_grammar_and_generated_files_match_baseline() -> None:

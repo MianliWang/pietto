@@ -523,3 +523,19 @@ the module semantic pipeline. Manifest normalization, package identity,
 SemVer, digest, assets, dependencies, loading, inspection, public output, and
 release behavior remain later work. Package and installed CLI version remain
 `0.1.0`.
+
+## Phase 55 Slice 3 Current Gate Status
+
+The Slice 2 status above is retained as a historical checkpoint. At baseline
+`019f7355c1556d918f180209736fec2b75a9e964`, tree
+`ba285171d8d9b4a1cf34556990fff0b7b6181a69`, natural `push` CI attempt 1 run
+`32078392127` succeeded. Phase 54 is **COMPLETED**, Phase 55 is **ACTIVE**,
+Slices 1 and 2 are **COMPLETED**, and Slice 3, **Package Manifest Input Schema
+And Canonical Normalization**, is **IMPLEMENTED_UNPUBLISHED**. Slices 4 through
+12 are **UNSTARTED**; the sole next token is `PHASE55_SLICE3_GATE3`.
+
+Slice 3 adds only private `pietto-package.toml` v1 schema validation and
+canonical manifest normalization. Schema v1, package-absent schema v2, and
+Slice 2's schema-v3 activation carrier remain exact. It adds no package
+identity, digest, asset catalog, locator, loading, dependency, public, or
+release behavior. Package and installed CLI version remain `0.1.0`.

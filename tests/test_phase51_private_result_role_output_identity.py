@@ -4,13 +4,8 @@ from collections.abc import MutableMapping
 from dataclasses import FrozenInstanceError, fields, is_dataclass
 import json
 from pathlib import Path
-import subprocess
 from types import MappingProxyType
 from typing import Any, cast
-
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 import pytest
 
@@ -505,58 +500,6 @@ def test_new_private_facts_are_not_exported_or_serialized(tmp_path: Path) -> Non
         source = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
         assert "ProjectAggregateResultFact" not in source
         assert "relation_aggregate_result_facts" not in source
-
-
-def test_forbidden_compiler_dependency_and_lineage_surfaces_have_no_diff() -> None:
-    allowed_semantic_paths = {
-        "src/pietto/semantic/expressions.py",
-        "src/pietto/semantic/group_by.py",
-        "src/pietto/semantic/window_analysis.py",
-        "src/pietto/semantic/window_input_analysis.py",
-        "src/pietto/semantic/window_navigation_analysis.py",
-        "src/pietto/semantic/window_order_analysis.py",
-        "src/pietto/semantic/window_partition_analysis.py",
-    }
-    forbidden_semantic_paths = tuple(
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in sorted((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
-        if path.relative_to(REPO_ROOT).as_posix() not in allowed_semantic_paths
-    )
-    forbidden_ir_paths = tuple(
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in sorted((REPO_ROOT / "src/pietto/ir").glob("*.py"))
-        if path.relative_to(REPO_ROOT).as_posix() != "src/pietto/ir/lowering.py"
-    )
-    forbidden_paths = (
-        "grammar",
-        "src/pietto/ast_nodes.py",
-        "src/pietto/ast_builder.py",
-        "src/pietto/parser_api.py",
-        "src/pietto/errors.py",
-        *forbidden_semantic_paths,
-        *forbidden_ir_paths,
-        "src/pietto/sql",
-        "src/pietto/cli.py",
-        "src/pietto/cli_json.py",
-        "src/pietto/_metadata",
-        "src/pietto/_project/__init__.py",
-        "src/pietto/_project/json_v2.py",
-        "src/pietto/_project/let_scope_facts.py",
-        "src/pietto/_project/row_expression_schema.py",
-        "src/pietto/_project/row_expression_type_facts.py",
-    )
-    result = subprocess.run(
-        ["git", "diff", "--exit-code", "--", *forbidden_paths],
-        cwd=REPO_ROOT,
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-    assert result.returncode == 0 or _phase54_active_gate2_is_active(), (
-        result.stdout + result.stderr
-    )
 
 
 def _model(

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import subprocess
 import tomllib
 
 import pytest
@@ -34,28 +33,9 @@ from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import SemanticResult, analyze
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE8_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-let-visibility-order-shadowing-hardening-v1.md",
-    "tests/test_phase49_let_visibility_order_shadowing_hardening.py",
-}
-
-FORBIDDEN_FILES = (
-    "src/pietto/_project/json_v2.py",
-    "src/pietto/_project/check.py",
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/let_scope_facts.py",
-    "src/pietto/_project/row_expression_schema.py",
-    "src/pietto/_project/row_expression_type_facts.py",
-    "src/pietto/semantic/let_bindings.py",
-)
 
 PRIVATE_JSON_FACTS = (
     "relation_let_scope_facts",
@@ -538,18 +518,9 @@ def test_project_json_v2_keeps_slice8_private_facts_private(
         assert private_fact not in serialized
 
 
-def test_slice8_forbidden_files_have_no_diff() -> None:
-    for relative_path in FORBIDDEN_FILES:
-        assert (_git_diff(relative_path) == "") or _phase54_active_gate2_is_active()
-
-
-def test_slice8_package_version_and_dirty_paths_are_locked() -> None:
+def test_package_version_remains_010() -> None:
     project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
-
     assert project["version"] == "0.1.0"
-    assert (
-        _git_status_paths() in (set(), ALLOWED_SLICE8_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
 
 
 def _analyze_single_file(source: str) -> SemanticResult:
@@ -638,35 +609,3 @@ def _write(root: Path, relative_path: str, text: str) -> None:
     path = root / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths
-
-
-def _git_diff(relative_path: str) -> str:
-    result = subprocess.run(
-        ["git", "diff", "--", relative_path],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout

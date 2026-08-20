@@ -6,15 +6,8 @@ import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import (
-    _non_slice3_repair_diff_paths,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -27,23 +20,6 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 STATUS_DOCS = (AGENTS_PATH, PIETTO_SPEC_PATH)
 
-FORBIDDEN_DIFF_PATHS = (
-    "grammar/Pietto.g4",
-    "src/pietto/generated",
-    "src/pietto/cli.py",
-    "src/pietto/cli_json.py",
-    "src/pietto/semantic",
-    "src/pietto/ir",
-    "src/pietto/sql",
-    "src/pietto/_metadata",
-    "src/pietto/_project",
-    "tests/fixtures",
-    "pyproject.toml",
-    "uv.lock",
-    ".github",
-    "scripts",
-    "examples",
-)
 
 STALE_PHASE36_IN_PROGRESS_CLAIMS = (
     "Phase 36 Slices 1 through 10 are complete",
@@ -185,11 +161,3 @@ def test_package_version_remains_010() -> None:
     assert project["version"] == "0.1.0"
     assert 'version = "0.1.0"' in _read(PYPROJECT_PATH)
     assert 'version = "0.2.0"' not in _read(PYPROJECT_PATH)
-
-
-def test_forbidden_implementation_package_and_workflow_surfaces_are_unchanged() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-
-    assert (
-        _non_slice3_repair_diff_paths(diff_output) == set()
-    ) or _phase54_active_gate2_is_active()

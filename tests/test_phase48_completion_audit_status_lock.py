@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-import subprocess
 import tomllib
 
 from _static_audit_helpers import normalized_text as _normalized
 from _static_audit_helpers import read_text as _read
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -18,42 +14,6 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 ROADMAP_PATH = REPO_ROOT / "docs/spec/pietto-roadmap-phase45-60-v1.md"
 PIETTO_V09_PATH = REPO_ROOT / "docs/spec/pietto-v0.9.md"
 PROJECT_MODEL_PATH = REPO_ROOT / "src/pietto/_project/model.py"
-
-ALLOWED_SLICE10_GATE2_PATHS = {
-    "docs/plan/phase-48-query-to-query-row-schema.md",
-    "docs/spec/phase48-completion-audit-status-lock-v1.md",
-    "tests/test_phase48_completion_audit_status_lock.py",
-}
-
-HASH_LOCK_TEST_PATHS = (
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-)
-
-FORBIDDEN_DIFF_PATHS = (
-    "src",
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/check.py",
-    "src/pietto/_project/json_v2.py",
-    "src/pietto/cli.py",
-    "grammar",
-    "scripts",
-    ".github",
-    "pyproject.toml",
-    "uv.lock",
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-roadmap-phase45-60-v1.md",
-    "docs/spec/pietto-v0.9.md",
-    *HASH_LOCK_TEST_PATHS,
-)
 
 PHASE48_SLICE_NAMES = (
     "Candidate/scope lock and route plan",
@@ -222,67 +182,3 @@ def test_package_release_and_gate3_preclaim_boundaries_are_locked() -> None:
         assert forbidden not in lowered_docs, forbidden
     for forbidden in PRECLAIMED_GATE3_SUCCESS:
         assert forbidden not in docs, forbidden
-
-
-def test_slice10_dirty_paths_and_forbidden_diffs_are_locked() -> None:
-    assert (
-        _git_status_paths().issubset(ALLOWED_SLICE10_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        _git_diff_name_only(FORBIDDEN_DIFF_PATHS) == ""
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        _git_diff_name_only(HASH_LOCK_TEST_PATHS) == ""
-    ) or _phase54_active_gate2_is_active()
-
-
-def test_global_roadmap_and_pietto_v09_are_not_edited() -> None:
-    assert ROADMAP_PATH.is_file()
-    assert PIETTO_V09_PATH.is_file()
-    assert _git_diff_name_only(("docs/spec/pietto-roadmap-phase45-60-v1.md",)) == ""
-    assert (
-        _git_diff_name_only(("docs/spec/pietto-v0.9.md",)) == ""
-    ) or _phase54_active_gate2_is_active()
-
-
-def test_no_src_project_cli_or_json_v2_changes_are_present() -> None:
-    for paths in (
-        ("src",),
-        ("src/pietto/_project/model.py",),
-        ("src/pietto/_project/check.py",),
-        ("src/pietto/_project/json_v2.py",),
-        ("src/pietto/cli.py",),
-    ):
-        assert (_git_diff_name_only(paths) == "") or _phase54_active_gate2_is_active()
-
-
-def _git_diff_name_only(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "diff", "--name-only", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths

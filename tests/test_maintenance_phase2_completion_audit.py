@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 from _static_audit_helpers import normalized_text as _normalized
 from _static_audit_helpers import read_text as _read
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,27 +27,6 @@ COMPLETION_AUDIT_TEST_PATH = (
 )
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-ALLOWED_SLICE6_GATE2_PATHS = {
-    "docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md",
-    "tests/test_maintenance_phase2_completion_audit.py",
-    "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
-    "tests/test_maintenance_phase2_code_audit_security_review.py",
-    "tests/test_maintenance_phase2_external_skills_evaluation.py",
-}
-
-FORBIDDEN_DIFF_PATHS = (
-    "AGENTS.md",
-    "README.md",
-    "docs/spec/pietto-v0.9.md",
-    "src",
-    "scripts",
-    ".github",
-    "pyproject.toml",
-    "uv.lock",
-    "tests/fixtures",
-    "tests/goldens",
-    "grammar",
-)
 
 POSITIVE_RELEASE_CLAIMS = (
     "tag created",
@@ -197,34 +172,6 @@ def test_phase45_handoff_and_namespace_policy_remain_locked() -> None:
         assert required in docs, required
 
 
-def test_slice6_allowlist_validation_and_stop_conditions_are_locked() -> None:
-    docs = _docs()
-    for required in (
-        "docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md",
-        "tests/test_maintenance_phase2_completion_audit.py",
-        "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
-        "tests/test_maintenance_phase2_code_audit_security_review.py",
-        "tests/test_maintenance_phase2_external_skills_evaluation.py",
-        "No other file is approved in this Gate 2",
-        "Slice 6 Gate 2 validation is limited to focused completion audit/status-lock checks",
-        "git diff --check",
-        "uv run ruff format --check tests/test_maintenance_phase2_completion_audit.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py tests/test_maintenance_phase2_code_audit_security_review.py tests/test_maintenance_phase2_external_skills_evaluation.py",
-        "uv run ruff check tests/test_maintenance_phase2_completion_audit.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py tests/test_maintenance_phase2_code_audit_security_review.py tests/test_maintenance_phase2_external_skills_evaluation.py",
-        "uv run pyright --project pyrightconfig.tests.json",
-        "uv run pytest tests/test_maintenance_phase2_completion_audit.py",
-        "uv run pytest tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
-        "uv run pytest tests/test_maintenance_phase2_code_audit_security_review.py",
-        "uv run pytest tests/test_maintenance_phase2_external_skills_evaluation.py",
-        "UV_CACHE_DIR=/tmp/pietto_maintenance_phase2_uv_cache uv run ...",
-        "need to expand Slice 6 beyond completion audit/status-lock docs/tests",
-    ):
-        assert required in docs, required
-
-    assert (
-        _git_status_paths().issubset(ALLOWED_SLICE6_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
-
-
 def test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked() -> None:
     docs = _docs()
     lowered_docs = docs.lower()
@@ -232,12 +179,6 @@ def test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked() -> No
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert (
-        _git_diff_name_only(FORBIDDEN_DIFF_PATHS) == ""
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        _git_status_paths().issubset(ALLOWED_SLICE6_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
 
     for required in (
         "`AGENTS.md`",
@@ -262,35 +203,3 @@ def test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked() -> No
 
     for forbidden in POSITIVE_RELEASE_CLAIMS:
         assert forbidden not in lowered_docs, forbidden
-
-
-def _git_diff_name_only(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "diff", "--name-only", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths

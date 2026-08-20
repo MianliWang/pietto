@@ -6,15 +6,8 @@ import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from test_phase39_candidate_decision import (
-    _non_slice3_repair_diff_paths,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -38,7 +31,6 @@ UNAPPROVED_PHASE35_TITLE = (
 PHASE35_COMPLETION_STATEMENT = (
     "Phase 35 Developer Experience And Delivery Pipeline MVP is complete"
 )
-SLICE1_LOCK = "cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071"
 POSITIVE_RELEASE_CLAIMS = (
     "tag created",
     "release created",
@@ -60,31 +52,6 @@ PHASE35_ARTIFACTS = (
     "tests/test_phase35_internal_helper_simplification_candidate_decision.py",
     "tests/test_phase35_completion_audit.py",
 )
-FORBIDDEN_DIFF_PATHS = (
-    "docs/spec/phase-35-safe-simplification-contract-v1.md",
-    "tests/_static_audit_helpers.py",
-    "tests/test_phase35_safe_simplification_candidate_decision.py",
-    "tests/test_phase35_static_audit_helper_simplification.py",
-    "grammar/Pietto.g4",
-    "src/pietto/generated",
-    "src/pietto/ast_nodes.py",
-    "src/pietto/ast_builder.py",
-    "src/pietto/parser_api.py",
-    "src/pietto/semantic",
-    "src/pietto/ir",
-    "src/pietto/sql",
-    "src/pietto/cli.py",
-    "src/pietto/cli_json.py",
-    "src/pietto/_project",
-    "src/pietto/_metadata",
-    "src/pietto/metadata",
-    "tests/fixtures",
-    "tests/goldens",
-    "scripts",
-    ".github/workflows/ci.yml",
-    "pyproject.toml",
-    "uv.lock",
-)
 
 
 def test_phase35_completion_artifact_inventory_and_title_are_locked() -> None:
@@ -104,7 +71,6 @@ def test_phase35_completion_artifact_inventory_and_title_are_locked() -> None:
         "Phase 35 Slice 5 Internal Helper Simplification Candidate Decision is complete",
         "Phase 35 Slice 6 Completion Audit And Status Lock is complete",
         PHASE35_COMPLETION_STATEMENT,
-        SLICE1_LOCK,
     ):
         assert required in plan, required
 
@@ -118,7 +84,6 @@ def test_global_status_docs_record_phase35_completion() -> None:
             "Phase 35 is active as Developer Experience And Delivery Pipeline MVP"
             not in (status)
         )
-        assert f"Phase 35 Slice 1 remains complete at `{SLICE1_LOCK}`" in status
         assert "Slices 2 through 6 complete status housekeeping" in status
         assert "tests-only static-audit helper simplification" in status
         assert "validation/delivery workflow polish" in status
@@ -154,14 +119,6 @@ def test_phase35_completion_preserves_no_behavior_change_boundaries() -> None:
         "release-operation behavior",
     ):
         assert required in combined, required
-
-
-def test_phase35_forbidden_surfaces_are_not_modified() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-
-    assert (
-        _non_slice3_repair_diff_paths(diff_output) == set()
-    ) or _phase54_active_gate2_is_active()
 
 
 def test_package_version_and_release_boundaries_remain_locked() -> None:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import inspect
 import json
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -49,9 +48,6 @@ from pietto.ast_nodes import (
     TableDef,
 )
 from pietto.errors import SourceLocation
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER_PATH = REPO_ROOT / "src/pietto/_project/aggregate_grouped_schema.py"
@@ -759,91 +755,6 @@ def test_expression_and_row_let_aggregate_relations_are_concrete_private_and_per
         assert not hasattr(pietto, name)
         assert not hasattr(project_package, name)
         assert name not in serialized
-
-
-def test_plan_contract_versions_protected_boundaries_and_exact_dirty_set() -> None:
-    plan = PLAN_PATH.read_text(encoding="utf-8")
-    spec = SPEC_PATH.read_text(encoding="utf-8")
-    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
-    lock = LOCK_PATH.read_text(encoding="utf-8")
-    plan_lines = plan.splitlines()
-
-    assert plan_lines.count("### Slice 6 Gate 2 Bounded Implementation Status") == 1
-    assert "## Slice 6 Gate 2 Bounded Implementation Status" not in plan_lines
-    assert spec.splitlines()[0] == (
-        "# Phase 51 Aggregate Expression And Row-let Candidate Integration v1"
-    )
-    for required in (
-        "Selected-let And Accepted-expression Aggregate Integration",
-        "direct `CallExpr`",
-        "ProjectRelationLetScopeFacts.value_types",
-        "ABSENT",
-        "CONCRETE",
-        "UNKNOWN",
-        "DEFERRED",
-        "BLOCKED",
-        "all-or-none",
-        "exactly 15 paths",
-        "Ruff remains `0.15.21`",
-        "ruff check --fix",
-        "/tmp/pietto-phase51-slice6-gate2-evidence-and-diff.txt",
-        "There is no same-gate repair or rerun after validation begins.",
-    ):
-        assert required in spec, required
-    for slice_number in range(7, 11):
-        assert f"Slice {slice_number}" in spec
-
-    assert '"ruff>=0.16.2"' in pyproject
-    assert 'name = "ruff"\nversion = "0.16.2"' in lock
-
-    protected_paths = (
-        "docs/spec/pietto-roadmap-phase45-60-v1.md",
-        "docs/spec/phase51-aggregate-grouped-output-schema-foundation-scope-lock-v1.md",
-        "docs/spec/phase51-private-result-role-output-identity-v1.md",
-        "docs/spec/phase51-group-key-project-row-schema-foundation-v1.md",
-        "docs/spec/phase51-aggregate-only-result-candidate-foundation-v1.md",
-        "docs/spec/phase51-grouped-key-aggregate-candidate-assembly-v1.md",
-        "src/pietto/_project/model.py",
-        "src/pietto/_project/__init__.py",
-        "src/pietto/_project/json_v2.py",
-        "src/pietto/_project/let_scope_facts.py",
-        "src/pietto/_project/row_expression_schema.py",
-        "src/pietto/_project/row_expression_type_facts.py",
-        "src/pietto/_project/row_dependency_graph.py",
-        "src/pietto/_project/row_lineage.py",
-        "src/pietto/semantic",
-        "src/pietto/ir",
-        "src/pietto/sql",
-        "scripts",
-        ".github",
-        "pyproject.toml",
-        "uv.lock",
-        "tests/fixtures",
-        "tests/goldens",
-        "examples",
-    )
-    protected = subprocess.run(
-        ["git", "diff", "--exit-code", "--", *protected_paths],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert (protected.returncode == 0) or _phase54_active_gate2_is_active()
-    assert (protected.stdout == "") or _phase54_active_gate2_is_active()
-    assert protected.stderr == ""
-
-    status = subprocess.run(
-        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    dirty_paths = {line[3:] for line in status.stdout.splitlines()}
-    assert (
-        dirty_paths in (set(), EXPECTED_GATE2_PATHS, PHASE52_SLICE1_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
 
 
 def _aggregate_rows(

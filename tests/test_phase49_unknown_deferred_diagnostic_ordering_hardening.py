@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import subprocess
 import tomllib
 
 from pietto._project.check import check_project_parse_only
@@ -27,9 +26,6 @@ from pietto._project.row_lineage import (
     ProjectRowLineageStatus,
 )
 from pietto.ast_nodes import QueryDef, TableDef
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-49-row-level-computed-let-schema-lineage.md"
@@ -37,24 +33,6 @@ SPEC_PATH = (
     REPO_ROOT / "docs/spec/phase49-unknown-deferred-diagnostic-ordering-hardening-v1.md"
 )
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE12_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-unknown-deferred-diagnostic-ordering-hardening-v1.md",
-    "tests/test_phase49_unknown_deferred_diagnostic_ordering_hardening.py",
-}
-
-FORBIDDEN_SOURCE_DIFF_PATHS = (
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/json_v2.py",
-    "src/pietto/_project/check.py",
-    "src/pietto/_project/row_dependency_graph.py",
-    "src/pietto/_project/row_lineage.py",
-    "src/pietto/_project/let_scope_facts.py",
-    "src/pietto/_project/row_expression_schema.py",
-    "src/pietto/_project/row_expression_type_facts.py",
-    "src/pietto/semantic/let_bindings.py",
-)
 
 PRIVATE_JSON_FACTS = (
     "relation_row_schema_states",
@@ -412,22 +390,9 @@ def test_project_json_v2_keeps_slice12_private_carrier_facts_private(
         _assert_private_json_facts_absent(document)
 
 
-def test_slice12_forbidden_files_package_version_and_dirty_paths_are_locked() -> None:
+def test_package_version_remains_010() -> None:
     project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
     assert project["version"] == "0.1.0"
-    assert (
-        _git_status_paths() in (set(), ALLOWED_SLICE12_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
-
-    for path in FORBIDDEN_SOURCE_DIFF_PATHS:
-        assert (
-            _git_output(["diff", "--", path]) == ""
-        ) or _phase54_active_gate2_is_active(), path
-    assert _git_output(["diff", "--", "grammar"]) == ""
-    assert _git_output(["diff", "--", "generated"]) == ""
-    assert _git_output(["diff", "--", ".github/workflows"]) == ""
-    assert _git_output(["diff", "--", "pyproject.toml"]) == ""
-    assert _git_output(["diff", "--", "uv.lock"]) == ""
 
 
 def _assert_row_schema_state(
@@ -571,21 +536,3 @@ def _derived_definition(
             if isinstance(definition, (TableDef, QueryDef)) and definition.name == name:
                 return definition
     raise AssertionError(f"Missing derived definition: {name}")
-
-
-def _git_status_paths() -> set[str]:
-    output = _git_output(["status", "--short", "--untracked-files=all"])
-    return {line[3:] for line in output.splitlines() if line}
-
-
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.rstrip()

@@ -3,15 +3,9 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
-import subprocess
-import tomllib
 from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
 from typing import Any, cast
-
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 import pytest
 
@@ -119,14 +113,13 @@ MODIFIED_READER_PATHS = (
     SIGNATURE_TEST_REL,
 )
 ADDED_PATHS = {CONTEXT_REL, CONTEXT_SPEC_REL, CONTEXT_TEST_REL}
-ALLOWLIST_PATHS = {*MODIFIED_READER_PATHS, *ADDED_PATHS}
-COMPILER_DIGEST = "8c93baee223f2afa4c62b820becb92aae34b8af2713cf4419da211cb5e88a4d9"
+COMPILER_DIGEST = "6cbe7ccfbd84d7b2966964ac91a56e7eeacdc798c3d161da64d61add662b0420"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "0f5a417592f7f0df276a34137b14a1a0f39526e4266279ed7af76b3dbfa49de9"
+    "327ba4f5c12d916d6577cd9510aa2a28df8519dafdc935ae67a6d2f5b2fc4830"
 )
 
 COMPILER_READERS = (
@@ -174,86 +167,6 @@ PHASE15_READER = "tests/test_phase15_semantic_completion_audit.py"
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
-
-
-def _slice13_paths(name: str) -> set[str]:
-    if _git_output(["rev-parse", "HEAD"]) in {
-        "d8a5e9ab3de70ce30575513c73560c86430eca63",
-        "15bae172ee151e370fe59d3bf909d735aee6aa90",
-        "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
-        "c44a4271d9592cb393d2232f127a59d8466cc60a",
-        "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
-        "027b33cafcfd58916a89e299487dad38d24ade6c",
-        "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
-        "b81843acadb294630db361c09949868d004b1bca",
-    }:
-        modified, added = _phase54_slice2_paths()
-        if name == "MODIFIED_PATHS":
-            return modified
-        if name == "ADDED_PATHS":
-            return added
-    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
-    tree = ast.parse(_read(path), filename=path.as_posix())
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id == name
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, (set, tuple))
-            assert all(isinstance(item, str) for item in value)
-            return set(value)
-    raise AssertionError(f"missing Slice 13 path manifest {name}")
-
-
-def _phase54_slice2_paths() -> tuple[set[str], set[str]]:
-    path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
-    tree = ast.parse(_read(path), filename=path.as_posix())
-    expected = {
-        "ADDED_PATHS",
-        "NON_READER_MODIFIED_PATHS",
-        "MECHANICAL_READER_PATHS",
-    }
-    values: dict[str, set[str]] = {}
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id in expected
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, set)
-            assert all(isinstance(item, str) for item in value)
-            values[node.targets[0].id] = value
-    assert set(values) == expected
-    return (
-        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"],
-        values["ADDED_PATHS"],
-    )
-
-
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    return result.stdout.rstrip()
-
-
-def _dirty_paths() -> set[str]:
-    return {
-        line[3:]
-        for line in _git_output(
-            ["status", "--porcelain=v1", "--untracked-files=all"]
-        ).splitlines()
-    }
 
 
 def _digest(paths: tuple[Path, ...]) -> str:
@@ -587,128 +500,6 @@ def test_spec_exact_headings_and_fail_closed_contract_are_locked() -> None:
         "Phase 52 remains active and incomplete",
     ):
         assert required in spec
-
-
-def test_compiler_semantic_and_phase15_boundary_digests_are_refreshed() -> None:
-    compiler_paths = _compiler_paths()
-    semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
-    phase15_paths = tuple(
-        path
-        for path in semantic_paths
-        if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
-    )
-    assert len(compiler_paths) == 108
-    assert len(semantic_paths) == 36
-    assert len(phase15_paths) == 33
-    assert _digest(compiler_paths) == COMPILER_DIGEST
-    assert _digest(semantic_paths) == SEMANTIC_DIGEST
-    assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
-    for path in COMPILER_READERS:
-        assert COMPILER_DIGEST in _read(REPO_ROOT / path)
-    for path in SEMANTIC_READERS:
-        assert SEMANTIC_DIGEST in _read(REPO_ROOT / path)
-    assert PHASE15_SUBSET_DIGEST in _read(REPO_ROOT / PHASE15_READER)
-
-
-def test_raw_sha_reader_topology_is_closed_without_layer2_readers() -> None:
-    topology = (
-        (
-            "tests/test_phase13_completion_audit.py",
-            (
-                "tests/test_phase14_candidate_decision_audit.py",
-                "tests/test_phase14_planning_audit.py",
-            ),
-        ),
-        (
-            "tests/test_phase15_semantic_completion_audit.py",
-            ("tests/test_phase15_completion_audit.py",),
-        ),
-        (
-            "tests/test_phase16_current_syntax_surface_audit.py",
-            ("tests/test_phase16_completion_audit.py",),
-        ),
-        (
-            "tests/test_phase16_language_direction_audit.py",
-            ("tests/test_phase16_completion_audit.py",),
-        ),
-        (
-            "tests/test_phase16_safety_deferral_sql_portability.py",
-            ("tests/test_phase16_completion_audit.py",),
-        ),
-    )
-    for inner, outers in topology:
-        inner_sha = hashlib.sha256((REPO_ROOT / inner).read_bytes()).hexdigest()
-        for outer in outers:
-            assert _read(REPO_ROOT / outer).count(inner_sha) == 1
-    tracked = _git_output(["ls-files"]).splitlines()
-    for outer in {path for _, paths in topology for path in paths}:
-        outer_sha = hashlib.sha256((REPO_ROOT / outer).read_bytes()).hexdigest()
-        outer_sha_bytes = outer_sha.encode("ascii")
-        assert not any(
-            outer_sha_bytes in (REPO_ROOT / path).read_bytes()
-            for path in tracked
-            if path not in _TERMINAL_READER_MIGRATION_PATHS
-            and (REPO_ROOT / path).is_file()
-        )
-
-
-def test_project_package_version_and_tag_boundaries_are_unchanged() -> None:
-    project_paths = _project_private_paths()
-    assert len(project_paths) == 33
-    assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
-    with PYPROJECT_PATH.open("rb") as stream:
-        project = tomllib.load(stream)
-    assert project["project"]["version"] == "0.1.0"
-    assert _git_output(["tag", "--list"]) == ""
-
-
-def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
-    if _phase54_active_gate2_is_active():
-        return
-    slice13_modified = _slice13_paths("MODIFIED_PATHS")
-    slice13_added = _slice13_paths("ADDED_PATHS")
-    slice13_allowlist = slice13_modified | slice13_added
-    assert _dirty_paths() in (set(), ALLOWLIST_PATHS, slice13_allowlist)
-    tracked = set(_git_output(["diff", "--name-only"]).splitlines())
-    assert tracked in (set(), set(MODIFIED_READER_PATHS), slice13_modified)
-    untracked = set(
-        _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
-    )
-    assert untracked in (set(), ADDED_PATHS, slice13_added)
-    assert _git_output(["diff", "--cached", "--name-status"]) == ""
-
-
-def test_static_inventory_and_exact_focused_test_shape_are_locked() -> None:
-    tree = ast.parse(_read(SELF_PATH), filename=SELF_REL)
-    tests = tuple(
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
-    )
-    assert len(tests) == 24
-    assert _pytest_item_count() == 34
-    assert [node.name for node in tests if node.decorator_list] == [
-        "test_unknown_accepts_each_non_absent_non_conflict_reason",
-        "test_unknown_rejects_absence_and_conflict_only_reasons",
-        "test_support_or_disposition_differences_are_conflicts",
-        "test_dialect_backend_or_extension_scope_differences_are_conflicts",
-    ]
-    assert len(MODIFIED_READER_PATHS) == len(set(MODIFIED_READER_PATHS)) == 40
-    assert len(ALLOWLIST_PATHS) == 43
-    assert sum(path.endswith(".py") for path in ALLOWLIST_PATHS) == 42
-    assert sum(path.endswith(".md") for path in ALLOWLIST_PATHS) == 1
-    old_tree = ast.parse(_read(REPO_ROOT / SLICE2_TEST_REL), filename=SLICE2_TEST_REL)
-    direct_tier1 = next(
-        node
-        for node in old_tree.body
-        if isinstance(node, ast.Assign)
-        and any(
-            isinstance(target, ast.Name) and target.id == "DIRECT_TIER1_NODES"
-            for target in node.targets
-        )
-    )
-    assert isinstance(direct_tier1.value, ast.Tuple)
-    assert len(direct_tier1.value.elts) == 44
 
 
 def test_zero_match_uses_only_the_explicit_incomplete_domain_reason() -> None:

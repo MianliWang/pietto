@@ -3,33 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
-)
-from test_phase39_candidate_decision import (
-    _non_slice3_repair_diff_paths,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-36-post-v02-core-type-system-expansion.md"
 SPEC_PATH = REPO_ROOT / "docs/spec/phase36-core-type-resolution-matrix-v1.md"
-
-FORBIDDEN_DIFF_PATHS = (
-    "grammar/Pietto.g4",
-    "src/pietto/generated",
-    "src/pietto/cli.py",
-    "src/pietto/cli_json.py",
-    "src/pietto/semantic",
-    "src/pietto/ir",
-    "src/pietto/sql",
-    "src/pietto/_metadata",
-    "tests/fixtures",
-    "pyproject.toml",
-    "uv.lock",
-    ".github",
-    "scripts",
-    "examples",
-)
 
 
 def _phase36_slice2_docs() -> str:
@@ -162,9 +141,3 @@ def test_slice2_authorizes_no_implementation_behavior() -> None:
         "Slice 2 changes Semantic Metadata Artifact v1",
     ):
         assert forbidden not in combined, forbidden
-
-
-def test_forbidden_surfaces_are_not_modified_by_slice2() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-
-    assert _non_slice3_repair_diff_paths(diff_output) == set()

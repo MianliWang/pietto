@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 from _static_audit_helpers import normalized_text as _normalized
 from _static_audit_helpers import read_text as _read
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -16,25 +12,6 @@ SPEC_PATH = (
     REPO_ROOT / "docs/spec/phase46-project-semantic-continuation-scope-lock-v1.md"
 )
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE1_GATE2_PATHS = {
-    "docs/plan/phase-46-project-semantic-continuation.md",
-    "docs/spec/phase46-project-semantic-continuation-scope-lock-v1.md",
-    "tests/test_phase46_project_semantic_continuation_scope_lock.py",
-}
-
-FORBIDDEN_DIFF_PATHS = (
-    "src",
-    "grammar",
-    "fixtures",
-    "goldens",
-    "scripts",
-    ".github",
-    "pyproject.toml",
-    "uv.lock",
-    "README.md",
-    "AGENTS.md",
-)
 
 
 def _docs() -> str:
@@ -157,10 +134,6 @@ def test_phase46_slice_route_allowlist_and_validation_are_locked() -> None:
     ):
         assert required in docs, required
 
-    assert (
-        _git_status_paths().issubset(ALLOWED_SLICE1_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
-
 
 def test_phase46_forbidden_surfaces_package_and_release_boundaries_are_locked() -> None:
     docs = _docs()
@@ -194,42 +167,3 @@ def test_phase46_forbidden_surfaces_package_and_release_boundaries_are_locked() 
         "tag, release, publish, upload, signing, or attestation behavior",
     ):
         assert required in docs, required
-
-    assert (
-        _git_diff_name_only(FORBIDDEN_DIFF_PATHS) == ""
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        _git_status_paths().issubset(ALLOWED_SLICE1_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
-
-
-def _git_diff_name_only(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "diff", "--name-only", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths

@@ -23,6 +23,7 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 PACKAGE_SMOKE_PATH = REPO_ROOT / "scripts/package_smoke.py"
 PROJECT_CONFIG_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/config.py"
 PROJECT_CHECK_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/check.py"
+PACKAGE_MANIFEST_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/package_manifest.py"
 
 STATUS_DOCS = (AGENTS_PATH, PIETTO_SPEC_PATH)
 
@@ -112,8 +113,8 @@ ROADMAP_STATUS = (
 LOCKED_PHASE33_SURFACES = {
     "project_private": (
         "src/pietto/_project",
-        33,
-        "0f5a417592f7f0df276a34137b14a1a0f39526e4266279ed7af76b3dbfa49de9",
+        34,
+        "327ba4f5c12d916d6577cd9510aa2a28df8519dafdc935ae67a6d2f5b2fc4830",
     ),
     "cli": (
         "src/pietto/cli.py",
@@ -133,7 +134,7 @@ LOCKED_PHASE33_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "6dfa5cd150501c6e703c110dde13d71ff4635c4f367dae7160f66594cb683202",
+        "7186f4c98bdca512e1ec77eec00482fc87e51a9ad1fad2fcba67ce1a3b4cda49",
     ),
     "agents": (
         "AGENTS.md",
@@ -143,7 +144,7 @@ LOCKED_PHASE33_SURFACES = {
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "3ceb49cca85545924b2c57eae59cc38f35a2d75bf23f3ca86d53eed006343926",
+        "1f017db252d9f91eec0827c5d50fddd3a868e10a86a546bf05bb8c2d0613e843",
     ),
 }
 
@@ -325,6 +326,11 @@ def test_deferred_project_runtime_surfaces_remain_absent() -> None:
         for path, source in project_sources.items()
         if path != PROJECT_CONFIG_SOURCE_PATH
     )
+    project_source_without_config_or_manifest = "\n".join(
+        source
+        for path, source in project_sources.items()
+        if path not in {PROJECT_CONFIG_SOURCE_PATH, PACKAGE_MANIFEST_SOURCE_PATH}
+    )
     project_source_without_config_or_check = "\n".join(
         source
         for path, source in project_sources.items()
@@ -357,14 +363,24 @@ def test_deferred_project_runtime_surfaces_remain_absent() -> None:
     ):
         assert forbidden not in project_source
 
-    for forbidden in (
-        "tomllib",
-        "read_text(",
-        "read_bytes(",
-    ):
+    assert "tomllib" not in project_source_without_config_or_manifest
+
+    for forbidden in ("read_text(", "read_bytes("):
         assert forbidden not in project_source_without_config
 
     assert "open(" not in project_source_without_config_or_check
+
+    package_manifest_source = project_sources[PACKAGE_MANIFEST_SOURCE_PATH]
+    assert "import tomllib" in package_manifest_source
+    for forbidden in (
+        "read_text(",
+        "read_bytes(",
+        "open(",
+        "from pathlib",
+        "import pathlib",
+        "import os",
+    ):
+        assert forbidden not in package_manifest_source
 
     for forbidden in (
         "configured_source_selection",

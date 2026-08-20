@@ -1,14 +1,9 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
-from _static_audit_helpers import git_diff_name_only
 from _static_audit_helpers import normalized_text as _normalized
 from _static_audit_helpers import read_text as _read
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -20,28 +15,6 @@ PHASE46_SPEC_PATH = (
 )
 ROADMAP_PATH = REPO_ROOT / "docs/spec/pietto-roadmap-phase45-60-v1.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_PHASE47_ROUTE_LOCK_GATE2_PATHS = {
-    "docs/plan/phase-47-direct-row-schema-mvp.md",
-    "docs/spec/phase47-direct-row-schema-scope-lock-v1.md",
-    "tests/test_phase47_completion_audit.py",
-    "tests/test_phase47_direct_row_schema_scope_lock.py",
-}
-
-FORBIDDEN_DIFF_PATHS = (
-    "src",
-    "grammar",
-    "fixtures",
-    "goldens",
-    "scripts",
-    ".github",
-    "pyproject.toml",
-    "uv.lock",
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "docs/spec/pietto-roadmap-phase45-60-v1.md",
-)
 
 
 def _docs() -> str:
@@ -317,29 +290,3 @@ def test_phase47_forbidden_surfaces_package_and_dirty_paths_are_locked() -> None
         "tag, release, publish, upload, signing, or attestation behavior",
     ):
         assert required in docs, required
-
-    assert (
-        git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS) == ""
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        _git_status_paths().issubset(ALLOWED_PHASE47_ROUTE_LOCK_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths

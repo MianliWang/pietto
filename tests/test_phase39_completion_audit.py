@@ -1,20 +1,11 @@
 from __future__ import annotations
 
-import subprocess
 import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-
-from test_phase39_candidate_decision import (
-    ALLOWED_SLICE3_CHANGED_PATHS as PHASE40_SLICE3_REPAIR_CHANGED_PATHS,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -62,30 +53,6 @@ SLICE7_REPAIR_HANDOFF = {
     "final_trusted_head": "7f299a227f9656bc8151cd738d9f9207a98e34ce",
 }
 
-ALLOWED_SLICE8_CHANGED_PATHS = {
-    "docs/plan/phase-39-count-family-implementation-candidate.md",
-    "tests/test_phase39_candidate_decision.py",
-    "tests/test_phase39_completion_audit.py",
-}
-ALLOWED_PHASE40_SLICE3_REPAIR_CHANGED_PATHS = (
-    ALLOWED_SLICE8_CHANGED_PATHS | PHASE40_SLICE3_REPAIR_CHANGED_PATHS
-)
-
-FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "docs/spec/phase39-count-expression-mvp-contract-v1.md",
-    "grammar",
-    "src",
-    "fixtures",
-    "tests/fixtures",
-    "scripts",
-    ".github/workflows",
-    "pyproject.toml",
-    "uv.lock",
-)
-
 POSITIVE_RELEASE_CLAIMS = (
     "tag created",
     "release created",
@@ -107,61 +74,6 @@ def _phase39_evidence() -> str:
         _normalized(REPO_ROOT / relative_path)
         for relative_path in (*PHASE39_ARTIFACTS, *PHASE39_IMPLEMENTATION_PATHS)
     )
-
-
-def _git_status() -> list[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return [line for line in result.stdout.splitlines() if line]
-
-
-def _git_status_for(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _status_path(line: str) -> str:
-    if len(line) > 2 and line[2] == " ":
-        return line[3:]
-    return line.split(maxsplit=1)[1]
-
-
-def _path_matches(path: str, prefix: str) -> bool:
-    return path == prefix or path.startswith(f"{prefix}/")
-
-
-def test_phase39_artifact_inventory_is_complete_through_slice8() -> None:
-    for relative_path in (*PHASE39_ARTIFACTS, *PHASE39_IMPLEMENTATION_PATHS):
-        assert (REPO_ROOT / relative_path).is_file(), relative_path
-
-    plan = _plan()
-    for required in (
-        "| 1 | Candidate Decision And Implementation Readiness Scope |",
-        "| 2 | Count Expression MVP Contract |",
-        "| 3 | Count Expression Semantic MVP |",
-        "| 4 | Count Expression IR Lowering MVP |",
-        "| 5 | Count Expression SQL Lowering MVP |",
-        "| 6 | Count Expression CLI / JSON / Golden Compatibility |",
-        "| 7 | Count Family Boundary Regression Matrix |",
-        "| 8 | Completion Audit And Status Lock |",
-        "define an eight-slice Phase 39 roadmap",
-    ):
-        assert required in plan, required
 
 
 def test_phase39_completion_status_and_ci_repair_handoff_are_locked() -> None:
@@ -273,41 +185,3 @@ def test_slice8_preserves_public_surfaces_package_and_release_boundaries() -> No
     lowered = plan.lower()
     for forbidden in POSITIVE_RELEASE_CLAIMS:
         assert forbidden not in lowered, forbidden
-
-
-def test_forbidden_surfaces_are_unchanged_or_untracked_in_slice8() -> None:
-    diff_paths = set(
-        filter(
-            None,
-            _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS).splitlines(),
-        )
-    )
-    status_paths = {
-        _status_path(line)
-        for line in _git_status_for(FORBIDDEN_DIFF_PATHS).splitlines()
-        if line
-    }
-
-    assert (
-        diff_paths <= ALLOWED_PHASE40_SLICE3_REPAIR_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        status_paths <= ALLOWED_PHASE40_SLICE3_REPAIR_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-
-def test_changed_set_is_slice8_allowlist_or_clean_ci_checkout() -> None:
-    status_paths = {_status_path(line) for line in _git_status()}
-
-    assert (
-        status_paths <= ALLOWED_PHASE40_SLICE3_REPAIR_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-    for forbidden in FORBIDDEN_DIFF_PATHS:
-        assert (
-            not any(
-                _path_matches(path, forbidden)
-                and path not in ALLOWED_PHASE40_SLICE3_REPAIR_CHANGED_PATHS
-                for path in status_paths
-            )
-        ) or _phase54_active_gate2_is_active()

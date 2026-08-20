@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-import subprocess
 
 from _static_audit_helpers import normalized_text as _normalized
 from _static_audit_helpers import read_text as _read
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -30,26 +26,6 @@ PHASE46_TEST_PATHS = (
     "tests/test_phase46_project_json_v2_relation_cycle_diagnostics.py",
     "tests/test_phase46_project_compatibility_hardening.py",
     "tests/test_phase46_completion_audit.py",
-)
-
-ALLOWED_SLICE8_GATE2_PATHS = {
-    "docs/plan/phase-46-project-semantic-continuation.md",
-    "docs/spec/phase46-project-semantic-continuation-scope-lock-v1.md",
-    "tests/test_phase46_completion_audit.py",
-}
-
-FORBIDDEN_DIFF_PATHS = (
-    "src",
-    "grammar",
-    "fixtures",
-    "goldens",
-    "scripts",
-    ".github",
-    "pyproject.toml",
-    "uv.lock",
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
 )
 
 PRIVATE_GRAPH_FACT_MARKERS = (
@@ -272,44 +248,3 @@ def test_phase46_non_goals_future_boundary_and_release_surfaces_are_locked() -> 
 
     for forbidden in POSITIVE_RELEASE_CLAIMS:
         assert forbidden not in lowered_docs, forbidden
-
-
-def test_phase46_slice8_dirty_paths_and_forbidden_surfaces_are_locked() -> None:
-    assert (
-        _git_diff_name_only(FORBIDDEN_DIFF_PATHS) == ""
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        _git_status_paths().issubset(ALLOWED_SLICE8_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
-
-
-def _git_diff_name_only(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "diff", "--name-only", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths

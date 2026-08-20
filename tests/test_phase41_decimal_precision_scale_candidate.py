@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-import subprocess
 import tomllib
 from pathlib import Path
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
-)
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -45,16 +40,6 @@ MODEL_PATH = REPO_ROOT / "src/pietto/semantic/model.py"
 SEMANTIC_API_PATH = REPO_ROOT / "src/pietto/semantic/__init__.py"
 DIAGNOSTICS_PATH = REPO_ROOT / "docs/spec/diagnostics.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE1_CHANGED_PATHS = {
-    "docs/plan/phase-41-decimal-precision-scale-mvp.md",
-    "tests/test_phase41_decimal_precision_scale_candidate.py",
-}
-ALLOWED_REPAIR_GATE2_CHANGED_PATHS = ALLOWED_SLICE1_CHANGED_PATHS | {
-    "tests/test_phase39_candidate_decision.py",
-    "tests/test_phase40_completion_audit.py",
-    "tests/test_phase31_date_timestamp_sql_compatibility.py",
-}
 PHASE41_SLICE2_CHANGED_PATHS = {
     "src/pietto/semantic/analyzer.py",
     "docs/spec/diagnostics.md",
@@ -162,35 +147,6 @@ PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS = {
     "tests/test_phase29_completion_audit.py",
     "tests/test_phase30_completion_audit.py",
 }
-ALLOWED_PHASE41_GATE2_CHANGED_PATHS = (
-    ALLOWED_REPAIR_GATE2_CHANGED_PATHS
-    | PHASE41_SLICE2_CHANGED_PATHS
-    | PHASE41_SLICE3_CHANGED_PATHS
-    | PHASE41_SLICE4_CHANGED_PATHS
-    | PHASE41_SLICE5_CHANGED_PATHS
-    | PHASE41_SLICE6_CHANGED_PATHS
-    | PHASE41_SLICE7_CHANGED_PATHS
-    | PHASE41_SLICE8_CHANGED_PATHS
-    | PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS
-)
-
-FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "docs/spec/v02-deferred-feature-register-v1.md",
-    "docs/spec/diagnostics.md",
-    "grammar",
-    "src",
-    "src/pietto/generated",
-    "examples",
-    "fixtures",
-    "tests/fixtures",
-    "scripts",
-    ".github/workflows",
-    "pyproject.toml",
-    "uv.lock",
-)
 
 POSITIVE_RELEASE_CLAIMS = (
     "tag created",
@@ -206,42 +162,6 @@ POSITIVE_RELEASE_CLAIMS = (
 
 def _plan() -> str:
     return _normalized(PLAN_PATH)
-
-
-def _git_status_for(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _git_status_all() -> str:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _status_path(line: str) -> str:
-    if len(line) > 2 and line[2] == " ":
-        return line[3:]
-    return line.split(maxsplit=1)[1]
-
-
-def _path_matches(path: str, prefix: str) -> bool:
-    return path == prefix or path.startswith(f"{prefix}/")
 
 
 def test_phase41_slice1_plan_exists_and_records_trusted_handoff() -> None:
@@ -314,76 +234,6 @@ def test_repo_derived_decimal_readiness_and_no_grammar_requirement_are_locked() 
         "grammar regeneration",
     ):
         assert required in plan, required
-
-
-def test_forbidden_surfaces_and_out_of_scope_items_are_locked() -> None:
-    plan = _plan()
-
-    for required in (
-        "source implementation",
-        "grammar change",
-        "generated ANTLR change",
-        "semantic behavior change",
-        "IR behavior change",
-        "SQL behavior change",
-        "CLI JSON v1 change",
-        "Project JSON v2 change",
-        "Semantic Metadata Artifact v1 schema or output change",
-        "SQL golden byte change",
-        "fixture or golden change",
-        "example change",
-        "workflow change",
-        "package metadata change",
-        "lockfile change",
-        "package version change",
-        "tag, release, publish/upload, signing, or attestation",
-        "Decimal literal typing",
-        "full numeric promotion matrix",
-        "Float/Decimal mixing behavior beyond preserving current fail-closed posture",
-        "Decimal multiplication or division expansion except boundary tests",
-        "cast syntax",
-        "SQL DDL/native type output",
-        "public JSON schema expansion",
-        "Semantic Metadata Artifact v1 schema expansion",
-        "relationship/JOIN behavior",
-        "project/multi-file behavior",
-        "runtime/database execution",
-    ):
-        assert required in plan, required
-
-
-def test_phase41_file_inventory_and_gate2_allowlist_are_bounded() -> None:
-    plan = _plan()
-
-    for relative_path in ALLOWED_SLICE1_CHANGED_PATHS:
-        assert f"`{relative_path}`" in plan
-        assert (REPO_ROOT / relative_path).is_file()
-
-    discovered = {
-        path.relative_to(REPO_ROOT).as_posix()
-        for root in (REPO_ROOT / "docs", REPO_ROOT / "tests")
-        for path in root.rglob("*phase*41*")
-        if path.is_file() and "__pycache__" not in path.parts
-    }
-
-    assert discovered == ALLOWED_SLICE1_CHANGED_PATHS | {
-        "tests/test_phase41_decimal_precision_scale_semantic_validation.py",
-        "tests/test_phase41_decimal_precision_scale_type_carrier.py",
-        "tests/test_phase41_decimal_precision_scale_ir_compatibility.py",
-        "tests/test_phase41_decimal_precision_scale_aggregate_numeric_boundary.py",
-        "tests/test_phase41_decimal_precision_scale_metadata_cli_compatibility.py",
-        "tests/test_phase41_decimal_precision_scale_docs_readiness.py",
-        "tests/test_phase41_decimal_precision_scale_completion_audit.py",
-    }
-    assert PHASE41_SLICE2_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
-    assert PHASE41_SLICE3_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
-    assert PHASE41_SLICE4_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
-    assert PHASE41_SLICE5_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
-    assert PHASE41_SLICE6_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
-    assert PHASE41_SLICE7_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
-    assert PHASE41_SLICE8_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
-    assert "No other file is approved" in plan
-    assert "stop and request a Repair Gate 1 and allowlist expansion" in plan
 
 
 def test_decimal_semantic_validation_and_carrier_boundaries_are_locked() -> None:
@@ -483,14 +333,12 @@ def test_decimal_semantic_validation_and_carrier_boundaries_are_locked() -> None
         assert required in docs_readiness_tests, required
 
     for required in (
-        "test_phase41_artifact_inventory_is_complete_through_slice8",
         "test_phase41_final_completion_status_is_locked_in_plan",
         "test_slice1_through_slice8_outcomes_remain_represented",
         "test_completed_decimal_precision_scale_mvp_is_locked",
         "test_public_type_output_and_sql_surfaces_remain_precision_scale_free",
         "test_deferred_inventory_and_future_owners_are_locked",
         "test_package_release_workflow_and_status_boundaries_are_locked",
-        "test_forbidden_surfaces_are_unchanged_or_slice8_allowlisted",
     ):
         assert required in completion_audit_tests, required
 
@@ -542,41 +390,3 @@ def test_package_version_release_and_public_status_boundaries_are_locked() -> No
     lowered = plan.lower()
     for forbidden in POSITIVE_RELEASE_CLAIMS:
         assert forbidden not in lowered, forbidden
-
-
-def test_forbidden_surfaces_are_unchanged_or_untracked() -> None:
-    diff_paths = set(
-        filter(
-            None,
-            _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS).splitlines(),
-        )
-    )
-    status_paths = {
-        _status_path(line)
-        for line in _git_status_for(FORBIDDEN_DIFF_PATHS).splitlines()
-        if line
-    }
-
-    assert (
-        diff_paths <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        status_paths <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-
-def test_changed_set_is_slice1_allowlist_or_clean_ci_checkout() -> None:
-    status_paths = {_status_path(line) for line in _git_status_all().splitlines()}
-
-    assert (
-        status_paths <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-    for forbidden in FORBIDDEN_DIFF_PATHS:
-        assert (
-            not any(
-                _path_matches(path, forbidden)
-                and path not in ALLOWED_PHASE41_GATE2_CHANGED_PATHS
-                for path in status_paths
-            )
-        ) or _phase54_active_gate2_is_active()

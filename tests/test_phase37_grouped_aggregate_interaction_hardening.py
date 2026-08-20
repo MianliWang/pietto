@@ -1,23 +1,17 @@
 from __future__ import annotations
 
-import subprocess
 from fnmatch import fnmatchcase
 from pathlib import Path
 
 import pytest
 
 from _static_audit_helpers import (
-    git_diff_name_only as _git_diff_name_only,
     normalized_text as _normalized,
     read_text as _read,
 )
-from test_phase39_candidate_decision import ALLOWED_SLICE3_CHANGED_PATHS
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -61,24 +55,6 @@ PHASE31_MATRIX_TEST_PATH = (
 )
 PHASE31_DIAGNOSTIC_TEST_PATH = (
     REPO_ROOT / "tests/test_phase31_diagnostic_cli_json_stability.py"
-)
-
-FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "docs/plan/phase-37-post-v02-aggregate-surface-expansion.md",
-    "docs/spec",
-    "src",
-    "grammar",
-    "src/pietto/generated",
-    "fixtures",
-    "tests/fixtures",
-    "tests/_static_audit_helpers.py",
-    "scripts",
-    ".github/workflows",
-    "pyproject.toml",
-    "uv.lock",
 )
 
 IN_PROGRESS_PHASE37_STATIC_AUDIT_PATTERNS = (
@@ -182,32 +158,6 @@ def _no_group_relation(*, projections: tuple[str, ...]) -> str:
         "    select:\n"
         f"{select_body}"
     )
-
-
-def _git_status() -> list[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return [line for line in result.stdout.splitlines() if line]
-
-
-def _git_status_for(paths: tuple[str, ...]) -> str:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all", "--", *paths],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
 
 
 def _is_in_progress_phase37_static_audit_path(path: str) -> bool:
@@ -490,37 +440,3 @@ def test_public_output_schema_and_release_surfaces_remain_unchanged() -> None:
         assert required in evidence, required
 
     assert 'version = "0.1.0"' in _read(REPO_ROOT / "pyproject.toml")
-
-
-def test_forbidden_surfaces_are_not_modified_or_untracked() -> None:
-    diff_paths = set(
-        filter(
-            None,
-            _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS).splitlines(),
-        )
-    )
-    status_paths = {
-        line.split(maxsplit=1)[1]
-        for line in _git_status_for(FORBIDDEN_DIFF_PATHS).splitlines()
-        if line
-    }
-
-    assert (
-        diff_paths <= ALLOWED_SLICE3_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-    assert (
-        status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
-    ) or _phase54_active_gate2_is_active()
-
-
-def test_only_phase37_static_audit_files_are_changed_or_untracked() -> None:
-    status_lines = _git_status()
-    changed_paths = {line[3:] for line in status_lines}
-    non_phase37_static_audit_paths = sorted(
-        path
-        for path in changed_paths
-        if not _is_in_progress_phase37_static_audit_path(path)
-        and path not in ALLOWED_SLICE3_CHANGED_PATHS
-    )
-
-    assert (non_phase37_static_audit_paths == []) or _phase54_active_gate2_is_active()

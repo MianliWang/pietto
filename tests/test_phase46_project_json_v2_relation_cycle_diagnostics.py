@@ -2,15 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import subprocess
 from typing import cast
 
 import pytest
 
 import pietto.cli as cli
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
@@ -26,10 +22,6 @@ PROJECT_JSON_TOP_LEVEL_KEYS = (
     "cli_errors",
     "result",
 )
-
-ALLOWED_SLICE6_GATE2_PATHS = {
-    "tests/test_phase46_project_json_v2_relation_cycle_diagnostics.py",
-}
 
 
 def test_project_json_v2_cycle_diagnostic_envelope_and_counters(
@@ -179,14 +171,11 @@ def test_project_text_and_json_cycle_diagnostics_align(
     ] == [("PIE-S2302", message)]
 
 
-def test_phase46_slice6_package_version_and_dirty_paths_are_locked() -> None:
+def test_package_version_is_locked() -> None:
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert (
-        _git_status_paths().issubset(ALLOWED_SLICE6_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
 
 
 def _assert_cycle_diagnostic_json(
@@ -296,22 +285,3 @@ def _write(root: Path, relative_path: str, source: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
     return path
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths

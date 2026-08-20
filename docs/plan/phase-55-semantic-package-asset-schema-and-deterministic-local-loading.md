@@ -313,3 +313,19 @@ preserved; only an in-scope mechanical repair may make a new non-amend child
 commit and receive its own natural attempt 1. Baseline, scope, or architecture
 drift returns to Gate 0/Gate 1; no rebase, amend, force-push, manual rerun,
 tag, Release, publication, signing, or attestation is authorized.
+
+## Slice 3 Gate 2 Candidate And Pending Direct-main Publication
+
+The Slice 2 status above is retained as a historical checkpoint. Slice 3 Gate
+2 starts from baseline `019f7355c1556d918f180209736fec2b75a9e964`, tree
+`ba285171d8d9b4a1cf34556990fff0b7b6181a69`, whose natural `push` CI attempt 1
+run `32078392127` succeeded. Phase 54 is `COMPLETED`, Phase 55 is `ACTIVE`,
+Slices 1 and 2 are `COMPLETED`, Slice 3 is `IMPLEMENTED_UNPUBLISHED`, Slices 4
+through 12 are `UNSTARTED`, and `next=PHASE55_SLICE3_GATE3`.
+
+Slice 3 owns only private `pietto-package.toml` v1 input-schema validation and
+canonical manifest normalization. Schema v1, package-absent schema v2, and the
+Slice 2 schema-v3 root activation carrier remain exact. It adds no package
+identity, version semantics, digest, typed asset catalog, locator trust,
+loading, dependency behavior, public surface, or release behavior. Gate 3
+alone may publish the sealed Slice 3 tree by the frozen direct-main contract.

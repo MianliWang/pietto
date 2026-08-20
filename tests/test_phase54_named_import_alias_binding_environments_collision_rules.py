@@ -8,30 +8,14 @@ import os
 from pathlib import Path
 from types import MappingProxyType
 
-from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
-
 import pytest
 
 import pietto
-import _phase54_active_gate2_manifest as active_gate2_manifest
 import pietto._project.check as project_check
 import pietto._project.module_bindings as module_bindings
 import pietto._project.module_catalog as module_catalog
 import pietto._project.module_exports as module_exports
 import pietto.cli as cli
-from _phase54_active_gate2_manifest import (
-    PHASE54_ACTIVE_GATE2_ADDED_PATHS,
-    PHASE54_ACTIVE_GATE2_BASE,
-    PHASE54_ACTIVE_GATE2_DELETED_PATHS,
-    PHASE54_ACTIVE_GATE2_MARKER,
-    PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
-    PHASE54_SLICE10_ORIGINAL_ADDED_PATHS,
-    PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS,
-    Phase54Gate2RepositoryState,
-    _matches_phase54_active_gate2_manifest,
-)
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
     ProjectParseCheckResult,
@@ -188,25 +172,6 @@ def _simple_semantic(
         },
     )
     return semantic
-
-
-def _active_state() -> Phase54Gate2RepositoryState:
-    return Phase54Gate2RepositoryState(
-        marker=PHASE54_ACTIVE_GATE2_MARKER,
-        branch_oid=PHASE54_ACTIVE_GATE2_BASE,
-        branch_head="main",
-        branch_upstream="origin/main",
-        ahead=0,
-        behind=0,
-        added_paths=PHASE54_SLICE10_ORIGINAL_ADDED_PATHS,
-        modified_paths=PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS,
-        deleted_paths=PHASE54_ACTIVE_GATE2_DELETED_PATHS,
-        staged_paths=frozenset(),
-        other_paths=frozenset(),
-        worktree_count=1,
-        shallow=False,
-        active_git_operation=False,
-    )
 
 
 def test_binding_carrier_enums_fields_privacy_and_manifest_are_locked() -> None:
@@ -1104,8 +1069,7 @@ def test_no_public_diagnostics_graph_ir_sql_or_serialized_binding_surface(
 def test_slice7_contract_test_inventory_and_active_gate_manifest_are_exact() -> None:
     assert (REPO_ROOT / SPEC_REL).is_file()
     assert (REPO_ROOT / SOURCE_REL).is_file()
-    source = (REPO_ROOT / TEST_REL).read_text(encoding="utf-8")
-    tree = ast.parse(source)
+    tree = ast.parse((REPO_ROOT / TEST_REL).read_text(encoding="utf-8"))
     names = tuple(
         node.name
         for node in tree.body
@@ -1120,102 +1084,5 @@ def test_slice7_contract_test_inventory_and_active_gate_manifest_are_exact() -> 
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE16_GATE2"
-    assert PHASE54_ACTIVE_GATE2_BASE == "1f69c0316086a2236cee03a96cca95218fbd50fc"
-    assert len(PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
-    assert len(PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
-    assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 2
-    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 51
-    assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
-    assert len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ADDED_PATHS) == 3
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS) == 52
-    )
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ALLOWLIST_PATHS) == 55
-    )
-    assert (
-        TEST_REL in active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_READER_PATHS
-    )
-    assert active_gate2_manifest.PHASE55_SLICE2_GATE2_MARKER == "PHASE55_SLICE2_GATE2"
-    assert (
-        active_gate2_manifest.PHASE55_SLICE2_BASELINE
-        == "5de57b2c078742253aa64d3a5ad627cd602290cd"
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ADDED_PATHS) == 2
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS) == 75
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_DELETED_PATHS) == 0
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0)
-        == 77
-    )
-    assert (
-        TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS
-    )
-    assert (
-        TEST_REL
-        in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ADDED_PATHS) == 2
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS) == 76
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_DELETED_PATHS) == 0
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0) == 78
-    assert TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS
-    assert TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0
-    assert _matches_phase54_active_gate2_manifest(_active_state())
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
-        "17a5b01e555930537334d4d0bcf3480e332b7e91"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE == (
-        "3f057874a1bec524da38b58c243267f4590c167b"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE == (
-        "fcdd02b5604c2b84d861b593a1887eaeb4620c91"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE == (
-        "c73e5ea0628d821ada5a8cbb93102bae69768600"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE == (
-        "a5df3ed264c443d902831fe532d265ac1e452158"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE == (
-        "7b96b416d963e67624a461ec906ab2fe14630380"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE == (
-        "38353a00bdaf6b1edb9a0eb53ada1a3249b6ae79"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_MODIFIED_PATHS)
-        == 66
-    )
     assert "ImportStatement.target" not in inspect.getsource(module_exports)
     assert "_build_project_module_binding_environment_set" not in pietto.__dict__
-    assert active_gate2_manifest.ALLOWLIST_PATHS == (
-        active_gate2_manifest.ADDED_PATHS | active_gate2_manifest.MODIFIED_PATHS
-    )

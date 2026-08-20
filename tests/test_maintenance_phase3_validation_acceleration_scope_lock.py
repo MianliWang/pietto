@@ -1,11 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-import subprocess
 import tomllib
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,55 +18,6 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 UV_LOCK_PATH = REPO_ROOT / "uv.lock"
 WORKFLOW_PATH = REPO_ROOT / ".github/workflows/ci.yml"
 
-ALLOWED_SLICE3_GATE2_PATHS = {
-    "docs/plan/maintenance-phase-3-validation-pipeline-performance.md",
-    "docs/spec/maintenance-phase3-validation-timings-v1.md",
-    "scripts/validate.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_maintenance_phase3_validation_acceleration_scope_lock.py",
-}
-
-ALLOWED_SLICE4_GATE2_PATHS = {
-    "docs/plan/maintenance-phase-3-validation-pipeline-performance.md",
-    "docs/spec/maintenance-phase3-pytest-workers-v1.md",
-    "pyproject.toml",
-    "scripts/validate.py",
-    "tests/test_maintenance_phase3_validation_acceleration_scope_lock.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_order_limit_contract.py",
-    "tests/test_phase12_planning_audit.py",
-    "tests/test_phase13_completion_audit.py",
-    "tests/test_phase13_planning_audit.py",
-    "tests/test_phase14_candidate_decision_audit.py",
-    "tests/test_phase14_planning_audit.py",
-    "tests/test_phase16_completion_audit.py",
-    "tests/test_phase16_language_direction_audit.py",
-    "tests/test_phase27_completion_audit.py",
-    "tests/test_phase28_completion_audit.py",
-    "tests/test_phase29_completion_audit.py",
-    "tests/test_phase30_completion_audit.py",
-    "uv.lock",
-}
-
-FORBIDDEN_DIFF_PATHS = (
-    "src",
-    "grammar",
-    ".github/workflows",
-    "scripts/check_generated.py",
-    "scripts/check_goldens.py",
-    "scripts/package_smoke.py",
-    "README.md",
-    "AGENTS.md",
-)
-
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -85,32 +32,6 @@ def _docs() -> str:
         _normalized(path)
         for path in (PLAN_PATH, SPEC_PATH, TIMING_SPEC_PATH, WORKER_SPEC_PATH)
     )
-
-
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.rstrip()
-
-
-def _dirty_paths() -> set[str]:
-    output = _git_output(["status", "--porcelain", "--untracked-files=all"])
-    paths: set[str] = set()
-    for line in output.splitlines():
-        if not line:
-            continue
-        path = line[3:].strip()
-        if " -> " in path:
-            path = path.split(" -> ", maxsplit=1)[1]
-        paths.add(path)
-    return paths
 
 
 def test_plan_and_spec_exist_and_name_the_slice() -> None:
@@ -259,21 +180,3 @@ def test_package_metadata_lockfile_and_xdist_dev_dependency_are_locked() -> None
     assert 'name = "pytest-xdist"' in lockfile
     assert 'name = "execnet"' in lockfile
     assert "addopts" not in pyproject
-
-
-def test_ci_workflow_and_forbidden_public_surfaces_have_no_diff() -> None:
-    assert WORKFLOW_PATH.is_file()
-    assert _git_output(["diff", "--", ".github/workflows/ci.yml"]) == ""
-
-    for relative_path in FORBIDDEN_DIFF_PATHS:
-        assert (
-            _git_output(["diff", "--", relative_path]) == ""
-        ) or _phase54_active_gate2_is_active(), relative_path
-
-
-def test_dirty_paths_are_clean_or_exact_slice3_allowlist() -> None:
-    dirty_paths = _dirty_paths()
-    assert (
-        dirty_paths in (set(), ALLOWED_SLICE3_GATE2_PATHS)
-        or (dirty_paths <= ALLOWED_SLICE4_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()

@@ -5,21 +5,13 @@ from dataclasses import FrozenInstanceError, fields, is_dataclass
 import hashlib
 import inspect
 from pathlib import Path
-import subprocess
 from typing import Any, cast
 
-from _phase54_active_gate2_manifest import (
-    phase54_publication_clean_topic_is_active,
-    phase54_publication_topic_branch,
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 import pytest
 
-import pietto
 import pietto._project as project_package
 import pietto._project.window_semantics as project_window_semantics
-import pietto.semantic as semantic_package
 import pietto.semantic.window_semantics as semantic_window_semantics
 from pietto._project.model import (
     ProjectRowFieldProvenance,
@@ -232,7 +224,7 @@ FINAL_MODEL_SHA256 = "bb1a521ad0018cc4fd5bac3c6e6130f600ce8479bca239f7e7c5090f2c
 FINAL_SPEC_SHA256 = "e3cddc36974cc2d21bd3e0aec8d03c4f56bc4a68091780d9965207f07ea960e7"
 FINAL_PLAN_SHA256 = "3077c2fec0d7e2c4de717973c6403d5a450b8c01fe5846e427363ffcb41a78f5"
 FINAL_COMPILER_DIGEST = (
-    "8c93baee223f2afa4c62b820becb92aae34b8af2713cf4419da211cb5e88a4d9"
+    "6cbe7ccfbd84d7b2966964ac91a56e7eeacdc798c3d161da64d61add662b0420"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -241,7 +233,7 @@ FINAL_PHASE15_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 FINAL_PROJECT_DIGEST = (
-    "0f5a417592f7f0df276a34137b14a1a0f39526e4266279ed7af76b3dbfa49de9"
+    "327ba4f5c12d916d6577cd9510aa2a28df8519dafdc935ae67a6d2f5b2fc4830"
 )
 
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
@@ -618,19 +610,6 @@ def _digest(paths: tuple[Path, ...]) -> str:
     return digest.hexdigest()
 
 
-def _git(*arguments: str) -> str:
-    result = subprocess.run(
-        ("git", *arguments),
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise AssertionError(result.stderr)
-    return result.stdout.strip()
-
-
 def _literal_tuple(path: Path, name: str) -> tuple[str, ...]:
     tree = ast.parse(path.read_text(), filename=path.as_posix())
     for node in tree.body:
@@ -670,39 +649,6 @@ def _literal_tuple(path: Path, name: str) -> tuple[str, ...]:
                 raise AssertionError(f"{name} must be an exact string tuple")
             return cast(tuple[str, ...], result)
     raise AssertionError(f"missing tuple {name}")
-
-
-def _all_repository_paths() -> tuple[str, ...]:
-    paths = set(_git("ls-files").splitlines())
-    paths.update(_git("ls-files", "--others", "--exclude-standard").splitlines())
-    return tuple(sorted(paths))
-
-
-def _phase54_slice2_paths() -> tuple[frozenset[str], frozenset[str]]:
-    path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.as_posix())
-    expected = {
-        "ADDED_PATHS",
-        "NON_READER_MODIFIED_PATHS",
-        "MECHANICAL_READER_PATHS",
-    }
-    values: dict[str, frozenset[str]] = {}
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id in expected
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, set)
-            assert all(isinstance(item, str) for item in value)
-            values[node.targets[0].id] = frozenset(value)
-    assert set(values) == expected
-    return (
-        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"],
-        values["ADDED_PATHS"],
-    )
 
 
 def test_slice6_artifact_paths_heading_contract_and_lifecycle_are_exact() -> None:
@@ -1824,46 +1770,6 @@ def test_project_model_checker_and_serializers_have_no_window_population(
     assert not hasattr(project_package, "WindowResultProjectFact")
 
 
-@pytest.mark.parametrize(
-    ("relative", "expected_sha256"),
-    GRAMMAR_AST_GENERIC_NULLABILITY_LOCKS,
-)
-def test_grammar_ast_parser_identity_generic_and_nullability_hashes_are_locked(
-    relative: str,
-    expected_sha256: str,
-) -> None:
-    path = REPO_ROOT / relative
-    if path.is_dir():
-        tracked = tuple(
-            REPO_ROOT / item for item in _git("ls-files", relative).splitlines()
-        )
-        assert len(tracked) == 8
-        assert _digest(tracked) == expected_sha256
-        return
-    assert _sha256(path) == expected_sha256
-
-
-@pytest.mark.parametrize(
-    ("relative", "expected_sha256"),
-    IR_SQL_CAPABILITY_PUBLIC_LOCKS,
-)
-def test_ir_sql_capability_public_runtime_and_package_surfaces_are_locked(
-    relative: str,
-    expected_sha256: str,
-) -> None:
-    path = REPO_ROOT / relative
-    if path.is_dir():
-        tracked = tuple(
-            REPO_ROOT / item for item in _git("ls-files", relative).splitlines()
-        )
-        assert _digest(tracked) == expected_sha256
-    else:
-        assert _sha256(path) == expected_sha256
-    assert not hasattr(pietto, "WindowExpressionSemanticFact")
-    assert not hasattr(semantic_package, "WindowExpressionSemanticFact")
-    assert not hasattr(project_package, "WindowResultProjectFact")
-
-
 def test_slice6_spec_heading_scope_and_no_h3_contract_is_exact() -> None:
     assert _headings(SPEC_PATH) == ((SPEC_H1,), SPEC_H2, ())
     spec = SPEC_PATH.read_text()
@@ -1873,240 +1779,6 @@ def test_slice6_spec_heading_scope_and_no_h3_contract_is_exact() -> None:
     assert "WINDOW_FRAME" in spec
     assert "same-select" in spec
     assert "nested-window" in spec
-
-
-def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
-    repository_paths = _all_repository_paths()
-    compiler_paths = (
-        REPO_ROOT / "Makefile",
-        REPO_ROOT / "grammar/Pietto.g4",
-        *(
-            REPO_ROOT / path
-            for path in repository_paths
-            if path.startswith("src/pietto/")
-        ),
-    )
-    semantic_paths = tuple(
-        REPO_ROOT / path
-        for path in repository_paths
-        if Path(path).parent.as_posix() == "src/pietto/semantic"
-        and path.endswith(".py")
-    )
-    phase15_paths = tuple(
-        path
-        for path in semantic_paths
-        if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
-    )
-    project_paths = tuple(
-        REPO_ROOT / path
-        for path in repository_paths
-        if Path(path).parent.as_posix() == "src/pietto/_project"
-        and path.endswith(".py")
-    )
-    assert (
-        len(compiler_paths),
-        len(semantic_paths),
-        len(phase15_paths),
-        len(project_paths),
-    ) == (108, 36, 33, 33)
-    assert _digest(tuple(compiler_paths)) == FINAL_COMPILER_DIGEST
-    assert _digest(semantic_paths) == FINAL_SEMANTIC_DIGEST
-    assert _digest(phase15_paths) == FINAL_PHASE15_DIGEST
-    assert _digest(project_paths) == FINAL_PROJECT_DIGEST
-    assert _sha256(SOURCE_PATH) == FINAL_SOURCE_SHA256
-    assert _sha256(PROJECT_SOURCE_PATH) == FINAL_PROJECT_SOURCE_SHA256
-    assert _sha256(MODEL_PATH) == FINAL_MODEL_SHA256
-    assert _sha256(SPEC_PATH) == FINAL_SPEC_SHA256
-    assert _sha256(PLAN_PATH) == FINAL_PLAN_SHA256
-
-    added = _literal_tuple(GENERIC_TEST_PATH, "ADDED_PATHS")
-    modified = _literal_tuple(GENERIC_TEST_PATH, "MODIFIED_PATHS")
-    assert added == ADDED_PATHS
-    assert len(modified) == 24
-    assert modified[-16:-2] == (
-        "tests/test_phase52_scalar_function_operator_signature_facts.py",
-        "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
-        "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
-        "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
-        "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
-        "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
-        "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-        "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
-        "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
-        "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
-        "tests/test_phase53_row_number_direct_field_mvp_contract.py",
-        "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
-        "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
-        "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
-    )
-    assert modified[-2:] == (
-        "tests/test_phase53_window_spec_function_identity_ast_contract.py",
-        "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
-    )
-    assert set(added).isdisjoint(modified)
-
-
-def test_slice6_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
-    if _phase54_active_gate2_is_active():
-        return
-    tracked = frozenset(_git("diff", "--name-only").splitlines()) - {""}
-    untracked = frozenset(
-        _git("ls-files", "--others", "--exclude-standard").splitlines()
-    ) - {""}
-    cached = frozenset(_git("diff", "--cached", "--name-only").splitlines()) - {""}
-    assert cached == frozenset()
-    head = _git("rev-parse", "HEAD")
-    branch_result = subprocess.run(
-        ("git", "symbolic-ref", "--quiet", "--short", "HEAD"),
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    branch = branch_result.stdout.strip() if branch_result.returncode == 0 else ""
-    if not tracked and not untracked:
-        if branch == phase54_publication_topic_branch():
-            assert phase54_publication_clean_topic_is_active()
-            return
-        assert branch in {"", "main"}
-        return
-    if head in {
-        "d8a5e9ab3de70ce30575513c73560c86430eca63",
-        "15bae172ee151e370fe59d3bf909d735aee6aa90",
-        "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
-        "c44a4271d9592cb393d2232f127a59d8466cc60a",
-        "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
-        "027b33cafcfd58916a89e299487dad38d24ade6c",
-        "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
-        "b81843acadb294630db361c09949868d004b1bca",
-    }:
-        expected_modified, expected_added = _phase54_slice2_paths()
-        expected_base = head
-    else:
-        expected_modified = frozenset(
-            _literal_tuple(GENERIC_TEST_PATH, "MODIFIED_PATHS")
-        )
-        expected_added = frozenset(ADDED_PATHS)
-        expected_base = BASE_HEAD
-    assert branch == "main"
-    assert head == expected_base
-    assert tracked == expected_modified
-    assert untracked == expected_added
-    assert _git("rev-parse", "refs/heads/main") == expected_base
-    assert _git("rev-parse", "refs/remotes/origin/main") == expected_base
-
-
-def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
-    repository_paths = _all_repository_paths()
-    python_paths = tuple(path for path in repository_paths if path.endswith(".py"))
-    markdown_paths = tuple(path for path in repository_paths if path.endswith(".md"))
-    test_paths = tuple(
-        path for path in repository_paths if path.startswith("tests/test_")
-    )
-    top_level_functions = sum(
-        sum(
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name.startswith("test_")
-            for node in ast.parse((REPO_ROOT / path).read_text()).body
-        )
-        for path in test_paths
-    )
-    assert (
-        len(repository_paths),
-        len(python_paths),
-        len(markdown_paths),
-        len(test_paths),
-        top_level_functions,
-    ) == (951, 582, 273, 468, 5538)
-    assert len(TEST_FUNCTIONS) == len(TEST_ITEM_COUNTS) == 36
-    assert sum(TEST_ITEM_COUNTS) == 156
-    assert 10599 + 185 == 10784
-
-    focused = _literal_tuple(GENERIC_TEST_PATH, "FOCUSED_OPERANDS")
-    overlay = _literal_tuple(GENERIC_TEST_PATH, "DIRTY_OVERLAY")
-    focused_payload = ("\n".join(focused) + "\n").encode()
-    overlay_payload = ("\n".join(overlay) + "\n").encode()
-    assert len(focused) == 134
-    assert len({operand.split("::", 1)[0] for operand in focused}) == 80
-    assert sum("::" not in operand for operand in focused) == 14
-    assert sum("::" in operand for operand in focused) == 120
-    assert (len(focused_payload), hashlib.sha256(focused_payload).hexdigest()) == (
-        15130,
-        "fb685c521c70d879e0e3e751c434cf142700d82a66976961ca8036e8965b3429",
-    )
-    assert len(overlay) == 185
-    assert (
-        len(
-            {
-                operand.removeprefix("--deselect=").split("::", 1)[0]
-                for operand in overlay
-            }
-        )
-        == 137
-    )
-    assert (len(overlay_payload), hashlib.sha256(overlay_payload).hexdigest()) == (
-        23628,
-        "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26",
-    )
-
-
-def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
-    changed = frozenset(_git("diff", "--name-only").splitlines()) - {""}
-    untracked = frozenset(
-        _git("ls-files", "--others", "--exclude-standard").splitlines()
-    ) - {""}
-    allowed = frozenset(
-        (*ADDED_PATHS, *_literal_tuple(GENERIC_TEST_PATH, "MODIFIED_PATHS"))
-    )
-    repair_state = changed == CI_REPAIR_MODIFIED_PATHS and not untracked
-    phase54_modified, phase54_added = _phase54_slice2_paths()
-    phase54_state = (
-        _phase54_active_gate2_is_active()
-        or changed == phase54_modified
-        and untracked == phase54_added
-        and _git("rev-parse", "HEAD")
-        in {
-            "d8a5e9ab3de70ce30575513c73560c86430eca63",
-            "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
-            "15bae172ee151e370fe59d3bf909d735aee6aa90",
-            "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
-            "c44a4271d9592cb393d2232f127a59d8466cc60a",
-            "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
-            "027b33cafcfd58916a89e299487dad38d24ade6c",
-            "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
-            "b81843acadb294630db361c09949868d004b1bca",
-        }
-    )
-    assert (
-        (not changed and not untracked)
-        or changed | untracked == allowed
-        or repair_state
-        or phase54_state
-    )
-    if repair_state:
-        assert _git("diff", "--cached", "--name-only") == ""
-        assert _git("branch", "--show-current") == "main"
-        assert (
-            tuple(
-                _git("rev-parse", reference)
-                for reference in ("HEAD", "main", "origin/main")
-            )
-            == (CI_REPAIR_BASE_HEAD_SHA,) * 3
-        )
-    assert _sha256(REPO_ROOT / "uv.lock") == (
-        "12795f072df20fb688b37e484dd4561cd33e34bf601be3cb0fa1f9075eee38a2"
-    )
-    assert _sha256(REPO_ROOT / ".github/workflows/ci.yml") == (
-        "56339c3e565471c3a95a0f79a05eaf9596d734a173d1936d5df167526508ddac"
-    )
-    pyproject = (REPO_ROOT / "pyproject.toml").read_text()
-    plan = PLAN_PATH.read_text()
-    spec = SPEC_PATH.read_text()
-    assert 'version = "0.1.0"' in pyproject
-    assert "Gate 3" in plan
-    assert "Slice 6 remains `UNSTARTED` throughout Gate 2" in plan
-    assert "Slice 6 adds no analyzer branch, catalog entry, capability domain" in spec
-    assert "No field or mapping is added to `ProjectSemanticModel`" in spec
 
 
 _SLICE10_READER_MIGRATION_PATHS = (

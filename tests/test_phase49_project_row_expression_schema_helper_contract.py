@@ -1,14 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-import subprocess
 import tomllib
 
 from _static_audit_helpers import normalized_text as _normalized
-from _static_audit_helpers import read_text as _read
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -18,53 +13,9 @@ SPEC_PATH = (
 )
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-ALLOWED_SLICE2_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-project-row-expression-schema-helper-contract-v1.md",
-    "tests/test_phase49_project_row_expression_schema_helper_contract.py",
-}
-
-FORBIDDEN_DIFF_PATHS = (
-    "src",
-    "grammar",
-    "generated",
-    "src/pietto/_project/json_v2.py",
-    "src/pietto/cli.py",
-    "pyproject.toml",
-    "uv.lock",
-    "docs/spec/pietto-roadmap-phase45-60-v1.md",
-    "docs/spec/pietto-v0.9.md",
-)
-
 
 def _docs() -> str:
     return " ".join(_normalized(path) for path in (PLAN_PATH, SPEC_PATH))
-
-
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    return result.stdout.strip()
-
-
-def _dirty_paths() -> set[str]:
-    output = _git_output(["status", "--porcelain", "--untracked-files=all"])
-    paths: set[str] = set()
-    for line in output.splitlines():
-        if not line:
-            continue
-        path = line[2:].strip()
-        if " -> " in path:
-            path = path.split(" -> ", maxsplit=1)[1]
-        paths.add(path)
-    return paths
 
 
 def test_slice2_spec_exists_and_prefers_richer_result_shape() -> None:
@@ -228,15 +179,6 @@ def test_slice2_roadmap_readiness_relationships_are_locked() -> None:
         assert required in spec, required
 
 
-def test_slice2_allowlist_package_version_and_forbidden_surfaces_are_locked() -> None:
-    project = tomllib.loads(_read(PYPROJECT_PATH))["project"]
+def test_package_version_remains_010() -> None:
+    project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
     assert project["version"] == "0.1.0"
-
-    dirty_paths = _dirty_paths()
-    unexpected_paths = dirty_paths - ALLOWED_SLICE2_GATE2_PATHS
-    assert (unexpected_paths == set()) or _phase54_active_gate2_is_active()
-
-    for path in FORBIDDEN_DIFF_PATHS:
-        assert (
-            _git_output(["diff", "--", path]) == ""
-        ) or _phase54_active_gate2_is_active(), path

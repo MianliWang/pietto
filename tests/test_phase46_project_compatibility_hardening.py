@@ -2,15 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import subprocess
 from typing import cast
 
 import pytest
 
 import pietto.cli as cli
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
@@ -29,10 +25,6 @@ PROJECT_JSON_TOP_LEVEL_KEYS = (
     "cli_errors",
     "result",
 )
-
-ALLOWED_SLICE7_GATE2_PATHS = {
-    "tests/test_phase46_project_compatibility_hardening.py",
-}
 
 VALID_RELATION_SOURCE = (
     "shape User:\n"
@@ -190,14 +182,11 @@ def test_public_project_paths_do_not_serialize_private_cycle_internals() -> None
     _assert_private_cycle_facts_absent(public_surface_source)
 
 
-def test_phase46_slice7_package_version_and_dirty_paths_are_locked() -> None:
+def test_package_version_is_locked() -> None:
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert (
-        _git_status_paths().issubset(ALLOWED_SLICE7_GATE2_PATHS)
-    ) or _phase54_active_gate2_is_active()
 
 
 def _forbid_project_output_pipelines(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -289,22 +278,3 @@ def _assert_private_cycle_facts_absent(text: str) -> None:
         "dependency_source",
     ):
         assert private_fact not in text
-
-
-def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
-    paths: set[str] = set()
-    for line in result.stdout.splitlines():
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return paths

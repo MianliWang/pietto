@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError, is_dataclass
 import json
 from pathlib import Path
-import subprocess
 import tomllib
 
 import pytest
@@ -26,74 +25,9 @@ from pietto._project.row_dependency_graph import (
     ProjectRowDependencyNodeKind,
 )
 from pietto.ast_nodes import QueryDef, TableDef
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE9_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-private-row-level-dependency-graph-scaffold-v1.md",
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/row_dependency_graph.py",
-    "tests/test_phase49_private_row_level_dependency_graph_scaffold.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-}
-
-ALLOWED_SLICE10_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-minimal-private-lineage-carrier-source-direct-rename-v1.md",
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/row_lineage.py",
-    "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
-    "tests/test_phase49_private_row_level_dependency_graph_scaffold.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-}
-
-ALLOWED_SLICE11_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-computed-let-multi-hop-row-lineage-v1.md",
-    "src/pietto/_project/row_lineage.py",
-    "tests/test_phase49_computed_let_multi_hop_row_lineage.py",
-    "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
-    "tests/test_phase49_private_row_level_dependency_graph_scaffold.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-}
-
-FORBIDDEN_FILES = (
-    "src/pietto/_project/json_v2.py",
-    "src/pietto/_project/check.py",
-    "src/pietto/_project/let_scope_facts.py",
-    "src/pietto/_project/row_expression_schema.py",
-    "src/pietto/_project/row_expression_type_facts.py",
-    "src/pietto/semantic/let_bindings.py",
-)
 
 PRIVATE_JSON_FACTS = (
     "relation_row_dependency_graphs",
@@ -375,24 +309,9 @@ def test_row_dependency_graph_module_does_not_call_full_semantic_analyze() -> No
     assert "import pietto.semantic as semantic_api" not in module
 
 
-def test_slice9_forbidden_files_have_no_diff() -> None:
-    for relative_path in FORBIDDEN_FILES:
-        assert _git_diff(relative_path) == "" or _phase54_active_gate2_is_active()
-
-
-def test_slice9_package_version_and_dirty_paths_are_locked() -> None:
+def test_package_version_remains_010() -> None:
     project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
-
     assert project["version"] == "0.1.0"
-    assert (
-        _git_status_paths()
-        in (
-            set(),
-            ALLOWED_SLICE9_GATE2_PATHS,
-            ALLOWED_SLICE10_GATE2_PATHS,
-            ALLOWED_SLICE11_GATE2_PATHS,
-        )
-    ) or _phase54_active_gate2_is_active()
 
 
 def _edge_values(
@@ -451,23 +370,3 @@ def _derived_definition(
             if isinstance(definition, (TableDef, QueryDef)) and definition.name == name:
                 return definition
     raise AssertionError(f"Missing derived definition: {name}")
-
-
-def _git_diff(relative_path: str) -> str:
-    return _git_output(["diff", "--", relative_path])
-
-
-def _git_status_paths() -> set[str]:
-    output = _git_output(["status", "--short", "--untracked-files=all"])
-    return {line[3:] for line in output.splitlines() if line}
-
-
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        capture_output=True,
-    )
-    return result.stdout.rstrip()

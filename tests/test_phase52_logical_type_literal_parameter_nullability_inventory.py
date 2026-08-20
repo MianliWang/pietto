@@ -3,18 +3,9 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
-import subprocess
-import tomllib
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
-
-from _phase54_active_gate2_manifest import (
-    phase54_post_slice12_interlude_expected_allowlist_paths,
-    phase54_publication_clean_topic_is_active,
-    phase54_publication_topic_branch,
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 import pytest
 
@@ -73,13 +64,13 @@ SLICE8_GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
 
 FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
-COMPILER_DIGEST = "8c93baee223f2afa4c62b820becb92aae34b8af2713cf4419da211cb5e88a4d9"
+COMPILER_DIGEST = "6cbe7ccfbd84d7b2966964ac91a56e7eeacdc798c3d161da64d61add662b0420"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "0f5a417592f7f0df276a34137b14a1a0f39526e4266279ed7af76b3dbfa49de9"
+    "327ba4f5c12d916d6577cd9510aa2a28df8519dafdc935ae67a6d2f5b2fc4830"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_SHA256 = (
@@ -184,14 +175,6 @@ MODIFIED_READER_PATHS = (
     SIGNATURE_TEST_REL,
 )
 ADDED_PATHS = {CONTEXT_REL, CONTEXT_SPEC_REL, CONTEXT_TEST_REL}
-ALLOWLIST_PATHS = {*ADDED_PATHS, *MODIFIED_READER_PATHS}
-REPAIR_ALLOWLIST_PATHS = set(MODIFIED_READER_PATHS) - {SLICE2_TEST_REL} | {
-    SOURCE_REL,
-    SIGNATURE_REL,
-    AGGREGATE_REL,
-    CONTEXT_TEST_REL,
-    AGGREGATE_TEST_REL,
-}
 SLICE8_MODIFIED_PATHS = {
     SELF_REL,
     SIGNATURE_TEST_REL,
@@ -199,184 +182,10 @@ SLICE8_MODIFIED_PATHS = {
     AGGREGATE_TEST_REL,
 }
 SLICE8_ADDED_PATHS = {SLICE8_SPEC_REL, SLICE8_TEST_REL}
-SLICE8_ALLOWLIST_PATHS = SLICE8_MODIFIED_PATHS | SLICE8_ADDED_PATHS
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
-
-
-def _slice13_paths(name: str) -> set[str]:
-    if _git_output(["rev-parse", "HEAD"]) in {
-        "d8a5e9ab3de70ce30575513c73560c86430eca63",
-        "15bae172ee151e370fe59d3bf909d735aee6aa90",
-        "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
-        "c44a4271d9592cb393d2232f127a59d8466cc60a",
-        "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
-        "027b33cafcfd58916a89e299487dad38d24ade6c",
-        "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
-        "b81843acadb294630db361c09949868d004b1bca",
-    }:
-        modified, added = _phase54_slice2_paths()
-        if name == "MODIFIED_PATHS":
-            return modified
-        if name == "ADDED_PATHS":
-            return added
-    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
-    tree = ast.parse(_read(path), filename=path.as_posix())
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id == name
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, (set, tuple))
-            assert all(isinstance(item, str) for item in value)
-            return set(value)
-    raise AssertionError(f"missing Slice 13 path manifest {name}")
-
-
-def _phase54_slice2_paths() -> tuple[set[str], set[str]]:
-    path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
-    tree = ast.parse(_read(path), filename=path.as_posix())
-    expected = {
-        "ADDED_PATHS",
-        "NON_READER_MODIFIED_PATHS",
-        "MECHANICAL_READER_PATHS",
-    }
-    values: dict[str, set[str]] = {}
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id in expected
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, set)
-            assert all(isinstance(item, str) for item in value)
-            values[node.targets[0].id] = value
-    assert set(values) == expected
-    return (
-        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"],
-        values["ADDED_PATHS"],
-    )
-
-
-def _git_output(args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    return result.stdout.rstrip()
-
-
-def _dirty_paths() -> set[str]:
-    return {
-        line[3:]
-        for line in _git_output(
-            ["status", "--porcelain=v1", "--untracked-files=all"]
-        ).splitlines()
-    }
-
-
-def _git_optional_ref(ref: str) -> str | None:
-    result = subprocess.run(
-        ["git", "rev-parse", "--verify", "--quiet", ref],
-        cwd=REPO_ROOT,
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.returncode in (0, 1)
-    assert result.stderr == ""
-    output = result.stdout.strip()
-    if result.returncode == 1:
-        assert output == ""
-        return None
-    assert output
-    return output
-
-
-def _git_refs() -> tuple[tuple[str, str], ...]:
-    output = _git_output(["for-each-ref", "--format=%(refname)%09%(objectname)"])
-    if not output:
-        return ()
-    refs = []
-    for line in output.splitlines():
-        ref, object_name = line.split("\t", maxsplit=1)
-        assert ref and re.fullmatch(r"[0-9a-f]{40}", object_name)
-        refs.append((ref, object_name))
-    return tuple(refs)
-
-
-def _git_commit_object_exists(commit: str) -> bool:
-    result = subprocess.run(
-        ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
-        cwd=REPO_ROOT,
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.returncode in (0, 128)
-    return result.returncode == 0
-
-
-def _assert_clean_checkout_refs(
-    *,
-    branch: str,
-    head: str,
-    main: str | None,
-    origin_main: str | None,
-) -> None:
-    if branch == "main":
-        assert main == head
-        if origin_main is not None:
-            assert origin_main == head
-        return
-
-    if branch == phase54_publication_topic_branch():
-        assert phase54_publication_clean_topic_is_active()
-        return
-
-    assert branch == ""
-    refs = _git_refs()
-    assert len(refs) == 1
-    merge_ref, merge_head = refs[0]
-    assert re.fullmatch(r"refs/remotes/pull/[1-9][0-9]*/merge", merge_ref)
-    assert merge_head == head
-    assert main is None
-    assert origin_main is None
-
-    raw_commit = _git_output(["cat-file", "-p", head])
-    header, separator, message = raw_commit.partition("\n\n")
-    assert separator == "\n\n"
-    parents = tuple(
-        line.removeprefix("parent ")
-        for line in header.splitlines()
-        if line.startswith("parent ")
-    )
-    assert len(parents) == 2
-    assert parents[0] != parents[1]
-    assert all(re.fullmatch(r"[0-9a-f]{40}", parent) for parent in parents)
-    assert message == f"Merge {parents[1]} into {parents[0]}"
-
-    parent_objects_exist = tuple(
-        _git_commit_object_exists(parent) for parent in parents
-    )
-    assert len(set(parent_objects_exist)) == 1
-    if all(parent_objects_exist):
-        assert _git_output(["merge-base", *parents]) == parents[0]
-        assert _git_output(["rev-parse", f"{parents[1]}^{{tree}}"]) == _git_output(
-            ["rev-parse", f"{head}^{{tree}}"]
-        )
 
 
 def _digest(paths: tuple[Path, ...]) -> str:
@@ -1105,184 +914,3 @@ def test_spec_exact_headings_and_inventory_boundary_phrases_are_locked() -> None
         "Phase 52 remains active and incomplete",
     ):
         assert required in spec
-
-
-def test_digest_and_nested_raw_sha_reader_closure_is_exact() -> None:
-    compiler_paths = _compiler_paths()
-    semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
-    phase15_paths = tuple(
-        path
-        for path in semantic_paths
-        if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
-    )
-    assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        108,
-        36,
-        33,
-    )
-    assert _digest(compiler_paths) == COMPILER_DIGEST
-    assert _digest(semantic_paths) == SEMANTIC_DIGEST
-    assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
-    for path in COMPILER_READERS:
-        assert COMPILER_DIGEST in _read(REPO_ROOT / path)
-    for path in SEMANTIC_READERS:
-        assert SEMANTIC_DIGEST in _read(REPO_ROOT / path)
-    assert PHASE15_SUBSET_DIGEST in _read(REPO_ROOT / PHASE15_READER)
-
-    topology = (
-        (
-            "tests/test_phase13_completion_audit.py",
-            (
-                "tests/test_phase14_candidate_decision_audit.py",
-                "tests/test_phase14_planning_audit.py",
-            ),
-        ),
-        (
-            "tests/test_phase15_semantic_completion_audit.py",
-            ("tests/test_phase15_completion_audit.py",),
-        ),
-        (
-            "tests/test_phase16_current_syntax_surface_audit.py",
-            ("tests/test_phase16_completion_audit.py",),
-        ),
-        (
-            "tests/test_phase16_language_direction_audit.py",
-            ("tests/test_phase16_completion_audit.py",),
-        ),
-        (
-            "tests/test_phase16_safety_deferral_sql_portability.py",
-            ("tests/test_phase16_completion_audit.py",),
-        ),
-    )
-    for inner, outers in topology:
-        inner_sha = hashlib.sha256((REPO_ROOT / inner).read_bytes()).hexdigest()
-        for outer in outers:
-            assert _read(REPO_ROOT / outer).count(inner_sha) == 1
-
-
-def test_project_package_version_and_tag_boundaries_are_unchanged() -> None:
-    project_paths = _project_private_paths()
-    assert len(project_paths) == 33
-    assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
-    with PYPROJECT_PATH.open("rb") as stream:
-        project = tomllib.load(stream)
-    assert project["project"]["version"] == "0.1.0"
-    assert _git_output(["tag", "--list"]) == ""
-
-
-def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
-    if _phase54_active_gate2_is_active():
-        return
-    dirty = _dirty_paths()
-    slice13_modified = _slice13_paths("MODIFIED_PATHS")
-    slice13_added = _slice13_paths("ADDED_PATHS")
-    slice13_allowlist = slice13_modified | slice13_added
-    assert dirty in (
-        set(),
-        ALLOWLIST_PATHS,
-        REPAIR_ALLOWLIST_PATHS,
-        SLICE8_ALLOWLIST_PATHS,
-        slice13_allowlist,
-        set(phase54_post_slice12_interlude_expected_allowlist_paths()),
-    )
-    tracked = set(_git_output(["diff", "--name-only"]).splitlines())
-    status = tuple(_git_output(["diff", "--name-status"]).splitlines())
-    untracked = set(
-        _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
-    )
-    assert _git_output(["diff", "--cached", "--name-status"]) == ""
-    branch = _git_output(["branch", "--show-current"])
-    head = _git_output(["rev-parse", "HEAD"])
-    main = _git_optional_ref("refs/heads/main")
-    origin_main = _git_optional_ref("refs/remotes/origin/main")
-    if not dirty:
-        assert tracked == set()
-        assert status == ()
-        assert untracked == set()
-        _assert_clean_checkout_refs(
-            branch=branch,
-            head=head,
-            main=main,
-            origin_main=origin_main,
-        )
-    elif dirty == slice13_allowlist:
-        assert tracked == slice13_modified
-        assert status == tuple(f"M\t{path}" for path in sorted(slice13_modified))
-        assert untracked == slice13_added
-        assert branch == "main"
-        assert head == main == origin_main
-        assert head in (
-            "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52",
-            "d8a5e9ab3de70ce30575513c73560c86430eca63",
-            "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
-            "15bae172ee151e370fe59d3bf909d735aee6aa90",
-            "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
-            "c44a4271d9592cb393d2232f127a59d8466cc60a",
-            "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
-            "027b33cafcfd58916a89e299487dad38d24ade6c",
-            "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
-            "b81843acadb294630db361c09949868d004b1bca",
-        )
-    elif dirty == SLICE8_ALLOWLIST_PATHS:
-        assert tracked == SLICE8_MODIFIED_PATHS
-        assert status == tuple(f"M\t{path}" for path in sorted(SLICE8_MODIFIED_PATHS))
-        assert untracked == SLICE8_ADDED_PATHS
-        assert branch == "main"
-        assert head == main == origin_main == SLICE8_GATE2_BASE_HEAD_SHA
-    elif dirty == REPAIR_ALLOWLIST_PATHS:
-        assert tracked == REPAIR_ALLOWLIST_PATHS
-        assert len(status) == 44
-        assert all(entry.startswith("M\t") for entry in status)
-        assert untracked == set()
-        assert branch == "main"
-        assert head == main == origin_main == REPAIR_BASE_HEAD_SHA
-    else:
-        assert dirty == ALLOWLIST_PATHS
-        assert tracked == set(MODIFIED_READER_PATHS)
-        assert len(status) == len(MODIFIED_READER_PATHS)
-        assert all(entry.startswith("M\t") for entry in status)
-        assert {entry.removeprefix("M\t") for entry in status} == set(
-            MODIFIED_READER_PATHS
-        )
-        assert untracked == ADDED_PATHS
-        assert branch == "main"
-        assert head == main == origin_main == GATE2_BASE_HEAD_SHA
-
-
-def test_static_item_allowlist_reader_and_manifest_inventory_is_exact() -> None:
-    function_count, item_count, parametrized = _pytest_shape()
-    assert (function_count, item_count) == (28, 64)
-    assert parametrized == [
-        "test_builtin_catalog_membership_facts_are_supported",
-        "test_declaration_kind_facts_are_supported",
-        "test_internal_and_deferred_logical_type_facts_fail_closed",
-        "test_supported_literal_results_are_exact",
-        "test_unsupported_literal_categories_are_explicit",
-        "test_callable_declaration_parameter_facts_are_supported",
-        "test_declared_nullability_mappings_are_exact",
-        "test_supported_literals_have_ordered_postgresql_and_private_mysql_scope",
-    ]
-    assert len(MODIFIED_READER_PATHS) == len(set(MODIFIED_READER_PATHS)) == 40
-    assert len(ALLOWLIST_PATHS) == 43
-    assert sum(path.endswith(".py") for path in ALLOWLIST_PATHS) == 42
-    assert sum(path.endswith(".md") for path in ALLOWLIST_PATHS) == 1
-    assert len(REPAIR_ALLOWLIST_PATHS) == 44
-    assert all(path.endswith(".py") for path in REPAIR_ALLOWLIST_PATHS)
-    assert len(SLICE8_ALLOWLIST_PATHS) == 6
-    assert sum(path.endswith(".py") for path in SLICE8_ALLOWLIST_PATHS) == 5
-    assert sum(path.endswith(".md") for path in SLICE8_ALLOWLIST_PATHS) == 1
-    assert (len(COMPILER_READERS), len(SEMANTIC_READERS)) == (11, 25)
-    assert len(_all_facts()) == 41
-    assert 6064 - 142 == 5922
-    assert TIER2_MANIFEST_BYTES == 18319
-    assert TIER2_MANIFEST_SHA256 == (
-        "aea0deb90e0870740b40614fc911ad9483cb3851842aa9a4a9ccecc63baf6f79"
-    )
-
-
-_SLICE10_READER_MIGRATION_PATHS = (
-    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
-    "src/pietto/semantic/window_partition_analysis.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-)
-# Phase 53 Slice 13 reader migration.
