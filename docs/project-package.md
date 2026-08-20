@@ -69,7 +69,7 @@ Module catalogs, binding environments, graphs, attribution, package-neutral
 identity, and inspection documents are private compiler facts. Public output
 changes require a separate compatibility decision.
 
-## Package activation and manifest normalization
+## Package activation, manifest normalization, and root validation
 
 Schema v3 carries one immutable package-root activation. The current private
 manifest normalizer accepts caller-supplied bytes for the logical
@@ -86,10 +86,26 @@ The normalizer:
 - retains each nonempty declared dependency `sha256` field without yet
   verifying it against loaded package content.
 
-This is a private package foundation, not a package manager. Package identity,
-version comparison, digest verification, dependency solving, registry access,
-remote fetch, installation, lock resolution, database behavior, and public
-package APIs remain separately authorized work.
+A second private pure boundary runs only after successful normalization. It
+defines logical package identity as the exact, case-sensitive, Unicode-exact
+`(namespace, name)` pair; validates and preserves one strict SemVer 2.0.0
+release string; forms the exact identity-plus-version coordinate; requires the
+activation and manifest identity/version declarations to agree exactly; and
+validates the root activation `sha256` as exactly 64 lowercase hexadecimal
+characters. Dependency declarations remain structurally retained and otherwise
+unvalidated.
+
+Every root or dependency `sha256` declaration durably means an expected
+whole-package-content SHA-256. The complete trusted manifest-plus-asset byte
+set and its framing do not yet exist, so this boundary does not compute or
+verify package content and does not hash manifest bytes as a substitute.
+Whole-package framing, computation, and verification belong to trusted loading;
+dependency-pin validation belongs to dependency loading and planning.
+
+This is a private package foundation, not a package manager. Asset typing,
+package location and loading, package-content digest verification, dependency
+planning, registry access, remote fetch, installation, lock resolution,
+database behavior, and public package APIs remain separately authorized work.
 
 ## Inspection and portable boundaries
 

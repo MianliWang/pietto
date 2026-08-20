@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, fields
+import hashlib
 import inspect
 import json
 from pathlib import Path
@@ -16,11 +17,16 @@ from pietto._project.model import (
     ProjectRootPackageActivation,
 )
 from pietto._project.package_manifest import (
+    PackageCoordinate,
+    PackageIdentity,
     PackageManifest,
     PackageManifestAsset,
     PackageManifestDependency,
     PackageManifestNormalizationResult,
+    PackageRootValidationResult,
+    ValidatedRootPackage,
     _normalize_package_manifest,
+    _validate_root_package_manifest,
 )
 
 
@@ -985,9 +991,333 @@ def test_slice3_is_private_and_has_no_filesystem_or_public_integration() -> None
         assert "_normalize_package_manifest" not in other_source
 
 
+def test_slice4_package_identity_excludes_release_pin_and_logical_path() -> None:
+    identity = PackageIdentity("Exact Namespace", "snow 雪")
+    same_identity = PackageIdentity("Exact Namespace", "snow 雪")
+
+    assert identity == same_identity
+    assert hash(identity) == hash(same_identity)
+    assert identity != PackageIdentity("exact Namespace", "snow 雪")
+    assert PackageIdentity("ns", "é") != PackageIdentity("ns", "e\u0301")
+    assert PackageIdentity(" ns ", " name ").namespace == " ns "
+    assert tuple(field.name for field in fields(PackageIdentity)) == (
+        "namespace",
+        "name",
+    )
+
+    first = _validate_root_package_manifest(
+        _slice4_activation(
+            namespace=identity.namespace,
+            name=identity.name,
+            version="1.2.3+linux",
+            sha256="a" * 64,
+        ),
+        _slice4_manifest(
+            namespace=identity.namespace,
+            name=identity.name,
+            version="1.2.3+linux",
+        ),
+    )
+    second = _validate_root_package_manifest(
+        _slice4_activation(
+            path="packages/demo",
+            namespace=identity.namespace,
+            name=identity.name,
+            version="1.2.3+mac",
+            sha256="b" * 64,
+        ),
+        _slice4_manifest(
+            namespace=identity.namespace,
+            name=identity.name,
+            version="1.2.3+mac",
+        ),
+    )
+
+    assert first.ok and first.package is not None
+    assert second.ok and second.package is not None
+    assert first.package.coordinate.identity == second.package.coordinate.identity
+    assert first.package.coordinate != second.package.coordinate
+    assert first.package.content_digest_pin != second.package.content_digest_pin
+    assert first.package.manifest_path != second.package.manifest_path
+
+
+@pytest.mark.parametrize(
+    "version",
+    (
+        "0.0.0",
+        "1.2.3",
+        "1.2.3-0",
+        "1.2.3-alpha.1",
+        "1.2.3+linux.01",
+        "1.2.3-rc.1+linux-x.01",
+    ),
+)
+def test_slice4_exact_semver_accepts_strict_forms(version: str) -> None:
+    coordinate = PackageCoordinate(PackageIdentity("ns", "name"), version)
+
+    assert coordinate.exact_version == version
+
+
+@pytest.mark.parametrize(
+    "version",
+    (
+        "1",
+        "1.2",
+        "1.2.3.4",
+        "+1.2.3",
+        "-1.2.3",
+        "01.2.3",
+        "1.02.3",
+        "1.2.03",
+        "1.2.3-01",
+        "1.2.3-",
+        "1.2.3+",
+        "1.2.3-alpha..1",
+        "1.2.3+build..1",
+        " 1.2.3",
+        "1.2.3 ",
+        "1.2.3-雪",
+        "v1.2.3",
+        "^1.2.3",
+        ">=1.2.3",
+    ),
+)
+def test_slice4_exact_semver_rejects_non_strict_forms(version: str) -> None:
+    with pytest.raises(ValueError, match="strict SemVer 2.0.0"):
+        PackageCoordinate(PackageIdentity("ns", "name"), version)
+
+
+def test_slice4_exact_semver_equality_includes_build_metadata() -> None:
+    identity = PackageIdentity("ns", "name")
+
+    assert PackageCoordinate(identity, "1.2.3+linux") != PackageCoordinate(
+        identity,
+        "1.2.3+mac",
+    )
+
+
+def test_slice4_accepts_matching_root_coordinate_and_declared_digest_pin() -> None:
+    result = _validate_root_package_manifest(
+        _slice4_activation(),
+        _slice4_manifest(),
+    )
+
+    assert result.ok and type(result.package) is ValidatedRootPackage
+    assert result.errors == ()
+    assert result.package.manifest_path == "pietto-package.toml"
+    assert result.package.coordinate == PackageCoordinate(
+        PackageIdentity("example", "demo"),
+        "1.2.3",
+    )
+    assert result.package.content_digest_pin == "a" * 64
+    assert result.package.manifest is not None
+    assert not hasattr(result.package, "verified_digest")
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("namespace", "name", "version"),
+)
+def test_slice4_rejects_each_root_coordinate_mismatch(field: str) -> None:
+    activation = _slice4_activation(
+        namespace="activation" if field == "namespace" else "example",
+        name="activation" if field == "name" else "demo",
+        version="1.2.3+activation" if field == "version" else "1.2.3",
+    )
+    manifest_bytes = _slice4_manifest(
+        namespace="manifest" if field == "namespace" else "example",
+        name="manifest" if field == "name" else "demo",
+        version="1.2.3+manifest" if field == "version" else "1.2.3",
+    )
+
+    result = _validate_root_package_manifest(activation, manifest_bytes)
+
+    assert not result.ok and result.package is None
+    assert tuple(error.kind for error in result.errors) == (
+        ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
+    )
+    assert tuple(error.message for error in result.errors) == (
+        f"Project package activation {field} must exactly match package manifest {field}.",
+    )
+
+
+def test_slice4_reports_all_root_coordinate_mismatches_in_field_order() -> None:
+    result = _validate_root_package_manifest(
+        _slice4_activation(
+            namespace="activation-ns",
+            name="activation-name",
+            version="1.2.3+activation",
+        ),
+        _slice4_manifest(
+            namespace="manifest-ns",
+            name="manifest-name",
+            version="1.2.3+manifest",
+        ),
+    )
+
+    assert not result.ok and result.package is None
+    assert tuple(error.message for error in result.errors) == (
+        "Project package activation namespace must exactly match package manifest namespace.",
+        "Project package activation name must exactly match package manifest name.",
+        "Project package activation version must exactly match package manifest version.",
+    )
+
+
+def test_slice4_semantics_run_only_after_structural_normalization_succeeds() -> None:
+    activation = _slice4_activation(version="not-semver", sha256="not-a-pin")
+    manifest_bytes = b"\x80"
+    normalized = _normalize_package_manifest(activation, manifest_bytes)
+
+    result = _validate_root_package_manifest(activation, manifest_bytes)
+
+    assert not normalized.ok and not result.ok
+    assert result.package is None
+    assert result.errors == normalized.errors
+
+
+def test_slice4_reports_complete_independent_root_semantic_errors() -> None:
+    result = _validate_root_package_manifest(
+        _slice4_activation(
+            namespace="activation-ns",
+            name="activation-name",
+            version="01.2.3",
+            sha256="A" * 64,
+        ),
+        _slice4_manifest(
+            namespace="manifest-ns",
+            name="manifest-name",
+            version="1.2.3-01",
+        ),
+    )
+
+    assert not result.ok and result.package is None
+    assert tuple(error.message for error in result.errors) == (
+        "Project package activation namespace must exactly match package manifest namespace.",
+        "Project package activation name must exactly match package manifest name.",
+        "Project package activation version must be strict SemVer 2.0.0.",
+        "Package manifest version must be strict SemVer 2.0.0.",
+        "Project package activation sha256 must be exactly 64 lowercase hexadecimal characters.",
+    )
+
+
+@pytest.mark.parametrize(
+    "sha256",
+    (
+        "a" * 63,
+        "a" * 65,
+        "A" * 64,
+        "g" * 64,
+        "a" * 63 + " ",
+    ),
+)
+def test_slice4_declared_digest_pin_requires_exact_lowercase_hex(
+    sha256: str,
+) -> None:
+    result = _validate_root_package_manifest(
+        _slice4_activation(sha256=sha256),
+        _slice4_manifest(),
+    )
+
+    assert not result.ok and result.package is None
+    assert tuple(error.message for error in result.errors) == (
+        "Project package activation sha256 must be exactly 64 lowercase hexadecimal characters.",
+    )
+
+
+def test_slice4_declared_pin_is_not_compared_with_manifest_bytes() -> None:
+    pin = "a" * 64
+    first_bytes = _slice4_manifest()
+    second_bytes = _slice4_manifest(comment="same package facts, different bytes")
+    assert hashlib.sha256(first_bytes).hexdigest() != pin
+    assert hashlib.sha256(second_bytes).hexdigest() != pin
+    assert (
+        hashlib.sha256(first_bytes).hexdigest()
+        != hashlib.sha256(second_bytes).hexdigest()
+    )
+
+    first = _validate_root_package_manifest(
+        _slice4_activation(sha256=pin),
+        first_bytes,
+    )
+    second = _validate_root_package_manifest(
+        _slice4_activation(sha256=pin),
+        second_bytes,
+    )
+
+    assert first.ok and second.ok
+    assert first.package is not None and second.package is not None
+    assert first.package.content_digest_pin == second.package.content_digest_pin == pin
+
+
+def test_slice4_dependency_values_remain_raw_ordered_and_repeated() -> None:
+    first = (" ns ", " Name 雪 ", "not-semver", "not-a-pin", "../one")
+    second = ("other", "second", "v?", "digest?", "./two")
+    result = _validate_root_package_manifest(
+        _slice4_activation(),
+        _slice4_manifest(dependencies=(first, second, first)),
+    )
+
+    assert result.ok and result.package is not None
+    assert tuple(
+        (
+            dependency.namespace,
+            dependency.name,
+            dependency.version,
+            dependency.sha256,
+            dependency.path,
+        )
+        for dependency in result.package.manifest.dependencies
+    ) == (first, second, first)
+
+
+def test_slice4_boundary_is_private_pure_and_does_not_hash_package_content() -> None:
+    source = inspect.getsource(package_manifest)
+
+    assert "hashlib" not in source
+    for public_name in (
+        "PackageIdentity",
+        "PackageCoordinate",
+        "ValidatedRootPackage",
+        "PackageRootValidationResult",
+        "_validate_root_package_manifest",
+    ):
+        assert not hasattr(pietto, public_name)
+        assert not hasattr(project_package, public_name)
+    with pytest.raises(TypeError):
+        PackageRootValidationResult()  # pyright: ignore[reportCallIssue]
+
+
 def _activation(path: str = ".") -> ProjectRootPackageActivation:
     return ProjectRootPackageActivation(
         path, "expected", "expected", "expected", "expected"
+    )
+
+
+def _slice4_activation(
+    *,
+    path: str = ".",
+    namespace: str = "example",
+    name: str = "demo",
+    version: str = "1.2.3",
+    sha256: str = "a" * 64,
+) -> ProjectRootPackageActivation:
+    return ProjectRootPackageActivation(path, namespace, name, version, sha256)
+
+
+def _slice4_manifest(
+    *,
+    namespace: str = "example",
+    name: str = "demo",
+    version: str = "1.2.3",
+    dependencies: tuple[tuple[str, str, str, str, str], ...] = (),
+    comment: str | None = None,
+) -> bytes:
+    return _valid_manifest(
+        namespace=namespace,
+        name=name,
+        version=version,
+        dependencies=dependencies,
+        comment=comment,
     )
 
 

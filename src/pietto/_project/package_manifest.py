@@ -1,4 +1,4 @@
-"""Private semantic-package manifest parsing and canonical normalization."""
+"""Private semantic-package manifest normalization and root validation."""
 
 from __future__ import annotations
 
@@ -38,8 +38,48 @@ _DEPENDENCY_HEADER = re.compile(
     r"(?P<suffix>[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$))"
 )
 _URI_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+_CONTENT_SHA256_PIN = re.compile(r"[0-9a-f]{64}")
+_ASCII_DIGITS = "0123456789"
+_ASCII_NONZERO_DIGITS = "123456789"
+_SEMVER_IDENTIFIER_CHARACTERS = (
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-"
+)
 
 _ErrorSpec = tuple[ProjectDiscoveryErrorKind, str, str | None]
+
+
+@dataclass(frozen=True, slots=True)
+class PackageIdentity:
+    """One exact logical package identity, independent of release content."""
+
+    namespace: str
+    name: str
+
+    def __post_init__(self) -> None:
+        if type(self) is not PackageIdentity:
+            raise TypeError("Package identity does not admit subclasses.")
+        _require_non_empty_text(self.namespace, "Package identity namespace")
+        _require_non_empty_text(self.name, "Package identity name")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageCoordinate:
+    """One logical package identity at one exact SemVer release."""
+
+    identity: PackageIdentity
+    exact_version: str
+
+    def __post_init__(self) -> None:
+        if type(self) is not PackageCoordinate:
+            raise TypeError("Package coordinate does not admit subclasses.")
+        if type(self.identity) is not PackageIdentity:
+            raise TypeError("Package coordinate requires an exact package identity.")
+        if type(self.exact_version) is not str:
+            raise TypeError("Package coordinate exact version must be text.")
+        if not _is_strict_semver(self.exact_version):
+            raise ValueError(
+                "Package coordinate exact version must be strict SemVer 2.0.0."
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +159,39 @@ class PackageManifest:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ValidatedRootPackage:
+    """One root package with validated coordinate and declared digest pin."""
+
+    manifest_path: str
+    coordinate: PackageCoordinate
+    content_digest_pin: str
+    manifest: PackageManifest
+
+    def __post_init__(self) -> None:
+        if type(self) is not ValidatedRootPackage:
+            raise TypeError("Validated root package does not admit subclasses.")
+        _require_non_empty_text(self.manifest_path, "Validated manifest path")
+        if type(self.coordinate) is not PackageCoordinate:
+            raise TypeError("Validated root package requires an exact coordinate.")
+        if type(self.content_digest_pin) is not str:
+            raise TypeError("Package content digest pin must be text.")
+        if not _is_valid_content_digest_pin(self.content_digest_pin):
+            raise ValueError(
+                "Package content digest pin must be exactly 64 lowercase hexadecimal characters."
+            )
+        if type(self.manifest) is not PackageManifest:
+            raise TypeError("Validated root package requires an exact manifest.")
+        if (
+            self.coordinate.identity.namespace != self.manifest.namespace
+            or self.coordinate.identity.name != self.manifest.name
+            or self.coordinate.exact_version != self.manifest.version
+        ):
+            raise ValueError(
+                "Validated root package coordinate must match its manifest."
+            )
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class PackageManifestNormalizationResult:
     """One complete private manifest normalization result or error tuple."""
@@ -137,6 +210,25 @@ class PackageManifestNormalizationResult:
         """Return whether normalization produced one accepted manifest value."""
 
         return self.manifest is not None
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class PackageRootValidationResult:
+    """One complete private validated-root-package result or error tuple."""
+
+    package: ValidatedRootPackage | None
+    errors: tuple[ProjectDiscoveryError, ...]
+
+    def __new__(cls) -> PackageRootValidationResult:
+        raise TypeError(
+            "Root package validation results are created only by canonical validation."
+        )
+
+    @property
+    def ok(self) -> bool:
+        """Return whether root package validation produced one complete value."""
+
+        return self.package is not None
 
 
 def _normalize_package_manifest(
@@ -263,6 +355,91 @@ def _normalize_package_manifest(
         ),
     )
     return construct_result(manifest, ())
+
+
+def _validate_root_package_manifest(
+    root_package: ProjectRootPackageActivation,
+    manifest_bytes: bytes,
+) -> PackageRootValidationResult:
+    """Validate root package declarations after structural normalization."""
+
+    normalized = _normalize_package_manifest(root_package, manifest_bytes)
+
+    def construct_result(
+        package: ValidatedRootPackage | None,
+        errors: tuple[ProjectDiscoveryError, ...],
+    ) -> PackageRootValidationResult:
+        if package is not None and type(package) is not ValidatedRootPackage:
+            raise TypeError("Canonical root validation requires an exact package.")
+        if type(errors) is not tuple or any(
+            type(error) is not ProjectDiscoveryError for error in errors
+        ):
+            raise TypeError("Canonical root validation requires exact errors.")
+        if (package is None) is (not errors):
+            raise ValueError(
+                "Canonical root validation requires exactly one of a package or errors."
+            )
+        result = object.__new__(PackageRootValidationResult)
+        object.__setattr__(result, "package", package)
+        object.__setattr__(result, "errors", errors)
+        return result
+
+    if not normalized.ok:
+        return construct_result(None, normalized.errors)
+    manifest = normalized.manifest
+    assert type(manifest) is PackageManifest
+
+    errors: list[ProjectDiscoveryError] = []
+
+    def add_error(message: str) -> None:
+        errors.append(
+            ProjectDiscoveryError(
+                ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
+                message,
+                normalized.manifest_path,
+            )
+        )
+
+    if root_package.namespace != manifest.namespace:
+        add_error(
+            "Project package activation namespace must exactly match package manifest namespace."
+        )
+    if root_package.name != manifest.name:
+        add_error(
+            "Project package activation name must exactly match package manifest name."
+        )
+
+    activation_version_is_valid = _is_strict_semver(root_package.version)
+    manifest_version_is_valid = _is_strict_semver(manifest.version)
+    if not activation_version_is_valid:
+        add_error("Project package activation version must be strict SemVer 2.0.0.")
+    if not manifest_version_is_valid:
+        add_error("Package manifest version must be strict SemVer 2.0.0.")
+    if (
+        activation_version_is_valid
+        and manifest_version_is_valid
+        and root_package.version != manifest.version
+    ):
+        add_error(
+            "Project package activation version must exactly match package manifest version."
+        )
+    if not _is_valid_content_digest_pin(root_package.sha256):
+        add_error(
+            "Project package activation sha256 must be exactly 64 lowercase hexadecimal characters."
+        )
+
+    if errors:
+        return construct_result(None, tuple(errors))
+
+    identity = PackageIdentity(root_package.namespace, root_package.name)
+    coordinate = PackageCoordinate(identity, root_package.version)
+    package = ValidatedRootPackage(
+        manifest_path=normalized.manifest_path,
+        coordinate=coordinate,
+        content_digest_pin=root_package.sha256,
+        manifest=manifest,
+    )
+    return construct_result(package, ())
 
 
 def _validate_document(
@@ -614,6 +791,61 @@ def _require_exact_tuple(values: object, item_type: type, label: str) -> None:
         raise TypeError(f"{label} must be an exact tuple.")
     if any(type(value) is not item_type for value in values):
         raise TypeError(f"{label} must contain exact {item_type.__name__} values.")
+
+
+def _is_strict_semver(value: object) -> bool:
+    if type(value) is not str:
+        return False
+    core_and_prerelease, build_marker, build = value.partition("+")
+    if build_marker and not _are_valid_semver_identifiers(
+        build,
+        reject_numeric_leading_zero=False,
+    ):
+        return False
+
+    core, prerelease_marker, prerelease = core_and_prerelease.partition("-")
+    core_numbers = core.split(".")
+    if len(core_numbers) != 3 or not all(
+        _is_valid_semver_core_number(number) for number in core_numbers
+    ):
+        return False
+    return not prerelease_marker or _are_valid_semver_identifiers(
+        prerelease,
+        reject_numeric_leading_zero=True,
+    )
+
+
+def _is_valid_semver_core_number(value: str) -> bool:
+    return value == "0" or (
+        bool(value)
+        and value[0] in _ASCII_NONZERO_DIGITS
+        and all(character in _ASCII_DIGITS for character in value)
+    )
+
+
+def _are_valid_semver_identifiers(
+    value: str,
+    *,
+    reject_numeric_leading_zero: bool,
+) -> bool:
+    for identifier in value.split("."):
+        if not identifier or any(
+            character not in _SEMVER_IDENTIFIER_CHARACTERS for character in identifier
+        ):
+            return False
+        is_numeric = all(character in _ASCII_DIGITS for character in identifier)
+        if (
+            reject_numeric_leading_zero
+            and is_numeric
+            and len(identifier) > 1
+            and identifier.startswith("0")
+        ):
+            return False
+    return True
+
+
+def _is_valid_content_digest_pin(value: object) -> bool:
+    return type(value) is str and _CONTENT_SHA256_PIN.fullmatch(value) is not None
 
 
 def _is_valid_asset_path(value: str) -> bool:
