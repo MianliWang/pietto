@@ -39,6 +39,8 @@ _DEPENDENCY_HEADER = re.compile(
 )
 _URI_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 _CONTENT_SHA256_PIN = re.compile(r"[0-9a-f]{64}")
+_MODULE_SOURCE_ASSET_KIND = "module_source"
+_PIETTO_MODULE_SUFFIX = ".pietto"
 _ASCII_DIGITS = "0123456789"
 _ASCII_NONZERO_DIGITS = "123456789"
 _SEMVER_IDENTIFIER_CHARACTERS = (
@@ -192,6 +194,37 @@ class ValidatedRootPackage:
             )
 
 
+@dataclass(frozen=True, slots=True)
+class PackageModuleSourceAsset:
+    """One typed package-local Pietto module-source declaration."""
+
+    path: str
+
+    def __post_init__(self) -> None:
+        if type(self) is not PackageModuleSourceAsset:
+            raise TypeError("Package module-source asset does not admit subclasses.")
+        _require_non_empty_text(self.path, "Package module-source asset path")
+        if not _is_valid_asset_path(self.path):
+            raise ValueError(
+                "Package module-source asset path must be normalized and package-relative."
+            )
+        if not self.path.endswith(_PIETTO_MODULE_SUFFIX):
+            raise ValueError("Package module-source asset path must end with .pietto.")
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class TypedRootPackageAssetCatalog:
+    """One exact root-bound, source-ordered typed package asset catalog."""
+
+    root_package: ValidatedRootPackage
+    assets: tuple[PackageModuleSourceAsset, ...]
+
+    def __new__(cls) -> TypedRootPackageAssetCatalog:
+        raise TypeError(
+            "Typed package asset catalogs are created only by canonical validation."
+        )
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class PackageManifestNormalizationResult:
     """One complete private manifest normalization result or error tuple."""
@@ -229,6 +262,25 @@ class PackageRootValidationResult:
         """Return whether root package validation produced one complete value."""
 
         return self.package is not None
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class PackageTypedAssetValidationResult:
+    """One complete private typed-asset catalog result or error tuple."""
+
+    catalog: TypedRootPackageAssetCatalog | None
+    errors: tuple[ProjectDiscoveryError, ...]
+
+    def __new__(cls) -> PackageTypedAssetValidationResult:
+        raise TypeError(
+            "Typed package asset results are created only by canonical validation."
+        )
+
+    @property
+    def ok(self) -> bool:
+        """Return whether typed-asset validation produced one complete catalog."""
+
+        return self.catalog is not None
 
 
 def _normalize_package_manifest(
@@ -440,6 +492,75 @@ def _validate_root_package_manifest(
         manifest=manifest,
     )
     return construct_result(package, ())
+
+
+def _validate_typed_root_package_assets(
+    root_package: ValidatedRootPackage,
+) -> PackageTypedAssetValidationResult:
+    """Build one complete pure typed-asset catalog for an exact root package."""
+
+    if type(root_package) is not ValidatedRootPackage:
+        raise TypeError("Typed asset validation requires an exact root package.")
+
+    def construct_result(
+        catalog: TypedRootPackageAssetCatalog | None,
+        errors: tuple[ProjectDiscoveryError, ...],
+    ) -> PackageTypedAssetValidationResult:
+        if catalog is not None and type(catalog) is not TypedRootPackageAssetCatalog:
+            raise TypeError(
+                "Canonical typed-asset validation requires an exact catalog."
+            )
+        if type(errors) is not tuple or any(
+            type(error) is not ProjectDiscoveryError for error in errors
+        ):
+            raise TypeError("Canonical typed-asset validation requires exact errors.")
+        if (catalog is None) is (not errors):
+            raise ValueError(
+                "Canonical typed-asset validation requires exactly one of a catalog or errors."
+            )
+        result = object.__new__(PackageTypedAssetValidationResult)
+        object.__setattr__(result, "catalog", catalog)
+        object.__setattr__(result, "errors", errors)
+        return result
+
+    errors: list[ProjectDiscoveryError] = []
+    first_position_by_path: dict[str, int] = {}
+
+    def add_error(message: str) -> None:
+        errors.append(
+            ProjectDiscoveryError(
+                ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
+                message,
+                root_package.manifest_path,
+            )
+        )
+
+    for ordinal, manifest_asset in enumerate(root_package.manifest.assets):
+        if manifest_asset.kind != _MODULE_SOURCE_ASSET_KIND:
+            add_error(f"Package manifest assets[{ordinal}].kind must be module_source.")
+        elif not manifest_asset.path.endswith(_PIETTO_MODULE_SUFFIX):
+            add_error(f"Package manifest assets[{ordinal}].path must end with .pietto.")
+
+        first_position = first_position_by_path.get(manifest_asset.path)
+        if first_position is None:
+            first_position_by_path[manifest_asset.path] = ordinal
+        else:
+            add_error(
+                f"Package manifest assets[{ordinal}].path duplicates "
+                f"assets[{first_position}].path."
+            )
+
+    if errors:
+        return construct_result(None, tuple(errors))
+
+    typed_assets = tuple(
+        PackageModuleSourceAsset(manifest_asset.path)
+        for manifest_asset in root_package.manifest.assets
+    )
+    catalog = object.__new__(TypedRootPackageAssetCatalog)
+    object.__setattr__(catalog, "root_package", root_package)
+    object.__setattr__(catalog, "assets", typed_assets)
+    return construct_result(catalog, ())
 
 
 def _validate_document(

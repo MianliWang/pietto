@@ -95,6 +95,16 @@ validates the root activation `sha256` as exactly 64 lowercase hexadecimal
 characters. Dependency declarations remain structurally retained and otherwise
 unvalidated.
 
+A third private pure boundary types the already-normalized root assets without
+tightening structural normalization. Structural manifests continue to retain
+every nonempty asset kind, source order, and multiplicity. The typed boundary
+accepts only the exact `module_source` kind, requires its normalized
+package-relative path to end in lowercase `.pietto`, and rejects every later
+occurrence of an already-declared package-local path. A successful catalog
+retains the exact validated root package and one source-ordered typed value per
+manifest asset. It performs no filesystem access, content read, digest work, or
+module construction.
+
 Every root or dependency `sha256` declaration durably means an expected
 whole-package-content SHA-256. The complete trusted manifest-plus-asset byte
 set and its framing do not yet exist, so this boundary does not compute or
@@ -102,10 +112,11 @@ verify package content and does not hash manifest bytes as a substitute.
 Whole-package framing, computation, and verification belong to trusted loading;
 dependency-pin validation belongs to dependency loading and planning.
 
-This is a private package foundation, not a package manager. Asset typing,
-package location and loading, package-content digest verification, dependency
-planning, registry access, remote fetch, installation, lock resolution,
-database behavior, and public package APIs remain separately authorized work.
+This is a private package foundation, not a package manager. Package location
+and loading, package-content digest verification, module integration,
+dependency planning, registry access, remote fetch, installation, lock
+resolution, database behavior, and public package APIs remain separately
+authorized work.
 
 ## Inspection and portable boundaries
 
