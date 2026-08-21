@@ -15,7 +15,7 @@ diagnostic boundaries unless a new explicit product decision changes them.
 
 ## Phase 55 route
 
-Slices 1–10 are completed, and Slice 11 is current. The remaining route is
+Slices 1–11 are completed, and Slice 12 is current. The remaining route is
 ownership only; it does not itself authorize implementation or publication.
 
 | Slice | Owner |
@@ -49,6 +49,14 @@ ownership only; it does not itself authorize implementation or publication.
 | 68 | Dependency solver, canonical lockfile, and first Rust kernel decision |
 | 69 | Extension-specific lowering and additional dialect foundations |
 | 70 | Public schema/lineage expansion and v0.2 release-readiness decision |
+
+Phase 56 may begin from the current private `CapabilityKey`, `CapabilityFact`,
+`CapabilityEvidence`, support/disposition carriers, fail-closed lookup results,
+and the inventory, signature, aggregate, window, and context fact providers.
+No capability-profile carrier or declared-checking schema exists yet. Phase 56
+owns that schema, declaration binding, and checking diagnostics while preserving
+the existing distinction between compiler acceptance and backend/dialect
+support; this handoff grants no public exposure or database-installation model.
 
 Compiler acceptance, private capability facts, backend support, database
 installation, public exposure, local graph behavior, remote I/O, solving, and

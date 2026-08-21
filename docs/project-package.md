@@ -181,21 +181,29 @@ host, or include canonical host paths, filesystem identities, raw manifests,
 raw module sources, or ASTs. This package inspection remains distinct from the
 existing private module inspection. Public exposure remains Phase 58 work.
 
-The current Slice 11 candidate projects the authority-derived package
-inspection into explicit immutable tagged records and evaluates them through a
-total, data-only pure boundary. That evaluator is the one production owner of
-the frozen canonical bytes: accepted documents reproduce the Slice 10 payload
-byte-for-byte, while malformed documents return a closed normalized status and
-structural coordinates without echoing supplied content. Python object-identity
-admission remains outside the portable contract.
+Package inspection projects the authority-derived value into explicit immutable
+tagged records and evaluates them through a total, data-only pure boundary. That
+evaluator is the one production owner of the frozen canonical bytes: accepted
+documents reproduce `pietto.package-inspection.v1` byte-for-byte, while
+malformed documents return a closed normalized status and structural
+coordinates without echoing supplied content. Python object-identity admission
+remains outside the portable contract.
 
 Frozen package differential vectors retain literal expected bytes and rejection
 outcomes for successful graphs, ordered errors and diagnostics, cycles,
 conflicts, diamonds, malformed scalars, and structural corruption. Cross-process
 and supported-interpreter checks make the boundary ready for an independent
-implementation without adding one here. Public package inspection remains
-Phase 58 work, and live publication plus natural exact-head CI determine Slice
-11 completion.
+implementation without adding one here.
+
+The settled Phase 55 local package foundation is one explicit compiler-only
+chain: schema-v3 activation -> structural manifest -> exact identity and typed
+assets -> trusted loading and D1 content identity -> exact local dependency
+plan -> deterministic rejection -> private inspection -> portable pure
+evaluation and differential compatibility. Later ownership remains separate:
+Phase 58 owns public package inspection and explain; Phase 59 owns richer local
+package graph, provenance, and lineage; Phase 66 owns additional package asset
+kinds; Phase 67 owns remote package management and trust; and Phase 68 owns a
+solver, lockfile, and the first Rust-kernel decision.
 
 ## Inspection and portable boundaries
 
