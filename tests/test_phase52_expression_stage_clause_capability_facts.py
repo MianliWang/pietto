@@ -307,15 +307,22 @@ def test_no_existing_consumer_or_public_export_is_added() -> None:
     preservation_path = (
         REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py"
     )
+    provider_path = REPO_ROOT / "src/pietto/semantic/capability_providers.py"
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
-        if path in {SOURCE_PATH, preservation_path} or "generated" in path.parts:
+        if (
+            path in {SOURCE_PATH, preservation_path, provider_path}
+            or "generated" in path.parts
+        ):
             continue
         source = _read(path)
         assert "semantic.capability_contexts" not in source
         assert "stage_clause_lookup_inputs" not in source
     preservation_source = _read(preservation_path)
     assert "semantic.capability_contexts" in preservation_source
-    assert "stage_clause_lookup_inputs" in preservation_source
+    assert "stage_clause_lookup_inputs" not in preservation_source
+    provider_source = _read(provider_path)
+    assert "semantic.capability_contexts" in provider_source
+    assert "stage_clause_lookup_inputs" in provider_source
     assert "capability_contexts" not in _read(
         REPO_ROOT / "src/pietto/semantic/__init__.py"
     )

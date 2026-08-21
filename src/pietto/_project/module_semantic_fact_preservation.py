@@ -104,35 +104,22 @@ from pietto.semantic.aggregates import (
     effective_semantic_aggregate_argument_expression,
     semantic_aggregate_call_name,
 )
-from pietto.semantic.capability_aggregates import (
-    _AGGREGATE_CAPABILITY_FACTS,
-    aggregate_lookup_inputs,
-)
-from pietto.semantic.capability_contexts import (
-    _CAPABILITY_CONTEXT_FACTS,
-    stage_clause_lookup_inputs,
-)
+from pietto.semantic.capability_aggregates import _AGGREGATE_CAPABILITY_FACTS
+from pietto.semantic.capability_contexts import _CAPABILITY_CONTEXT_FACTS
 from pietto.semantic.capability_facts import (
-    CapabilityDomain,
     CapabilityFact,
     CapabilityKey,
 )
-from pietto.semantic.capability_inventory import (
-    _CAPABILITY_FACTS,
-    inventory_lookup_inputs,
-)
+from pietto.semantic.capability_inventory import _CAPABILITY_FACTS
 from pietto.semantic.capability_lookup import (
     CapabilityLookupResult,
     lookup_capability,
 )
-from pietto.semantic.capability_signatures import (
-    _CAPABILITY_SIGNATURE_FACTS,
-    signature_lookup_inputs,
+from pietto.semantic.capability_providers import (
+    canonical_capability_provider_inputs,
 )
-from pietto.semantic.capability_windows import (
-    _WINDOW_CAPABILITY_FACTS,
-    window_lookup_inputs,
-)
+from pietto.semantic.capability_signatures import _CAPABILITY_SIGNATURE_FACTS
+from pietto.semantic.capability_windows import _WINDOW_CAPABILITY_FACTS
 from pietto.semantic.generic_compatibility import GenericSignature
 from pietto.semantic.model import RowSchema as SemanticRowSchema
 from pietto.semantic.model import ValueType
@@ -439,45 +426,12 @@ class ProjectModuleCapabilityFactInventory:
 
         if type(key) is not CapabilityKey:
             raise TypeError("Capability inventory lookup requires an exact key.")
-        if key.domain in {
-            CapabilityDomain.LOGICAL_TYPE,
-            CapabilityDomain.LITERAL,
-            CapabilityDomain.PARAMETER,
-        }:
-            _provider_facts, complete = inventory_lookup_inputs(key)
-            return lookup_capability(
-                key,
-                self.inventory_facts,
-                domain_complete=complete,
-            )
-        if key.domain in {
-            CapabilityDomain.SCALAR_FUNCTION,
-            CapabilityDomain.UNARY_OPERATOR,
-            CapabilityDomain.BINARY_OPERATOR,
-            CapabilityDomain.COMPARISON,
-            CapabilityDomain.NULL_TEST,
-        }:
-            _provider_facts, complete, reason = signature_lookup_inputs(key)
-            facts = self.signature_facts
-        elif key.domain is CapabilityDomain.AGGREGATE:
-            _provider_facts, complete, reason = aggregate_lookup_inputs(key)
-            facts = self.aggregate_facts
-        elif key.domain is CapabilityDomain.WINDOW_FUNCTION:
-            _provider_facts, complete, reason = window_lookup_inputs(key)
-            facts = self.window_facts
-        elif key.domain in {
-            CapabilityDomain.EXPRESSION_STAGE,
-            CapabilityDomain.CLAUSE,
-        }:
-            _provider_facts, complete, reason = stage_clause_lookup_inputs(key)
-            facts = self.context_facts
-        else:
-            facts, complete, reason = (), False, None
+        inputs = canonical_capability_provider_inputs(key)
         return lookup_capability(
-            key,
-            facts,
-            domain_complete=complete,
-            unknown_reason=reason,
+            inputs.key,
+            inputs.facts,
+            domain_complete=inputs.domain_complete,
+            unknown_reason=inputs.unknown_reason,
         )
 
 

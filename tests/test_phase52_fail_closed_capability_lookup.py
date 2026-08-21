@@ -37,6 +37,7 @@ CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
 AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
 WINDOW_REL = "src/pietto/semantic/capability_windows.py"
 PROFILE_REL = "src/pietto/semantic/capability_profiles.py"
+PROVIDER_REL = "src/pietto/semantic/capability_providers.py"
 SELF_REL = "tests/test_phase52_fail_closed_capability_lookup.py"
 SOURCE_PATH = REPO_ROOT / SOURCE_REL
 
@@ -287,6 +288,7 @@ def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry()
                 REPO_ROOT / AGGREGATE_REL,
                 REPO_ROOT / WINDOW_REL,
                 REPO_ROOT / PROFILE_REL,
+                REPO_ROOT / PROVIDER_REL,
                 REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py",
             }
             or "generated" in path.parts

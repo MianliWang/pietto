@@ -31,8 +31,8 @@ All 12 slices are completed. Phase 55 is complete.
 
 ## Phase 56 route
 
-Phase 56 is active, Slice 1 is completed, and Slice 2 is current. These rows
-assign ownership only; they do not authorize a later slice.
+Phase 56 is active, Slices 1–2 are completed, and Slice 3 is current. These
+rows assign ownership only; they do not authorize a later slice.
 
 | Slice | Owner |
 | ---: | --- |
@@ -69,6 +69,10 @@ dialect/backend lowering, installation state, roadmap ownership, and public
 exposure remain separate authorities. The profile/requirement foundation stays
 private and adds no project/package/Pietto syntax, public output, lookup,
 composition, or checking behavior in Slices 1–2.
+
+Canonical provider dispatch delegates to the existing family authorities and
+preserves their exact-key-scoped completeness; profiles do not supply or infer
+provider completeness.
 
 ## Retained later ownership
 

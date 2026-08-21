@@ -31,6 +31,7 @@ SIGNATURE_REL = "src/pietto/semantic/capability_signatures.py"
 CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
 AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
 PROFILE_REL = "src/pietto/semantic/capability_profiles.py"
+PROVIDER_REL = "src/pietto/semantic/capability_providers.py"
 SPEC_REL = (
     "docs/spec/"
     "phase52-private-capability-key-disposition-evidence-fact-foundation-v1.md"
@@ -461,6 +462,7 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
                 REPO_ROOT / AGGREGATE_REL,
                 REPO_ROOT / "src/pietto/semantic/capability_windows.py",
                 REPO_ROOT / PROFILE_REL,
+                REPO_ROOT / PROVIDER_REL,
                 REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py",
             }
             or "generated" in path.parts
@@ -485,6 +487,10 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
     signature_source = _read(SIGNATURE_PATH)
     assert "semantic.capability_facts" in signature_source
     assert "CapabilityFact" in signature_source
+    provider_source = _read(REPO_ROOT / PROVIDER_REL)
+    assert "semantic.capability_facts" in provider_source
+    assert "CapabilityFact" in provider_source
+    assert "CapabilityKey" in provider_source
     preservation_source = _read(
         REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py"
     )

@@ -39,10 +39,15 @@ from pietto.ast_nodes import (
 )
 from pietto.semantic.capability_facts import (
     CapabilityDomain,
-    CapabilityFact,
     CapabilityKey,
 )
-from pietto.semantic.capability_lookup import Absent, Conflict, Found, Unknown
+from pietto.semantic.capability_lookup import (
+    Absent,
+    Conflict,
+    Found,
+    Unknown,
+    lookup_capability,
+)
 from pietto.semantic.window_semantics import (
     RankingAdvancePolicy,
     WindowExpressionAnalysis,
@@ -493,42 +498,35 @@ def test_capability_family_inventory_counts_order_and_exact_raw_facts_are_preser
             replace(capabilities, window_signatures=invalid)
 
 
-def test_capability_lookup_preserves_found_absent_unknown_conflict_and_duplicate_folding(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_capability_lookup_preserves_found_absent_unknown_conflict_and_duplicate_folding() -> (
+    None
+):
     capabilities = preservation._capability_inventory()
     found_key = capabilities.inventory_facts[0].key
     found = capabilities.lookup(found_key)
     assert isinstance(found, Found)
     assert found.fact is capabilities.inventory_facts[0]
-    provider = preservation.inventory_lookup_inputs
-
-    def empty_provider_facts(
-        key: CapabilityKey,
-    ) -> tuple[tuple[CapabilityFact, ...], bool]:
-        _facts, complete = provider(key)
-        return (), complete
-
-    monkeypatch.setattr(
-        preservation,
-        "inventory_lookup_inputs",
-        empty_provider_facts,
+    inputs = preservation.canonical_capability_provider_inputs(found_key)
+    assert lookup_capability(
+        found_key,
+        (*inputs.facts, found.fact),
+        domain_complete=inputs.domain_complete,
+        unknown_reason=inputs.unknown_reason,
+    ) == Found(found.fact)
+    absent_key = CapabilityKey(
+        CapabilityDomain.LOGICAL_TYPE,
+        subject="FutureScalar",
+        operation="catalog_membership",
+        context="builtin_registry",
     )
-    retained = capabilities.lookup(found_key)
-    assert isinstance(retained, Found)
-    assert retained.fact is capabilities.inventory_facts[0]
-    absent = capabilities.lookup(
-        CapabilityKey(
-            CapabilityDomain.LOGICAL_TYPE,
-            subject="FutureScalar",
-            operation="catalog_membership",
-            context="builtin_registry",
-        )
-    )
+    absent = capabilities.lookup(absent_key)
     assert isinstance(absent, Absent)
-    unknown = capabilities.lookup(
-        CapabilityKey(CapabilityDomain.CONVERSION, subject="Int", operation="to")
+    unknown_key = CapabilityKey(
+        CapabilityDomain.CONVERSION,
+        subject="Int",
+        operation="to",
     )
+    unknown = capabilities.lookup(unknown_key)
     assert isinstance(unknown, Unknown)
     conflicting_key = next(
         fact.key
@@ -541,6 +539,14 @@ def test_capability_lookup_preserves_found_absent_unknown_conflict_and_duplicate
     conflict = capabilities.lookup(conflicting_key)
     assert isinstance(conflict, Conflict)
     assert len(conflict.evidence) == 2
+    for key in (found_key, absent_key, unknown_key, conflicting_key):
+        canonical = preservation.canonical_capability_provider_inputs(key)
+        assert capabilities.lookup(key) == lookup_capability(
+            canonical.key,
+            canonical.facts,
+            domain_complete=canonical.domain_complete,
+            unknown_reason=canonical.unknown_reason,
+        )
 
 
 def test_window_signature_formula_inventory_preserves_all_eight_identities_exactly() -> (

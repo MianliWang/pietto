@@ -14,6 +14,7 @@ import pietto.semantic.capability_facts as capability_facts
 import pietto.semantic.capability_inventory as capability_inventory
 import pietto.semantic.capability_lookup as capability_lookup
 import pietto.semantic.capability_profiles as capability_profiles
+import pietto.semantic.capability_providers as capability_providers
 import pietto.semantic.capability_signatures as capability_signatures
 import pietto.semantic.capability_windows as capability_windows
 from pietto.semantic.capability_facts import (
@@ -43,6 +44,7 @@ CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
 AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
 WINDOW_REL = "src/pietto/semantic/capability_windows.py"
 PROFILE_REL = "src/pietto/semantic/capability_profiles.py"
+PROVIDER_REL = "src/pietto/semantic/capability_providers.py"
 MODULE_RELS = (
     FACTS_REL,
     LOOKUP_REL,
@@ -52,6 +54,7 @@ MODULE_RELS = (
     AGGREGATE_REL,
     WINDOW_REL,
     PROFILE_REL,
+    PROVIDER_REL,
 )
 EVIDENCE_SOURCE_COUNTS = {
     CapabilityEvidenceSource.GRAMMAR_AST: 267,
@@ -93,28 +96,8 @@ def _all_facts() -> tuple[CapabilityFact, ...]:
 def _helper_inputs(
     key: CapabilityKey,
 ) -> tuple[tuple[CapabilityFact, ...], bool, CapabilityReasonCode | None]:
-    if key.domain in {
-        CapabilityDomain.LOGICAL_TYPE,
-        CapabilityDomain.LITERAL,
-        CapabilityDomain.PARAMETER,
-    }:
-        facts, complete = cast(Any, capability_inventory.inventory_lookup_inputs)(key)
-        return facts, complete, None
-    if key.domain in {
-        CapabilityDomain.SCALAR_FUNCTION,
-        CapabilityDomain.UNARY_OPERATOR,
-        CapabilityDomain.BINARY_OPERATOR,
-        CapabilityDomain.COMPARISON,
-        CapabilityDomain.NULL_TEST,
-    }:
-        return cast(Any, capability_signatures.signature_lookup_inputs)(key)
-    if key.domain in {CapabilityDomain.EXPRESSION_STAGE, CapabilityDomain.CLAUSE}:
-        return cast(Any, capability_contexts.stage_clause_lookup_inputs)(key)
-    if key.domain is CapabilityDomain.AGGREGATE:
-        return cast(Any, capability_aggregates.aggregate_lookup_inputs)(key)
-    if key.domain is CapabilityDomain.WINDOW_FUNCTION:
-        return cast(Any, capability_windows.window_lookup_inputs)(key)
-    return (), False, None
+    inputs = capability_providers.canonical_capability_provider_inputs(key)
+    return inputs.facts, inputs.domain_complete, inputs.unknown_reason
 
 
 def _lookup(key: CapabilityKey) -> Found | Absent | Unknown | Conflict:
@@ -803,6 +786,7 @@ def test_support_disposition_owner_reason_and_affirmative_evidence_are_exact() -
         (CONTEXT_REL, capability_contexts),
         (AGGREGATE_REL, capability_aggregates),
         (PROFILE_REL, capability_profiles),
+        (PROVIDER_REL, capability_providers),
     ),
 )
 def test_private_import_ast_dynamic_export_and_package_boundary_is_exact(
@@ -867,6 +851,9 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                 if "generated" not in path.parts
                 and path.relative_to(REPO_ROOT).as_posix() != preservation_rel
             )
+    provider_source = _read(REPO_ROOT / PROVIDER_REL)
+    assert all(name in provider_source for name in forbidden_names)
     preservation_source = _read(REPO_ROOT / preservation_rel)
-    assert all(name in preservation_source for name in forbidden_names)
+    assert "canonical_capability_provider_inputs" in preservation_source
+    assert all(name not in preservation_source for name in forbidden_names)
     assert "__all__: tuple[str, ...] = ()" in preservation_source
