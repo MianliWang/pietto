@@ -105,6 +105,12 @@ retains the exact validated root package and one source-ordered typed value per
 manifest asset. It performs no filesystem access, content read, digest work, or
 module construction.
 
+A fourth private boundary locates the explicit schema-v3 root package beneath
+the exact pinned project root. It rejects symbolic-link directory traversal,
+pins the canonical local directory and its filesystem identity, and retains the
+exact caller root and activation authorities. Location does not read the
+manifest or assets, compute package-content digests, or resolve dependencies.
+
 Every root or dependency `sha256` declaration durably means an expected
 whole-package-content SHA-256. The complete trusted manifest-plus-asset byte
 set and its framing do not yet exist, so this boundary does not compute or
@@ -112,11 +118,10 @@ verify package content and does not hash manifest bytes as a substitute.
 Whole-package framing, computation, and verification belong to trusted loading;
 dependency-pin validation belongs to dependency loading and planning.
 
-This is a private package foundation, not a package manager. Package location
-and loading, package-content digest verification, module integration,
-dependency planning, registry access, remote fetch, installation, lock
-resolution, database behavior, and public package APIs remain separately
-authorized work.
+This is a private package foundation, not a package manager. Package loading,
+package-content digest verification, module integration, dependency planning,
+registry access, remote fetch, installation, lock resolution, database
+behavior, and public package APIs remain separately authorized work.
 
 ## Inspection and portable boundaries
 

@@ -15,7 +15,7 @@ diagnostic boundaries unless a new explicit product decision changes them.
 
 ## Phase 55 route
 
-Slices 1–4 are completed, and Slice 5 is current. The remaining route is
+Slices 1–5 are completed, and Slice 6 is current. The remaining route is
 ownership only; it does not itself authorize implementation or publication.
 
 | Slice | Owner |

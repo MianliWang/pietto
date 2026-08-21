@@ -18,6 +18,10 @@ class ProjectRootChangedError(OSError):
     """Signal that a pinned project root no longer has its pinned identity."""
 
 
+class ProjectSymbolicLinkTraversalError(OSError):
+    """Signal that a trusted directory traversal encountered a symbolic link."""
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectPhysicalIdentity:
     """Private stable physical identity for one filesystem object."""
@@ -137,6 +141,160 @@ def _filesystem_state(stat_result: os.stat_result) -> ProjectFilesystemState:
         mtime_ns=stat_result.st_mtime_ns,
         ctime_ns=stat_result.st_ctime_ns,
     )
+
+
+def _capture_pinned_directory_state(
+    pinned_root: ProjectPinnedRoot,
+    path: Path,
+) -> ProjectFilesystemState:
+    """Capture one unchanged no-symlink directory beneath a pinned root."""
+
+    _verify_pinned_root(pinned_root)
+    try:
+        relative_path = path.relative_to(pinned_root.canonical_path)
+    except ValueError as error:
+        raise OSError("Project directory path escapes the pinned root.") from error
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        raise OSError("Project directory path escapes the pinned root.")
+
+    inspected: list[tuple[Path, ProjectFilesystemState]] = []
+    current_path = pinned_root.canonical_path
+    components = relative_path.parts
+    if not components:
+        components = (".",)
+    for component in components:
+        if component != ".":
+            current_path /= component
+        try:
+            current_state = _lstat_state(current_path)
+        except ProjectIdentityUnavailableError:
+            raise
+        except OSError:
+            _verify_pinned_root(pinned_root)
+            raise
+        if stat.S_ISLNK(current_state.file_type):
+            _verify_pinned_root(pinned_root)
+            if current_path == pinned_root.canonical_path:
+                raise ProjectRootChangedError(
+                    "Project root identity changed during project loading."
+                )
+            raise ProjectSymbolicLinkTraversalError(
+                "Project directory traversal must not use symbolic links."
+            )
+        if not stat.S_ISDIR(current_state.file_type):
+            _verify_pinned_root(pinned_root)
+            raise NotADirectoryError(
+                "Project stored canonical path must remain a directory."
+            )
+        if current_path == pinned_root.canonical_path and (
+            current_state.physical_identity != pinned_root.physical_identity
+        ):
+            raise ProjectRootChangedError(
+                "Project root identity changed during project loading."
+            )
+        inspected.append((current_path, current_state))
+
+    file_descriptor = -1
+    try:
+        if _supports_directory_relative_open():
+            file_descriptor = _open_pinned_directory(pinned_root, path)
+            opened_state = _fstat_state(file_descriptor)
+        else:
+            opened_state = _stat_state(path)
+        if not stat.S_ISDIR(opened_state.file_type) or opened_state != inspected[-1][1]:
+            _verify_pinned_root(pinned_root)
+            raise OSError("Project directory changed while being located.")
+    except (ProjectIdentityUnavailableError, ProjectRootChangedError):
+        raise
+    except OSError:
+        _verify_pinned_root(pinned_root)
+        raise
+    finally:
+        if file_descriptor >= 0:
+            os.close(file_descriptor)
+
+    for inspected_path, inspected_state in inspected:
+        try:
+            final_state = _lstat_state(inspected_path)
+        except ProjectIdentityUnavailableError:
+            raise
+        except OSError:
+            _verify_pinned_root(pinned_root)
+            raise
+        if final_state != inspected_state:
+            _verify_pinned_root(pinned_root)
+            raise OSError("Project directory changed while being located.")
+    _verify_pinned_root(pinned_root)
+    return opened_state
+
+
+def _open_pinned_directory(pinned_root: ProjectPinnedRoot, path: Path) -> int:
+    """Open one no-symlink directory at or beneath a verified pinned root."""
+
+    if not _supports_directory_relative_open():
+        raise OSError("Directory-relative opening is unavailable.")
+    _verify_pinned_root(pinned_root)
+    try:
+        relative_path = path.relative_to(pinned_root.canonical_path)
+    except ValueError as error:
+        raise OSError("Project directory path escapes the pinned root.") from error
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        raise OSError("Project directory path escapes the pinned root.")
+
+    directory_flags = os.O_RDONLY
+    directory_flags |= getattr(os, "O_CLOEXEC", 0)
+    directory_flags |= getattr(os, "O_DIRECTORY", 0)
+    directory_flags |= getattr(os, "O_NOFOLLOW", 0)
+    directory_flags |= getattr(os, "O_NONBLOCK", 0)
+
+    try:
+        root_descriptor = os.open(pinned_root.canonical_path, directory_flags)
+    except OSError:
+        _verify_pinned_root(pinned_root)
+        raise
+    directory_descriptors = [root_descriptor]
+    try:
+        root_state = _fstat_state(root_descriptor)
+        if (
+            not stat.S_ISDIR(root_state.file_type)
+            or root_state.physical_identity != pinned_root.physical_identity
+        ):
+            raise ProjectRootChangedError(
+                "Project root identity changed during project loading."
+            )
+        for component in relative_path.parts:
+            directory_descriptor = os.open(
+                component,
+                directory_flags,
+                dir_fd=directory_descriptors[-1],
+            )
+            directory_descriptors.append(directory_descriptor)
+            directory_state = _fstat_state(directory_descriptor)
+            if not stat.S_ISDIR(directory_state.file_type):
+                raise OSError("Project stored canonical path must remain a directory.")
+    except BaseException as error:
+        try:
+            _close_file_descriptors(directory_descriptors)
+        except OSError:
+            pass
+        if isinstance(error, OSError) and not isinstance(
+            error,
+            (ProjectIdentityUnavailableError, ProjectRootChangedError),
+        ):
+            _verify_pinned_root(pinned_root)
+        raise
+
+    final_descriptor = directory_descriptors[-1]
+    try:
+        _close_file_descriptors(directory_descriptors[:-1])
+        _verify_pinned_root(pinned_root)
+    except BaseException:
+        try:
+            os.close(final_descriptor)
+        except OSError:
+            pass
+        raise
+    return final_descriptor
 
 
 def _open_pinned_file(pinned_root: ProjectPinnedRoot, path: Path) -> int:
