@@ -11,6 +11,7 @@ import pytest
 
 import pietto
 import pietto._project as project_package
+import pietto._project.package_inspection as package_inspection
 import pietto._project.package_load_plan as package_load_plan
 import pietto._project.package_loader as package_loader
 import pietto._project.package_manifest as package_manifest
@@ -988,6 +989,7 @@ def test_slice3_is_private_pure_and_has_only_trusted_package_consumers() -> None
         assert forbidden not in source
 
     trusted_consumer_paths = {
+        Path(package_inspection.__file__),
         Path(package_loader.__file__),
         Path(package_load_plan.__file__),
         Path(package_rejection.__file__),

@@ -161,8 +161,28 @@ planner remain accepted and produce no rejection.
 This is a private package foundation, not a package manager. It adds no version
 ranges, solver, remote or registry access, installation, lockfile, public
 package graph, public diagnostic code, recovery behavior, database behavior, or
-public package API. Full private inspection and canonical serialization remain
-Slice 10 work.
+public package API. The current Slice 10 candidate adds the private inspection
+boundary below; publication and natural exact-head CI determine completion.
+
+The eighth private boundary derives one package inspection and one canonical
+byte payload from an exact load-plan result. Successful inspections preserve
+the complete declaration-order DFS postorder, the root as the final entry,
+typed assets in manifest order, every dependency occurrence with multiplicity,
+authored and resolved logical paths, exact coordinates, verified package
+digests, dependency pins, and owner-bound target positions. Rejected and error
+inspections preserve ordered project errors, parser diagnostics, and canonical
+blocker diagnostics, including cycle chains, complete conflict reasons, and
+both diamond incoming authorities without selecting a winner.
+
+The retained plan-result authority derives both the structured inspection and
+its `pietto.package-inspection.v1` canonical bytes, so callers cannot supply or
+graft either product. Projection and serialization consume only already-loaded
+private carriers: they do not read files, traverse dependencies, inspect the
+host, or include canonical host paths, filesystem identities, raw manifests,
+raw module sources, or ASTs. This package inspection remains distinct from the
+existing private module inspection. Public exposure remains Phase 58 work, and
+pure-boundary extraction, differential vectors, and cross-implementation
+hardening remain Slice 11 work.
 
 ## Inspection and portable boundaries
 
@@ -171,6 +191,10 @@ without host-path or authority leakage. The portable pure boundary and
 differential vectors protect deterministic representation, exact construction,
 and anti-graft behavior. They are retained current invariants even though some
 test owners still have historical Phase names.
+
+Private package inspection is a separate schema-v3 product over package loading
+and rejection authority. Its package-local canonical serializer does not merge
+with or alter the module inspection format.
 
 ## Evidence-path compatibility
 
