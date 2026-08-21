@@ -13,6 +13,7 @@ import pietto.semantic.capability_contexts as capability_contexts
 import pietto.semantic.capability_facts as capability_facts
 import pietto.semantic.capability_inventory as capability_inventory
 import pietto.semantic.capability_lookup as capability_lookup
+import pietto.semantic.capability_profiles as capability_profiles
 import pietto.semantic.capability_signatures as capability_signatures
 import pietto.semantic.capability_windows as capability_windows
 from pietto.semantic.capability_facts import (
@@ -41,6 +42,7 @@ SIGNATURE_REL = "src/pietto/semantic/capability_signatures.py"
 CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
 AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
 WINDOW_REL = "src/pietto/semantic/capability_windows.py"
+PROFILE_REL = "src/pietto/semantic/capability_profiles.py"
 MODULE_RELS = (
     FACTS_REL,
     LOOKUP_REL,
@@ -49,6 +51,7 @@ MODULE_RELS = (
     CONTEXT_REL,
     AGGREGATE_REL,
     WINDOW_REL,
+    PROFILE_REL,
 )
 EVIDENCE_SOURCE_COUNTS = {
     CapabilityEvidenceSource.GRAMMAR_AST: 267,
@@ -799,6 +802,7 @@ def test_support_disposition_owner_reason_and_affirmative_evidence_are_exact() -
         (SIGNATURE_REL, capability_signatures),
         (CONTEXT_REL, capability_contexts),
         (AGGREGATE_REL, capability_aggregates),
+        (PROFILE_REL, capability_profiles),
     ),
 )
 def test_private_import_ast_dynamic_export_and_package_boundary_is_exact(

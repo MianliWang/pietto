@@ -30,6 +30,7 @@ INVENTORY_REL = "src/pietto/semantic/capability_inventory.py"
 SIGNATURE_REL = "src/pietto/semantic/capability_signatures.py"
 CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
 AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
+PROFILE_REL = "src/pietto/semantic/capability_profiles.py"
 SPEC_REL = (
     "docs/spec/"
     "phase52-private-capability-key-disposition-evidence-fact-foundation-v1.md"
@@ -459,6 +460,7 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
                 REPO_ROOT / CONTEXT_REL,
                 REPO_ROOT / AGGREGATE_REL,
                 REPO_ROOT / "src/pietto/semantic/capability_windows.py",
+                REPO_ROOT / PROFILE_REL,
                 REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py",
             }
             or "generated" in path.parts

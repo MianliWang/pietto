@@ -15,8 +15,7 @@ diagnostic boundaries unless a new explicit product decision changes them.
 
 ## Phase 55 route
 
-Slices 1–11 are completed, and Slice 12 is current. The remaining route is
-ownership only; it does not itself authorize implementation or publication.
+All 12 slices are completed. Phase 55 is complete.
 
 | Slice | Owner |
 | ---: | --- |
@@ -30,11 +29,45 @@ ownership only; it does not itself authorize implementation or publication.
 | 11 | Pure package boundary, differential vectors, compatibility, and E2E hardening |
 | 12 | Completion audit and Phase 56 handoff |
 
+## Phase 56 route
+
+Phase 56 is active, and Slice 1 is current. These rows assign ownership only;
+they do not authorize a later slice.
+
+| Slice | Owner |
+| ---: | --- |
+| 1 | Profile/requirement identity, authority, static schema foundation, and route lock |
+| 2 | Static profile and requirement contract hardening, target/release semantics, and structural validation |
+| 3 | Canonical providers and scoped completeness authority |
+| 4 | Base + additive-overlay composition, structural conflicts, and cycles |
+| 5 | Declared profile availability and package/project/compiler ownership occurrences |
+| 6 | Exact requirement checking and ordered profile-check results |
+| 7 | Multi-target checking matrix and Phase 58/60 portability readiness |
+| 8 | Private capability inspection and canonical representation |
+| 9 | Pure boundary, differential vectors, compatibility, and E2E hardening |
+| 10 | Completion audit and Phase 57 handoff |
+
+Profiles describe one exact target; requirements are ordered positive exact-key
+conjunctions. The private foundation reuses `CapabilityKey` and
+`CapabilityFact`, keeps current support orthogonal to roadmap disposition, and
+retains exact declaration occurrences. Effective targets may later combine one
+immutable base with additive-only overlays: no override, winner, fallback, or
+precedence semantics is authorized. Exact duplicate declarations fail closed,
+while distinct same-key facts remain ordered key-local conflict evidence.
+
+Profile schema version, profile identity and release, target family and release,
+and extension identity and release remain separate exact values. Completeness
+stays with scoped provider evidence; omission is not support evidence, and
+`Absent` remains distinct from `Unknown`. Compiler acceptance, dialect/backend
+lowering, installation state, roadmap ownership, and public exposure remain
+separate authorities. The profile/requirement foundation stays private and
+adds no project/package/Pietto syntax, public output, lookup, composition, or
+checking behavior in Slice 1.
+
 ## Retained later ownership
 
 | Phase | Owner |
 | ---: | --- |
-| 56 | Capability profile schema and declared checking |
 | 57 | PostgreSQL extension signature catalog |
 | 58 | Public explain, portability, and package-inspection artifact |
 | 59 | Local package graph, attribution, provenance, and lineage |
@@ -50,13 +83,11 @@ ownership only; it does not itself authorize implementation or publication.
 | 69 | Extension-specific lowering and additional dialect foundations |
 | 70 | Public schema/lineage expansion and v0.2 release-readiness decision |
 
-Phase 56 may begin from the current private `CapabilityKey`, `CapabilityFact`,
+Phase 56 begins from the private `CapabilityKey`, `CapabilityFact`,
 `CapabilityEvidence`, support/disposition carriers, fail-closed lookup results,
 and the inventory, signature, aggregate, window, and context fact providers.
-No capability-profile carrier or declared-checking schema exists yet. Phase 56
-owns that schema, declaration binding, and checking diagnostics while preserving
-the existing distinction between compiler acceptance and backend/dialect
-support; this handoff grants no public exposure or database-installation model.
+`EXTENSION_SIGNATURE` remains Phase 57 ownership, while `CONVERSION` remains
+reserved for later advanced-type work.
 
 Compiler acceptance, private capability facts, backend support, database
 installation, public exposure, local graph behavior, remote I/O, solving, and

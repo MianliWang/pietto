@@ -6,13 +6,10 @@ documentation does not supersede that evidence.
 | Item | State |
 | --- | --- |
 | Package and CLI | `0.1.0` |
-| Phase 55 | `ACTIVE` |
-| Slices 1–11 | `COMPLETED` |
-| Slice 12 | `CURRENT` |
-| Next | `PHASE55_SLICE12_LEAN` |
+| Phase 55 | `COMPLETED` |
+| Phase 56 | `ACTIVE` |
+| Slice 1 | `CURRENT` |
+| Next | `PHASE56_SLICE1_LEAN` |
 
-Slice 12 is the current route owner; live Git and natural exact-head CI determine
-whether its candidate is unpublished or completed. Once this exact Slice 12
-publication succeeds in natural exact-head CI, Phase 55 is complete and Phase
-56 becomes eligible to begin. This status does not authorize Phase 56
-implementation.
+Slice 1 is the current route owner. Live Git and natural exact-head CI own
+Slice 1 completion. This status does not authorize Slice 2.
