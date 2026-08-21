@@ -149,9 +149,20 @@ selecting a winner; Slice 9 owns their final diagnostic product. Every loaded
 package remains an independent compilation island, so equal package-local
 module paths are never flattened or merged.
 
+The seventh private boundary converts existing load-plan blockers into ordered,
+canonical rejection diagnostics without re-running traversal or filesystem
+loading. Cycle messages retain the DFS occurrence chain; conflict facts retain
+every evidenced cause; diamond messages retain both incoming authorities under
+the no-winner policy. Diagnostic text uses only package coordinates, authored
+and resolved logical paths, and occurrence positions—never host paths,
+filesystem identities, or object ids. Exact duplicate edges accepted by the
+planner remain accepted and produce no rejection.
+
 This is a private package foundation, not a package manager. It adds no version
 ranges, solver, remote or registry access, installation, lockfile, public
-package graph, database behavior, or public package API.
+package graph, public diagnostic code, recovery behavior, database behavior, or
+public package API. Full private inspection and canonical serialization remain
+Slice 10 work.
 
 ## Inspection and portable boundaries
 
