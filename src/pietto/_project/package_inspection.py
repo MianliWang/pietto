@@ -6,6 +6,18 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from pietto._project.model import ProjectDiscoveryError, ProjectDiscoveryErrorKind
+from pietto._project.package_pure_boundary import (
+    PACKAGE_PURE_ABSENT,
+    PackagePureDocument,
+    PackagePureField,
+    PackagePureRecord,
+    PackagePureStatus,
+    PackagePureValue,
+    evaluate_package_document,
+    package_pure_enumeration,
+    package_pure_integer,
+    package_pure_text,
+)
 from pietto._project.package_load_plan import (
     DependencyLocatorKind,
     LoadedDependencyPackage,
@@ -715,227 +727,227 @@ def _derive_rejection_occurrence(
 
 
 def _serialize_package_inspection(inspection: PackageInspection) -> bytes:
-    """Serialize one derived inspection as typed, escaped canonical records."""
+    """Evaluate one explicit portable document into the frozen Slice 10 bytes."""
 
     if type(inspection) is not PackageInspection:
         raise TypeError("Canonical package serialization requires an inspection.")
-    lines: list[str] = []
-    _record(
-        lines,
+    outcome = evaluate_package_document(_package_pure_document(inspection))
+    if outcome.status is not PackagePureStatus.OK or outcome.canonical_bytes is None:
+        raise ValueError(
+            "Canonical package payload must evaluate exactly: "
+            f"{outcome.status.value} at record {outcome.record_position} "
+            f"field {outcome.field_position}."
+        )
+    return outcome.canonical_bytes
+
+
+def _package_pure_document(inspection: PackageInspection) -> PackagePureDocument:
+    """Project one authority-derived inspection into explicit portable values."""
+
+    emitted: list[PackagePureRecord] = []
+    _pure_record(
+        emitted,
         "inspection",
-        ("format", _enumeration(inspection.format)),
-        ("outcome", _enumeration(inspection.outcome)),
-        ("packages", _integer(inspection.package_count)),
-        ("errors", _integer(len(inspection.errors))),
-        ("diagnostics", _integer(len(inspection.diagnostics))),
-        ("rejections", _integer(len(inspection.rejections))),
+        ("format", _pure_enumeration(inspection.format)),
+        ("outcome", _pure_enumeration(inspection.outcome)),
+        ("packages", _pure_integer(inspection.package_count)),
+        ("errors", _pure_integer(len(inspection.errors))),
+        ("diagnostics", _pure_integer(len(inspection.diagnostics))),
+        ("rejections", _pure_integer(len(inspection.rejections))),
     )
     if inspection.root_coordinate is not None:
         coordinate = inspection.root_coordinate
-        _record(
-            lines,
+        _pure_record(
+            emitted,
             "root",
-            ("namespace", _text(coordinate.identity.namespace)),
-            ("name", _text(coordinate.identity.name)),
-            ("version", _text(coordinate.exact_version)),
+            ("namespace", _pure_text(coordinate.identity.namespace)),
+            ("name", _pure_text(coordinate.identity.name)),
+            ("version", _pure_text(coordinate.exact_version)),
         )
     for package in inspection.packages:
-        _serialize_package(lines, package)
+        _project_package(emitted, package)
     for error in inspection.errors:
-        _record(
-            lines,
+        _pure_record(
+            emitted,
             "error",
-            ("error", _integer(error.position)),
-            ("kind", _enumeration(error.kind)),
-            ("message", _text(error.message)),
-            ("path", _optional_text(error.path)),
+            ("error", _pure_integer(error.position)),
+            ("kind", _pure_enumeration(error.kind)),
+            ("message", _pure_text(error.message)),
+            ("path", _pure_optional_text(error.path)),
         )
     for diagnostic in inspection.diagnostics:
-        _record(
-            lines,
+        _pure_record(
+            emitted,
             "diagnostic",
-            ("diagnostic", _integer(diagnostic.position)),
-            ("code", _text(diagnostic.code)),
-            ("severity", _enumeration(diagnostic.severity)),
-            ("message", _text(diagnostic.message)),
-            ("path", _optional_text(diagnostic.path)),
-            ("line", _integer(diagnostic.line)),
-            ("column", _integer(diagnostic.column)),
-            ("end_line", _optional_integer(diagnostic.end_line)),
-            ("end_column", _optional_integer(diagnostic.end_column)),
-            ("suggestion", _optional_text(diagnostic.suggestion)),
+            ("diagnostic", _pure_integer(diagnostic.position)),
+            ("code", _pure_text(diagnostic.code)),
+            ("severity", _pure_enumeration(diagnostic.severity)),
+            ("message", _pure_text(diagnostic.message)),
+            ("path", _pure_optional_text(diagnostic.path)),
+            ("line", _pure_integer(diagnostic.line)),
+            ("column", _pure_integer(diagnostic.column)),
+            ("end_line", _pure_optional_integer(diagnostic.end_line)),
+            ("end_column", _pure_optional_integer(diagnostic.end_column)),
+            ("suggestion", _pure_optional_text(diagnostic.suggestion)),
         )
     for rejection in inspection.rejections:
-        _serialize_rejection(lines, rejection)
-    return ("\n".join(lines) + "\n").encode("utf-8")
+        _project_rejection(emitted, rejection)
+    return PackagePureDocument(records=tuple(emitted))
 
 
-def _serialize_package(
-    lines: list[str],
+def _project_package(
+    emitted: list[PackagePureRecord],
     package: PackageInspectionPackage,
 ) -> None:
     coordinate = package.coordinate
-    _record(
-        lines,
+    _pure_record(
+        emitted,
         "package",
-        ("package", _integer(package.position)),
-        ("role", _enumeration(package.role)),
-        ("namespace", _text(coordinate.identity.namespace)),
-        ("name", _text(coordinate.identity.name)),
-        ("version", _text(coordinate.exact_version)),
-        ("project_path", _text(package.project_path)),
-        ("content_digest", _text(package.content_digest)),
-        ("assets", _integer(len(package.assets))),
-        ("dependencies", _integer(len(package.dependencies))),
+        ("package", _pure_integer(package.position)),
+        ("role", _pure_enumeration(package.role)),
+        ("namespace", _pure_text(coordinate.identity.namespace)),
+        ("name", _pure_text(coordinate.identity.name)),
+        ("version", _pure_text(coordinate.exact_version)),
+        ("project_path", _pure_text(package.project_path)),
+        ("content_digest", _pure_text(package.content_digest)),
+        ("assets", _pure_integer(len(package.assets))),
+        ("dependencies", _pure_integer(len(package.dependencies))),
     )
     for asset in package.assets:
-        _record(
-            lines,
+        _pure_record(
+            emitted,
             "asset",
-            ("package", _integer(package.position)),
-            ("asset", _integer(asset.position)),
-            ("kind", _enumeration(asset.kind)),
-            ("path", _text(asset.path)),
+            ("package", _pure_integer(package.position)),
+            ("asset", _pure_integer(asset.position)),
+            ("kind", _pure_enumeration(asset.kind)),
+            ("path", _pure_text(asset.path)),
         )
     for dependency in package.dependencies:
         coordinate = dependency.coordinate
-        _record(
-            lines,
+        _pure_record(
+            emitted,
             "dependency",
-            ("package", _integer(package.position)),
-            ("dependency", _integer(dependency.position)),
-            ("namespace", _text(coordinate.identity.namespace)),
-            ("name", _text(coordinate.identity.name)),
-            ("version", _text(coordinate.exact_version)),
-            ("content_digest_pin", _text(dependency.content_digest_pin)),
-            ("locator_kind", _enumeration(dependency.locator_kind)),
-            ("authored_path", _text(dependency.authored_path)),
+            ("package", _pure_integer(package.position)),
+            ("dependency", _pure_integer(dependency.position)),
+            ("namespace", _pure_text(coordinate.identity.namespace)),
+            ("name", _pure_text(coordinate.identity.name)),
+            ("version", _pure_text(coordinate.exact_version)),
+            ("content_digest_pin", _pure_text(dependency.content_digest_pin)),
+            ("locator_kind", _pure_enumeration(dependency.locator_kind)),
+            ("authored_path", _pure_text(dependency.authored_path)),
             (
                 "resolved_project_path",
-                _text(dependency.resolved_project_path),
+                _pure_text(dependency.resolved_project_path),
             ),
             (
                 "target_package",
-                _integer(dependency.target_package_position),
+                _pure_integer(dependency.target_package_position),
             ),
         )
 
 
-def _serialize_rejection(
-    lines: list[str],
+def _project_rejection(
+    emitted: list[PackagePureRecord],
     rejection: PackageInspectionRejection,
 ) -> None:
-    _record(
-        lines,
+    _pure_record(
+        emitted,
         "rejection",
-        ("rejection", _integer(rejection.position)),
-        ("kind", _enumeration(rejection.kind)),
-        ("conflict_reasons", _integer(len(rejection.conflict_reasons))),
-        ("occurrences", _integer(len(rejection.occurrences))),
-        ("message", _text(rejection.message)),
+        ("rejection", _pure_integer(rejection.position)),
+        ("kind", _pure_enumeration(rejection.kind)),
+        ("conflict_reasons", _pure_integer(len(rejection.conflict_reasons))),
+        ("occurrences", _pure_integer(len(rejection.occurrences))),
+        ("message", _pure_text(rejection.message)),
     )
     for position, reason in enumerate(rejection.conflict_reasons):
-        _record(
-            lines,
+        _pure_record(
+            emitted,
             "rejection_reason",
-            ("rejection", _integer(rejection.position)),
-            ("reason", _integer(position)),
-            ("value", _enumeration(reason)),
+            ("rejection", _pure_integer(rejection.position)),
+            ("reason", _pure_integer(position)),
+            ("value", _pure_enumeration(reason)),
         )
     for occurrence in rejection.occurrences:
         declaring = occurrence.declaring_coordinate
         coordinate = occurrence.coordinate
-        _record(
-            lines,
+        _pure_record(
+            emitted,
             "rejection_occurrence",
-            ("rejection", _integer(rejection.position)),
-            ("occurrence", _integer(occurrence.position)),
+            ("rejection", _pure_integer(rejection.position)),
+            ("occurrence", _pure_integer(occurrence.position)),
             (
                 "dependency_position",
-                _integer(occurrence.dependency_position),
+                _pure_integer(occurrence.dependency_position),
             ),
             (
                 "declaring_namespace",
-                _text(declaring.identity.namespace),
+                _pure_text(declaring.identity.namespace),
             ),
-            ("declaring_name", _text(declaring.identity.name)),
-            ("declaring_version", _text(declaring.exact_version)),
+            ("declaring_name", _pure_text(declaring.identity.name)),
+            ("declaring_version", _pure_text(declaring.exact_version)),
             (
                 "declaring_project_path",
-                _text(occurrence.declaring_project_path),
+                _pure_text(occurrence.declaring_project_path),
             ),
             (
                 "declaring_content_digest",
-                _text(occurrence.declaring_content_digest),
+                _pure_text(occurrence.declaring_content_digest),
             ),
-            ("namespace", _text(coordinate.identity.namespace)),
-            ("name", _text(coordinate.identity.name)),
-            ("version", _text(coordinate.exact_version)),
+            ("namespace", _pure_text(coordinate.identity.namespace)),
+            ("name", _pure_text(coordinate.identity.name)),
+            ("version", _pure_text(coordinate.exact_version)),
             (
                 "content_digest_pin",
-                _text(occurrence.content_digest_pin),
+                _pure_text(occurrence.content_digest_pin),
             ),
-            ("locator_kind", _enumeration(occurrence.locator_kind)),
-            ("authored_path", _text(occurrence.authored_path)),
+            ("locator_kind", _pure_enumeration(occurrence.locator_kind)),
+            ("authored_path", _pure_text(occurrence.authored_path)),
             (
                 "resolved_project_path",
-                _text(occurrence.resolved_project_path),
+                _pure_text(occurrence.resolved_project_path),
             ),
         )
 
 
-def _record(
-    lines: list[str],
+def _pure_record(
+    emitted: list[PackagePureRecord],
     kind: str,
-    *fields: tuple[str, str],
+    *fields: tuple[str, PackagePureValue],
 ) -> None:
-    lines.append(kind + "".join(f"\t{key}={value}" for key, value in fields))
+    emitted.append(
+        PackagePureRecord(
+            kind=kind,
+            fields=tuple(
+                PackagePureField(key=key, value=value) for key, value in fields
+            ),
+        )
+    )
 
 
-def _text(value: str) -> str:
+def _pure_text(value: str) -> PackagePureValue:
     if type(value) is not str:
-        raise TypeError("Canonical package text must be exact text.")
-    return "s:" + _escape_text(value)
+        raise TypeError("Portable package text must be exact text.")
+    return package_pure_text(value)
 
 
-def _enumeration(value: StrEnum) -> str:
+def _pure_enumeration(value: StrEnum) -> PackagePureValue:
     if not isinstance(value, StrEnum):
-        raise TypeError("Canonical package enumerations must be exact enums.")
-    return "e:" + _escape_text(value.value)
+        raise TypeError("Portable package enumerations must be exact enums.")
+    return package_pure_enumeration(value.value)
 
 
-def _integer(value: int) -> str:
+def _pure_integer(value: int) -> PackagePureValue:
     if type(value) is not int or value < 0:
-        raise ValueError("Canonical package integers must be non-negative.")
-    return f"i:{value}"
+        raise ValueError("Portable package integers must be non-negative.")
+    return package_pure_integer(value)
 
 
-def _optional_text(value: str | None) -> str:
-    return "n:" if value is None else _text(value)
+def _pure_optional_text(value: str | None) -> PackagePureValue:
+    return PACKAGE_PURE_ABSENT if value is None else _pure_text(value)
 
 
-def _optional_integer(value: int | None) -> str:
-    return "n:" if value is None else _integer(value)
-
-
-def _escape_text(value: str) -> str:
-    escaped: list[str] = []
-    for character in value:
-        if character == "\\":
-            escaped.append("\\\\")
-        elif character == "\t":
-            escaped.append("\\t")
-        elif character == "\n":
-            escaped.append("\\n")
-        elif character == "\r":
-            escaped.append("\\r")
-        elif character < " " or character == "\x7f":
-            escaped.append(f"\\x{ord(character):02x}")
-        elif "\ud800" <= character <= "\udfff":
-            escaped.append(f"\\u{ord(character):04x}")
-        else:
-            escaped.append(character)
-    return "".join(escaped)
+def _pure_optional_integer(value: int | None) -> PackagePureValue:
+    return PACKAGE_PURE_ABSENT if value is None else _pure_integer(value)
 
 
 def _require_tuple(values: object, item_type: type, label: str) -> None:

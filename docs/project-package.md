@@ -161,8 +161,7 @@ planner remain accepted and produce no rejection.
 This is a private package foundation, not a package manager. It adds no version
 ranges, solver, remote or registry access, installation, lockfile, public
 package graph, public diagnostic code, recovery behavior, database behavior, or
-public package API. The current Slice 10 candidate adds the private inspection
-boundary below; publication and natural exact-head CI determine completion.
+public package API. The private inspection boundary below remains internal.
 
 The eighth private boundary derives one package inspection and one canonical
 byte payload from an exact load-plan result. Successful inspections preserve
@@ -180,9 +179,23 @@ graft either product. Projection and serialization consume only already-loaded
 private carriers: they do not read files, traverse dependencies, inspect the
 host, or include canonical host paths, filesystem identities, raw manifests,
 raw module sources, or ASTs. This package inspection remains distinct from the
-existing private module inspection. Public exposure remains Phase 58 work, and
-pure-boundary extraction, differential vectors, and cross-implementation
-hardening remain Slice 11 work.
+existing private module inspection. Public exposure remains Phase 58 work.
+
+The current Slice 11 candidate projects the authority-derived package
+inspection into explicit immutable tagged records and evaluates them through a
+total, data-only pure boundary. That evaluator is the one production owner of
+the frozen canonical bytes: accepted documents reproduce the Slice 10 payload
+byte-for-byte, while malformed documents return a closed normalized status and
+structural coordinates without echoing supplied content. Python object-identity
+admission remains outside the portable contract.
+
+Frozen package differential vectors retain literal expected bytes and rejection
+outcomes for successful graphs, ordered errors and diagnostics, cycles,
+conflicts, diamonds, malformed scalars, and structural corruption. Cross-process
+and supported-interpreter checks make the boundary ready for an independent
+implementation without adding one here. Public package inspection remains
+Phase 58 work, and live publication plus natural exact-head CI determine Slice
+11 completion.
 
 ## Inspection and portable boundaries
 
@@ -193,8 +206,8 @@ and anti-graft behavior. They are retained current invariants even though some
 test owners still have historical Phase names.
 
 Private package inspection is a separate schema-v3 product over package loading
-and rejection authority. Its package-local canonical serializer does not merge
-with or alter the module inspection format.
+and rejection authority. Its package-specific pure evaluator does not merge
+with or alter the module inspection format or differential corpus.
 
 ## Evidence-path compatibility
 
