@@ -10,6 +10,7 @@ import pytest
 
 import pietto
 import pietto._project as project_package
+import pietto._project.package_loader as package_loader
 import pietto._project.package_manifest as package_manifest
 from pietto._project.model import (
     ProjectDiscoveryError,
@@ -953,7 +954,7 @@ def test_private_carriers_reject_unsupported_inputs_and_construct_fresh_values()
         success.manifest_path = "changed"  # pyright: ignore[reportAttributeAccessIssue]
 
 
-def test_slice3_is_private_and_has_no_filesystem_or_public_integration() -> None:
+def test_slice3_is_private_pure_and_has_only_the_trusted_loader_consumer() -> None:
     source = inspect.getsource(package_manifest)
 
     assert package_manifest.__all__ == ()
@@ -983,11 +984,15 @@ def test_slice3_is_private_and_has_no_filesystem_or_public_integration() -> None
     ):
         assert forbidden not in source
 
+    trusted_loader_path = Path(package_loader.__file__)
     for path in sorted((REPO_ROOT / "src/pietto").rglob("*.py")):
         if path == Path(package_manifest.__file__):
             continue
         other_source = path.read_text(encoding="utf-8")
-        assert "pietto._project.package_manifest" not in other_source
+        if path == trusted_loader_path:
+            assert "pietto._project.package_manifest" in other_source
+        else:
+            assert "pietto._project.package_manifest" not in other_source
         assert "_normalize_package_manifest" not in other_source
 
 

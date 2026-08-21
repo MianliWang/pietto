@@ -111,17 +111,32 @@ pins the canonical local directory and its filesystem identity, and retains the
 exact caller root and activation authorities. Location does not read the
 manifest or assets, compute package-content digests, or resolve dependencies.
 
-Every root or dependency `sha256` declaration durably means an expected
-whole-package-content SHA-256. The complete trusted manifest-plus-asset byte
-set and its framing do not yet exist, so this boundary does not compute or
-verify package content and does not hash manifest bytes as a substitute.
-Whole-package framing, computation, and verification belong to trusted loading;
-dependency-pin validation belongs to dependency loading and planning.
+A fifth private boundary trusted-reads the non-symlink regular manifest and
+typed assets, verifies their inspected/opened/final identities, and rejects
+physical aliases between distinct declared assets. Whole-package content uses
+the frozen byte framing:
 
-This is a private package foundation, not a package manager. Package loading,
-package-content digest verification, module integration, dependency planning,
-registry access, remote fetch, installation, lock resolution, database
-behavior, and public package APIs remain separately authorized work.
+```text
+b"pietto-package-content-v1\0"
+|| RECORD("pietto-package.toml", exact_manifest_bytes)
+|| RECORD(asset_0.path, exact_asset_0_bytes)
+|| ...
+
+RECORD(path, content) =
+    U64_BE(len(path.encode("utf-8"))) || path.encode("utf-8")
+    || U64_BE(len(content)) || content
+```
+
+`U64_BE` is exactly eight unsigned big-endian bytes. Assets retain typed-manifest
+source order. No newline, Unicode, or TOML normalization occurs; host, project,
+activation, and canonical filesystem paths never enter the digest, so
+relocation does not change it. Only a digest matching the root activation pin
+may produce package-owned, package-local parsed modules. Dependency declarations
+remain retained manifest data and are not loaded or validated in this boundary.
+
+This is a private package foundation, not a package manager. Dependency
+planning, registry access, remote fetch, installation, lock resolution,
+database behavior, and public package APIs remain separately authorized work.
 
 ## Inspection and portable boundaries
 
