@@ -9,6 +9,7 @@ from typing import Any, cast
 import pytest
 
 import pietto.semantic.capability_aggregates as capability_aggregates
+import pietto.semantic.capability_composition as capability_composition
 import pietto.semantic.capability_contexts as capability_contexts
 import pietto.semantic.capability_facts as capability_facts
 import pietto.semantic.capability_inventory as capability_inventory
@@ -45,6 +46,7 @@ AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
 WINDOW_REL = "src/pietto/semantic/capability_windows.py"
 PROFILE_REL = "src/pietto/semantic/capability_profiles.py"
 PROVIDER_REL = "src/pietto/semantic/capability_providers.py"
+COMPOSITION_REL = "src/pietto/semantic/capability_composition.py"
 MODULE_RELS = (
     FACTS_REL,
     LOOKUP_REL,
@@ -55,6 +57,7 @@ MODULE_RELS = (
     WINDOW_REL,
     PROFILE_REL,
     PROVIDER_REL,
+    COMPOSITION_REL,
 )
 EVIDENCE_SOURCE_COUNTS = {
     CapabilityEvidenceSource.GRAMMAR_AST: 267,
@@ -787,6 +790,7 @@ def test_support_disposition_owner_reason_and_affirmative_evidence_are_exact() -
         (AGGREGATE_REL, capability_aggregates),
         (PROFILE_REL, capability_profiles),
         (PROVIDER_REL, capability_providers),
+        (COMPOSITION_REL, capability_composition),
     ),
 )
 def test_private_import_ast_dynamic_export_and_package_boundary_is_exact(

@@ -31,7 +31,7 @@ All 12 slices are completed. Phase 55 is complete.
 
 ## Phase 56 route
 
-Phase 56 is active, Slices 1–2 are completed, and Slice 3 is current. These
+Phase 56 is active, Slices 1–3 are completed, and Slice 4 is current. These
 rows assign ownership only; they do not authorize a later slice.
 
 | Slice | Owner |
@@ -73,6 +73,10 @@ composition, or checking behavior in Slices 1–2.
 Canonical provider dispatch delegates to the existing family authorities and
 preserves their exact-key-scoped completeness; profiles do not supply or infer
 provider completeness.
+
+Composition selects one exact base and ordered additive overlays, resolves an
+exact-reference graph into deterministic dependency-first order, and fails
+closed on structural blockers. Distinct same-key facts remain key-local evidence.
 
 ## Retained later ownership
 
