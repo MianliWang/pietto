@@ -299,6 +299,19 @@ def _normalize_package_manifest(
         if root_package.path == "."
         else f"{root_package.path}/{_PACKAGE_MANIFEST_FILENAME}"
     )
+    return _normalize_package_manifest_at_path(manifest_path, manifest_bytes)
+
+
+def _normalize_package_manifest_at_path(
+    manifest_path: str,
+    manifest_bytes: bytes,
+) -> PackageManifestNormalizationResult:
+    """Normalize exact bytes for one already-authorized logical manifest path."""
+
+    if type(manifest_path) is not str or not manifest_path:
+        raise TypeError("Package manifest normalization requires an exact path.")
+    if type(manifest_bytes) is not bytes:
+        raise TypeError("Package manifest normalization requires exact bytes.")
 
     def construct_result(
         manifest: PackageManifest | None,

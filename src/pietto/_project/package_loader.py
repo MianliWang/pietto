@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 import hashlib
 import os
@@ -15,6 +16,7 @@ from pietto._project.package_locator import LocatedRootPackage
 from pietto._project.package_manifest import (
     PackageModuleSourceAsset,
     TypedRootPackageAssetCatalog,
+    ValidatedRootPackage,
     _PACKAGE_MANIFEST_BYTE_LIMIT,
     _PACKAGE_MANIFEST_FILENAME,
     _validate_root_package_manifest,
@@ -24,6 +26,7 @@ from pietto._project.path_trust import (
     ProjectFilesystemState,
     ProjectIdentityUnavailableError,
     ProjectPhysicalIdentity,
+    ProjectPinnedRoot,
     ProjectRootChangedError,
     ProjectSymbolicLinkTraversalError,
     _capture_pinned_directory_state,
@@ -98,6 +101,54 @@ class PackageLoadResult:
         """Return whether one complete integrity-verified package was loaded."""
 
         return self.loaded_package is not None
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class _PackageFileContent:
+    logical_path: str
+    content: bytes = field(repr=False)
+    opened_state: ProjectFilesystemState = field(repr=False)
+
+    def __new__(cls) -> _PackageFileContent:
+        raise TypeError("Package file content requires canonical trusted loading.")
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class _PackageModuleContent:
+    asset: PackageModuleSourceAsset
+    identity: ProjectModuleIdentity
+    position: int
+    source: _PackageFileContent = field(repr=False)
+    script: Script = field(repr=False)
+
+    def __new__(cls) -> _PackageModuleContent:
+        raise TypeError("Package module content requires canonical trusted loading.")
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class _LoadedPackageContent:
+    manifest_snapshot: _PackageFileContent = field(repr=False)
+    catalog: TypedRootPackageAssetCatalog
+    asset_snapshots: tuple[_PackageFileContent, ...] = field(repr=False)
+    content_digest: str
+    modules: tuple[_PackageModuleContent, ...]
+
+    def __new__(cls) -> _LoadedPackageContent:
+        raise TypeError("Loaded package content requires canonical trusted loading.")
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class _PackageContentLoadResult:
+    content: _LoadedPackageContent | None
+    errors: tuple[ProjectDiscoveryError, ...]
+    diagnostics: tuple[Diagnostic, ...]
+
+    def __new__(cls) -> _PackageContentLoadResult:
+        raise TypeError("Package content results require canonical trusted loading.")
+
+    @property
+    def ok(self) -> bool:
+        return self.content is not None
 
 
 def _compute_package_content_sha256(
@@ -175,8 +226,106 @@ def _load_root_package(located_root: LocatedRootPackage) -> PackageLoadResult:
         object.__setattr__(result, "diagnostics", diagnostics)
         return result
 
-    manifest_read = _read_trusted_package_file(
+    content_result = _load_package_content(
+        located_root.pinned_root,
+        located_root.canonical_path,
+        located_root.directory_state,
+        lambda manifest_bytes: _validate_root_manifest(
+            located_root,
+            manifest_bytes,
+        ),
+    )
+    if not content_result.ok:
+        return construct_result(
+            None,
+            content_result.errors,
+            content_result.diagnostics,
+        )
+    content = content_result.content
+    assert type(content) is _LoadedPackageContent
+
+    manifest_snapshot = _root_file_snapshot(
         located_root,
+        content.manifest_snapshot,
+    )
+    asset_snapshots = tuple(
+        _root_file_snapshot(located_root, snapshot)
+        for snapshot in content.asset_snapshots
+    )
+    modules: list[PackageParsedModule] = []
+    for module_content, source in zip(
+        content.modules,
+        asset_snapshots,
+        strict=True,
+    ):
+        module = object.__new__(PackageParsedModule)
+        object.__setattr__(module, "catalog", content.catalog)
+        object.__setattr__(module, "asset", module_content.asset)
+        object.__setattr__(module, "identity", module_content.identity)
+        object.__setattr__(module, "position", module_content.position)
+        object.__setattr__(module, "source", source)
+        object.__setattr__(module, "script", module_content.script)
+        modules.append(module)
+
+    loaded_package = object.__new__(LoadedRootPackage)
+    object.__setattr__(loaded_package, "located_root", located_root)
+    object.__setattr__(loaded_package, "manifest_snapshot", manifest_snapshot)
+    object.__setattr__(loaded_package, "catalog", content.catalog)
+    object.__setattr__(loaded_package, "asset_snapshots", asset_snapshots)
+    object.__setattr__(loaded_package, "content_digest", content.content_digest)
+    object.__setattr__(loaded_package, "modules", tuple(modules))
+    return construct_result(loaded_package, (), content_result.diagnostics)
+
+
+def _validate_root_manifest(
+    located_root: LocatedRootPackage,
+    manifest_bytes: bytes,
+) -> tuple[ValidatedRootPackage | None, tuple[ProjectDiscoveryError, ...]]:
+    result = _validate_root_package_manifest(
+        located_root.activation,
+        manifest_bytes,
+    )
+    return result.package, result.errors
+
+
+def _root_file_snapshot(
+    located_root: LocatedRootPackage,
+    content: _PackageFileContent,
+) -> PackageFileSnapshot:
+    snapshot = object.__new__(PackageFileSnapshot)
+    object.__setattr__(snapshot, "located_root", located_root)
+    object.__setattr__(snapshot, "logical_path", content.logical_path)
+    object.__setattr__(snapshot, "content", content.content)
+    object.__setattr__(snapshot, "opened_state", content.opened_state)
+    return snapshot
+
+
+def _load_package_content(
+    pinned_root: ProjectPinnedRoot,
+    package_root_path: Path,
+    package_root_state: ProjectFilesystemState,
+    validate_manifest: Callable[
+        [bytes],
+        tuple[ValidatedRootPackage | None, tuple[ProjectDiscoveryError, ...]],
+    ],
+) -> _PackageContentLoadResult:
+    """Trusted-load one package island for an exact expected manifest authority."""
+
+    def construct_result(
+        content: _LoadedPackageContent | None,
+        errors: tuple[ProjectDiscoveryError, ...],
+        diagnostics: tuple[Diagnostic, ...],
+    ) -> _PackageContentLoadResult:
+        result = object.__new__(_PackageContentLoadResult)
+        object.__setattr__(result, "content", content)
+        object.__setattr__(result, "errors", errors)
+        object.__setattr__(result, "diagnostics", diagnostics)
+        return result
+
+    manifest_read = _read_trusted_package_file_at(
+        pinned_root,
+        package_root_path,
+        package_root_state,
         _PACKAGE_MANIFEST_FILENAME,
         byte_limit=_PACKAGE_MANIFEST_BYTE_LIMIT,
         kind=ProjectDiscoveryErrorKind.CONFIG_READ,
@@ -185,16 +334,13 @@ def _load_root_package(located_root: LocatedRootPackage) -> PackageLoadResult:
     if type(manifest_read) is ProjectDiscoveryError:
         return construct_result(None, (manifest_read,), ())
     manifest_snapshot = manifest_read
-    assert type(manifest_snapshot) is PackageFileSnapshot
+    assert type(manifest_snapshot) is _PackageFileContent
 
-    validated = _validate_root_package_manifest(
-        located_root.activation,
-        manifest_snapshot.content,
-    )
-    if not validated.ok:
-        return construct_result(None, validated.errors, ())
-    root_package = validated.package
-    assert root_package is not None
+    root_package, validation_errors = validate_manifest(manifest_snapshot.content)
+    if validation_errors:
+        return construct_result(None, validation_errors, ())
+    if type(root_package) is not ValidatedRootPackage:
+        raise TypeError("Package content loading requires a validated package.")
 
     typed = _validate_typed_root_package_assets(root_package)
     if not typed.ok:
@@ -202,12 +348,14 @@ def _load_root_package(located_root: LocatedRootPackage) -> PackageLoadResult:
     catalog = typed.catalog
     assert type(catalog) is TypedRootPackageAssetCatalog
 
-    asset_snapshots: list[PackageFileSnapshot] = []
+    asset_snapshots: list[_PackageFileContent] = []
     asset_errors: list[ProjectDiscoveryError] = []
     physical_identities: set[ProjectPhysicalIdentity] = set()
     for asset in catalog.assets:
-        asset_read = _read_trusted_package_file(
-            located_root,
+        asset_read = _read_trusted_package_file_at(
+            pinned_root,
+            package_root_path,
+            package_root_state,
             asset.path,
             byte_limit=parser_api._MAX_SOURCE_UTF8_BYTES,
             kind=ProjectDiscoveryErrorKind.SOURCE_READ,
@@ -219,7 +367,7 @@ def _load_root_package(located_root: LocatedRootPackage) -> PackageLoadResult:
             asset_errors.append(asset_read)
             continue
         snapshot = asset_read
-        assert type(snapshot) is PackageFileSnapshot
+        assert type(snapshot) is _PackageFileContent
         if snapshot.opened_state.physical_identity in physical_identities:
             asset_errors.append(
                 _error(
@@ -258,10 +406,12 @@ def _load_root_package(located_root: LocatedRootPackage) -> PackageLoadResult:
             (),
         )
 
-    scripts: list[Script] = []
+    module_contents: list[_PackageModuleContent] = []
     parse_errors: list[ProjectDiscoveryError] = []
     diagnostics: list[Diagnostic] = []
-    for asset, snapshot in zip(catalog.assets, snapshots, strict=True):
+    for position, (asset, snapshot) in enumerate(
+        zip(catalog.assets, snapshots, strict=True)
+    ):
         try:
             source_text = snapshot.content.decode("utf-8")
         except UnicodeDecodeError:
@@ -289,54 +439,61 @@ def _load_root_package(located_root: LocatedRootPackage) -> PackageLoadResult:
                 )
             )
             continue
-        scripts.append(parse_result.ast)
+        module_content = object.__new__(_PackageModuleContent)
+        object.__setattr__(module_content, "asset", asset)
+        object.__setattr__(
+            module_content,
+            "identity",
+            ProjectModuleIdentity(path=asset.path),
+        )
+        object.__setattr__(module_content, "position", position)
+        object.__setattr__(module_content, "source", snapshot)
+        object.__setattr__(module_content, "script", parse_result.ast)
+        module_contents.append(module_content)
 
     final_diagnostics = tuple(diagnostics)
     if parse_errors or any(
         diagnostic.severity is Severity.ERROR for diagnostic in final_diagnostics
     ):
         return construct_result(None, tuple(parse_errors), final_diagnostics)
-    if len(scripts) != len(catalog.assets):
+    if len(module_contents) != len(catalog.assets):
         raise ValueError("Trusted package loading requires every parsed module.")
-    root_error = _verify_located_root(located_root)
+
+    root_error = _verify_package_root(
+        pinned_root,
+        package_root_path,
+        package_root_state,
+    )
     if root_error is not None:
         return construct_result(None, (root_error,), final_diagnostics)
 
-    modules: list[PackageParsedModule] = []
-    for position, (asset, snapshot, script) in enumerate(
-        zip(catalog.assets, snapshots, scripts, strict=True)
-    ):
-        module = object.__new__(PackageParsedModule)
-        object.__setattr__(module, "catalog", catalog)
-        object.__setattr__(module, "asset", asset)
-        object.__setattr__(module, "identity", ProjectModuleIdentity(path=asset.path))
-        object.__setattr__(module, "position", position)
-        object.__setattr__(module, "source", snapshot)
-        object.__setattr__(module, "script", script)
-        modules.append(module)
-
-    loaded_package = object.__new__(LoadedRootPackage)
-    object.__setattr__(loaded_package, "located_root", located_root)
-    object.__setattr__(loaded_package, "manifest_snapshot", manifest_snapshot)
-    object.__setattr__(loaded_package, "catalog", catalog)
-    object.__setattr__(loaded_package, "asset_snapshots", snapshots)
-    object.__setattr__(loaded_package, "content_digest", content_digest)
-    object.__setattr__(loaded_package, "modules", tuple(modules))
-    return construct_result(loaded_package, (), final_diagnostics)
+    content = object.__new__(_LoadedPackageContent)
+    object.__setattr__(content, "manifest_snapshot", manifest_snapshot)
+    object.__setattr__(content, "catalog", catalog)
+    object.__setattr__(content, "asset_snapshots", snapshots)
+    object.__setattr__(content, "content_digest", content_digest)
+    object.__setattr__(content, "modules", tuple(module_contents))
+    return construct_result(content, (), final_diagnostics)
 
 
-def _read_trusted_package_file(
-    located_root: LocatedRootPackage,
+def _read_trusted_package_file_at(
+    pinned_root: ProjectPinnedRoot,
+    package_root_path: Path,
+    package_root_state: ProjectFilesystemState,
     logical_path: str,
     *,
     byte_limit: int,
     kind: ProjectDiscoveryErrorKind,
     label: str,
-) -> PackageFileSnapshot | ProjectDiscoveryError:
+) -> _PackageFileContent | ProjectDiscoveryError:
     """Read one bounded regular non-symlink package file with identity checks."""
 
-    if type(located_root) is not LocatedRootPackage:
-        raise TypeError("Trusted package reads require an exact located root.")
+    if type(pinned_root) is not ProjectPinnedRoot:
+        raise TypeError("Trusted package reads require an exact pinned root.")
+    if not package_root_path.is_absolute():
+        raise ValueError("Trusted package reads require an absolute package root.")
+    if type(package_root_state) is not ProjectFilesystemState:
+        raise TypeError("Trusted package reads require an exact root state.")
     if type(logical_path) is not str or not logical_path:
         raise TypeError("Trusted package reads require an exact logical path.")
     if type(byte_limit) is not int or byte_limit <= 0:
@@ -344,13 +501,20 @@ def _read_trusted_package_file(
     if type(kind) is not ProjectDiscoveryErrorKind or type(label) is not str:
         raise TypeError("Trusted package reads require exact error facts.")
 
-    root_error = _verify_located_root(located_root)
+    def verify_root() -> ProjectDiscoveryError | None:
+        return _verify_package_root(
+            pinned_root,
+            package_root_path,
+            package_root_state,
+        )
+
+    root_error = verify_root()
     if root_error is not None:
         return root_error
 
-    canonical_path = located_root.canonical_path.joinpath(*logical_path.split("/"))
+    canonical_path = package_root_path.joinpath(*logical_path.split("/"))
     try:
-        relative_path = canonical_path.relative_to(located_root.canonical_path)
+        relative_path = canonical_path.relative_to(package_root_path)
     except ValueError:
         return _error(
             ProjectDiscoveryErrorKind.PROJECT_PATH,
@@ -370,7 +534,9 @@ def _read_trusted_package_file(
         )
 
     parent_state = _capture_package_parent(
-        located_root,
+        pinned_root,
+        package_root_path,
+        package_root_state,
         canonical_path.parent,
         logical_path,
     )
@@ -382,21 +548,21 @@ def _read_trusted_package_file(
     except ProjectIdentityUnavailableError:
         return _identity_unavailable_error()
     except OSError:
-        root_error = _verify_located_root(located_root)
+        root_error = verify_root()
         return root_error or _error(
             kind,
             f"{label} file does not exist or is not accessible.",
             logical_path,
         )
     if stat.S_ISLNK(inspected_state.file_type):
-        root_error = _verify_located_root(located_root)
+        root_error = verify_root()
         return root_error or _error(
             kind,
             f"{label} path must not be a symbolic link.",
             logical_path,
         )
     if not stat.S_ISREG(inspected_state.file_type):
-        root_error = _verify_located_root(located_root)
+        root_error = verify_root()
         return root_error or _error(
             kind,
             f"{label} path must be a regular file.",
@@ -407,7 +573,7 @@ def _read_trusted_package_file(
     try:
         try:
             file_descriptor = _open_pinned_file(
-                located_root.pinned_root,
+                pinned_root,
                 canonical_path,
             )
         except ProjectRootChangedError:
@@ -415,7 +581,7 @@ def _read_trusted_package_file(
         except ProjectIdentityUnavailableError:
             return _identity_unavailable_error()
         except OSError:
-            root_error = _verify_located_root(located_root)
+            root_error = verify_root()
             return root_error or _error(
                 kind,
                 f"{label} opened identity does not match the inspected file.",
@@ -424,7 +590,7 @@ def _read_trusted_package_file(
 
         opened_state = _fstat_state(file_descriptor)
         if not stat.S_ISREG(opened_state.file_type) or opened_state != inspected_state:
-            root_error = _verify_located_root(located_root)
+            root_error = verify_root()
             return root_error or _error(
                 kind,
                 f"{label} opened identity does not match the inspected file.",
@@ -437,7 +603,7 @@ def _read_trusted_package_file(
     except ProjectIdentityUnavailableError:
         return _identity_unavailable_error()
     except OSError:
-        root_error = _verify_located_root(located_root)
+        root_error = verify_root()
         return root_error or _error(
             kind,
             f"{label} file changed while being read.",
@@ -448,7 +614,7 @@ def _read_trusted_package_file(
             os.close(file_descriptor)
 
     if final_opened_state != opened_state:
-        root_error = _verify_located_root(located_root)
+        root_error = verify_root()
         return root_error or _error(
             kind,
             f"{label} file changed while being read.",
@@ -459,7 +625,7 @@ def _read_trusted_package_file(
     except ProjectIdentityUnavailableError:
         return _identity_unavailable_error()
     except OSError:
-        root_error = _verify_located_root(located_root)
+        root_error = verify_root()
         return root_error or _error(
             kind,
             f"{label} file changed while being read.",
@@ -468,7 +634,7 @@ def _read_trusted_package_file(
     if stat.S_ISLNK(final_inspected_state.file_type) or (
         final_inspected_state != inspected_state
     ):
-        root_error = _verify_located_root(located_root)
+        root_error = verify_root()
         return root_error or _error(
             kind,
             f"{label} file changed while being read.",
@@ -476,7 +642,9 @@ def _read_trusted_package_file(
         )
 
     final_parent_state = _capture_package_parent(
-        located_root,
+        pinned_root,
+        package_root_path,
+        package_root_state,
         canonical_path.parent,
         logical_path,
     )
@@ -488,7 +656,7 @@ def _read_trusted_package_file(
             f"{label} parent directory changed while being read.",
             logical_path,
         )
-    root_error = _verify_located_root(located_root)
+    root_error = verify_root()
     if root_error is not None:
         return root_error
     if len(content) > byte_limit:
@@ -498,8 +666,7 @@ def _read_trusted_package_file(
             logical_path,
         )
 
-    snapshot = object.__new__(PackageFileSnapshot)
-    object.__setattr__(snapshot, "located_root", located_root)
+    snapshot = object.__new__(_PackageFileContent)
     object.__setattr__(snapshot, "logical_path", logical_path)
     object.__setattr__(snapshot, "content", content)
     object.__setattr__(snapshot, "opened_state", opened_state)
@@ -507,27 +674,37 @@ def _read_trusted_package_file(
 
 
 def _capture_package_parent(
-    located_root: LocatedRootPackage,
+    pinned_root: ProjectPinnedRoot,
+    package_root_path: Path,
+    package_root_state: ProjectFilesystemState,
     parent_path: Path,
     logical_path: str,
 ) -> ProjectFilesystemState | ProjectDiscoveryError:
     """Capture one package file parent without following directory symlinks."""
 
     try:
-        return _capture_pinned_directory_state(located_root.pinned_root, parent_path)
+        return _capture_pinned_directory_state(pinned_root, parent_path)
     except ProjectRootChangedError:
         return _project_root_changed_error()
     except ProjectIdentityUnavailableError:
         return _identity_unavailable_error()
     except ProjectSymbolicLinkTraversalError:
-        root_error = _verify_located_root(located_root)
+        root_error = _verify_package_root(
+            pinned_root,
+            package_root_path,
+            package_root_state,
+        )
         return root_error or _error(
             ProjectDiscoveryErrorKind.PROJECT_PATH,
             "Package file path must not traverse symbolic links.",
             logical_path,
         )
     except (OSError, RuntimeError):
-        root_error = _verify_located_root(located_root)
+        root_error = _verify_package_root(
+            pinned_root,
+            package_root_path,
+            package_root_state,
+        )
         return root_error or _error(
             ProjectDiscoveryErrorKind.PROJECT_RESOURCE,
             "Package file parent directory is not accessible or changed.",
@@ -535,15 +712,17 @@ def _capture_package_parent(
         )
 
 
-def _verify_located_root(
-    located_root: LocatedRootPackage,
+def _verify_package_root(
+    pinned_root: ProjectPinnedRoot,
+    package_root_path: Path,
+    package_root_state: ProjectFilesystemState,
 ) -> ProjectDiscoveryError | None:
     """Require the project and package roots to retain their located identities."""
 
     try:
         current_state = _capture_pinned_directory_state(
-            located_root.pinned_root,
-            located_root.canonical_path,
+            pinned_root,
+            package_root_path,
         )
     except ProjectRootChangedError:
         return _project_root_changed_error()
@@ -555,7 +734,7 @@ def _verify_located_root(
             "Located package root changed after location.",
             None,
         )
-    if current_state != located_root.directory_state:
+    if current_state != package_root_state:
         return _error(
             ProjectDiscoveryErrorKind.PROJECT_RESOURCE,
             "Located package root changed after location.",

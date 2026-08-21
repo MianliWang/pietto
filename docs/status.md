@@ -7,10 +7,10 @@ documentation does not supersede that evidence.
 | --- | --- |
 | Package and CLI | `0.1.0` |
 | Phase 55 | `ACTIVE` |
-| Slices 1–6 | `COMPLETED` |
-| Slice 7 | `CURRENT` |
-| Next | `PHASE55_SLICE7_LEAN` |
+| Slices 1–7 | `COMPLETED` |
+| Slice 8 | `CURRENT` |
+| Next | `PHASE55_SLICE8_LEAN` |
 
-Slice 7 is the current route owner; live Git and natural exact-head CI determine
+Slice 8 is the current route owner; live Git and natural exact-head CI determine
 whether its candidate is unpublished or completed. This status does not
-authorize Slice 8.
+authorize Slice 9.

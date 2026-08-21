@@ -5,11 +5,13 @@ import hashlib
 import inspect
 import json
 from pathlib import Path
+import re
 
 import pytest
 
 import pietto
 import pietto._project as project_package
+import pietto._project.package_load_plan as package_load_plan
 import pietto._project.package_loader as package_loader
 import pietto._project.package_manifest as package_manifest
 from pietto._project.model import (
@@ -954,7 +956,7 @@ def test_private_carriers_reject_unsupported_inputs_and_construct_fresh_values()
         success.manifest_path = "changed"  # pyright: ignore[reportAttributeAccessIssue]
 
 
-def test_slice3_is_private_pure_and_has_only_the_trusted_loader_consumer() -> None:
+def test_slice3_is_private_pure_and_has_only_trusted_package_consumers() -> None:
     source = inspect.getsource(package_manifest)
 
     assert package_manifest.__all__ == ()
@@ -984,16 +986,19 @@ def test_slice3_is_private_pure_and_has_only_the_trusted_loader_consumer() -> No
     ):
         assert forbidden not in source
 
-    trusted_loader_path = Path(package_loader.__file__)
+    trusted_consumer_paths = {
+        Path(package_loader.__file__),
+        Path(package_load_plan.__file__),
+    }
     for path in sorted((REPO_ROOT / "src/pietto").rglob("*.py")):
         if path == Path(package_manifest.__file__):
             continue
         other_source = path.read_text(encoding="utf-8")
-        if path == trusted_loader_path:
+        if path in trusted_consumer_paths:
             assert "pietto._project.package_manifest" in other_source
         else:
             assert "pietto._project.package_manifest" not in other_source
-        assert "_normalize_package_manifest" not in other_source
+        assert re.search(r"\b_normalize_package_manifest\b", other_source) is None
 
 
 def test_slice4_package_identity_excludes_release_pin_and_logical_path() -> None:

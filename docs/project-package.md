@@ -134,9 +134,24 @@ relocation does not change it. Only a digest matching the root activation pin
 may produce package-owned, package-local parsed modules. Dependency declarations
 remain retained manifest data and are not loaded or validated in this boundary.
 
-This is a private package foundation, not a package manager. Dependency
-planning, registry access, remote fetch, installation, lock resolution,
-database behavior, and public package APIs remain separately authorized work.
+A sixth private boundary validates every ordered dependency occurrence as one
+exact identity, strict SemVer coordinate, whole-package digest pin, and local
+directory locator. Authored `.` and `..` components normalize relative to the
+declaring package directory; escape above the pinned project root fails closed.
+Each dependency then uses the same contained-directory, trusted-byte, D1, pin,
+and parsed-module loading as the root package.
+
+The local load plan uses iterative declaration-order DFS and emits successful
+packages in postorder, including the root as the final entry. Exact duplicate
+occurrences remain separate edges. Cycles, conflicting identities/releases/
+digests/physical roots, and diamonds produce private blocker evidence without
+selecting a winner; Slice 9 owns their final diagnostic product. Every loaded
+package remains an independent compilation island, so equal package-local
+module paths are never flattened or merged.
+
+This is a private package foundation, not a package manager. It adds no version
+ranges, solver, remote or registry access, installation, lockfile, public
+package graph, database behavior, or public package API.
 
 ## Inspection and portable boundaries
 
