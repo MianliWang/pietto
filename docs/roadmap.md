@@ -31,8 +31,8 @@ All 12 slices are completed. Phase 55 is complete.
 
 ## Phase 56 route
 
-Phase 56 is active, and Slice 1 is current. These rows assign ownership only;
-they do not authorize a later slice.
+Phase 56 is active, Slice 1 is completed, and Slice 2 is current. These rows
+assign ownership only; they do not authorize a later slice.
 
 | Slice | Owner |
 | ---: | --- |
@@ -55,14 +55,20 @@ immutable base with additive-only overlays: no override, winner, fallback, or
 precedence semantics is authorized. Exact duplicate declarations fail closed,
 while distinct same-key facts remain ordered key-local conflict evidence.
 
-Profile schema version, profile identity and release, target family and release,
-and extension identity and release remain separate exact values. Completeness
-stays with scoped provider evidence; omission is not support evidence, and
-`Absent` remains distinct from `Unknown`. Compiler acceptance, dialect/backend
-lowering, installation state, roadmap ownership, and public exposure remain
-separate authorities. The profile/requirement foundation stays private and
-adds no project/package/Pietto syntax, public output, lookup, composition, or
-checking behavior in Slice 1.
+Static `BASE` profiles describe `DATABASE` targets, and static `OVERLAY`
+profiles describe `EXTENSION` targets. Profile schema version, profile identity
+and release, database family and release, and extension identity and release
+remain separate exact values; releases are opaque nonblank text, not parsed
+versions. Self and unresolved base references remain declaration data pending
+Slice 4. Target identity is not normalized into `CapabilityKey`, and no
+profile checking occurs here.
+
+Completeness stays with scoped provider evidence; omission is not support
+evidence, and `Absent` remains distinct from `Unknown`. Compiler acceptance,
+dialect/backend lowering, installation state, roadmap ownership, and public
+exposure remain separate authorities. The profile/requirement foundation stays
+private and adds no project/package/Pietto syntax, public output, lookup,
+composition, or checking behavior in Slices 1–2.
 
 ## Retained later ownership
 

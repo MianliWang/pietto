@@ -158,6 +158,16 @@ class StaticCapabilityProfile:
             raise ValueError("capability profile requires an exact target")
         if type(self.kind) is not CapabilityProfileKind:
             raise ValueError("capability profile requires an exact kind")
+        required_target_kind = (
+            CapabilityProfileTargetKind.DATABASE
+            if self.kind is CapabilityProfileKind.BASE
+            else CapabilityProfileTargetKind.EXTENSION
+        )
+        if self.target.kind is not required_target_kind:
+            raise ValueError(
+                f"{self.kind.name} capability profiles require "
+                f"{required_target_kind.name} targets"
+            )
         bases = _freeze_occurrences(
             self.base_occurrences,
             CapabilityProfileBaseOccurrence,
