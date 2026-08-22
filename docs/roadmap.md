@@ -111,9 +111,9 @@ fail closed at the Phase 57 Slice 1 baseline.
 
 ## Phase 57 route
 
-Phase 57 is active, Slice 1 is completed, and Slice 2 is current. The initial
-route has 12 slices. Evidence may expand it up to 16 slices only through an
-explicit evidence-backed route update when genuinely independent ownership
+Phase 57 is active, Slices 1–2 are completed, and Slice 3 is current. The
+initial route has 12 slices. Evidence may expand it up to 16 slices only through
+an explicit evidence-backed route update when genuinely independent ownership
 emerges. Never pad the route, compress independent responsibilities to remain
 at 12, or silently reorder published ownership. These rows assign ownership
 only; they do not authorize a later slice.
@@ -151,6 +151,14 @@ ordered source occurrences, and metadata header. It adds no type reference,
 entry, construction, completeness, selection, provider, inspection, package
 asset, public, runtime, or SQL behavior. The controlling foundation is
 [Phase 57 Slice 2 identity and provenance](spec/phase57-extension-catalog-schema-identity-target-source-provenance-v1.md).
+
+Slice 3 adds three-domain atomic type references, reuses the canonical private
+Pietto logical-type identity, and defines installation-independent PostgreSQL
+callable, unary/binary operator, cast, and extension-native type identities.
+Arrays, modifiers, compound types, entries, matching, coercion, construction,
+provider integration, runtime installation identity, and lowering remain later
+ownership. The controlling foundation is
+[Phase 57 Slice 3 structured type and physical identity](spec/phase57-extension-catalog-structured-type-physical-identity-v1.md).
 
 ## Retained later ownership
 

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import PurePosixPath, PureWindowsPath
 
+from pietto.semantic.generic_compatibility import LogicalTypeIdentity
+
 __all__: tuple[str, ...] = ()
 
 
@@ -139,3 +141,119 @@ class ExtensionCatalogMetadata:
         if any(occurrence.owner is not self.catalog for occurrence in occurrences):
             raise ValueError("catalog sources require exact owner authority")
         object.__setattr__(self, "source_occurrences", occurrences)
+
+
+class ExtensionCatalogTypeReferenceKind(StrEnum):
+    PIETTO_LOGICAL = "pietto_logical"
+    POSTGRES_BUILTIN = "postgres_builtin"
+    EXTENSION_NATIVE = "extension_native"
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionCatalogTypeReference:
+    kind: ExtensionCatalogTypeReferenceKind
+    logical_type: LogicalTypeIdentity | None = None
+    physical_name: str | None = None
+    extension_identity: str | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not ExtensionCatalogTypeReferenceKind:
+            raise ValueError("catalog type reference requires an exact kind")
+        if self.kind is ExtensionCatalogTypeReferenceKind.PIETTO_LOGICAL:
+            if type(self.logical_type) is not LogicalTypeIdentity:
+                raise ValueError("Pietto logical reference requires exact authority")
+            if self.physical_name is not None or self.extension_identity is not None:
+                raise ValueError("Pietto logical reference forbids physical identity")
+            return
+        if self.logical_type is not None:
+            raise ValueError("PostgreSQL type reference forbids logical authority")
+        _require_text(self.physical_name, "PostgreSQL physical type name")
+        if self.kind is ExtensionCatalogTypeReferenceKind.POSTGRES_BUILTIN:
+            if self.extension_identity is not None:
+                raise ValueError("PostgreSQL builtin reference forbids extension owner")
+            return
+        _require_text(self.extension_identity, "extension identity")
+
+
+def _require_postgresql_type_reference(
+    value: object,
+    label: str,
+) -> ExtensionCatalogTypeReference:
+    if type(value) is not ExtensionCatalogTypeReference:
+        raise ValueError(f"{label} requires an exact catalog type reference")
+    if value.kind is ExtensionCatalogTypeReferenceKind.PIETTO_LOGICAL:
+        raise ValueError(f"{label} requires a PostgreSQL-side type reference")
+    return value
+
+
+def _freeze_postgresql_type_references(
+    values: Iterable[ExtensionCatalogTypeReference],
+    label: str,
+) -> tuple[ExtensionCatalogTypeReference, ...]:
+    if isinstance(values, (str, bytes, Mapping, Set)):
+        raise ValueError(f"{label} requires an ordered iterable")
+    try:
+        references = tuple(values)
+    except TypeError as exc:
+        raise ValueError(f"{label} requires an ordered iterable") from exc
+    for reference in references:
+        _require_postgresql_type_reference(reference, label)
+    return references
+
+
+@dataclass(frozen=True, slots=True)
+class PostgreSQLCallableIdentity:
+    sql_name: str
+    input_types: tuple[ExtensionCatalogTypeReference, ...]
+
+    def __post_init__(self) -> None:
+        _require_text(self.sql_name, "PostgreSQL callable name")
+        object.__setattr__(
+            self,
+            "input_types",
+            _freeze_postgresql_type_references(
+                self.input_types,
+                "PostgreSQL callable input types",
+            ),
+        )
+
+
+class PostgreSQLOperatorArity(StrEnum):
+    UNARY = "unary"
+    BINARY = "binary"
+
+
+@dataclass(frozen=True, slots=True)
+class PostgreSQLOperatorIdentity:
+    operator_name: str
+    arity: PostgreSQLOperatorArity
+    operand_types: tuple[ExtensionCatalogTypeReference, ...]
+
+    def __post_init__(self) -> None:
+        _require_text(self.operator_name, "PostgreSQL operator name")
+        if type(self.arity) is not PostgreSQLOperatorArity:
+            raise ValueError("PostgreSQL operator requires an exact arity")
+        operands = _freeze_postgresql_type_references(
+            self.operand_types,
+            "PostgreSQL operator operand types",
+        )
+        expected_arity = 1 if self.arity is PostgreSQLOperatorArity.UNARY else 2
+        if len(operands) != expected_arity:
+            raise ValueError("PostgreSQL operator arity must match its operands")
+        object.__setattr__(self, "operand_types", operands)
+
+
+@dataclass(frozen=True, slots=True)
+class PostgreSQLCastIdentity:
+    source_type: ExtensionCatalogTypeReference
+    target_type: ExtensionCatalogTypeReference
+
+    def __post_init__(self) -> None:
+        _require_postgresql_type_reference(
+            self.source_type,
+            "PostgreSQL cast source",
+        )
+        _require_postgresql_type_reference(
+            self.target_type,
+            "PostgreSQL cast target",
+        )
