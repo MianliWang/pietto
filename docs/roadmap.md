@@ -31,7 +31,7 @@ All 12 slices are completed. Phase 55 is complete.
 
 ## Phase 56 route
 
-Phase 56 is active, Slices 1–8 are completed, and Slice 9 is current. These
+Phase 56 is active, Slices 1–9 are completed, and Slice 10 is current. These
 rows assign ownership only; they do not authorize a later slice.
 
 | Slice | Owner |
@@ -103,6 +103,13 @@ evaluator. A frozen accepted/rejected differential corpus proves byte-exact
 compatibility plus interpreter and hash-seed stability. Public capability
 exposure remains Phase 58 ownership; Slice 10 owns the completion audit and
 Phase 57 handoff.
+
+The complete private Phase 56 chain is closed through the pure differential
+boundary, and Slice 10 adds no semantics. After Slice 10 publication and
+natural exact-head CI, Phase 56 is complete and Phase 57 becomes the next
+eligible work. Phase 57 owns only the PostgreSQL extension-signature catalog;
+`EXTENSION_SIGNATURE` remains intentionally unpopulated and fail closed. No
+release, tag, or package publication is implied.
 
 ## Retained later ownership
 
