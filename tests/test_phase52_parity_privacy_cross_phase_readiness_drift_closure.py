@@ -842,6 +842,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
     availability_rel = "src/pietto/_project/capability_availability.py"
     checking_rel = "src/pietto/_project/capability_checking.py"
     matrix_rel = "src/pietto/_project/capability_matrix.py"
+    inspection_rel = "src/pietto/_project/capability_inspection.py"
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
         relative = path.relative_to(REPO_ROOT).as_posix()
         if (
@@ -852,6 +853,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                 availability_rel,
                 checking_rel,
                 matrix_rel,
+                inspection_rel,
             }
             or "generated" in path.parts
         ):
@@ -872,6 +874,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                     availability_rel,
                     checking_rel,
                     matrix_rel,
+                    inspection_rel,
                 }
             )
     provider_source = _read(REPO_ROOT / PROVIDER_REL)
@@ -901,6 +904,18 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
     assert all(name not in matrix_source for name in forbidden_names)
     assert all(
         (f"semantic.{stem}" in matrix_source) is (stem in matrix_stems)
+        for stem in module_stems
+    )
+    inspection_source = _read(REPO_ROOT / inspection_rel)
+    inspection_stems = {
+        "capability_composition",
+        "capability_facts",
+        "capability_lookup",
+        "capability_profiles",
+    }
+    assert all(name not in inspection_source for name in forbidden_names)
+    assert all(
+        (f"semantic.{stem}" in inspection_source) is (stem in inspection_stems)
         for stem in module_stems
     )
     preservation_source = _read(REPO_ROOT / preservation_rel)

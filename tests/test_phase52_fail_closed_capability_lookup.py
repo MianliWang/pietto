@@ -40,6 +40,7 @@ PROFILE_REL = "src/pietto/semantic/capability_profiles.py"
 PROVIDER_REL = "src/pietto/semantic/capability_providers.py"
 COMPOSITION_REL = "src/pietto/semantic/capability_composition.py"
 CHECKING_REL = "src/pietto/_project/capability_checking.py"
+INSPECTION_REL = "src/pietto/_project/capability_inspection.py"
 SELF_REL = "tests/test_phase52_fail_closed_capability_lookup.py"
 SOURCE_PATH = REPO_ROOT / SOURCE_REL
 
@@ -293,6 +294,7 @@ def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry()
                 REPO_ROOT / PROVIDER_REL,
                 REPO_ROOT / COMPOSITION_REL,
                 REPO_ROOT / CHECKING_REL,
+                REPO_ROOT / INSPECTION_REL,
                 REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py",
             }
             or "generated" in path.parts
@@ -306,6 +308,10 @@ def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry()
     assert "semantic.capability_facts" in signature_source
     assert "CapabilityFact" in signature_source
     assert "CapabilityKey" in signature_source
+    inspection_source = _read(REPO_ROOT / INSPECTION_REL)
+    assert "semantic.capability_facts" in inspection_source
+    assert "CapabilityFact" in inspection_source
+    assert "CapabilityKey" in inspection_source
     preservation_source = _read(
         REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py"
     )

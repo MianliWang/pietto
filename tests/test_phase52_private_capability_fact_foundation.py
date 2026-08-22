@@ -34,6 +34,7 @@ PROFILE_REL = "src/pietto/semantic/capability_profiles.py"
 PROVIDER_REL = "src/pietto/semantic/capability_providers.py"
 COMPOSITION_REL = "src/pietto/semantic/capability_composition.py"
 CHECKING_REL = "src/pietto/_project/capability_checking.py"
+INSPECTION_REL = "src/pietto/_project/capability_inspection.py"
 SPEC_REL = (
     "docs/spec/"
     "phase52-private-capability-key-disposition-evidence-fact-foundation-v1.md"
@@ -467,6 +468,7 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
                 REPO_ROOT / PROVIDER_REL,
                 REPO_ROOT / COMPOSITION_REL,
                 REPO_ROOT / CHECKING_REL,
+                REPO_ROOT / INSPECTION_REL,
                 REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py",
             }
             or "generated" in path.parts
@@ -501,6 +503,10 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
     checking_source = _read(REPO_ROOT / CHECKING_REL)
     assert "semantic.capability_facts" in checking_source
     assert "CapabilitySupport" in checking_source
+    inspection_source = _read(REPO_ROOT / INSPECTION_REL)
+    assert "semantic.capability_facts" in inspection_source
+    assert "CapabilityFact" in inspection_source
+    assert "CapabilityKey" in inspection_source
     preservation_source = _read(
         REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py"
     )
