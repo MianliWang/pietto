@@ -31,8 +31,8 @@ All 12 slices are completed. Phase 55 is complete.
 
 ## Phase 56 route
 
-Phase 56 is active, Slices 1–9 are completed, and Slice 10 is current. These
-rows assign ownership only; they do not authorize a later slice.
+All 10 slices are completed. Phase 56 is complete. These rows assign ownership
+only; they do not authorize a later slice.
 
 | Slice | Owner |
 | ---: | --- |
@@ -105,17 +105,50 @@ exposure remains Phase 58 ownership; Slice 10 owns the completion audit and
 Phase 57 handoff.
 
 The complete private Phase 56 chain is closed through the pure differential
-boundary, and Slice 10 adds no semantics. After Slice 10 publication and
-natural exact-head CI, Phase 56 is complete and Phase 57 becomes the next
-eligible work. Phase 57 owns only the PostgreSQL extension-signature catalog;
-`EXTENSION_SIGNATURE` remains intentionally unpopulated and fail closed. No
-release, tag, or package publication is implied.
+boundary, and Slice 10 adds no semantics. Live Git and natural exact-head CI
+own its completion. `EXTENSION_SIGNATURE` remains intentionally unpopulated and
+fail closed at the Phase 57 Slice 1 baseline.
+
+## Phase 57 route
+
+Phase 57 is active and Slice 1 is current. The initial route has 12 slices.
+Evidence may expand it up to 16 slices only through an explicit evidence-backed
+route update when genuinely independent ownership emerges. Never pad the route,
+compress independent responsibilities to remain at 12, or silently reorder
+published ownership. These rows assign ownership only; they do not authorize a
+later slice.
+
+| Slice | Owner |
+| ---: | --- |
+| 1 | Phase architecture, release-aware authority, readiness decisions, and route lock |
+| 2 | Catalog schema/version/identity/release, exact target coordinate, and source provenance |
+| 3 | PostgreSQL builtin and extension-native type references, physical SQL object identity, and Phase 64/69 readiness |
+| 4 | Five typed catalog entry families, complex-signature metadata, and exact-matchability contracts |
+| 5 | Deterministic catalog construction, ordering/conflicts, scoped completeness, canonical bytes, and content SHA-256 |
+| 6 | Compiler/project catalog declaration and availability, exact PostgreSQL-release × extension-release selection |
+| 7 | EXTENSION_SIGNATURE provider integration, exact checking propagation, target-scoped provider authority, and matrix compatibility |
+| 8 | First concrete production catalog: pgvector |
+| 9 | Second diversity catalog: pg_trgm, plus PostGIS representability/stress audit without a full-support claim |
+| 10 | Separate private extension-catalog inspection/canonical representation and Phase 58/59 provenance readiness |
+| 11 | Extension-catalog pure boundary, differential vectors, Python 3.12/3.13, hash-seed, relocation, and E2E hardening |
+| 12 | Completion audit and Phase 58 handoff |
+
+One catalog describes exactly one PostgreSQL database release and one exact
+extension identity/release target. Catalog, profile, and installation authority
+remain distinct. Release remains outside `CapabilityKey`; Slice 7 owns the
+smallest later private release-aware provider/catalog-selection authority.
+
+Phase 57 is static, declarative, strongly typed, deterministic, immutable,
+reviewable, and non-executable. It adds no installation, introspection,
+runtime discovery, SQL lowering, public portability output, package asset,
+remote transport, solver, lockfile, tag, Release, or package publication.
+The controlling architecture is
+[Phase 57 Slice 1 scope lock](spec/phase57-postgresql-extension-signature-catalog-scope-lock-v1.md).
 
 ## Retained later ownership
 
 | Phase | Owner |
 | ---: | --- |
-| 57 | PostgreSQL extension signature catalog |
 | 58 | Public explain, portability, and package-inspection artifact |
 | 59 | Local package graph, attribution, provenance, and lineage |
 | 60 | Advanced windows and Phase 51–60 readiness checkpoint |
@@ -130,11 +163,11 @@ release, tag, or package publication is implied.
 | 69 | Extension-specific lowering and additional dialect foundations |
 | 70 | Public schema/lineage expansion and v0.2 release-readiness decision |
 
-Phase 56 begins from the private `CapabilityKey`, `CapabilityFact`,
-`CapabilityEvidence`, support/disposition carriers, fail-closed lookup results,
-and the inventory, signature, aggregate, window, and context fact providers.
-`EXTENSION_SIGNATURE` remains Phase 57 ownership, while `CONVERSION` remains
-reserved for later advanced-type work.
+Phase 57 begins from the complete private Phase 56 capability chain.
+`CapabilityKey` remains release-free, exact profile targets retain database and
+extension releases separately, and current `EXTENSION_SIGNATURE` provider
+evidence remains empty and incomplete. `CONVERSION` remains reserved for later
+advanced-type work.
 
 Compiler acceptance, private capability facts, backend support, database
 installation, public exposure, local graph behavior, remote I/O, solving, and

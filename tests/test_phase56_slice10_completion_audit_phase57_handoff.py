@@ -404,21 +404,19 @@ def test_phase57_extension_signature_handoff_is_exact_and_unimplemented() -> Non
         assert "installation" not in source.lower()
 
 
-def test_phase56_lifecycle_docs_are_candidate_exact_and_ci_conditional() -> None:
+def test_phase56_completion_is_retained_in_phase57_lifecycle_docs() -> None:
     roadmap = ROADMAP.read_text(encoding="utf-8")
     status = STATUS.read_text(encoding="utf-8")
-    assert (
-        "Phase 56 is active, Slices 1–9 are completed, and Slice 10 is current"
-        in roadmap
-    )
+    assert "All 10 slices are completed. Phase 56 is complete." in roadmap
     assert "Slice 10 adds no semantics" in roadmap
-    assert "Phase 57 becomes the next\neligible work" in roadmap
+    assert "Phase 57 is active and Slice 1 is current" in roadmap
     assert "`EXTENSION_SIGNATURE` remains intentionally unpopulated" in roadmap
-    assert "| Slices 1–9 | `COMPLETED` |" in status
-    assert "| Slice 10 | `CURRENT` |" in status
-    assert "| Next | `PHASE56_SLICE10_LEAN` |" in status
+    assert "| Phase 56 | `COMPLETED` |" in status
+    assert "| Phase 57 | `ACTIVE` |" in status
+    assert "| Slice 1 | `CURRENT` |" in status
+    assert "| Next | `PHASE57_SLICE1_LEAN` |" in status
     assert "no post-CI status-flip commit is required" in status
-    assert "does not authorize Phase 57 implementation" in status
+    assert "does\nnot authorize Slice 2" in status
 
 
 def test_version_and_public_compatibility_documents_remain_unchanged() -> None:
