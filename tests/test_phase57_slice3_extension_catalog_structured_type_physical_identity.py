@@ -387,12 +387,19 @@ def test_new_identity_carriers_are_private_immutable_and_atomic_only() -> None:
         "PostgreSQLOperatorArity",
         "PostgreSQLOperatorIdentity",
         "PostgreSQLCastIdentity",
+        "ExtensionCatalogDeclarationTypeUse",
+        "ExtensionCatalogEntryEvidence",
+        "ExtensionNativeTypeCatalogEntry",
+        "ExtensionScalarFunctionCatalogEntry",
+        "ExtensionAggregateCatalogEntry",
+        "ExtensionOperatorCatalogEntry",
+        "ExtensionCastCatalogEntry",
     )
     for module in (pietto, semantic_package, project_package):
         assert all(not hasattr(module, symbol) for symbol in symbols)
 
 
-def test_module_has_no_entries_installation_runtime_matching_or_lowering() -> None:
+def test_module_has_no_provider_construction_runtime_or_lowering() -> None:
     source = inspect.getsource(extension_catalog)
     tree = ast.parse(source)
     imported_modules = {
@@ -424,9 +431,6 @@ def test_module_has_no_entries_installation_runtime_matching_or_lowering() -> No
         "socket",
         "getcwd",
         "environ",
-        "entryfamily",
-        "entry_family",
-        "matchability",
         "overloadselection",
         "canonical_bytes",
         "content_digest",
@@ -558,7 +562,7 @@ def test_spec_lifecycle_route_deferred_shapes_and_package_smoke_are_exact() -> N
         assert term in boundaries
 
     roadmap = _read(ROADMAP)
-    assert "Phase 57 is active, Slices 1–2 are completed, and Slice 3 is current" in (
+    assert "Phase 57 is active, Slices 1–3 are completed, and Slice 4 is current" in (
         roadmap
     )
     status_rows = _table_rows(_read(STATUS))[1:]
@@ -567,13 +571,13 @@ def test_spec_lifecycle_route_deferred_shapes_and_package_smoke_are_exact() -> N
         ("Phase 55", "`COMPLETED`"),
         ("Phase 56", "`COMPLETED`"),
         ("Phase 57", "`ACTIVE`"),
-        ("Slices 1–2", "`COMPLETED`"),
-        ("Slice 3", "`CURRENT`"),
-        ("Next", "`PHASE57_SLICE3_LEAN`"),
+        ("Slices 1–3", "`COMPLETED`"),
+        ("Slice 4", "`CURRENT`"),
+        ("Next", "`PHASE57_SLICE4_LEAN`"),
     )
     status = _read(STATUS)
-    assert "Live Git and natural exact-head CI own\nSlice 3 completion" in status
-    assert "does\nnot authorize Slice 4" in status
+    assert "Live Git and natural exact-head CI own\nSlice 4 completion" in status
+    assert "does\nnot authorize Slice 5" in status
     package_smoke = _read(PACKAGE_SMOKE)
     assert 'f"{prefix}/semantic/extension_catalog.py"' in package_smoke
     assert '"import pietto.semantic.extension_catalog"' in package_smoke

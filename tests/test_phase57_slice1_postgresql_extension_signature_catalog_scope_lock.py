@@ -274,6 +274,8 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
         assert not hasattr(module, "ExtensionCatalogTarget")
         assert not hasattr(module, "ExtensionCatalogTypeReference")
         assert not hasattr(module, "PostgreSQLCallableIdentity")
+        assert not hasattr(module, "ExtensionCatalogEntryEvidence")
+        assert not hasattr(module, "ExtensionScalarFunctionCatalogEntry")
     assert "extension_catalog" not in inspect.getsource(providers)
     for source in (
         inspect.getsource(checking),
@@ -560,11 +562,11 @@ def test_future_readiness_package_public_release_and_lifecycle_locks_are_exact()
         ("Phase 55", "`COMPLETED`"),
         ("Phase 56", "`COMPLETED`"),
         ("Phase 57", "`ACTIVE`"),
-        ("Slices 1–2", "`COMPLETED`"),
-        ("Slice 3", "`CURRENT`"),
-        ("Next", "`PHASE57_SLICE3_LEAN`"),
+        ("Slices 1–3", "`COMPLETED`"),
+        ("Slice 4", "`CURRENT`"),
+        ("Next", "`PHASE57_SLICE4_LEAN`"),
     )
     status = _read(STATUS)
-    assert "Live Git and natural exact-head CI own\nSlice 3 completion" in status
+    assert "Live Git and natural exact-head CI own\nSlice 4 completion" in status
     assert "no post-CI status-flip commit is required" in status
-    assert "does\nnot authorize Slice 4" in status
+    assert "does\nnot authorize Slice 5" in status

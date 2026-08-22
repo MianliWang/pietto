@@ -111,7 +111,7 @@ fail closed at the Phase 57 Slice 1 baseline.
 
 ## Phase 57 route
 
-Phase 57 is active, Slices 1–2 are completed, and Slice 3 is current. The
+Phase 57 is active, Slices 1–3 are completed, and Slice 4 is current. The
 initial route has 12 slices. Evidence may expand it up to 16 slices only through
 an explicit evidence-backed route update when genuinely independent ownership
 emerges. Never pad the route, compress independent responsibilities to remain
@@ -159,6 +159,15 @@ Arrays, modifiers, compound types, entries, matching, coercion, construction,
 provider integration, runtime installation identity, and lowering remain later
 ownership. The controlling foundation is
 [Phase 57 Slice 3 structured type and physical identity](spec/phase57-extension-catalog-structured-type-physical-identity-v1.md).
+
+Slice 4 adds exact/unmodeled declaration type use, orthogonal matchability and
+exposure, ordered source-position evidence, five private typed entry families,
+and static function/aggregate/cast declaration metadata. It preserves complex
+source declarations without making them matchable, executable, absent, or
+invalid. Construction, conflicts, completeness, canonical bytes/digest,
+provider integration, coercion, runtime identity, and lowering remain later
+ownership. The controlling contract is
+[Phase 57 Slice 4 entries and matchability](spec/phase57-extension-catalog-entry-matchability-contract-v1.md).
 
 ## Retained later ownership
 

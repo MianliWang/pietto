@@ -448,8 +448,6 @@ def test_module_is_stdlib_only_data_only_and_has_no_later_slice_behavior() -> No
         "hashlib",
         "sha256",
         "canonical_bytes",
-        "entry",
-        "signature",
         "lookup_capability",
         "domain_complete",
         "provider",
@@ -558,6 +556,13 @@ def test_no_public_export_package_asset_concrete_fact_or_version_change() -> Non
         "PostgreSQLOperatorArity",
         "PostgreSQLOperatorIdentity",
         "PostgreSQLCastIdentity",
+        "ExtensionCatalogDeclarationTypeUse",
+        "ExtensionCatalogEntryEvidence",
+        "ExtensionNativeTypeCatalogEntry",
+        "ExtensionScalarFunctionCatalogEntry",
+        "ExtensionAggregateCatalogEntry",
+        "ExtensionOperatorCatalogEntry",
+        "ExtensionCastCatalogEntry",
     )
     for module in (pietto, semantic_package, project_package):
         assert all(not hasattr(module, symbol) for symbol in symbols)
@@ -609,7 +614,7 @@ def test_spec_lifecycle_route_and_installed_package_smoke_are_exact() -> None:
         assert term in non_scope
 
     roadmap = _read(ROADMAP)
-    assert "Phase 57 is active, Slices 1–2 are completed, and Slice 3 is current" in (
+    assert "Phase 57 is active, Slices 1–3 are completed, and Slice 4 is current" in (
         roadmap
     )
     status_rows = _table_rows(_read(STATUS))[1:]
@@ -618,13 +623,13 @@ def test_spec_lifecycle_route_and_installed_package_smoke_are_exact() -> None:
         ("Phase 55", "`COMPLETED`"),
         ("Phase 56", "`COMPLETED`"),
         ("Phase 57", "`ACTIVE`"),
-        ("Slices 1–2", "`COMPLETED`"),
-        ("Slice 3", "`CURRENT`"),
-        ("Next", "`PHASE57_SLICE3_LEAN`"),
+        ("Slices 1–3", "`COMPLETED`"),
+        ("Slice 4", "`CURRENT`"),
+        ("Next", "`PHASE57_SLICE4_LEAN`"),
     )
     status = _read(STATUS)
-    assert "Live Git and natural exact-head CI own\nSlice 3 completion" in status
-    assert "does\nnot authorize Slice 4" in status
+    assert "Live Git and natural exact-head CI own\nSlice 4 completion" in status
+    assert "does\nnot authorize Slice 5" in status
 
     package_smoke = _read(PACKAGE_SMOKE)
     assert 'f"{prefix}/semantic/extension_catalog.py"' in package_smoke
