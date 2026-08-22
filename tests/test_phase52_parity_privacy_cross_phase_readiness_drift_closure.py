@@ -839,9 +839,13 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
     }
     module_stems = {Path(path).stem for path in MODULE_RELS}
     preservation_rel = "src/pietto/_project/module_semantic_fact_preservation.py"
+    availability_rel = "src/pietto/_project/capability_availability.py"
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
         relative = path.relative_to(REPO_ROOT).as_posix()
-        if relative in {*MODULE_RELS, preservation_rel} or "generated" in path.parts:
+        if (
+            relative in {*MODULE_RELS, preservation_rel, availability_rel}
+            or "generated" in path.parts
+        ):
             continue
         source = _read(path)
         assert all(name not in source for name in forbidden_names)
@@ -853,10 +857,18 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                 "capability_" not in _read(path)
                 for path in root.rglob("*.py")
                 if "generated" not in path.parts
-                and path.relative_to(REPO_ROOT).as_posix() != preservation_rel
+                and path.relative_to(REPO_ROOT).as_posix()
+                not in {preservation_rel, availability_rel}
             )
     provider_source = _read(REPO_ROOT / PROVIDER_REL)
     assert all(name in provider_source for name in forbidden_names)
+    availability_source = _read(REPO_ROOT / availability_rel)
+    assert "semantic.capability_profiles" in availability_source
+    assert all(name not in availability_source for name in forbidden_names)
+    assert all(
+        f"semantic.{stem}" not in availability_source
+        for stem in module_stems - {"capability_profiles"}
+    )
     preservation_source = _read(REPO_ROOT / preservation_rel)
     assert "canonical_capability_provider_inputs" in preservation_source
     assert all(name not in preservation_source for name in forbidden_names)
