@@ -366,7 +366,7 @@ def test_differential_corpus_and_interpreter_locks_are_frozen() -> None:
     assert "((3, 12), (3, 13))" in slice9_source
 
 
-def test_phase57_extension_signature_handoff_is_exact_and_unimplemented() -> None:
+def test_phase57_extension_signature_provider_handoff_remains_unimplemented() -> None:
     facts = tuple(fact for family in _provider_families() for fact in family)
     assert CapabilityDomain.EXTENSION_SIGNATURE.value == "extension_signature"
     assert not any(
@@ -392,7 +392,9 @@ def test_phase57_extension_signature_handoff_is_exact_and_unimplemented() -> Non
     assert not (
         REPO_ROOT / "src/pietto/semantic/capability_extension_signatures.py"
     ).exists()
+    assert (REPO_ROOT / "src/pietto/semantic/extension_catalog.py").is_file()
     provider_source = inspect.getsource(providers)
+    assert "extension_catalog" not in provider_source
     assert "PostGIS" not in provider_source
     assert "pgvector" not in provider_source
     for source in (
@@ -409,14 +411,17 @@ def test_phase56_completion_is_retained_in_phase57_lifecycle_docs() -> None:
     status = STATUS.read_text(encoding="utf-8")
     assert "All 10 slices are completed. Phase 56 is complete." in roadmap
     assert "Slice 10 adds no semantics" in roadmap
-    assert "Phase 57 is active and Slice 1 is current" in roadmap
+    assert "Phase 57 is active, Slice 1 is completed, and Slice 2 is current" in (
+        roadmap
+    )
     assert "`EXTENSION_SIGNATURE` remains intentionally unpopulated" in roadmap
     assert "| Phase 56 | `COMPLETED` |" in status
     assert "| Phase 57 | `ACTIVE` |" in status
-    assert "| Slice 1 | `CURRENT` |" in status
-    assert "| Next | `PHASE57_SLICE1_LEAN` |" in status
+    assert "| Slice 1 | `COMPLETED` |" in status
+    assert "| Slice 2 | `CURRENT` |" in status
+    assert "| Next | `PHASE57_SLICE2_LEAN` |" in status
     assert "no post-CI status-flip commit is required" in status
-    assert "does\nnot authorize Slice 2" in status
+    assert "does\nnot authorize Slice 3" in status
 
 
 def test_version_and_public_compatibility_documents_remain_unchanged() -> None:

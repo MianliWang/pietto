@@ -141,8 +141,9 @@ def _corpus_digest() -> str:
 
 def test_phase56_predecessor_and_extension_signature_posture_are_exact() -> None:
     handoff = _read(PHASE56_HANDOFF)
-    assert "test_phase57_extension_signature_handoff_is_exact_and_unimplemented" in (
-        handoff
+    assert (
+        "test_phase57_extension_signature_provider_handoff_remains_unimplemented"
+        in handoff
     )
     assert EXPECTED_CORPUS_DIGEST in handoff
 
@@ -211,15 +212,18 @@ def test_phase56_predecessor_and_extension_signature_posture_are_exact() -> None
     assert _corpus_digest() == EXPECTED_CORPUS_DIGEST
 
 
-def test_no_catalog_concrete_runtime_package_or_public_behavior_exists() -> None:
+def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior() -> (
+    None
+):
     source_root = REPO_ROOT / "src/pietto"
+    catalog_path = source_root / "semantic/extension_catalog.py"
     extension_catalog_modules = tuple(
         path.relative_to(REPO_ROOT).as_posix()
         for path in source_root.rglob("*.py")
         if "extension" in path.stem
         and ("catalog" in path.stem or "signature" in path.stem)
     )
-    assert extension_catalog_modules == ()
+    assert extension_catalog_modules == ("src/pietto/semantic/extension_catalog.py",)
 
     facts = tuple(fact for family in _provider_families() for fact in family)
     named_extensions = {"pgvector", "pg_trgm", "PostGIS", "TimescaleDB"}
@@ -231,7 +235,9 @@ def test_no_catalog_concrete_runtime_package_or_public_behavior_exists() -> None
     )
 
     production_source = "\n".join(
-        _read(path) for path in sorted(source_root.rglob("*.py"))
+        _read(path)
+        for path in sorted(source_root.rglob("*.py"))
+        if path != catalog_path
     )
     for forbidden in (
         "create extension",
@@ -246,11 +252,27 @@ def test_no_catalog_concrete_runtime_package_or_public_behavior_exists() -> None
         "timescaledb",
     ):
         assert forbidden not in production_source.lower()
+    catalog_source = _read(catalog_path).lower()
+    for forbidden in (
+        "capabilityfact",
+        "canonical_capability_provider_inputs",
+        "database connection",
+        "installation",
+        "create extension",
+        "pgvector",
+        "pg_trgm",
+        "postgis",
+        "timescaledb",
+    ):
+        assert forbidden not in catalog_source
     assert "extension_catalog" not in inspect.getsource(package_manifest)
 
     for module in (pietto, semantic_package, project_package):
         assert not hasattr(module, "ExtensionCatalog")
         assert not hasattr(module, "PostgreSQLExtensionCatalog")
+        assert not hasattr(module, "ExtensionCatalogMetadata")
+        assert not hasattr(module, "ExtensionCatalogTarget")
+    assert "extension_catalog" not in inspect.getsource(providers)
     for source in (
         inspect.getsource(checking),
         inspect.getsource(matrix),
@@ -536,10 +558,11 @@ def test_future_readiness_package_public_release_and_lifecycle_locks_are_exact()
         ("Phase 55", "`COMPLETED`"),
         ("Phase 56", "`COMPLETED`"),
         ("Phase 57", "`ACTIVE`"),
-        ("Slice 1", "`CURRENT`"),
-        ("Next", "`PHASE57_SLICE1_LEAN`"),
+        ("Slice 1", "`COMPLETED`"),
+        ("Slice 2", "`CURRENT`"),
+        ("Next", "`PHASE57_SLICE2_LEAN`"),
     )
     status = _read(STATUS)
-    assert "Live Git and natural exact-head CI own\nSlice 1 completion" in status
+    assert "Live Git and natural exact-head CI own\nSlice 2 completion" in status
     assert "no post-CI status-flip commit is required" in status
-    assert "does\nnot authorize Slice 2" in status
+    assert "does\nnot authorize Slice 3" in status

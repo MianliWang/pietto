@@ -138,6 +138,7 @@ def _required_runtime_files(prefix: str) -> frozenset[str]:
         f"{prefix}/cli.py",
         f"{prefix}/parser_api.py",
         f"{prefix}/semantic/__init__.py",
+        f"{prefix}/semantic/extension_catalog.py",
         f"{prefix}/ir/__init__.py",
         f"{prefix}/sql/postgres.py",
         f"{prefix}/sql/mysql.py",
@@ -307,6 +308,19 @@ def _smoke_installed_cli(
 
     _copy_smoke_inputs(scratch_dir)
     environment = _clean_environment()
+
+    _run_command(
+        "installed private extension catalog import",
+        (
+            str(_venv_python(venv_dir)),
+            "-I",
+            "-c",
+            "import pietto.semantic.extension_catalog",
+        ),
+        cwd=scratch_dir,
+        capture_output=True,
+        env=environment,
+    )
 
     version = _run_installed_cli(
         cli_path,

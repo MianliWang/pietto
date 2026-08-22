@@ -111,12 +111,12 @@ fail closed at the Phase 57 Slice 1 baseline.
 
 ## Phase 57 route
 
-Phase 57 is active and Slice 1 is current. The initial route has 12 slices.
-Evidence may expand it up to 16 slices only through an explicit evidence-backed
-route update when genuinely independent ownership emerges. Never pad the route,
-compress independent responsibilities to remain at 12, or silently reorder
-published ownership. These rows assign ownership only; they do not authorize a
-later slice.
+Phase 57 is active, Slice 1 is completed, and Slice 2 is current. The initial
+route has 12 slices. Evidence may expand it up to 16 slices only through an
+explicit evidence-backed route update when genuinely independent ownership
+emerges. Never pad the route, compress independent responsibilities to remain
+at 12, or silently reorder published ownership. These rows assign ownership
+only; they do not authorize a later slice.
 
 | Slice | Owner |
 | ---: | --- |
@@ -144,6 +144,13 @@ runtime discovery, SQL lowering, public portability output, package asset,
 remote transport, solver, lockfile, tag, Release, or package publication.
 The controlling architecture is
 [Phase 57 Slice 1 scope lock](spec/phase57-postgresql-extension-signature-catalog-scope-lock-v1.md).
+
+Slice 2 establishes the separate private extension-catalog schema marker,
+catalog identity/release reference, exact four-part target, source provenance,
+ordered source occurrences, and metadata header. It adds no type reference,
+entry, construction, completeness, selection, provider, inspection, package
+asset, public, runtime, or SQL behavior. The controlling foundation is
+[Phase 57 Slice 2 identity and provenance](spec/phase57-extension-catalog-schema-identity-target-source-provenance-v1.md).
 
 ## Retained later ownership
 
