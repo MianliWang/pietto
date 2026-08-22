@@ -1,10 +1,11 @@
-"""Private extension-catalog identity, target, and source-provenance schema."""
+"""Private extension-catalog schema, entries, and constructed artifact."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Set
-from dataclasses import dataclass
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 from enum import StrEnum
+import hashlib
 from pathlib import PurePosixPath, PureWindowsPath
 
 from pietto.semantic.generic_compatibility import LogicalTypeIdentity
@@ -138,7 +139,7 @@ class ExtensionCatalogMetadata:
         if type(self.target) is not ExtensionCatalogTarget:
             raise ValueError("catalog metadata requires an exact target")
         occurrences = _freeze_source_occurrences(self.source_occurrences)
-        if any(occurrence.owner is not self.catalog for occurrence in occurrences):
+        if any(occurrence.owner != self.catalog for occurrence in occurrences):
             raise ValueError("catalog sources require exact owner authority")
         object.__setattr__(self, "source_occurrences", occurrences)
 
@@ -705,3 +706,567 @@ class ExtensionCastCatalogEntry:
             *_type_use_reasons((self.target_type,)),
         )
         _validate_entry_matchability(self.evidence, required_reasons)
+
+
+type _ExtensionCatalogEntry = (
+    ExtensionNativeTypeCatalogEntry
+    | ExtensionScalarFunctionCatalogEntry
+    | ExtensionAggregateCatalogEntry
+    | ExtensionOperatorCatalogEntry
+    | ExtensionCastCatalogEntry
+)
+type _ExtensionCatalogLookupIdentity = (
+    ExtensionCatalogTypeReference
+    | PostgreSQLCallableIdentity
+    | PostgreSQLOperatorIdentity
+    | PostgreSQLCastIdentity
+)
+
+
+class ExtensionCatalogEntryFamily(StrEnum):
+    NATIVE_TYPE = "native_type"
+    SCALAR_FUNCTION = "scalar_function"
+    AGGREGATE = "aggregate"
+    OPERATOR = "operator"
+    CAST = "cast"
+
+
+def _validate_lookup_identity(
+    family: ExtensionCatalogEntryFamily,
+    identity: object,
+) -> _ExtensionCatalogLookupIdentity:
+    if family is ExtensionCatalogEntryFamily.NATIVE_TYPE:
+        if (
+            type(identity) is not ExtensionCatalogTypeReference
+            or identity.kind is not ExtensionCatalogTypeReferenceKind.EXTENSION_NATIVE
+        ):
+            raise ValueError("native-type lookup scope requires exact native identity")
+    elif family in {
+        ExtensionCatalogEntryFamily.SCALAR_FUNCTION,
+        ExtensionCatalogEntryFamily.AGGREGATE,
+    }:
+        if type(identity) is not PostgreSQLCallableIdentity:
+            raise ValueError("callable lookup scope requires exact callable identity")
+    elif family is ExtensionCatalogEntryFamily.OPERATOR:
+        if type(identity) is not PostgreSQLOperatorIdentity:
+            raise ValueError("operator lookup scope requires exact operator identity")
+    elif type(identity) is not PostgreSQLCastIdentity:
+        raise ValueError("cast lookup scope requires exact cast identity")
+    return identity
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionCatalogLookupScope:
+    family: ExtensionCatalogEntryFamily
+    identity: _ExtensionCatalogLookupIdentity
+
+    def __post_init__(self) -> None:
+        if type(self.family) is not ExtensionCatalogEntryFamily:
+            raise ValueError("catalog lookup scope requires an exact entry family")
+        _validate_lookup_identity(self.family, self.identity)
+
+
+class ExtensionCatalogCompletenessClaimKind(StrEnum):
+    COMPLETE = "complete"
+    INCOMPLETE = "incomplete"
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionCatalogCompletenessClaim:
+    scope: ExtensionCatalogLookupScope
+    kind: ExtensionCatalogCompletenessClaimKind
+    source_positions: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.scope) is not ExtensionCatalogLookupScope:
+            raise ValueError("completeness claim requires an exact lookup scope")
+        if type(self.kind) is not ExtensionCatalogCompletenessClaimKind:
+            raise ValueError("completeness claim requires an exact kind")
+        object.__setattr__(
+            self,
+            "source_positions",
+            _freeze_source_positions(self.source_positions),
+        )
+
+
+class ExtensionCatalogExactEntryGroupState(StrEnum):
+    UNIQUE = "unique"
+    CONSISTENT_DUPLICATE = "consistent_duplicate"
+    EVIDENCE_CONFLICT = "evidence_conflict"
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ExtensionCatalogExactEntryGroup:
+    scope: ExtensionCatalogLookupScope
+    state: ExtensionCatalogExactEntryGroupState
+    entries: tuple[_ExtensionCatalogEntry, ...]
+
+    def __new__(cls) -> ExtensionCatalogExactEntryGroup:
+        raise TypeError("exact entry groups require canonical construction")
+
+
+class ExtensionCatalogCompletenessState(StrEnum):
+    COMPLETE = "complete"
+    INCOMPLETE = "incomplete"
+    CONFLICT = "conflict"
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ExtensionCatalogCompletenessGroup:
+    scope: ExtensionCatalogLookupScope
+    state: ExtensionCatalogCompletenessState
+    claims: tuple[ExtensionCatalogCompletenessClaim, ...]
+
+    def __new__(cls) -> ExtensionCatalogCompletenessGroup:
+        raise TypeError("completeness groups require canonical construction")
+
+
+class ExtensionCatalogStructuralFailureKind(StrEnum):
+    INVALID_METADATA = "invalid_metadata"
+    INVALID_ENTRY_COLLECTION = "invalid_entry_collection"
+    INVALID_ENTRY = "invalid_entry"
+    INVALID_COMPLETENESS_COLLECTION = "invalid_completeness_collection"
+    INVALID_COMPLETENESS_DECLARATION = "invalid_completeness_declaration"
+    SOURCE_POSITION_SEQUENCE_MISMATCH = "source_position_sequence_mismatch"
+    SOURCE_OWNER_MISMATCH = "source_owner_mismatch"
+    ENTRY_SOURCE_POSITION_OUT_OF_RANGE = "entry_source_position_out_of_range"
+    COMPLETENESS_SOURCE_POSITION_OUT_OF_RANGE = (
+        "completeness_source_position_out_of_range"
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionCatalogStructuralFailure:
+    kind: ExtensionCatalogStructuralFailureKind
+    item_position: int | None = None
+    source_position: int | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not ExtensionCatalogStructuralFailureKind:
+            raise ValueError("catalog structural failure requires an exact kind")
+        for value in (self.item_position, self.source_position):
+            if value is not None and (type(value) is not int or value < 0):
+                raise ValueError("catalog structural failure positions must be exact")
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ConstructedExtensionCatalog:
+    metadata: ExtensionCatalogMetadata
+    entries: tuple[_ExtensionCatalogEntry, ...]
+    exact_entry_groups: tuple[ExtensionCatalogExactEntryGroup, ...]
+    completeness_claims: tuple[ExtensionCatalogCompletenessClaim, ...]
+    completeness_groups: tuple[ExtensionCatalogCompletenessGroup, ...]
+    canonical_bytes: bytes = field(repr=False)
+    content_sha256: str
+
+    def __new__(cls) -> ConstructedExtensionCatalog:
+        raise TypeError("constructed extension catalogs require canonical construction")
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ExtensionCatalogConstructionResult:
+    catalog: ConstructedExtensionCatalog | None
+    failures: tuple[ExtensionCatalogStructuralFailure, ...]
+
+    def __new__(cls) -> ExtensionCatalogConstructionResult:
+        raise TypeError("catalog construction results require canonical construction")
+
+    @property
+    def ok(self) -> bool:
+        return self.catalog is not None
+
+
+def _entry_family(entry: _ExtensionCatalogEntry) -> ExtensionCatalogEntryFamily:
+    if isinstance(entry, ExtensionNativeTypeCatalogEntry):
+        return ExtensionCatalogEntryFamily.NATIVE_TYPE
+    if isinstance(entry, ExtensionScalarFunctionCatalogEntry):
+        return ExtensionCatalogEntryFamily.SCALAR_FUNCTION
+    if isinstance(entry, ExtensionAggregateCatalogEntry):
+        return ExtensionCatalogEntryFamily.AGGREGATE
+    if isinstance(entry, ExtensionOperatorCatalogEntry):
+        return ExtensionCatalogEntryFamily.OPERATOR
+    if isinstance(entry, ExtensionCastCatalogEntry):
+        return ExtensionCatalogEntryFamily.CAST
+    raise TypeError("catalog entry requires one exact entry family")
+
+
+def _entry_scope(
+    entry: _ExtensionCatalogEntry,
+) -> ExtensionCatalogLookupScope | None:
+    if entry.evidence.matchability is not ExtensionCatalogMatchability.EXACT_MATCHABLE:
+        return None
+    family = _entry_family(entry)
+    if isinstance(entry, ExtensionNativeTypeCatalogEntry):
+        identity: _ExtensionCatalogLookupIdentity | None = entry.type_identity
+    elif isinstance(
+        entry,
+        (ExtensionScalarFunctionCatalogEntry, ExtensionAggregateCatalogEntry),
+    ):
+        identity = entry.declaration.identity
+    elif isinstance(entry, (ExtensionOperatorCatalogEntry, ExtensionCastCatalogEntry)):
+        identity = entry.identity
+    else:
+        raise TypeError("catalog entry requires one exact entry family")
+    if identity is None:
+        raise ValueError("exact-matchable entry requires an exact lookup identity")
+    return ExtensionCatalogLookupScope(family, identity)
+
+
+def _entry_semantic_payload(entry: _ExtensionCatalogEntry) -> tuple[object, ...]:
+    evidence = entry.evidence
+    common: tuple[object, ...] = (
+        evidence.matchability,
+        evidence.exposure,
+        evidence.unmodeled_reasons,
+    )
+    if isinstance(entry, ExtensionNativeTypeCatalogEntry):
+        return (entry.type_identity, entry.logical_mapping, *common)
+    if isinstance(entry, ExtensionScalarFunctionCatalogEntry):
+        return (
+            entry.declaration,
+            entry.result_type,
+            entry.null_call_behavior,
+            entry.volatility,
+            entry.parallel_safety,
+            entry.has_default_arguments,
+            entry.is_variadic,
+            entry.returns_set,
+            entry.has_polymorphic_or_pseudo_types,
+            *common,
+        )
+    if isinstance(entry, ExtensionAggregateCatalogEntry):
+        return (
+            entry.kind,
+            entry.declaration,
+            entry.result_type,
+            entry.parallel_safety,
+            entry.has_direct_arguments,
+            entry.is_variadic,
+            *common,
+        )
+    if isinstance(entry, ExtensionOperatorCatalogEntry):
+        return (
+            entry.operator_name,
+            entry.arity,
+            entry.operand_types,
+            entry.identity,
+            entry.result_type,
+            *common,
+        )
+    if isinstance(entry, ExtensionCastCatalogEntry):
+        return (
+            entry.source_type,
+            entry.target_type,
+            entry.identity,
+            entry.context,
+            entry.method,
+            *common,
+        )
+    raise TypeError("catalog entry requires one exact entry family")
+
+
+def _frame(payload: bytes) -> bytes:
+    return len(payload).to_bytes(8, "big") + payload
+
+
+def _encode_catalog_value(value: object) -> bytes:
+    if value is None:
+        return b"n"
+    if type(value) is bool:
+        return b"b1" if value else b"b0"
+    if type(value) is int:
+        return b"i" + _frame(str(value).encode("ascii"))
+    if isinstance(value, StrEnum):
+        return (
+            b"e"
+            + _frame(type(value).__qualname__.encode("utf-8"))
+            + _frame(value.value.encode("utf-8"))
+        )
+    if type(value) is str:
+        return b"s" + _frame(value.encode("utf-8"))
+    if type(value) is tuple:
+        return (
+            b"t"
+            + len(value).to_bytes(8, "big")
+            + b"".join(_frame(_encode_catalog_value(item)) for item in value)
+        )
+    if is_dataclass(value) and not isinstance(value, type):
+        data_fields = fields(value)
+        return (
+            b"d"
+            + _frame(type(value).__qualname__.encode("utf-8"))
+            + len(data_fields).to_bytes(8, "big")
+            + b"".join(
+                _frame(item.name.encode("utf-8"))
+                + _frame(_encode_catalog_value(getattr(value, item.name)))
+                for item in data_fields
+            )
+        )
+    raise TypeError("catalog canonical encoding received an unsupported value")
+
+
+def _entry_sort_key(entry: _ExtensionCatalogEntry) -> bytes:
+    return _encode_catalog_value((_entry_family(entry), entry))
+
+
+def _freeze_construction_collection(
+    values: Iterable[object],
+) -> tuple[object, ...] | None:
+    if isinstance(values, (str, bytes, Mapping, Set)):
+        return None
+    try:
+        return tuple(values)
+    except TypeError:
+        return None
+
+
+def _construction_result(
+    catalog: ConstructedExtensionCatalog | None,
+    failures: tuple[ExtensionCatalogStructuralFailure, ...],
+) -> ExtensionCatalogConstructionResult:
+    result = object.__new__(ExtensionCatalogConstructionResult)
+    object.__setattr__(result, "catalog", catalog)
+    object.__setattr__(result, "failures", failures)
+    return result
+
+
+def _new_exact_entry_group(
+    scope: ExtensionCatalogLookupScope,
+    entries: tuple[_ExtensionCatalogEntry, ...],
+) -> ExtensionCatalogExactEntryGroup:
+    payloads = tuple(_entry_semantic_payload(entry) for entry in entries)
+    if len(entries) == 1:
+        state = ExtensionCatalogExactEntryGroupState.UNIQUE
+    elif all(payload == payloads[0] for payload in payloads[1:]):
+        state = ExtensionCatalogExactEntryGroupState.CONSISTENT_DUPLICATE
+    else:
+        state = ExtensionCatalogExactEntryGroupState.EVIDENCE_CONFLICT
+    group = object.__new__(ExtensionCatalogExactEntryGroup)
+    object.__setattr__(group, "scope", scope)
+    object.__setattr__(group, "state", state)
+    object.__setattr__(group, "entries", entries)
+    return group
+
+
+def _new_completeness_group(
+    scope: ExtensionCatalogLookupScope,
+    claims: tuple[ExtensionCatalogCompletenessClaim, ...],
+) -> ExtensionCatalogCompletenessGroup:
+    kinds = {claim.kind for claim in claims}
+    if kinds == {ExtensionCatalogCompletenessClaimKind.COMPLETE}:
+        state = ExtensionCatalogCompletenessState.COMPLETE
+    elif kinds == {ExtensionCatalogCompletenessClaimKind.INCOMPLETE}:
+        state = ExtensionCatalogCompletenessState.INCOMPLETE
+    else:
+        state = ExtensionCatalogCompletenessState.CONFLICT
+    group = object.__new__(ExtensionCatalogCompletenessGroup)
+    object.__setattr__(group, "scope", scope)
+    object.__setattr__(group, "state", state)
+    object.__setattr__(group, "claims", claims)
+    return group
+
+
+def _construct_extension_catalog(
+    metadata: ExtensionCatalogMetadata,
+    entries: Iterable[_ExtensionCatalogEntry],
+    completeness_claims: Iterable[ExtensionCatalogCompletenessClaim],
+) -> ExtensionCatalogConstructionResult:
+    failures: list[ExtensionCatalogStructuralFailure] = []
+
+    if type(metadata) is not ExtensionCatalogMetadata:
+        return _construction_result(
+            None,
+            (
+                ExtensionCatalogStructuralFailure(
+                    ExtensionCatalogStructuralFailureKind.INVALID_METADATA
+                ),
+            ),
+        )
+    if (
+        type(metadata.schema_version) is not ExtensionCatalogSchemaVersion
+        or type(metadata.catalog) is not ExtensionCatalogReference
+        or type(metadata.target) is not ExtensionCatalogTarget
+        or type(metadata.source_occurrences) is not tuple
+    ):
+        failures.append(
+            ExtensionCatalogStructuralFailure(
+                ExtensionCatalogStructuralFailureKind.INVALID_METADATA
+            )
+        )
+    else:
+        for position, occurrence in enumerate(metadata.source_occurrences):
+            if type(occurrence) is not ExtensionCatalogSourceOccurrence:
+                failures.append(
+                    ExtensionCatalogStructuralFailure(
+                        ExtensionCatalogStructuralFailureKind.INVALID_METADATA,
+                        item_position=position,
+                    )
+                )
+                continue
+            if occurrence.position != position:
+                failures.append(
+                    ExtensionCatalogStructuralFailure(
+                        ExtensionCatalogStructuralFailureKind.SOURCE_POSITION_SEQUENCE_MISMATCH,
+                        item_position=position,
+                        source_position=occurrence.position,
+                    )
+                )
+            if occurrence.owner != metadata.catalog:
+                failures.append(
+                    ExtensionCatalogStructuralFailure(
+                        ExtensionCatalogStructuralFailureKind.SOURCE_OWNER_MISMATCH,
+                        item_position=position,
+                    )
+                )
+
+    frozen_entries = _freeze_construction_collection(entries)
+    if frozen_entries is None:
+        failures.append(
+            ExtensionCatalogStructuralFailure(
+                ExtensionCatalogStructuralFailureKind.INVALID_ENTRY_COLLECTION
+            )
+        )
+    frozen_claims = _freeze_construction_collection(completeness_claims)
+    if frozen_claims is None:
+        failures.append(
+            ExtensionCatalogStructuralFailure(
+                ExtensionCatalogStructuralFailureKind.INVALID_COMPLETENESS_COLLECTION
+            )
+        )
+    if frozen_entries is None or frozen_claims is None:
+        return _construction_result(None, tuple(failures))
+
+    valid_entries: list[_ExtensionCatalogEntry] = []
+    for item_position, entry in enumerate(frozen_entries):
+        if type(entry) not in {
+            ExtensionNativeTypeCatalogEntry,
+            ExtensionScalarFunctionCatalogEntry,
+            ExtensionAggregateCatalogEntry,
+            ExtensionOperatorCatalogEntry,
+            ExtensionCastCatalogEntry,
+        }:
+            failures.append(
+                ExtensionCatalogStructuralFailure(
+                    ExtensionCatalogStructuralFailureKind.INVALID_ENTRY,
+                    item_position=item_position,
+                )
+            )
+            continue
+        try:
+            assert isinstance(
+                entry,
+                (
+                    ExtensionNativeTypeCatalogEntry,
+                    ExtensionScalarFunctionCatalogEntry,
+                    ExtensionAggregateCatalogEntry,
+                    ExtensionOperatorCatalogEntry,
+                    ExtensionCastCatalogEntry,
+                ),
+            )
+            replace(entry)
+            replace(entry.evidence)
+        except (TypeError, ValueError):
+            failures.append(
+                ExtensionCatalogStructuralFailure(
+                    ExtensionCatalogStructuralFailureKind.INVALID_ENTRY,
+                    item_position=item_position,
+                )
+            )
+            continue
+        valid_entries.append(entry)
+        for source_position in entry.evidence.source_positions:
+            if source_position >= len(metadata.source_occurrences):
+                failures.append(
+                    ExtensionCatalogStructuralFailure(
+                        ExtensionCatalogStructuralFailureKind.ENTRY_SOURCE_POSITION_OUT_OF_RANGE,
+                        item_position=item_position,
+                        source_position=source_position,
+                    )
+                )
+
+    valid_claims: list[ExtensionCatalogCompletenessClaim] = []
+    for item_position, claim in enumerate(frozen_claims):
+        if type(claim) is not ExtensionCatalogCompletenessClaim:
+            failures.append(
+                ExtensionCatalogStructuralFailure(
+                    ExtensionCatalogStructuralFailureKind.INVALID_COMPLETENESS_DECLARATION,
+                    item_position=item_position,
+                )
+            )
+            continue
+        try:
+            replace(claim)
+            replace(claim.scope)
+        except (TypeError, ValueError):
+            failures.append(
+                ExtensionCatalogStructuralFailure(
+                    ExtensionCatalogStructuralFailureKind.INVALID_COMPLETENESS_DECLARATION,
+                    item_position=item_position,
+                )
+            )
+            continue
+        valid_claims.append(claim)
+        for source_position in claim.source_positions:
+            if source_position >= len(metadata.source_occurrences):
+                failures.append(
+                    ExtensionCatalogStructuralFailure(
+                        ExtensionCatalogStructuralFailureKind.COMPLETENESS_SOURCE_POSITION_OUT_OF_RANGE,
+                        item_position=item_position,
+                        source_position=source_position,
+                    )
+                )
+
+    if failures:
+        return _construction_result(None, tuple(failures))
+
+    canonical_entries = tuple(sorted(valid_entries, key=_entry_sort_key))
+    entries_by_scope: dict[
+        ExtensionCatalogLookupScope, list[_ExtensionCatalogEntry]
+    ] = {}
+    for entry in canonical_entries:
+        scope = _entry_scope(entry)
+        if scope is not None:
+            entries_by_scope.setdefault(scope, []).append(entry)
+    exact_entry_groups = tuple(
+        _new_exact_entry_group(
+            scope,
+            tuple(sorted(entries_by_scope[scope], key=_entry_sort_key)),
+        )
+        for scope in sorted(entries_by_scope, key=_encode_catalog_value)
+    )
+
+    canonical_claims = tuple(sorted(valid_claims, key=_encode_catalog_value))
+    claims_by_scope: dict[
+        ExtensionCatalogLookupScope, list[ExtensionCatalogCompletenessClaim]
+    ] = {}
+    for claim in canonical_claims:
+        claims_by_scope.setdefault(claim.scope, []).append(claim)
+    completeness_groups = tuple(
+        _new_completeness_group(
+            scope,
+            tuple(sorted(claims_by_scope[scope], key=_encode_catalog_value)),
+        )
+        for scope in sorted(claims_by_scope, key=_encode_catalog_value)
+    )
+
+    canonical_bytes = _encode_catalog_value(
+        (
+            "extension_catalog",
+            metadata,
+            canonical_entries,
+            exact_entry_groups,
+            canonical_claims,
+            completeness_groups,
+        )
+    )
+    catalog = object.__new__(ConstructedExtensionCatalog)
+    object.__setattr__(catalog, "metadata", metadata)
+    object.__setattr__(catalog, "entries", canonical_entries)
+    object.__setattr__(catalog, "exact_entry_groups", exact_entry_groups)
+    object.__setattr__(catalog, "completeness_claims", canonical_claims)
+    object.__setattr__(catalog, "completeness_groups", completeness_groups)
+    object.__setattr__(catalog, "canonical_bytes", canonical_bytes)
+    object.__setattr__(
+        catalog, "content_sha256", hashlib.sha256(canonical_bytes).hexdigest()
+    )
+    return _construction_result(catalog, ())

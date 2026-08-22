@@ -111,7 +111,7 @@ fail closed at the Phase 57 Slice 1 baseline.
 
 ## Phase 57 route
 
-Phase 57 is active, Slices 1–3 are completed, and Slice 4 is current. The
+Phase 57 is active, Slices 1–4 are completed, and Slice 5 is current. The
 initial route has 12 slices. Evidence may expand it up to 16 slices only through
 an explicit evidence-backed route update when genuinely independent ownership
 emerges. Never pad the route, compress independent responsibilities to remain
@@ -168,6 +168,15 @@ invalid. Construction, conflicts, completeness, canonical bytes/digest,
 provider integration, coercion, runtime identity, and lowering remain later
 ownership. The controlling contract is
 [Phase 57 Slice 4 entries and matchability](spec/phase57-extension-catalog-entry-matchability-contract-v1.md).
+
+Slice 5 constructs one deterministic private catalog artifact from the Slice
+2–4 authorities. It validates source binding by semantic catalog coordinate,
+retains structural failures separately from exact-signature evidence conflict,
+groups all five families without a winner, records exact lookup-scoped
+completeness, and derives unambiguous length-framed canonical bytes plus their
+SHA-256 content identity. It adds no selection, provider, concrete extension,
+inspection, runtime, package, or lowering behavior. The controlling contract
+is [Phase 57 Slice 5 construction, completeness, and canonical identity](spec/phase57-extension-catalog-construction-completeness-canonical-v1.md).
 
 ## Retained later ownership
 

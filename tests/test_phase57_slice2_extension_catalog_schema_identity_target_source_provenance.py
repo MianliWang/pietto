@@ -350,19 +350,20 @@ def test_source_provenance_and_occurrences_preserve_complete_ordered_authority()
 
     equal_foreign_owner = _reference()
     assert equal_foreign_owner == owner and equal_foreign_owner is not owner
-    with pytest.raises(ValueError, match="exact owner authority"):
-        ExtensionCatalogMetadata(
-            ExtensionCatalogSchemaVersion.EXTENSION_CATALOG_V1,
-            owner,
-            _target(),
-            (
-                ExtensionCatalogSourceOccurrence(
-                    equal_foreign_owner,
-                    0,
-                    provenance,
-                ),
+    reconstructed = ExtensionCatalogMetadata(
+        ExtensionCatalogSchemaVersion.EXTENSION_CATALOG_V1,
+        owner,
+        _target(),
+        (
+            ExtensionCatalogSourceOccurrence(
+                equal_foreign_owner,
+                0,
+                provenance,
             ),
-        )
+        ),
+    )
+    assert reconstructed.source_occurrences[0].owner == owner
+    assert reconstructed.source_occurrences[0].owner is equal_foreign_owner
 
 
 def test_metadata_is_exact_immutable_private_and_not_a_populated_catalog() -> None:
@@ -416,7 +417,7 @@ def test_metadata_is_exact_immutable_private_and_not_a_populated_catalog() -> No
         assert not hasattr(metadata, forbidden)
 
 
-def test_module_is_stdlib_only_data_only_and_has_no_later_slice_behavior() -> None:
+def test_module_remains_stdlib_only_data_only_and_non_executable() -> None:
     source = inspect.getsource(extension_catalog)
     tree = ast.parse(source)
     imported_modules = {
@@ -445,9 +446,6 @@ def test_module_is_stdlib_only_data_only_and_has_no_later_slice_behavior() -> No
         "environ",
         "datetime",
         "timestamp",
-        "hashlib",
-        "sha256",
-        "canonical_bytes",
         "lookup_capability",
         "domain_complete",
         "provider",
@@ -466,16 +464,7 @@ def test_module_is_stdlib_only_data_only_and_has_no_later_slice_behavior() -> No
         ".lstat(",
     ):
         assert forbidden not in source.lower()
-    for forbidden in (
-        "sorted(",
-        ".sort(",
-        "set(",
-        "dict(",
-        "winner",
-        "precedence",
-        "override",
-        "dedup",
-    ):
+    for forbidden in ("winner", "precedence", "override", "dedup"):
         assert forbidden not in source.lower()
     assert "object.__setattr__" in source
 
@@ -614,7 +603,7 @@ def test_spec_lifecycle_route_and_installed_package_smoke_are_exact() -> None:
         assert term in non_scope
 
     roadmap = _read(ROADMAP)
-    assert "Phase 57 is active, Slices 1–3 are completed, and Slice 4 is current" in (
+    assert "Phase 57 is active, Slices 1–4 are completed, and Slice 5 is current" in (
         roadmap
     )
     status_rows = _table_rows(_read(STATUS))[1:]
@@ -623,13 +612,13 @@ def test_spec_lifecycle_route_and_installed_package_smoke_are_exact() -> None:
         ("Phase 55", "`COMPLETED`"),
         ("Phase 56", "`COMPLETED`"),
         ("Phase 57", "`ACTIVE`"),
-        ("Slices 1–3", "`COMPLETED`"),
-        ("Slice 4", "`CURRENT`"),
-        ("Next", "`PHASE57_SLICE4_LEAN`"),
+        ("Slices 1–4", "`COMPLETED`"),
+        ("Slice 5", "`CURRENT`"),
+        ("Next", "`PHASE57_SLICE5_LEAN`"),
     )
     status = _read(STATUS)
-    assert "Live Git and natural exact-head CI own\nSlice 4 completion" in status
-    assert "does\nnot authorize Slice 5" in status
+    assert "Live Git and natural exact-head CI own\nSlice 5 completion" in status
+    assert "does\nnot authorize Slice 6" in status
 
     package_smoke = _read(PACKAGE_SMOKE)
     assert 'f"{prefix}/semantic/extension_catalog.py"' in package_smoke

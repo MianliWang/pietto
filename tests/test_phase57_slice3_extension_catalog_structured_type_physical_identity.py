@@ -399,7 +399,7 @@ def test_new_identity_carriers_are_private_immutable_and_atomic_only() -> None:
         assert all(not hasattr(module, symbol) for symbol in symbols)
 
 
-def test_module_has_no_provider_construction_runtime_or_lowering() -> None:
+def test_module_has_no_provider_runtime_or_lowering() -> None:
     source = inspect.getsource(extension_catalog)
     tree = ast.parse(source)
     imported_modules = {
@@ -432,8 +432,6 @@ def test_module_has_no_provider_construction_runtime_or_lowering() -> None:
         "getcwd",
         "environ",
         "overloadselection",
-        "canonical_bytes",
-        "content_digest",
         "lowering_template",
         "sql_snippet",
         "emitter",
@@ -562,7 +560,7 @@ def test_spec_lifecycle_route_deferred_shapes_and_package_smoke_are_exact() -> N
         assert term in boundaries
 
     roadmap = _read(ROADMAP)
-    assert "Phase 57 is active, Slices 1–3 are completed, and Slice 4 is current" in (
+    assert "Phase 57 is active, Slices 1–4 are completed, and Slice 5 is current" in (
         roadmap
     )
     status_rows = _table_rows(_read(STATUS))[1:]
@@ -571,13 +569,13 @@ def test_spec_lifecycle_route_deferred_shapes_and_package_smoke_are_exact() -> N
         ("Phase 55", "`COMPLETED`"),
         ("Phase 56", "`COMPLETED`"),
         ("Phase 57", "`ACTIVE`"),
-        ("Slices 1–3", "`COMPLETED`"),
-        ("Slice 4", "`CURRENT`"),
-        ("Next", "`PHASE57_SLICE4_LEAN`"),
+        ("Slices 1–4", "`COMPLETED`"),
+        ("Slice 5", "`CURRENT`"),
+        ("Next", "`PHASE57_SLICE5_LEAN`"),
     )
     status = _read(STATUS)
-    assert "Live Git and natural exact-head CI own\nSlice 4 completion" in status
-    assert "does\nnot authorize Slice 5" in status
+    assert "Live Git and natural exact-head CI own\nSlice 5 completion" in status
+    assert "does\nnot authorize Slice 6" in status
     package_smoke = _read(PACKAGE_SMOKE)
     assert 'f"{prefix}/semantic/extension_catalog.py"' in package_smoke
     assert '"import pietto.semantic.extension_catalog"' in package_smoke

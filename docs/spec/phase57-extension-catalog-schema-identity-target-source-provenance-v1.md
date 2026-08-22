@@ -88,8 +88,10 @@ deduplicate, select, rank, override, or define precedence. Equal provenance may
 appear at distinct ordered positions. An empty occurrence tuple is valid in
 this schema; Slice 5 owns any later construction-level source requirement.
 
-Every occurrence must retain the exact metadata catalog-reference authority,
-not merely an equal foreign reference.
+Every occurrence must retain a catalog reference equal to the exact metadata
+catalog coordinate. Separately reconstructed equal namespace, name, and
+release values are valid owner authority; Python object identity is not
+semantic authority. The immutable supplied owner value remains retained.
 
 ## Metadata Boundary
 
