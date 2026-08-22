@@ -28,6 +28,19 @@ from pietto._project.capability_matrix import (
     CapabilityCheckingTargetContext,
     PackageCapabilityCheckingMatrix,
 )
+from pietto._project.capability_pure_boundary import (
+    CAPABILITY_PURE_ABSENT,
+    CapabilityPureDocument,
+    CapabilityPureField,
+    CapabilityPureRecord,
+    CapabilityPureStatus,
+    CapabilityPureValue,
+    capability_pure_boolean,
+    capability_pure_enumeration,
+    capability_pure_integer,
+    capability_pure_text,
+    evaluate_capability_document,
+)
 from pietto._project.model import ProjectRoot
 from pietto._project.package_load_plan import (
     LoadedDependencyPackage,
@@ -761,65 +774,55 @@ def build_capability_inspection(
     )
 
 
-type _EncodedField = tuple[str, str]
+type _EncodedField = tuple[str, CapabilityPureValue]
 type _EncodedScope = tuple[_EncodedField, ...]
 
-_ESCAPES = {"\\": "\\\\", "\t": "\\t", "\n": "\\n", "\r": "\\r"}
 
-
-def _escape_text(value: str) -> str:
-    escaped: list[str] = []
-    for character in value:
-        replacement = _ESCAPES.get(character)
-        if replacement is not None:
-            escaped.append(replacement)
-        elif character < " " or character == "\x7f":
-            escaped.append(f"\\x{ord(character):02x}")
-        elif "\ud800" <= character <= "\udfff":
-            escaped.append(f"\\u{ord(character):04x}")
-        else:
-            escaped.append(character)
-    return "".join(escaped)
-
-
-def _text(value: str) -> str:
+def _text(value: str) -> CapabilityPureValue:
     if type(value) is not str:
         raise TypeError("Canonical capability text must be exact text")
-    return f"s:{_escape_text(value)}"
+    return capability_pure_text(value)
 
 
-def _enumeration(value: StrEnum) -> str:
+def _enumeration(value: StrEnum) -> CapabilityPureValue:
     if not isinstance(value, StrEnum):
         raise TypeError("Canonical capability enumerations require exact enums")
-    return f"e:{_escape_text(value.value)}"
+    return capability_pure_enumeration(value.value)
 
 
-def _integer(value: int) -> str:
+def _integer(value: int) -> CapabilityPureValue:
     if type(value) is not int or value < 0:
         raise ValueError("Canonical capability integers must be non-negative")
-    return f"i:{value}"
+    return capability_pure_integer(value)
 
 
-def _boolean(value: bool) -> str:
+def _boolean(value: bool) -> CapabilityPureValue:
     if type(value) is not bool:
         raise TypeError("Canonical capability booleans must be exact")
-    return "b:true" if value else "b:false"
+    return capability_pure_boolean(value)
 
 
-def _optional_text(value: str | None) -> str:
-    return "n:" if value is None else _text(value)
+def _optional_text(value: str | None) -> CapabilityPureValue:
+    return CAPABILITY_PURE_ABSENT if value is None else _text(value)
 
 
-def _optional_enumeration(value: StrEnum | None) -> str:
-    return "n:" if value is None else _enumeration(value)
+def _optional_enumeration(value: StrEnum | None) -> CapabilityPureValue:
+    return CAPABILITY_PURE_ABSENT if value is None else _enumeration(value)
 
 
 def _record(
-    lines: list[str],
+    records: list[CapabilityPureRecord],
     kind: str,
     *fields: _EncodedField,
 ) -> None:
-    lines.append(kind + "".join(f"\t{key}={value}" for key, value in fields))
+    records.append(
+        CapabilityPureRecord(
+            kind=kind,
+            fields=tuple(
+                CapabilityPureField(key=key, value=value) for key, value in fields
+            ),
+        )
+    )
 
 
 def _profile_fields(profile: CapabilityInspectionProfile) -> _EncodedScope:
@@ -850,7 +853,7 @@ def _key_fields(key: CapabilityInspectionKey) -> _EncodedScope:
 
 
 def _emit_key_operands(
-    lines: list[str],
+    lines: list[CapabilityPureRecord],
     kind: str,
     scope: _EncodedScope,
     key: CapabilityInspectionKey,
@@ -877,7 +880,7 @@ def _availability_fields(
 
 
 def _emit_fact(
-    lines: list[str],
+    lines: list[CapabilityPureRecord],
     axis: str,
     scope: _EncodedScope,
     fact: CapabilityInspectionFact,
@@ -911,7 +914,7 @@ def _emit_fact(
 
 
 def _emit_profile(
-    lines: list[str],
+    lines: list[CapabilityPureRecord],
     kind: str,
     scope: _EncodedScope,
     profile: CapabilityInspectionProfile,
@@ -920,9 +923,23 @@ def _emit_profile(
 
 
 def _serialize_capability_inspection(inspection: CapabilityInspection) -> bytes:
+    document = _capability_pure_document(inspection)
+    outcome = evaluate_capability_document(document)
+    if outcome.status is not CapabilityPureStatus.OK or outcome.canonical_bytes is None:
+        raise ValueError(
+            "Canonical capability payload must evaluate exactly: "
+            f"{outcome.status.value} at record {outcome.record_position} "
+            f"field {outcome.field_position}"
+        )
+    return outcome.canonical_bytes
+
+
+def _capability_pure_document(
+    inspection: CapabilityInspection,
+) -> CapabilityPureDocument:
     if type(inspection) is not CapabilityInspection:
-        raise TypeError("Canonical capability serialization requires an inspection")
-    lines: list[str] = []
+        raise TypeError("Capability pure projection requires an inspection")
+    lines: list[CapabilityPureRecord] = []
     _record(
         lines,
         "inspection",
@@ -1095,7 +1112,9 @@ def _serialize_capability_inspection(inspection: CapabilityInspection) -> bytes:
                 ),
                 (
                     "provider_domain_complete",
-                    "n:" if check is None else _boolean(check.provider_domain_complete),
+                    CAPABILITY_PURE_ABSENT
+                    if check is None
+                    else _boolean(check.provider_domain_complete),
                 ),
                 (
                     "provider_unknown_reason",
@@ -1145,4 +1164,4 @@ def _serialize_capability_inspection(inspection: CapabilityInspection) -> bytes:
                     (*cell_scope, ("fact", _integer(fact_position))),
                     fact,
                 )
-    return ("\n".join(lines) + "\n").encode("utf-8")
+    return CapabilityPureDocument(records=tuple(lines))

@@ -843,6 +843,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
     checking_rel = "src/pietto/_project/capability_checking.py"
     matrix_rel = "src/pietto/_project/capability_matrix.py"
     inspection_rel = "src/pietto/_project/capability_inspection.py"
+    pure_boundary_rel = "src/pietto/_project/capability_pure_boundary.py"
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
         relative = path.relative_to(REPO_ROOT).as_posix()
         if (
@@ -854,6 +855,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                 checking_rel,
                 matrix_rel,
                 inspection_rel,
+                pure_boundary_rel,
             }
             or "generated" in path.parts
         ):
@@ -875,6 +877,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                     checking_rel,
                     matrix_rel,
                     inspection_rel,
+                    pure_boundary_rel,
                 }
             )
     provider_source = _read(REPO_ROOT / PROVIDER_REL)
@@ -918,6 +921,9 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
         (f"semantic.{stem}" in inspection_source) is (stem in inspection_stems)
         for stem in module_stems
     )
+    pure_boundary_source = _read(REPO_ROOT / pure_boundary_rel)
+    assert all(name not in pure_boundary_source for name in forbidden_names)
+    assert all(f"semantic.{stem}" not in pure_boundary_source for stem in module_stems)
     preservation_source = _read(REPO_ROOT / preservation_rel)
     assert "canonical_capability_provider_inputs" in preservation_source
     assert all(name not in preservation_source for name in forbidden_names)

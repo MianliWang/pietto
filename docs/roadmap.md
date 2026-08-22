@@ -31,7 +31,7 @@ All 12 slices are completed. Phase 55 is complete.
 
 ## Phase 56 route
 
-Phase 56 is active, Slices 1–7 are completed, and Slice 8 is current. These
+Phase 56 is active, Slices 1–8 are completed, and Slice 9 is current. These
 rows assign ownership only; they do not authorize a later slice.
 
 | Slice | Owner |
@@ -97,6 +97,12 @@ It preserves package, requirement, target, availability, and checking evidence
 plus deterministic canonical bytes without becoming a new checker or
 portability classifier. Slice 9 owns the separate pure evaluator and
 differential compatibility boundary.
+
+Capability canonical serialization now flows through one private total pure
+evaluator. A frozen accepted/rejected differential corpus proves byte-exact
+compatibility plus interpreter and hash-seed stability. Public capability
+exposure remains Phase 58 ownership; Slice 10 owns the completion audit and
+Phase 57 handoff.
 
 ## Retained later ownership
 

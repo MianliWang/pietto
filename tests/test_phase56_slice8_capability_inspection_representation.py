@@ -919,6 +919,9 @@ def test_inspection_never_recomputes_checking_or_matrix_truth(
     assert "compose_capability_profiles(" not in source
     assert "build_declared_capability_profile_availability(" not in source
     assert "canonical_capability_provider_inputs(" not in source
+    assert "_capability_pure_document" in source
+    assert "evaluate_capability_document" in source
+    assert "def _escape_text" not in source
 
 
 def test_inspection_is_private_closed_and_has_no_portability_or_runtime_surface() -> (
