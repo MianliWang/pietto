@@ -31,7 +31,7 @@ All 12 slices are completed. Phase 55 is complete.
 
 ## Phase 56 route
 
-Phase 56 is active, Slices 1–5 are completed, and Slice 6 is current. These
+Phase 56 is active, Slices 1–6 are completed, and Slice 7 is current. These
 rows assign ownership only; they do not authorize a later slice.
 
 | Slice | Owner |
@@ -86,6 +86,11 @@ Each exact requirement is checked independently against the selected effective
 profile and canonical Pietto provider evidence. Profile omission remains
 `UNKNOWN`, availability failures block checking, and outcomes are `SATISFIED`,
 `UNSUPPORTED`, `ABSENT`, `UNKNOWN`, or `CONFLICT`.
+
+Canonical single-target results are arranged into an ordered requirement-by-
+target matrix that retains undeclared, blocked, and all five checked states.
+It defines no final portability classification and remains private readiness
+input for Phase 58 explain and the Phase 60 checkpoint.
 
 ## Retained later ownership
 
