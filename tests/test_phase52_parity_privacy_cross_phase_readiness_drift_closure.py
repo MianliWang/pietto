@@ -840,10 +840,17 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
     module_stems = {Path(path).stem for path in MODULE_RELS}
     preservation_rel = "src/pietto/_project/module_semantic_fact_preservation.py"
     availability_rel = "src/pietto/_project/capability_availability.py"
+    checking_rel = "src/pietto/_project/capability_checking.py"
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
         relative = path.relative_to(REPO_ROOT).as_posix()
         if (
-            relative in {*MODULE_RELS, preservation_rel, availability_rel}
+            relative
+            in {
+                *MODULE_RELS,
+                preservation_rel,
+                availability_rel,
+                checking_rel,
+            }
             or "generated" in path.parts
         ):
             continue
@@ -858,7 +865,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                 for path in root.rglob("*.py")
                 if "generated" not in path.parts
                 and path.relative_to(REPO_ROOT).as_posix()
-                not in {preservation_rel, availability_rel}
+                not in {preservation_rel, availability_rel, checking_rel}
             )
     provider_source = _read(REPO_ROOT / PROVIDER_REL)
     assert all(name in provider_source for name in forbidden_names)
@@ -868,6 +875,19 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
     assert all(
         f"semantic.{stem}" not in availability_source
         for stem in module_stems - {"capability_profiles"}
+    )
+    checking_source = _read(REPO_ROOT / checking_rel)
+    checking_stems = {
+        "capability_composition",
+        "capability_facts",
+        "capability_lookup",
+        "capability_profiles",
+        "capability_providers",
+    }
+    assert all(name not in checking_source for name in forbidden_names)
+    assert all(
+        (f"semantic.{stem}" in checking_source) is (stem in checking_stems)
+        for stem in module_stems
     )
     preservation_source = _read(REPO_ROOT / preservation_rel)
     assert "canonical_capability_provider_inputs" in preservation_source

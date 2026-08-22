@@ -8,9 +8,9 @@ documentation does not supersede that evidence.
 | Package and CLI | `0.1.0` |
 | Phase 55 | `COMPLETED` |
 | Phase 56 | `ACTIVE` |
-| Slices 1–4 | `COMPLETED` |
-| Slice 5 | `CURRENT` |
-| Next | `PHASE56_SLICE5_LEAN` |
+| Slices 1–5 | `COMPLETED` |
+| Slice 6 | `CURRENT` |
+| Next | `PHASE56_SLICE6_LEAN` |
 
-Slice 5 is the current route owner. Live Git and natural exact-head CI own
-Slice 5 completion. This status does not authorize Slice 6.
+Slice 6 is the current route owner. Live Git and natural exact-head CI own
+Slice 6 completion. This status does not authorize Slice 7.
