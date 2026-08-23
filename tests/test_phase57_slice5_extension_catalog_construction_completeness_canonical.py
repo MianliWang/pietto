@@ -950,6 +950,7 @@ def test_canonical_bytes_and_sha256_are_semantic_sensitive_and_ambient_free() ->
         "dataclasses",
         "enum",
         "pathlib",
+        "pietto.semantic.extension_catalog_pure_boundary",
         "pietto.semantic.generic_compatibility",
     }
     for forbidden in (
@@ -1068,11 +1069,11 @@ def test_slice5_spec_lifecycle_and_slice6_boundary_are_exact() -> None:
 
     roadmap = ROADMAP.read_text(encoding="utf-8")
     status = STATUS.read_text(encoding="utf-8")
-    assert "Phase 57 is active, Slices 1–10 are completed, and Slice 11 is current" in (
+    assert "Phase 57 is active, Slices 1–11 are completed, and Slice 12 is current" in (
         roadmap
     )
     assert "Slice 5 constructs one deterministic private catalog artifact" in roadmap
-    assert "| Slices 1–10 | `COMPLETED` |" in status
-    assert "| Slice 11 | `CURRENT` |" in status
-    assert "| Next | `PHASE57_SLICE11_END_TO_END` |" in status
-    assert "does\nnot authorize Slice 12" in status
+    assert "| Slices 1–11 | `COMPLETED` |" in status
+    assert "| Slice 12 | `CURRENT` |" in status
+    assert "| Next | `PHASE57_SLICE12_END_TO_END` |" in status
+    assert "does\nnot authorize Slice 13" in status

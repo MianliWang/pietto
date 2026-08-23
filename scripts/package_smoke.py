@@ -139,9 +139,11 @@ def _required_runtime_files(prefix: str) -> frozenset[str]:
         f"{prefix}/parser_api.py",
         f"{prefix}/_project/extension_catalog_availability.py",
         f"{prefix}/_project/extension_catalog_inspection.py",
+        f"{prefix}/_project/extension_catalog_inspection_pure_boundary.py",
         f"{prefix}/_project/extension_signature_provider.py",
         f"{prefix}/semantic/__init__.py",
         f"{prefix}/semantic/extension_catalog.py",
+        f"{prefix}/semantic/extension_catalog_pure_boundary.py",
         f"{prefix}/semantic/extension_catalog_pg_trgm.py",
         f"{prefix}/semantic/extension_catalog_pgvector.py",
         f"{prefix}/semantic/extension_signature_requirements.py",
@@ -346,6 +348,52 @@ def _smoke_installed_cli(
             "-I",
             "-c",
             "import pietto._project.extension_catalog_inspection",
+        ),
+        cwd=scratch_dir,
+        capture_output=True,
+        env=environment,
+    )
+    _run_command(
+        "installed private extension catalog inspection pure evaluation",
+        (
+            str(_venv_python(venv_dir)),
+            "-I",
+            "-c",
+            (
+                "from pietto._project.extension_catalog_inspection_pure_boundary "
+                "import ExtensionCatalogInspectionPureDocument, "
+                "ExtensionCatalogInspectionPureStatus, "
+                "evaluate_extension_catalog_inspection_document, "
+                "extension_catalog_inspection_pure_enumeration as e, "
+                "extension_catalog_inspection_pure_text as s, "
+                "extension_catalog_inspection_pure_tuple as t; "
+                "assert evaluate_extension_catalog_inspection_document("
+                "ExtensionCatalogInspectionPureDocument(root=t("
+                "s('extension_catalog_inspection'), "
+                "e('ExtensionCatalogInspectionFormat', "
+                "'pietto.extension-catalog-inspection.v1'), "
+                "s('consumer'), s('installed'), t(), t()))).status "
+                "is ExtensionCatalogInspectionPureStatus.OK"
+            ),
+        ),
+        cwd=scratch_dir,
+        capture_output=True,
+        env=environment,
+    )
+    _run_command(
+        "installed private extension catalog pure evaluation",
+        (
+            str(_venv_python(venv_dir)),
+            "-I",
+            "-c",
+            (
+                "from pietto.semantic.extension_catalog_pure_boundary "
+                "import ExtensionCatalogPureDocument, ExtensionCatalogPureStatus, "
+                "evaluate_extension_catalog_document; "
+                "assert evaluate_extension_catalog_document("
+                "ExtensionCatalogPureDocument(root=None)).status "
+                "is ExtensionCatalogPureStatus.MISSING_ROOT"
+            ),
         ),
         cwd=scratch_dir,
         capture_output=True,

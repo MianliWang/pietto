@@ -13,6 +13,18 @@ from pietto._project.extension_catalog_availability import (
     ExtensionCatalogSelectionOutcome,
     ExtensionCatalogSelectionResult,
 )
+from pietto._project.extension_catalog_inspection_pure_boundary import (
+    ExtensionCatalogInspectionPureDocument,
+    ExtensionCatalogInspectionPureStatus,
+    ExtensionCatalogInspectionPureValue,
+    evaluate_extension_catalog_inspection_document,
+    extension_catalog_inspection_pure_boolean,
+    extension_catalog_inspection_pure_enumeration,
+    extension_catalog_inspection_pure_integer,
+    extension_catalog_inspection_pure_text,
+    extension_catalog_inspection_pure_tuple,
+    EXTENSION_CATALOG_INSPECTION_PURE_ABSENT,
+)
 from pietto._project.extension_signature_provider import (
     ExtensionSignatureProviderAuthority,
     ExtensionSignatureProviderContext,
@@ -1032,34 +1044,27 @@ def _derive_inspection(
     )
 
 
-def _frame(payload: bytes) -> bytes:
-    return len(payload).to_bytes(8, "big") + payload
-
-
-def _encode_inspection_value(value: object) -> bytes:
+def _inspection_pure_value(value: object) -> ExtensionCatalogInspectionPureValue:
     if value is None:
-        return b"n"
+        return EXTENSION_CATALOG_INSPECTION_PURE_ABSENT
     if type(value) is bool:
-        return b"b1" if value else b"b0"
+        return extension_catalog_inspection_pure_boolean(value)
     if type(value) is int:
         if value < 0:
             raise ValueError("Canonical inspection integers must be non-negative")
-        return b"i" + _frame(str(value).encode("ascii"))
+        return extension_catalog_inspection_pure_integer(value)
     if isinstance(value, StrEnum):
-        return (
-            b"e"
-            + _frame(type(value).__qualname__.encode("utf-8"))
-            + _frame(value.value.encode("utf-8"))
+        return extension_catalog_inspection_pure_enumeration(
+            type(value).__qualname__,
+            value.value,
         )
     if type(value) is str:
-        return b"s" + _frame(value.encode("utf-8"))
+        return extension_catalog_inspection_pure_text(value)
     if type(value) is tuple:
-        return (
-            b"t"
-            + len(value).to_bytes(8, "big")
-            + b"".join(_frame(_encode_inspection_value(item)) for item in value)
+        return extension_catalog_inspection_pure_tuple(
+            *(_inspection_pure_value(item) for item in value)
         )
-    raise TypeError("Inspection canonical encoding received an unsupported value")
+    raise TypeError("Inspection pure projection received an unsupported value")
 
 
 def _reference_value(
@@ -1396,17 +1401,35 @@ def _provider_occurrence_value(
 def _serialize_extension_catalog_inspection(
     inspection: ExtensionCatalogInspection,
 ) -> bytes:
-    return _encode_inspection_value(
-        (
-            "extension_catalog_inspection",
-            inspection.format,
-            inspection.requirement_namespace,
-            inspection.requirement_name,
-            tuple(_catalog_value(catalog) for catalog in inspection.catalogs),
-            tuple(
-                _provider_occurrence_value(occurrence)
-                for occurrence in inspection.provider_occurrences
-            ),
+    outcome = evaluate_extension_catalog_inspection_document(
+        _extension_catalog_inspection_pure_document(inspection)
+    )
+    if outcome.status is not ExtensionCatalogInspectionPureStatus.OK:
+        raise AssertionError(
+            "Extension-catalog inspection must satisfy its pure schema: "
+            f"{outcome.status.value} at item {outcome.item_position} "
+            f"field {outcome.field_position}"
+        )
+    assert outcome.canonical_bytes is not None
+    return outcome.canonical_bytes
+
+
+def _extension_catalog_inspection_pure_document(
+    inspection: ExtensionCatalogInspection,
+) -> ExtensionCatalogInspectionPureDocument:
+    return ExtensionCatalogInspectionPureDocument(
+        root=_inspection_pure_value(
+            (
+                "extension_catalog_inspection",
+                inspection.format,
+                inspection.requirement_namespace,
+                inspection.requirement_name,
+                tuple(_catalog_value(catalog) for catalog in inspection.catalogs),
+                tuple(
+                    _provider_occurrence_value(occurrence)
+                    for occurrence in inspection.provider_occurrences
+                ),
+            )
         )
     )
 

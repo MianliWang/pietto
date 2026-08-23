@@ -111,7 +111,7 @@ fail closed at the Phase 57 Slice 1 baseline.
 
 ## Phase 57 route
 
-Phase 57 is active, Slices 1–10 are completed, and Slice 11 is current. The
+Phase 57 is active, Slices 1–11 are completed, and Slice 12 is current. The
 revised route has exactly 13 slices. The independent typed requirement-selector
 authority proven at Slice 7 expands the original 12-slice route without
 padding. Further evidence may expand it up to 16 slices only through an
@@ -229,6 +229,14 @@ frozen canonical inspection bytes without re-selection or provider-algebra
 duplication. It adds no registry, public output, runtime I/O, ltree/PostGIS
 production catalog, or capability-inspection change. The controlling contract
 is [Phase 57 Slice 11 extension-catalog inspection](spec/phase57-extension-catalog-inspection-v1.md).
+
+Slice 12 routes both frozen catalog and inspection canonical serialization
+through separate layer-correct total pure evaluators. One reviewed 47-vector
+corpus plus Python 3.12/3.13, hash-seed, relocation, combined, and installed-
+wheel evidence freezes portability without changing catalog or inspection
+semantics. It adds no registry, runtime discovery, public output, or package
+asset. The controlling contract is
+[Phase 57 Slice 12 catalog pure-boundary hardening](spec/phase57-extension-catalog-pure-boundary-differential-e2e-v1.md).
 
 ## Retained later ownership
 

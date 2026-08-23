@@ -8,6 +8,19 @@ from enum import StrEnum
 import hashlib
 from pathlib import PurePosixPath, PureWindowsPath
 
+from pietto.semantic.extension_catalog_pure_boundary import (
+    ExtensionCatalogPureDocument,
+    ExtensionCatalogPureStatus,
+    encode_extension_catalog_pure_value,
+    evaluate_extension_catalog_document,
+    extension_catalog_pure_boolean,
+    extension_catalog_pure_enumeration,
+    extension_catalog_pure_integer,
+    extension_catalog_pure_record,
+    extension_catalog_pure_text,
+    extension_catalog_pure_tuple,
+    EXTENSION_CATALOG_PURE_ABSENT,
+)
 from pietto.semantic.generic_compatibility import LogicalTypeIdentity
 
 __all__: tuple[str, ...] = ()
@@ -965,44 +978,59 @@ def _entry_semantic_payload(entry: _ExtensionCatalogEntry) -> tuple[object, ...]
     raise TypeError("catalog entry requires one exact entry family")
 
 
-def _frame(payload: bytes) -> bytes:
-    return len(payload).to_bytes(8, "big") + payload
-
-
-def _encode_catalog_value(value: object) -> bytes:
+def _catalog_pure_value(value: object):
     if value is None:
-        return b"n"
+        return EXTENSION_CATALOG_PURE_ABSENT
     if type(value) is bool:
-        return b"b1" if value else b"b0"
+        return extension_catalog_pure_boolean(value)
     if type(value) is int:
-        return b"i" + _frame(str(value).encode("ascii"))
+        return extension_catalog_pure_integer(value)
     if isinstance(value, StrEnum):
-        return (
-            b"e"
-            + _frame(type(value).__qualname__.encode("utf-8"))
-            + _frame(value.value.encode("utf-8"))
+        return extension_catalog_pure_enumeration(
+            type(value).__qualname__,
+            value.value,
         )
     if type(value) is str:
-        return b"s" + _frame(value.encode("utf-8"))
+        return extension_catalog_pure_text(value)
     if type(value) is tuple:
-        return (
-            b"t"
-            + len(value).to_bytes(8, "big")
-            + b"".join(_frame(_encode_catalog_value(item)) for item in value)
+        return extension_catalog_pure_tuple(
+            *(_catalog_pure_value(item) for item in value)
         )
     if is_dataclass(value) and not isinstance(value, type):
         data_fields = fields(value)
-        return (
-            b"d"
-            + _frame(type(value).__qualname__.encode("utf-8"))
-            + len(data_fields).to_bytes(8, "big")
-            + b"".join(
-                _frame(item.name.encode("utf-8"))
-                + _frame(_encode_catalog_value(getattr(value, item.name)))
+        return extension_catalog_pure_record(
+            type(value).__qualname__,
+            *(
+                (item.name, _catalog_pure_value(getattr(value, item.name)))
                 for item in data_fields
+            ),
+        )
+    raise TypeError("Catalog pure projection received an unsupported value")
+
+
+def _encode_catalog_value(value: object) -> bytes:
+    return encode_extension_catalog_pure_value(_catalog_pure_value(value))
+
+
+def _extension_catalog_pure_document(
+    metadata: ExtensionCatalogMetadata,
+    entries: tuple[_ExtensionCatalogEntry, ...],
+    exact_entry_groups: tuple[ExtensionCatalogExactEntryGroup, ...],
+    completeness_claims: tuple[ExtensionCatalogCompletenessClaim, ...],
+    completeness_groups: tuple[ExtensionCatalogCompletenessGroup, ...],
+) -> ExtensionCatalogPureDocument:
+    return ExtensionCatalogPureDocument(
+        root=_catalog_pure_value(
+            (
+                "extension_catalog",
+                metadata,
+                entries,
+                exact_entry_groups,
+                completeness_claims,
+                completeness_groups,
             )
         )
-    raise TypeError("catalog canonical encoding received an unsupported value")
+    )
 
 
 def _entry_sort_key(entry: _ExtensionCatalogEntry) -> bytes:
@@ -1249,9 +1277,8 @@ def _construct_extension_catalog(
         for scope in sorted(claims_by_scope, key=_encode_catalog_value)
     )
 
-    canonical_bytes = _encode_catalog_value(
-        (
-            "extension_catalog",
+    outcome = evaluate_extension_catalog_document(
+        _extension_catalog_pure_document(
             metadata,
             canonical_entries,
             exact_entry_groups,
@@ -1259,6 +1286,14 @@ def _construct_extension_catalog(
             completeness_groups,
         )
     )
+    if outcome.status is not ExtensionCatalogPureStatus.OK:
+        raise AssertionError(
+            "Constructed catalog must satisfy its pure schema: "
+            f"{outcome.status.value} at item {outcome.item_position} "
+            f"field {outcome.field_position}"
+        )
+    assert outcome.canonical_bytes is not None
+    canonical_bytes = outcome.canonical_bytes
     catalog = object.__new__(ConstructedExtensionCatalog)
     object.__setattr__(catalog, "metadata", metadata)
     object.__setattr__(catalog, "entries", canonical_entries)

@@ -435,6 +435,7 @@ def test_module_remains_stdlib_only_data_only_and_non_executable() -> None:
         "dataclasses",
         "enum",
         "pathlib",
+        "pietto.semantic.extension_catalog_pure_boundary",
         "pietto.semantic.generic_compatibility",
     }
     assert "from pathlib import PurePosixPath, PureWindowsPath" in source
@@ -613,7 +614,7 @@ def test_spec_lifecycle_route_and_installed_package_smoke_are_exact() -> None:
         assert term in non_scope
 
     roadmap = _read(ROADMAP)
-    assert "Phase 57 is active, Slices 1–10 are completed, and Slice 11 is current" in (
+    assert "Phase 57 is active, Slices 1–11 are completed, and Slice 12 is current" in (
         roadmap
     )
     status_rows = _table_rows(_read(STATUS))[1:]
@@ -622,13 +623,13 @@ def test_spec_lifecycle_route_and_installed_package_smoke_are_exact() -> None:
         ("Phase 55", "`COMPLETED`"),
         ("Phase 56", "`COMPLETED`"),
         ("Phase 57", "`ACTIVE`"),
-        ("Slices 1–10", "`COMPLETED`"),
-        ("Slice 11", "`CURRENT`"),
-        ("Next", "`PHASE57_SLICE11_END_TO_END`"),
+        ("Slices 1–11", "`COMPLETED`"),
+        ("Slice 12", "`CURRENT`"),
+        ("Next", "`PHASE57_SLICE12_END_TO_END`"),
     )
     status = _read(STATUS)
-    assert "Live Git and natural exact-head CI own\nSlice 11 completion" in status
-    assert "does\nnot authorize Slice 12" in status
+    assert "Live Git and natural exact-head CI own\nSlice 12 completion" in status
+    assert "does\nnot authorize Slice 13" in status
 
     package_smoke = _read(PACKAGE_SMOKE)
     assert 'f"{prefix}/semantic/extension_catalog.py"' in package_smoke
