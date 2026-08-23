@@ -111,7 +111,7 @@ fail closed at the Phase 57 Slice 1 baseline.
 
 ## Phase 57 route
 
-Phase 57 is active, Slices 1–7 are completed, and Slice 8 is current. The
+Phase 57 is active, Slices 1–8 are completed, and Slice 9 is current. The
 revised route has exactly 13 slices. The independent typed requirement-selector
 authority proven at Slice 7 expands the original 12-slice route without
 padding. Further evidence may expand it up to 16 slices only through an
@@ -205,6 +205,13 @@ the existing capability lookup and checker algebra. Matrix columns retain
 independent multi-requirement provider contexts without re-selection or
 cross-target aggregation. The controlling contract is
 [Phase 57 Slice 8 extension-signature provider and checking integration](spec/phase57-extension-signature-provider-checking-integration-v1.md).
+
+Slice 9 adds the first evidence-backed production catalog: pgvector `0.8.6`
+for the exact PostgreSQL `18` and extension `vector` target. It accounts for
+every pinned five-family declaration, retains arrays and pseudo-types as
+cataloged-unmodeled evidence, claims no completeness, and exercises the frozen
+Slice 6–8 provider/checker chain without auto-availability. The controlling
+contract is [Phase 57 Slice 9 pgvector catalog](spec/phase57-pgvector-v086-postgresql18-catalog-v1.md).
 
 ## Retained later ownership
 

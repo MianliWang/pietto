@@ -141,6 +141,7 @@ def _required_runtime_files(prefix: str) -> frozenset[str]:
         f"{prefix}/_project/extension_signature_provider.py",
         f"{prefix}/semantic/__init__.py",
         f"{prefix}/semantic/extension_catalog.py",
+        f"{prefix}/semantic/extension_catalog_pgvector.py",
         f"{prefix}/semantic/extension_signature_requirements.py",
         f"{prefix}/ir/__init__.py",
         f"{prefix}/sql/postgres.py",
@@ -331,6 +332,18 @@ def _smoke_installed_cli(
             "-I",
             "-c",
             "import pietto._project.extension_catalog_availability",
+        ),
+        cwd=scratch_dir,
+        capture_output=True,
+        env=environment,
+    )
+    _run_command(
+        "installed private pgvector extension catalog import",
+        (
+            str(_venv_python(venv_dir)),
+            "-I",
+            "-c",
+            "import pietto.semantic.extension_catalog_pgvector",
         ),
         cwd=scratch_dir,
         capture_output=True,
