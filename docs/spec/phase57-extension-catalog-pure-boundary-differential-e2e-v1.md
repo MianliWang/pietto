@@ -245,15 +245,22 @@ catalogs, and compiler/matching-project/excluded-project provenance.
 
 ## Python Parity
 
-Exact interpreter witnesses were compared using:
+On a host where both supported interpreters are available, the harness executes
+and directly compares exact witnesses from:
 
 ```text
 Python 3.12
 Python 3.13
 ```
 
-Each produced the same corpus digest and the exact three frozen artifact
-length/digest pairs.
+The current interpreter is always exercised. A discovered opposite interpreter
+is used only after its reported major/minor version matches the claimed
+executable. Its absence does not remove the current-interpreter proof.
+
+Natural CI uses two independent matrix jobs, each with its selected interpreter.
+Each job requires its current-interpreter witness to equal the same literal
+`EXPECTED_WITNESS`; successful Python 3.12 and Python 3.13 jobs therefore prove
+the same corpus digest and exact three frozen artifact length/digest pairs.
 
 ## Hash-seed Matrix
 
@@ -274,12 +281,16 @@ The harness copies `src/` and `tests/` into two distinct temporary roots
 outside the repository and runs with relocated `PYTHONPATH` and cwd. Both
 produce the exact baseline witness.
 
-Combined branches additionally prove:
+When both interpreters are present on one host, combined branches prove:
 
 ```text
 Python 3.12 + seed 1 + relocated root one
 Python 3.13 + seed 4294967295 + relocated root two
 ```
+
+A single-interpreter CI job runs the corresponding combined branch for its
+current interpreter. Across the natural CI matrix, both branches must match the
+same literal `EXPECTED_WITNESS`.
 
 No canonical bytes contain repository root, cwd, temporary root, venv path,
 or checkout location.

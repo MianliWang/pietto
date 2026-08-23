@@ -194,6 +194,33 @@ def _site_packages() -> str:
     return candidates[0]
 
 
+def _interpreter_version(executable: str) -> tuple[int, int] | None:
+    try:
+        major, minor = map(
+            int,
+            subprocess.check_output(
+                [executable, "-c", "import sys; print(*sys.version_info[:2])"],
+                text=True,
+            ).split(),
+        )
+    except (OSError, subprocess.CalledProcessError, ValueError):
+        return None
+    return major, minor
+
+
+def _available_supported_interpreters() -> dict[tuple[int, int], str]:
+    current = sys.version_info[:2]
+    assert current in _SUPPORTED_INTERPRETERS
+    available = {current: sys.executable}
+    for version in _SUPPORTED_INTERPRETERS:
+        if version == current:
+            continue
+        executable = shutil.which(f"python{version[0]}.{version[1]}")
+        if executable is not None and _interpreter_version(executable) == version:
+            available[version] = executable
+    return available
+
+
 def _subprocess_witness(
     executable: str,
     seed: str | None,
@@ -233,19 +260,16 @@ def _relocate_repository(source: Path, target: Path) -> None:
     )
 
 
-@pytest.fixture(scope="module")
-def witness_matrix(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
+def _build_witness_matrix(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> dict[str, str]:
     roots = (
         tmp_path_factory.mktemp("slice12-relocated-one"),
         tmp_path_factory.mktemp("slice12-relocated-two"),
     )
     for root in roots:
         _relocate_repository(REPO_ROOT, root)
-    interpreters = {
-        (major, minor): shutil.which(f"python{major}.{minor}")
-        for major, minor in _SUPPORTED_INTERPRETERS
-    }
-    assert all(interpreters.values())
+    interpreters = _available_supported_interpreters()
     observed = {
         f"current:{seed if seed is not None else 'default'}": _subprocess_witness(
             sys.executable,
@@ -255,7 +279,6 @@ def witness_matrix(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
         for seed in _SEEDS
     }
     for version, executable in interpreters.items():
-        assert executable is not None
         observed[f"python{version[0]}.{version[1]}:0"] = _subprocess_witness(
             executable,
             "0",
@@ -271,20 +294,26 @@ def witness_matrix(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
         None,
         roots[1],
     )
-    python312 = interpreters[(3, 12)]
-    python313 = interpreters[(3, 13)]
-    assert python312 is not None and python313 is not None
-    observed["combined:python3.12:seed1:relocated-one"] = _subprocess_witness(
-        python312,
-        "1",
-        roots[0],
-    )
-    observed["combined:python3.13:seed4294967295:relocated-two"] = _subprocess_witness(
-        python313,
-        "4294967295",
-        roots[1],
-    )
+    if python312 := interpreters.get((3, 12)):
+        observed["combined:python3.12:seed1:relocated-one"] = _subprocess_witness(
+            python312,
+            "1",
+            roots[0],
+        )
+    if python313 := interpreters.get((3, 13)):
+        observed["combined:python3.13:seed4294967295:relocated-two"] = (
+            _subprocess_witness(
+                python313,
+                "4294967295",
+                roots[1],
+            )
+        )
     return observed
+
+
+@pytest.fixture(scope="module")
+def witness_matrix(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
+    return _build_witness_matrix(tmp_path_factory)
 
 
 def test_pure_boundaries_are_private_stdlib_only_explicit_and_total() -> None:
@@ -657,9 +686,66 @@ def test_semantic_operand_equal_to_node_label_has_no_hidden_grammar() -> None:
 def test_python_312_313_witnesses_are_byte_identical(
     witness_matrix: dict[str, str],
 ) -> None:
-    assert sys.version_info[:2] in _SUPPORTED_INTERPRETERS
-    assert witness_matrix["python3.12:0"] == EXPECTED_WITNESS
-    assert witness_matrix["python3.13:0"] == EXPECTED_WITNESS
+    current = sys.version_info[:2]
+    assert current in _SUPPORTED_INTERPRETERS
+    assert witness_matrix["current:default"] == EXPECTED_WITNESS
+    assert witness_matrix[f"python{current[0]}.{current[1]}:0"] == EXPECTED_WITNESS
+    for version in _SUPPORTED_INTERPRETERS:
+        key = f"python{version[0]}.{version[1]}:0"
+        if key in witness_matrix:
+            assert witness_matrix[key] == EXPECTED_WITNESS
+    if "python3.12:0" in witness_matrix and "python3.13:0" in witness_matrix:
+        assert witness_matrix["python3.12:0"] == witness_matrix["python3.13:0"]
+
+
+def test_missing_opposite_interpreter_keeps_current_proof(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    current = sys.version_info[:2]
+    assert current in _SUPPORTED_INTERPRETERS
+    module = sys.modules[__name__]
+    monkeypatch.setattr(shutil, "which", lambda _command: None)
+    monkeypatch.setattr(module, "_relocate_repository", lambda _source, _target: None)
+    monkeypatch.setattr(
+        module,
+        "_subprocess_witness",
+        lambda _executable, _seed, _root: EXPECTED_WITNESS,
+    )
+    observed = _build_witness_matrix(tmp_path_factory)
+    combined_key = (
+        "combined:python3.12:seed1:relocated-one"
+        if current == (3, 12)
+        else "combined:python3.13:seed4294967295:relocated-two"
+    )
+    assert set(observed) == {
+        "current:default",
+        "current:0",
+        "current:1",
+        "current:4294967295",
+        f"python{current[0]}.{current[1]}:0",
+        "relocated-one:default",
+        "relocated-two:default",
+        combined_key,
+    }
+    assert set(observed.values()) == {EXPECTED_WITNESS}
+
+
+def test_discovered_interpreter_must_report_claimed_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current = sys.version_info[:2]
+    opposite = next(
+        version for version in _SUPPORTED_INTERPRETERS if version != current
+    )
+    claimed = f"/claimed/python{opposite[0]}.{opposite[1]}"
+    monkeypatch.setattr(shutil, "which", lambda _command: claimed)
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "_interpreter_version",
+        lambda executable: current if executable == claimed else None,
+    )
+    assert _available_supported_interpreters() == {current: sys.executable}
 
 
 def test_hash_seed_matrix_is_invariant(witness_matrix: dict[str, str]) -> None:
@@ -679,13 +765,16 @@ def test_two_relocated_source_runtime_roots_are_invariant(
 def test_combined_version_seed_and_relocation_branches_are_invariant(
     witness_matrix: dict[str, str],
 ) -> None:
-    assert witness_matrix["combined:python3.12:seed1:relocated-one"] == (
-        EXPECTED_WITNESS
-    )
-    assert (
-        witness_matrix["combined:python3.13:seed4294967295:relocated-two"]
-        == EXPECTED_WITNESS
-    )
+    for direct_key, combined_key in (
+        ("python3.12:0", "combined:python3.12:seed1:relocated-one"),
+        (
+            "python3.13:0",
+            "combined:python3.13:seed4294967295:relocated-two",
+        ),
+    ):
+        assert (combined_key in witness_matrix) == (direct_key in witness_matrix)
+        if combined_key in witness_matrix:
+            assert witness_matrix[combined_key] == EXPECTED_WITNESS
 
 
 def test_predecessor_pure_catalog_inspection_and_version_contracts_are_zero_delta() -> (
