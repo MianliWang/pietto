@@ -32,6 +32,7 @@ CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
 AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
 PROFILE_REL = "src/pietto/semantic/capability_profiles.py"
 SELECTOR_REL = "src/pietto/semantic/extension_signature_requirements.py"
+EXTENSION_PROVIDER_REL = "src/pietto/_project/extension_signature_provider.py"
 PROVIDER_REL = "src/pietto/semantic/capability_providers.py"
 COMPOSITION_REL = "src/pietto/semantic/capability_composition.py"
 CHECKING_REL = "src/pietto/_project/capability_checking.py"
@@ -414,6 +415,36 @@ def test_reason_codes_are_exact_private_non_diagnostic_vocabulary() -> None:
         ("SQL_THREE_VALUED_TRUTH", "sql_three_valued_truth"),
         ("DIALECT_LOWERING_GAP", "dialect_lowering_gap"),
         ("CONFLICTING_EVIDENCE", "conflicting_evidence"),
+        ("EXTENSION_CATALOG_UNDECLARED", "extension_catalog_undeclared"),
+        (
+            "EXTENSION_CATALOG_SELECTION_AMBIGUOUS",
+            "extension_catalog_selection_ambiguous",
+        ),
+        (
+            "EXTENSION_CATALOG_SELECTION_CONFLICT",
+            "extension_catalog_selection_conflict",
+        ),
+        (
+            "EXTENSION_CATALOG_TARGET_MISMATCH",
+            "extension_catalog_target_mismatch",
+        ),
+        (
+            "EXTENSION_CATALOG_NOT_PROVIDER_ELIGIBLE",
+            "extension_catalog_not_provider_eligible",
+        ),
+        ("EXTENSION_CATALOGED_UNMODELED", "extension_cataloged_unmodeled"),
+        (
+            "EXTENSION_CATALOG_COMPLETENESS_INCOMPLETE",
+            "extension_catalog_completeness_incomplete",
+        ),
+        (
+            "EXTENSION_CATALOG_COMPLETENESS_CONFLICT",
+            "extension_catalog_completeness_conflict",
+        ),
+        (
+            "EXTENSION_CATALOG_COMPLETENESS_UNAVAILABLE",
+            "extension_catalog_completeness_unavailable",
+        ),
     ]
     assert all(not item.value.startswith("PIE-") for item in CapabilityReasonCode)
 
@@ -467,6 +498,7 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
                 REPO_ROOT / "src/pietto/semantic/capability_windows.py",
                 REPO_ROOT / PROFILE_REL,
                 REPO_ROOT / SELECTOR_REL,
+                REPO_ROOT / EXTENSION_PROVIDER_REL,
                 REPO_ROOT / PROVIDER_REL,
                 REPO_ROOT / COMPOSITION_REL,
                 REPO_ROOT / CHECKING_REL,

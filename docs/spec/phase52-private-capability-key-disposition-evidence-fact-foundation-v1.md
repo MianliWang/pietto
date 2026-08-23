@@ -53,8 +53,17 @@ The module defines exactly five private `StrEnum` vocabularies.
 `NULL_LITERAL_NO_CONCRETE_TYPE = "null_literal_no_concrete_type"`,
 `UNKNOWN_NULLABILITY = "unknown_nullability"`,
 `SQL_THREE_VALUED_TRUTH = "sql_three_valued_truth"`,
-`DIALECT_LOWERING_GAP = "dialect_lowering_gap"`, and
-`CONFLICTING_EVIDENCE = "conflicting_evidence"`.
+`DIALECT_LOWERING_GAP = "dialect_lowering_gap"`,
+`CONFLICTING_EVIDENCE = "conflicting_evidence"`,
+`EXTENSION_CATALOG_UNDECLARED = "extension_catalog_undeclared"`,
+`EXTENSION_CATALOG_SELECTION_AMBIGUOUS = "extension_catalog_selection_ambiguous"`,
+`EXTENSION_CATALOG_SELECTION_CONFLICT = "extension_catalog_selection_conflict"`,
+`EXTENSION_CATALOG_TARGET_MISMATCH = "extension_catalog_target_mismatch"`,
+`EXTENSION_CATALOG_NOT_PROVIDER_ELIGIBLE = "extension_catalog_not_provider_eligible"`,
+`EXTENSION_CATALOGED_UNMODELED = "extension_cataloged_unmodeled"`,
+`EXTENSION_CATALOG_COMPLETENESS_INCOMPLETE = "extension_catalog_completeness_incomplete"`,
+`EXTENSION_CATALOG_COMPLETENESS_CONFLICT = "extension_catalog_completeness_conflict"`,
+and `EXTENSION_CATALOG_COMPLETENESS_UNAVAILABLE = "extension_catalog_completeness_unavailable"`.
 
 `CONVERSION` is reserved vocabulary and receives no Slice 2 fact. None of the
 reason codes is a `PIE-*` diagnostic or public identifier.
@@ -142,7 +151,7 @@ evidence scope, choose a winner, or infer support or disposition.
 
 ## Bounded Reason-code Contract
 
-The nine reason codes are private evidence and lookup-ready vocabulary. They
+The 18 reason codes are private evidence and lookup-ready vocabulary. They
 are not all one lookup outcome. In particular:
 
 - `NO_CATALOG_ENTRY` is vocabulary for a later absent result;
@@ -153,6 +162,9 @@ are not all one lookup outcome. In particular:
 - `DIALECT_LOWERING_GAP` records backend evidence without deciding semantic
   support;
 - `CONFLICTING_EVIDENCE` preserves disagreement without precedence.
+- the nine `EXTENSION_CATALOG_*` values preserve distinct Slice 8 selection,
+  target, eligibility, unmodeled, and completeness uncertainty without adding
+  a lookup-result variant.
 
 Slice 3 owns the later admissibility of reasons for lookup result variants.
 

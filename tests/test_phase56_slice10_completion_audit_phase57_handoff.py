@@ -271,7 +271,13 @@ def test_checking_matrix_inspection_and_pure_boundaries_remain_exact() -> None:
     )
     assert tuple(
         inspect.signature(checking.check_package_capability_requirements).parameters
-    ) == ("package", "binding", "composition", "availability")
+    ) == (
+        "package",
+        "binding",
+        "composition",
+        "availability",
+        "extension_signature_provider_context",
+    )
     assert tuple(
         inspect.signature(matrix.build_package_capability_checking_matrix).parameters
     ) == ("package", "binding", "contexts")
@@ -411,17 +417,17 @@ def test_phase56_completion_is_retained_in_phase57_lifecycle_docs() -> None:
     status = STATUS.read_text(encoding="utf-8")
     assert "All 10 slices are completed. Phase 56 is complete." in roadmap
     assert "Slice 10 adds no semantics" in roadmap
-    assert "Phase 57 is active, Slices 1–6 are completed, and Slice 7 is current" in (
+    assert "Phase 57 is active, Slices 1–7 are completed, and Slice 8 is current" in (
         roadmap
     )
     assert "`EXTENSION_SIGNATURE` remains intentionally unpopulated" in roadmap
     assert "| Phase 56 | `COMPLETED` |" in status
     assert "| Phase 57 | `ACTIVE` |" in status
-    assert "| Slices 1–6 | `COMPLETED` |" in status
-    assert "| Slice 7 | `CURRENT` |" in status
-    assert "| Next | `PHASE57_SLICE7_LEAN` |" in status
+    assert "| Slices 1–7 | `COMPLETED` |" in status
+    assert "| Slice 8 | `CURRENT` |" in status
+    assert "| Next | `PHASE57_SLICE8_END_TO_END` |" in status
     assert "no post-CI status-flip commit is required" in status
-    assert "does\nnot authorize Slice 8" in status
+    assert "does\nnot authorize Slice 9" in status
 
 
 def test_version_and_public_compatibility_documents_remain_unchanged() -> None:

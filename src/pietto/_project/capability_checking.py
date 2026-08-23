@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from pietto._project.capability_availability import (
@@ -10,13 +10,19 @@ from pietto._project.capability_availability import (
     DeclaredCapabilityProfileReferenceBucket,
     PackageCapabilityRequirementBinding,
 )
+from pietto._project.extension_signature_provider import (
+    ExtensionSignatureProviderAuthority,
+    ExtensionSignatureProviderContext,
+    extension_signature_provider_authority,
+    extension_signature_provider_inputs,
+)
 from pietto._project.package_load_plan import LoadedDependencyPackage, LoadedPackage
 from pietto._project.package_loader import LoadedRootPackage
 from pietto.semantic.capability_composition import (
     CapabilityProfileCompositionSuccess,
     EffectiveCapabilityProfileFactOccurrence,
 )
-from pietto.semantic.capability_facts import CapabilitySupport
+from pietto.semantic.capability_facts import CapabilityDomain, CapabilitySupport
 from pietto.semantic.capability_lookup import (
     Absent,
     CapabilityLookupResult,
@@ -158,6 +164,9 @@ class CapabilityRequirementCheck:
     provider_inputs: CanonicalCapabilityProviderInputs
     provider_result: CapabilityLookupResult
     status: CapabilityRequirementStatus
+    extension_signature_provider_authority: (
+        ExtensionSignatureProviderAuthority | None
+    ) = field(default=None, repr=False, compare=False, hash=False)
 
     def __post_init__(self) -> None:
         if type(self.occurrence) is not CapabilityRequirementOccurrence:
@@ -185,7 +194,19 @@ class CapabilityRequirementCheck:
             tuple(item.fact for item in self.target_occurrences),
             domain_complete=False,
         )
-        expected_inputs = canonical_capability_provider_inputs(self.occurrence.key)
+        authority = self.extension_signature_provider_authority
+        if authority is None:
+            expected_inputs = canonical_capability_provider_inputs(self.occurrence.key)
+        else:
+            if type(authority) is not ExtensionSignatureProviderAuthority:
+                raise ValueError(
+                    "requirement check requires exact extension provider authority"
+                )
+            if authority.requirement is not self.occurrence:
+                raise ValueError(
+                    "requirement check requires matching extension provider authority"
+                )
+            expected_inputs = extension_signature_provider_inputs(authority)
         expected_provider = lookup_capability(
             expected_inputs.key,
             expected_inputs.facts,
@@ -194,8 +215,15 @@ class CapabilityRequirementCheck:
         )
         if not _lookup_result_matches(self.target_result, expected_target):
             raise ValueError("requirement check requires canonical target lookup")
-        if not _provider_inputs_match(self.provider_inputs, expected_inputs):
+        if authority is None and not _provider_inputs_match(
+            self.provider_inputs,
+            expected_inputs,
+        ):
             raise ValueError("requirement check requires canonical provider inputs")
+        if authority is not None and self.provider_inputs is not expected_inputs:
+            raise ValueError(
+                "requirement check requires canonical extension provider inputs"
+            )
         if not _lookup_result_matches(self.provider_result, expected_provider):
             raise ValueError("requirement check requires canonical provider lookup")
         if self.status is not _derive_requirement_status(
@@ -248,6 +276,7 @@ def _selected_profile_availability_blockers(
 def _build_requirement_check(
     occurrence: CapabilityRequirementOccurrence,
     composition: CapabilityProfileCompositionSuccess,
+    extension_authority: ExtensionSignatureProviderAuthority | None = None,
 ) -> CapabilityRequirementCheck:
     target_occurrences = tuple(
         item
@@ -259,7 +288,12 @@ def _build_requirement_check(
         tuple(item.fact for item in target_occurrences),
         domain_complete=False,
     )
-    provider_inputs = canonical_capability_provider_inputs(occurrence.key)
+    if extension_authority is None:
+        provider_inputs = canonical_capability_provider_inputs(occurrence.key)
+    else:
+        if extension_authority.requirement is not occurrence:
+            raise ValueError("extension provider authority must match its requirement")
+        provider_inputs = extension_authority.provider_inputs
     provider_result = lookup_capability(
         provider_inputs.key,
         provider_inputs.facts,
@@ -273,6 +307,7 @@ def _build_requirement_check(
         provider_inputs,
         provider_result,
         _derive_requirement_status(target_result, provider_result),
+        extension_authority,
     )
 
 
@@ -343,6 +378,8 @@ def _check_matches(
         and _provider_inputs_match(actual.provider_inputs, expected.provider_inputs)
         and _lookup_result_matches(actual.provider_result, expected.provider_result)
         and actual.status is expected.status
+        and actual.extension_signature_provider_authority
+        is expected.extension_signature_provider_authority
     )
 
 
@@ -380,7 +417,11 @@ class PackageCapabilityRequirementsChecked:
                 raise ValueError(
                     "checked capability requirements require declaration order"
                 )
-            expected = _build_requirement_check(occurrence, self.composition)
+            expected = _build_requirement_check(
+                occurrence,
+                self.composition,
+                check.extension_signature_provider_authority,
+            )
             if not _check_matches(check, expected):
                 raise ValueError(
                     "checked capability requirements require canonical checks"
@@ -406,9 +447,20 @@ def check_package_capability_requirements(
     binding: PackageCapabilityRequirementBinding | None,
     composition: CapabilityProfileCompositionSuccess,
     availability: DeclaredCapabilityProfileAvailabilityReady,
+    extension_signature_provider_context: (
+        ExtensionSignatureProviderContext | None
+    ) = None,
 ) -> PackageCapabilityRequirementsResult:
     _validate_common_authority(package, composition, availability)
+    if (
+        extension_signature_provider_context is not None
+        and type(extension_signature_provider_context)
+        is not ExtensionSignatureProviderContext
+    ):
+        raise ValueError("capability checking requires an exact provider context")
     if binding is None:
+        if extension_signature_provider_context is not None:
+            raise ValueError("undeclared capability checking forbids provider context")
         return PackageCapabilityRequirementsUndeclared(
             package,
             composition,
@@ -420,6 +472,14 @@ def check_package_capability_requirements(
         raise ValueError(
             "capability checking rejects foreign package binding authority"
         )
+    if (
+        extension_signature_provider_context is not None
+        and extension_signature_provider_context.selectors.requirements
+        is not binding.requirements
+    ):
+        raise ValueError(
+            "capability checking rejects a foreign requirement provider context"
+        )
     blockers = _selected_profile_availability_blockers(composition, availability)
     if blockers:
         return PackageCapabilityRequirementsBlocked(
@@ -430,7 +490,19 @@ def check_package_capability_requirements(
             blockers,
         )
     checks = tuple(
-        _build_requirement_check(occurrence, composition)
+        _build_requirement_check(
+            occurrence,
+            composition,
+            (
+                None
+                if extension_signature_provider_context is None
+                or occurrence.key.domain is not CapabilityDomain.EXTENSION_SIGNATURE
+                else extension_signature_provider_authority(
+                    extension_signature_provider_context,
+                    occurrence,
+                )
+            ),
+        )
         for occurrence in binding.requirements.occurrences
     )
     return PackageCapabilityRequirementsChecked(

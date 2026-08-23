@@ -46,6 +46,7 @@ AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
 WINDOW_REL = "src/pietto/semantic/capability_windows.py"
 PROFILE_REL = "src/pietto/semantic/capability_profiles.py"
 SELECTOR_REL = "src/pietto/semantic/extension_signature_requirements.py"
+EXTENSION_PROVIDER_REL = "src/pietto/_project/extension_signature_provider.py"
 PROVIDER_REL = "src/pietto/semantic/capability_providers.py"
 COMPOSITION_REL = "src/pietto/semantic/capability_composition.py"
 MODULE_RELS = (
@@ -858,6 +859,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                 inspection_rel,
                 pure_boundary_rel,
                 SELECTOR_REL,
+                EXTENSION_PROVIDER_REL,
             }
             or "generated" in path.parts
         ):
@@ -880,6 +882,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                     matrix_rel,
                     inspection_rel,
                     pure_boundary_rel,
+                    EXTENSION_PROVIDER_REL,
                 }
             )
     provider_source = _read(REPO_ROOT / PROVIDER_REL)

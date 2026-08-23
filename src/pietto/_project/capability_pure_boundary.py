@@ -231,6 +231,15 @@ _REASONS = (
     "sql_three_valued_truth",
     "dialect_lowering_gap",
     "conflicting_evidence",
+    "extension_catalog_undeclared",
+    "extension_catalog_selection_ambiguous",
+    "extension_catalog_selection_conflict",
+    "extension_catalog_target_mismatch",
+    "extension_catalog_not_provider_eligible",
+    "extension_cataloged_unmodeled",
+    "extension_catalog_completeness_incomplete",
+    "extension_catalog_completeness_conflict",
+    "extension_catalog_completeness_unavailable",
 )
 _LOOKUP_VARIANTS = ("found", "absent", "unknown", "conflict")
 _REQUIREMENT_STATUSES = (

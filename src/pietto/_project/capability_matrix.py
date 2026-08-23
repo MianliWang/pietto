@@ -17,6 +17,9 @@ from pietto._project.capability_checking import (
     PackageCapabilityRequirementsUndeclared,
     check_package_capability_requirements,
 )
+from pietto._project.extension_signature_provider import (
+    ExtensionSignatureProviderContext,
+)
 from pietto._project.package_load_plan import LoadedDependencyPackage, LoadedPackage
 from pietto._project.package_loader import LoadedRootPackage
 from pietto.semantic.capability_composition import CapabilityProfileCompositionSuccess
@@ -30,6 +33,9 @@ class CapabilityCheckingTargetContext:
     position: int
     composition: CapabilityProfileCompositionSuccess
     availability: DeclaredCapabilityProfileAvailabilityReady
+    extension_signature_provider_context: ExtensionSignatureProviderContext | None = (
+        None
+    )
 
     def __post_init__(self) -> None:
         if type(self.position) is not int or self.position < 0:
@@ -38,6 +44,12 @@ class CapabilityCheckingTargetContext:
             raise ValueError("matrix target context requires an exact composition")
         if type(self.availability) is not DeclaredCapabilityProfileAvailabilityReady:
             raise ValueError("matrix target context requires exact availability")
+        if (
+            self.extension_signature_provider_context is not None
+            and type(self.extension_signature_provider_context)
+            is not ExtensionSignatureProviderContext
+        ):
+            raise ValueError("matrix target context requires an exact provider context")
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -99,9 +111,13 @@ def _freeze_contexts(
         raise ValueError("capability matrix requires exact target contexts")
     if any(context.position != position for position, context in enumerate(frozen)):
         raise ValueError("matrix target positions must be dense and caller ordered")
-    seen: dict[tuple[int, int], int] = {}
+    seen: dict[tuple[int, int, int], int] = {}
     for context in frozen:
-        key = (id(context.composition), id(context.availability))
+        key = (
+            id(context.composition),
+            id(context.availability),
+            id(context.extension_signature_provider_context),
+        )
         first = seen.setdefault(key, context.position)
         if first != context.position:
             raise ValueError(
@@ -131,6 +147,7 @@ def _canonical_column(
         binding,
         context.composition,
         context.availability,
+        context.extension_signature_provider_context,
     )
     if (
         result.package is not package

@@ -38,6 +38,7 @@ AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
 WINDOW_REL = "src/pietto/semantic/capability_windows.py"
 PROFILE_REL = "src/pietto/semantic/capability_profiles.py"
 SELECTOR_REL = "src/pietto/semantic/extension_signature_requirements.py"
+EXTENSION_PROVIDER_REL = "src/pietto/_project/extension_signature_provider.py"
 PROVIDER_REL = "src/pietto/semantic/capability_providers.py"
 COMPOSITION_REL = "src/pietto/semantic/capability_composition.py"
 CHECKING_REL = "src/pietto/_project/capability_checking.py"
@@ -293,6 +294,7 @@ def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry()
                 REPO_ROOT / WINDOW_REL,
                 REPO_ROOT / PROFILE_REL,
                 REPO_ROOT / SELECTOR_REL,
+                REPO_ROOT / EXTENSION_PROVIDER_REL,
                 REPO_ROOT / PROVIDER_REL,
                 REPO_ROOT / COMPOSITION_REL,
                 REPO_ROOT / CHECKING_REL,
@@ -342,6 +344,15 @@ def test_zero_match_uses_only_the_explicit_incomplete_domain_reason() -> None:
         CapabilityReasonCode.UNKNOWN_NULLABILITY,
         CapabilityReasonCode.SQL_THREE_VALUED_TRUTH,
         CapabilityReasonCode.DIALECT_LOWERING_GAP,
+        CapabilityReasonCode.EXTENSION_CATALOG_UNDECLARED,
+        CapabilityReasonCode.EXTENSION_CATALOG_SELECTION_AMBIGUOUS,
+        CapabilityReasonCode.EXTENSION_CATALOG_SELECTION_CONFLICT,
+        CapabilityReasonCode.EXTENSION_CATALOG_TARGET_MISMATCH,
+        CapabilityReasonCode.EXTENSION_CATALOG_NOT_PROVIDER_ELIGIBLE,
+        CapabilityReasonCode.EXTENSION_CATALOGED_UNMODELED,
+        CapabilityReasonCode.EXTENSION_CATALOG_COMPLETENESS_INCOMPLETE,
+        CapabilityReasonCode.EXTENSION_CATALOG_COMPLETENESS_CONFLICT,
+        CapabilityReasonCode.EXTENSION_CATALOG_COMPLETENESS_UNAVAILABLE,
     ),
     ids=(
         "not-evidenced",
@@ -351,6 +362,15 @@ def test_zero_match_uses_only_the_explicit_incomplete_domain_reason() -> None:
         "unknown-nullability",
         "sql-three-valued-truth",
         "dialect-lowering-gap",
+        "extension-catalog-undeclared",
+        "extension-catalog-selection-ambiguous",
+        "extension-catalog-selection-conflict",
+        "extension-catalog-target-mismatch",
+        "extension-catalog-not-provider-eligible",
+        "extension-cataloged-unmodeled",
+        "extension-catalog-completeness-incomplete",
+        "extension-catalog-completeness-conflict",
+        "extension-catalog-completeness-unavailable",
     ),
 )
 def test_unknown_accepts_each_non_absent_non_conflict_reason(

@@ -663,6 +663,7 @@ def test_result_carriers_are_private_frozen_slotted_and_antigraft(
         "provider_inputs",
         "provider_result",
         "status",
+        "extension_signature_provider_authority",
     )
     with pytest.raises(FrozenInstanceError):
         setattr(checked, "checks", ())

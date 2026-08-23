@@ -222,8 +222,18 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
     source_root = REPO_ROOT / "src/pietto"
     catalog_path = source_root / "semantic/extension_catalog.py"
     availability_path = source_root / "_project/extension_catalog_availability.py"
+    capability_facts_path = source_root / "semantic/capability_facts.py"
+    capability_pure_path = source_root / "_project/capability_pure_boundary.py"
+    provider_path = source_root / "_project/extension_signature_provider.py"
     selector_path = source_root / "semantic/extension_signature_requirements.py"
-    catalog_paths = {catalog_path, availability_path, selector_path}
+    catalog_paths = {
+        catalog_path,
+        availability_path,
+        capability_facts_path,
+        capability_pure_path,
+        provider_path,
+        selector_path,
+    }
     extension_catalog_modules = tuple(
         sorted(
             path.relative_to(REPO_ROOT).as_posix()
@@ -234,6 +244,7 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
     )
     assert extension_catalog_modules == (
         "src/pietto/_project/extension_catalog_availability.py",
+        "src/pietto/_project/extension_signature_provider.py",
         "src/pietto/semantic/extension_catalog.py",
         "src/pietto/semantic/extension_signature_requirements.py",
     )
@@ -578,11 +589,11 @@ def test_future_readiness_package_public_release_and_lifecycle_locks_are_exact()
         ("Phase 55", "`COMPLETED`"),
         ("Phase 56", "`COMPLETED`"),
         ("Phase 57", "`ACTIVE`"),
-        ("Slices 1–6", "`COMPLETED`"),
-        ("Slice 7", "`CURRENT`"),
-        ("Next", "`PHASE57_SLICE7_LEAN`"),
+        ("Slices 1–7", "`COMPLETED`"),
+        ("Slice 8", "`CURRENT`"),
+        ("Next", "`PHASE57_SLICE8_END_TO_END`"),
     )
     status = _read(STATUS)
-    assert "Live Git and natural exact-head CI own\nSlice 7 completion" in status
+    assert "Live Git and natural exact-head CI own\nSlice 8 completion" in status
     assert "no post-CI status-flip commit is required" in status
-    assert "does\nnot authorize Slice 8" in status
+    assert "does\nnot authorize Slice 9" in status

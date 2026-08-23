@@ -71,6 +71,19 @@ class CapabilityReasonCode(StrEnum):
     SQL_THREE_VALUED_TRUTH = "sql_three_valued_truth"
     DIALECT_LOWERING_GAP = "dialect_lowering_gap"
     CONFLICTING_EVIDENCE = "conflicting_evidence"
+    EXTENSION_CATALOG_UNDECLARED = "extension_catalog_undeclared"
+    EXTENSION_CATALOG_SELECTION_AMBIGUOUS = "extension_catalog_selection_ambiguous"
+    EXTENSION_CATALOG_SELECTION_CONFLICT = "extension_catalog_selection_conflict"
+    EXTENSION_CATALOG_TARGET_MISMATCH = "extension_catalog_target_mismatch"
+    EXTENSION_CATALOG_NOT_PROVIDER_ELIGIBLE = "extension_catalog_not_provider_eligible"
+    EXTENSION_CATALOGED_UNMODELED = "extension_cataloged_unmodeled"
+    EXTENSION_CATALOG_COMPLETENESS_INCOMPLETE = (
+        "extension_catalog_completeness_incomplete"
+    )
+    EXTENSION_CATALOG_COMPLETENESS_CONFLICT = "extension_catalog_completeness_conflict"
+    EXTENSION_CATALOG_COMPLETENESS_UNAVAILABLE = (
+        "extension_catalog_completeness_unavailable"
+    )
 
 
 def _require_nonblank_text(value: object, field_name: str) -> str:
