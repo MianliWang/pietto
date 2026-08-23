@@ -124,8 +124,8 @@ representation order, never as preference or ranking.
 - every deterministic artifact candidate; and
 - the exact selected catalog only for `SELECTED`.
 
-The result is frozen, slotted, constructor-closed, and sufficient for Slice 7
-to consume a selected artifact without selecting again.
+The result is frozen, slotted, constructor-closed, and sufficient for revised
+Slice 8 to consume a selected artifact without selecting again.
 
 ## Selection Algebra
 
@@ -219,18 +219,19 @@ The Phase 56 corpus remains 125 total, 16 accepted, and 109 rejected, with
 digest
 `8453c3babda888b105f37f667f5fadf3a12aa68ca9a561bda98e5f6b6604a69e`.
 
-## Slice 7 Handoff
+## Revised Slice 8 Provider Handoff
 
-Slice 7 may consume `ExtensionCatalogSelectionResult.selected_catalog` only
-when the outcome is `SELECTED`. It also receives the exact requested target,
-active project scope, candidate identity, and declaration provenance without
-re-running selection.
+Revised Slice 8 may consume
+`ExtensionCatalogSelectionResult.selected_catalog` only when the outcome is
+`SELECTED`. It also receives the exact requested target, active project scope,
+candidate identity, and declaration provenance without re-running selection.
 
-Slice 7 owns provider eligibility, exact catalog lookup, completeness-driven
-`Absent` versus `Unknown`, entry-conflict propagation, checking, and matrix
-integration. Slice 6 implements none of that behavior.
+Revised Slice 8 owns provider eligibility, exact catalog lookup,
+completeness-driven `Absent` versus `Unknown`, entry-conflict propagation,
+checking, and matrix integration. Slice 6 implements none of that behavior.
 
-Slice 7 remains unstarted and unauthorized by this contract.
+Revised Slice 7 owns the independent typed requirement selector. Revised Slice
+8 remains unstarted and unauthorized by this contract.
 
 ## Release And Lifecycle Boundary
 

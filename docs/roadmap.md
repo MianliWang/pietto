@@ -111,12 +111,13 @@ fail closed at the Phase 57 Slice 1 baseline.
 
 ## Phase 57 route
 
-Phase 57 is active, Slices 1–5 are completed, and Slice 6 is current. The
-initial route has 12 slices. Evidence may expand it up to 16 slices only through
-an explicit evidence-backed route update when genuinely independent ownership
-emerges. Never pad the route, compress independent responsibilities to remain
-at 12, or silently reorder published ownership. These rows assign ownership
-only; they do not authorize a later slice.
+Phase 57 is active, Slices 1–6 are completed, and Slice 7 is current. The
+revised route has exactly 13 slices. The independent typed requirement-selector
+authority proven at Slice 7 expands the original 12-slice route without
+padding. Further evidence may expand it up to 16 slices only through an
+explicit evidence-backed route update. Never compress independent
+responsibilities or silently reorder published ownership. These rows assign
+ownership only; they do not authorize a later slice.
 
 | Slice | Owner |
 | ---: | --- |
@@ -126,18 +127,19 @@ only; they do not authorize a later slice.
 | 4 | Five typed catalog entry families, complex-signature metadata, and exact-matchability contracts |
 | 5 | Deterministic catalog construction, ordering/conflicts, scoped completeness, canonical bytes, and content SHA-256 |
 | 6 | Compiler/project catalog declaration and availability, exact PostgreSQL-release × extension-release selection |
-| 7 | EXTENSION_SIGNATURE provider integration, exact checking propagation, target-scoped provider authority, and matrix compatibility |
-| 8 | First concrete production catalog: pgvector |
-| 9 | Second diversity catalog: pg_trgm, plus PostGIS representability/stress audit without a full-support claim |
-| 10 | Separate private extension-catalog inspection/canonical representation and Phase 58/59 provenance readiness |
-| 11 | Extension-catalog pure boundary, differential vectors, Python 3.12/3.13, hash-seed, relocation, and E2E hardening |
-| 12 | Completion audit and Phase 58 handoff |
+| 7 | Structured EXTENSION_SIGNATURE requirement selector authority |
+| 8 | EXTENSION_SIGNATURE provider integration using typed selectors, target-scoped catalog lookup, exact checking propagation, and matrix compatibility |
+| 9 | First concrete production catalog: pgvector |
+| 10 | Second concrete production catalog: pg_trgm, plus ltree lightweight representability probe and PostGIS representability/stress audit without full-support claims |
+| 11 | Separate private extension-catalog inspection/canonical representation and Phase 58/59 provenance readiness |
+| 12 | Extension-catalog pure boundary, differential vectors, Python 3.12/3.13, hash-seed, relocation, and E2E hardening |
+| 13 | Completion audit and Phase 58 handoff |
 
 One catalog describes exactly one PostgreSQL database release and one exact
 extension identity/release target. Catalog, profile, and installation authority
 remain distinct. Release remains outside `CapabilityKey`; Slice 6 owns exact
-catalog availability and selection, while Slice 7 owns the smallest later
-private release-aware provider authority.
+catalog availability and selection, Slice 7 owns typed requirement selectors,
+and Slice 8 owns the smallest later private release-aware provider authority.
 
 Phase 57 is static, declarative, strongly typed, deterministic, immutable,
 reviewable, and non-executable. It adds no installation, introspection,
@@ -187,6 +189,14 @@ content SHA-256; all declaration provenance remains additive with no owner or
 release precedence. It adds no provider, lookup, profile, package,
 installation, runtime, inspection, or lowering behavior. The controlling
 contract is [Phase 57 Slice 6 declaration, availability, and selection](spec/phase57-extension-catalog-declaration-availability-selection-v1.md).
+
+Slice 7 keeps semantic `CapabilityKey` identity separate from typed physical
+catalog lookup identity. One complete sidecar binds exact requirement positions
+to existing five-family `ExtensionCatalogLookupScope` values, validates exact
+extension-native ownership, and uses a closed typed correspondence from key
+dialect `postgresql` to catalog family `PostgreSQL` without changing either
+stored vocabulary. Provider/checker/matrix integration remains Slice 8. The
+controlling contract is [Phase 57 Slice 7 extension-signature requirement selectors](spec/phase57-extension-signature-requirement-selector-v1.md).
 
 ## Retained later ownership
 

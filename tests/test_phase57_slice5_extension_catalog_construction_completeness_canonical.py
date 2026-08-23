@@ -1068,11 +1068,11 @@ def test_slice5_spec_lifecycle_and_slice6_boundary_are_exact() -> None:
 
     roadmap = ROADMAP.read_text(encoding="utf-8")
     status = STATUS.read_text(encoding="utf-8")
-    assert "Phase 57 is active, Slices 1–5 are completed, and Slice 6 is current" in (
+    assert "Phase 57 is active, Slices 1–6 are completed, and Slice 7 is current" in (
         roadmap
     )
     assert "Slice 5 constructs one deterministic private catalog artifact" in roadmap
-    assert "| Slices 1–5 | `COMPLETED` |" in status
-    assert "| Slice 6 | `CURRENT` |" in status
-    assert "| Next | `PHASE57_SLICE6_LEAN` |" in status
-    assert "does\nnot authorize Slice 7" in status
+    assert "| Slices 1–6 | `COMPLETED` |" in status
+    assert "| Slice 7 | `CURRENT` |" in status
+    assert "| Next | `PHASE57_SLICE7_LEAN` |" in status
+    assert "does\nnot authorize Slice 8" in status

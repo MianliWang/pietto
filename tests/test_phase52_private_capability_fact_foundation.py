@@ -31,6 +31,7 @@ SIGNATURE_REL = "src/pietto/semantic/capability_signatures.py"
 CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
 AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
 PROFILE_REL = "src/pietto/semantic/capability_profiles.py"
+SELECTOR_REL = "src/pietto/semantic/extension_signature_requirements.py"
 PROVIDER_REL = "src/pietto/semantic/capability_providers.py"
 COMPOSITION_REL = "src/pietto/semantic/capability_composition.py"
 CHECKING_REL = "src/pietto/_project/capability_checking.py"
@@ -465,6 +466,7 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
                 REPO_ROOT / AGGREGATE_REL,
                 REPO_ROOT / "src/pietto/semantic/capability_windows.py",
                 REPO_ROOT / PROFILE_REL,
+                REPO_ROOT / SELECTOR_REL,
                 REPO_ROOT / PROVIDER_REL,
                 REPO_ROOT / COMPOSITION_REL,
                 REPO_ROOT / CHECKING_REL,
@@ -493,6 +495,10 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
     signature_source = _read(SIGNATURE_PATH)
     assert "semantic.capability_facts" in signature_source
     assert "CapabilityFact" in signature_source
+    selector_source = _read(REPO_ROOT / SELECTOR_REL)
+    assert "semantic.capability_facts" in selector_source
+    assert "CapabilityDomain" in selector_source
+    assert "CapabilityFact" not in selector_source
     provider_source = _read(REPO_ROOT / PROVIDER_REL)
     assert "semantic.capability_facts" in provider_source
     assert "CapabilityFact" in provider_source

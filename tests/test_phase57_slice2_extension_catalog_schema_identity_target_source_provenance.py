@@ -76,22 +76,26 @@ EXPECTED_RETAINED_ROUTE = (
     ),
     (
         "7",
-        "EXTENSION_SIGNATURE provider integration, exact checking propagation, target-scoped provider authority, and matrix compatibility",
+        "Structured EXTENSION_SIGNATURE requirement selector authority",
     ),
-    ("8", "First concrete production catalog: pgvector"),
     (
-        "9",
-        "Second diversity catalog: pg_trgm, plus PostGIS representability/stress audit without a full-support claim",
+        "8",
+        "EXTENSION_SIGNATURE provider integration using typed selectors, target-scoped catalog lookup, exact checking propagation, and matrix compatibility",
     ),
+    ("9", "First concrete production catalog: pgvector"),
     (
         "10",
-        "Separate private extension-catalog inspection/canonical representation and Phase 58/59 provenance readiness",
+        "Second concrete production catalog: pg_trgm, plus ltree lightweight representability probe and PostGIS representability/stress audit without full-support claims",
     ),
     (
         "11",
+        "Separate private extension-catalog inspection/canonical representation and Phase 58/59 provenance readiness",
+    ),
+    (
+        "12",
         "Extension-catalog pure boundary, differential vectors, Python 3.12/3.13, hash-seed, relocation, and E2E hardening",
     ),
-    ("12", "Completion audit and Phase 58 handoff"),
+    ("13", "Completion audit and Phase 58 handoff"),
 )
 
 
@@ -603,7 +607,7 @@ def test_spec_lifecycle_route_and_installed_package_smoke_are_exact() -> None:
         assert term in non_scope
 
     roadmap = _read(ROADMAP)
-    assert "Phase 57 is active, Slices 1–5 are completed, and Slice 6 is current" in (
+    assert "Phase 57 is active, Slices 1–6 are completed, and Slice 7 is current" in (
         roadmap
     )
     status_rows = _table_rows(_read(STATUS))[1:]
@@ -612,13 +616,13 @@ def test_spec_lifecycle_route_and_installed_package_smoke_are_exact() -> None:
         ("Phase 55", "`COMPLETED`"),
         ("Phase 56", "`COMPLETED`"),
         ("Phase 57", "`ACTIVE`"),
-        ("Slices 1–5", "`COMPLETED`"),
-        ("Slice 6", "`CURRENT`"),
-        ("Next", "`PHASE57_SLICE6_LEAN`"),
+        ("Slices 1–6", "`COMPLETED`"),
+        ("Slice 7", "`CURRENT`"),
+        ("Next", "`PHASE57_SLICE7_LEAN`"),
     )
     status = _read(STATUS)
-    assert "Live Git and natural exact-head CI own\nSlice 6 completion" in status
-    assert "does\nnot authorize Slice 7" in status
+    assert "Live Git and natural exact-head CI own\nSlice 7 completion" in status
+    assert "does\nnot authorize Slice 8" in status
 
     package_smoke = _read(PACKAGE_SMOKE)
     assert 'f"{prefix}/semantic/extension_catalog.py"' in package_smoke

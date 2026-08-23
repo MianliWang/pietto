@@ -828,7 +828,7 @@ def test_slice6_spec_lifecycle_and_slice7_boundary_are_exact() -> None:
         "Exact Candidate Identity",
         "Selection Algebra",
         "No-winner And Separation Boundaries",
-        "Slice 7 Handoff",
+        "Revised Slice 8 Provider Handoff",
     ):
         assert f"## {heading}\n" in spec
     for term in (
@@ -844,15 +844,17 @@ def test_slice6_spec_lifecycle_and_slice7_boundary_are_exact() -> None:
         "ProjectRoot",
     ):
         assert term in spec
-    assert "Slice 7 remains unstarted and unauthorized" in spec
+    assert "Revised Slice 8 remains unstarted and unauthorized" in " ".join(
+        spec.split()
+    )
 
     roadmap = ROADMAP.read_text(encoding="utf-8")
     status = STATUS.read_text(encoding="utf-8")
-    assert "Phase 57 is active, Slices 1–5 are completed, and Slice 6 is current" in (
+    assert "Phase 57 is active, Slices 1–6 are completed, and Slice 7 is current" in (
         roadmap
     )
     assert "Slice 6 declares constructed catalogs available" in roadmap
-    assert "| Slices 1–5 | `COMPLETED` |" in status
-    assert "| Slice 6 | `CURRENT` |" in status
-    assert "| Next | `PHASE57_SLICE6_LEAN` |" in status
-    assert "does\nnot authorize Slice 7" in status
+    assert "| Slices 1–6 | `COMPLETED` |" in status
+    assert "| Slice 7 | `CURRENT` |" in status
+    assert "| Next | `PHASE57_SLICE7_LEAN` |" in status
+    assert "does\nnot authorize Slice 8" in status

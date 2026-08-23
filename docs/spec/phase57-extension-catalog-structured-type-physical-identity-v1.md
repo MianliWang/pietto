@@ -170,12 +170,13 @@ digest `8453c3babda888b105f37f667f5fadf3a12aa68ca9a561bda98e5f6b6604a69e`.
 | 4 | Five typed catalog entry families, complex-signature metadata, and exact-matchability contracts |
 | 5 | Deterministic catalog construction, ordering/conflicts, scoped completeness, canonical bytes, and content SHA-256 |
 | 6 | Compiler/project catalog declaration and availability, exact PostgreSQL-release × extension-release selection |
-| 7 | EXTENSION_SIGNATURE provider integration, exact checking propagation, target-scoped provider authority, and matrix compatibility |
-| 8 | First concrete production catalog: pgvector |
-| 9 | Second diversity catalog: pg_trgm, plus PostGIS representability/stress audit without a full-support claim |
-| 10 | Separate private extension-catalog inspection/canonical representation and Phase 58/59 provenance readiness |
-| 11 | Extension-catalog pure boundary, differential vectors, Python 3.12/3.13, hash-seed, relocation, and E2E hardening |
-| 12 | Completion audit and Phase 58 handoff |
+| 7 | Structured EXTENSION_SIGNATURE requirement selector authority |
+| 8 | EXTENSION_SIGNATURE provider integration using typed selectors, target-scoped catalog lookup, exact checking propagation, and matrix compatibility |
+| 9 | First concrete production catalog: pgvector |
+| 10 | Second concrete production catalog: pg_trgm, plus ltree lightweight representability probe and PostGIS representability/stress audit without full-support claims |
+| 11 | Separate private extension-catalog inspection/canonical representation and Phase 58/59 provenance readiness |
+| 12 | Extension-catalog pure boundary, differential vectors, Python 3.12/3.13, hash-seed, relocation, and E2E hardening |
+| 13 | Completion audit and Phase 58 handoff |
 
 These rows preserve ownership only and authorize none of those slices.
 

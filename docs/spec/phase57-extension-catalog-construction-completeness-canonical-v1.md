@@ -161,7 +161,7 @@ identities never share completeness implicitly. There is no whole-catalog or
 global completeness boolean and no whole-family scope in v1.
 
 Completeness does not resolve an entry conflict, make an unmodeled declaration
-exact-matchable, prove installation, or prove profile availability. Slice 7
+exact-matchable, prove installation, or prove profile availability. Revised Slice 8
 may later treat zero exact matches as absent only for a non-conflicting
 `COMPLETE` scope. `INCOMPLETE`, `CONFLICT`, and `NO_AUTHORITY` cannot make
 omission definitive.
@@ -217,8 +217,8 @@ identity. It is not a release, package digest, governance record, Git identity,
 signature, or attestation.
 
 This format does not modify or route through
-`pietto.capability-inspection.v1`. Slice 10 still owns a separate extension-
-catalog inspection. Slice 11 must reproduce these exact bytes through its
+`pietto.capability-inspection.v1`. Slice 11 still owns a separate extension-
+catalog inspection. Slice 12 must reproduce these exact bytes through its
 future pure boundary rather than redefine them.
 
 ## Privacy And Non-scope

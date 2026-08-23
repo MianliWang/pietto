@@ -15,7 +15,9 @@ lifecycle authority.
 ## Phase Length Policy
 
 - A normal phase has 8–12 slices.
-- Phase 57 begins with exactly 12 route rows.
+- Phase 57 began with exactly 12 route rows.
+- The independently proven typed requirement-selector authority expands the
+  revised route to exactly 13 rows.
 - Evidence may justify expansion up to 16 slices when genuinely independent
   ownership emerges.
 - The route must never be padded, and independent semantic or compatibility
@@ -97,10 +99,11 @@ release and between extension releases. Existing non-extension provider
 domains may remain context-free; provider evidence is not globally assumed to
 be permanently target-independent.
 
-Slice 7 owns the smallest explicit private authority for exact catalog
-selection and release-aware provider inputs. Slice 1 does not implement that
-carrier. No global mutable registry, latest lookup, environment lookup, server
-lookup, or filesystem discovery is authorized.
+Slice 7 owns the typed requirement-selector authority. Slice 8 owns the
+smallest explicit private authority for release-aware provider inputs and
+catalog lookup after Slice 6 selection. Slice 1 implements neither carrier. No
+global mutable registry, latest lookup, environment lookup, server lookup, or
+filesystem discovery is authorized.
 
 ## Catalog Profile And Installation Separation
 
@@ -231,7 +234,7 @@ remain unchanged. The corpus is exactly 125 vectors: 16 accepted and 109
 rejected, with digest
 `8453c3babda888b105f37f667f5fadf3a12aa68ca9a561bda98e5f6b6604a69e`.
 
-Slice 10 owns a separate private extension-catalog inspection and canonical
+Slice 11 owns a separate private extension-catalog inspection and canonical
 representation. Catalog provenance must not be forced into the Phase 56 v1
 format. Phase 58 may later project capability inspection plus extension-catalog
 inspection into public explain output; no public projection exists now.
@@ -249,14 +252,15 @@ wrapper without changing internal semantics.
 The approved extension identity order is:
 
 1. `pgvector` — first concrete production catalog;
-2. `pg_trgm` — second diversity catalog;
-3. `PostGIS` — representability and stress audit, without a full-support claim.
+2. `pg_trgm` — second concrete production catalog;
+3. `ltree` — lightweight representability probe; and
+4. `PostGIS` — representability and stress audit, without a full-support claim.
 
 `TimescaleDB` remains deferred. Exact extension release coverage requires
 concrete upstream evidence in the population slice. Slice 1 adds no concrete
 entry and invents no release range.
 
-## Exact Initial Route
+## Exact Revised Route
 
 | Slice | Owner |
 | ---: | --- |
@@ -266,12 +270,13 @@ entry and invents no release range.
 | 4 | Five typed catalog entry families, complex-signature metadata, and exact-matchability contracts |
 | 5 | Deterministic catalog construction, ordering/conflicts, scoped completeness, canonical bytes, and content SHA-256 |
 | 6 | Compiler/project catalog declaration and availability, exact PostgreSQL-release × extension-release selection |
-| 7 | EXTENSION_SIGNATURE provider integration, exact checking propagation, target-scoped provider authority, and matrix compatibility |
-| 8 | First concrete production catalog: pgvector |
-| 9 | Second diversity catalog: pg_trgm, plus PostGIS representability/stress audit without a full-support claim |
-| 10 | Separate private extension-catalog inspection/canonical representation and Phase 58/59 provenance readiness |
-| 11 | Extension-catalog pure boundary, differential vectors, Python 3.12/3.13, hash-seed, relocation, and E2E hardening |
-| 12 | Completion audit and Phase 58 handoff |
+| 7 | Structured EXTENSION_SIGNATURE requirement selector authority |
+| 8 | EXTENSION_SIGNATURE provider integration using typed selectors, target-scoped catalog lookup, exact checking propagation, and matrix compatibility |
+| 9 | First concrete production catalog: pgvector |
+| 10 | Second concrete production catalog: pg_trgm, plus ltree lightweight representability probe and PostGIS representability/stress audit without full-support claims |
+| 11 | Separate private extension-catalog inspection/canonical representation and Phase 58/59 provenance readiness |
+| 12 | Extension-catalog pure boundary, differential vectors, Python 3.12/3.13, hash-seed, relocation, and E2E hardening |
+| 13 | Completion audit and Phase 58 handoff |
 
 Evidence-backed expansion triggers may include an independent type-reference
 problem, a complex-signature family that cannot safely share Slice 4, a

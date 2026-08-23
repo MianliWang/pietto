@@ -71,22 +71,26 @@ EXPECTED_ROUTE = (
     ),
     (
         "7",
-        "EXTENSION_SIGNATURE provider integration, exact checking propagation, target-scoped provider authority, and matrix compatibility",
+        "Structured EXTENSION_SIGNATURE requirement selector authority",
     ),
-    ("8", "First concrete production catalog: pgvector"),
     (
-        "9",
-        "Second diversity catalog: pg_trgm, plus PostGIS representability/stress audit without a full-support claim",
+        "8",
+        "EXTENSION_SIGNATURE provider integration using typed selectors, target-scoped catalog lookup, exact checking propagation, and matrix compatibility",
     ),
+    ("9", "First concrete production catalog: pgvector"),
     (
         "10",
-        "Separate private extension-catalog inspection/canonical representation and Phase 58/59 provenance readiness",
+        "Second concrete production catalog: pg_trgm, plus ltree lightweight representability probe and PostGIS representability/stress audit without full-support claims",
     ),
     (
         "11",
+        "Separate private extension-catalog inspection/canonical representation and Phase 58/59 provenance readiness",
+    ),
+    (
+        "12",
         "Extension-catalog pure boundary, differential vectors, Python 3.12/3.13, hash-seed, relocation, and E2E hardening",
     ),
-    ("12", "Completion audit and Phase 58 handoff"),
+    ("13", "Completion audit and Phase 58 handoff"),
 )
 
 
@@ -218,7 +222,8 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
     source_root = REPO_ROOT / "src/pietto"
     catalog_path = source_root / "semantic/extension_catalog.py"
     availability_path = source_root / "_project/extension_catalog_availability.py"
-    catalog_paths = {catalog_path, availability_path}
+    selector_path = source_root / "semantic/extension_signature_requirements.py"
+    catalog_paths = {catalog_path, availability_path, selector_path}
     extension_catalog_modules = tuple(
         sorted(
             path.relative_to(REPO_ROOT).as_posix()
@@ -230,6 +235,7 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
     assert extension_catalog_modules == (
         "src/pietto/_project/extension_catalog_availability.py",
         "src/pietto/semantic/extension_catalog.py",
+        "src/pietto/semantic/extension_signature_requirements.py",
     )
 
     facts = tuple(fact for family in _provider_families() for fact in family)
@@ -358,12 +364,13 @@ def test_exact_target_release_dimensions_and_authority_boundaries_are_locked() -
     assert (
         "Existing non-extension provider\ndomains may remain context-free" in provider
     )
-    assert "Slice 7 owns the smallest explicit private authority" in provider
+    assert "Slice 7 owns the typed requirement-selector authority." in provider
+    assert "Slice 8 owns the\nsmallest explicit private authority" in provider
     for forbidden in (
         "global mutable registry",
         "latest lookup",
         "environment lookup",
-        "server\nlookup",
+        "server lookup",
         "filesystem discovery",
     ):
         assert forbidden in provider
@@ -477,13 +484,14 @@ def test_concrete_direction_route_and_expansion_policy_are_exact() -> None:
     scope = _read(SCOPE_LOCK)
     direction = _section(scope, "First Concrete Catalog Direction")
     assert "1. `pgvector` — first concrete production catalog;" in direction
-    assert "2. `pg_trgm` — second diversity catalog;" in direction
-    assert "3. `PostGIS` — representability and stress audit" in direction
+    assert "2. `pg_trgm` — second concrete production catalog;" in direction
+    assert "3. `ltree` — lightweight representability probe;" in direction
+    assert "4. `PostGIS` — representability and stress audit" in direction
     assert "without a full-support claim" in direction
     assert "`TimescaleDB` remains deferred." in direction
     assert "Slice 1 adds no concrete\nentry and invents no release range." in direction
 
-    route = _section(scope, "Exact Initial Route")
+    route = _section(scope, "Exact Revised Route")
     assert _table_rows(route)[1:] == EXPECTED_ROUTE
     roadmap_route = _section(_read(ROADMAP), "Phase 57 route")
     assert _table_rows(roadmap_route)[1:] == EXPECTED_ROUTE
@@ -491,7 +499,8 @@ def test_concrete_direction_route_and_expansion_policy_are_exact() -> None:
     policy = _section(scope, "Phase Length Policy")
     for line in (
         "- A normal phase has 8–12 slices.",
-        "- Phase 57 begins with exactly 12 route rows.",
+        "- Phase 57 began with exactly 12 route rows.",
+        "- The independently proven typed requirement-selector authority expands the",
         "- Evidence may justify expansion up to 16 slices when genuinely independent",
         "- Expansion requires an explicit evidence-backed route update.",
         "- Already published slice ownership must not be silently reordered.",
@@ -569,11 +578,11 @@ def test_future_readiness_package_public_release_and_lifecycle_locks_are_exact()
         ("Phase 55", "`COMPLETED`"),
         ("Phase 56", "`COMPLETED`"),
         ("Phase 57", "`ACTIVE`"),
-        ("Slices 1–5", "`COMPLETED`"),
-        ("Slice 6", "`CURRENT`"),
-        ("Next", "`PHASE57_SLICE6_LEAN`"),
+        ("Slices 1–6", "`COMPLETED`"),
+        ("Slice 7", "`CURRENT`"),
+        ("Next", "`PHASE57_SLICE7_LEAN`"),
     )
     status = _read(STATUS)
-    assert "Live Git and natural exact-head CI own\nSlice 6 completion" in status
+    assert "Live Git and natural exact-head CI own\nSlice 7 completion" in status
     assert "no post-CI status-flip commit is required" in status
-    assert "does\nnot authorize Slice 7" in status
+    assert "does\nnot authorize Slice 8" in status
