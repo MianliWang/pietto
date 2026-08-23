@@ -39,6 +39,7 @@ WINDOW_REL = "src/pietto/semantic/capability_windows.py"
 PROFILE_REL = "src/pietto/semantic/capability_profiles.py"
 SELECTOR_REL = "src/pietto/semantic/extension_signature_requirements.py"
 EXTENSION_PROVIDER_REL = "src/pietto/_project/extension_signature_provider.py"
+EXTENSION_INSPECTION_REL = "src/pietto/_project/extension_catalog_inspection.py"
 PROVIDER_REL = "src/pietto/semantic/capability_providers.py"
 COMPOSITION_REL = "src/pietto/semantic/capability_composition.py"
 CHECKING_REL = "src/pietto/_project/capability_checking.py"
@@ -295,6 +296,7 @@ def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry()
                 REPO_ROOT / PROFILE_REL,
                 REPO_ROOT / SELECTOR_REL,
                 REPO_ROOT / EXTENSION_PROVIDER_REL,
+                REPO_ROOT / EXTENSION_INSPECTION_REL,
                 REPO_ROOT / PROVIDER_REL,
                 REPO_ROOT / COMPOSITION_REL,
                 REPO_ROOT / CHECKING_REL,
@@ -320,6 +322,10 @@ def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry()
     assert "semantic.capability_facts" in inspection_source
     assert "CapabilityFact" in inspection_source
     assert "CapabilityKey" in inspection_source
+    extension_inspection_source = _read(REPO_ROOT / EXTENSION_INSPECTION_REL)
+    assert "semantic.capability_lookup" in extension_inspection_source
+    assert "lookup_capability" in extension_inspection_source
+    assert "CapabilityFact" in extension_inspection_source
     preservation_source = _read(
         REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py"
     )

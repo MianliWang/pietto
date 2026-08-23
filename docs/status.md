@@ -9,10 +9,10 @@ documentation does not supersede that evidence.
 | Phase 55 | `COMPLETED` |
 | Phase 56 | `COMPLETED` |
 | Phase 57 | `ACTIVE` |
-| Slices 1–9 | `COMPLETED` |
-| Slice 10 | `CURRENT` |
-| Next | `PHASE57_SLICE10_END_TO_END` |
+| Slices 1–10 | `COMPLETED` |
+| Slice 11 | `CURRENT` |
+| Next | `PHASE57_SLICE11_END_TO_END` |
 
-Slice 10 is the current route owner. Live Git and natural exact-head CI own
-Slice 10 completion; no post-CI status-flip commit is required. This status does
-not authorize Slice 11.
+Slice 11 is the current route owner. Live Git and natural exact-head CI own
+Slice 11 completion; no post-CI status-flip commit is required. This status does
+not authorize Slice 12.

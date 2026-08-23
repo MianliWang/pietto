@@ -111,7 +111,7 @@ fail closed at the Phase 57 Slice 1 baseline.
 
 ## Phase 57 route
 
-Phase 57 is active, Slices 1–9 are completed, and Slice 10 is current. The
+Phase 57 is active, Slices 1–10 are completed, and Slice 11 is current. The
 revised route has exactly 13 slices. The independent typed requirement-selector
 authority proven at Slice 7 expands the original 12-slice route without
 padding. Further evidence may expand it up to 16 slices only through an
@@ -220,6 +220,15 @@ stress audit. Unsupported shapes remain cataloged-unmodeled, no generic schema
 changes, ltree/PostGIS catalogs, or support claims are introduced, and
 completeness remains empty. The controlling contract is
 [Phase 57 Slice 10 pg_trgm and representability audits](spec/phase57-pg-trgm-ltree-postgis-representability-v1.md).
+
+Slice 11 derives one separate private extension-catalog inspection from exact
+Slice 8 provider contexts. It retains both production catalog artifacts,
+source/entry/group/completeness evidence, typed selectors, precomputed
+availability and selection provenance, provider inputs/results, and separately
+frozen canonical inspection bytes without re-selection or provider-algebra
+duplication. It adds no registry, public output, runtime I/O, ltree/PostGIS
+production catalog, or capability-inspection change. The controlling contract
+is [Phase 57 Slice 11 extension-catalog inspection](spec/phase57-extension-catalog-inspection-v1.md).
 
 ## Retained later ownership
 
