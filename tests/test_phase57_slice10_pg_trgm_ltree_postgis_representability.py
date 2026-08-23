@@ -605,13 +605,14 @@ def test_spec_lifecycle_reader_closure_and_package_smoke_are_exact() -> None:
         assert value in spec
     roadmap = ROADMAP.read_text(encoding="utf-8")
     status = STATUS.read_text(encoding="utf-8")
-    assert "Phase 57 is active, Slices 1–11 are completed, and Slice 12 is current" in (
+    assert "Phase 57 is active, Slices 1–12 are completed, and Slice 13 is current" in (
         roadmap
     )
-    assert "| Slices 1–11 | `COMPLETED` |" in status
-    assert "| Slice 12 | `CURRENT` |" in status
-    assert "| Next | `PHASE57_SLICE12_END_TO_END` |" in status
-    assert "does not authorize Slice 13" in " ".join(status.split())
+    assert "| Slices 1–12 | `COMPLETED` |" in status
+    assert "| Slice 13 | `CURRENT` |" in status
+    assert "| Phase 58 | `UNSTARTED / NOT AUTHORIZED` |" in status
+    assert "| Next | `PHASE57_SLICE13_END_TO_END` |" in status
+    assert "does not authorize Phase 58" in " ".join(status.split())
     package_smoke = PACKAGE_SMOKE.read_text(encoding="utf-8")
     assert 'f"{prefix}/semantic/extension_catalog_pg_trgm.py"' in package_smoke
     assert '"import pietto.semantic.extension_catalog_pg_trgm"' in package_smoke

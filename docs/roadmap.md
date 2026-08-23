@@ -111,7 +111,7 @@ fail closed at the Phase 57 Slice 1 baseline.
 
 ## Phase 57 route
 
-Phase 57 is active, Slices 1–11 are completed, and Slice 12 is current. The
+Phase 57 is active, Slices 1–12 are completed, and Slice 13 is current. The
 revised route has exactly 13 slices. The independent typed requirement-selector
 authority proven at Slice 7 expands the original 12-slice route without
 padding. Further evidence may expand it up to 16 slices only through an
@@ -238,6 +238,13 @@ semantics. It adds no registry, runtime discovery, public output, or package
 asset. The controlling contract is
 [Phase 57 Slice 12 catalog pure-boundary hardening](spec/phase57-extension-catalog-pure-boundary-differential-e2e-v1.md).
 
+Slice 13 audits the complete existing chain, reconciles every material deferred
+subject to one terminal disposition, assigns release-aware PostgreSQL core and
+generated/multi-source extension catalog assembly to Phase 69, and freezes the
+private Phase 58 handoff without implementing it. It adds no product semantics.
+The controlling closure is
+[Phase 57 Slice 13 completion audit and Phase 58 handoff](spec/phase57-completion-audit-phase58-handoff-v1.md).
+
 ## Retained later ownership
 
 | Phase | Owner |
@@ -253,7 +260,7 @@ asset. The controlling contract is
 | 66 | Advanced module and semantic-package assets |
 | 67 | Remote package manager and trust boundary |
 | 68 | Dependency solver, canonical lockfile, and first Rust kernel decision |
-| 69 | Extension-specific lowering and additional dialect foundations |
+| 69 | Release-aware PostgreSQL core builtin signature catalog, backend-specific core catalog foundations, generated/multi-source extension catalog assembly, extension-specific lowering, and additional dialect foundations |
 | 70 | Public schema/lineage expansion and v0.2 release-readiness decision |
 
 Phase 57 begins from the complete private Phase 56 capability chain.
