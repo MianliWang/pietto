@@ -734,18 +734,19 @@ def test_candidate_lifecycle_version_future_owner_and_history_are_exact() -> Non
     roadmap = ROADMAP.read_text(encoding="utf-8")
     status = STATUS.read_text(encoding="utf-8")
     document = SPEC.read_text(encoding="utf-8")
-    assert "Phase 57 is active, Slices 1–12 are completed, and Slice 13 is current" in (
-        roadmap
+    assert (
+        "Phase 58 is active, Slice 1 is current, and Slice 2 is next / unstarted"
+        in (roadmap)
     )
     assert "Phase 57 Slice 13 completion audit" in roadmap
     assert "Release-aware PostgreSQL core builtin signature catalog" in roadmap
     assert "generated/multi-source extension catalog assembly" in roadmap
-    assert "| Phase 57 | `ACTIVE` |" in status
-    assert "| Slices 1–12 | `COMPLETED` |" in status
-    assert "| Slice 13 | `CURRENT` |" in status
-    assert "| Phase 58 | `UNSTARTED / NOT AUTHORIZED` |" in status
-    assert "| Next | `PHASE57_SLICE13_END_TO_END` |" in status
-    assert "does not authorize Phase 58" in " ".join(status.split())
+    assert "| Phase 57 | `COMPLETED` |" in status
+    assert "| Phase 58 | `ACTIVE` |" in status
+    assert "| Slice 1 | `CURRENT` |" in status
+    assert "| Slice 2 | `NEXT / UNSTARTED` |" in status
+    assert "| Next | `PHASE58_SLICE2_END_TO_END` |" in status
+    assert "does not authorize Slice 2" in " ".join(status.split())
     assert 'version = "0.1.0"' in (REPO_ROOT / "pyproject.toml").read_text(
         encoding="utf-8"
     )

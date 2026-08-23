@@ -619,12 +619,14 @@ def test_revised_slice7_spec_route_lifecycle_and_slice8_boundary_are_exact() -> 
 
     roadmap = ROADMAP.read_text(encoding="utf-8")
     status = STATUS.read_text(encoding="utf-8")
-    assert "Phase 57 is active, Slices 1–12 are completed, and Slice 13 is current" in (
-        roadmap
+    assert (
+        "Phase 58 is active, Slice 1 is current, and Slice 2 is next / unstarted"
+        in (roadmap)
     )
     assert "The revised route has exactly 13 slices" in " ".join(roadmap.split())
-    assert "| Slices 1–12 | `COMPLETED` |" in status
-    assert "| Slice 13 | `CURRENT` |" in status
-    assert "| Phase 58 | `UNSTARTED / NOT AUTHORIZED` |" in status
-    assert "| Next | `PHASE57_SLICE13_END_TO_END` |" in status
-    assert "does not authorize Phase 58" in " ".join(status.split())
+    assert "| Phase 57 | `COMPLETED` |" in status
+    assert "| Phase 58 | `ACTIVE` |" in status
+    assert "| Slice 1 | `CURRENT` |" in status
+    assert "| Slice 2 | `NEXT / UNSTARTED` |" in status
+    assert "| Next | `PHASE58_SLICE2_END_TO_END` |" in status
+    assert "does not authorize Slice 2" in " ".join(status.split())

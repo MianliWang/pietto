@@ -8,12 +8,12 @@ documentation does not supersede that evidence.
 | Package and CLI | `0.1.0` |
 | Phase 55 | `COMPLETED` |
 | Phase 56 | `COMPLETED` |
-| Phase 57 | `ACTIVE` |
-| Slices 1–12 | `COMPLETED` |
-| Slice 13 | `CURRENT` |
-| Phase 58 | `UNSTARTED / NOT AUTHORIZED` |
-| Next | `PHASE57_SLICE13_END_TO_END` |
+| Phase 57 | `COMPLETED` |
+| Phase 58 | `ACTIVE` |
+| Slice 1 | `CURRENT` |
+| Slice 2 | `NEXT / UNSTARTED` |
+| Next | `PHASE58_SLICE2_END_TO_END` |
 
-Slice 13 is the current route owner. Live Git and natural exact-head CI own
-Phase 57 completion; no post-CI status-flip commit is required. This status
-does not authorize Phase 58.
+Slice 1 is the current route owner. Live Git and natural exact-head CI own
+Phase 58 Slice 1 completion; no post-CI status-flip commit is required. This
+status does not authorize Slice 2.

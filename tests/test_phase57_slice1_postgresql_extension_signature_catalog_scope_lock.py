@@ -597,7 +597,7 @@ def test_future_readiness_package_public_release_and_lifecycle_locks_are_exact()
 
     retained = _table_rows(_section(_read(ROADMAP), "Retained later ownership"))[1:]
     assert tuple(row[0] for row in retained) == tuple(
-        str(phase) for phase in range(58, 71)
+        str(phase) for phase in range(59, 71)
     )
 
     status_rows = _table_rows(_read(STATUS))[1:]
@@ -605,13 +605,15 @@ def test_future_readiness_package_public_release_and_lifecycle_locks_are_exact()
         ("Package and CLI", "`0.1.0`"),
         ("Phase 55", "`COMPLETED`"),
         ("Phase 56", "`COMPLETED`"),
-        ("Phase 57", "`ACTIVE`"),
-        ("Slices 1–12", "`COMPLETED`"),
-        ("Slice 13", "`CURRENT`"),
-        ("Phase 58", "`UNSTARTED / NOT AUTHORIZED`"),
-        ("Next", "`PHASE57_SLICE13_END_TO_END`"),
+        ("Phase 57", "`COMPLETED`"),
+        ("Phase 58", "`ACTIVE`"),
+        ("Slice 1", "`CURRENT`"),
+        ("Slice 2", "`NEXT / UNSTARTED`"),
+        ("Next", "`PHASE58_SLICE2_END_TO_END`"),
     )
     status = _read(STATUS)
-    assert "Live Git and natural exact-head CI own\nPhase 57 completion" in status
+    assert (
+        "Live Git and natural exact-head CI own\nPhase 58 Slice 1 completion" in status
+    )
     assert "no post-CI status-flip commit is required" in status
-    assert "does not authorize Phase 58" in " ".join(status.split())
+    assert "does not authorize Slice 2" in " ".join(status.split())

@@ -6,12 +6,14 @@ Every substantive slice begins by identifying its authority roots, current
 invariants, compatibility boundary, and the smallest behavior that is actually
 needed.
 
-The active package direction is deterministic local package assets and loading.
-It remains compiler-only: no package registry, dependency solver, remote
-loading, database execution, runtime evaluation, or implicit project discovery
-is authorized by that direction. Future work must preserve the established
-module/package identity, complete collection, provenance, lineage, trust, and
-diagnostic boundaries unless a new explicit product decision changes them.
+The active product direction is a deterministic public project-explain
+artifact composed from existing private package, capability, and extension-
+catalog authorities. It remains compiler-only: no package or catalog registry,
+dependency solver, remote loading, database execution, runtime evaluation,
+installation discovery, or implicit project discovery is authorized. Future
+work must preserve established identity, complete collection, provenance,
+ordering, trust, and diagnostic boundaries unless a new explicit product
+decision changes them.
 
 ## Phase 55 route
 
@@ -111,13 +113,10 @@ fail closed at the Phase 57 Slice 1 baseline.
 
 ## Phase 57 route
 
-Phase 57 is active, Slices 1–12 are completed, and Slice 13 is current. The
-revised route has exactly 13 slices. The independent typed requirement-selector
-authority proven at Slice 7 expands the original 12-slice route without
-padding. Further evidence may expand it up to 16 slices only through an
-explicit evidence-backed route update. Never compress independent
-responsibilities or silently reorder published ownership. These rows assign
-ownership only; they do not authorize a later slice.
+All 13 slices are completed. Phase 57 is complete. The revised route has
+exactly 13 slices. The independent typed requirement-selector authority proven
+at Slice 7 expanded the original 12-slice route without padding. These rows
+record completed ownership; they do not authorize later work.
 
 | Slice | Owner |
 | ---: | --- |
@@ -245,11 +244,50 @@ private Phase 58 handoff without implementing it. It adds no product semantics.
 The controlling closure is
 [Phase 57 Slice 13 completion audit and Phase 58 handoff](spec/phase57-completion-audit-phase58-handoff-v1.md).
 
+## Phase 58 route
+
+Phase 58 is active, Slice 1 is current, and Slice 2 is next / unstarted. The
+default route has exactly 12 slices. It may expand only through an explicit
+evidence-backed route update for a genuine independent lifecycle, public
+compatibility boundary, or similarly independent owner. These rows assign
+ownership only; they do not authorize a later slice.
+
+| Slice | Owner |
+| ---: | --- |
+| 1 | Architecture/scope/route lock; artifact identity; target denominator; single-file explain compatibility |
+| 2 | Public common model and success/failure envelope; logical paths; evidence posture; request/resolution/result vocabulary |
+| 3 | Package and requirement provenance projection; `declared_by`/`requested_by` |
+| 4 | Public requirement/target compatibility matrix; evaluation states; five checked statuses and reasons |
+| 5 | Public extension-catalog evidence projection; catalog coordinate/target/digest; selection; matchability/exposure; bounded provenance |
+| 6 | Conservative requirement/project portability derivation |
+| 7 | Cross-section composition; artifact-local references; integrity; deterministic ordering; authority separation |
+| 8 | Public JSON v1 schema; deterministic serialization; success/failure envelopes; privacy and schema-evolution locks |
+| 9 | `pietto explain --project` text/JSON integration; existing single-file explain zero-delta |
+| 10 | Real multi-target E2E scenarios spanning package, capability, catalog, all evaluation states, and all checked result classes |
+| 11 | Public pure/differential compatibility boundary; goldens; Python 3.12/3.13; hash seed; relocation; installed wheel |
+| 12 | Completion audit; Phase 59 handoff; Phase 60/64/69 readiness reconciliation |
+
+The human-readable direction is `Project Explain Artifact v1`, with public
+marker `pietto.project-explain.v1` and future additive commands
+`pietto explain --project <root>` and
+`pietto explain --project <root> --format json`. Existing single-file
+`Semantic Metadata Artifact v1` remains exact zero-delta.
+
+Project explain is one deterministic compiler-analysis snapshot, not installed
+or runtime state. It composes bounded public projections from the independent
+private package, capability, and extension-catalog inspection authorities. Its
+portability denominator is one explicit ordered evaluated target set; the raw
+requirement-by-target matrix remains normative, and only `UNSUPPORTED` or
+`ABSENT` is a definite gap. The public classification is exactly `PORTABLE`,
+`NOT_PORTABLE`, or `INDETERMINATE`.
+
+The controlling architecture is
+[Phase 58 Slice 1 project explain and portability scope lock](spec/phase58-project-explain-portability-scope-lock-v1.md).
+
 ## Retained later ownership
 
 | Phase | Owner |
 | ---: | --- |
-| 58 | Public explain, portability, and package-inspection artifact |
 | 59 | Local package graph, attribution, provenance, and lineage |
 | 60 | Advanced windows and Phase 51–60 readiness checkpoint |
 | 61 | Project IR and semantic composition |
