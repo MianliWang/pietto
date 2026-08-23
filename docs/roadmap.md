@@ -111,7 +111,7 @@ fail closed at the Phase 57 Slice 1 baseline.
 
 ## Phase 57 route
 
-Phase 57 is active, Slices 1–8 are completed, and Slice 9 is current. The
+Phase 57 is active, Slices 1–9 are completed, and Slice 10 is current. The
 revised route has exactly 13 slices. The independent typed requirement-selector
 authority proven at Slice 7 expands the original 12-slice route without
 padding. Further evidence may expand it up to 16 slices only through an
@@ -212,6 +212,14 @@ every pinned five-family declaration, retains arrays and pseudo-types as
 cataloged-unmodeled evidence, claims no completeness, and exercises the frozen
 Slice 6–8 provider/checker chain without auto-availability. The controlling
 contract is [Phase 57 Slice 9 pgvector catalog](spec/phase57-pgvector-v086-postgresql18-catalog-v1.md).
+
+Slice 10 adds the second production catalog, PostgreSQL `pg_trgm` 1.6 for the
+exact PostgreSQL 18 target. It also records a non-production ltree 1.3
+multi-native/array representability probe and a bounded PostGIS 3.6.4 core
+stress audit. Unsupported shapes remain cataloged-unmodeled, no generic schema
+changes, ltree/PostGIS catalogs, or support claims are introduced, and
+completeness remains empty. The controlling contract is
+[Phase 57 Slice 10 pg_trgm and representability audits](spec/phase57-pg-trgm-ltree-postgis-representability-v1.md).
 
 ## Retained later ownership
 

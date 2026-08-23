@@ -1280,13 +1280,13 @@ def test_slice8_spec_lifecycle_reader_closure_and_package_smoke_are_exact() -> N
         assert term in spec
     roadmap = ROADMAP.read_text(encoding="utf-8")
     status = STATUS.read_text(encoding="utf-8")
-    assert "Phase 57 is active, Slices 1–8 are completed, and Slice 9 is current" in (
+    assert "Phase 57 is active, Slices 1–9 are completed, and Slice 10 is current" in (
         roadmap
     )
-    assert "| Slices 1–8 | `COMPLETED` |" in status
-    assert "| Slice 9 | `CURRENT` |" in status
-    assert "| Next | `PHASE57_SLICE9_END_TO_END` |" in status
-    assert "does\nnot authorize Slice 10" in status
+    assert "| Slices 1–9 | `COMPLETED` |" in status
+    assert "| Slice 10 | `CURRENT` |" in status
+    assert "| Next | `PHASE57_SLICE10_END_TO_END` |" in status
+    assert "does\nnot authorize Slice 11" in status
     package_smoke = PACKAGE_SMOKE.read_text(encoding="utf-8")
     assert 'f"{prefix}/_project/extension_signature_provider.py"' in package_smoke
     assert '"import pietto._project.extension_signature_provider"' in package_smoke
