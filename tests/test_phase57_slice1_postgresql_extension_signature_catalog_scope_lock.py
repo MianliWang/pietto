@@ -217,13 +217,20 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
 ):
     source_root = REPO_ROOT / "src/pietto"
     catalog_path = source_root / "semantic/extension_catalog.py"
+    availability_path = source_root / "_project/extension_catalog_availability.py"
+    catalog_paths = {catalog_path, availability_path}
     extension_catalog_modules = tuple(
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in source_root.rglob("*.py")
-        if "extension" in path.stem
-        and ("catalog" in path.stem or "signature" in path.stem)
+        sorted(
+            path.relative_to(REPO_ROOT).as_posix()
+            for path in source_root.rglob("*.py")
+            if "extension" in path.stem
+            and ("catalog" in path.stem or "signature" in path.stem)
+        )
     )
-    assert extension_catalog_modules == ("src/pietto/semantic/extension_catalog.py",)
+    assert extension_catalog_modules == (
+        "src/pietto/_project/extension_catalog_availability.py",
+        "src/pietto/semantic/extension_catalog.py",
+    )
 
     facts = tuple(fact for family in _provider_families() for fact in family)
     named_extensions = {"pgvector", "pg_trgm", "PostGIS", "TimescaleDB"}
@@ -237,7 +244,7 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
     production_source = "\n".join(
         _read(path)
         for path in sorted(source_root.rglob("*.py"))
-        if path != catalog_path
+        if path not in catalog_paths
     )
     for forbidden in (
         "create extension",
@@ -562,11 +569,11 @@ def test_future_readiness_package_public_release_and_lifecycle_locks_are_exact()
         ("Phase 55", "`COMPLETED`"),
         ("Phase 56", "`COMPLETED`"),
         ("Phase 57", "`ACTIVE`"),
-        ("Slices 1–4", "`COMPLETED`"),
-        ("Slice 5", "`CURRENT`"),
-        ("Next", "`PHASE57_SLICE5_LEAN`"),
+        ("Slices 1–5", "`COMPLETED`"),
+        ("Slice 6", "`CURRENT`"),
+        ("Next", "`PHASE57_SLICE6_LEAN`"),
     )
     status = _read(STATUS)
-    assert "Live Git and natural exact-head CI own\nSlice 5 completion" in status
+    assert "Live Git and natural exact-head CI own\nSlice 6 completion" in status
     assert "no post-CI status-flip commit is required" in status
-    assert "does\nnot authorize Slice 6" in status
+    assert "does\nnot authorize Slice 7" in status

@@ -111,7 +111,7 @@ fail closed at the Phase 57 Slice 1 baseline.
 
 ## Phase 57 route
 
-Phase 57 is active, Slices 1–4 are completed, and Slice 5 is current. The
+Phase 57 is active, Slices 1–5 are completed, and Slice 6 is current. The
 initial route has 12 slices. Evidence may expand it up to 16 slices only through
 an explicit evidence-backed route update when genuinely independent ownership
 emerges. Never pad the route, compress independent responsibilities to remain
@@ -135,8 +135,9 @@ only; they do not authorize a later slice.
 
 One catalog describes exactly one PostgreSQL database release and one exact
 extension identity/release target. Catalog, profile, and installation authority
-remain distinct. Release remains outside `CapabilityKey`; Slice 7 owns the
-smallest later private release-aware provider/catalog-selection authority.
+remain distinct. Release remains outside `CapabilityKey`; Slice 6 owns exact
+catalog availability and selection, while Slice 7 owns the smallest later
+private release-aware provider authority.
 
 Phase 57 is static, declarative, strongly typed, deterministic, immutable,
 reviewable, and non-executable. It adds no installation, introspection,
@@ -177,6 +178,15 @@ completeness, and derives unambiguous length-framed canonical bytes plus their
 SHA-256 content identity. It adds no selection, provider, concrete extension,
 inspection, runtime, package, or lowering behavior. The controlling contract
 is [Phase 57 Slice 5 construction, completeness, and canonical identity](spec/phase57-extension-catalog-construction-completeness-canonical-v1.md).
+
+Slice 6 declares constructed catalogs available under exact compiler or
+logical-project authority, filters project applicability by exact `ProjectRoot`
+equality, and selects one exact target as `UNDECLARED`, `SELECTED`, `AMBIGUOUS`,
+or `CONFLICT`. Candidate identity retains catalog reference, target, and
+content SHA-256; all declaration provenance remains additive with no owner or
+release precedence. It adds no provider, lookup, profile, package,
+installation, runtime, inspection, or lowering behavior. The controlling
+contract is [Phase 57 Slice 6 declaration, availability, and selection](spec/phase57-extension-catalog-declaration-availability-selection-v1.md).
 
 ## Retained later ownership
 
