@@ -16,13 +16,14 @@ EXPECTED_STATUS = (
     ("Slice 1", "`COMPLETED`"),
     ("Slice 2", "`COMPLETED`"),
     ("Slice 3", "`COMPLETED`"),
-    ("Slice 4", "`CURRENT`"),
-    ("Slice 5", "`NEXT / UNSTARTED`"),
-    ("Next", "`PHASE58_SLICE5_END_TO_END`"),
+    ("Slice 4", "`COMPLETED`"),
+    ("Slice 5", "`CURRENT`"),
+    ("Slice 6", "`NEXT / UNSTARTED`"),
+    ("Next", "`PHASE58_SLICE6_END_TO_END`"),
 )
 EXPECTED_ROADMAP_STATE = (
-    "Phase 58 is active, Slices 1–3 are completed, Slice 4 is current, "
-    "and Slice 5 is next / unstarted."
+    "Phase 58 is active, Slices 1–4 are completed, Slice 5 is current, "
+    "and Slice 6 is next / unstarted."
 )
 
 
@@ -50,11 +51,11 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     status = _read(STATUS)
     assert _table_rows(status)[1:] == EXPECTED_STATUS
     normalized = " ".join(status.split())
-    assert "Slice 4 is the current route owner" in normalized
-    assert "Live Git and natural exact-head CI own Phase 58 Slice 4 completion" in (
+    assert "Slice 5 is the current route owner" in normalized
+    assert "Live Git and natural exact-head CI own Phase 58 Slice 5 completion" in (
         normalized
     )
-    assert "does not authorize Slice 5" in normalized
+    assert "does not authorize Slice 6" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_is_exact() -> None:

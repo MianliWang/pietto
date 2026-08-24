@@ -227,6 +227,9 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
     inspection_pure_path = (
         source_root / "_project/extension_catalog_inspection_pure_boundary.py"
     )
+    project_explain_catalog_evidence_path = (
+        source_root / "_project_explain/extension_catalog_evidence_projection.py"
+    )
     capability_facts_path = source_root / "semantic/capability_facts.py"
     capability_pure_path = source_root / "_project/capability_pure_boundary.py"
     provider_path = source_root / "_project/extension_signature_provider.py"
@@ -239,6 +242,7 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
         availability_path,
         inspection_path,
         inspection_pure_path,
+        project_explain_catalog_evidence_path,
         capability_facts_path,
         capability_pure_path,
         provider_path,
@@ -257,6 +261,7 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
         "src/pietto/_project/extension_catalog_inspection.py",
         "src/pietto/_project/extension_catalog_inspection_pure_boundary.py",
         "src/pietto/_project/extension_signature_provider.py",
+        "src/pietto/_project_explain/extension_catalog_evidence_projection.py",
         "src/pietto/semantic/extension_catalog.py",
         "src/pietto/semantic/extension_catalog_pg_trgm.py",
         "src/pietto/semantic/extension_catalog_pgvector.py",
