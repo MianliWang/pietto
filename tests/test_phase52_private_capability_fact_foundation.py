@@ -508,6 +508,8 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
                 REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py",
                 REPO_ROOT
                 / "src/pietto/_project_explain/package_requirement_projection.py",
+                REPO_ROOT
+                / "src/pietto/_project_explain/compatibility_matrix_projection.py",
             }
             or "generated" in path.parts
         ):

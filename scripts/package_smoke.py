@@ -138,6 +138,7 @@ def _required_runtime_files(prefix: str) -> frozenset[str]:
         f"{prefix}/cli.py",
         f"{prefix}/parser_api.py",
         f"{prefix}/_project_explain/__init__.py",
+        f"{prefix}/_project_explain/compatibility_matrix_projection.py",
         f"{prefix}/_project_explain/model.py",
         f"{prefix}/_project_explain/package_requirement_projection.py",
         f"{prefix}/_project/extension_catalog_availability.py",
@@ -320,6 +321,18 @@ def _smoke_installed_cli(
     _copy_smoke_inputs(scratch_dir)
     environment = _clean_environment()
 
+    _run_command(
+        "installed private project explain compatibility matrix projection import",
+        (
+            str(_venv_python(venv_dir)),
+            "-I",
+            "-c",
+            "import pietto._project_explain.compatibility_matrix_projection",
+        ),
+        cwd=scratch_dir,
+        capture_output=True,
+        env=environment,
+    )
     _run_command(
         "installed private project explain package requirement projection import",
         (

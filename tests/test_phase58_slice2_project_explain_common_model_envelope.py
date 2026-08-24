@@ -46,8 +46,9 @@ PACKAGE_SMOKE = REPO_ROOT / "scripts/package_smoke.py"
 
 EXPECTED_CHANGED_PATHS = frozenset(
     {
-        "src/pietto/_project_explain/package_requirement_projection.py",
-        "docs/spec/phase58-slice3-project-explain-package-requirement-provenance-v1.md",
+        "src/pietto/_project_explain/compatibility_matrix_projection.py",
+        "docs/spec/phase58-slice4-project-explain-requirement-target-matrix-v1.md",
+        "tests/test_phase58_slice4_project_explain_requirement_target_matrix.py",
         "tests/test_phase58_slice3_project_explain_package_requirement_provenance.py",
         "tests/test_phase58_slice2_project_explain_common_model_envelope.py",
         "docs/roadmap.md",
@@ -696,6 +697,9 @@ def test_package_smoke_requires_and_imports_the_installed_private_model() -> Non
         'f"{prefix}/_project_explain/package_requirement_projection.py"',
         '"installed private project explain package requirement projection import"',
         "import pietto._project_explain.package_requirement_projection",
+        'f"{prefix}/_project_explain/compatibility_matrix_projection.py"',
+        '"installed private project explain compatibility matrix projection import"',
+        "import pietto._project_explain.compatibility_matrix_projection",
     ):
         assert required in source
 
@@ -785,9 +789,10 @@ def test_route_lifecycle_inventory_and_slice3_handoff_are_exact() -> None:
         ("Phase 58", "`ACTIVE`"),
         ("Slice 1", "`COMPLETED`"),
         ("Slice 2", "`COMPLETED`"),
-        ("Slice 3", "`CURRENT`"),
-        ("Slice 4", "`NEXT / UNSTARTED`"),
-        ("Next", "`PHASE58_SLICE4_END_TO_END`"),
+        ("Slice 3", "`COMPLETED`"),
+        ("Slice 4", "`CURRENT`"),
+        ("Slice 5", "`NEXT / UNSTARTED`"),
+        ("Next", "`PHASE58_SLICE5_END_TO_END`"),
     )
     document = _read(SPEC)
     for required in (
@@ -807,6 +812,7 @@ def test_route_lifecycle_inventory_and_slice3_handoff_are_exact() -> None:
     }
     assert production_paths == {
         "src/pietto/_project_explain/__init__.py",
+        "src/pietto/_project_explain/compatibility_matrix_projection.py",
         "src/pietto/_project_explain/model.py",
         "src/pietto/_project_explain/package_requirement_projection.py",
     }
@@ -821,9 +827,11 @@ def test_route_lifecycle_inventory_and_slice3_handoff_are_exact() -> None:
         "docs/spec/phase58-project-explain-portability-scope-lock-v1.md",
         "docs/spec/phase58-slice2-project-explain-common-model-envelope-v1.md",
         "docs/spec/phase58-slice3-project-explain-package-requirement-provenance-v1.md",
+        "docs/spec/phase58-slice4-project-explain-requirement-target-matrix-v1.md",
         "tests/test_phase58_slice1_project_explain_portability_scope_lock.py",
         "tests/test_phase58_slice2_project_explain_common_model_envelope.py",
         "tests/test_phase58_slice3_project_explain_package_requirement_provenance.py",
+        "tests/test_phase58_slice4_project_explain_requirement_target_matrix.py",
     }
-    assert len(EXPECTED_CHANGED_PATHS) == 25
+    assert len(EXPECTED_CHANGED_PATHS) == 26
     assert all((REPO_ROOT / path).exists() for path in EXPECTED_CHANGED_PATHS)

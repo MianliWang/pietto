@@ -609,13 +609,14 @@ def test_future_readiness_package_public_release_and_lifecycle_locks_are_exact()
         ("Phase 58", "`ACTIVE`"),
         ("Slice 1", "`COMPLETED`"),
         ("Slice 2", "`COMPLETED`"),
-        ("Slice 3", "`CURRENT`"),
-        ("Slice 4", "`NEXT / UNSTARTED`"),
-        ("Next", "`PHASE58_SLICE4_END_TO_END`"),
+        ("Slice 3", "`COMPLETED`"),
+        ("Slice 4", "`CURRENT`"),
+        ("Slice 5", "`NEXT / UNSTARTED`"),
+        ("Next", "`PHASE58_SLICE5_END_TO_END`"),
     )
     status = _read(STATUS)
     assert (
-        "Live Git and natural exact-head CI own\nPhase 58 Slice 3 completion" in status
+        "Live Git and natural exact-head CI own\nPhase 58 Slice 4 completion" in status
     )
     assert "no post-CI status-flip commit is required" in status
-    assert "does not authorize Slice 4" in " ".join(status.split())
+    assert "does not authorize Slice 5" in " ".join(status.split())

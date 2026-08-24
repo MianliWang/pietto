@@ -867,6 +867,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                 EXTENSION_INSPECTION_REL,
                 EXTENSION_INSPECTION_PURE_REL,
                 "src/pietto/_project_explain/package_requirement_projection.py",
+                "src/pietto/_project_explain/compatibility_matrix_projection.py",
             }
             or "generated" in path.parts
         ):

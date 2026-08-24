@@ -326,6 +326,7 @@ def test_slice2_common_model_is_the_only_new_private_production_surface() -> Non
     }
     assert project_explain_paths == {
         "src/pietto/_project_explain/__init__.py",
+        "src/pietto/_project_explain/compatibility_matrix_projection.py",
         "src/pietto/_project_explain/model.py",
         "src/pietto/_project_explain/package_requirement_projection.py",
     }
@@ -353,9 +354,11 @@ def test_slice2_common_model_is_the_only_new_private_production_surface() -> Non
         "docs/spec/phase58-project-explain-portability-scope-lock-v1.md",
         "docs/spec/phase58-slice2-project-explain-common-model-envelope-v1.md",
         "docs/spec/phase58-slice3-project-explain-package-requirement-provenance-v1.md",
+        "docs/spec/phase58-slice4-project-explain-requirement-target-matrix-v1.md",
         "tests/test_phase58_slice1_project_explain_portability_scope_lock.py",
         "tests/test_phase58_slice2_project_explain_common_model_envelope.py",
         "tests/test_phase58_slice3_project_explain_package_requirement_provenance.py",
+        "tests/test_phase58_slice4_project_explain_requirement_target_matrix.py",
     }
 
 
@@ -635,9 +638,10 @@ def test_exact_route_lifecycle_and_all_direct_readers_are_reconciled() -> None:
         ("Phase 58", "`ACTIVE`"),
         ("Slice 1", "`COMPLETED`"),
         ("Slice 2", "`COMPLETED`"),
-        ("Slice 3", "`CURRENT`"),
-        ("Slice 4", "`NEXT / UNSTARTED`"),
-        ("Next", "`PHASE58_SLICE4_END_TO_END`"),
+        ("Slice 3", "`COMPLETED`"),
+        ("Slice 4", "`CURRENT`"),
+        ("Slice 5", "`NEXT / UNSTARTED`"),
+        ("Next", "`PHASE58_SLICE5_END_TO_END`"),
     )
     retained = _table_rows(_section(_read(ROADMAP), "Retained later ownership"))[1:]
     assert tuple(row[0] for row in retained) == tuple(
@@ -661,6 +665,11 @@ def test_exact_route_lifecycle_and_all_direct_readers_are_reconciled() -> None:
         "| Slice 3 | `NEXT / UNSTARTED` |",
         "PHASE58_SLICE3_END_TO_END",
         "does not authorize Slice 3",
+        "Phase 58 is active, Slices 1–2 are completed, Slice 3 is current, and Slice 4 is next / unstarted",
+        "| Slice 3 | `CURRENT` |",
+        "| Slice 4 | `NEXT / UNSTARTED` |",
+        "PHASE58_SLICE4_END_TO_END",
+        "does not authorize Slice 4",
     )
     for relative_path in LIFECYCLE_READERS:
         source = _read(REPO_ROOT / relative_path)
@@ -670,6 +679,7 @@ def test_exact_route_lifecycle_and_all_direct_readers_are_reconciled() -> None:
         assert "Slice 2" in source
         assert "Slice 3" in source
         assert "Slice 4" in source
+        assert "Slice 5" in source
 
 
 def test_later_readiness_non_goals_and_heading_boundaries_are_exact() -> None:

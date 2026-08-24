@@ -246,7 +246,7 @@ The controlling closure is
 
 ## Phase 58 route
 
-Phase 58 is active, Slices 1–2 are completed, Slice 3 is current, and Slice 4 is next / unstarted.
+Phase 58 is active, Slices 1–3 are completed, Slice 4 is current, and Slice 5 is next / unstarted.
 The default route has exactly 12 slices. It may expand only
 through an explicit evidence-backed route update for a genuine independent
 lifecycle, public compatibility boundary, or similarly independent owner.
@@ -301,6 +301,16 @@ package-to-occurrence why chain without re-resolving or re-checking. It adds no
 target, matrix, catalog, portability, generic reference, JSON, text, or CLI
 behavior. The controlling projection is
 [Phase 58 Slice 3 package and requirement provenance](spec/phase58-slice3-project-explain-package-requirement-provenance-v1.md).
+
+Slice 4 projects the exact root-owned evaluated target denominator shared by
+every package matrix, detached target/profile authority, package-by-target
+`UNDECLARED`/`BLOCKED`/`CHECKED` state, availability and blocker evidence, and
+requirement-by-target cells with all five checked statuses and bounded lookup
+reasons/supports. It validates the existing closed checker algebra without
+rerunning checking or lookup, represents an explicitly empty denominator
+without synthetic results, and adds no catalog-specific evidence, portability,
+generic reference, JSON, text, or CLI behavior. The controlling matrix is
+[Phase 58 Slice 4 requirement target matrix](spec/phase58-slice4-project-explain-requirement-target-matrix-v1.md).
 
 ## Retained later ownership
 
