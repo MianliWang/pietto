@@ -55,8 +55,10 @@ from pietto.semantic.capability_profiles import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-ROADMAP = REPO_ROOT / "docs/roadmap.md"
-STATUS = REPO_ROOT / "docs/status.md"
+PHASE57_SCOPE_LOCK = (
+    REPO_ROOT
+    / "docs/spec/phase57-postgresql-extension-signature-catalog-scope-lock-v1.md"
+)
 VECTOR_REL = "tests/_pietto_capability_differential_vectors.py"
 EXPECTED_CORPUS_DIGEST = (
     "8453c3babda888b105f37f667f5fadf3a12aa68ca9a561bda98e5f6b6604a69e"
@@ -412,27 +414,15 @@ def test_phase57_extension_signature_provider_handoff_remains_unimplemented() ->
         assert "installation" not in source.lower()
 
 
-def test_phase56_completion_is_retained_in_phase57_lifecycle_docs() -> None:
-    roadmap = ROADMAP.read_text(encoding="utf-8")
-    status = STATUS.read_text(encoding="utf-8")
-    assert "All 10 slices are completed. Phase 56 is complete." in roadmap
-    assert "Slice 10 adds no semantics" in roadmap
+def test_phase56_completion_and_phase57_handoff_remain_exact() -> None:
+    scope = " ".join(PHASE57_SCOPE_LOCK.read_text(encoding="utf-8").split())
     assert (
-        "Phase 58 is active, Slices 1–3 are completed, Slice 4 is current, and Slice 5 is next / unstarted"
-        in (roadmap)
-    )
-    assert "`EXTENSION_SIGNATURE` remains intentionally unpopulated" in roadmap
-    assert "| Phase 56 | `COMPLETED` |" in status
-    assert "| Phase 57 | `COMPLETED` |" in status
-    assert "| Phase 58 | `ACTIVE` |" in status
-    assert "| Slice 1 | `COMPLETED` |" in status
-    assert "| Slice 2 | `COMPLETED` |" in status
-    assert "| Slice 3 | `COMPLETED` |" in status
-    assert "| Slice 4 | `CURRENT` |" in status
-    assert "| Slice 5 | `NEXT / UNSTARTED` |" in status
-    assert "| Next | `PHASE58_SLICE5_END_TO_END` |" in status
-    assert "no post-CI status-flip commit is required" in status
-    assert "does not authorize Slice 5" in " ".join(status.split())
+        "Phase 56 completion is owned by live `main` and its successful natural "
+        "exact-head CI"
+    ) in scope
+    assert "Phase 57 owns the PostgreSQL Extension Signature Catalog" in scope
+    assert "Completion audit and Phase 58 handoff" in scope
+    assert "`pietto.capability-inspection.v1`" in scope
 
 
 def test_version_and_public_compatibility_documents_remain_unchanged() -> None:

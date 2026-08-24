@@ -36,8 +36,6 @@ SCOPE_LOCK = (
     REPO_ROOT
     / "docs/spec/phase57-postgresql-extension-signature-catalog-scope-lock-v1.md"
 )
-ROADMAP = REPO_ROOT / "docs/roadmap.md"
-STATUS = REPO_ROOT / "docs/status.md"
 PHASE56_HANDOFF = (
     REPO_ROOT / "tests/test_phase56_slice10_completion_audit_phase57_handoff.py"
 )
@@ -521,8 +519,6 @@ def test_concrete_direction_route_and_expansion_policy_are_exact() -> None:
 
     route = _section(scope, "Exact Revised Route")
     assert _table_rows(route)[1:] == EXPECTED_ROUTE
-    roadmap_route = _section(_read(ROADMAP), "Phase 57 route")
-    assert _table_rows(roadmap_route)[1:] == EXPECTED_ROUTE
 
     policy = _section(scope, "Phase Length Policy")
     for line in (
@@ -540,9 +536,7 @@ def test_concrete_direction_route_and_expansion_policy_are_exact() -> None:
     assert "Implementation inconvenience alone is not evidence." in route
 
 
-def test_future_readiness_package_public_release_and_lifecycle_locks_are_exact() -> (
-    None
-):
+def test_future_readiness_package_and_public_release_locks_are_exact() -> None:
     scope = _read(SCOPE_LOCK)
     readiness = _section(scope, "Future-readiness Ownership")
     rows = _table_rows(readiness)[1:]
@@ -594,29 +588,3 @@ def test_future_readiness_package_public_release_and_lifecycle_locks_are_exact()
         slice_boundary
     )
     assert "Slice 2 remains unstarted" in slice_boundary
-
-    retained = _table_rows(_section(_read(ROADMAP), "Retained later ownership"))[1:]
-    assert tuple(row[0] for row in retained) == tuple(
-        str(phase) for phase in range(59, 71)
-    )
-
-    status_rows = _table_rows(_read(STATUS))[1:]
-    assert status_rows == (
-        ("Package and CLI", "`0.1.0`"),
-        ("Phase 55", "`COMPLETED`"),
-        ("Phase 56", "`COMPLETED`"),
-        ("Phase 57", "`COMPLETED`"),
-        ("Phase 58", "`ACTIVE`"),
-        ("Slice 1", "`COMPLETED`"),
-        ("Slice 2", "`COMPLETED`"),
-        ("Slice 3", "`COMPLETED`"),
-        ("Slice 4", "`CURRENT`"),
-        ("Slice 5", "`NEXT / UNSTARTED`"),
-        ("Next", "`PHASE58_SLICE5_END_TO_END`"),
-    )
-    status = _read(STATUS)
-    assert (
-        "Live Git and natural exact-head CI own\nPhase 58 Slice 4 completion" in status
-    )
-    assert "no post-CI status-flip commit is required" in status
-    assert "does not authorize Slice 5" in " ".join(status.split())

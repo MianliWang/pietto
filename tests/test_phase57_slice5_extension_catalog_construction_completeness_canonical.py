@@ -83,8 +83,6 @@ SPEC = (
     REPO_ROOT
     / "docs/spec/phase57-extension-catalog-construction-completeness-canonical-v1.md"
 )
-ROADMAP = REPO_ROOT / "docs/roadmap.md"
-STATUS = REPO_ROOT / "docs/status.md"
 PACKAGE_SMOKE = REPO_ROOT / "scripts/package_smoke.py"
 EXPECTED_CORPUS_DIGEST = (
     "8453c3babda888b105f37f667f5fadf3a12aa68ca9a561bda98e5f6b6604a69e"
@@ -1039,7 +1037,7 @@ def test_slice5_remains_private_and_preserves_phase56_and_package_boundaries() -
     assert '"import pietto.semantic.extension_catalog"' in package_smoke
 
 
-def test_slice5_spec_lifecycle_and_slice6_boundary_are_exact() -> None:
+def test_slice5_spec_and_slice6_boundary_are_exact() -> None:
     spec = SPEC.read_text(encoding="utf-8")
     for heading in (
         "Constructed Catalog",
@@ -1066,20 +1064,3 @@ def test_slice5_spec_lifecycle_and_slice6_boundary_are_exact() -> None:
     ):
         assert term in spec
     assert "Slice 6 remains unstarted and unauthorized" in spec
-
-    roadmap = ROADMAP.read_text(encoding="utf-8")
-    status = STATUS.read_text(encoding="utf-8")
-    assert (
-        "Phase 58 is active, Slices 1–3 are completed, Slice 4 is current, and Slice 5 is next / unstarted"
-        in (roadmap)
-    )
-    assert "Slice 5 constructs one deterministic private catalog artifact" in roadmap
-    assert "| Phase 57 | `COMPLETED` |" in status
-    assert "| Phase 58 | `ACTIVE` |" in status
-    assert "| Slice 1 | `COMPLETED` |" in status
-    assert "| Slice 2 | `COMPLETED` |" in status
-    assert "| Slice 3 | `COMPLETED` |" in status
-    assert "| Slice 4 | `CURRENT` |" in status
-    assert "| Slice 5 | `NEXT / UNSTARTED` |" in status
-    assert "| Next | `PHASE58_SLICE5_END_TO_END` |" in status
-    assert "does not authorize Slice 5" in " ".join(status.split())

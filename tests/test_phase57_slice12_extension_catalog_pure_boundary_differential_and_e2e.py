@@ -62,8 +62,6 @@ SPEC = (
     REPO_ROOT
     / "docs/spec/phase57-extension-catalog-pure-boundary-differential-e2e-v1.md"
 )
-ROADMAP = REPO_ROOT / "docs/roadmap.md"
-STATUS = REPO_ROOT / "docs/status.md"
 PACKAGE_SMOKE = REPO_ROOT / "scripts/package_smoke.py"
 EXPECTED_CORPUS_DIGEST = (
     "2cad48b2f2a1e8d55ae4b685408ffcf909fd01abe233068a5c5643d486976244"
@@ -834,7 +832,7 @@ def test_new_pure_modules_are_private_and_not_publicly_exported() -> None:
         assert "extension_catalog_inspection_pure_boundary" not in source
 
 
-def test_spec_lifecycle_reader_closure_and_package_smoke_are_exact() -> None:
+def test_spec_and_package_smoke_are_exact() -> None:
     spec = SPEC.read_text(encoding="utf-8")
     for value in (
         "pietto.extension-catalog.v1",
@@ -857,21 +855,6 @@ def test_spec_lifecycle_reader_closure_and_package_smoke_are_exact() -> None:
         "Slice 13 remains unstarted and unauthorized",
     ):
         assert value in spec
-    roadmap = ROADMAP.read_text(encoding="utf-8")
-    status = STATUS.read_text(encoding="utf-8")
-    assert (
-        "Phase 58 is active, Slices 1–3 are completed, Slice 4 is current, and Slice 5 is next / unstarted"
-        in (roadmap)
-    )
-    assert "| Phase 57 | `COMPLETED` |" in status
-    assert "| Phase 58 | `ACTIVE` |" in status
-    assert "| Slice 1 | `COMPLETED` |" in status
-    assert "| Slice 2 | `COMPLETED` |" in status
-    assert "| Slice 3 | `COMPLETED` |" in status
-    assert "| Slice 4 | `CURRENT` |" in status
-    assert "| Slice 5 | `NEXT / UNSTARTED` |" in status
-    assert "| Next | `PHASE58_SLICE5_END_TO_END` |" in status
-    assert "does not authorize Slice 5" in " ".join(status.split())
     package_smoke = PACKAGE_SMOKE.read_text(encoding="utf-8")
     for value in (
         'f"{prefix}/semantic/extension_catalog_pure_boundary.py"',

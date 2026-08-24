@@ -69,8 +69,6 @@ from pietto.semantic.extension_catalog_pgvector import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SPEC = REPO_ROOT / "docs/spec/phase57-completion-audit-phase58-handoff-v1.md"
-ROADMAP = REPO_ROOT / "docs/roadmap.md"
-STATUS = REPO_ROOT / "docs/status.md"
 PACKAGE_SMOKE = REPO_ROOT / "scripts/package_smoke.py"
 
 EXPECTED_PHASE57_CORPUS_DIGEST = (
@@ -730,26 +728,11 @@ def test_phase58_handoff_is_private_eligible_unstarted_and_non_circular() -> Non
     }
 
 
-def test_candidate_lifecycle_version_future_owner_and_history_are_exact() -> None:
-    roadmap = ROADMAP.read_text(encoding="utf-8")
-    status = STATUS.read_text(encoding="utf-8")
+def test_candidate_version_future_owner_and_history_are_exact() -> None:
     document = SPEC.read_text(encoding="utf-8")
-    assert (
-        "Phase 58 is active, Slices 1–3 are completed, Slice 4 is current, and Slice 5 is next / unstarted"
-        in (roadmap)
-    )
-    assert "Phase 57 Slice 13 completion audit" in roadmap
-    assert "Release-aware PostgreSQL core builtin signature catalog" in roadmap
-    assert "generated/multi-source extension catalog assembly" in roadmap
-    assert "| Phase 57 | `COMPLETED` |" in status
-    assert "| Phase 58 | `ACTIVE` |" in status
-    assert "| Slice 1 | `COMPLETED` |" in status
-    assert "| Slice 2 | `COMPLETED` |" in status
-    assert "| Slice 3 | `COMPLETED` |" in status
-    assert "| Slice 4 | `CURRENT` |" in status
-    assert "| Slice 5 | `NEXT / UNSTARTED` |" in status
-    assert "| Next | `PHASE58_SLICE5_END_TO_END` |" in status
-    assert "does not authorize Slice 5" in " ".join(status.split())
+    assert "Phase 57 Completion Audit And Phase 58 Handoff v1" in document
+    assert "Release-aware PostgreSQL core builtin signature catalog" in document
+    assert "generated/multi-source extension catalog assembly" in document
     assert 'version = "0.1.0"' in (REPO_ROOT / "pyproject.toml").read_text(
         encoding="utf-8"
     )

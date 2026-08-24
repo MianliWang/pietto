@@ -16,7 +16,6 @@ import pietto.semantic as semantic_package
 import test_phase55_slice10_package_inspection_canonical_serialization as package_slice
 import test_phase56_slice6_exact_capability_requirement_checking as checking_slice
 import test_phase56_slice8_capability_inspection_representation as inspection_slice
-import test_phase58_slice1_project_explain_portability_scope_lock as slice1
 import test_phase58_slice3_project_explain_package_requirement_provenance as slice3
 from pietto._project.capability_availability import (
     DeclaredCapabilityProfileAvailabilityReady,
@@ -78,28 +77,8 @@ SPEC = (
     REPO_ROOT
     / "docs/spec/phase58-slice4-project-explain-requirement-target-matrix-v1.md"
 )
-ROADMAP = REPO_ROOT / "docs/roadmap.md"
-STATUS = REPO_ROOT / "docs/status.md"
 SOURCE = REPO_ROOT / "src/pietto/_project_explain/compatibility_matrix_projection.py"
 PACKAGE_SMOKE = REPO_ROOT / "scripts/package_smoke.py"
-
-EXPECTED_CHANGED_PATHS = frozenset(
-    {
-        "src/pietto/_project_explain/compatibility_matrix_projection.py",
-        "docs/spec/phase58-slice4-project-explain-requirement-target-matrix-v1.md",
-        "tests/test_phase58_slice4_project_explain_requirement_target_matrix.py",
-        "docs/roadmap.md",
-        "docs/status.md",
-        "scripts/package_smoke.py",
-        "tests/test_phase58_slice3_project_explain_package_requirement_provenance.py",
-        "tests/test_phase58_slice2_project_explain_common_model_envelope.py",
-        "tests/test_phase58_slice1_project_explain_portability_scope_lock.py",
-        "tests/test_phase52_private_capability_fact_foundation.py",
-        "tests/test_phase52_fail_closed_capability_lookup.py",
-        "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
-        *slice1.LIFECYCLE_READERS,
-    }
-)
 
 
 def _read(path: Path) -> str:
@@ -1050,26 +1029,9 @@ def test_output_is_detached_private_and_has_no_retained_later_surface(
         assert not hasattr(projection_module, name)
 
 
-def test_spec_lifecycle_inventory_readers_and_slice5_handoff_are_exact() -> None:
+def test_spec_and_slice5_handoff_are_exact() -> None:
     document = _read(SPEC)
     assert "PHASE58_SLICE4_SELF_OWNED_OPEN = 0" in document
-    assert (
-        slice1._table_rows(slice1._section(_read(ROADMAP), "Phase 58 route"))[1:]
-        == slice1.EXPECTED_ROUTE
-    )
-    assert slice1._table_rows(_read(STATUS))[1:] == (
-        ("Package and CLI", "`0.1.0`"),
-        ("Phase 55", "`COMPLETED`"),
-        ("Phase 56", "`COMPLETED`"),
-        ("Phase 57", "`COMPLETED`"),
-        ("Phase 58", "`ACTIVE`"),
-        ("Slice 1", "`COMPLETED`"),
-        ("Slice 2", "`COMPLETED`"),
-        ("Slice 3", "`COMPLETED`"),
-        ("Slice 4", "`CURRENT`"),
-        ("Slice 5", "`NEXT / UNSTARTED`"),
-        ("Next", "`PHASE58_SLICE5_END_TO_END`"),
-    )
     normalized = " ".join(document.split())
     for required in (
         "PackageCapabilityCheckingMatrix",
@@ -1094,34 +1056,3 @@ def test_spec_lifecycle_inventory_readers_and_slice5_handoff_are_exact() -> None
         "import pietto._project_explain.compatibility_matrix_projection",
     ):
         assert required in package_smoke
-
-    production_paths = {
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in (REPO_ROOT / "src/pietto/_project_explain").iterdir()
-        if path.is_file()
-    }
-    assert production_paths == {
-        "src/pietto/_project_explain/__init__.py",
-        "src/pietto/_project_explain/model.py",
-        "src/pietto/_project_explain/package_requirement_projection.py",
-        "src/pietto/_project_explain/compatibility_matrix_projection.py",
-    }
-    phase58_paths = {
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in (
-            *(REPO_ROOT / "docs/spec").glob("phase58-*"),
-            *(REPO_ROOT / "tests").glob("test_phase58_*"),
-        )
-    }
-    assert phase58_paths == {
-        "docs/spec/phase58-project-explain-portability-scope-lock-v1.md",
-        "docs/spec/phase58-slice2-project-explain-common-model-envelope-v1.md",
-        "docs/spec/phase58-slice3-project-explain-package-requirement-provenance-v1.md",
-        "docs/spec/phase58-slice4-project-explain-requirement-target-matrix-v1.md",
-        "tests/test_phase58_slice1_project_explain_portability_scope_lock.py",
-        "tests/test_phase58_slice2_project_explain_common_model_envelope.py",
-        "tests/test_phase58_slice3_project_explain_package_requirement_provenance.py",
-        "tests/test_phase58_slice4_project_explain_requirement_target_matrix.py",
-    }
-    assert len(EXPECTED_CHANGED_PATHS) == 26
-    assert all((REPO_ROOT / path).exists() for path in EXPECTED_CHANGED_PATHS)

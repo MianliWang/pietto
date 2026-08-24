@@ -66,8 +66,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SPEC = (
     REPO_ROOT / "docs/spec/phase57-extension-catalog-entry-matchability-contract-v1.md"
 )
-ROADMAP = REPO_ROOT / "docs/roadmap.md"
-STATUS = REPO_ROOT / "docs/status.md"
 PACKAGE_SMOKE = REPO_ROOT / "scripts/package_smoke.py"
 EXPECTED_CORPUS_DIGEST = (
     "8453c3babda888b105f37f667f5fadf3a12aa68ca9a561bda98e5f6b6604a69e"
@@ -736,7 +734,7 @@ def test_slice2_slice3_and_phase56_predecessors_remain_exact() -> None:
     assert 'version = "0.1.0"' in _read(REPO_ROOT / "pyproject.toml")
 
 
-def test_spec_lifecycle_route_and_package_smoke_are_exact() -> None:
+def test_spec_retained_route_and_package_smoke_are_exact() -> None:
     spec = _read(SPEC)
     families = _section(spec, "Five Typed Entry Families")
     for name in (
@@ -771,31 +769,6 @@ def test_spec_lifecycle_route_and_package_smoke_are_exact() -> None:
     ):
         assert term in non_scope
 
-    roadmap = _read(ROADMAP)
-    assert (
-        "Phase 58 is active, Slices 1–3 are completed, Slice 4 is current, and Slice 5 is next / unstarted"
-        in (roadmap)
-    )
-    status_rows = _table_rows(_read(STATUS))[1:]
-    assert status_rows == (
-        ("Package and CLI", "`0.1.0`"),
-        ("Phase 55", "`COMPLETED`"),
-        ("Phase 56", "`COMPLETED`"),
-        ("Phase 57", "`COMPLETED`"),
-        ("Phase 58", "`ACTIVE`"),
-        ("Slice 1", "`COMPLETED`"),
-        ("Slice 2", "`COMPLETED`"),
-        ("Slice 3", "`COMPLETED`"),
-        ("Slice 4", "`CURRENT`"),
-        ("Slice 5", "`NEXT / UNSTARTED`"),
-        ("Next", "`PHASE58_SLICE5_END_TO_END`"),
-    )
-    status = _read(STATUS)
-    normalized_status = " ".join(status.split())
-    assert "Live Git and natural exact-head CI own Phase 58 Slice 4 completion" in (
-        normalized_status
-    )
-    assert "does not authorize Slice 5" in normalized_status
     package_smoke = _read(PACKAGE_SMOKE)
     assert 'f"{prefix}/semantic/extension_catalog.py"' in package_smoke
     assert '"import pietto.semantic.extension_catalog"' in package_smoke

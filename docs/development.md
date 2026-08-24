@@ -57,9 +57,10 @@ product identity. Product `sha256` semantics are unchanged.
 
 ## Validation tiers
 
-During ordinary implementation, run focused pytest plus Ruff and targeted
-Pyright when types are affected. Before Gate 2, run one authoritative Python
-3.13 validation. Run generated, golden, and package-smoke checks locally only
-when their owned paths change. Reserve depth-one validation for Git/publication
-infrastructure. Natural CI remains the final Python 3.12 and 3.13 full
-validation owner.
+Use the layered policy in
+[Workflow Lifecycle Reader And Validation Efficiency v1](spec/workflow-lifecycle-reader-validation-efficiency-v1.md):
+keep dirty-stage checks focused, run one complete review, then run the
+authoritative Python 3.13 validator exactly once. Run generated, golden, and
+package-smoke audits locally only when their owned risk surfaces change.
+Natural CI remains the final independent Python 3.12 and 3.13 full-validation
+owner.
