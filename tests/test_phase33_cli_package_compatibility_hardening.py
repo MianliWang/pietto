@@ -200,6 +200,7 @@ def test_project_flag_remains_rejected_outside_check(
 def test_slice8_does_not_add_deferred_project_capabilities() -> None:
     project_source = _read("src/pietto/_project/discovery.py")
     cli_source = _read("src/pietto/cli.py")
+    explain_composition = REPO_ROOT / "src/pietto/_project_explain/composition.py"
     source_tree = "\n".join(
         _read(path.relative_to(REPO_ROOT).as_posix())
         for path in sorted((REPO_ROOT / "src" / "pietto").rglob("*.py"))
@@ -228,11 +229,15 @@ def test_slice8_does_not_add_deferred_project_capabilities() -> None:
     for forbidden in (
         "configured_source_selection",
         "compile_project",
-        "project_explain",
         "aggregate_project_metadata",
         "result.explain",
     ):
         assert forbidden not in source_tree
+    assert "project_explain" not in "\n".join(
+        _read(path.relative_to(REPO_ROOT).as_posix())
+        for path in sorted((REPO_ROOT / "src" / "pietto").rglob("*.py"))
+        if "__pycache__" not in path.parts and path != explain_composition
+    )
 
     assert '"--project"' not in _configure_parser_source(cli_source, "emit_sql")
     assert '"--project"' not in _configure_parser_source(cli_source, "explain")

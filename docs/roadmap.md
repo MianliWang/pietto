@@ -246,7 +246,7 @@ The controlling closure is
 
 ## Phase 58 route
 
-Phase 58 is active, Slices 1–5 are completed, Slice 6 is current, and Slice 7 is next / unstarted.
+Phase 58 is active, Slices 1–6 are completed, Slice 7 is current, and Slice 8 is next / unstarted.
 The default route has exactly 12 slices. It may expand only
 through an explicit evidence-backed route update for a genuine independent
 lifecycle, public compatibility boundary, or similarly independent owner.
@@ -330,6 +330,15 @@ It adds no Slice 5-dependent classification, target ranking, score,
 recommendation, final payload, generic reference, JSON, text, or CLI behavior.
 The controlling derivation is
 [Phase 58 Slice 6 portability derivation](spec/phase58-slice6-project-explain-portability-derivation-v1.md).
+
+Slice 7 composes the exact Slice 3–6 detached sections into the final in-memory
+payload and adds positional artifact-local references for bounded
+REQUEST-to-RESOLUTION-to-RESULT explanations. It validates cross-section
+completeness, preserves section authority and ordering, and deduplicates only
+repeated source-reference coordinates without collapsing source occurrences.
+It adds no graph/global IDs, JSON, text, CLI, private authority reconstruction,
+or new portability semantics. The controlling composition is
+[Phase 58 Slice 7 composition and references](spec/phase58-slice7-project-explain-composition-references-v1.md).
 
 ## Retained later ownership
 
