@@ -246,7 +246,7 @@ The controlling closure is
 
 ## Phase 58 route
 
-Phase 58 is active, Slice 1 is completed, Slice 2 is current, and Slice 3 is next / unstarted.
+Phase 58 is active, Slices 1–2 are completed, Slice 3 is current, and Slice 4 is next / unstarted.
 The default route has exactly 12 slices. It may expand only
 through an explicit evidence-backed route update for a genuine independent
 lifecycle, public compatibility boundary, or similarly independent owner.
@@ -291,6 +291,16 @@ It adds no package, requirement, target, matrix, catalog, portability,
 artifact-local reference, JSON, text, or CLI behavior. The controlling
 foundation is
 [Phase 58 Slice 2 common model and envelope](spec/phase58-slice2-project-explain-common-model-envelope-v1.md).
+
+Slice 3 projects the existing successful package inspection and one exactly
+package-ordered capability inspection per package into detached package,
+asset, direct-dependency, declared requirement collection, and REQUEST records.
+It preserves dependency-first package order, source occurrence multiplicity,
+`declared_by`, root-scoped `requested_by`, and the bounded root-to-declaring-
+package-to-occurrence why chain without re-resolving or re-checking. It adds no
+target, matrix, catalog, portability, generic reference, JSON, text, or CLI
+behavior. The controlling projection is
+[Phase 58 Slice 3 package and requirement provenance](spec/phase58-slice3-project-explain-package-requirement-provenance-v1.md).
 
 ## Retained later ownership
 

@@ -302,9 +302,16 @@ def test_slice2_common_model_is_the_only_new_private_production_surface() -> Non
     for forbidden in (
         "explain-project",
         "explain_project",
-        "project_explain",
     ):
         assert forbidden not in production_text
+    for public_path in (
+        "src/pietto/cli.py",
+        "src/pietto/__init__.py",
+        "src/pietto/_project/__init__.py",
+        "src/pietto/_metadata/__init__.py",
+        "src/pietto/semantic/__init__.py",
+    ):
+        assert "project_explain" not in _read(REPO_ROOT / public_path)
 
     marker_paths = {
         path.relative_to(REPO_ROOT).as_posix()
@@ -320,6 +327,7 @@ def test_slice2_common_model_is_the_only_new_private_production_surface() -> Non
     assert project_explain_paths == {
         "src/pietto/_project_explain/__init__.py",
         "src/pietto/_project_explain/model.py",
+        "src/pietto/_project_explain/package_requirement_projection.py",
     }
 
     assert metadata_package.__all__ == ()
@@ -332,6 +340,7 @@ def test_slice2_common_model_is_the_only_new_private_production_surface() -> Non
         assert not hasattr(module, "ProjectExplainArtifact")
         assert not hasattr(module, "PROJECT_EXPLAIN_FORMAT_MARKER")
         assert not hasattr(module, "ProjectExplainEnvelope")
+        assert not hasattr(module, "ProjectExplainPackageRequirementProjection")
 
     phase58_paths = {
         path.relative_to(REPO_ROOT).as_posix()
@@ -343,8 +352,10 @@ def test_slice2_common_model_is_the_only_new_private_production_surface() -> Non
     assert phase58_paths == {
         "docs/spec/phase58-project-explain-portability-scope-lock-v1.md",
         "docs/spec/phase58-slice2-project-explain-common-model-envelope-v1.md",
+        "docs/spec/phase58-slice3-project-explain-package-requirement-provenance-v1.md",
         "tests/test_phase58_slice1_project_explain_portability_scope_lock.py",
         "tests/test_phase58_slice2_project_explain_common_model_envelope.py",
+        "tests/test_phase58_slice3_project_explain_package_requirement_provenance.py",
     }
 
 
@@ -623,9 +634,10 @@ def test_exact_route_lifecycle_and_all_direct_readers_are_reconciled() -> None:
         ("Phase 57", "`COMPLETED`"),
         ("Phase 58", "`ACTIVE`"),
         ("Slice 1", "`COMPLETED`"),
-        ("Slice 2", "`CURRENT`"),
-        ("Slice 3", "`NEXT / UNSTARTED`"),
-        ("Next", "`PHASE58_SLICE3_END_TO_END`"),
+        ("Slice 2", "`COMPLETED`"),
+        ("Slice 3", "`CURRENT`"),
+        ("Slice 4", "`NEXT / UNSTARTED`"),
+        ("Next", "`PHASE58_SLICE4_END_TO_END`"),
     )
     retained = _table_rows(_section(_read(ROADMAP), "Retained later ownership"))[1:]
     assert tuple(row[0] for row in retained) == tuple(
@@ -644,6 +656,11 @@ def test_exact_route_lifecycle_and_all_direct_readers_are_reconciled() -> None:
         "| Slice 2 | `NEXT / UNSTARTED` |",
         "PHASE58_SLICE2_END_TO_END",
         "does not authorize Slice 2",
+        "Phase 58 is active, Slice 1 is completed, Slice 2 is current, and Slice 3 is next / unstarted",
+        "| Slice 2 | `CURRENT` |",
+        "| Slice 3 | `NEXT / UNSTARTED` |",
+        "PHASE58_SLICE3_END_TO_END",
+        "does not authorize Slice 3",
     )
     for relative_path in LIFECYCLE_READERS:
         source = _read(REPO_ROOT / relative_path)
@@ -652,6 +669,7 @@ def test_exact_route_lifecycle_and_all_direct_readers_are_reconciled() -> None:
         assert "Slice 1" in source
         assert "Slice 2" in source
         assert "Slice 3" in source
+        assert "Slice 4" in source
 
 
 def test_later_readiness_non_goals_and_heading_boundaries_are_exact() -> None:

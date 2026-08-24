@@ -636,16 +636,17 @@ def test_spec_upstream_inventory_lifecycle_and_package_smoke_are_exact() -> None
     roadmap = ROADMAP.read_text(encoding="utf-8")
     status = STATUS.read_text(encoding="utf-8")
     assert (
-        "Phase 58 is active, Slice 1 is completed, Slice 2 is current, and Slice 3 is next / unstarted"
+        "Phase 58 is active, Slices 1–2 are completed, Slice 3 is current, and Slice 4 is next / unstarted"
         in (roadmap)
     )
     assert "| Phase 57 | `COMPLETED` |" in status
     assert "| Phase 58 | `ACTIVE` |" in status
     assert "| Slice 1 | `COMPLETED` |" in status
-    assert "| Slice 2 | `CURRENT` |" in status
-    assert "| Slice 3 | `NEXT / UNSTARTED` |" in status
-    assert "| Next | `PHASE58_SLICE3_END_TO_END` |" in status
-    assert "does not authorize Slice 3" in " ".join(status.split())
+    assert "| Slice 2 | `COMPLETED` |" in status
+    assert "| Slice 3 | `CURRENT` |" in status
+    assert "| Slice 4 | `NEXT / UNSTARTED` |" in status
+    assert "| Next | `PHASE58_SLICE4_END_TO_END` |" in status
+    assert "does not authorize Slice 4" in " ".join(status.split())
     package_smoke = PACKAGE_SMOKE.read_text(encoding="utf-8")
     assert 'f"{prefix}/semantic/extension_catalog_pgvector.py"' in package_smoke
     assert '"import pietto.semantic.extension_catalog_pgvector"' in package_smoke

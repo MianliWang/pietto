@@ -418,7 +418,7 @@ def test_phase56_completion_is_retained_in_phase57_lifecycle_docs() -> None:
     assert "All 10 slices are completed. Phase 56 is complete." in roadmap
     assert "Slice 10 adds no semantics" in roadmap
     assert (
-        "Phase 58 is active, Slice 1 is completed, Slice 2 is current, and Slice 3 is next / unstarted"
+        "Phase 58 is active, Slices 1–2 are completed, Slice 3 is current, and Slice 4 is next / unstarted"
         in (roadmap)
     )
     assert "`EXTENSION_SIGNATURE` remains intentionally unpopulated" in roadmap
@@ -426,11 +426,12 @@ def test_phase56_completion_is_retained_in_phase57_lifecycle_docs() -> None:
     assert "| Phase 57 | `COMPLETED` |" in status
     assert "| Phase 58 | `ACTIVE` |" in status
     assert "| Slice 1 | `COMPLETED` |" in status
-    assert "| Slice 2 | `CURRENT` |" in status
-    assert "| Slice 3 | `NEXT / UNSTARTED` |" in status
-    assert "| Next | `PHASE58_SLICE3_END_TO_END` |" in status
+    assert "| Slice 2 | `COMPLETED` |" in status
+    assert "| Slice 3 | `CURRENT` |" in status
+    assert "| Slice 4 | `NEXT / UNSTARTED` |" in status
+    assert "| Next | `PHASE58_SLICE4_END_TO_END` |" in status
     assert "no post-CI status-flip commit is required" in status
-    assert "does not authorize Slice 3" in " ".join(status.split())
+    assert "does not authorize Slice 4" in " ".join(status.split())
 
 
 def test_version_and_public_compatibility_documents_remain_unchanged() -> None:
