@@ -137,6 +137,8 @@ def _required_runtime_files(prefix: str) -> frozenset[str]:
         f"{prefix}/__init__.py",
         f"{prefix}/cli.py",
         f"{prefix}/parser_api.py",
+        f"{prefix}/_project_explain/__init__.py",
+        f"{prefix}/_project_explain/model.py",
         f"{prefix}/_project/extension_catalog_availability.py",
         f"{prefix}/_project/extension_catalog_inspection.py",
         f"{prefix}/_project/extension_catalog_inspection_pure_boundary.py",
@@ -317,6 +319,24 @@ def _smoke_installed_cli(
     _copy_smoke_inputs(scratch_dir)
     environment = _clean_environment()
 
+    _run_command(
+        "installed private project explain model import",
+        (
+            str(_venv_python(venv_dir)),
+            "-I",
+            "-c",
+            (
+                "import pietto._project_explain.model as project_explain_model; "
+                "assert project_explain_model.PROJECT_EXPLAIN_ARTIFACT_NAME "
+                "== 'Project Explain Artifact v1'; "
+                "assert project_explain_model.ProjectExplainFormat."
+                "PROJECT_EXPLAIN_V1.value == 'pietto.project-explain.v1'"
+            ),
+        ),
+        cwd=scratch_dir,
+        capture_output=True,
+        env=environment,
+    )
     _run_command(
         "installed private extension catalog import",
         (

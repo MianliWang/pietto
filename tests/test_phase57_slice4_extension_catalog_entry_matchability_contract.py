@@ -773,7 +773,7 @@ def test_spec_lifecycle_route_and_package_smoke_are_exact() -> None:
 
     roadmap = _read(ROADMAP)
     assert (
-        "Phase 58 is active, Slice 1 is current, and Slice 2 is next / unstarted"
+        "Phase 58 is active, Slice 1 is completed, Slice 2 is current, and Slice 3 is next / unstarted"
         in (roadmap)
     )
     status_rows = _table_rows(_read(STATUS))[1:]
@@ -783,16 +783,17 @@ def test_spec_lifecycle_route_and_package_smoke_are_exact() -> None:
         ("Phase 56", "`COMPLETED`"),
         ("Phase 57", "`COMPLETED`"),
         ("Phase 58", "`ACTIVE`"),
-        ("Slice 1", "`CURRENT`"),
-        ("Slice 2", "`NEXT / UNSTARTED`"),
-        ("Next", "`PHASE58_SLICE2_END_TO_END`"),
+        ("Slice 1", "`COMPLETED`"),
+        ("Slice 2", "`CURRENT`"),
+        ("Slice 3", "`NEXT / UNSTARTED`"),
+        ("Next", "`PHASE58_SLICE3_END_TO_END`"),
     )
     status = _read(STATUS)
     normalized_status = " ".join(status.split())
-    assert "Live Git and natural exact-head CI own Phase 58 Slice 1 completion" in (
+    assert "Live Git and natural exact-head CI own Phase 58 Slice 2 completion" in (
         normalized_status
     )
-    assert "does not authorize Slice 2" in normalized_status
+    assert "does not authorize Slice 3" in normalized_status
     package_smoke = _read(PACKAGE_SMOKE)
     assert 'f"{prefix}/semantic/extension_catalog.py"' in package_smoke
     assert '"import pietto.semantic.extension_catalog"' in package_smoke

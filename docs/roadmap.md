@@ -246,11 +246,11 @@ The controlling closure is
 
 ## Phase 58 route
 
-Phase 58 is active, Slice 1 is current, and Slice 2 is next / unstarted. The
-default route has exactly 12 slices. It may expand only through an explicit
-evidence-backed route update for a genuine independent lifecycle, public
-compatibility boundary, or similarly independent owner. These rows assign
-ownership only; they do not authorize a later slice.
+Phase 58 is active, Slice 1 is completed, Slice 2 is current, and Slice 3 is next / unstarted.
+The default route has exactly 12 slices. It may expand only
+through an explicit evidence-backed route update for a genuine independent
+lifecycle, public compatibility boundary, or similarly independent owner.
+These rows assign ownership only; they do not authorize a later slice.
 
 | Slice | Owner |
 | ---: | --- |
@@ -283,6 +283,14 @@ requirement-by-target matrix remains normative, and only `UNSUPPORTED` or
 
 The controlling architecture is
 [Phase 58 Slice 1 project explain and portability scope lock](spec/phase58-project-explain-portability-scope-lock-v1.md).
+
+Slice 2 adds only the private common model: exact artifact identity, closed
+evidence and requirement-stage vocabularies, relocation-stable logical paths,
+detached locations/diagnostics, and a payload-generic success/failure envelope.
+It adds no package, requirement, target, matrix, catalog, portability,
+artifact-local reference, JSON, text, or CLI behavior. The controlling
+foundation is
+[Phase 58 Slice 2 common model and envelope](spec/phase58-slice2-project-explain-common-model-envelope-v1.md).
 
 ## Retained later ownership
 

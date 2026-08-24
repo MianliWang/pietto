@@ -7,6 +7,8 @@ from pathlib import Path
 import pietto
 import pietto._metadata as metadata_package
 import pietto._project as project_package
+import pietto._project_explain as project_explain_package
+import pietto._project_explain.model as project_explain_model
 import pietto._project.capability_inspection as capability_inspection
 import pietto._project.capability_pure_boundary as capability_pure
 import pietto._project.extension_catalog_inspection as catalog_inspection
@@ -294,27 +296,42 @@ def test_existing_explain_behavior_remains_owned_by_current_compatibility_tests(
         assert retained in package_smoke
 
 
-def test_slice1_adds_no_production_marker_cli_mode_or_public_export() -> None:
+def test_slice2_common_model_is_the_only_new_private_production_surface() -> None:
     production_sources = tuple(sorted((REPO_ROOT / "src/pietto").rglob("*.py")))
     production_text = "\n".join(_read(path) for path in production_sources)
     for forbidden in (
-        "pietto.project-explain.v1",
-        "Project Explain Artifact v1",
         "explain-project",
         "explain_project",
         "project_explain",
     ):
         assert forbidden not in production_text
-    assert not tuple((REPO_ROOT / "src/pietto").rglob("*phase58*"))
+
+    marker_paths = {
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in production_sources
+        if "pietto.project-explain.v1" in _read(path)
+    }
+    assert marker_paths == {"src/pietto/_project_explain/model.py"}
+    project_explain_paths = {
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in (REPO_ROOT / "src/pietto/_project_explain").iterdir()
+        if path.is_file()
+    }
+    assert project_explain_paths == {
+        "src/pietto/_project_explain/__init__.py",
+        "src/pietto/_project_explain/model.py",
+    }
 
     assert metadata_package.__all__ == ()
     assert project_package.__all__ == ()
+    assert project_explain_package.__all__ == project_explain_model.__all__ == ()
     assert package_inspection.__all__ == package_pure.__all__ == ()
     assert capability_inspection.__all__ == capability_pure.__all__ == ()
     assert catalog_inspection.__all__ == catalog_pure.__all__ == ()
     for module in (pietto, semantic_package, project_package):
         assert not hasattr(module, "ProjectExplainArtifact")
         assert not hasattr(module, "PROJECT_EXPLAIN_FORMAT_MARKER")
+        assert not hasattr(module, "ProjectExplainEnvelope")
 
     phase58_paths = {
         path.relative_to(REPO_ROOT).as_posix()
@@ -325,7 +342,9 @@ def test_slice1_adds_no_production_marker_cli_mode_or_public_export() -> None:
     }
     assert phase58_paths == {
         "docs/spec/phase58-project-explain-portability-scope-lock-v1.md",
+        "docs/spec/phase58-slice2-project-explain-common-model-envelope-v1.md",
         "tests/test_phase58_slice1_project_explain_portability_scope_lock.py",
+        "tests/test_phase58_slice2_project_explain_common_model_envelope.py",
     }
 
 
@@ -603,9 +622,10 @@ def test_exact_route_lifecycle_and_all_direct_readers_are_reconciled() -> None:
         ("Phase 56", "`COMPLETED`"),
         ("Phase 57", "`COMPLETED`"),
         ("Phase 58", "`ACTIVE`"),
-        ("Slice 1", "`CURRENT`"),
-        ("Slice 2", "`NEXT / UNSTARTED`"),
-        ("Next", "`PHASE58_SLICE2_END_TO_END`"),
+        ("Slice 1", "`COMPLETED`"),
+        ("Slice 2", "`CURRENT`"),
+        ("Slice 3", "`NEXT / UNSTARTED`"),
+        ("Next", "`PHASE58_SLICE3_END_TO_END`"),
     )
     retained = _table_rows(_section(_read(ROADMAP), "Retained later ownership"))[1:]
     assert tuple(row[0] for row in retained) == tuple(
@@ -619,6 +639,11 @@ def test_exact_route_lifecycle_and_all_direct_readers_are_reconciled() -> None:
         "| Phase 58 | `UNSTARTED / NOT AUTHORIZED` |",
         "PHASE57_SLICE13_END_TO_END",
         "does not authorize Phase 58",
+        "Phase 58 is active, Slice 1 is current, and Slice 2 is next / unstarted",
+        "| Slice 1 | `CURRENT` |",
+        "| Slice 2 | `NEXT / UNSTARTED` |",
+        "PHASE58_SLICE2_END_TO_END",
+        "does not authorize Slice 2",
     )
     for relative_path in LIFECYCLE_READERS:
         source = _read(REPO_ROOT / relative_path)
@@ -626,6 +651,7 @@ def test_exact_route_lifecycle_and_all_direct_readers_are_reconciled() -> None:
         assert "Phase 58" in source
         assert "Slice 1" in source
         assert "Slice 2" in source
+        assert "Slice 3" in source
 
 
 def test_later_readiness_non_goals_and_heading_boundaries_are_exact() -> None:
