@@ -306,6 +306,7 @@ def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry()
                 / "src/pietto/_project_explain/package_requirement_projection.py",
                 REPO_ROOT
                 / "src/pietto/_project_explain/compatibility_matrix_projection.py",
+                REPO_ROOT / "src/pietto/_project_explain/json_v1.py",
             }
             or "generated" in path.parts
         ):

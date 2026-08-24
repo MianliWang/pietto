@@ -246,7 +246,7 @@ The controlling closure is
 
 ## Phase 58 route
 
-Phase 58 is active, Slices 1–6 are completed, Slice 7 is current, and Slice 8 is next / unstarted.
+Phase 58 is active, Slices 1–7 are completed, Slice 8 is current, and Slice 9 is next / unstarted.
 The default route has exactly 12 slices. It may expand only
 through an explicit evidence-backed route update for a genuine independent
 lifecycle, public compatibility boundary, or similarly independent owner.
@@ -339,6 +339,15 @@ repeated source-reference coordinates without collapsing source occurrences.
 It adds no graph/global IDs, JSON, text, CLI, private authority reconstruction,
 or new portability semantics. The controlling composition is
 [Phase 58 Slice 7 composition and references](spec/phase58-slice7-project-explain-composition-references-v1.md).
+
+Slice 8 serializes that exact final payload into the stable public Project
+Explain JSON v1 machine contract. It owns the closed four-field envelope,
+explicit carrier mappings, typed selector identities, artifact-local
+references, null and array rules, compact deterministic UTF-8 bytes, logical-
+path privacy, byte-exact success/failure goldens, and schema-evolution locks.
+It adds no CLI route, text renderer, project discovery, compilation, or new
+payload model. The controlling contract is
+[Phase 58 Slice 8 Project Explain JSON v1](spec/phase58-slice8-project-explain-json-v1.md).
 
 ## Retained later ownership
 

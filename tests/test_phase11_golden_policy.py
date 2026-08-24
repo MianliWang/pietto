@@ -103,7 +103,7 @@ def test_current_inventory_is_fully_classified_referenced_and_paired() -> None:
     assert set(goldens.JSON_FIXTURES) == {
         name for name in inventory if name.endswith(".json")
     }
-    assert set(goldens.FIXTURE_INPUTS) == inventory
+    assert set(goldens.FIXTURE_INPUTS) == inventory - goldens.MODEL_JSON_FIXTURES
     assert goldens.audit(REPO_ROOT) == ()
 
 
@@ -179,9 +179,9 @@ def test_real_audit_runs_from_outside_the_repository(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "verified 37 fixtures" in result.stdout
+    assert "verified 39 fixtures" in result.stdout
     assert "32 SQL byte-exact" in result.stdout
-    assert "5 JSON structural" in result.stdout
+    assert "7 JSON structural" in result.stdout
 
 
 def test_slice4_keeps_prior_commands_independent_and_later_slices_absent() -> None:

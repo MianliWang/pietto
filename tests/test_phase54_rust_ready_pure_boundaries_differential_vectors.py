@@ -1553,9 +1553,3 @@ def test_no_public_api_cli_json_package_ir_sql_rust_or_build_expansion_occurs(
         if path.is_file()
     )
     assert len(generated) == 8
-    goldens = tuple(
-        path
-        for path in (REPO_ROOT / "tests/fixtures/golden").iterdir()
-        if path.is_file()
-    )
-    assert len(goldens) == 37

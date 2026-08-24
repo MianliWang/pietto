@@ -231,6 +231,7 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
         source_root / "_project_explain/extension_catalog_evidence_projection.py"
     )
     project_explain_composition_path = source_root / "_project_explain/composition.py"
+    project_explain_json_path = source_root / "_project_explain/json_v1.py"
     capability_facts_path = source_root / "semantic/capability_facts.py"
     capability_pure_path = source_root / "_project/capability_pure_boundary.py"
     provider_path = source_root / "_project/extension_signature_provider.py"
@@ -245,6 +246,7 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
         inspection_pure_path,
         project_explain_catalog_evidence_path,
         project_explain_composition_path,
+        project_explain_json_path,
         capability_facts_path,
         capability_pure_path,
         provider_path,

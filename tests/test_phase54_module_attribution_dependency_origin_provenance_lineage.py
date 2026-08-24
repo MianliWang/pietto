@@ -2616,7 +2616,7 @@ def test_schema_v1_text_json_ir_sql_and_sidecar_absence_remain_byte_exact(
     )
 
 
-def test_schema_v2_cli_json_public_exports_dependencies_version_and_generated_goldens_remain_unchanged(
+def test_schema_v2_cli_json_public_exports_dependencies_version_and_generated_surface_remain_unchanged(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic = _semantic_project(
@@ -2666,13 +2666,7 @@ def test_schema_v2_cli_json_public_exports_dependencies_version_and_generated_go
         for item in (REPO_ROOT / "src/pietto/generated").iterdir()
         if item.is_file()
     )
-    goldens = tuple(
-        item
-        for item in (REPO_ROOT / "tests/fixtures/golden").iterdir()
-        if item.is_file()
-    )
     assert len(generated) == 8
-    assert len(goldens) == 37
 
     assert inspect.signature(
         module_attribution._build_project_module_attribution_fact_set

@@ -1,0 +1,1 @@
+{"format":"pietto.project-explain.v1","ok":false,"diagnostics":[{"code":"PIE-T5808-E","severity":"error","message":"Test-owned Project Explain failure witness.","location":{"path":{"kind":"package_relative","value":"models/failure.pietto"},"line":null,"column":null,"end_line":null,"end_column":null},"suggestion":null}],"payload":null}

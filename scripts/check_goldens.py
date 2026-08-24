@@ -53,6 +53,14 @@ JSON_FIXTURES = frozenset(
         "emit_mysql_compatibility_ordering_metadata.json",
         "emit_sql_active_users.json",
         "phase12_mysql_order_limit_composition.json",
+        "project_explain_v1_failure.json",
+        "project_explain_v1_success.json",
+    }
+)
+MODEL_JSON_FIXTURES = frozenset(
+    {
+        "project_explain_v1_failure.json",
+        "project_explain_v1_success.json",
     }
 )
 CLASSIFIED_FIXTURES = SQL_FIXTURES | JSON_FIXTURES
@@ -173,6 +181,7 @@ REFERENCE_TESTS = (
     Path("tests/test_phase23_count_field_sql.py"),
     Path("tests/test_phase24_count_distinct_sql.py"),
     Path("tests/test_phase24_decimal_aggregate_sql.py"),
+    Path("tests/test_phase58_slice8_project_explain_json_v1.py"),
 )
 
 
@@ -243,8 +252,9 @@ def _inventory_errors(
 
 def _input_errors(repo_root: Path) -> tuple[str, ...]:
     errors: list[str] = []
-    unmapped = sorted(CLASSIFIED_FIXTURES - FIXTURE_INPUTS.keys())
-    extra_mappings = sorted(FIXTURE_INPUTS.keys() - CLASSIFIED_FIXTURES)
+    input_owned_fixtures = CLASSIFIED_FIXTURES - MODEL_JSON_FIXTURES
+    unmapped = sorted(input_owned_fixtures - FIXTURE_INPUTS.keys())
+    extra_mappings = sorted(FIXTURE_INPUTS.keys() - input_owned_fixtures)
 
     if unmapped:
         errors.append(f"fixtures without reviewed Pietto inputs: {', '.join(unmapped)}")
@@ -288,6 +298,11 @@ def audit(repo_root: Path = REPO_ROOT) -> tuple[str, ...]:
     inventory = _fixture_inventory(golden_root)
     references, reference_errors = _collect_references(repo_root)
     return (
+        *(
+            ()
+            if MODEL_JSON_FIXTURES <= JSON_FIXTURES
+            else ("model JSON fixtures must be classified JSON fixtures",)
+        ),
         *reference_errors,
         *_inventory_errors(inventory, references),
         *_input_errors(repo_root),

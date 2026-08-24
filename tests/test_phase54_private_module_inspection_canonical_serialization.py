@@ -1559,7 +1559,7 @@ def test_slice13_and_earlier_products_remain_independent_and_unchanged(
     assert layered.module_assets is layered.authority.module_assets
 
 
-def test_schema_v2_public_api_cli_json_ir_sql_dependencies_and_goldens_unchanged(
+def test_schema_v2_public_api_cli_json_ir_sql_dependencies_and_generated_surface_unchanged(
     tmp_path: Path,
 ) -> None:
     parse_result = project_check.check_project_parse_only(
@@ -1602,9 +1602,3 @@ def test_schema_v2_public_api_cli_json_ir_sql_dependencies_and_goldens_unchanged
         if path.is_file()
     )
     assert len(generated) == 8
-    goldens = tuple(
-        path
-        for path in (REPO_ROOT / "tests/fixtures/golden").iterdir()
-        if path.is_file()
-    )
-    assert len(goldens) == 37

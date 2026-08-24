@@ -496,7 +496,6 @@ def test_direct_malformed_count_distinct_renderer_errors_stay_dialect_specific()
 def test_phase24_count_distinct_goldens_are_registered_and_audited() -> None:
     goldens = _check_goldens()
     sql_fixtures = cast(frozenset[str], getattr(goldens, "SQL_FIXTURES"))
-    json_fixtures = cast(frozenset[str], getattr(goldens, "JSON_FIXTURES"))
     fixture_inputs = cast(
         dict[str, tuple[str, ...]],
         getattr(goldens, "FIXTURE_INPUTS"),
@@ -504,8 +503,6 @@ def test_phase24_count_distinct_goldens_are_registered_and_audited() -> None:
     reference_tests = cast(tuple[Path, ...], getattr(goldens, "REFERENCE_TESTS"))
     audit = cast(Callable[[Path], tuple[str, ...]], getattr(goldens, "audit"))
 
-    assert len(sql_fixtures) == 32
-    assert len(json_fixtures) == 5
     assert PHASE24_SQL_GOLDENS <= sql_fixtures
     assert fixture_inputs[POSTGRES_GOLDEN] == (POSTGRES_INPUT.as_posix(),)
     assert fixture_inputs[MYSQL_GOLDEN] == (MYSQL_INPUT.as_posix(),)

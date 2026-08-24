@@ -141,6 +141,7 @@ def _required_runtime_files(prefix: str) -> frozenset[str]:
         f"{prefix}/_project_explain/compatibility_matrix_projection.py",
         f"{prefix}/_project_explain/composition.py",
         f"{prefix}/_project_explain/extension_catalog_evidence_projection.py",
+        f"{prefix}/_project_explain/json_v1.py",
         f"{prefix}/_project_explain/model.py",
         f"{prefix}/_project_explain/package_requirement_projection.py",
         f"{prefix}/_project_explain/portability_projection.py",
@@ -324,6 +325,18 @@ def _smoke_installed_cli(
     _copy_smoke_inputs(scratch_dir)
     environment = _clean_environment()
 
+    _run_command(
+        "installed private project explain JSON v1 import",
+        (
+            str(_venv_python(venv_dir)),
+            "-I",
+            "-c",
+            "import pietto._project_explain.json_v1",
+        ),
+        cwd=scratch_dir,
+        capture_output=True,
+        env=environment,
+    )
     _run_command(
         "installed private project explain composition import",
         (
