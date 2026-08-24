@@ -246,7 +246,7 @@ The controlling closure is
 
 ## Phase 58 route
 
-Phase 58 is active, Slices 1–4 are completed, Slice 5 is current, and Slice 6 is next / unstarted.
+Phase 58 is active, Slices 1–5 are completed, Slice 6 is current, and Slice 7 is next / unstarted.
 The default route has exactly 12 slices. It may expand only
 through an explicit evidence-backed route update for a genuine independent
 lifecycle, public compatibility boundary, or similarly independent owner.
@@ -320,6 +320,16 @@ package/target order, and exact Slice 4 provider-result agreement without
 selection, provider, lookup, portability, JSON, text, or CLI work. The
 controlling projection is
 [Phase 58 Slice 5 extension-catalog evidence](spec/phase58-slice5-project-explain-extension-catalog-evidence-v1.md).
+
+Slice 6 derives conservative requirement and project portability solely from
+the exact Slice 4 matrix. It preserves target and requirement order, treats
+only `UNSUPPORTED` and `ABSENT` as definite gaps, gives those gaps precedence
+over indeterminate evidence, and keeps an empty denominator indeterminate
+while allowing zero requirements over a non-empty denominator to be portable.
+It adds no Slice 5-dependent classification, target ranking, score,
+recommendation, final payload, generic reference, JSON, text, or CLI behavior.
+The controlling derivation is
+[Phase 58 Slice 6 portability derivation](spec/phase58-slice6-project-explain-portability-derivation-v1.md).
 
 ## Retained later ownership
 
