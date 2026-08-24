@@ -20,13 +20,68 @@ EXPECTED_STATUS = (
     ("Slice 5", "`COMPLETED`"),
     ("Slice 6", "`COMPLETED`"),
     ("Slice 7", "`COMPLETED`"),
-    ("Slice 8", "`CURRENT`"),
-    ("Slice 9", "`NEXT / UNSTARTED`"),
-    ("Next", "`PHASE58_SLICE9_END_TO_END`"),
+    ("Slice 8", "`COMPLETED`"),
+    ("Slice 9", "`CURRENT`"),
+    ("Slice 10", "`NEXT / UNSTARTED`"),
+    ("Next", "`PHASE58_SLICE10_END_TO_END`"),
 )
 EXPECTED_ROADMAP_STATE = (
-    "Phase 58 is active, Slices 1–7 are completed, Slice 8 is current, "
-    "and Slice 9 is next / unstarted."
+    "Phase 58 is active, Slices 1–8 are completed, Slice 9 is current, "
+    "and Slice 10 is next / unstarted."
+)
+EXPECTED_PHASE58_ROUTE = (
+    (
+        "1",
+        "Architecture/scope/route lock; artifact identity; target denominator; single-file explain compatibility",
+    ),
+    (
+        "2",
+        "Public common model and success/failure envelope; logical paths; evidence posture; request/resolution/result vocabulary",
+    ),
+    (
+        "3",
+        "Package and requirement provenance projection; `declared_by`/`requested_by`",
+    ),
+    (
+        "4",
+        "Public requirement/target compatibility matrix; evaluation states; five checked statuses and reasons",
+    ),
+    (
+        "5",
+        "Public extension-catalog evidence projection; catalog coordinate/target/digest; selection; matchability/exposure; bounded provenance",
+    ),
+    ("6", "Conservative requirement/project portability derivation"),
+    (
+        "7",
+        "Cross-section composition; artifact-local references; integrity; deterministic ordering; authority separation",
+    ),
+    (
+        "8",
+        "Public JSON v1 schema; deterministic serialization; success/failure envelopes; privacy and schema-evolution locks",
+    ),
+    ("9", "Runtime authority architecture and evidence-backed route expansion lock"),
+    ("10", "Package-owned capability requirement declaration authority"),
+    (
+        "11",
+        "Project-owned evaluated-target, profile, and catalog-availability authority",
+    ),
+    ("12", "Project Explain runtime authority builder and exact orchestration"),
+    (
+        "13",
+        "`pietto explain --project` text/JSON integration; existing single-file explain zero-delta",
+    ),
+    (
+        "14",
+        "Real multi-target E2E scenarios spanning package, capability, catalog, all evaluation states, and all checked result classes",
+    ),
+    (
+        "15",
+        "Public pure/differential compatibility boundary; goldens; Python 3.12/3.13; hash seed; relocation; installed wheel",
+    ),
+    (
+        "16",
+        "Completion audit; Phase 59 handoff; Phase 60/64/67/69 readiness reconciliation",
+    ),
 )
 
 
@@ -54,14 +109,15 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     status = _read(STATUS)
     assert _table_rows(status)[1:] == EXPECTED_STATUS
     normalized = " ".join(status.split())
-    assert "Slice 8 is the current route owner" in normalized
-    assert "Live Git and natural exact-head CI own Phase 58 Slice 8 completion" in (
+    assert "Slice 9 is the current route owner" in normalized
+    assert "Live Git and natural exact-head CI own Phase 58 Slice 9 completion" in (
         normalized
     )
-    assert "does not authorize Slice 9" in normalized
+    assert "does not authorize Slice 10" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_is_exact() -> None:
     phase58 = _section(_read(ROADMAP), "Phase 58 route").lstrip()
     assert phase58.startswith(f"{EXPECTED_ROADMAP_STATE}\n")
     assert phase58.count(EXPECTED_ROADMAP_STATE) == 1
+    assert _table_rows(phase58)[1:] == EXPECTED_PHASE58_ROUTE

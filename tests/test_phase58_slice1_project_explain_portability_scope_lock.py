@@ -98,6 +98,32 @@ EXPECTED_ROUTE = (
         "Completion audit; Phase 59 handoff; Phase 60/64/69 readiness reconciliation",
     ),
 )
+CURRENT_ROUTE = (
+    *EXPECTED_ROUTE[:8],
+    ("9", "Runtime authority architecture and evidence-backed route expansion lock"),
+    ("10", "Package-owned capability requirement declaration authority"),
+    (
+        "11",
+        "Project-owned evaluated-target, profile, and catalog-availability authority",
+    ),
+    ("12", "Project Explain runtime authority builder and exact orchestration"),
+    (
+        "13",
+        "`pietto explain --project` text/JSON integration; existing single-file explain zero-delta",
+    ),
+    (
+        "14",
+        "Real multi-target E2E scenarios spanning package, capability, catalog, all evaluation states, and all checked result classes",
+    ),
+    (
+        "15",
+        "Public pure/differential compatibility boundary; goldens; Python 3.12/3.13; hash seed; relocation; installed wheel",
+    ),
+    (
+        "16",
+        "Completion audit; Phase 59 handoff; Phase 60/64/67/69 readiness reconciliation",
+    ),
+)
 
 
 def _read(path: Path) -> str:
@@ -576,7 +602,25 @@ def test_exact_route_and_expansion_policy_are_immutable() -> None:
     assert _table_rows(_section(document, "Exact 12-Slice Route"))[1:] == (
         EXPECTED_ROUTE
     )
-    assert "Current expansion candidate: `NONE`" in document
+    original = _section(document, "Exact 12-Slice Route")
+    assert "This is the original Slice 1 route" in original
+    assert "At that lock, the expansion candidate was\n`NONE`" in original
+
+    expanded = _section(
+        document,
+        "Evidence-backed Route Expansion After Published Slice 8",
+    )
+    assert _table_rows(expanded)[1:] == CURRENT_ROUTE
+    for required in (
+        "read-only production audit after published Slice 8",
+        "expands from the original 12 slices to\nexactly 16",
+        "Published Slices 1–8 remain unchanged",
+        "package-owned requirement declarations",
+        "project-owned ordered targets/profiles",
+        "availability declarations that remain distinct from selection",
+        "Current expansion candidate after Slice 9:\n`NONE`",
+    ):
+        assert required in expanded
 
 
 def test_later_readiness_non_goals_and_heading_boundaries_are_exact() -> None:

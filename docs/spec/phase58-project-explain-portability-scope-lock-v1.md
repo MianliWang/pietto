@@ -17,8 +17,10 @@ pietto explain --project <root> --format json
 ```
 
 Slice 1 freezes architecture, public semantics, compatibility boundaries,
-readiness, and the exact 12-Slice route. It adds no production model, marker
-constant, CLI option, serializer, JSON schema, or portability calculation.
+readiness, and the original exact 12-Slice route. It adds no production model,
+marker constant, CLI option, serializer, JSON schema, or portability
+calculation. After published Slice 8, Slice 9 records the evidence-backed
+current route expansion without rewriting this original history.
 
 Candidate lifecycle state is:
 
@@ -354,10 +356,52 @@ environment mutation.
 | 11 | Public pure/differential compatibility boundary; goldens; Python 3.12/3.13; hash seed; relocation; installed wheel |
 | 12 | Completion audit; Phase 59 handoff; Phase 60/64/69 readiness reconciliation |
 
-The phase may expand only through an explicit evidence-backed route update for
-a genuine independent lifecycle, public compatibility boundary, or similarly
-independent owner. Do not add padding, compress independent ownership, or
-silently reorder the route. Current expansion candidate: `NONE`.
+This is the original Slice 1 route. At that lock, the expansion candidate was
+`NONE`. The phase may expand only through an explicit evidence-backed route
+update for a genuine independent lifecycle, public compatibility boundary, or
+similarly independent owner. Do not add padding, compress independent
+ownership, or silently reorder published ownership.
+
+## Evidence-backed Route Expansion After Published Slice 8
+
+A read-only production audit after published Slice 8 proved that project root,
+package activation/loading/planning, and `PackageInspectionFactSet` authority
+exist, while package requirement bindings, concrete profiles, evaluated
+targets, catalog availability/selection orchestration, and provider contexts
+do not. Current private capability matrices and inspections also reject zero
+target contexts. This is an independent lifecycle rather than CLI work.
+
+The current Phase 58 route therefore expands from the original 12 slices to
+exactly 16. Published Slices 1–8 remain unchanged. The original planned Slices
+9–12 move to current Slices 13–16.
+
+| Slice | Owner |
+| ---: | --- |
+| 1 | Architecture/scope/route lock; artifact identity; target denominator; single-file explain compatibility |
+| 2 | Public common model and success/failure envelope; logical paths; evidence posture; request/resolution/result vocabulary |
+| 3 | Package and requirement provenance projection; `declared_by`/`requested_by` |
+| 4 | Public requirement/target compatibility matrix; evaluation states; five checked statuses and reasons |
+| 5 | Public extension-catalog evidence projection; catalog coordinate/target/digest; selection; matchability/exposure; bounded provenance |
+| 6 | Conservative requirement/project portability derivation |
+| 7 | Cross-section composition; artifact-local references; integrity; deterministic ordering; authority separation |
+| 8 | Public JSON v1 schema; deterministic serialization; success/failure envelopes; privacy and schema-evolution locks |
+| 9 | Runtime authority architecture and evidence-backed route expansion lock |
+| 10 | Package-owned capability requirement declaration authority |
+| 11 | Project-owned evaluated-target, profile, and catalog-availability authority |
+| 12 | Project Explain runtime authority builder and exact orchestration |
+| 13 | `pietto explain --project` text/JSON integration; existing single-file explain zero-delta |
+| 14 | Real multi-target E2E scenarios spanning package, capability, catalog, all evaluation states, and all checked result classes |
+| 15 | Public pure/differential compatibility boundary; goldens; Python 3.12/3.13; hash seed; relocation; installed wheel |
+| 16 | Completion audit; Phase 59 handoff; Phase 60/64/67/69 readiness reconciliation |
+
+The frozen ownership split is package-owned requirement declarations,
+project-owned ordered targets/profiles, and compiler/catalog-owned exact
+availability declarations that remain distinct from selection. The detailed
+current architecture is
+[Phase 58 Slice 9 runtime authority architecture and route lock](phase58-slice9-runtime-authority-architecture-route-lock-v1.md).
+
+There is no named pseudo-slice. Current expansion candidate after Slice 9:
+`NONE`. Any further expansion requires new independent evidence.
 
 ## Explicit Non-goals
 

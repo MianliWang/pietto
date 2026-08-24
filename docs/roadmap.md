@@ -246,11 +246,12 @@ The controlling closure is
 
 ## Phase 58 route
 
-Phase 58 is active, Slices 1–7 are completed, Slice 8 is current, and Slice 9 is next / unstarted.
-The default route has exactly 12 slices. It may expand only
-through an explicit evidence-backed route update for a genuine independent
-lifecycle, public compatibility boundary, or similarly independent owner.
-These rows assign ownership only; they do not authorize a later slice.
+Phase 58 is active, Slices 1–8 are completed, Slice 9 is current, and Slice 10 is next / unstarted.
+The original route had exactly 12 slices. After published Slice 8, a read-only
+runtime-builder authority audit proved an independent missing lifecycle, so
+the current route has exactly 16 slices. Published Slices 1–8 are unchanged;
+original planned Slices 9–12 move to current Slices 13–16. These rows assign
+ownership only; they do not authorize a later slice.
 
 | Slice | Owner |
 | ---: | --- |
@@ -262,10 +263,14 @@ These rows assign ownership only; they do not authorize a later slice.
 | 6 | Conservative requirement/project portability derivation |
 | 7 | Cross-section composition; artifact-local references; integrity; deterministic ordering; authority separation |
 | 8 | Public JSON v1 schema; deterministic serialization; success/failure envelopes; privacy and schema-evolution locks |
-| 9 | `pietto explain --project` text/JSON integration; existing single-file explain zero-delta |
-| 10 | Real multi-target E2E scenarios spanning package, capability, catalog, all evaluation states, and all checked result classes |
-| 11 | Public pure/differential compatibility boundary; goldens; Python 3.12/3.13; hash seed; relocation; installed wheel |
-| 12 | Completion audit; Phase 59 handoff; Phase 60/64/69 readiness reconciliation |
+| 9 | Runtime authority architecture and evidence-backed route expansion lock |
+| 10 | Package-owned capability requirement declaration authority |
+| 11 | Project-owned evaluated-target, profile, and catalog-availability authority |
+| 12 | Project Explain runtime authority builder and exact orchestration |
+| 13 | `pietto explain --project` text/JSON integration; existing single-file explain zero-delta |
+| 14 | Real multi-target E2E scenarios spanning package, capability, catalog, all evaluation states, and all checked result classes |
+| 15 | Public pure/differential compatibility boundary; goldens; Python 3.12/3.13; hash seed; relocation; installed wheel |
+| 16 | Completion audit; Phase 59 handoff; Phase 60/64/67/69 readiness reconciliation |
 
 The human-readable direction is `Project Explain Artifact v1`, with public
 marker `pietto.project-explain.v1` and future additive commands
@@ -348,6 +353,18 @@ path privacy, byte-exact success/failure goldens, and schema-evolution locks.
 It adds no CLI route, text renderer, project discovery, compilation, or new
 payload model. The controlling contract is
 [Phase 58 Slice 8 Project Explain JSON v1](spec/phase58-slice8-project-explain-json-v1.md).
+
+Slice 9 records the production audit that found the first missing runtime edge
+after `PackageInspectionFactSet`, freezes package ownership of requirement
+declarations, project ownership of ordered targets/profiles, and compiler
+ownership of exact bundled-catalog availability without selection, and expands
+the route from the historical 12 slices to the current 16. Slice 10 owns
+package manifest v2 requirement authority, Slice 11 owns project config v4
+target/profile/catalog authority, and Slice 12 owns exact orchestration plus
+the minimum zero-context private compatibility extension. It adds no
+production, config, manifest, matrix, JSON, text, CLI, package, golden, or
+generated behavior. The controlling lock is
+[Phase 58 Slice 9 runtime authority architecture](spec/phase58-slice9-runtime-authority-architecture-route-lock-v1.md).
 
 ## Retained later ownership
 
