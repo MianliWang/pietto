@@ -297,8 +297,6 @@ def test_slice4_helper_uses_narrow_private_inference_only() -> None:
     assert "infer_row_expression" in helper
     assert "semantic_api" not in helper
     assert "semantic_api" not in model
-    assert "from pietto.semantic" not in model
-    assert "import pietto.semantic" not in model
 
 
 def test_package_version_remains_010() -> None:

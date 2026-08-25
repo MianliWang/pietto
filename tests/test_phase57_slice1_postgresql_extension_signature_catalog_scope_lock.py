@@ -234,6 +234,9 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
     project_explain_json_path = source_root / "_project_explain/json_v1.py"
     capability_facts_path = source_root / "semantic/capability_facts.py"
     capability_pure_path = source_root / "_project/capability_pure_boundary.py"
+    project_environment_path = (
+        source_root / "_project/project_capability_environment.py"
+    )
     provider_path = source_root / "_project/extension_signature_provider.py"
     selector_path = source_root / "semantic/extension_signature_requirements.py"
     catalog_paths = {
@@ -249,6 +252,7 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
         project_explain_json_path,
         capability_facts_path,
         capability_pure_path,
+        project_environment_path,
         provider_path,
         selector_path,
     }

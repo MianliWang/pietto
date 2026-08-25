@@ -89,6 +89,50 @@ def test_schema_v3_package_config_returns_before_candidate_discovery(
     ]
 
 
+def test_schema_v4_capability_environment_returns_before_candidate_discovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "schema-v4"
+    root.mkdir()
+    (root / "pietto.toml").write_text(
+        """
+        schema_version = 4
+
+        [package]
+        path = "."
+        namespace = "example"
+        name = "demo"
+        version = "release"
+        sha256 = "pin"
+
+        [capability_environment]
+        """,
+        encoding="utf-8",
+    )
+    config_result = load_project_config(root)
+
+    def unexpected_discovery(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise AssertionError("schema-v4 mode must not discover project source paths")
+
+    monkeypatch.setattr(
+        source_selection,
+        "_discover_candidate_paths",
+        unexpected_discovery,
+    )
+    result = select_project_sources(root, config_result)
+
+    assert result.inputs == result.modules == ()
+    assert result.selected_input_index is None
+    assert [(error.kind, error.message) for error in result.errors] == [
+        (
+            ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
+            "Schema-v4 capability environment does not use project source selection.",
+        )
+    ]
+
+
 def test_empty_final_source_set_is_project_glob_error(tmp_path: Path) -> None:
     root = _project_root(
         tmp_path,

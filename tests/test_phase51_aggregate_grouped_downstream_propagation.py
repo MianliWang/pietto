@@ -263,8 +263,6 @@ def test_production_calls_slice9_readiness_once_per_eligible_definition(
 
     model_source = MODEL_PATH.read_text(encoding="utf-8")
     persistence_source = HELPER_PATH.read_text(encoding="utf-8")
-    assert "from pietto.semantic" not in model_source
-    assert "import pietto.semantic" not in model_source
     assert "contains_semantic_aggregate" not in model_source
     assert f"if {helper_name}(definition):" in model_source
     assert (

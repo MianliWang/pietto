@@ -365,10 +365,9 @@ def test_project_text_check_output_remains_parse_only(
     assert captured.err == ""
 
 
-def test_slice5_does_not_import_semantic_or_enter_output_paths() -> None:
+def test_slice5_does_not_enter_semantic_runtime_or_output_paths() -> None:
     source = MODEL_PATH.read_text(encoding="utf-8")
 
-    assert "pietto.semantic" not in source
     assert "semantic.analyze" not in source
     assert "build_ir" not in source
     assert "emit_postgres_sql" not in source

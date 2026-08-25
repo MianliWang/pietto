@@ -505,7 +505,10 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
                 REPO_ROOT / COMPOSITION_REL,
                 REPO_ROOT / CHECKING_REL,
                 REPO_ROOT / INSPECTION_REL,
+                REPO_ROOT / "src/pietto/_project/config.py",
+                REPO_ROOT / "src/pietto/_project/model.py",
                 REPO_ROOT / "src/pietto/_project/package_manifest.py",
+                REPO_ROOT / "src/pietto/_project/project_capability_environment.py",
                 REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py",
                 REPO_ROOT
                 / "src/pietto/_project_explain/package_requirement_projection.py",

@@ -301,7 +301,6 @@ def test_project_text_check_reports_relation_diagnostics_after_slice7(
 def test_project_relation_namespace_stays_out_of_output_paths() -> None:
     source = MODEL_PATH.read_text(encoding="utf-8")
 
-    assert "pietto.semantic" not in source
     assert "semantic.analyze" not in source
     assert "build_ir" not in source
     assert "emit_postgres_sql" not in source

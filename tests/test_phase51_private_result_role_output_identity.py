@@ -205,8 +205,6 @@ def test_function_identity_is_not_normalized_or_semantically_catalogued() -> Non
     assert "SEMANTIC_AGGREGATE_NAMES" not in model_source
     assert "expected_semantic_aggregate_arity" not in model_source
     assert "contains_semantic_aggregate" not in model_source
-    assert "from pietto.semantic" not in model_source
-    assert "import pietto.semantic" not in model_source
     assert "semantic_api" not in model_source
     assert "_is_project_aggregate_grouped_definition" in model_source
     assert "build_project_aggregate_grouped_persistence" in model_source

@@ -85,6 +85,7 @@ def test_schema_version_and_table_activation_are_closed_and_exact(
         assert result.config.compilation_mode is mode
         assert (result.config.sources is None) is (version == 3)
         assert (result.config.root_package is None) is (version != 3)
+        assert result.config.capability_environment is None
 
     invalid = (
         "schema_version = true\n\n" + _package_table(),
@@ -316,6 +317,7 @@ def test_root_package_carrier_and_project_config_are_exact_private_tagged_union(
         "sources",
         "compilation_mode",
         "root_package",
+        "capability_environment",
     )
     for version, mode, sources, root_package in (
         (1, ProjectCompilationMode.LEGACY_FLAT, source, None),
@@ -325,6 +327,10 @@ def test_root_package_carrier_and_project_config_are_exact_private_tagged_union(
         assert (
             ProjectConfig(version, sources, mode, root_package).schema_version
             == version
+        )
+        assert (
+            ProjectConfig(version, sources, mode, root_package).capability_environment
+            is None
         )
     for kwargs in (
         dict(

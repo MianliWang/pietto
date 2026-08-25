@@ -36,10 +36,19 @@ work. Failures remain ordered project diagnostics rather than partial success.
 - Schema v1 preserves the legacy-flat project model.
 - Schema v2 activates explicit logical modules and module-local semantic facts.
 - Schema v3 selects the package-root activation branch.
+- Schema v4 retains the exact package-root activation and requires one explicit
+  project capability environment containing project-owned profiles and an
+  ordered evaluated-target denominator.
 
 The modes are explicit compatibility boundaries. A newer branch does not
 silently fall back to an older catalog or source-selection path, and private
 facts do not automatically become public CLI/JSON/IR/SQL fields.
+
+Schema v4 has no implicit or default target or compiler profile. Package
+manifest v2 capability requirements remain owned by their declaring packages;
+the profile/target environment is project-owned. Bundled catalog availability
+is compiler-owned and does not claim selection, installation, or live database
+state.
 
 ## Trusted source identity
 

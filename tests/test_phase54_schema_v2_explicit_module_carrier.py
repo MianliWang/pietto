@@ -59,6 +59,7 @@ def test_schema_versions_map_to_exact_project_compilation_modes(
         assert result.config.sources.include_patterns == ("**/*.pietto",)
         assert result.config.sources.exclude_patterns == ()
         assert result.config.root_package is None
+        assert result.config.capability_environment is None
 
 
 def test_package_mode_cannot_construct_logical_modules(
@@ -98,10 +99,10 @@ def test_schema_version_validation_and_unknown_keys_remain_fail_closed(
         assert not result.ok
         assert result.config is None
         assert _single_config_schema_message(result) == (
-            "Project configuration schema_version must be integer 1, 2, or 3."
+            "Project configuration schema_version must be integer 1, 2, 3, or 4."
         )
 
-    for schema_version in (-1, 0, 4):
+    for schema_version in (-1, 0, 5):
         root = _root_with_config(
             tmp_path / f"value-{schema_version}",
             f'schema_version = {schema_version}\n\n[sources]\ninclude = ["*.pietto"]\n',
@@ -110,7 +111,7 @@ def test_schema_version_validation_and_unknown_keys_remain_fail_closed(
         assert not result.ok
         assert result.config is None
         assert _single_config_schema_message(result) == (
-            "Project configuration schema_version must be 1, 2, or 3."
+            "Project configuration schema_version must be 1, 2, 3, or 4."
         )
 
     unknown_cases = (

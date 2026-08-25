@@ -36,6 +36,12 @@ from pietto.ast_nodes import (
     WindowExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.semantic.capability_facts import CapabilityKey, CapabilitySupport
+from pietto.semantic.capability_profiles import (
+    CapabilityProfileKind,
+    CapabilityProfileReference,
+    CapabilityProfileTarget,
+)
 
 if TYPE_CHECKING:
     from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
@@ -156,7 +162,7 @@ class ProjectSourceConfig:
 
 @dataclass(frozen=True, slots=True)
 class ProjectRootPackageActivation:
-    """Private authored root-package activation for schema-v3 projects."""
+    """Private authored root-package activation for schema-v3/v4 projects."""
 
     path: str
     namespace: str
@@ -179,7 +185,7 @@ class ProjectRootPackageActivation:
 
 
 def _is_valid_project_root_package_path(value: object) -> bool:
-    """Return whether one authored schema-v3 package path is structural-only valid."""
+    """Return whether one authored package path is structural-only valid."""
 
     if type(value) is not str or not value or "\x00" in value or "\\" in value:
         return False
@@ -192,6 +198,145 @@ def _is_valid_project_root_package_path(value: object) -> bool:
     return all(part not in {"", ".", ".."} for part in value.split("/"))
 
 
+def _require_project_nonblank_text(value: object, label: str) -> None:
+    if type(value) is not str or not value.strip():
+        raise ValueError(f"{label} requires exact nonblank text.")
+
+
+def _require_project_position(value: object, label: str) -> None:
+    if type(value) is not int or value < 0:
+        raise ValueError(f"{label} requires an exact non-negative position.")
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectCapabilityProfileFactDeclaration:
+    """One source-ordered project-authored target-side capability fact."""
+
+    position: int
+    support: CapabilitySupport
+    key: CapabilityKey
+
+    def __post_init__(self) -> None:
+        _require_project_position(self.position, "Project capability fact")
+        if type(self.support) is not CapabilitySupport:
+            raise ValueError("Project capability fact requires an exact support.")
+        if type(self.key) is not CapabilityKey:
+            raise ValueError("Project capability fact requires an exact key.")
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectCapabilityProfileDeclaration:
+    """One source-ordered project-owned static capability profile declaration."""
+
+    position: int
+    reference: CapabilityProfileReference
+    kind: CapabilityProfileKind
+    target: CapabilityProfileTarget
+    base: CapabilityProfileReference | None
+    facts: tuple[ProjectCapabilityProfileFactDeclaration, ...]
+
+    def __post_init__(self) -> None:
+        _require_project_position(self.position, "Project capability profile")
+        if type(self.reference) is not CapabilityProfileReference:
+            raise ValueError("Project capability profile requires an exact reference.")
+        if type(self.kind) is not CapabilityProfileKind:
+            raise ValueError("Project capability profile requires an exact kind.")
+        if type(self.target) is not CapabilityProfileTarget:
+            raise ValueError("Project capability profile requires an exact target.")
+        if type(self.facts) is not tuple or any(
+            type(fact) is not ProjectCapabilityProfileFactDeclaration
+            for fact in self.facts
+        ):
+            raise ValueError("Project capability profile requires exact facts.")
+        if any(fact.position != position for position, fact in enumerate(self.facts)):
+            raise ValueError(
+                "Project capability profile fact positions must be dense and ordered."
+            )
+        if self.kind is CapabilityProfileKind.BASE:
+            if (
+                self.target.extension_identity is not None
+                or self.target.extension_release is not None
+                or self.base is not None
+            ):
+                raise ValueError(
+                    "BASE project profiles require only a database target."
+                )
+        elif (
+            self.target.extension_identity is None
+            or self.target.extension_release is None
+            or type(self.base) is not CapabilityProfileReference
+        ):
+            raise ValueError(
+                "OVERLAY project profiles require an extension target and exact base."
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectCapabilityTargetSelection:
+    """One explicit source-ordered evaluated-target profile selection."""
+
+    position: int
+    database_family: str
+    database_release: str
+    base_profile: CapabilityProfileReference
+    overlay_profiles: tuple[CapabilityProfileReference, ...]
+
+    def __post_init__(self) -> None:
+        _require_project_position(self.position, "Project capability target")
+        _require_project_nonblank_text(
+            self.database_family,
+            "Project capability target database family",
+        )
+        _require_project_nonblank_text(
+            self.database_release,
+            "Project capability target database release",
+        )
+        if type(self.base_profile) is not CapabilityProfileReference:
+            raise ValueError(
+                "Project capability target requires an exact base profile."
+            )
+        if type(self.overlay_profiles) is not tuple or any(
+            type(reference) is not CapabilityProfileReference
+            for reference in self.overlay_profiles
+        ):
+            raise ValueError(
+                "Project capability target requires exact ordered overlays."
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectCapabilityEnvironmentConfig:
+    """One normalized explicit project capability environment."""
+
+    profiles: tuple[ProjectCapabilityProfileDeclaration, ...]
+    targets: tuple[ProjectCapabilityTargetSelection, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.profiles) is not tuple or any(
+            type(profile) is not ProjectCapabilityProfileDeclaration
+            for profile in self.profiles
+        ):
+            raise ValueError("Project capability environment requires exact profiles.")
+        if any(
+            profile.position != position
+            for position, profile in enumerate(self.profiles)
+        ):
+            raise ValueError(
+                "Project capability profile positions must be dense and ordered."
+            )
+        if type(self.targets) is not tuple or any(
+            type(target) is not ProjectCapabilityTargetSelection
+            for target in self.targets
+        ):
+            raise ValueError("Project capability environment requires exact targets.")
+        if any(
+            target.position != position for position, target in enumerate(self.targets)
+        ):
+            raise ValueError(
+                "Project capability target positions must be dense and ordered."
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class ProjectConfig:
     """Private parsed project configuration."""
@@ -200,6 +345,7 @@ class ProjectConfig:
     sources: ProjectSourceConfig | None
     compilation_mode: ProjectCompilationMode = ProjectCompilationMode.LEGACY_FLAT
     root_package: ProjectRootPackageActivation | None = None
+    capability_environment: ProjectCapabilityEnvironmentConfig | None = None
 
     def __post_init__(self) -> None:
         """Enforce the exact schema-version/configuration tagged union."""
@@ -214,9 +360,11 @@ class ProjectConfig:
             expected_mode = ProjectCompilationMode.EXPLICIT_MODULES
         elif self.schema_version == 3:
             expected_mode = ProjectCompilationMode.PACKAGE_ROOT
+        elif self.schema_version == 4:
+            expected_mode = ProjectCompilationMode.PACKAGE_ROOT
         else:
             raise ValueError(
-                "Project configuration requires schema version 1, 2, or 3."
+                "Project configuration requires schema version 1, 2, 3, or 4."
             )
         if self.compilation_mode is not expected_mode:
             raise ValueError(
@@ -226,14 +374,27 @@ class ProjectConfig:
             if (
                 self.sources is not None
                 or type(self.root_package) is not ProjectRootPackageActivation
+                or self.capability_environment is not None
             ):
                 raise ValueError(
                     "Schema-v3 project configuration requires only a root package activation."
                 )
             return
+        if self.schema_version == 4:
+            if (
+                self.sources is not None
+                or type(self.root_package) is not ProjectRootPackageActivation
+                or type(self.capability_environment)
+                is not ProjectCapabilityEnvironmentConfig
+            ):
+                raise ValueError(
+                    "Schema-v4 project configuration requires a root package and capability environment."
+                )
+            return
         if (
             type(self.sources) is not ProjectSourceConfig
             or self.root_package is not None
+            or self.capability_environment is not None
         ):
             raise ValueError(
                 "Schema-v1/v2 project configuration requires only source selection."

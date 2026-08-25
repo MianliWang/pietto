@@ -68,10 +68,15 @@ def select_project_sources(
     try:
         _verify_pinned_root(pinned_root)
         if config_result.config.compilation_mode is ProjectCompilationMode.PACKAGE_ROOT:
+            message = (
+                "Schema-v3 package activation does not use project source selection."
+                if config_result.config.schema_version == 3
+                else "Schema-v4 capability environment does not use project source selection."
+            )
             return _project_level_error(
                 config_result,
                 ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
-                "Schema-v3 package activation does not use project source selection.",
+                message,
             )
         inputs, entries, errors = _select_from_config(
             pinned_root,

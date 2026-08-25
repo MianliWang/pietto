@@ -246,7 +246,7 @@ The controlling closure is
 
 ## Phase 58 route
 
-Phase 58 is active, Slices 1–9 are completed, Slice 10 is current, and Slice 11 is next / unstarted.
+Phase 58 is active, Slices 1–10 are completed, Slice 11 is current, and Slice 12 is next / unstarted.
 The original route had exactly 12 slices. After published Slice 8, a read-only
 runtime-builder authority audit proved an independent missing lifecycle, so
 the current route has exactly 16 slices. Published Slices 1–8 are unchanged;
@@ -374,6 +374,15 @@ declaration, and relies on the existing full package-content digest. It adds no
 target, profile, checker, provider, catalog-selection, Project Explain, CLI,
 public, generated, or golden behavior. The controlling contract is
 [Phase 58 Slice 10 package capability requirement declaration](spec/phase58-slice10-package-capability-requirement-declaration-v1.md).
+
+Slice 11 adds project configuration schema v4 with one mandatory explicit
+capability environment. It materializes project-authored static profiles and
+PROJECT evidence, retains an ordered evaluated-target denominator and ordered
+overlay selections, reuses exact existing profile composition and availability,
+and declares only the bundled pgvector and pg_trgm catalogs as compiler
+availability. It adds no default target/profile, catalog selection, provider,
+checking, Project Explain, or CLI behavior. The controlling contract is
+[Phase 58 Slice 11 project capability environment authority](spec/phase58-slice11-project-capability-environment-authority-v1.md).
 
 ## Retained later ownership
 
