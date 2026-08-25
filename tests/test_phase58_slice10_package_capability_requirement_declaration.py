@@ -157,7 +157,7 @@ def test_exact_private_model_reuses_existing_semantic_carriers() -> None:
 
     assert tuple(
         field.name for field in fields(PackageManifestCapabilityRequirements)
-    ) == ("identity", "keys")
+    ) == ("identity", "keys", "extension_signature_selectors")
     assert tuple(field.name for field in fields(PackageManifest)) == (
         "schema_version",
         "namespace",
@@ -213,14 +213,14 @@ def test_schema_one_and_two_are_valid_and_schema_one_rejects_the_new_key() -> No
     (
         "true",
         "0",
-        "3",
+        "4",
         "-1",
         '"2"',
         "2.0",
         "1979-05-27",
     ),
 )
-def test_schema_version_is_only_exact_non_boolean_integer_one_or_two(
+def test_schema_version_is_only_exact_non_boolean_integer_one_two_or_three(
     replacement: str,
 ) -> None:
     result = _normalize(
@@ -233,7 +233,7 @@ def test_schema_version_is_only_exact_non_boolean_integer_one_or_two(
 
     assert not result.ok
     assert _messages(result)[0] == (
-        "Package manifest schema_version must be exact integer 1 or 2."
+        "Package manifest schema_version must be exact integer 1, 2, or 3."
     )
 
 

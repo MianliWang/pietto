@@ -246,12 +246,14 @@ The controlling closure is
 
 ## Phase 58 route
 
-Phase 58 is active, Slices 1–10 are completed, Slice 11 is current, and Slice 12 is next / unstarted.
+Phase 58 is active, Slices 1–11 are completed, Slice 12 is current, and Slice 13 is next / unstarted.
 The original route had exactly 12 slices. After published Slice 8, a read-only
 runtime-builder authority audit proved an independent missing lifecycle, so
-the current route has exactly 16 slices. Published Slices 1–8 are unchanged;
-original planned Slices 9–12 move to current Slices 13–16. These rows assign
-ownership only; they do not authorize a later slice.
+the route expanded to 16 slices. After published Slice 11, production tracing
+proved the package requirement-to-typed-physical-selector edge was still
+absent, so the current route has exactly 17 slices. Published Slices 1–11 are
+unchanged. These rows assign ownership only; they do not authorize a later
+slice.
 
 | Slice | Owner |
 | ---: | --- |
@@ -266,11 +268,12 @@ ownership only; they do not authorize a later slice.
 | 9 | Runtime authority architecture and evidence-backed route expansion lock |
 | 10 | Package-owned capability requirement declaration authority |
 | 11 | Project-owned evaluated-target, profile, and catalog-availability authority |
-| 12 | Project Explain runtime authority builder and exact orchestration |
-| 13 | `pietto explain --project` text/JSON integration; existing single-file explain zero-delta |
-| 14 | Real multi-target E2E scenarios spanning package, capability, catalog, all evaluation states, and all checked result classes |
-| 15 | Public pure/differential compatibility boundary; goldens; Python 3.12/3.13; hash seed; relocation; installed wheel |
-| 16 | Completion audit; Phase 59 handoff; Phase 60/64/67/69 readiness reconciliation |
+| 12 | Package-owned extension-signature typed physical selector authority |
+| 13 | Project Explain runtime authority builder and zero-context adaptation |
+| 14 | `pietto explain --project` text/JSON integration; existing single-file explain zero-delta |
+| 15 | Real multi-target E2E scenarios spanning package, capability, catalog, all evaluation states, and all checked result classes |
+| 16 | Public pure/differential compatibility boundary; goldens; Python 3.12/3.13; hash seed; relocation; installed wheel |
+| 17 | Completion audit; Phase 59 handoff; Phase 60/64/67/69 readiness reconciliation |
 
 The human-readable direction is `Project Explain Artifact v1`, with public
 marker `pietto.project-explain.v1` and future additive commands
@@ -358,10 +361,11 @@ Slice 9 records the production audit that found the first missing runtime edge
 after `PackageInspectionFactSet`, freezes package ownership of requirement
 declarations, project ownership of ordered targets/profiles, and compiler
 ownership of exact bundled-catalog availability without selection, and expands
-the route from the historical 12 slices to the current 16. Slice 10 owns
+the route from the historical 12 slices to the then-current 16. Slice 10 owns
 package manifest v2 requirement authority, Slice 11 owns project config v4
-target/profile/catalog authority, and Slice 12 owns exact orchestration plus
-the minimum zero-context private compatibility extension. It adds no
+target/profile/catalog authority, and the post-Slice-11 amendment moves exact
+orchestration plus the minimum zero-context compatibility extension to Slice
+13. It adds no
 production, config, manifest, matrix, JSON, text, CLI, package, golden, or
 generated behavior. The controlling lock is
 [Phase 58 Slice 9 runtime authority architecture](spec/phase58-slice9-runtime-authority-architecture-route-lock-v1.md).
@@ -383,6 +387,15 @@ and declares only the bundled pgvector and pg_trgm catalogs as compiler
 availability. It adds no default target/profile, catalog selection, provider,
 checking, Project Explain, or CLI behavior. The controlling contract is
 [Phase 58 Slice 11 project capability environment authority](spec/phase58-slice11-project-capability-environment-authority-v1.md).
+
+Slice 12 adds package manifest schema v3 with a package-owned typed physical
+selector sidecar for every `EXTENSION_SIGNATURE` requirement. It reuses the
+existing five-family `ExtensionCatalogLookupScope` authority, preserves exact
+coverage/order and extension ownership, leaves schema-v2 extension requirements
+valid but unbound, and relies on the existing whole-package digest. It performs
+no catalog selection, provider construction, checking, Project Explain, or CLI
+work. The controlling contract is
+[Phase 58 Slice 12 package extension-signature selector authority](spec/phase58-slice12-package-extension-signature-selector-authority-v1.md).
 
 ## Retained later ownership
 

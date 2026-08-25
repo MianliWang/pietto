@@ -267,7 +267,11 @@ def test_profiles_composition_availability_and_package_ownership_are_closed() ->
         and node.module == "pietto.semantic.capability_profiles"
         for alias in node.names
     )
-    assert profile_imports == ((0, "CapabilityRequirementCollectionIdentity", None),)
+    assert profile_imports == (
+        (0, "CapabilityRequirementCollection", None),
+        (0, "CapabilityRequirementCollectionIdentity", None),
+        (0, "CapabilityRequirementOccurrence", None),
+    )
     assert not any(
         alias.name.startswith("pietto.semantic.capability_profiles")
         for node in manifest_tree.body
@@ -319,7 +323,11 @@ def test_profiles_composition_availability_and_package_ownership_are_closed() ->
         "capability_requirements",
     )
     assert package_manifest._SCHEMA_V1_TOP_LEVEL_KEYS == manifest_fields[:-1]
-    assert package_manifest._TOP_LEVEL_KEYS == manifest_fields
+    assert package_manifest._SCHEMA_V2_TOP_LEVEL_KEYS == manifest_fields
+    assert package_manifest._TOP_LEVEL_KEYS == (
+        *manifest_fields,
+        "extension_signature_selectors",
+    )
     forbidden_manifest_authority = {
         "profiles",
         "capability_profiles",

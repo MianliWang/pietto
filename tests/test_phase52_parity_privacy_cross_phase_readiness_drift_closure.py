@@ -854,6 +854,9 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
     model_rel = "src/pietto/_project/model.py"
     package_manifest_rel = "src/pietto/_project/package_manifest.py"
     package_requirements_rel = "src/pietto/_project/package_capability_requirements.py"
+    package_selectors_rel = (
+        "src/pietto/_project/package_extension_signature_selectors.py"
+    )
     project_environment_rel = "src/pietto/_project/project_capability_environment.py"
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
         relative = path.relative_to(REPO_ROOT).as_posix()
@@ -904,6 +907,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                     model_rel,
                     package_manifest_rel,
                     package_requirements_rel,
+                    package_selectors_rel,
                     project_environment_rel,
                     EXTENSION_PROVIDER_REL,
                     EXTENSION_INSPECTION_REL,

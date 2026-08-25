@@ -12,6 +12,7 @@ import pytest
 import pietto
 import pietto._project as project_package
 import pietto._project.package_capability_requirements as package_capability_requirements
+import pietto._project.package_extension_signature_selectors as package_extension_signature_selectors
 import pietto._project.package_inspection as package_inspection
 import pietto._project.package_load_plan as package_load_plan
 import pietto._project.package_loader as package_loader
@@ -192,11 +193,11 @@ def test_byte_utf8_and_toml_hard_failures_are_exact() -> None:
         'schema_version = "1"',
         "schema_version = 1.0",
         "schema_version = 0",
-        "schema_version = 3",
+        "schema_version = 4",
         "schema_version = 1979-05-27",
     ),
 )
-def test_schema_version_is_exact_non_boolean_integer_one_or_two(
+def test_schema_version_is_exact_non_boolean_integer_one_two_or_three(
     replacement: str,
 ) -> None:
     result = _normalize_package_manifest(
@@ -220,7 +221,7 @@ def test_empty_bytes_report_every_missing_required_root_field() -> None:
         ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
     )
     assert tuple(error.message for error in result.errors) == (
-        "Package manifest schema_version must be exact integer 1 or 2.",
+        "Package manifest schema_version must be exact integer 1, 2, or 3.",
         "Package manifest namespace must be a non-empty string.",
         "Package manifest name must be a non-empty string.",
         "Package manifest version must be a non-empty string.",
@@ -715,7 +716,7 @@ def test_post_parse_multi_error_order_is_complete_and_field_order_invariant() ->
     assert first.errors == (
         ProjectDiscoveryError(
             schema,
-            "Package manifest schema_version must be exact integer 1 or 2.",
+            "Package manifest schema_version must be exact integer 1, 2, or 3.",
             manifest_path,
         ),
         ProjectDiscoveryError(
@@ -994,6 +995,7 @@ def test_slice3_is_private_pure_and_has_only_trusted_package_consumers() -> None
         assert forbidden not in source
 
     trusted_consumer_paths = {
+        Path(package_extension_signature_selectors.__file__),
         Path(package_inspection.__file__),
         Path(package_loader.__file__),
         Path(package_load_plan.__file__),
@@ -1011,6 +1013,9 @@ def test_slice3_is_private_pure_and_has_only_trusted_package_consumers() -> None
     adapter_source = inspect.getsource(package_capability_requirements)
     assert ".manifest.capability_requirements" in adapter_source
     assert "pietto._project.package_manifest" not in adapter_source
+    selector_source = inspect.getsource(package_extension_signature_selectors)
+    assert ".manifest" in selector_source
+    assert "pietto._project.package_manifest" in selector_source
 
 
 def test_slice4_package_identity_excludes_release_pin_and_logical_path() -> None:

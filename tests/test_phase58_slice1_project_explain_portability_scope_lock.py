@@ -98,7 +98,7 @@ EXPECTED_ROUTE = (
         "Completion audit; Phase 59 handoff; Phase 60/64/69 readiness reconciliation",
     ),
 )
-CURRENT_ROUTE = (
+HISTORICAL_ROUTE_16 = (
     *EXPECTED_ROUTE[:8],
     ("9", "Runtime authority architecture and evidence-backed route expansion lock"),
     ("10", "Package-owned capability requirement declaration authority"),
@@ -121,6 +121,27 @@ CURRENT_ROUTE = (
     ),
     (
         "16",
+        "Completion audit; Phase 59 handoff; Phase 60/64/67/69 readiness reconciliation",
+    ),
+)
+CURRENT_ROUTE_17 = (
+    *HISTORICAL_ROUTE_16[:11],
+    ("12", "Package-owned extension-signature typed physical selector authority"),
+    ("13", "Project Explain runtime authority builder and zero-context adaptation"),
+    (
+        "14",
+        "`pietto explain --project` text/JSON integration; existing single-file explain zero-delta",
+    ),
+    (
+        "15",
+        "Real multi-target E2E scenarios spanning package, capability, catalog, all evaluation states, and all checked result classes",
+    ),
+    (
+        "16",
+        "Public pure/differential compatibility boundary; goldens; Python 3.12/3.13; hash seed; relocation; installed wheel",
+    ),
+    (
+        "17",
         "Completion audit; Phase 59 handoff; Phase 60/64/67/69 readiness reconciliation",
     ),
 )
@@ -610,7 +631,7 @@ def test_exact_route_and_expansion_policy_are_immutable() -> None:
         document,
         "Evidence-backed Route Expansion After Published Slice 8",
     )
-    assert _table_rows(expanded)[1:] == CURRENT_ROUTE
+    assert _table_rows(expanded)[1:] == HISTORICAL_ROUTE_16
     for required in (
         "read-only production audit after published Slice 8",
         "expands from the original 12 slices to\nexactly 16",
@@ -621,6 +642,21 @@ def test_exact_route_and_expansion_policy_are_immutable() -> None:
         "Current expansion candidate after Slice 9:\n`NONE`",
     ):
         assert required in expanded
+
+    amended = _section(
+        document,
+        "Evidence-backed Selector Authority Amendment After Published Slice 11",
+    )
+    assert _table_rows(amended)[1:] == CURRENT_ROUTE_17
+    for required in (
+        "package semantic\nrequirements",
+        "typed physical selector",
+        "cannot be reconstructed from `CapabilityKey` text",
+        "Published Slices 1–11 stay unchanged",
+        "exactly 17",
+        "Further expansion candidate after Slice 12:\n`NONE`",
+    ):
+        assert required in amended
 
 
 def test_later_readiness_non_goals_and_heading_boundaries_are_exact() -> None:

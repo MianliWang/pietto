@@ -270,7 +270,7 @@ def test_manifest_validation_failures_stop_before_asset_reads(
     if failure == "structural":
         manifest = _manifest(assets=("missing.pietto",)).replace(
             b"schema_version = 1",
-            b"schema_version = 3",
+            b"schema_version = 4",
         )
     elif failure == "root":
         manifest = _manifest(assets=("missing.pietto",), namespace="other")

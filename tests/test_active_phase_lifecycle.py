@@ -23,13 +23,14 @@ EXPECTED_STATUS = (
     ("Slice 8", "`COMPLETED`"),
     ("Slice 9", "`COMPLETED`"),
     ("Slice 10", "`COMPLETED`"),
-    ("Slice 11", "`CURRENT`"),
-    ("Slice 12", "`NEXT / UNSTARTED`"),
-    ("Next", "`PHASE58_SLICE12_END_TO_END`"),
+    ("Slice 11", "`COMPLETED`"),
+    ("Slice 12", "`CURRENT`"),
+    ("Slice 13", "`NEXT / UNSTARTED`"),
+    ("Next", "`PHASE58_SLICE13_END_TO_END`"),
 )
 EXPECTED_ROADMAP_STATE = (
-    "Phase 58 is active, Slices 1–10 are completed, Slice 11 is current, "
-    "and Slice 12 is next / unstarted."
+    "Phase 58 is active, Slices 1–11 are completed, Slice 12 is current, "
+    "and Slice 13 is next / unstarted."
 )
 EXPECTED_PHASE58_ROUTE = (
     (
@@ -67,21 +68,22 @@ EXPECTED_PHASE58_ROUTE = (
         "11",
         "Project-owned evaluated-target, profile, and catalog-availability authority",
     ),
-    ("12", "Project Explain runtime authority builder and exact orchestration"),
+    ("12", "Package-owned extension-signature typed physical selector authority"),
+    ("13", "Project Explain runtime authority builder and zero-context adaptation"),
     (
-        "13",
+        "14",
         "`pietto explain --project` text/JSON integration; existing single-file explain zero-delta",
     ),
     (
-        "14",
+        "15",
         "Real multi-target E2E scenarios spanning package, capability, catalog, all evaluation states, and all checked result classes",
     ),
     (
-        "15",
+        "16",
         "Public pure/differential compatibility boundary; goldens; Python 3.12/3.13; hash seed; relocation; installed wheel",
     ),
     (
-        "16",
+        "17",
         "Completion audit; Phase 59 handoff; Phase 60/64/67/69 readiness reconciliation",
     ),
 )
@@ -111,11 +113,11 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     status = _read(STATUS)
     assert _table_rows(status)[1:] == EXPECTED_STATUS
     normalized = " ".join(status.split())
-    assert "Slice 11 is the current route owner" in normalized
-    assert "Live Git and natural exact-head CI own Phase 58 Slice 11 completion" in (
+    assert "Slice 12 is the current route owner" in normalized
+    assert "Live Git and natural exact-head CI own Phase 58 Slice 12 completion" in (
         normalized
     )
-    assert "does not authorize Slice 12" in normalized
+    assert "does not authorize Slice 13" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_is_exact() -> None:

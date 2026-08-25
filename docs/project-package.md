@@ -50,6 +50,12 @@ the profile/target environment is project-owned. Bundled catalog availability
 is compiler-owned and does not claim selection, installation, or live database
 state.
 
+Package manifest schema v3 retains the exact v2 semantic requirements and adds
+a separate package-owned typed physical selector sidecar for
+`EXTENSION_SIGNATURE` occurrences. The selector is not part of `CapabilityKey`,
+does not select a catalog, and is covered by the existing whole-package content
+digest. Schema-v2 extension requirements remain valid legacy unbound data.
+
 ## Trusted source identity
 
 The project root, configuration file, and selected sources are opened through

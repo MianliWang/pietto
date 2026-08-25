@@ -15,7 +15,26 @@ from pietto._project.model import (
     ProjectRootPackageActivation,
 )
 from pietto.semantic.capability_facts import CapabilityDomain, CapabilityKey
-from pietto.semantic.capability_profiles import CapabilityRequirementCollectionIdentity
+from pietto.semantic.capability_profiles import (
+    CapabilityRequirementCollection,
+    CapabilityRequirementCollectionIdentity,
+    CapabilityRequirementOccurrence,
+)
+from pietto.semantic.extension_catalog import (
+    ExtensionCatalogEntryFamily,
+    ExtensionCatalogLookupScope,
+    ExtensionCatalogTypeReference,
+    ExtensionCatalogTypeReferenceKind,
+    PostgreSQLCallableIdentity,
+    PostgreSQLCastIdentity,
+    PostgreSQLOperatorArity,
+    PostgreSQLOperatorIdentity,
+)
+from pietto.semantic.extension_signature_requirements import (
+    ExtensionSignatureRequirementSelector,
+    ExtensionSignatureRequirementSelectorOccurrence,
+    ExtensionSignatureRequirementSelectors,
+)
 
 __all__: tuple[str, ...] = ()
 
@@ -29,7 +48,8 @@ _SCHEMA_V1_TOP_LEVEL_KEYS = (
     "assets",
     "dependencies",
 )
-_TOP_LEVEL_KEYS = (*_SCHEMA_V1_TOP_LEVEL_KEYS, "capability_requirements")
+_SCHEMA_V2_TOP_LEVEL_KEYS = (*_SCHEMA_V1_TOP_LEVEL_KEYS, "capability_requirements")
+_TOP_LEVEL_KEYS = (*_SCHEMA_V2_TOP_LEVEL_KEYS, "extension_signature_selectors")
 _ASSET_KEYS = ("kind", "path")
 _DEPENDENCY_KEYS = ("namespace", "name", "version", "sha256", "path")
 _CAPABILITY_REQUIREMENT_KEYS = (
@@ -84,6 +104,43 @@ _CAPABILITY_REQUIREMENT_ENTRY_HEADER = re.compile(
     r"\.[ \t]*entries[ \t]*\]\]"
     r"(?P<suffix>[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$))"
 )
+_EXTENSION_SIGNATURE_SELECTOR_HEADER = re.compile(
+    r"(?m)^(?P<indent>[ \t]*)\[\[[ \t]*extension_signature_selectors[ \t]*\]\]"
+    r"(?P<suffix>[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$))"
+)
+_EXTENSION_SIGNATURE_INPUT_TYPE_HEADER = re.compile(
+    r"(?m)^(?P<indent>[ \t]*)\[\[[ \t]*extension_signature_selectors[ \t]*"
+    r"\.[ \t]*input_types[ \t]*\]\]"
+    r"(?P<suffix>[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$))"
+)
+_EXTENSION_SIGNATURE_OPERAND_TYPE_HEADER = re.compile(
+    r"(?m)^(?P<indent>[ \t]*)\[\[[ \t]*extension_signature_selectors[ \t]*"
+    r"\.[ \t]*operand_types[ \t]*\]\]"
+    r"(?P<suffix>[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$))"
+)
+_EXTENSION_SIGNATURE_SOURCE_TYPE_HEADER = re.compile(
+    r"(?m)^(?P<indent>[ \t]*)\[[ \t]*extension_signature_selectors[ \t]*"
+    r"\.[ \t]*source_type[ \t]*\]"
+    r"(?P<suffix>[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$))"
+)
+_EXTENSION_SIGNATURE_TARGET_TYPE_HEADER = re.compile(
+    r"(?m)^(?P<indent>[ \t]*)\[[ \t]*extension_signature_selectors[ \t]*"
+    r"\.[ \t]*target_type[ \t]*\]"
+    r"(?P<suffix>[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$))"
+)
+_SELECTOR_COMMON_KEYS = frozenset({"requirement_position", "family"})
+_SELECTOR_FAMILY_KEYS = {
+    "native_type": frozenset({"physical_name"}),
+    "scalar_function": frozenset({"sql_name", "input_types"}),
+    "aggregate": frozenset({"sql_name", "input_types"}),
+    "operator": frozenset({"operator_name", "arity", "operand_types"}),
+    "cast": frozenset({"source_type", "target_type"}),
+}
+_SELECTOR_TYPE_KEYS = frozenset({"kind", "physical_name"})
+_SELECTOR_TYPE_KINDS = {
+    "postgres_builtin": ExtensionCatalogTypeReferenceKind.POSTGRES_BUILTIN,
+    "extension_native": ExtensionCatalogTypeReferenceKind.EXTENSION_NATIVE,
+}
 _URI_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 _CONTENT_SHA256_PIN = re.compile(r"[0-9a-f]{64}")
 _MODULE_SOURCE_ASSET_KIND = "module_source"
@@ -174,11 +231,36 @@ class PackageManifestDependency:
 
 
 @dataclass(frozen=True, slots=True)
+class PackageManifestExtensionSignatureSelectorOccurrence:
+    """One package-owned physical selector bound to a requirement position."""
+
+    requirement_position: int
+    selector: ExtensionSignatureRequirementSelector
+
+    def __post_init__(self) -> None:
+        if type(self) is not PackageManifestExtensionSignatureSelectorOccurrence:
+            raise TypeError(
+                "Package manifest extension selectors do not admit subclasses."
+            )
+        if type(self.requirement_position) is not int or self.requirement_position < 0:
+            raise ValueError(
+                "Package manifest extension selector requires an exact position."
+            )
+        if type(self.selector) is not ExtensionSignatureRequirementSelector:
+            raise TypeError(
+                "Package manifest extension selector requires an exact selector."
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class PackageManifestCapabilityRequirements:
     """One normalized package-owned capability requirement declaration."""
 
     identity: CapabilityRequirementCollectionIdentity
     keys: tuple[CapabilityKey, ...]
+    extension_signature_selectors: tuple[
+        PackageManifestExtensionSignatureSelectorOccurrence, ...
+    ] = ()
 
     def __post_init__(self) -> None:
         if type(self) is not PackageManifestCapabilityRequirements:
@@ -193,6 +275,11 @@ class PackageManifestCapabilityRequirements:
             self.keys,
             CapabilityKey,
             "Package manifest capability requirement keys",
+        )
+        _require_exact_tuple(
+            self.extension_signature_selectors,
+            PackageManifestExtensionSignatureSelectorOccurrence,
+            "Package manifest extension signature selectors",
         )
         first_position_by_key: dict[CapabilityKey, int] = {}
         for position, key in enumerate(self.keys):
@@ -219,9 +306,9 @@ class PackageManifest:
     def __post_init__(self) -> None:
         if type(self) is not PackageManifest:
             raise TypeError("Package manifest does not admit subclasses.")
-        if type(self.schema_version) is not int or self.schema_version not in {1, 2}:
+        if type(self.schema_version) is not int or self.schema_version not in {1, 2, 3}:
             raise ValueError(
-                "Package manifest schema version must be exact integer 1 or 2."
+                "Package manifest schema version must be exact integer 1, 2, or 3."
             )
         for field_name in ("namespace", "name", "version"):
             _require_non_empty_text(
@@ -252,6 +339,40 @@ class PackageManifest:
             raise ValueError(
                 "Package manifest schema version 1 forbids capability requirements."
             )
+        if (
+            self.schema_version in {1, 2}
+            and self.capability_requirements is not None
+            and self.capability_requirements.extension_signature_selectors
+        ):
+            raise ValueError(
+                "Package manifest schemas 1 and 2 forbid extension selectors."
+            )
+        if self.schema_version == 3 and self.capability_requirements is not None:
+            _validate_manifest_extension_signature_selectors(
+                self.capability_requirements
+            )
+
+
+def _validate_manifest_extension_signature_selectors(
+    declaration: PackageManifestCapabilityRequirements,
+) -> None:
+    requirements = CapabilityRequirementCollection(
+        declaration.identity,
+        tuple(
+            CapabilityRequirementOccurrence(declaration.identity, position, key)
+            for position, key in enumerate(declaration.keys)
+        ),
+    )
+    ExtensionSignatureRequirementSelectors(
+        requirements,
+        tuple(
+            ExtensionSignatureRequirementSelectorOccurrence(
+                occurrence.requirement_position,
+                occurrence.selector,
+            )
+            for occurrence in declaration.extension_signature_selectors
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -679,11 +800,11 @@ def _validate_document(
     errors: list[_ErrorSpec] = []
 
     schema_version = document.get("schema_version")
-    if type(schema_version) is not int or schema_version not in {1, 2}:
+    if type(schema_version) is not int or schema_version not in {1, 2, 3}:
         errors.append(
             _schema_error(
                 manifest_path,
-                "Package manifest schema_version must be exact integer 1 or 2.",
+                "Package manifest schema_version must be exact integer 1, 2, or 3.",
             )
         )
 
@@ -744,9 +865,13 @@ def _validate_document(
         )
 
     schema_is_v2 = type(schema_version) is int and schema_version == 2
-    allowed_top_level_keys = (
-        _TOP_LEVEL_KEYS if schema_is_v2 else _SCHEMA_V1_TOP_LEVEL_KEYS
-    )
+    schema_is_v3 = type(schema_version) is int and schema_version == 3
+    if schema_is_v3:
+        allowed_top_level_keys = _TOP_LEVEL_KEYS
+    elif schema_is_v2:
+        allowed_top_level_keys = _SCHEMA_V2_TOP_LEVEL_KEYS
+    else:
+        allowed_top_level_keys = _SCHEMA_V1_TOP_LEVEL_KEYS
     for unknown_key in sorted(set(document) - set(allowed_top_level_keys)):
         errors.append(
             _schema_error(
@@ -755,9 +880,17 @@ def _validate_document(
             )
         )
 
-    if schema_is_v2 and "capability_requirements" in document:
+    capability_errors: tuple[_ErrorSpec, ...] = ()
+    if (schema_is_v2 or schema_is_v3) and "capability_requirements" in document:
+        capability_errors = _validate_capability_requirements(
+            manifest_path,
+            manifest_text,
+            document,
+        )
+        errors.extend(capability_errors)
+    if schema_is_v3 and not capability_errors:
         errors.extend(
-            _validate_capability_requirements(
+            _validate_extension_signature_selectors(
                 manifest_path,
                 manifest_text,
                 document,
@@ -1052,12 +1185,324 @@ def _normalized_capability_requirements(
         return None
     declaration = cast(dict[str, object], value)
     entries = cast(list[dict[str, object]], declaration.get("entries", []))
+    identity = CapabilityRequirementCollectionIdentity(
+        cast(str, declaration["namespace"]),
+        cast(str, declaration["name"]),
+    )
+    keys = tuple(_capability_requirement_key(entry) for entry in entries)
+    selector_values = cast(
+        list[dict[str, object]],
+        document.get("extension_signature_selectors", []),
+    )
     return PackageManifestCapabilityRequirements(
-        CapabilityRequirementCollectionIdentity(
-            cast(str, declaration["namespace"]),
-            cast(str, declaration["name"]),
+        identity,
+        keys,
+        tuple(
+            _normalized_selector_occurrence(value, keys) for value in selector_values
         ),
-        tuple(_capability_requirement_key(entry) for entry in entries),
+    )
+
+
+def _validate_extension_signature_selectors(
+    manifest_path: str,
+    manifest_text: str,
+    document: Mapping[str, object],
+) -> tuple[_ErrorSpec, ...]:
+    errors: list[_ErrorSpec] = []
+    selectors_present = "extension_signature_selectors" in document
+    selectors_value = document.get("extension_signature_selectors", [])
+    selectors_are_entries = selectors_present and _is_non_empty_mapping_list(
+        selectors_value
+    )
+    if selectors_present and not selectors_are_entries:
+        errors.append(
+            _schema_error(
+                manifest_path,
+                "Package extension signature selectors must be one or more exact "
+                "root [[extension_signature_selectors]] entries.",
+            )
+        )
+        selectors: list[dict[str, object]] = []
+    else:
+        selectors = cast(list[dict[str, object]], selectors_value)
+    if selectors_are_entries and not _has_exact_array_of_tables(
+        manifest_text,
+        document,
+        key="extension_signature_selectors",
+        header_pattern=_EXTENSION_SIGNATURE_SELECTOR_HEADER,
+    ):
+        errors.append(
+            _schema_error(
+                manifest_path,
+                "Package extension signature selectors must use exact root "
+                "[[extension_signature_selectors]] syntax.",
+            )
+        )
+
+    for ordinal, selector in enumerate(selectors):
+        for nested_key in ("input_types", "operand_types"):
+            nested_value = selector.get(nested_key, [])
+            if nested_key in selector and not _is_non_empty_mapping_list(nested_value):
+                errors.append(
+                    _schema_error(
+                        manifest_path,
+                        f"Package extension signature selectors[{ordinal}].{nested_key} "
+                        "must use exact nested array-of-table entries.",
+                    )
+                )
+        for nested_key in ("source_type", "target_type"):
+            if nested_key in selector and type(selector[nested_key]) is not dict:
+                errors.append(
+                    _schema_error(
+                        manifest_path,
+                        f"Package extension signature selectors[{ordinal}].{nested_key} "
+                        "must be an exact nested table.",
+                    )
+                )
+
+    for nested_key, header_pattern in (
+        ("input_types", _EXTENSION_SIGNATURE_INPUT_TYPE_HEADER),
+        ("operand_types", _EXTENSION_SIGNATURE_OPERAND_TYPE_HEADER),
+    ):
+        if any(nested_key in selector for selector in selectors) and not (
+            _has_exact_nested_aot_path(
+                manifest_text,
+                document,
+                path=("extension_signature_selectors", nested_key),
+                header_pattern=header_pattern,
+            )
+        ):
+            errors.append(
+                _schema_error(
+                    manifest_path,
+                    f"Package extension signature selector {nested_key} must use "
+                    "exact nested AOT syntax.",
+                )
+            )
+    for nested_key, header_pattern in (
+        ("source_type", _EXTENSION_SIGNATURE_SOURCE_TYPE_HEADER),
+        ("target_type", _EXTENSION_SIGNATURE_TARGET_TYPE_HEADER),
+    ):
+        if any(nested_key in selector for selector in selectors) and not (
+            _has_exact_nested_table_path(
+                manifest_text,
+                document,
+                path=("extension_signature_selectors", nested_key),
+                header_pattern=header_pattern,
+            )
+        ):
+            errors.append(
+                _schema_error(
+                    manifest_path,
+                    f"Package extension signature selector {nested_key} must use "
+                    "exact nested table syntax.",
+                )
+            )
+
+    capability_value = document.get("capability_requirements")
+    keys = (
+        tuple(
+            _capability_requirement_key(entry)
+            for entry in cast(
+                list[dict[str, object]],
+                cast(dict[str, object], capability_value).get("entries", []),
+            )
+        )
+        if type(capability_value) is dict
+        else ()
+    )
+    actual_positions: list[int] = []
+    for ordinal, selector in enumerate(selectors):
+        selector_errors = _validate_selector_entry(
+            manifest_path,
+            selector,
+            ordinal,
+            keys,
+        )
+        errors.extend(selector_errors)
+        position = selector.get("requirement_position")
+        if type(position) is int:
+            actual_positions.append(position)
+    expected_positions = tuple(
+        position
+        for position, key in enumerate(keys)
+        if key.domain is CapabilityDomain.EXTENSION_SIGNATURE
+    )
+    if tuple(actual_positions) != expected_positions:
+        errors.append(
+            _schema_error(
+                manifest_path,
+                "Package extension signature selectors must exactly cover extension "
+                "requirements in source order.",
+            )
+        )
+    return tuple(errors)
+
+
+def _validate_selector_entry(
+    manifest_path: str,
+    value: Mapping[str, object],
+    ordinal: int,
+    keys: tuple[CapabilityKey, ...],
+) -> tuple[_ErrorSpec, ...]:
+    prefix = f"Package extension signature selectors[{ordinal}]"
+    position = value.get("requirement_position")
+    if type(position) is not int or position < 0:
+        return (
+            _schema_error(manifest_path, f"{prefix}.requirement_position is invalid."),
+        )
+    if position >= len(keys):
+        return (_schema_error(manifest_path, f"{prefix} position is out of range."),)
+    key = keys[position]
+    if (
+        key.domain is not CapabilityDomain.EXTENSION_SIGNATURE
+        or key.dialect != "postgresql"
+        or type(key.extension) is not str
+        or not key.extension.strip()
+    ):
+        return (
+            _schema_error(
+                manifest_path,
+                f"{prefix} requires a PostgreSQL EXTENSION_SIGNATURE requirement.",
+            ),
+        )
+    family = value.get("family")
+    if type(family) is not str or family not in _SELECTOR_FAMILY_KEYS:
+        return (_schema_error(manifest_path, f"{prefix}.family is invalid."),)
+    unknown_keys = sorted(
+        set(value) - _SELECTOR_COMMON_KEYS - _SELECTOR_FAMILY_KEYS[family]
+    )
+    if unknown_keys:
+        return (
+            _schema_error(
+                manifest_path,
+                f"{prefix} contains unsupported key: {unknown_keys[0]}.",
+            ),
+        )
+    error = _selector_family_error(value, family, prefix)
+    if error is not None:
+        return (_schema_error(manifest_path, error),)
+    try:
+        _normalized_selector_occurrence(value, keys)
+    except (TypeError, ValueError):
+        return (
+            _schema_error(manifest_path, f"{prefix} has invalid physical identity."),
+        )
+    return ()
+
+
+def _selector_family_error(
+    value: Mapping[str, object],
+    family: str,
+    prefix: str,
+) -> str | None:
+    if family == "native_type":
+        return (
+            None
+            if _is_nonblank_text(value.get("physical_name"))
+            else (f"{prefix}.physical_name must be nonblank.")
+        )
+    if family in {"scalar_function", "aggregate"}:
+        return (
+            None
+            if _is_nonblank_text(value.get("sql_name"))
+            else (f"{prefix}.sql_name must be nonblank.")
+        )
+    if family == "operator":
+        if not _is_nonblank_text(value.get("operator_name")):
+            return f"{prefix}.operator_name must be nonblank."
+        if value.get("arity") not in {"unary", "binary"}:
+            return f"{prefix}.arity must be exactly unary or binary."
+        return None
+    if type(value.get("source_type")) is not dict:
+        return f"{prefix}.source_type is required."
+    if type(value.get("target_type")) is not dict:
+        return f"{prefix}.target_type is required."
+    return None
+
+
+def _normalized_selector_occurrence(
+    value: Mapping[str, object],
+    keys: tuple[CapabilityKey, ...],
+) -> PackageManifestExtensionSignatureSelectorOccurrence:
+    position = cast(int, value["requirement_position"])
+    key = keys[position]
+    extension = cast(str, key.extension)
+    family_value = cast(str, value["family"])
+    family = ExtensionCatalogEntryFamily(family_value)
+    if family is ExtensionCatalogEntryFamily.NATIVE_TYPE:
+        identity = ExtensionCatalogTypeReference(
+            ExtensionCatalogTypeReferenceKind.EXTENSION_NATIVE,
+            physical_name=cast(str, value["physical_name"]),
+            extension_identity=extension,
+        )
+    elif family in {
+        ExtensionCatalogEntryFamily.SCALAR_FUNCTION,
+        ExtensionCatalogEntryFamily.AGGREGATE,
+    }:
+        identity = PostgreSQLCallableIdentity(
+            cast(str, value["sql_name"]),
+            tuple(
+                _selector_type_reference(type_value, extension)
+                for type_value in cast(
+                    list[dict[str, object]],
+                    value.get("input_types", []),
+                )
+            ),
+        )
+    elif family is ExtensionCatalogEntryFamily.OPERATOR:
+        identity = PostgreSQLOperatorIdentity(
+            cast(str, value["operator_name"]),
+            PostgreSQLOperatorArity(cast(str, value["arity"])),
+            tuple(
+                _selector_type_reference(type_value, extension)
+                for type_value in cast(
+                    list[dict[str, object]],
+                    value.get("operand_types", []),
+                )
+            ),
+        )
+    else:
+        identity = PostgreSQLCastIdentity(
+            _selector_type_reference(
+                cast(dict[str, object], value["source_type"]),
+                extension,
+            ),
+            _selector_type_reference(
+                cast(dict[str, object], value["target_type"]),
+                extension,
+            ),
+        )
+    return PackageManifestExtensionSignatureSelectorOccurrence(
+        position,
+        ExtensionSignatureRequirementSelector(
+            ExtensionCatalogLookupScope(family, identity)
+        ),
+    )
+
+
+def _selector_type_reference(
+    value: Mapping[str, object],
+    extension: str,
+) -> ExtensionCatalogTypeReference:
+    unknown_keys = sorted(set(value) - _SELECTOR_TYPE_KEYS)
+    if unknown_keys:
+        raise ValueError("selector type reference contains an unsupported key")
+    kind_value = value.get("kind")
+    if type(kind_value) is not str or kind_value not in _SELECTOR_TYPE_KINDS:
+        raise ValueError("selector type reference kind is invalid")
+    physical_name = value.get("physical_name")
+    if not _is_nonblank_text(physical_name):
+        raise ValueError("selector type reference physical name is invalid")
+    kind = _SELECTOR_TYPE_KINDS[kind_value]
+    return ExtensionCatalogTypeReference(
+        kind,
+        physical_name=cast(str, physical_name),
+        extension_identity=(
+            extension
+            if kind is ExtensionCatalogTypeReferenceKind.EXTENSION_NATIVE
+            else None
+        ),
     )
 
 
@@ -1156,6 +1601,153 @@ def _has_exact_array_of_tables(
     ):
         return False
     return _toml_values_equivalent(probed, document)
+
+
+def _has_exact_nested_aot_path(
+    manifest_text: str,
+    document: Mapping[str, object],
+    *,
+    path: tuple[str, ...],
+    header_pattern: re.Pattern[str],
+) -> bool:
+    return _has_exact_nested_mapping_path(
+        manifest_text,
+        document,
+        path=path,
+        header_pattern=header_pattern,
+        arrays=True,
+    )
+
+
+def _has_exact_nested_table_path(
+    manifest_text: str,
+    document: Mapping[str, object],
+    *,
+    path: tuple[str, ...],
+    header_pattern: re.Pattern[str],
+) -> bool:
+    return _has_exact_nested_mapping_path(
+        manifest_text,
+        document,
+        path=path,
+        header_pattern=header_pattern,
+        arrays=False,
+    )
+
+
+def _has_exact_nested_mapping_path(
+    manifest_text: str,
+    document: Mapping[str, object],
+    *,
+    path: tuple[str, ...],
+    header_pattern: re.Pattern[str],
+    arrays: bool,
+) -> bool:
+    matches = tuple(header_pattern.finditer(manifest_text))
+    if not matches:
+        return False
+    probe_keys = _allocate_aot_probe_keys(
+        document,
+        "_".join(path),
+        len(matches),
+    )
+    try:
+        first_probe = tomllib.loads(
+            _insert_aot_probes(
+                manifest_text,
+                matches,
+                probe_keys,
+                frozenset(range(len(matches))),
+            )
+        )
+    except tomllib.TOMLDecodeError:
+        return False
+    mappings = _toml_path_mappings(first_probe, path, arrays=arrays)
+    real_positions = _mapping_entries_probe_positions(mappings, probe_keys)
+    if real_positions is None or len(real_positions) != len(mappings):
+        return False
+    try:
+        probed = tomllib.loads(
+            _insert_aot_probes(
+                manifest_text,
+                matches,
+                probe_keys,
+                real_positions,
+            )
+        )
+    except tomllib.TOMLDecodeError:
+        return False
+    if not _remove_mapping_entry_probes(
+        _toml_path_mappings(probed, path, arrays=arrays),
+        probe_keys,
+        real_positions,
+    ):
+        return False
+    return _toml_values_equivalent(probed, document)
+
+
+def _toml_path_mappings(
+    document: Mapping[str, object],
+    path: tuple[str, ...],
+    *,
+    arrays: bool,
+) -> tuple[dict[str, object], ...]:
+    values: tuple[object, ...] = (document,)
+    for key in path:
+        children: list[object] = []
+        for value in values:
+            containers = cast(list[object], value) if type(value) is list else (value,)
+            for container in containers:
+                if type(container) is dict and key in container:
+                    children.append(cast(dict[str, object], container)[key])
+        values = tuple(children)
+    mappings: list[dict[str, object]] = []
+    for value in values:
+        if arrays:
+            if type(value) is not list or any(type(item) is not dict for item in value):
+                return ()
+            mappings.extend(cast(list[dict[str, object]], value))
+        elif type(value) is dict:
+            mappings.append(cast(dict[str, object], value))
+        else:
+            return ()
+    return tuple(mappings)
+
+
+def _mapping_entries_probe_positions(
+    mappings: tuple[dict[str, object], ...],
+    probe_keys: tuple[str, ...],
+) -> frozenset[int] | None:
+    if not mappings:
+        return None
+    positions_by_key = {key: position for position, key in enumerate(probe_keys)}
+    found: set[int] = set()
+    for mapping in mappings:
+        positions = tuple(
+            positions_by_key[key] for key in mapping if key in positions_by_key
+        )
+        if (
+            len(positions) != 1
+            or mapping[probe_keys[positions[0]]] is not True
+            or positions[0] in found
+        ):
+            return None
+        found.add(positions[0])
+    return frozenset(found)
+
+
+def _remove_mapping_entry_probes(
+    mappings: tuple[dict[str, object], ...],
+    probe_keys: tuple[str, ...],
+    expected_positions: frozenset[int],
+) -> bool:
+    if _mapping_entries_probe_positions(mappings, probe_keys) != expected_positions:
+        return False
+    for mapping in mappings:
+        for probe_key in probe_keys:
+            if probe_key in mapping:
+                del mapping[probe_key]
+    return True
 
 
 def _toml_child(

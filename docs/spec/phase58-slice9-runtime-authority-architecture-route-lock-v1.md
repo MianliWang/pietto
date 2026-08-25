@@ -62,6 +62,41 @@ There is no named pseudo-slice. Current expansion candidate after Slice 9:
 | 15 | Public pure/differential compatibility boundary; goldens; Python 3.12/3.13; hash seed; relocation; installed wheel |
 | 16 | Completion audit; Phase 59 handoff; Phase 60/64/67/69 readiness reconciliation |
 
+## Post-Slice-11 17-Slice Route Amendment
+
+Published Slices 1–11 remain unchanged. Production tracing after Slice 11
+proved one additional independent edge was still absent: a package semantic
+`EXTENSION_SIGNATURE` requirement cannot be mapped to the typed physical
+`ExtensionCatalogLookupScope` required by the existing provider without a
+package-owned selector sidecar. Phase 57 explicitly forbids reconstructing
+that identity from semantic key strings.
+
+The current evidence-backed route is therefore exactly 17 slices. The prior
+16-slice route above remains the historical Slice 9 decision; current former
+Slices 12–16 shift to 13–17.
+
+| Slice | Owner |
+| ---: | --- |
+| 1 | Architecture/scope/route lock; artifact identity; target denominator; single-file explain compatibility |
+| 2 | Public common model and success/failure envelope; logical paths; evidence posture; request/resolution/result vocabulary |
+| 3 | Package and requirement provenance projection; `declared_by`/`requested_by` |
+| 4 | Public requirement/target compatibility matrix; evaluation states; five checked statuses and reasons |
+| 5 | Public extension-catalog evidence projection; catalog coordinate/target/digest; selection; matchability/exposure; bounded provenance |
+| 6 | Conservative requirement/project portability derivation |
+| 7 | Cross-section composition; artifact-local references; integrity; deterministic ordering; authority separation |
+| 8 | Public JSON v1 schema; deterministic serialization; success/failure envelopes; privacy and schema-evolution locks |
+| 9 | Runtime authority architecture and evidence-backed route expansion lock |
+| 10 | Package-owned capability requirement declaration authority |
+| 11 | Project-owned evaluated-target, profile, and catalog-availability authority |
+| 12 | Package-owned extension-signature typed physical selector authority |
+| 13 | Project Explain runtime authority builder and zero-context adaptation |
+| 14 | `pietto explain --project` text/JSON integration; existing single-file explain zero-delta |
+| 15 | Real multi-target E2E scenarios spanning package, capability, catalog, all evaluation states, and all checked result classes |
+| 16 | Public pure/differential compatibility boundary; goldens; Python 3.12/3.13; hash seed; relocation; installed wheel |
+| 17 | Completion audit; Phase 59 handoff; Phase 60/64/67/69 readiness reconciliation |
+
+Further expansion candidate after Slice 12: `NONE`.
+
 ## Frozen Ownership Split
 
 | Authority | Exact owner | Forbidden transfer |

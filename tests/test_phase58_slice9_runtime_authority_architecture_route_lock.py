@@ -10,7 +10,7 @@ SPEC = (
 )
 SCOPE = REPO_ROOT / "docs/spec/phase58-project-explain-portability-scope-lock-v1.md"
 
-CURRENT_ROUTE = (
+HISTORICAL_ROUTE_16 = (
     (
         "1",
         "Architecture/scope/route lock; artifact identity; target denominator; single-file explain compatibility",
@@ -64,6 +64,27 @@ CURRENT_ROUTE = (
         "Completion audit; Phase 59 handoff; Phase 60/64/67/69 readiness reconciliation",
     ),
 )
+CURRENT_ROUTE_17 = (
+    *HISTORICAL_ROUTE_16[:11],
+    ("12", "Package-owned extension-signature typed physical selector authority"),
+    ("13", "Project Explain runtime authority builder and zero-context adaptation"),
+    (
+        "14",
+        "`pietto explain --project` text/JSON integration; existing single-file explain zero-delta",
+    ),
+    (
+        "15",
+        "Real multi-target E2E scenarios spanning package, capability, catalog, all evaluation states, and all checked result classes",
+    ),
+    (
+        "16",
+        "Public pure/differential compatibility boundary; goldens; Python 3.12/3.13; hash seed; relocation; installed wheel",
+    ),
+    (
+        "17",
+        "Completion audit; Phase 59 handoff; Phase 60/64/67/69 readiness reconciliation",
+    ),
+)
 
 
 def _read(path: Path) -> str:
@@ -86,7 +107,7 @@ def _table_rows(section: str) -> tuple[tuple[str, ...], ...]:
     )
 
 
-def test_original_history_and_current_16_slice_route_are_exact() -> None:
+def test_original_history_and_historical_16_slice_route_are_exact() -> None:
     spec = _read(SPEC)
     scope = _read(SCOPE)
     original = _table_rows(_section(scope, "Exact 12-Slice Route"))[1:]
@@ -96,7 +117,7 @@ def test_original_history_and_current_16_slice_route_are_exact() -> None:
     )[1:]
 
     assert len(original) == 12
-    assert current_spec == current_scope == CURRENT_ROUTE
+    assert current_spec == current_scope == HISTORICAL_ROUTE_16
     assert current_spec[:8] == original[:8]
     assert tuple(row[1] for row in current_spec[12:15]) == tuple(
         row[1] for row in original[8:11]
@@ -114,6 +135,33 @@ def test_original_history_and_current_16_slice_route_are_exact() -> None:
         "Current expansion candidate after Slice 9:\n`NONE`",
     ):
         assert required in history
+
+
+def test_post_slice11_current_17_slice_route_amendment_is_exact() -> None:
+    spec = _read(SPEC)
+    scope = _read(SCOPE)
+    amended_spec = _table_rows(
+        _section(spec, "Post-Slice-11 17-Slice Route Amendment")
+    )[1:]
+    amended_scope = _table_rows(
+        _section(
+            scope,
+            "Evidence-backed Selector Authority Amendment After Published Slice 11",
+        )
+    )[1:]
+
+    assert amended_spec == amended_scope == CURRENT_ROUTE_17
+    assert amended_spec[:11] == HISTORICAL_ROUTE_16[:11]
+    amendment = _section(spec, "Post-Slice-11 17-Slice Route Amendment")
+    for required in (
+        "Published Slices 1–11 remain unchanged",
+        "ExtensionCatalogLookupScope",
+        "cannot be mapped",
+        "exactly 17 slices",
+        "prior\n16-slice route above remains the historical Slice 9 decision",
+        "Further expansion candidate after Slice 12: `NONE`",
+    ):
+        assert required in amendment
 
 
 def test_package_requirement_ownership_and_manifest_versioning_are_frozen() -> None:

@@ -685,7 +685,46 @@ def test_module_has_no_provider_runtime_lowering_or_concrete_entries() -> None:
         assert "extension_catalog" not in _read(path)
     assert "extension_catalog" not in inspect.getsource(providers)
     assert "extension_catalog" not in inspect.getsource(inspection)
-    assert "extension_catalog" not in inspect.getsource(package_manifest)
+    manifest_source = inspect.getsource(package_manifest)
+    manifest_tree = ast.parse(manifest_source)
+    assert tuple(
+        (alias.name, alias.asname)
+        for node in ast.walk(manifest_tree)
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "pietto.semantic.extension_catalog"
+        for alias in node.names
+    ) == (
+        ("ExtensionCatalogEntryFamily", None),
+        ("ExtensionCatalogLookupScope", None),
+        ("ExtensionCatalogTypeReference", None),
+        ("ExtensionCatalogTypeReferenceKind", None),
+        ("PostgreSQLCallableIdentity", None),
+        ("PostgreSQLCastIdentity", None),
+        ("PostgreSQLOperatorArity", None),
+        ("PostgreSQLOperatorIdentity", None),
+    )
+    imported_modules = {
+        node.module
+        for node in ast.walk(manifest_tree)
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+    } | {
+        alias.name
+        for node in ast.walk(manifest_tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    assert imported_modules.isdisjoint(
+        {
+            "pietto._project.capability_checking",
+            "pietto._project.capability_inspection",
+            "pietto._project.capability_matrix",
+            "pietto._project.extension_catalog_availability",
+            "pietto._project.extension_catalog_inspection",
+            "pietto._project.extension_signature_provider",
+        }
+    )
+    assert "select_extension_catalog" not in manifest_source
+    assert "ExtensionCatalogSelectionResult" not in manifest_source
 
 
 def test_slice2_slice3_and_phase56_predecessors_remain_exact() -> None:

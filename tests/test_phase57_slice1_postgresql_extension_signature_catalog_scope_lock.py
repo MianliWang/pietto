@@ -237,6 +237,10 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
     project_environment_path = (
         source_root / "_project/project_capability_environment.py"
     )
+    package_manifest_path = source_root / "_project/package_manifest.py"
+    package_selectors_path = (
+        source_root / "_project/package_extension_signature_selectors.py"
+    )
     provider_path = source_root / "_project/extension_signature_provider.py"
     selector_path = source_root / "semantic/extension_signature_requirements.py"
     catalog_paths = {
@@ -253,6 +257,8 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
         capability_facts_path,
         capability_pure_path,
         project_environment_path,
+        package_manifest_path,
+        package_selectors_path,
         provider_path,
         selector_path,
     }
@@ -269,6 +275,7 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
         "src/pietto/_project/extension_catalog_inspection.py",
         "src/pietto/_project/extension_catalog_inspection_pure_boundary.py",
         "src/pietto/_project/extension_signature_provider.py",
+        "src/pietto/_project/package_extension_signature_selectors.py",
         "src/pietto/_project_explain/extension_catalog_evidence_projection.py",
         "src/pietto/semantic/extension_catalog.py",
         "src/pietto/semantic/extension_catalog_pg_trgm.py",
@@ -317,7 +324,9 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
         "timescaledb",
     ):
         assert forbidden not in catalog_source
-    assert "extension_catalog" not in inspect.getsource(package_manifest)
+    manifest_source = inspect.getsource(package_manifest)
+    assert "select_extension_catalog(" not in manifest_source
+    assert "ExtensionCatalogSelectionResult" not in manifest_source
 
     for module in (pietto, semantic_package, project_package):
         assert not hasattr(module, "ExtensionCatalog")

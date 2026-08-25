@@ -403,6 +403,40 @@ current architecture is
 There is no named pseudo-slice. Current expansion candidate after Slice 9:
 `NONE`. Any further expansion requires new independent evidence.
 
+## Evidence-backed Selector Authority Amendment After Published Slice 11
+
+After published Slice 11, production tracing proved that package semantic
+requirements and project target/catalog availability still do not provide the
+typed physical selector required by `ExtensionSignatureProviderContext`.
+Physical catalog identity cannot be reconstructed from `CapabilityKey` text.
+This package-owned authority is independent of the runtime builder.
+
+Published Slices 1–11 stay unchanged. The current route expands from the prior
+16 slices to exactly 17:
+
+| Slice | Owner |
+| ---: | --- |
+| 1 | Architecture/scope/route lock; artifact identity; target denominator; single-file explain compatibility |
+| 2 | Public common model and success/failure envelope; logical paths; evidence posture; request/resolution/result vocabulary |
+| 3 | Package and requirement provenance projection; `declared_by`/`requested_by` |
+| 4 | Public requirement/target compatibility matrix; evaluation states; five checked statuses and reasons |
+| 5 | Public extension-catalog evidence projection; catalog coordinate/target/digest; selection; matchability/exposure; bounded provenance |
+| 6 | Conservative requirement/project portability derivation |
+| 7 | Cross-section composition; artifact-local references; integrity; deterministic ordering; authority separation |
+| 8 | Public JSON v1 schema; deterministic serialization; success/failure envelopes; privacy and schema-evolution locks |
+| 9 | Runtime authority architecture and evidence-backed route expansion lock |
+| 10 | Package-owned capability requirement declaration authority |
+| 11 | Project-owned evaluated-target, profile, and catalog-availability authority |
+| 12 | Package-owned extension-signature typed physical selector authority |
+| 13 | Project Explain runtime authority builder and zero-context adaptation |
+| 14 | `pietto explain --project` text/JSON integration; existing single-file explain zero-delta |
+| 15 | Real multi-target E2E scenarios spanning package, capability, catalog, all evaluation states, and all checked result classes |
+| 16 | Public pure/differential compatibility boundary; goldens; Python 3.12/3.13; hash seed; relocation; installed wheel |
+| 17 | Completion audit; Phase 59 handoff; Phase 60/64/67/69 readiness reconciliation |
+
+There is no named pseudo-slice. Further expansion candidate after Slice 12:
+`NONE`.
+
 ## Explicit Non-goals
 
 Phase 58 does not authorize:
