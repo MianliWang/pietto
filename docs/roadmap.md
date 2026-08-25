@@ -246,7 +246,7 @@ The controlling closure is
 
 ## Phase 58 route
 
-Phase 58 is active, Slices 1–13 are completed, Slice 14 is current, and Slice 15 is next / unstarted.
+Phase 58 is active, Slices 1–14 are completed, Slice 15 is current, and Slice 16 is next / unstarted.
 The original route had exactly 12 slices. After published Slice 8, a read-only
 runtime-builder authority audit proved an independent missing lifecycle, so
 the route expanded to 16 slices. After published Slice 11, production tracing
@@ -271,7 +271,7 @@ slice.
 | 12 | Package-owned extension-signature typed physical selector authority |
 | 13 | Project Explain runtime authority builder and zero-context adaptation |
 | 14 | `pietto explain --project` text/JSON integration; existing single-file explain zero-delta |
-| 15 | Real multi-target E2E scenarios spanning package, capability, catalog, all evaluation states, and all checked result classes |
+| 15 | Reachability-aware real multi-target E2E plus structural and direct-owner assurance for currently unreachable generic states |
 | 16 | Public pure/differential compatibility boundary; goldens; Python 3.12/3.13; hash seed; relocation; installed wheel |
 | 17 | Completion audit; Phase 59 handoff; Phase 60/64/67/69 readiness reconciliation |
 
@@ -417,6 +417,16 @@ Metadata Artifact v1 route byte-for-byte. It adds no runtime semantics,
 projection algorithm, public JSON field, implicit project root, or broad
 multi-target assurance. The controlling contract is
 [Phase 58 Slice 14 Project Explain CLI text and JSON](spec/phase58-slice14-project-explain-cli-text-json-v1.md).
+
+Slice 15 adds a real multi-package, multi-target authored-input assurance corpus
+for every currently production-reachable requirement, checked-status, catalog,
+portability, failure, JSON, and text behavior. It records `BLOCKED` and catalog
+`AMBIGUOUS`/`CONFLICT` as generic representable states that current production
+authority structurally prevents at the top-level authored runtime, and pairs
+those proofs with direct tests at the actual checker and catalog-selector
+owners. It adds no production path, authored catalog override, synthetic final
+fact, new product semantics, or route expansion. The controlling contract is
+[Phase 58 Slice 15 reachability-aware multi-target E2E assurance](spec/phase58-slice15-reachability-aware-multi-target-end-to-end-assurance-v1.md).
 
 ## Retained later ownership
 
