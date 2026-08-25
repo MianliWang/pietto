@@ -82,12 +82,12 @@ def test_one_target_context_produces_one_canonical_column(tmp_path: Path) -> Non
     assert matrix.rows == ()
 
 
-def test_zero_or_unordered_target_inputs_fail_closed(
+def test_zero_target_input_is_exact_and_unordered_inputs_fail_closed(
     loaded_packages: tuple[LoadedRootPackage, LoadedDependencyPackage],
 ) -> None:
     package, _dependency = loaded_packages
-    with pytest.raises(ValueError, match="exact target contexts"):
-        build_package_capability_checking_matrix(package, None, ())
+    empty = build_package_capability_checking_matrix(package, None, ())
+    assert empty.contexts == empty.columns == empty.rows == ()
     composition = slice6._composition()
     context = _context(0, composition)
     with pytest.raises(ValueError, match="ordered target iterable"):

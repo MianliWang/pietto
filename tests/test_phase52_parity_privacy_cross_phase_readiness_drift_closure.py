@@ -858,6 +858,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
         "src/pietto/_project/package_extension_signature_selectors.py"
     )
     project_environment_rel = "src/pietto/_project/project_capability_environment.py"
+    runtime_builder_rel = "src/pietto/_project_explain/runtime_builder.py"
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
         relative = path.relative_to(REPO_ROOT).as_posix()
         if (
@@ -881,6 +882,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                 EXTENSION_INSPECTION_PURE_REL,
                 "src/pietto/_project_explain/package_requirement_projection.py",
                 "src/pietto/_project_explain/compatibility_matrix_projection.py",
+                runtime_builder_rel,
             }
             or "generated" in path.parts
         ):

@@ -105,9 +105,7 @@ def _freeze_contexts(
         raise ValueError(
             "capability matrix requires an ordered target iterable"
         ) from exc
-    if not frozen or any(
-        type(context) is not CapabilityCheckingTargetContext for context in frozen
-    ):
+    if any(type(context) is not CapabilityCheckingTargetContext for context in frozen):
         raise ValueError("capability matrix requires exact target contexts")
     if any(context.position != position for position, context in enumerate(frozen)):
         raise ValueError("matrix target positions must be dense and caller ordered")

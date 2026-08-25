@@ -1816,7 +1816,7 @@ def evaluate_capability_document(
     declaration = _text_value(header, "declaration")
     target_count = _integer_value(header, "targets")
     requirement_count = _integer_value(header, "requirements")
-    if target_count == 0 or (declaration == "undeclared" and requirement_count != 0):
+    if declaration == "undeclared" and requirement_count != 0:
         return _reject(CapabilityPureStatus.INCONSISTENT_DOCUMENT_STATE, 0)
 
     position = 1

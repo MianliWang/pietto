@@ -246,7 +246,7 @@ The controlling closure is
 
 ## Phase 58 route
 
-Phase 58 is active, Slices 1–11 are completed, Slice 12 is current, and Slice 13 is next / unstarted.
+Phase 58 is active, Slices 1–12 are completed, Slice 13 is current, and Slice 14 is next / unstarted.
 The original route had exactly 12 slices. After published Slice 8, a read-only
 runtime-builder authority audit proved an independent missing lifecycle, so
 the route expanded to 16 slices. After published Slice 11, production tracing
@@ -396,6 +396,17 @@ valid but unbound, and relies on the existing whole-package digest. It performs
 no catalog selection, provider construction, checking, Project Explain, or CLI
 work. The controlling contract is
 [Phase 58 Slice 12 package extension-signature selector authority](spec/phase58-slice12-package-extension-signature-selector-authority-v1.md).
+
+Slice 13 adds one private explicit-root Project Explain runtime builder. It
+orchestrates the existing trusted project/package loaders, package requirements
+and selectors, project capability environment, exact catalog selection/provider,
+capability matrix/inspection, and Slice 3–7 projections. It generalizes the
+private matrix and inspection authorities to preserve undeclared, declared-empty,
+and declared requirements over an explicitly empty target denominator without
+synthetic cells. It adds no CLI route, text renderer, public JSON field, default
+target, installation inference, or second resolver/checker. The controlling
+contract is
+[Phase 58 Slice 13 Project Explain runtime builder](spec/phase58-slice13-project-explain-runtime-builder-v1.md).
 
 ## Retained later ownership
 

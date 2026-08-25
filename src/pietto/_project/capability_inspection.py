@@ -636,7 +636,6 @@ def _validate_matrix(matrix: PackageCapabilityCheckingMatrix) -> None:
             raise ValueError("Capability inspection rejects foreign binding authority")
     if (
         type(matrix.contexts) is not tuple
-        or not matrix.contexts
         or any(
             type(item) is not CapabilityCheckingTargetContext
             for item in matrix.contexts

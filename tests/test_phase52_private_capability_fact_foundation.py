@@ -515,6 +515,7 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
                 REPO_ROOT
                 / "src/pietto/_project_explain/compatibility_matrix_projection.py",
                 REPO_ROOT / "src/pietto/_project_explain/json_v1.py",
+                REPO_ROOT / "src/pietto/_project_explain/runtime_builder.py",
             }
             or "generated" in path.parts
         ):

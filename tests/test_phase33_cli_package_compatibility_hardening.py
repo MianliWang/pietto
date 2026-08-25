@@ -202,6 +202,7 @@ def test_slice8_does_not_add_deferred_project_capabilities() -> None:
     cli_source = _read("src/pietto/cli.py")
     explain_composition = REPO_ROOT / "src/pietto/_project_explain/composition.py"
     explain_json = REPO_ROOT / "src/pietto/_project_explain/json_v1.py"
+    explain_runtime = REPO_ROOT / "src/pietto/_project_explain/runtime_builder.py"
     source_tree = "\n".join(
         _read(path.relative_to(REPO_ROOT).as_posix())
         for path in sorted((REPO_ROOT / "src" / "pietto").rglob("*.py"))
@@ -212,7 +213,8 @@ def test_slice8_does_not_add_deferred_project_capabilities() -> None:
         for path in sorted((REPO_ROOT / "src" / "pietto").rglob("*.py"))
         if (
             "__pycache__" not in path.parts
-            and path not in {PROJECT_CONFIG_SOURCE, PROJECT_CHECK_SOURCE}
+            and path
+            not in {PROJECT_CONFIG_SOURCE, PROJECT_CHECK_SOURCE, explain_runtime}
         )
     )
 
@@ -238,7 +240,7 @@ def test_slice8_does_not_add_deferred_project_capabilities() -> None:
         _read(path.relative_to(REPO_ROOT).as_posix())
         for path in sorted((REPO_ROOT / "src" / "pietto").rglob("*.py"))
         if "__pycache__" not in path.parts
-        and path not in {explain_composition, explain_json}
+        and path not in {explain_composition, explain_json, explain_runtime}
     )
 
     assert '"--project"' not in _configure_parser_source(cli_source, "emit_sql")

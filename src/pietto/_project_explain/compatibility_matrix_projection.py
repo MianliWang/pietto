@@ -565,7 +565,10 @@ def _project_requirement_target_matrix(
                 strict=True,
             )
         ):
-            if context is not root_contexts[position]:
+            if (
+                context.composition is not root_contexts[position].composition
+                or context.availability is not root_contexts[position].availability
+            ):
                 raise ValueError(
                     "All package matrices require the same exact target authority."
                 )

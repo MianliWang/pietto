@@ -145,6 +145,7 @@ def _required_runtime_files(prefix: str) -> frozenset[str]:
         f"{prefix}/_project_explain/model.py",
         f"{prefix}/_project_explain/package_requirement_projection.py",
         f"{prefix}/_project_explain/portability_projection.py",
+        f"{prefix}/_project_explain/runtime_builder.py",
         f"{prefix}/_project/package_capability_requirements.py",
         f"{prefix}/_project/package_extension_signature_selectors.py",
         f"{prefix}/_project/project_capability_environment.py",
@@ -579,6 +580,18 @@ def _smoke_installed_cli(
             "-I",
             "-c",
             "import pietto._project.package_extension_signature_selectors",
+        ),
+        cwd=scratch_dir,
+        capture_output=True,
+        env=environment,
+    )
+    _run_command(
+        "installed private project explain runtime builder import",
+        (
+            str(_venv_python(venv_dir)),
+            "-I",
+            "-c",
+            "import pietto._project_explain.runtime_builder",
         ),
         cwd=scratch_dir,
         capture_output=True,
