@@ -7,8 +7,17 @@ from typing import cast
 
 import pytest
 
+from _pietto_project_explain_scenarios import (
+    EXTENSION_REQUIREMENT,
+    UNSUPPORTED_REQUIREMENT,
+    _fact,
+    _manifest,
+    _multi_package_multi_target_project,
+    _profile,
+    _target,
+    _write_single_project,
+)
 import pietto.cli as cli
-import test_phase58_slice13_project_explain_runtime_builder as slice13
 from pietto._project.capability_checking import (
     _selected_profile_availability_blockers,
 )
@@ -48,244 +57,6 @@ SPEC = (
     REPO_ROOT
     / "docs/spec/phase58-slice15-reachability-aware-multi-target-end-to-end-assurance-v1.md"
 )
-
-ROOT_SELECTOR = '''[[extension_signature_selectors]]
-requirement_position = 0
-family = "native_type"
-physical_name = "halfvec"'''
-UNSUPPORTED_REQUIREMENT = """[[capability_requirements.entries]]
-domain = "logical_type"
-subject = "UnsupportedType"
-operands = []"""
-ABSENT_REQUIREMENT = '''[[capability_requirements.entries]]
-domain = "logical_type"
-subject = "AbsentType"
-operation = "catalog_membership"
-operands = []
-context = "builtin_registry"'''
-CONFLICT_REQUIREMENT = """[[capability_requirements.entries]]
-domain = "logical_type"
-subject = "ConflictType"
-operands = []"""
-
-
-def _fact(
-    support: str,
-    domain: str,
-    *,
-    subject: str | None = None,
-    operation: str | None = None,
-    context: str | None = None,
-    dialect: str | None = None,
-    extension: str | None = None,
-) -> str:
-    lines = [
-        "[[capability_environment.profiles.facts]]",
-        f'support = "{support}"',
-        f'domain = "{domain}"',
-    ]
-    for key, value in (
-        ("subject", subject),
-        ("operation", operation),
-        ("context", context),
-        ("dialect", dialect),
-        ("extension", extension),
-    ):
-        if value is not None:
-            lines.append(f'{key} = "{value}"')
-    lines.append("operands = []")
-    return "\n".join(lines)
-
-
-def _profile(
-    name: str,
-    database_release: str,
-    *,
-    kind: str = "base",
-    facts: tuple[str, ...] = (),
-    extension_identity: str = "vector",
-    extension_release: str = "0.8.6",
-    base_name: str = "base",
-) -> str:
-    lines = [
-        "[[capability_environment.profiles]]",
-        'namespace = "profiles"',
-        f'name = "{name}"',
-        'release = "r1"',
-        f'kind = "{kind}"',
-        'database_family = "PostgreSQL"',
-        f'database_release = "{database_release}"',
-    ]
-    if kind == "overlay":
-        lines.extend(
-            (
-                f'extension_identity = "{extension_identity}"',
-                f'extension_release = "{extension_release}"',
-                'base_namespace = "profiles"',
-                f'base_name = "{base_name}"',
-                'base_release = "r1"',
-            )
-        )
-    for fact in facts:
-        lines.extend(("", fact))
-    return "\n".join(lines)
-
-
-def _target(base_name: str, database_release: str, overlay_name: str | None) -> str:
-    lines = [
-        "[[capability_environment.targets]]",
-        'database_family = "PostgreSQL"',
-        f'database_release = "{database_release}"',
-        'base_profile_namespace = "profiles"',
-        f'base_profile_name = "{base_name}"',
-        'base_profile_release = "r1"',
-    ]
-    if overlay_name is not None:
-        lines.extend(
-            (
-                "",
-                "[[capability_environment.targets.overlays]]",
-                'namespace = "profiles"',
-                f'name = "{overlay_name}"',
-                'release = "r1"',
-            )
-        )
-    return "\n".join(lines)
-
-
-def _project_config(
-    package_path: str,
-    digest: str,
-    *,
-    profiles: tuple[str, ...] = (),
-    targets: tuple[str, ...] = (),
-    environment_entries: tuple[str, ...] = (),
-) -> str:
-    return "\n".join(
-        (
-            "schema_version = 4",
-            "",
-            "[package]",
-            f'path = "{package_path}"',
-            'namespace = "example"',
-            'name = "root"',
-            'version = "1.0.0"',
-            f'sha256 = "{digest}"',
-            "",
-            "[capability_environment]",
-            *environment_entries,
-            *(part for section in (*profiles, *targets) for part in ("", section)),
-            "",
-        )
-    )
-
-
-def _write_single_project(
-    tmp_path: Path,
-    manifest: bytes,
-    *,
-    profiles: tuple[str, ...] = (),
-    targets: tuple[str, ...] = (),
-    environment_entries: tuple[str, ...] = (),
-    name: str,
-) -> Path:
-    root = tmp_path / name
-    digest = slice13._write_package(root / "package", manifest)
-    (root / "pietto.toml").write_text(
-        _project_config(
-            "package",
-            digest,
-            profiles=profiles,
-            targets=targets,
-            environment_entries=environment_entries,
-        ),
-        encoding="utf-8",
-    )
-    return root
-
-
-def _multi_package_multi_target_project(tmp_path: Path, name: str) -> Path:
-    root = tmp_path / name
-    dependency_manifest = slice13._manifest(
-        3,
-        namespace="example",
-        name="dependency",
-        requirements=(slice13.EXTENSION_REQUIREMENT,),
-        selectors=(slice13.EXTENSION_SELECTOR,),
-    )
-    dependency_digest = slice13._write_package(root / "dependency", dependency_manifest)
-    root_manifest = slice13._manifest(
-        3,
-        requirements=(
-            slice13.EXTENSION_REQUIREMENT,
-            UNSUPPORTED_REQUIREMENT,
-            ABSENT_REQUIREMENT,
-            CONFLICT_REQUIREMENT,
-        ),
-        selectors=(ROOT_SELECTOR,),
-        dependencies=(
-            ("example", "dependency", "1.0.0", dependency_digest, "../dependency"),
-        ),
-    )
-    root_digest = slice13._write_package(root / "root", root_manifest)
-    extension_fact = _fact(
-        "supported",
-        "extension_signature",
-        operation="vector-native-type",
-        dialect="postgresql",
-        extension="vector",
-    )
-    absent_fact = _fact(
-        "supported",
-        "logical_type",
-        subject="AbsentType",
-        operation="catalog_membership",
-        context="builtin_registry",
-    )
-    profiles = (
-        _profile(
-            "base18",
-            "18",
-            facts=(
-                _fact(
-                    "explicitly_unsupported",
-                    "logical_type",
-                    subject="UnsupportedType",
-                ),
-                absent_fact,
-                _fact("supported", "logical_type", subject="ConflictType"),
-                _fact(
-                    "explicitly_unsupported",
-                    "logical_type",
-                    subject="ConflictType",
-                ),
-            ),
-        ),
-        _profile(
-            "vector18",
-            "18",
-            kind="overlay",
-            facts=(extension_fact,),
-            base_name="base18",
-        ),
-        _profile("base17", "17", facts=(absent_fact,)),
-        _profile(
-            "vector17",
-            "17",
-            kind="overlay",
-            facts=(extension_fact,),
-            base_name="base17",
-        ),
-    )
-    targets = (
-        _target("base18", "18", "vector18"),
-        _target("base17", "17", "vector17"),
-    )
-    (root / "pietto.toml").write_text(
-        _project_config("root", root_digest, profiles=profiles, targets=targets),
-        encoding="utf-8",
-    )
-    return root
 
 
 def test_real_multi_package_multi_target_runtime_preserves_authority_and_states(
@@ -495,7 +266,7 @@ def test_invalid_blocker_or_catalog_prerequisites_fail_before_project_explain(
         environment_entries = ("catalogs = []",)
     root = _write_single_project(
         tmp_path,
-        slice13._manifest(2, requirements=(UNSUPPORTED_REQUIREMENT,)),
+        _manifest(2, requirements=(UNSUPPORTED_REQUIREMENT,)),
         profiles=profiles,
         targets=targets,
         environment_entries=environment_entries,
@@ -514,10 +285,10 @@ def test_invalid_blocker_or_catalog_prerequisites_fail_before_project_explain(
 @pytest.mark.parametrize(
     ("manifest", "collection_count", "requirement_count"),
     (
-        (slice13._manifest(1), 0, 0),
-        (slice13._manifest(2, requirements=()), 1, 0),
+        (_manifest(1), 0, 0),
+        (_manifest(2, requirements=()), 1, 0),
         (
-            slice13._manifest(2, requirements=(slice13.EXTENSION_REQUIREMENT,)),
+            _manifest(2, requirements=(EXTENSION_REQUIREMENT,)),
             1,
             1,
         ),
@@ -555,9 +326,9 @@ def test_empty_targets_preserve_declaration_identity_without_synthetic_results(
 @pytest.mark.parametrize(
     ("manifest", "collection_count", "state"),
     (
-        (slice13._manifest(1), 0, ProjectExplainEvaluationState.UNDECLARED),
+        (_manifest(1), 0, ProjectExplainEvaluationState.UNDECLARED),
         (
-            slice13._manifest(2, requirements=()),
+            _manifest(2, requirements=()),
             1,
             ProjectExplainEvaluationState.CHECKED,
         ),
@@ -597,9 +368,9 @@ def test_nonempty_targets_with_zero_requirements_are_portable_and_distinct(
 def test_schema2_extension_is_valid_empty_and_diagnostic_with_a_target(
     tmp_path: Path,
 ) -> None:
-    manifest = slice13._manifest(
+    manifest = _manifest(
         2,
-        requirements=(slice13.EXTENSION_REQUIREMENT,),
+        requirements=(EXTENSION_REQUIREMENT,),
     )
     empty = _write_single_project(tmp_path, manifest, name="legacy-empty")
     profiles = (
@@ -700,9 +471,9 @@ def test_cli_failure_outcomes_preserve_exact_failure_envelopes(
         )
         root = _write_single_project(
             tmp_path,
-            slice13._manifest(
+            _manifest(
                 2,
-                requirements=(slice13.EXTENSION_REQUIREMENT,),
+                requirements=(EXTENSION_REQUIREMENT,),
             ),
             profiles=profiles,
             targets=(_target("base", "18", "vector"),),
