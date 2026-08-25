@@ -259,8 +259,80 @@ def test_profiles_composition_availability_and_package_ownership_are_closed() ->
     availability_source = inspect.getsource(availability).lower()
     assert "installed" not in availability_source
     manifest_source = inspect.getsource(package_manifest)
-    assert "capability_profile" not in manifest_source
-    assert "profile_asset" not in manifest_source
+    manifest_tree = ast.parse(manifest_source)
+    profile_imports = tuple(
+        (node.level, alias.name, alias.asname)
+        for node in manifest_tree.body
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "pietto.semantic.capability_profiles"
+        for alias in node.names
+    )
+    assert profile_imports == ((0, "CapabilityRequirementCollectionIdentity", None),)
+    assert not any(
+        alias.name.startswith("pietto.semantic.capability_profiles")
+        for node in manifest_tree.body
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    )
+
+    profile_owned_symbols = {
+        "CapabilityProfileSchemaVersion",
+        "CapabilityProfileKind",
+        "CapabilityProfileTargetKind",
+        "CapabilityProfileIdentity",
+        "CapabilityProfileReference",
+        "CapabilityProfileTarget",
+        "CapabilityProfileBaseOccurrence",
+        "CapabilityProfileFactOccurrence",
+        "StaticCapabilityProfile",
+    }
+    manifest_symbols = (
+        {node.id for node in ast.walk(manifest_tree) if isinstance(node, ast.Name)}
+        | {
+            node.attr
+            for node in ast.walk(manifest_tree)
+            if isinstance(node, ast.Attribute)
+        }
+        | {
+            node.asname or node.name.rsplit(".", 1)[-1]
+            for node in ast.walk(manifest_tree)
+            if isinstance(node, ast.alias)
+        }
+        | {
+            node.name
+            for node in ast.walk(manifest_tree)
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+    )
+    assert profile_owned_symbols.isdisjoint(manifest_symbols)
+
+    manifest_fields = tuple(
+        field.name for field in fields(package_manifest.PackageManifest)
+    )
+    assert manifest_fields == (
+        "schema_version",
+        "namespace",
+        "name",
+        "version",
+        "assets",
+        "dependencies",
+        "capability_requirements",
+    )
+    assert package_manifest._SCHEMA_V1_TOP_LEVEL_KEYS == manifest_fields[:-1]
+    assert package_manifest._TOP_LEVEL_KEYS == manifest_fields
+    forbidden_manifest_authority = {
+        "profiles",
+        "capability_profiles",
+        "evaluated_targets",
+        "target_profiles",
+        "profile_availability",
+        "profile_asset",
+        "profile_assets",
+        "catalog_availability",
+        "catalog_selection",
+    }
+    assert forbidden_manifest_authority.isdisjoint(manifest_fields)
+    assert forbidden_manifest_authority.isdisjoint(package_manifest._TOP_LEVEL_KEYS)
 
 
 def test_checking_matrix_inspection_and_pure_boundaries_remain_exact() -> None:

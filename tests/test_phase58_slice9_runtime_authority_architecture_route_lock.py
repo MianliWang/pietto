@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 
@@ -85,21 +84,6 @@ def _table_rows(section: str) -> tuple[tuple[str, ...], ...]:
         for line in section.splitlines()
         if line.startswith("| ") and not line.startswith("| ---")
     )
-
-
-def _top_level_assignment(path: Path, name: str) -> ast.expr:
-    tree = ast.parse(_read(path), filename=str(path))
-    matches = tuple(
-        node.value
-        for node in tree.body
-        if isinstance(node, ast.Assign)
-        and any(
-            isinstance(target, ast.Name) and target.id == name
-            for target in node.targets
-        )
-    )
-    assert len(matches) == 1
-    return matches[0]
 
 
 def test_original_history_and_current_16_slice_route_are_exact() -> None:
@@ -268,33 +252,7 @@ def test_shifted_owners_and_phase59_67_69_boundaries_are_exact() -> None:
         assert required in later
 
 
-def test_slice9_is_docs_static_only_and_current_production_contracts_are_zero_delta() -> (
-    None
-):
-    config_path = REPO_ROOT / "src/pietto/_project/config.py"
-    manifest_path = REPO_ROOT / "src/pietto/_project/package_manifest.py"
-    config_modes = _top_level_assignment(
-        config_path,
-        "_COMPILATION_MODE_BY_SCHEMA_VERSION",
-    )
-    assert isinstance(config_modes, ast.Dict)
-    assert tuple(
-        key.value for key in config_modes.keys if isinstance(key, ast.Constant)
-    ) == (1, 2, 3)
-
-    manifest_keys = _top_level_assignment(manifest_path, "_TOP_LEVEL_KEYS")
-    assert ast.literal_eval(manifest_keys) == (
-        "schema_version",
-        "namespace",
-        "name",
-        "version",
-        "assets",
-        "dependencies",
-    )
-    manifest_source = _read(manifest_path)
-    assert "schema version must be exact integer 1" in manifest_source
-    assert "capability_requirements" not in manifest_source
-
+def test_slice9_historical_docs_static_scope_and_retained_public_zero_delta() -> None:
     assert not (REPO_ROOT / "src/pietto/_project_explain/runtime_builder.py").exists()
     assert not (REPO_ROOT / "src/pietto/_project_explain/text.py").exists()
     cli_source = _read(REPO_ROOT / "src/pietto/cli.py")

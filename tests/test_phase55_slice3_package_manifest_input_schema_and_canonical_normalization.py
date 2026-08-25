@@ -11,6 +11,7 @@ import pytest
 
 import pietto
 import pietto._project as project_package
+import pietto._project.package_capability_requirements as package_capability_requirements
 import pietto._project.package_inspection as package_inspection
 import pietto._project.package_load_plan as package_load_plan
 import pietto._project.package_loader as package_loader
@@ -68,6 +69,7 @@ def test_normalizes_exact_v1_root_aots_and_logical_manifest_path() -> None:
         "version",
         "assets",
         "dependencies",
+        "capability_requirements",
     )
     assert tuple(
         field.name for field in fields(PackageManifestNormalizationResult)
@@ -91,6 +93,7 @@ def test_normalizes_exact_v1_root_aots_and_logical_manifest_path() -> None:
                 "../dependencies/demo",
             ),
         ),
+        capability_requirements=None,
     )
     assert type(manifest.assets) is tuple
     assert type(manifest.dependencies) is tuple
@@ -189,11 +192,13 @@ def test_byte_utf8_and_toml_hard_failures_are_exact() -> None:
         'schema_version = "1"',
         "schema_version = 1.0",
         "schema_version = 0",
-        "schema_version = 2",
+        "schema_version = 3",
         "schema_version = 1979-05-27",
     ),
 )
-def test_schema_version_is_exact_non_boolean_integer_one(replacement: str) -> None:
+def test_schema_version_is_exact_non_boolean_integer_one_or_two(
+    replacement: str,
+) -> None:
     result = _normalize_package_manifest(
         _activation(),
         _valid_manifest().replace(b"schema_version = 1", replacement.encode(), 1),
@@ -215,7 +220,7 @@ def test_empty_bytes_report_every_missing_required_root_field() -> None:
         ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
     )
     assert tuple(error.message for error in result.errors) == (
-        "Package manifest schema_version must be exact integer 1.",
+        "Package manifest schema_version must be exact integer 1 or 2.",
         "Package manifest namespace must be a non-empty string.",
         "Package manifest name must be a non-empty string.",
         "Package manifest version must be a non-empty string.",
@@ -710,7 +715,7 @@ def test_post_parse_multi_error_order_is_complete_and_field_order_invariant() ->
     assert first.errors == (
         ProjectDiscoveryError(
             schema,
-            "Package manifest schema_version must be exact integer 1.",
+            "Package manifest schema_version must be exact integer 1 or 2.",
             manifest_path,
         ),
         ProjectDiscoveryError(
@@ -1003,6 +1008,9 @@ def test_slice3_is_private_pure_and_has_only_trusted_package_consumers() -> None
         else:
             assert "pietto._project.package_manifest" not in other_source
         assert re.search(r"\b_normalize_package_manifest\b", other_source) is None
+    adapter_source = inspect.getsource(package_capability_requirements)
+    assert ".manifest.capability_requirements" in adapter_source
+    assert "pietto._project.package_manifest" not in adapter_source
 
 
 def test_slice4_package_identity_excludes_release_pin_and_logical_path() -> None:

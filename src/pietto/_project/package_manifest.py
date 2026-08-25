@@ -14,12 +14,14 @@ from pietto._project.model import (
     ProjectDiscoveryErrorKind,
     ProjectRootPackageActivation,
 )
+from pietto.semantic.capability_facts import CapabilityDomain, CapabilityKey
+from pietto.semantic.capability_profiles import CapabilityRequirementCollectionIdentity
 
 __all__: tuple[str, ...] = ()
 
 _PACKAGE_MANIFEST_FILENAME = "pietto-package.toml"
 _PACKAGE_MANIFEST_BYTE_LIMIT = 1_048_576
-_TOP_LEVEL_KEYS = (
+_SCHEMA_V1_TOP_LEVEL_KEYS = (
     "schema_version",
     "namespace",
     "name",
@@ -27,14 +29,59 @@ _TOP_LEVEL_KEYS = (
     "assets",
     "dependencies",
 )
+_TOP_LEVEL_KEYS = (*_SCHEMA_V1_TOP_LEVEL_KEYS, "capability_requirements")
 _ASSET_KEYS = ("kind", "path")
 _DEPENDENCY_KEYS = ("namespace", "name", "version", "sha256", "path")
+_CAPABILITY_REQUIREMENT_KEYS = (
+    "domain",
+    "subject",
+    "operation",
+    "operands",
+    "context",
+    "dialect",
+    "extension",
+)
+_CAPABILITY_REQUIREMENT_OPTIONAL_TEXT_KEYS = (
+    "subject",
+    "operation",
+    "context",
+    "dialect",
+    "extension",
+)
+_CAPABILITY_DOMAIN_VALUES = frozenset(
+    {
+        "logical_type",
+        "literal",
+        "parameter",
+        "scalar_function",
+        "unary_operator",
+        "binary_operator",
+        "comparison",
+        "null_test",
+        "clause",
+        "aggregate",
+        "window_function",
+        "expression_stage",
+        "conversion",
+        "dialect_lowering",
+        "extension_signature",
+    }
+)
 _ASSET_HEADER = re.compile(
     r"(?m)^(?P<indent>[ \t]*)\[\[[ \t]*assets[ \t]*\]\]"
     r"(?P<suffix>[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$))"
 )
 _DEPENDENCY_HEADER = re.compile(
     r"(?m)^(?P<indent>[ \t]*)\[\[[ \t]*dependencies[ \t]*\]\]"
+    r"(?P<suffix>[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$))"
+)
+_CAPABILITY_REQUIREMENTS_HEADER = re.compile(
+    r"(?m)^(?P<indent>[ \t]*)\[[ \t]*capability_requirements[ \t]*\]"
+    r"(?P<suffix>[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$))"
+)
+_CAPABILITY_REQUIREMENT_ENTRY_HEADER = re.compile(
+    r"(?m)^(?P<indent>[ \t]*)\[\[[ \t]*capability_requirements[ \t]*"
+    r"\.[ \t]*entries[ \t]*\]\]"
     r"(?P<suffix>[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$))"
 )
 _URI_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
@@ -127,6 +174,37 @@ class PackageManifestDependency:
 
 
 @dataclass(frozen=True, slots=True)
+class PackageManifestCapabilityRequirements:
+    """One normalized package-owned capability requirement declaration."""
+
+    identity: CapabilityRequirementCollectionIdentity
+    keys: tuple[CapabilityKey, ...]
+
+    def __post_init__(self) -> None:
+        if type(self) is not PackageManifestCapabilityRequirements:
+            raise TypeError(
+                "Package manifest capability requirements do not admit subclasses."
+            )
+        if type(self.identity) is not CapabilityRequirementCollectionIdentity:
+            raise TypeError(
+                "Package manifest capability requirements require an exact identity."
+            )
+        _require_exact_tuple(
+            self.keys,
+            CapabilityKey,
+            "Package manifest capability requirement keys",
+        )
+        first_position_by_key: dict[CapabilityKey, int] = {}
+        for position, key in enumerate(self.keys):
+            first_position = first_position_by_key.setdefault(key, position)
+            if first_position != position:
+                raise ValueError(
+                    "Package manifest capability requirement key "
+                    f"{position} duplicates key {first_position}."
+                )
+
+
+@dataclass(frozen=True, slots=True)
 class PackageManifest:
     """One canonical immutable representation of accepted manifest bytes."""
 
@@ -136,12 +214,15 @@ class PackageManifest:
     version: str
     assets: tuple[PackageManifestAsset, ...]
     dependencies: tuple[PackageManifestDependency, ...]
+    capability_requirements: PackageManifestCapabilityRequirements | None = None
 
     def __post_init__(self) -> None:
         if type(self) is not PackageManifest:
             raise TypeError("Package manifest does not admit subclasses.")
-        if type(self.schema_version) is not int or self.schema_version != 1:
-            raise ValueError("Package manifest schema version must be exact integer 1.")
+        if type(self.schema_version) is not int or self.schema_version not in {1, 2}:
+            raise ValueError(
+                "Package manifest schema version must be exact integer 1 or 2."
+            )
         for field_name in ("namespace", "name", "version"):
             _require_non_empty_text(
                 getattr(self, field_name),
@@ -159,6 +240,18 @@ class PackageManifest:
             PackageManifestDependency,
             "Package manifest dependencies",
         )
+        if (
+            self.capability_requirements is not None
+            and type(self.capability_requirements)
+            is not PackageManifestCapabilityRequirements
+        ):
+            raise TypeError(
+                "Package manifest capability requirements require an exact declaration."
+            )
+        if self.schema_version == 1 and self.capability_requirements is not None:
+            raise ValueError(
+                "Package manifest schema version 1 forbids capability requirements."
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -396,6 +489,7 @@ def _normalize_package_manifest_at_path(
     assert all(type(value) is dict for value in dependencies_value)
     asset_entries = cast(list[dict[str, object]], assets_value)
     dependency_entries = cast(list[dict[str, object]], dependencies_value)
+    capability_requirements = _normalized_capability_requirements(document)
     manifest = PackageManifest(
         schema_version=schema_version,
         namespace=document["namespace"],  # type: ignore[arg-type]
@@ -418,6 +512,7 @@ def _normalize_package_manifest_at_path(
             )
             for value in dependency_entries
         ),
+        capability_requirements=capability_requirements,
     )
     return construct_result(manifest, ())
 
@@ -584,11 +679,11 @@ def _validate_document(
     errors: list[_ErrorSpec] = []
 
     schema_version = document.get("schema_version")
-    if type(schema_version) is not int or schema_version != 1:
+    if type(schema_version) is not int or schema_version not in {1, 2}:
         errors.append(
             _schema_error(
                 manifest_path,
-                "Package manifest schema_version must be exact integer 1.",
+                "Package manifest schema_version must be exact integer 1 or 2.",
             )
         )
 
@@ -610,7 +705,7 @@ def _validate_document(
                 "Package manifest assets must be one or more root [[assets]] entries.",
             )
         )
-    elif not _has_exact_root_array_of_tables(
+    elif not _has_exact_array_of_tables(
         manifest_text,
         document,
         key="assets",
@@ -635,7 +730,7 @@ def _validate_document(
                 "Package manifest dependencies must be one or more root [[dependencies]] entries.",
             )
         )
-    elif dependencies_are_entries and not _has_exact_root_array_of_tables(
+    elif dependencies_are_entries and not _has_exact_array_of_tables(
         manifest_text,
         document,
         key="dependencies",
@@ -648,11 +743,24 @@ def _validate_document(
             )
         )
 
-    for unknown_key in sorted(set(document) - set(_TOP_LEVEL_KEYS)):
+    schema_is_v2 = type(schema_version) is int and schema_version == 2
+    allowed_top_level_keys = (
+        _TOP_LEVEL_KEYS if schema_is_v2 else _SCHEMA_V1_TOP_LEVEL_KEYS
+    )
+    for unknown_key in sorted(set(document) - set(allowed_top_level_keys)):
         errors.append(
             _schema_error(
                 manifest_path,
                 f"Package manifest contains unsupported top-level key: {unknown_key}.",
+            )
+        )
+
+    if schema_is_v2 and "capability_requirements" in document:
+        errors.extend(
+            _validate_capability_requirements(
+                manifest_path,
+                manifest_text,
+                document,
             )
         )
 
@@ -731,14 +839,281 @@ def _validate_entry(
     return tuple(errors)
 
 
-def _has_exact_root_array_of_tables(
+def _validate_capability_requirements(
+    manifest_path: str,
+    manifest_text: str,
+    document: Mapping[str, object],
+) -> tuple[_ErrorSpec, ...]:
+    value = document.get("capability_requirements")
+    if type(value) is not dict:
+        return (
+            _schema_error(
+                manifest_path,
+                "Package manifest capability_requirements must be an exact root table.",
+            ),
+        )
+
+    errors: list[_ErrorSpec] = []
+    declaration = cast(dict[str, object], value)
+    if not _has_exact_root_table(
+        manifest_text,
+        document,
+        key="capability_requirements",
+        header_pattern=_CAPABILITY_REQUIREMENTS_HEADER,
+    ):
+        errors.append(
+            _schema_error(
+                manifest_path,
+                "Package manifest capability_requirements must use exact root "
+                "[capability_requirements] syntax.",
+            )
+        )
+
+    for field_name in ("namespace", "name"):
+        if not _is_nonblank_text(declaration.get(field_name)):
+            errors.append(
+                _schema_error(
+                    manifest_path,
+                    "Package manifest capability_requirements."
+                    f"{field_name} must be a nonblank string.",
+                )
+            )
+    for unknown_key in sorted(set(declaration) - {"namespace", "name", "entries"}):
+        errors.append(
+            _schema_error(
+                manifest_path,
+                "Package manifest capability_requirements contains unsupported "
+                f"key: {unknown_key}.",
+            )
+        )
+
+    if "entries" not in declaration:
+        return tuple(errors)
+    entries_value = declaration["entries"]
+    if not _is_non_empty_mapping_list(entries_value):
+        errors.append(
+            _schema_error(
+                manifest_path,
+                "Package manifest capability_requirements.entries must be omitted "
+                "or use one or more exact nested array-of-table entries.",
+            )
+        )
+        return tuple(errors)
+    if not _has_exact_array_of_tables(
+        manifest_text,
+        document,
+        parent_key="capability_requirements",
+        key="entries",
+        header_pattern=_CAPABILITY_REQUIREMENT_ENTRY_HEADER,
+    ):
+        errors.append(
+            _schema_error(
+                manifest_path,
+                "Package manifest capability_requirements.entries must use exact "
+                "[[capability_requirements.entries]] syntax.",
+            )
+        )
+
+    entries = cast(list[dict[str, object]], entries_value)
+    first_position_by_key: dict[CapabilityKey, int] = {}
+    for ordinal, entry in enumerate(entries):
+        entry_errors = _validate_capability_requirement_entry(
+            manifest_path,
+            entry,
+            ordinal,
+        )
+        errors.extend(entry_errors)
+        if entry_errors:
+            continue
+        key = _capability_requirement_key(entry)
+        first_position = first_position_by_key.setdefault(key, ordinal)
+        if first_position != ordinal:
+            errors.append(
+                _schema_error(
+                    manifest_path,
+                    "Package manifest capability_requirements.entries"
+                    f"[{ordinal}] duplicates exact CapabilityKey at entries"
+                    f"[{first_position}].",
+                )
+            )
+    return tuple(errors)
+
+
+def _validate_capability_requirement_entry(
+    manifest_path: str,
+    entry: Mapping[str, object],
+    ordinal: int,
+) -> tuple[_ErrorSpec, ...]:
+    errors: list[_ErrorSpec] = []
+    prefix = f"Package manifest capability_requirements.entries[{ordinal}]"
+
+    if "domain" not in entry:
+        errors.append(_schema_error(manifest_path, f"{prefix}.domain is required."))
+    else:
+        domain = entry["domain"]
+        if type(domain) is not str or domain not in _CAPABILITY_DOMAIN_VALUES:
+            errors.append(
+                _schema_error(
+                    manifest_path,
+                    f"{prefix}.domain must be one exact current CapabilityDomain value.",
+                )
+            )
+
+    if "operands" not in entry:
+        errors.append(_schema_error(manifest_path, f"{prefix}.operands is required."))
+    else:
+        operands = entry["operands"]
+        if type(operands) is not list:
+            errors.append(
+                _schema_error(
+                    manifest_path,
+                    f"{prefix}.operands must be an array of strings.",
+                )
+            )
+        else:
+            for position, operand in enumerate(cast(list[object], operands)):
+                if type(operand) is not str:
+                    errors.append(
+                        _schema_error(
+                            manifest_path,
+                            f"{prefix}.operands[{position}] must be a string.",
+                        )
+                    )
+                elif not operand.strip():
+                    errors.append(
+                        _schema_error(
+                            manifest_path,
+                            f"{prefix}.operands[{position}] must be nonblank.",
+                        )
+                    )
+
+    for field_name in _CAPABILITY_REQUIREMENT_OPTIONAL_TEXT_KEYS:
+        if field_name not in entry:
+            continue
+        field_value = entry[field_name]
+        if type(field_value) is not str:
+            errors.append(
+                _schema_error(
+                    manifest_path,
+                    f"{prefix}.{field_name} must be a string when present.",
+                )
+            )
+        elif not field_value.strip():
+            errors.append(
+                _schema_error(
+                    manifest_path,
+                    f"{prefix}.{field_name} must be nonblank when present.",
+                )
+            )
+
+    if "subject" not in entry and "operation" not in entry:
+        errors.append(
+            _schema_error(
+                manifest_path,
+                f"{prefix} requires subject or operation.",
+            )
+        )
+    extension = entry.get("extension")
+    if type(extension) is str and extension.strip() and "dialect" not in entry:
+        errors.append(
+            _schema_error(
+                manifest_path,
+                f"{prefix}.extension requires dialect.",
+            )
+        )
+    for unknown_key in sorted(set(entry) - set(_CAPABILITY_REQUIREMENT_KEYS)):
+        errors.append(
+            _schema_error(
+                manifest_path,
+                f"{prefix} contains unsupported key: {unknown_key}.",
+            )
+        )
+    return tuple(errors)
+
+
+def _capability_requirement_key(entry: Mapping[str, object]) -> CapabilityKey:
+    operands = cast(list[str], entry["operands"])
+    return CapabilityKey(
+        domain=CapabilityDomain(cast(str, entry["domain"])),
+        subject=cast(str | None, entry.get("subject")),
+        operation=cast(str | None, entry.get("operation")),
+        operands=tuple(operands),
+        context=cast(str | None, entry.get("context")),
+        dialect=cast(str | None, entry.get("dialect")),
+        extension=cast(str | None, entry.get("extension")),
+    )
+
+
+def _normalized_capability_requirements(
+    document: Mapping[str, object],
+) -> PackageManifestCapabilityRequirements | None:
+    value = document.get("capability_requirements")
+    if value is None:
+        return None
+    declaration = cast(dict[str, object], value)
+    entries = cast(list[dict[str, object]], declaration.get("entries", []))
+    return PackageManifestCapabilityRequirements(
+        CapabilityRequirementCollectionIdentity(
+            cast(str, declaration["namespace"]),
+            cast(str, declaration["name"]),
+        ),
+        tuple(_capability_requirement_key(entry) for entry in entries),
+    )
+
+
+def _has_exact_root_table(
     manifest_text: str,
     document: Mapping[str, object],
     *,
     key: str,
     header_pattern: re.Pattern[str],
 ) -> bool:
-    """Prove every decoded entry came from an exact bare root AOT header."""
+    """Prove one decoded mapping came from an exact bare root table header."""
+
+    matches = tuple(header_pattern.finditer(manifest_text))
+    if not matches:
+        return False
+    probe_keys = _allocate_aot_probe_keys(document, key, len(matches))
+    try:
+        first_probe = tomllib.loads(
+            _insert_aot_probes(
+                manifest_text,
+                matches,
+                probe_keys,
+                frozenset(range(len(matches))),
+            )
+        )
+    except tomllib.TOMLDecodeError:
+        return False
+    real_positions = _table_probe_positions(first_probe.get(key), probe_keys)
+    if real_positions is None or not real_positions:
+        return False
+
+    try:
+        probed = tomllib.loads(
+            _insert_aot_probes(
+                manifest_text,
+                matches,
+                probe_keys,
+                real_positions,
+            )
+        )
+    except tomllib.TOMLDecodeError:
+        return False
+    if not _remove_table_probes(probed.get(key), probe_keys, real_positions):
+        return False
+    return _toml_values_equivalent(probed, document)
+
+
+def _has_exact_array_of_tables(
+    manifest_text: str,
+    document: Mapping[str, object],
+    *,
+    parent_key: str | None = None,
+    key: str,
+    header_pattern: re.Pattern[str],
+) -> bool:
+    """Prove every decoded entry came from one exact bare AOT path."""
 
     matches = tuple(header_pattern.finditer(manifest_text))
     if not matches:
@@ -757,7 +1132,7 @@ def _has_exact_root_array_of_tables(
     except tomllib.TOMLDecodeError:
         return False
     real_positions = _aot_probe_positions(
-        first_probe.get(key),
+        _toml_child(first_probe, parent_key, key),
         probe_keys,
     )
     if real_positions is None or not real_positions:
@@ -775,12 +1150,25 @@ def _has_exact_root_array_of_tables(
     except tomllib.TOMLDecodeError:
         return False
     if not _remove_aot_probes(
-        probed.get(key),
+        _toml_child(probed, parent_key, key),
         probe_keys,
         real_positions,
     ):
         return False
     return _toml_values_equivalent(probed, document)
+
+
+def _toml_child(
+    document: Mapping[str, object],
+    parent_key: str | None,
+    key: str,
+) -> object | None:
+    if parent_key is None:
+        return document.get(key)
+    parent = document.get(parent_key)
+    if type(parent) is not dict:
+        return None
+    return cast(dict[str, object], parent).get(key)
 
 
 def _allocate_aot_probe_keys(
@@ -813,6 +1201,39 @@ def _toml_mapping_keys(value: object) -> frozenset[str]:
         elif type(current) is list:
             pending.extend(cast(list[object], current))
     return frozenset(keys)
+
+
+def _table_probe_positions(
+    value: object,
+    probe_keys: tuple[str, ...],
+) -> frozenset[int] | None:
+    if type(value) is not dict:
+        return None
+    positions_by_probe = {
+        probe_key: position for position, probe_key in enumerate(probe_keys)
+    }
+    found: set[int] = set()
+    for item_key, item_value in cast(dict[str, object], value).items():
+        position = positions_by_probe.get(item_key)
+        if position is None:
+            continue
+        if item_value is not True or position in found:
+            return None
+        found.add(position)
+    return frozenset(found)
+
+
+def _remove_table_probes(
+    value: object,
+    probe_keys: tuple[str, ...],
+    expected_positions: frozenset[int],
+) -> bool:
+    if _table_probe_positions(value, probe_keys) != expected_positions:
+        return False
+    mapping = cast(dict[str, object], value)
+    for position in expected_positions:
+        del mapping[probe_keys[position]]
+    return True
 
 
 def _aot_probe_positions(
@@ -913,6 +1334,10 @@ def _is_non_empty_mapping_list(value: object) -> bool:
 
 def _is_non_empty_text(value: object) -> bool:
     return type(value) is str and bool(value)
+
+
+def _is_nonblank_text(value: object) -> bool:
+    return type(value) is str and bool(value.strip())
 
 
 def _require_non_empty_text(value: object, label: str) -> None:

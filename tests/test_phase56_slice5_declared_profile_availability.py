@@ -517,7 +517,8 @@ def test_availability_and_package_requirements_remain_three_separate_axes() -> N
 def test_package_manifest_and_asset_contracts_have_no_profile_provision() -> None:
     source = inspect.getsource(package_manifest)
     assert "must be module_source" in source
-    assert "capability_profile" not in source
+    assert "StaticCapabilityProfile" not in source
+    assert "CapabilityProfileAvailability" not in source
     assert "profile_asset" not in source
 
 

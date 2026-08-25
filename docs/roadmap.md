@@ -246,7 +246,7 @@ The controlling closure is
 
 ## Phase 58 route
 
-Phase 58 is active, Slices 1–8 are completed, Slice 9 is current, and Slice 10 is next / unstarted.
+Phase 58 is active, Slices 1–9 are completed, Slice 10 is current, and Slice 11 is next / unstarted.
 The original route had exactly 12 slices. After published Slice 8, a read-only
 runtime-builder authority audit proved an independent missing lifecycle, so
 the current route has exactly 16 slices. Published Slices 1–8 are unchanged;
@@ -365,6 +365,15 @@ the minimum zero-context private compatibility extension. It adds no
 production, config, manifest, matrix, JSON, text, CLI, package, golden, or
 generated behavior. The controlling lock is
 [Phase 58 Slice 9 runtime authority architecture](spec/phase58-slice9-runtime-authority-architecture-route-lock-v1.md).
+
+Slice 10 adds package manifest schema v2 with an optional, package-owned,
+source-proven capability requirement declaration. It reuses exact current
+`CapabilityKey` values, preserves authored occurrence order, distinguishes
+undeclared from declared-empty, binds each loaded package only to its own
+declaration, and relies on the existing full package-content digest. It adds no
+target, profile, checker, provider, catalog-selection, Project Explain, CLI,
+public, generated, or golden behavior. The controlling contract is
+[Phase 58 Slice 10 package capability requirement declaration](spec/phase58-slice10-package-capability-requirement-declaration-v1.md).
 
 ## Retained later ownership
 

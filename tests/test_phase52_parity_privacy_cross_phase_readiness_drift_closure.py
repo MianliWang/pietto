@@ -850,6 +850,8 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
     matrix_rel = "src/pietto/_project/capability_matrix.py"
     inspection_rel = "src/pietto/_project/capability_inspection.py"
     pure_boundary_rel = "src/pietto/_project/capability_pure_boundary.py"
+    package_manifest_rel = "src/pietto/_project/package_manifest.py"
+    package_requirements_rel = "src/pietto/_project/package_capability_requirements.py"
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
         relative = path.relative_to(REPO_ROOT).as_posix()
         if (
@@ -862,6 +864,8 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                 matrix_rel,
                 inspection_rel,
                 pure_boundary_rel,
+                package_manifest_rel,
+                package_requirements_rel,
                 SELECTOR_REL,
                 EXTENSION_PROVIDER_REL,
                 EXTENSION_INSPECTION_REL,
@@ -890,6 +894,8 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                     matrix_rel,
                     inspection_rel,
                     pure_boundary_rel,
+                    package_manifest_rel,
+                    package_requirements_rel,
                     EXTENSION_PROVIDER_REL,
                     EXTENSION_INSPECTION_REL,
                     EXTENSION_INSPECTION_PURE_REL,

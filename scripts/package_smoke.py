@@ -145,6 +145,7 @@ def _required_runtime_files(prefix: str) -> frozenset[str]:
         f"{prefix}/_project_explain/model.py",
         f"{prefix}/_project_explain/package_requirement_projection.py",
         f"{prefix}/_project_explain/portability_projection.py",
+        f"{prefix}/_project/package_capability_requirements.py",
         f"{prefix}/_project/extension_catalog_availability.py",
         f"{prefix}/_project/extension_catalog_inspection.py",
         f"{prefix}/_project/extension_catalog_inspection_pure_boundary.py",
@@ -540,6 +541,18 @@ def _smoke_installed_cli(
             "-I",
             "-c",
             "import pietto.semantic.extension_signature_requirements",
+        ),
+        cwd=scratch_dir,
+        capture_output=True,
+        env=environment,
+    )
+    _run_command(
+        "installed private package capability requirements import",
+        (
+            str(_venv_python(venv_dir)),
+            "-I",
+            "-c",
+            "import pietto._project.package_capability_requirements",
         ),
         cwd=scratch_dir,
         capture_output=True,
