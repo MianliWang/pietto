@@ -146,6 +146,7 @@ def _required_runtime_files(prefix: str) -> frozenset[str]:
         f"{prefix}/_project_explain/package_requirement_projection.py",
         f"{prefix}/_project_explain/portability_projection.py",
         f"{prefix}/_project_explain/runtime_builder.py",
+        f"{prefix}/_project_explain/text.py",
         f"{prefix}/_project/package_capability_requirements.py",
         f"{prefix}/_project/package_extension_signature_selectors.py",
         f"{prefix}/_project/project_capability_environment.py",
@@ -597,6 +598,18 @@ def _smoke_installed_cli(
         capture_output=True,
         env=environment,
     )
+    _run_command(
+        "installed private project explain text import",
+        (
+            str(_venv_python(venv_dir)),
+            "-I",
+            "-c",
+            "import pietto._project_explain.text",
+        ),
+        cwd=scratch_dir,
+        capture_output=True,
+        env=environment,
+    )
 
     version = _run_installed_cli(
         cli_path,
@@ -698,6 +711,100 @@ def _smoke_installed_cli(
             "installed CLI project check JSON v2 wrote unexpected stderr"
         )
 
+    project_explain_root = scratch_dir / "project-explain"
+    project_explain_package = project_explain_root / "package"
+    project_explain_package.mkdir(parents=True)
+    project_explain_manifest = (
+        b'schema_version = 1\nnamespace = "example"\nname = "root"\n'
+        b'version = "1.0.0"\n\n[[assets]]\nkind = "module_source"\n'
+        b'path = "main.pietto"\n'
+    )
+    project_explain_source = b"shape Row:\n    id: Int not null\n"
+    (project_explain_package / "pietto-package.toml").write_bytes(
+        project_explain_manifest
+    )
+    (project_explain_package / "main.pietto").write_bytes(project_explain_source)
+    digest_result = _run_command(
+        "installed project explain package digest",
+        (
+            str(_venv_python(venv_dir)),
+            "-I",
+            "-c",
+            "from pietto._project.package_loader import "
+            "_compute_package_content_sha256 as compute; "
+            f"print(compute({project_explain_manifest!r}, "
+            f"(('main.pietto', {project_explain_source!r}),)))",
+        ),
+        cwd=scratch_dir,
+        capture_output=True,
+        env=environment,
+    )
+    project_explain_digest = digest_result.stdout.decode("ascii").strip()
+    (project_explain_root / "pietto.toml").write_text(
+        'schema_version = 4\n\n[package]\npath = "package"\n'
+        'namespace = "example"\nname = "root"\nversion = "1.0.0"\n'
+        f'sha256 = "{project_explain_digest}"\n\n[capability_environment]\n',
+        encoding="utf-8",
+    )
+    project_explain_text = _run_installed_cli(
+        cli_path,
+        ("explain", "--project", project_explain_root.as_posix()),
+        scratch_dir=scratch_dir,
+        stage="installed CLI project explain text",
+        environment=environment,
+    )
+    for marker in (
+        b"Project Explain Artifact v1\n",
+        b"Targets (0)\n    none\n",
+        b"project: indeterminate reason=no-evaluated-targets requirements=0\n",
+    ):
+        if marker not in project_explain_text.stdout:
+            raise SmokeFailure(
+                f"installed CLI project explain text is missing {marker!r}"
+            )
+    if project_explain_text.stderr:
+        raise SmokeFailure("installed CLI project explain text wrote unexpected stderr")
+
+    project_explain_json = _run_installed_cli(
+        cli_path,
+        (
+            "explain",
+            "--project",
+            project_explain_root.as_posix(),
+            "--format",
+            "json",
+        ),
+        scratch_dir=scratch_dir,
+        stage="installed CLI project explain JSON v1",
+        environment=environment,
+    )
+    try:
+        project_explain_document = json.loads(project_explain_json.stdout)
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise SmokeFailure(f"cannot decode Project Explain JSON v1: {error}") from error
+    if tuple(project_explain_document) != (
+        "format",
+        "ok",
+        "diagnostics",
+        "payload",
+    ):
+        raise SmokeFailure("installed Project Explain JSON field order is unexpected")
+    payload = project_explain_document.get("payload")
+    if (
+        project_explain_document.get("format") != "pietto.project-explain.v1"
+        or project_explain_document.get("ok") is not True
+        or not isinstance(payload, dict)
+        or payload.get("compatibility", {}).get("targets") != []
+        or {"outcome", "exit_code"} & project_explain_document.keys()
+    ):
+        raise SmokeFailure("installed Project Explain JSON v1 envelope is unexpected")
+    if (
+        project_explain_json.stderr
+        or not project_explain_json.stdout.endswith(b"\n")
+        or project_explain_json.stdout.endswith(b"\n\n")
+    ):
+        raise SmokeFailure("installed Project Explain JSON stream is unexpected")
+
     explain_text = _run_installed_cli(
         cli_path,
         ("explain", CHECK_INPUT.as_posix()),
@@ -785,7 +892,8 @@ def _smoke_installed_cli(
     print(f"[package-smoke] installed CLI version: {version.stdout.decode().strip()}")
     print(
         "[package-smoke] installed CLI verified: --help, check, project check, "
-        "explain, PostgreSQL byte-exact text, MySQL JSON v1 structure",
+        "single-file and project explain, PostgreSQL byte-exact text, "
+        "MySQL JSON v1 structure",
         flush=True,
     )
 

@@ -272,11 +272,10 @@ def test_existing_single_file_explain_identity_and_envelopes_are_zero_delta() ->
     cli_source = _read(REPO_ROOT / "src/pietto/cli.py")
     assert _argument_names(cli_source, "_configure_explain_parser") == (
         "path",
+        "--project",
         "--format",
     )
-    assert "return _run_explain(namespace.path, output_format=namespace.format)" in (
-        cli_source
-    )
+    assert "return _run_explain_command(namespace)" in cli_source
 
     scope = _read(SPEC)
     for required in (
@@ -295,10 +294,10 @@ def test_existing_explain_behavior_remains_owned_by_current_compatibility_tests(
     expected = {
         "tests/test_phase33_cli_package_compatibility_hardening.py": {
             "test_single_file_json_v1_and_artifact_v1_surfaces_remain_separate",
-            "test_project_flag_remains_rejected_outside_check",
+            "test_project_flag_remains_rejected_by_emit_sql",
         },
         "tests/test_phase33_project_check_cli.py": {
-            "test_project_flag_is_not_accepted_by_emit_sql_or_explain",
+            "test_project_flag_is_not_accepted_by_emit_sql",
             "test_single_file_emit_sql_json_v1_and_explain_artifact_v1_remain_available",
         },
         "tests/test_phase40_let_binding_cli_json_metadata.py": {
@@ -333,13 +332,16 @@ def test_project_explain_marker_and_private_exports_remain_exact() -> None:
     ):
         assert forbidden not in production_text
     for public_path in (
-        "src/pietto/cli.py",
         "src/pietto/__init__.py",
         "src/pietto/_project/__init__.py",
         "src/pietto/_metadata/__init__.py",
         "src/pietto/semantic/__init__.py",
     ):
         assert "project_explain" not in _read(REPO_ROOT / public_path)
+    cli_source = _read(REPO_ROOT / "src/pietto/cli.py")
+    assert "pietto._project_explain.runtime_builder" in cli_source
+    assert "pietto._project_explain.json_v1" in cli_source
+    assert "pietto._project_explain.text" in cli_source
 
     marker_paths = {
         path.relative_to(REPO_ROOT).as_posix()

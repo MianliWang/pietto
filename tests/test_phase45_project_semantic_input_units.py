@@ -203,15 +203,13 @@ def test_project_text_output_remains_unchanged_and_stops_before_compiler(
     assert str(error_root) not in captured.err
 
 
-@pytest.mark.parametrize("command", ["emit-sql", "explain"])
-def test_project_emit_sql_and_explain_paths_remain_rejected(
-    command: str,
+def test_project_emit_sql_path_remains_rejected(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
 
-    assert cli.main([command, "--project", str(root)]) == 2
+    assert cli.main(["emit-sql", "--project", str(root)]) == 2
 
     captured = capsys.readouterr()
     assert captured.out == ""

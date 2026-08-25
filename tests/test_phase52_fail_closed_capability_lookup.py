@@ -319,7 +319,21 @@ def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry()
         source = _read(path)
         assert "semantic.capability_facts" not in source
         assert "CapabilityFact" not in source
-        assert "CapabilityKey" not in source
+        source_tree = ast.parse(source, filename=str(path))
+        capability_key_identifiers = (
+            {node.id for node in ast.walk(source_tree) if isinstance(node, ast.Name)}
+            | {
+                node.attr
+                for node in ast.walk(source_tree)
+                if isinstance(node, ast.Attribute)
+            }
+            | {
+                node.name.rsplit(".", 1)[-1]
+                for node in ast.walk(source_tree)
+                if isinstance(node, ast.alias)
+            }
+        )
+        assert "CapabilityKey" not in capability_key_identifiers
     signature_source = _read(REPO_ROOT / SIGNATURE_REL)
     assert "semantic.capability_facts" in signature_source
     assert "CapabilityFact" in signature_source

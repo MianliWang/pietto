@@ -1304,7 +1304,7 @@ def test_success_and_failure_goldens_are_byte_exact_and_strictly_registered(
     assert goldens.audit(REPO_ROOT) == ()
 
 
-def test_source_is_explicit_private_and_retains_later_cli_ownership() -> None:
+def test_source_is_explicit_private_and_cli_reuses_serializer_exactly() -> None:
     source = SOURCE.read_text(encoding="utf-8")
     tree = ast.parse(source)
     imported_modules = {
@@ -1351,9 +1351,9 @@ def test_source_is_explicit_private_and_retains_later_cli_ownership() -> None:
     ):
         assert not hasattr(module, "serialize_project_explain_json_document")
         assert not hasattr(module, "project_explain_envelope_to_json_value")
-    assert "json_v1" not in (REPO_ROOT / "src/pietto/cli.py").read_text(
-        encoding="utf-8"
-    )
+    cli_source = (REPO_ROOT / "src/pietto/cli.py").read_text(encoding="utf-8")
+    assert "serialize_project_explain_json_document" in cli_source
+    assert "json.dumps" not in cli_source
     assert not tuple((REPO_ROOT / "docs/spec").glob("*project-explain*.schema.json"))
 
 

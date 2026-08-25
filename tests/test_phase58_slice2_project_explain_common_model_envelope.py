@@ -684,9 +684,15 @@ def test_existing_artifacts_project_json_and_private_authorities_are_zero_delta(
     cli_source = _read(REPO_ROOT / "src/pietto/cli.py")
     assert slice1._argument_names(cli_source, "_configure_explain_parser") == (
         "path",
+        "--project",
         "--format",
     )
-    assert "pietto._project_explain" not in cli_source
+    for required in (
+        "pietto._project_explain.json_v1",
+        "pietto._project_explain.runtime_builder",
+        "pietto._project_explain.text",
+    ):
+        assert required in cli_source
     for relative_path in (
         "src/pietto/_metadata/model.py",
         "src/pietto/_metadata/serializer.py",

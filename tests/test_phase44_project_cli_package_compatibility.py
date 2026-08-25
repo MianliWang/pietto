@@ -239,15 +239,13 @@ def test_single_file_json_v1_and_artifact_v1_surfaces_remain_separate(
     assert "mode" not in explain_document
 
 
-@pytest.mark.parametrize("command", ["emit-sql", "explain"])
-def test_project_flag_remains_rejected_outside_check(
-    command: str,
+def test_project_flag_remains_rejected_by_emit_sql(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = _project_root(tmp_path / "project")
 
-    assert cli.main([command, "--project", str(root)]) == 2
+    assert cli.main(["emit-sql", "--project", str(root)]) == 2
 
     captured = capsys.readouterr()
     assert captured.out == ""

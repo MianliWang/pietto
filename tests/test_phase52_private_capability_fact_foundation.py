@@ -523,7 +523,21 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
         source = _read(path)
         assert "semantic.capability_facts" not in source
         assert "CapabilityFact" not in source
-        assert "CapabilityKey" not in source
+        source_tree = ast.parse(source, filename=str(path))
+        capability_key_identifiers = (
+            {node.id for node in ast.walk(source_tree) if isinstance(node, ast.Name)}
+            | {
+                node.attr
+                for node in ast.walk(source_tree)
+                if isinstance(node, ast.Attribute)
+            }
+            | {
+                node.name.rsplit(".", 1)[-1]
+                for node in ast.walk(source_tree)
+                if isinstance(node, ast.alias)
+            }
+        )
+        assert "CapabilityKey" not in capability_key_identifiers
     assert "capability_facts" not in _read(
         REPO_ROOT / "src/pietto/semantic/__init__.py"
     )

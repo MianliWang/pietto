@@ -456,7 +456,7 @@ def test_package_parse_failure_is_diagnostic_and_missing_root_is_resource(
     assert resource.envelope.diagnostics[0].code == "project_root"
 
 
-def test_runtime_result_and_owner_remain_private_and_do_not_steal_slice14() -> None:
+def test_runtime_result_remains_private_and_slice14_consumer_is_narrow() -> None:
     assert tuple(member.value for member in ProjectExplainRuntimeOutcome) == (
         "success",
         "diagnostic_error",
@@ -482,10 +482,11 @@ def test_runtime_result_and_owner_remain_private_and_do_not_steal_slice14() -> N
     assert "serialize_project_explain_json_document" not in source
     assert "read_text(" not in source and "read_bytes(" not in source
     cli_source = (REPO_ROOT / "src/pietto/cli.py").read_text(encoding="utf-8")
-    assert "runtime_builder" not in cli_source
+    assert "pietto._project_explain.runtime_builder" in cli_source
+    assert cli_source.count("_build_project_explain_runtime(root)") == 1
     explain_start = cli_source.index("def _configure_explain_parser")
     explain_end = cli_source.index("\ndef ", explain_start + 1)
-    assert '"--project"' not in cli_source[explain_start:explain_end]
+    assert '"--project"' in cli_source[explain_start:explain_end]
     assert tuple(field.name for field in fields(ProjectExplainEnvelope)) == (
         "format",
         "ok",

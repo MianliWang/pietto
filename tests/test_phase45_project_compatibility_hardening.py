@@ -302,15 +302,13 @@ def test_single_file_surfaces_do_not_use_project_semantic_builder(
     assert "mode" not in explain_document
 
 
-@pytest.mark.parametrize("command", ("emit-sql", "explain"))
-def test_project_emit_sql_and_explain_remain_rejected(
-    command: str,
+def test_project_emit_sql_remains_rejected(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = _valid_project(tmp_path / "project")
 
-    assert cli.main([command, "--project", str(root)]) != 0
+    assert cli.main(["emit-sql", "--project", str(root)]) != 0
 
     captured = capsys.readouterr()
     assert "SELECT" not in captured.out

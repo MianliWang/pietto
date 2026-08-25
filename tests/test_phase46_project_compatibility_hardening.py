@@ -109,15 +109,13 @@ def test_single_file_surfaces_remain_separate_from_project_cycle_semantics(
     assert "mode" not in explain_document
 
 
-@pytest.mark.parametrize("command", ("emit-sql", "explain"))
-def test_project_emit_sql_and_explain_remain_rejected_without_cycle_leakage(
-    command: str,
+def test_project_emit_sql_remains_rejected_without_cycle_leakage(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = _cycle_project(tmp_path, source_name="cycle_project.pietto")
 
-    assert cli.main([command, "--project", root.as_posix()]) != 0
+    assert cli.main(["emit-sql", "--project", root.as_posix()]) != 0
 
     captured = capsys.readouterr()
     combined_output = f"{captured.out}\n{captured.err}"

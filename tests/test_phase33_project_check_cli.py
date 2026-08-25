@@ -244,15 +244,13 @@ def test_project_check_still_requires_single_file_or_project(
     assert "the following arguments are required: path" in captured.err
 
 
-@pytest.mark.parametrize("command", ["emit-sql", "explain"])
-def test_project_flag_is_not_accepted_by_emit_sql_or_explain(
-    command: str,
+def test_project_flag_is_not_accepted_by_emit_sql(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = _project_root(tmp_path)
 
-    assert cli.main([command, "--project", str(root)]) == 2
+    assert cli.main(["emit-sql", "--project", str(root)]) == 2
 
     captured = capsys.readouterr()
     assert captured.out == ""

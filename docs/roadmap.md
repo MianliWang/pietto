@@ -246,7 +246,7 @@ The controlling closure is
 
 ## Phase 58 route
 
-Phase 58 is active, Slices 1–12 are completed, Slice 13 is current, and Slice 14 is next / unstarted.
+Phase 58 is active, Slices 1–13 are completed, Slice 14 is current, and Slice 15 is next / unstarted.
 The original route had exactly 12 slices. After published Slice 8, a read-only
 runtime-builder authority audit proved an independent missing lifecycle, so
 the route expanded to 16 slices. After published Slice 11, production tracing
@@ -407,6 +407,16 @@ synthetic cells. It adds no CLI route, text renderer, public JSON field, default
 target, installation inference, or second resolver/checker. The controlling
 contract is
 [Phase 58 Slice 13 Project Explain runtime builder](spec/phase58-slice13-project-explain-runtime-builder-v1.md).
+
+Slice 14 exposes that private runtime through the existing `pietto explain`
+command with explicit file-XOR-project parsing, deterministic human text, and
+the unchanged Project Explain JSON v1 serializer. It maps the existing runtime
+outcomes to exits 0/1/2, emits JSON success and failure envelopes on stdout,
+keeps human failures on stderr, and preserves the existing single-file Semantic
+Metadata Artifact v1 route byte-for-byte. It adds no runtime semantics,
+projection algorithm, public JSON field, implicit project root, or broad
+multi-target assurance. The controlling contract is
+[Phase 58 Slice 14 Project Explain CLI text and JSON](spec/phase58-slice14-project-explain-cli-text-json-v1.md).
 
 ## Retained later ownership
 

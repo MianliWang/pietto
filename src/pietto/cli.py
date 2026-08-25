@@ -29,6 +29,12 @@ from pietto._project.json_v2 import (
     project_check_result_to_json_dict,
     render_project_json_document,
 )
+from pietto._project_explain.json_v1 import serialize_project_explain_json_document
+from pietto._project_explain.runtime_builder import (
+    ProjectExplainRuntimeOutcome,
+    _build_project_explain_runtime,
+)
+from pietto._project_explain.text import render_project_explain_text
 from pietto._project.model import (
     ProjectDiscoveryError,
     ProjectParseCheckResult,
@@ -111,7 +117,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_path=namespace.output,
         )
     if namespace.command == "explain":
-        return _run_explain(namespace.path, output_format=namespace.format)
+        return _run_explain_command(namespace)
     return 0
 
 
@@ -140,7 +146,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _configure_emit_sql_parser(emit_parser)
     explain_parser = subparsers.add_parser(
         "explain",
-        help="explain semantic metadata for one Pietto file",
+        help="explain one Pietto file or project",
     )
     _configure_explain_parser(explain_parser)
     return parser
@@ -187,9 +193,14 @@ def _configure_emit_sql_parser(parser: argparse.ArgumentParser) -> None:
 
 
 def _configure_explain_parser(parser: argparse.ArgumentParser) -> None:
-    """Add the single-file explain arguments to one parser."""
+    """Add the file-or-project explain arguments to one parser."""
 
-    parser.add_argument("path", type=Path, help="Pietto source file")
+    parser.add_argument("path", type=Path, nargs="?", help="Pietto source file")
+    parser.add_argument(
+        "--project",
+        type=Path,
+        help="explicit Pietto project root",
+    )
     parser.add_argument(
         "--format",
         choices=(_FORMAT_TEXT, _FORMAT_JSON),
@@ -653,6 +664,55 @@ def _run_explain(path: Path, *, output_format: str = _FORMAT_TEXT) -> int:
     _render_diagnostics(diagnostics, fallback_path=path)
     print(render_semantic_metadata_text(artifact))
     return 0
+
+
+def _run_explain_command(namespace: argparse.Namespace) -> int:
+    """Dispatch explain between the existing file and explicit project modes."""
+
+    path: Path | None = namespace.path
+    project_root: Path | None = namespace.project
+    output_format: str = namespace.format
+    if path is None and project_root is None:
+        _print_explain_usage_error("the following arguments are required: path")
+        return _EXIT_USAGE_ERROR
+    if path is not None and project_root is not None:
+        _print_explain_usage_error("path and --project are mutually exclusive")
+        return _EXIT_USAGE_ERROR
+    if project_root is not None:
+        return _run_project_explain(project_root, output_format=output_format)
+    if path is None:
+        raise AssertionError("explain path was required before file mode")
+    return _run_explain(path, output_format=output_format)
+
+
+def _print_explain_usage_error(message: str) -> None:
+    print(
+        "usage: pietto explain [-h] [--project PROJECT] [--format {text,json}] [path]",
+        file=sys.stderr,
+    )
+    print(f"pietto explain: error: {_escape_cli_text(message)}", file=sys.stderr)
+
+
+def _run_project_explain(root: Path, *, output_format: str) -> int:
+    """Render one Slice 13 runtime result through the selected public surface."""
+
+    result = _build_project_explain_runtime(root)
+    if output_format == _FORMAT_JSON:
+        sys.stdout.buffer.write(
+            serialize_project_explain_json_document(result.envelope)
+        )
+    else:
+        stream = (
+            sys.stdout
+            if result.outcome is ProjectExplainRuntimeOutcome.SUCCESS
+            else sys.stderr
+        )
+        stream.write(render_project_explain_text(result.envelope))
+    if result.outcome is ProjectExplainRuntimeOutcome.SUCCESS:
+        return 0
+    if result.outcome is ProjectExplainRuntimeOutcome.DIAGNOSTIC_ERROR:
+        return _EXIT_DIAGNOSTIC_ERROR
+    return _EXIT_USAGE_ERROR
 
 
 def _render_explain_failure(

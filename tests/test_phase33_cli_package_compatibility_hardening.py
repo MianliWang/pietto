@@ -182,15 +182,13 @@ def test_single_file_json_v1_and_artifact_v1_surfaces_remain_separate(
     assert "mode" not in explain_document
 
 
-@pytest.mark.parametrize("command", ["emit-sql", "explain"])
-def test_project_flag_remains_rejected_outside_check(
-    command: str,
+def test_project_flag_remains_rejected_by_emit_sql(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = _project_root(tmp_path)
 
-    assert cli.main([command, "--project", str(root)]) == 2
+    assert cli.main(["emit-sql", "--project", str(root)]) == 2
 
     captured = capsys.readouterr()
     assert captured.out == ""
@@ -203,6 +201,8 @@ def test_slice8_does_not_add_deferred_project_capabilities() -> None:
     explain_composition = REPO_ROOT / "src/pietto/_project_explain/composition.py"
     explain_json = REPO_ROOT / "src/pietto/_project_explain/json_v1.py"
     explain_runtime = REPO_ROOT / "src/pietto/_project_explain/runtime_builder.py"
+    explain_text = REPO_ROOT / "src/pietto/_project_explain/text.py"
+    cli_path = REPO_ROOT / "src/pietto/cli.py"
     source_tree = "\n".join(
         _read(path.relative_to(REPO_ROOT).as_posix())
         for path in sorted((REPO_ROOT / "src" / "pietto").rglob("*.py"))
@@ -240,11 +240,18 @@ def test_slice8_does_not_add_deferred_project_capabilities() -> None:
         _read(path.relative_to(REPO_ROOT).as_posix())
         for path in sorted((REPO_ROOT / "src" / "pietto").rglob("*.py"))
         if "__pycache__" not in path.parts
-        and path not in {explain_composition, explain_json, explain_runtime}
+        and path
+        not in {
+            cli_path,
+            explain_composition,
+            explain_json,
+            explain_runtime,
+            explain_text,
+        }
     )
 
     assert '"--project"' not in _configure_parser_source(cli_source, "emit_sql")
-    assert '"--project"' not in _configure_parser_source(cli_source, "explain")
+    assert '"--project"' in _configure_parser_source(cli_source, "explain")
 
 
 def _read_json_document(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:

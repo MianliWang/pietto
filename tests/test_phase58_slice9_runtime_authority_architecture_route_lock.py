@@ -301,11 +301,9 @@ def test_shifted_owners_and_phase59_67_69_boundaries_are_exact() -> None:
 
 
 def test_slice9_historical_docs_static_scope_and_retained_public_zero_delta() -> None:
-    assert not (REPO_ROOT / "src/pietto/_project_explain/text.py").exists()
     cli_source = _read(REPO_ROOT / "src/pietto/cli.py")
-    explain_start = cli_source.index("def _configure_explain_parser")
-    explain_end = cli_source.index("\ndef ", explain_start + 1)
-    assert '"--project"' not in cli_source[explain_start:explain_end]
+    assert 'add_parser("explain-project"' not in cli_source
+    assert 'add_parser("explain-projects"' not in cli_source
 
     compatibility = _section(_read(SPEC), "Compatibility And Non-goals")
     for forbidden_change in (
