@@ -143,10 +143,19 @@ stable. The test performs no output normalization to obtain equality.
 ## Installed Wheel Differential
 
 The focused harness builds one wheel from the exact candidate working tree
-with offline project tooling, creates an isolated temporary virtual
-environment, installs that wheel offline, removes `PYTHONPATH`, runs outside
-the repository, and executes the same probe. It verifies `pietto.__file__`
-resolves under the temporary venv rather than the source repository.
+with offline project tooling, then installs only that local Pietto wheel with
+`--offline --no-deps --target` into a temporary wheel target while the uv cache
+starts empty. Dependency resolution is deliberately disabled: the trusted
+pytest interpreter supplies the already-installed locked third-party
+dependencies, while the wheel target is first on `PYTHONPATH`. The probe runs
+from a neutral temporary cwd outside the repository and verifies
+`pietto.__file__` resolves under the wheel target rather than the source
+repository or its editable installation.
+
+This separation makes the focused source/wheel comparison independent of
+network and cache warming without weakening Pietto import provenance. The
+central package smoke separately retains complete dependency resolution,
+isolated-environment installation, and package inventory ownership.
 
 Installed runtime, JSON, text, exits, order, single-file explain, and version
 must equal the source-tree observation. This behavioral comparison complements,

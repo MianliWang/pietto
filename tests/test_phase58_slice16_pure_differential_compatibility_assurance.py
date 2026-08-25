@@ -118,7 +118,7 @@ EXPECTED_SURFACE_SHA256: dict[str, object] = {
 def _site_packages() -> str:
     candidates = tuple(site.getsitepackages())
     assert candidates
-    return candidates[0]
+    return str(candidates[0])
 
 
 def _interpreter_version(executable: str) -> tuple[int, int] | None:
@@ -202,14 +202,15 @@ def _relocate_source(target: Path) -> Path:
     return tests / PROBE.name
 
 
-def _venv_python(venv: Path) -> Path:
-    return venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-
-
-def _installed_python(root: Path) -> tuple[Path, Path]:
+def _installed_python(root: Path) -> tuple[str, Path, Path, Path]:
     dist = root / "dist"
-    venv = root / "venv"
+    wheel_source_root = root / "wheel-source"
+    wheel_target = wheel_source_root / "src"
+    empty_cache = root / "empty-uv-cache"
     dist.mkdir()
+    wheel_source_root.mkdir()
+    empty_cache.mkdir()
+    assert not tuple(empty_cache.iterdir())
     subprocess.run(
         ("uv", "build", "--offline", "--wheel", "--out-dir", str(dist)),
         check=True,
@@ -219,32 +220,27 @@ def _installed_python(root: Path) -> tuple[Path, Path]:
     )
     wheels = tuple(dist.glob("pietto-0.1.0-*.whl"))
     assert len(wheels) == 1
-    subprocess.run(
-        (sys.executable, "-m", "venv", str(venv)),
-        check=True,
-        capture_output=True,
-        cwd=root,
-    )
-    python = _venv_python(venv)
+    install_environment = _environment(None, "0", "wheel-install")
+    install_environment["UV_CACHE_DIR"] = str(empty_cache)
     subprocess.run(
         (
             "uv",
             "pip",
             "install",
             "--offline",
-            "--python",
-            str(python),
+            "--no-deps",
+            "--target",
+            str(wheel_target),
             str(wheels[0]),
         ),
         check=True,
         capture_output=True,
         cwd=root,
-        env=_environment(None, "0", "wheel-install"),
+        env=install_environment,
     )
     origin = subprocess.run(
         (
-            str(python),
-            "-I",
+            sys.executable,
             "-c",
             "from pathlib import Path; import pietto; "
             "print(Path(pietto.__file__).resolve())",
@@ -253,9 +249,9 @@ def _installed_python(root: Path) -> tuple[Path, Path]:
         text=True,
         capture_output=True,
         cwd=root,
-        env=_environment(None, "0", "origin"),
+        env=_environment(wheel_source_root, "0", "origin"),
     )
-    return python, Path(origin.stdout.strip())
+    return sys.executable, Path(origin.stdout.strip()), wheel_source_root, empty_cache
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -351,12 +347,17 @@ def differential_matrix(
     )
 
     wheel_root = tmp_path_factory.mktemp("installed-wheel")
-    installed_python, installed_origin = _installed_python(wheel_root)
+    (
+        installed_python,
+        installed_origin,
+        installed_source_root,
+        empty_install_cache,
+    ) = _installed_python(wheel_root)
     observations["installed-wheel"] = _run_probe(
-        str(installed_python),
+        installed_python,
         PROBE,
         tmp_path_factory.mktemp("installed-project"),
-        source_root=None,
+        source_root=installed_source_root,
         seed="0",
         ambient="installed-wheel",
     )
@@ -364,7 +365,8 @@ def differential_matrix(
         "observations": observations,
         "interpreters": interpreters,
         "installed_origin": installed_origin,
-        "wheel_root": wheel_root,
+        "installed_source_root": installed_source_root,
+        "empty_install_cache": empty_install_cache,
     }
 
 
@@ -411,16 +413,18 @@ def test_project_and_source_relocation_ignore_cwd_and_unrelated_ambient_state(
         assert observations[key] == observations["seed:0"]
 
 
-def test_installed_wheel_matches_source_and_imports_only_from_venv(
+def test_installed_wheel_matches_source_from_fresh_cache_and_wheel_target(
     differential_matrix: dict[str, object],
 ) -> None:
     observations = cast(
         dict[str, dict[str, object]], differential_matrix["observations"]
     )
     origin = cast(Path, differential_matrix["installed_origin"])
-    wheel_root = cast(Path, differential_matrix["wheel_root"])
-    assert origin.is_relative_to(wheel_root / "venv")
+    source_root = cast(Path, differential_matrix["installed_source_root"])
+    empty_cache = cast(Path, differential_matrix["empty_install_cache"])
+    assert origin.is_relative_to(source_root / "src")
     assert not origin.is_relative_to(REPO_ROOT)
+    assert empty_cache.is_dir()
     assert observations["installed-wheel"] == observations["seed:0"]
 
 
