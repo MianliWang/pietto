@@ -18,12 +18,15 @@ from pietto._project.package_graph import (
     PackageGraphCatalogEvidenceRef,
     PackageGraphDependency,
     PackageGraphDependencyRef,
+    PackageGraphDirectProvenanceStep,
     PackageGraphOutcome,
     PackageGraphPackage,
     PackageGraphPackageRef,
+    PackageGraphProvenancePath,
     PackageGraphResult,
     PackageGraphScope,
     PackageGraphSnapshot,
+    PackageGraphWhyNot,
 )
 from pietto._project.package_inspection import PackageInspectionPackageRole
 from pietto._project.package_load_plan import (
@@ -67,6 +70,9 @@ MODEL_TYPES = (
     "PackageGraphSnapshot",
     "PackageGraphOutcome",
     "PackageGraphResult",
+    "PackageGraphDirectProvenanceStep",
+    "PackageGraphProvenancePath",
+    "PackageGraphWhyNot",
 )
 
 
@@ -467,6 +473,9 @@ def test_model_shape_is_private_typed_and_contains_no_deferred_products() -> Non
         PackageGraphCatalogEvidence,
         PackageGraphSnapshot,
         PackageGraphResult,
+        PackageGraphDirectProvenanceStep,
+        PackageGraphProvenancePath,
+        PackageGraphWhyNot,
     ):
         assert hasattr(carrier, "__slots__")
         assert not any(

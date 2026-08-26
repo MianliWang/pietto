@@ -15,11 +15,11 @@ documentation does not supersede that evidence.
 | Slice 2 | `COMPLETED` |
 | Slice 3 | `COMPLETED` |
 | Slice 4 | `COMPLETED` |
-| Slice 5 | `CURRENT` |
-| Slice 6 | `NEXT / UNSTARTED` |
-| Next | `PHASE59_SLICE6_DIRECT_TRANSITIVE_WHY_NOT_PROVENANCE_END_TO_END` |
+| Slice 5 | `COMPLETED` |
+| Slice 6 | `CURRENT` |
+| Slice 7 | `NEXT / UNSTARTED` |
+| Next | `PHASE59_SLICE7_PACKAGE_TO_MODULE_ATTRIBUTION_BRIDGE_END_TO_END` |
 
-Slice 5 is the current capability, catalog, and typed-negative-evidence
-provenance owner. Live Git and natural exact-head CI own Phase 59 Slice 5
-completion; no post-CI status-flip commit is required. This status does not
-authorize Slice 6.
+Slice 6 is the current direct, transitive, and why-not provenance owner. Live
+Git and natural exact-head CI own Phase 59 Slice 6 completion; no post-CI
+status-flip commit is required. This status does not authorize Slice 7.

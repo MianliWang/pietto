@@ -10,6 +10,7 @@ from pietto._project.capability_availability import (
 )
 from pietto._project.capability_checking import (
     CapabilityRequirementCheck,
+    CapabilityRequirementStatus,
     PackageCapabilityRequirementsBlocked,
     PackageCapabilityRequirementsChecked,
 )
@@ -21,6 +22,7 @@ from pietto._project.capability_matrix import (
 from pietto._project.extension_catalog_inspection import (
     ExtensionCatalogInspection,
     ExtensionCatalogInspectionFactSet,
+    ExtensionCatalogInspectionLookupVariant,
     ExtensionCatalogInspectionProviderOccurrence,
 )
 from pietto._project.model import ProjectDiscoveryError, ProjectDiscoveryErrorKind
@@ -714,6 +716,133 @@ class PackageGraphResult:
             )
 
 
+type PackageGraphProvenanceRef = (
+    PackageGraphPackageRef
+    | PackageGraphRequirementRef
+    | PackageGraphSelectorRef
+    | PackageGraphCapabilityEvaluationRef
+    | PackageGraphCatalogEvidenceRef
+)
+
+type PackageGraphDirectProvenanceWitness = (
+    PackageGraphDependency
+    | PackageGraphRequirement
+    | PackageGraphSelector
+    | PackageGraphCapabilityEvaluation
+    | PackageGraphCatalogEvidence
+)
+
+type PackageGraphWhyNotEvidence = (
+    CapabilityRequirementCheck
+    | PackageCapabilityRequirementsBlocked
+    | ExtensionCatalogInspectionProviderOccurrence
+)
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphDirectProvenanceStep:
+    """One typed direct relationship retaining its exact graph witness."""
+
+    witness: PackageGraphDirectProvenanceWitness
+
+    def __post_init__(self) -> None:
+        if type(self.witness) not in {
+            PackageGraphDependency,
+            PackageGraphRequirement,
+            PackageGraphSelector,
+            PackageGraphCapabilityEvaluation,
+            PackageGraphCatalogEvidence,
+        }:
+            raise TypeError("Direct provenance steps require an exact witness.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphProvenancePath:
+    """One ordered path of exact direct provenance occurrence steps."""
+
+    start: PackageGraphPackageRef
+    end: PackageGraphProvenanceRef
+    steps: tuple[PackageGraphDirectProvenanceStep, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.start) is not PackageGraphPackageRef:
+            raise TypeError("Provenance paths require an exact package start ref.")
+        end_scope = _provenance_ref_scope(self.end)
+        if self.start.scope is not end_scope:
+            raise ValueError("Provenance path endpoints require one snapshot scope.")
+        if (
+            type(self.steps) is not tuple
+            or not self.steps
+            or any(
+                type(step) is not PackageGraphDirectProvenanceStep
+                for step in self.steps
+            )
+        ):
+            raise TypeError("Provenance paths require exact ordered direct steps.")
+        if _direct_step_source(self.steps[0]) != self.start:
+            raise ValueError("Provenance path must start at its package ref.")
+        for current, following in zip(self.steps, self.steps[1:], strict=False):
+            if _direct_step_target(current) != _direct_step_source(following):
+                raise ValueError("Provenance path steps must be contiguous.")
+        if _direct_step_target(self.steps[-1]) != self.end:
+            raise ValueError("Provenance path must terminate at its exact end ref.")
+        if any(
+            _provenance_ref_scope(_direct_step_source(step)) is not self.start.scope
+            or _provenance_ref_scope(_direct_step_target(step)) is not self.start.scope
+            for step in self.steps
+        ):
+            raise ValueError("Provenance path steps require one snapshot scope.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphWhyNot:
+    """One positive provenance path plus exact typed terminal non-success evidence."""
+
+    positive_path: PackageGraphProvenancePath
+    terminal_evidence: PackageGraphWhyNotEvidence = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if type(self.positive_path) is not PackageGraphProvenancePath:
+            raise TypeError("Why-not provenance requires an exact positive path.")
+        last_witness = self.positive_path.steps[-1].witness
+        if type(self.terminal_evidence) in {
+            CapabilityRequirementCheck,
+            PackageCapabilityRequirementsBlocked,
+        }:
+            if (
+                type(last_witness) is not PackageGraphCapabilityEvaluation
+                or last_witness.evidence is not self.terminal_evidence
+            ):
+                raise ValueError(
+                    "Why-not capability evidence must terminate its exact path."
+                )
+            if (
+                type(self.terminal_evidence) is CapabilityRequirementCheck
+                and self.terminal_evidence.status
+                is CapabilityRequirementStatus.SATISFIED
+            ):
+                raise ValueError("Satisfied capability evidence is not why-not.")
+            return
+        if (
+            type(self.terminal_evidence)
+            is not ExtensionCatalogInspectionProviderOccurrence
+        ):
+            raise TypeError(
+                "Why-not provenance requires exact typed terminal evidence."
+            )
+        if (
+            type(last_witness) is not PackageGraphCatalogEvidence
+            or last_witness.provider is not self.terminal_evidence
+        ):
+            raise ValueError("Why-not catalog evidence must terminate its exact path.")
+        if (
+            self.terminal_evidence.selection.selected_catalog_position is not None
+            and self.terminal_evidence.lookup.variant
+            is ExtensionCatalogInspectionLookupVariant.FOUND
+        ):
+            raise ValueError("Successful catalog provider evidence is not why-not.")
+
+
 def _require_exact_tuple(
     values: tuple[object, ...],
     item_type: type[object],
@@ -723,6 +852,172 @@ def _require_exact_tuple(
         type(value) is not item_type for value in values
     ):
         raise TypeError(f"{label} require an exact tuple of {item_type.__name__}.")
+
+
+def _provenance_ref_scope(ref: PackageGraphProvenanceRef) -> PackageGraphScope:
+    if type(ref) not in {
+        PackageGraphPackageRef,
+        PackageGraphRequirementRef,
+        PackageGraphSelectorRef,
+        PackageGraphCapabilityEvaluationRef,
+        PackageGraphCatalogEvidenceRef,
+    }:
+        raise TypeError("Provenance endpoints require an exact typed graph ref.")
+    return ref.scope
+
+
+def _direct_step_source(
+    step: PackageGraphDirectProvenanceStep,
+) -> PackageGraphProvenanceRef:
+    if type(step) is not PackageGraphDirectProvenanceStep:
+        raise TypeError("Direct provenance source requires an exact step.")
+    witness = step.witness
+    if type(witness) is PackageGraphDependency:
+        return witness.declaring_package
+    if type(witness) is PackageGraphRequirement:
+        return witness.package
+    if type(witness) is PackageGraphSelector:
+        return witness.requirement
+    if type(witness) is PackageGraphCapabilityEvaluation:
+        return witness.ref.requirement if witness.selector is None else witness.selector
+    assert type(witness) is PackageGraphCatalogEvidence
+    return witness.capability
+
+
+def _direct_step_target(
+    step: PackageGraphDirectProvenanceStep,
+) -> PackageGraphProvenanceRef:
+    if type(step) is not PackageGraphDirectProvenanceStep:
+        raise TypeError("Direct provenance target requires an exact step.")
+    witness = step.witness
+    if type(witness) is PackageGraphDependency:
+        return witness.resolved_package
+    if type(witness) is PackageGraphRequirement:
+        return witness.ref
+    if type(witness) is PackageGraphSelector:
+        return witness.ref
+    if type(witness) is PackageGraphCapabilityEvaluation:
+        return witness.ref
+    assert type(witness) is PackageGraphCatalogEvidence
+    return witness.ref
+
+
+def _resolve_provenance_ref(
+    snapshot: PackageGraphSnapshot,
+    ref: PackageGraphProvenanceRef,
+) -> None:
+    if type(ref) is PackageGraphPackageRef:
+        snapshot.package(ref)
+        return
+    if type(ref) is PackageGraphRequirementRef:
+        snapshot.requirement(ref)
+        return
+    if type(ref) is PackageGraphSelectorRef:
+        snapshot.selector(ref)
+        return
+    if type(ref) is PackageGraphCapabilityEvaluationRef:
+        snapshot.capability_evaluation(ref)
+        return
+    if type(ref) is PackageGraphCatalogEvidenceRef:
+        snapshot.catalog_evidence_occurrence(ref)
+        return
+    raise TypeError("Provenance endpoint requires an exact supported graph ref.")
+
+
+def _package_graph_direct_provenance_steps(
+    snapshot: PackageGraphSnapshot,
+) -> tuple[PackageGraphDirectProvenanceStep, ...]:
+    """Project current direct relationships without storing derived closure."""
+
+    if type(snapshot) is not PackageGraphSnapshot:
+        raise TypeError("Direct provenance requires an exact graph snapshot.")
+    witnesses: list[PackageGraphDirectProvenanceWitness] = [
+        *snapshot.dependencies,
+        *snapshot.requirements,
+        *snapshot.selectors,
+        *snapshot.capability_evaluations,
+        *snapshot.catalog_evidence,
+    ]
+    return tuple(PackageGraphDirectProvenanceStep(witness) for witness in witnesses)
+
+
+def _derive_package_graph_provenance_paths(
+    snapshot: PackageGraphSnapshot,
+    start: PackageGraphPackageRef,
+    end: PackageGraphProvenanceRef,
+) -> tuple[PackageGraphProvenancePath, ...]:
+    """Enumerate every current authoritative path in direct-step order."""
+
+    if type(snapshot) is not PackageGraphSnapshot:
+        raise TypeError("Provenance derivation requires an exact graph snapshot.")
+    if type(start) is not PackageGraphPackageRef:
+        raise TypeError("Provenance derivation requires a package start ref.")
+    snapshot.package(start)
+    _resolve_provenance_ref(snapshot, end)
+    if start == end:
+        return ()
+
+    direct_steps = _package_graph_direct_provenance_steps(snapshot)
+    paths: list[PackageGraphProvenancePath] = []
+
+    # ponytail: local snapshots enumerate paths directly; Slice 9 owns indexes.
+    def extend(
+        current: PackageGraphProvenanceRef,
+        prefix: tuple[PackageGraphDirectProvenanceStep, ...],
+        visited: tuple[PackageGraphProvenanceRef, ...],
+    ) -> None:
+        for step in direct_steps:
+            if _direct_step_source(step) != current:
+                continue
+            target = _direct_step_target(step)
+            extended = (*prefix, step)
+            if target == end:
+                paths.append(PackageGraphProvenancePath(start, end, extended))
+                continue
+            if target in visited:
+                continue
+            extend(target, extended, (*visited, target))
+
+    extend(start, (), (start,))
+    return tuple(paths)
+
+
+def _why_not_terminal_evidence(
+    snapshot: PackageGraphSnapshot,
+    end: PackageGraphCapabilityEvaluationRef | PackageGraphCatalogEvidenceRef,
+) -> PackageGraphWhyNotEvidence | None:
+    if type(end) is PackageGraphCapabilityEvaluationRef:
+        evaluation = snapshot.capability_evaluation(end)
+        evidence = evaluation.evidence
+        if (
+            type(evidence) is CapabilityRequirementCheck
+            and evidence.status is CapabilityRequirementStatus.SATISFIED
+        ):
+            return None
+        return evidence
+    if type(end) is PackageGraphCatalogEvidenceRef:
+        provider = snapshot.catalog_evidence_occurrence(end).provider
+        if (
+            provider.selection.selected_catalog_position is not None
+            and provider.lookup.variant is ExtensionCatalogInspectionLookupVariant.FOUND
+        ):
+            return None
+        return provider
+    raise TypeError("Why-not requires a capability or catalog evidence end ref.")
+
+
+def _derive_package_graph_why_not(
+    snapshot: PackageGraphSnapshot,
+    start: PackageGraphPackageRef,
+    end: PackageGraphCapabilityEvaluationRef | PackageGraphCatalogEvidenceRef,
+) -> tuple[PackageGraphWhyNot, ...]:
+    """Attach exact typed non-success evidence to every positive path."""
+
+    paths = _derive_package_graph_provenance_paths(snapshot, start, end)
+    terminal = _why_not_terminal_evidence(snapshot, end)
+    if terminal is None:
+        return ()
+    return tuple(PackageGraphWhyNot(path, terminal) for path in paths)
 
 
 def _validate_requirement_attribution(snapshot: PackageGraphSnapshot) -> None:
