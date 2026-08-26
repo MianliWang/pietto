@@ -446,7 +446,7 @@ release operation, or route expansion. The controlling closure is
 
 ## Phase 59 route
 
-Phase 59 is active, Slices 1–2 are completed, Slice 3 is current, and Slice 4 is next / unstarted. The published route has exactly 12 slices.
+Phase 59 is active, Slices 1–3 are completed, Slice 4 is current, and Slice 5 is next / unstarted. The published route has exactly 12 slices.
 
 The exact owner is **Local package graph, attribution, provenance, and lineage**.
 
@@ -490,8 +490,16 @@ terminals without partial graphs. It adds no loader, resolver, traversal,
 canonical serializer, public field, or CLI behavior. The controlling contract
 is [Phase 59 Slice 3 canonical package graph construction](spec/phase59-slice3-canonical-package-graph-construction-v1.md).
 
+Slice 4 attributes each package's exact undeclared/declared requirement
+collection, authored requirement occurrences, and package-owned selector
+occurrences into separate typed graph domains. It preserves package then local
+occurrence order, equal keys across packages, exact requirement/selector
+witnesses, schema-v2 unbound requirements, and schema-v3 position-based
+coverage without checking, provider, catalog, or public behavior. The
+controlling contract is [Phase 59 Slice 4 requirement and selector attribution](spec/phase59-slice4-requirement-selector-attribution-v1.md).
+
 Project Explain v1, existing CLI behavior, package loading, semantic lineage,
-and all public schemas remain exact zero-delta. Slice 4 remains next/unstarted;
+and all public schemas remain exact zero-delta. Slice 5 remains next/unstarted;
 this route does not authorize it.
 
 ## Retained later ownership

@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
+from pietto._project.capability_availability import (
+    PackageCapabilityRequirementBinding,
+)
 from pietto._project.model import ProjectDiscoveryError, ProjectDiscoveryErrorKind
+from pietto._project.package_capability_requirements import (
+    _package_capability_requirement_binding,
+)
+from pietto._project.package_extension_signature_selectors import (
+    _package_extension_signature_requirement_selectors,
+)
 from pietto._project.package_inspection import (
     PackageInspection,
     PackageInspectionFactSet,
@@ -21,6 +30,11 @@ from pietto._project.package_manifest import (
     _is_valid_content_digest_pin,
 )
 from pietto.errors import Diagnostic, Severity
+from pietto.semantic.capability_profiles import CapabilityRequirementOccurrence
+from pietto.semantic.extension_signature_requirements import (
+    ExtensionSignatureRequirementSelectorOccurrence,
+    ExtensionSignatureRequirementSelectors,
+)
 
 __all__: tuple[str, ...] = ()
 
@@ -138,6 +152,150 @@ class PackageGraphDependency:
             )
 
 
+class PackageGraphRequirementDeclaration(StrEnum):
+    """Closed package-owned requirement declaration states."""
+
+    UNDECLARED = "undeclared"
+    DECLARED = "declared"
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphRequirementRef:
+    """One authored requirement occurrence in one package and snapshot."""
+
+    scope: PackageGraphScope
+    package: PackageGraphPackageRef
+    position: int
+
+    def __post_init__(self) -> None:
+        if type(self.scope) is not PackageGraphScope:
+            raise TypeError("Package graph requirement ref requires an exact scope.")
+        if type(self.package) is not PackageGraphPackageRef:
+            raise TypeError("Package graph requirement ref requires a package ref.")
+        if self.package.scope is not self.scope:
+            raise ValueError(
+                "Package graph requirement ref and package require the same scope."
+            )
+        if type(self.position) is not int or self.position < 0:
+            raise ValueError("Package graph requirement position must be non-negative.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphSelectorRef:
+    """One package-owned selector occurrence in one runtime snapshot."""
+
+    scope: PackageGraphScope
+    package: PackageGraphPackageRef
+    position: int
+
+    def __post_init__(self) -> None:
+        if type(self.scope) is not PackageGraphScope:
+            raise TypeError("Package graph selector ref requires an exact scope.")
+        if type(self.package) is not PackageGraphPackageRef:
+            raise TypeError("Package graph selector ref requires a package ref.")
+        if self.package.scope is not self.scope:
+            raise ValueError(
+                "Package graph selector ref and package require the same scope."
+            )
+        if type(self.position) is not int or self.position < 0:
+            raise ValueError("Package graph selector position must be non-negative.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphRequirementCollection:
+    """One package occurrence's exact declared or undeclared authority."""
+
+    package: PackageGraphPackageRef
+    declaration: PackageGraphRequirementDeclaration
+    binding: PackageCapabilityRequirementBinding | None = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    selectors: ExtensionSignatureRequirementSelectors | None = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.package) is not PackageGraphPackageRef:
+            raise TypeError("Requirement collections require a package ref.")
+        if type(self.declaration) is not PackageGraphRequirementDeclaration:
+            raise TypeError("Requirement collections require a declaration state.")
+        if self.declaration is PackageGraphRequirementDeclaration.UNDECLARED:
+            if self.binding is not None or self.selectors is not None:
+                raise ValueError("Undeclared requirements forbid binding authority.")
+            return
+        if type(self.binding) is not PackageCapabilityRequirementBinding:
+            raise ValueError("Declared requirements require an exact binding.")
+        if self.selectors is not None:
+            if type(self.selectors) is not ExtensionSignatureRequirementSelectors:
+                raise TypeError("Requirement selectors require exact authority.")
+            if self.selectors.requirements is not self.binding.requirements:
+                raise ValueError(
+                    "Requirement selectors require exact binding authority."
+                )
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphRequirement:
+    """One exact authored package requirement occurrence."""
+
+    ref: PackageGraphRequirementRef
+    package: PackageGraphPackageRef
+    witness: CapabilityRequirementOccurrence = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.ref) is not PackageGraphRequirementRef:
+            raise TypeError("Graph requirements require an exact requirement ref.")
+        if type(self.package) is not PackageGraphPackageRef:
+            raise TypeError("Graph requirements require a package ref.")
+        if self.ref.package != self.package:
+            raise ValueError("Graph requirement ref must name its package.")
+        if type(self.witness) is not CapabilityRequirementOccurrence:
+            raise TypeError("Graph requirements require an exact authored witness.")
+        if self.witness.position != self.ref.position:
+            raise ValueError("Graph requirement witness must retain authored position.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphSelector:
+    """One exact package-owned selector occurrence and covered requirement."""
+
+    ref: PackageGraphSelectorRef
+    package: PackageGraphPackageRef
+    requirement: PackageGraphRequirementRef
+    witness: ExtensionSignatureRequirementSelectorOccurrence = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.ref) is not PackageGraphSelectorRef:
+            raise TypeError("Graph selectors require an exact selector ref.")
+        if type(self.package) is not PackageGraphPackageRef:
+            raise TypeError("Graph selectors require a package ref.")
+        if type(self.requirement) is not PackageGraphRequirementRef:
+            raise TypeError("Graph selectors require a requirement ref.")
+        if not (
+            self.ref.scope is self.package.scope is self.requirement.scope
+            and self.ref.package == self.package == self.requirement.package
+        ):
+            raise ValueError("Graph selector refs require exact package ownership.")
+        if type(self.witness) is not ExtensionSignatureRequirementSelectorOccurrence:
+            raise TypeError("Graph selectors require an exact selector witness.")
+        if self.witness.requirement_position != self.requirement.position:
+            raise ValueError(
+                "Graph selector must cover its exact requirement position."
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class PackageGraphSnapshot:
     """One immutable ordered package/dependency graph domain snapshot."""
@@ -145,6 +303,9 @@ class PackageGraphSnapshot:
     scope: PackageGraphScope
     packages: tuple[PackageGraphPackage, ...]
     dependencies: tuple[PackageGraphDependency, ...]
+    requirement_collections: tuple[PackageGraphRequirementCollection, ...] = ()
+    requirements: tuple[PackageGraphRequirement, ...] = ()
+    selectors: tuple[PackageGraphSelector, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.scope) is not PackageGraphScope:
@@ -158,6 +319,21 @@ class PackageGraphSnapshot:
             self.dependencies,
             PackageGraphDependency,
             "Package graph snapshot dependencies",
+        )
+        _require_exact_tuple(
+            self.requirement_collections,
+            PackageGraphRequirementCollection,
+            "Package graph requirement collections",
+        )
+        _require_exact_tuple(
+            self.requirements,
+            PackageGraphRequirement,
+            "Package graph requirements",
+        )
+        _require_exact_tuple(
+            self.selectors,
+            PackageGraphSelector,
+            "Package graph selectors",
         )
         if not self.packages:
             raise ValueError(
@@ -196,6 +372,7 @@ class PackageGraphSnapshot:
                 raise ValueError(
                     "Package graph dependency witness must resolve to its exact target."
                 )
+        _validate_requirement_attribution(self)
 
     def package(self, ref: PackageGraphPackageRef) -> PackageGraphPackage:
         """Resolve one exact owned package ref without semantic fallback."""
@@ -234,6 +411,34 @@ class PackageGraphSnapshot:
             if dependency.ref == ref:
                 return dependency
         raise ValueError("Package graph dependency ref was not found.")
+
+    def requirement(
+        self,
+        ref: PackageGraphRequirementRef,
+    ) -> PackageGraphRequirement:
+        """Resolve one exact owned requirement ref without key lookup."""
+
+        if type(ref) is not PackageGraphRequirementRef:
+            raise TypeError("Requirement lookup requires a requirement ref.")
+        if ref.scope is not self.scope:
+            raise ValueError("Requirement ref belongs to a foreign snapshot.")
+        # ponytail: local attribution uses scans; Slice 9 owns derived indexes.
+        for requirement in self.requirements:
+            if requirement.ref == ref:
+                return requirement
+        raise ValueError("Requirement ref was not found.")
+
+    def selector(self, ref: PackageGraphSelectorRef) -> PackageGraphSelector:
+        """Resolve one exact owned selector ref without semantic matching."""
+
+        if type(ref) is not PackageGraphSelectorRef:
+            raise TypeError("Selector lookup requires a selector ref.")
+        if ref.scope is not self.scope:
+            raise ValueError("Selector ref belongs to a foreign snapshot.")
+        for selector in self.selectors:
+            if selector.ref == ref:
+                return selector
+        raise ValueError("Selector ref was not found.")
 
 
 class PackageGraphOutcome(StrEnum):
@@ -319,6 +524,74 @@ def _require_exact_tuple(
         raise TypeError(f"{label} require an exact tuple of {item_type.__name__}.")
 
 
+def _validate_requirement_attribution(snapshot: PackageGraphSnapshot) -> None:
+    if not (
+        snapshot.requirement_collections or snapshot.requirements or snapshot.selectors
+    ):
+        return
+    if len(snapshot.requirement_collections) != len(snapshot.packages):
+        raise ValueError("Requirement attribution requires one collection per package.")
+
+    expected_requirements: list[
+        tuple[PackageGraphPackageRef, CapabilityRequirementOccurrence]
+    ] = []
+    expected_selectors: list[
+        tuple[
+            PackageGraphPackageRef,
+            int,
+            ExtensionSignatureRequirementSelectorOccurrence,
+        ]
+    ] = []
+    for package, collection in zip(
+        snapshot.packages,
+        snapshot.requirement_collections,
+        strict=True,
+    ):
+        if collection.package != package.ref:
+            raise ValueError("Requirement collection order must match package order.")
+        binding = collection.binding
+        if binding is None:
+            continue
+        expected_requirements.extend(
+            (package.ref, occurrence) for occurrence in binding.requirements.occurrences
+        )
+        if collection.selectors is not None:
+            expected_selectors.extend(
+                (package.ref, position, occurrence)
+                for position, occurrence in enumerate(collection.selectors.occurrences)
+            )
+
+    if len(snapshot.requirements) != len(expected_requirements):
+        raise ValueError("Requirement attribution must retain every occurrence.")
+    for requirement, (package_ref, witness) in zip(
+        snapshot.requirements,
+        expected_requirements,
+        strict=True,
+    ):
+        if requirement.package != package_ref or requirement.witness is not witness:
+            raise ValueError("Requirement attribution must retain exact package order.")
+
+    if len(snapshot.selectors) != len(expected_selectors):
+        raise ValueError("Selector attribution must retain every occurrence.")
+    for selector, (package_ref, position, witness) in zip(
+        snapshot.selectors,
+        expected_selectors,
+        strict=True,
+    ):
+        if (
+            selector.package != package_ref
+            or selector.ref.position != position
+            or selector.witness is not witness
+            or selector.requirement
+            != PackageGraphRequirementRef(
+                snapshot.scope,
+                package_ref,
+                witness.requirement_position,
+            )
+        ):
+            raise ValueError("Selector attribution must retain exact coverage order.")
+
+
 def _build_package_graph(facts: PackageInspectionFactSet) -> PackageGraphResult:
     """Construct one package graph from exact retained inspection/plan authority."""
 
@@ -349,6 +622,9 @@ def _build_package_graph(facts: PackageInspectionFactSet) -> PackageGraphResult:
                 for package in inspection.packages
             )
             dependencies: list[PackageGraphDependency] = []
+            requirement_collections: list[PackageGraphRequirementCollection] = []
+            requirements: list[PackageGraphRequirement] = []
+            selectors: list[PackageGraphSelector] = []
             for package in inspection.packages:
                 declaring_ref = PackageGraphPackageRef(scope, package.position)
                 for dependency in package.dependencies:
@@ -367,10 +643,63 @@ def _build_package_graph(facts: PackageInspectionFactSet) -> PackageGraphResult:
                             witness=dependency.edge.occurrence,
                         )
                     )
+                binding = _package_capability_requirement_binding(package.entry.package)
+                selector_authority = _package_extension_signature_requirement_selectors(
+                    package.entry.package,
+                    binding,
+                )
+                requirement_collections.append(
+                    PackageGraphRequirementCollection(
+                        package=declaring_ref,
+                        declaration=(
+                            PackageGraphRequirementDeclaration.UNDECLARED
+                            if binding is None
+                            else PackageGraphRequirementDeclaration.DECLARED
+                        ),
+                        binding=binding,
+                        selectors=selector_authority,
+                    )
+                )
+                if binding is not None:
+                    requirements.extend(
+                        PackageGraphRequirement(
+                            ref=PackageGraphRequirementRef(
+                                scope,
+                                declaring_ref,
+                                occurrence.position,
+                            ),
+                            package=declaring_ref,
+                            witness=occurrence,
+                        )
+                        for occurrence in binding.requirements.occurrences
+                    )
+                if selector_authority is not None:
+                    selectors.extend(
+                        PackageGraphSelector(
+                            ref=PackageGraphSelectorRef(
+                                scope,
+                                declaring_ref,
+                                position,
+                            ),
+                            package=declaring_ref,
+                            requirement=PackageGraphRequirementRef(
+                                scope,
+                                declaring_ref,
+                                occurrence.requirement_position,
+                            ),
+                            witness=occurrence,
+                        )
+                        for position, occurrence in enumerate(
+                            selector_authority.occurrences
+                        )
+                    )
             snapshot = PackageGraphSnapshot(
                 scope=scope,
                 packages=packages,
                 dependencies=tuple(dependencies),
+                requirement_collections=tuple(requirement_collections),
+                requirements=tuple(requirements),
+                selectors=tuple(selectors),
             )
             return PackageGraphResult(
                 PackageGraphOutcome.SUCCESS,

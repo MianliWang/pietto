@@ -13,10 +13,11 @@ documentation does not supersede that evidence.
 | Phase 59 | `ACTIVE` |
 | Slice 1 | `COMPLETED` |
 | Slice 2 | `COMPLETED` |
-| Slice 3 | `CURRENT` |
-| Slice 4 | `NEXT / UNSTARTED` |
-| Next | `PHASE59_SLICE4_REQUIREMENT_SELECTOR_ATTRIBUTION_END_TO_END` |
+| Slice 3 | `COMPLETED` |
+| Slice 4 | `CURRENT` |
+| Slice 5 | `NEXT / UNSTARTED` |
+| Next | `PHASE59_SLICE5_CAPABILITY_CATALOG_TYPED_NEGATIVE_EVIDENCE_PROVENANCE_END_TO_END` |
 
-Slice 3 is the current canonical package-graph construction owner. Live Git
-and natural exact-head CI own Phase 59 Slice 3 completion; no post-CI
-status-flip commit is required. This status does not authorize Slice 4.
+Slice 4 is the current requirement-selector attribution owner. Live Git and
+natural exact-head CI own Phase 59 Slice 4 completion; no post-CI status-flip
+commit is required. This status does not authorize Slice 5.

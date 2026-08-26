@@ -50,6 +50,12 @@ MODEL_TYPES = (
     "PackageGraphDependencyRef",
     "PackageGraphPackage",
     "PackageGraphDependency",
+    "PackageGraphRequirementDeclaration",
+    "PackageGraphRequirementRef",
+    "PackageGraphSelectorRef",
+    "PackageGraphRequirementCollection",
+    "PackageGraphRequirement",
+    "PackageGraphSelector",
     "PackageGraphSnapshot",
     "PackageGraphOutcome",
     "PackageGraphResult",
@@ -420,6 +426,9 @@ def test_model_shape_is_private_typed_and_contains_no_deferred_products() -> Non
         "scope",
         "packages",
         "dependencies",
+        "requirement_collections",
+        "requirements",
+        "selectors",
     )
     assert tuple(field.name for field in fields(PackageGraphResult)) == (
         "outcome",
