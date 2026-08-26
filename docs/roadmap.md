@@ -246,7 +246,7 @@ The controlling closure is
 
 ## Phase 58 route
 
-Phase 58 is active, Slices 1–15 are completed, Slice 16 is current, and Slice 17 is next / unstarted.
+Phase 58 is active, Slices 1–16 are completed, Slice 17 is current, and Phase 59 is next / unstarted.
 The original route had exactly 12 slices. After published Slice 8, a read-only
 runtime-builder authority audit proved an independent missing lifecycle, so
 the route expanded to 16 slices. After published Slice 11, production tracing
@@ -436,6 +436,13 @@ generated, golden, and package-smoke owners. It adds no production path,
 product state, public field, normalization, version-specific expectation, or
 new golden. The controlling contract is
 [Phase 58 Slice 16 pure differential compatibility assurance](spec/phase58-slice16-pure-differential-compatibility-assurance-v1.md).
+
+Slice 17 audits the complete 17-slice owner chain, reconciles every Phase
+58-owned exit criterion to current source/tests/CI, records zero self-owned-open
+subjects, and freezes the Phase 59 handoff plus Phase 60–70 readiness without
+implementing later work. It adds no production semantics, public field,
+release operation, or route expansion. The controlling closure is
+[Phase 58 completion audit and Phase 59 handoff](spec/phase58-completion-audit-phase59-handoff-v1.md).
 
 ## Retained later ownership
 
