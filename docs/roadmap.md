@@ -446,7 +446,7 @@ release operation, or route expansion. The controlling closure is
 
 ## Phase 59 route
 
-Phase 59 is active, Slice 1 is current, and Slice 2 is next / unstarted. The published route has exactly 12 slices.
+Phase 59 is active, Slice 1 is completed, Slice 2 is current, and Slice 3 is next / unstarted. The published route has exactly 12 slices.
 
 The exact owner is **Local package graph, attribution, provenance, and lineage**.
 
@@ -472,8 +472,17 @@ private canonical inspection readiness, and the exact route without production
 implementation. The controlling contract is
 [Phase 59 Slice 1 graph domains and identity laws](spec/phase59-graph-domains-identity-laws-route-lock-v1.md).
 
+Slice 2 adds the immutable private package/dependency graph value model:
+identity-equal runtime snapshot scopes, typed package and authored-dependency
+refs, separate semantic/release/content/role facts, witnessed direct links,
+ordered snapshot tuples, scope-enforced lookup, and exact successful/rejected/
+error result invariants. It adds no builder, traversal, canonical serializer,
+future-domain placeholder, Project Explain field, public export, or CLI. The
+controlling model is
+[Phase 59 Slice 2 private package graph model](spec/phase59-slice2-private-package-graph-model-snapshot-identity-v1.md).
+
 Project Explain v1, existing CLI behavior, package loading, semantic lineage,
-and all public schemas remain exact zero-delta. Slice 2 remains next/unstarted;
+and all public schemas remain exact zero-delta. Slice 3 remains next/unstarted;
 this route does not authorize it.
 
 ## Retained later ownership

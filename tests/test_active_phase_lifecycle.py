@@ -14,17 +14,18 @@ EXPECTED_STATUS = (
     ("Phase 57", "`COMPLETED`"),
     ("Phase 58", "`COMPLETED`"),
     ("Phase 59", "`ACTIVE`"),
-    ("Slice 1", "`CURRENT`"),
-    ("Slice 2", "`NEXT / UNSTARTED`"),
+    ("Slice 1", "`COMPLETED`"),
+    ("Slice 2", "`CURRENT`"),
+    ("Slice 3", "`NEXT / UNSTARTED`"),
     (
         "Next",
-        "`PHASE59_SLICE2_PRIVATE_PACKAGE_GRAPH_MODEL_SNAPSHOT_IDENTITY_END_TO_END`",
+        "`PHASE59_SLICE3_CANONICAL_PACKAGE_GRAPH_CONSTRUCTION_END_TO_END`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
-    "Phase 59 is active, Slice 1 is current, and Slice 2 is next / unstarted. "
-    "The published route has exactly 12 slices."
+    "Phase 59 is active, Slice 1 is completed, Slice 2 is current, and Slice 3 "
+    "is next / unstarted. The published route has exactly 12 slices."
 )
 EXPECTED_PHASE59_OWNER = "Local package graph, attribution, provenance, and lineage"
 EXPECTED_PHASE58_ROUTE = (
@@ -125,11 +126,11 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     status = _read(STATUS)
     assert _table_rows(status)[1:] == EXPECTED_STATUS
     normalized = " ".join(status.split())
-    assert "Slice 1 is the current Phase 59 architecture owner" in normalized
-    assert "Live Git and natural exact-head CI own Phase 59 Slice 1 completion" in (
+    assert "Slice 2 is the current private package-graph model owner" in normalized
+    assert "Live Git and natural exact-head CI own Phase 59 Slice 2 completion" in (
         normalized
     )
-    assert "does not authorize Slice 2" in normalized
+    assert "does not authorize Slice 3" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
