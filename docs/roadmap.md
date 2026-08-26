@@ -446,7 +446,7 @@ release operation, or route expansion. The controlling closure is
 
 ## Phase 59 route
 
-Phase 59 is active, Slices 1–5 are completed, Slice 6 is current, and Slice 7 is next / unstarted. The published route has exactly 12 slices.
+Phase 59 is active, Slices 1–6 are completed, Slice 7 is current, and Slice 8 is next / unstarted. The published route has exactly 12 slices.
 
 The exact owner is **Local package graph, attribution, provenance, and lineage**.
 
@@ -518,8 +518,18 @@ or catalog-provider evidence; missing edges and zero-target authority create
 nothing. The controlling contract is
 [Phase 59 Slice 6 direct, transitive, and why-not provenance](spec/phase59-slice6-direct-transitive-why-not-provenance-v1.md).
 
+Slice 7 bridges every successful package occurrence to its exact trusted
+loaded modules and source-ordered AST declarations. Module and declaration
+refs are snapshot-scoped and package-qualified; their identity uses only
+package/module/local positions, while exact loaded package, module, and
+definition objects remain witnesses. Equal paths, names, source bytes, or
+digests in different packages never merge. The bridge adds ownership only: it
+does not construct semantic catalogs, grant visibility, create cross-package
+imports, or extend Slice 6 traversal. The controlling contract is
+[Phase 59 Slice 7 package-to-module attribution bridge](spec/phase59-slice7-package-to-module-attribution-bridge-v1.md).
+
 Project Explain v1, existing CLI behavior, package loading, semantic lineage,
-and all public schemas remain exact zero-delta. Slice 7 remains next/unstarted;
+and all public schemas remain exact zero-delta. Slice 8 remains next/unstarted;
 this route does not authorize it.
 
 ## Retained later ownership

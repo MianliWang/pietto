@@ -16,9 +16,13 @@ from pietto._project.package_graph import (
     PackageGraphCapabilityEvaluationRef,
     PackageGraphCatalogEvidence,
     PackageGraphCatalogEvidenceRef,
+    PackageGraphDeclaration,
+    PackageGraphDeclarationRef,
     PackageGraphDependency,
     PackageGraphDependencyRef,
     PackageGraphDirectProvenanceStep,
+    PackageGraphModule,
+    PackageGraphModuleRef,
     PackageGraphOutcome,
     PackageGraphPackage,
     PackageGraphPackageRef,
@@ -63,6 +67,10 @@ MODEL_TYPES = (
     "PackageGraphRequirementCollection",
     "PackageGraphRequirement",
     "PackageGraphSelector",
+    "PackageGraphModuleRef",
+    "PackageGraphDeclarationRef",
+    "PackageGraphModule",
+    "PackageGraphDeclaration",
     "PackageGraphCapabilityEvaluationRef",
     "PackageGraphCatalogEvidenceRef",
     "PackageGraphCapabilityEvaluation",
@@ -416,7 +424,6 @@ def test_model_shape_is_private_typed_and_contains_no_deferred_products() -> Non
     assert classes == set(MODEL_TYPES)
     assert (
         not {
-            "pietto._project.package_loader",
             "pietto._project.package_locator",
             "pietto._project.package_rejection",
             "json",
@@ -445,6 +452,8 @@ def test_model_shape_is_private_typed_and_contains_no_deferred_products() -> Non
         "selectors",
         "capability_evaluations",
         "catalog_evidence",
+        "modules",
+        "declarations",
     )
     assert tuple(field.name for field in fields(PackageGraphResult)) == (
         "outcome",
@@ -471,6 +480,10 @@ def test_model_shape_is_private_typed_and_contains_no_deferred_products() -> Non
         PackageGraphCatalogEvidenceRef,
         PackageGraphCapabilityEvaluation,
         PackageGraphCatalogEvidence,
+        PackageGraphModuleRef,
+        PackageGraphDeclarationRef,
+        PackageGraphModule,
+        PackageGraphDeclaration,
         PackageGraphSnapshot,
         PackageGraphResult,
         PackageGraphDirectProvenanceStep,

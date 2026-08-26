@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import get_args
 
 from pietto._project.capability_availability import (
     PackageCapabilityRequirementBinding,
@@ -39,14 +40,24 @@ from pietto._project.package_inspection import (
     PackageInspectionPackageRole,
 )
 from pietto._project.package_load_plan import (
+    LoadedDependencyPackage,
+    LoadedPackage,
     PackageDependencyOccurrence,
     PackageLoadPlanBlocker,
+    _package_content_digest,
+    _package_coordinate,
+)
+from pietto._project.package_loader import (
+    LoadedRootPackage,
+    PackageParsedModule,
+    _PackageModuleContent,
 )
 from pietto._project.package_manifest import (
     PackageCoordinate,
     _is_valid_content_digest_pin,
 )
 from pietto.errors import Diagnostic, Severity
+from pietto.ast_nodes import Definition
 from pietto.semantic.capability_profiles import CapabilityRequirementOccurrence
 from pietto.semantic.extension_signature_requirements import (
     ExtensionSignatureRequirementSelectorOccurrence,
@@ -313,6 +324,110 @@ class PackageGraphSelector:
             )
 
 
+type PackageGraphModuleWitness = PackageParsedModule | _PackageModuleContent
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphModuleRef:
+    """One package-qualified loaded module occurrence in one snapshot."""
+
+    scope: PackageGraphScope
+    package: PackageGraphPackageRef
+    position: int
+
+    def __post_init__(self) -> None:
+        if type(self.scope) is not PackageGraphScope:
+            raise TypeError("Package graph module refs require an exact scope.")
+        if type(self.package) is not PackageGraphPackageRef:
+            raise TypeError("Package graph module refs require a package ref.")
+        if self.package.scope is not self.scope:
+            raise ValueError("Package graph module refs require the package scope.")
+        if type(self.position) is not int or self.position < 0:
+            raise ValueError("Package graph module position must be non-negative.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphDeclarationRef:
+    """One package-qualified module declaration occurrence in one snapshot."""
+
+    scope: PackageGraphScope
+    module: PackageGraphModuleRef
+    position: int
+
+    def __post_init__(self) -> None:
+        if type(self.scope) is not PackageGraphScope:
+            raise TypeError("Package graph declaration refs require an exact scope.")
+        if type(self.module) is not PackageGraphModuleRef:
+            raise TypeError("Package graph declaration refs require a module ref.")
+        if self.module.scope is not self.scope:
+            raise ValueError("Package graph declaration refs require the module scope.")
+        if type(self.position) is not int or self.position < 0:
+            raise ValueError("Package graph declaration position must be non-negative.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphModule:
+    """One exact loaded module occurrence with package ownership."""
+
+    ref: PackageGraphModuleRef
+    package: PackageGraphPackageRef
+    package_authority: LoadedPackage = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    witness: PackageGraphModuleWitness = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.ref) is not PackageGraphModuleRef:
+            raise TypeError("Graph modules require an exact module ref.")
+        if type(self.package) is not PackageGraphPackageRef:
+            raise TypeError("Graph modules require an exact package ref.")
+        if self.ref.package != self.package:
+            raise ValueError("Graph module ref must name its package.")
+        if type(self.package_authority) not in {
+            LoadedRootPackage,
+            LoadedDependencyPackage,
+        }:
+            raise TypeError("Graph modules require exact loaded package authority.")
+        if type(self.witness) not in {PackageParsedModule, _PackageModuleContent}:
+            raise TypeError("Graph modules require an exact loaded module witness.")
+        modules = self.package_authority.modules
+        if (
+            self.ref.position >= len(modules)
+            or modules[self.ref.position] is not self.witness
+            or self.witness.position != self.ref.position
+        ):
+            raise ValueError("Graph module must retain exact package module order.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphDeclaration:
+    """One exact source-ordered declaration owned by a graph module."""
+
+    ref: PackageGraphDeclarationRef
+    module: PackageGraphModuleRef
+    witness: Definition = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.ref) is not PackageGraphDeclarationRef:
+            raise TypeError("Graph declarations require an exact declaration ref.")
+        if type(self.module) is not PackageGraphModuleRef:
+            raise TypeError("Graph declarations require an exact module ref.")
+        if self.ref.module != self.module:
+            raise ValueError("Graph declaration ref must name its module.")
+        if type(self.witness) not in get_args(Definition):
+            raise TypeError("Graph declarations require an exact AST definition.")
+
+
 @dataclass(frozen=True, slots=True)
 class PackageGraphCapabilityEvaluationRef:
     """One requirement-by-target evaluation coordinate in one snapshot."""
@@ -466,6 +581,8 @@ class PackageGraphSnapshot:
     selectors: tuple[PackageGraphSelector, ...] = ()
     capability_evaluations: tuple[PackageGraphCapabilityEvaluation, ...] = ()
     catalog_evidence: tuple[PackageGraphCatalogEvidence, ...] = ()
+    modules: tuple[PackageGraphModule, ...] = ()
+    declarations: tuple[PackageGraphDeclaration, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.scope) is not PackageGraphScope:
@@ -504,6 +621,16 @@ class PackageGraphSnapshot:
             self.catalog_evidence,
             PackageGraphCatalogEvidence,
             "Package graph catalog evidence",
+        )
+        _require_exact_tuple(
+            self.modules,
+            PackageGraphModule,
+            "Package graph modules",
+        )
+        _require_exact_tuple(
+            self.declarations,
+            PackageGraphDeclaration,
+            "Package graph declarations",
         )
         if not self.packages:
             raise ValueError(
@@ -544,6 +671,7 @@ class PackageGraphSnapshot:
                 )
         _validate_requirement_attribution(self)
         _validate_provenance_attribution(self)
+        _validate_module_attribution(self)
 
     def package(self, ref: PackageGraphPackageRef) -> PackageGraphPackage:
         """Resolve one exact owned package ref without semantic fallback."""
@@ -642,6 +770,35 @@ class PackageGraphSnapshot:
             if evidence.ref == ref:
                 return evidence
         raise ValueError("Catalog evidence ref was not found.")
+
+    def module(self, ref: PackageGraphModuleRef) -> PackageGraphModule:
+        """Resolve one exact package-qualified module occurrence."""
+
+        if type(ref) is not PackageGraphModuleRef:
+            raise TypeError("Module lookup requires an exact module ref.")
+        if ref.scope is not self.scope:
+            raise ValueError("Module ref belongs to a foreign snapshot.")
+        # ponytail: local attribution uses scans; Slice 9 owns derived indexes.
+        for module in self.modules:
+            if module.ref == ref:
+                return module
+        raise ValueError("Module ref was not found.")
+
+    def declaration(
+        self,
+        ref: PackageGraphDeclarationRef,
+    ) -> PackageGraphDeclaration:
+        """Resolve one exact package-qualified declaration occurrence."""
+
+        if type(ref) is not PackageGraphDeclarationRef:
+            raise TypeError("Declaration lookup requires an exact declaration ref.")
+        if ref.scope is not self.scope:
+            raise ValueError("Declaration ref belongs to a foreign snapshot.")
+        # ponytail: local attribution uses scans; Slice 9 owns derived indexes.
+        for declaration in self.declarations:
+            if declaration.ref == ref:
+                return declaration
+        raise ValueError("Declaration ref was not found.")
 
 
 class PackageGraphOutcome(StrEnum):
@@ -1296,6 +1453,82 @@ def _validate_provenance_attribution(snapshot: PackageGraphSnapshot) -> None:
             )
 
 
+def _validate_module_attribution(snapshot: PackageGraphSnapshot) -> None:
+    if not snapshot.modules and not snapshot.declarations:
+        return
+    if snapshot.declarations and not snapshot.modules:
+        raise ValueError("Declaration attribution requires graph modules.")
+
+    module_refs = tuple(module.ref for module in snapshot.modules)
+    if len(set(module_refs)) != len(module_refs):
+        raise ValueError("Package graph modules require unique occurrence refs.")
+    previous_module_coordinate: tuple[int, int] | None = None
+    for module in snapshot.modules:
+        package = snapshot.package(module.package)
+        authority = module.package_authority
+        if (
+            _package_coordinate(authority) != package.coordinate
+            or _package_content_digest(authority) != package.content_digest
+        ):
+            raise ValueError("Graph module retains foreign package authority.")
+        expected_role = (
+            PackageInspectionPackageRole.ROOT
+            if type(authority) is LoadedRootPackage
+            else PackageInspectionPackageRole.DEPENDENCY
+        )
+        if package.role is not expected_role:
+            raise ValueError("Graph module package role disagrees with its authority.")
+        coordinate = (module.package.position, module.ref.position)
+        if previous_module_coordinate is not None and (
+            coordinate <= previous_module_coordinate
+        ):
+            raise ValueError(
+                "Graph modules must retain package then module occurrence order."
+            )
+        previous_module_coordinate = coordinate
+
+    for package in snapshot.packages:
+        modules = tuple(
+            module for module in snapshot.modules if module.package == package.ref
+        )
+        if not modules:
+            continue
+        authority = modules[0].package_authority
+        if len(modules) != len(authority.modules) or any(
+            module.package_authority is not authority
+            or module.ref.position != position
+            or module.witness is not authority.modules[position]
+            for position, module in enumerate(modules)
+        ):
+            raise ValueError(
+                "Graph modules must retain every exact loaded module occurrence."
+            )
+
+    declaration_refs = tuple(declaration.ref for declaration in snapshot.declarations)
+    if len(set(declaration_refs)) != len(declaration_refs):
+        raise ValueError("Graph declarations require unique occurrence refs.")
+    expected_declarations = tuple(
+        (module.ref, position, definition)
+        for module in snapshot.modules
+        for position, definition in enumerate(module.witness.script.definitions)
+    )
+    if len(snapshot.declarations) != len(expected_declarations):
+        raise ValueError("Graph declarations must retain every module definition.")
+    for declaration, (module_ref, position, definition) in zip(
+        snapshot.declarations,
+        expected_declarations,
+        strict=True,
+    ):
+        if (
+            declaration.module != module_ref
+            or declaration.ref.position != position
+            or declaration.witness is not definition
+        ):
+            raise ValueError(
+                "Graph declarations must retain exact module-local occurrence order."
+            )
+
+
 def _capability_matrix(
     facts: CapabilityInspectionFactSet,
 ) -> PackageCapabilityCheckingMatrix:
@@ -1627,6 +1860,8 @@ def _build_package_graph(
             requirement_collections: list[PackageGraphRequirementCollection] = []
             requirements: list[PackageGraphRequirement] = []
             selectors: list[PackageGraphSelector] = []
+            modules: list[PackageGraphModule] = []
+            declarations: list[PackageGraphDeclaration] = []
             requirement_groups: list[tuple[PackageGraphRequirement, ...]] = []
             selector_groups: list[tuple[PackageGraphSelector, ...]] = []
             for package in inspection.packages:
@@ -1647,7 +1882,36 @@ def _build_package_graph(
                             witness=dependency.edge.occurrence,
                         )
                     )
-                binding = _package_capability_requirement_binding(package.entry.package)
+                package_authority = package.entry.package
+                for module_witness in package_authority.modules:
+                    module_ref = PackageGraphModuleRef(
+                        scope,
+                        declaring_ref,
+                        module_witness.position,
+                    )
+                    modules.append(
+                        PackageGraphModule(
+                            ref=module_ref,
+                            package=declaring_ref,
+                            package_authority=package_authority,
+                            witness=module_witness,
+                        )
+                    )
+                    declarations.extend(
+                        PackageGraphDeclaration(
+                            ref=PackageGraphDeclarationRef(
+                                scope,
+                                module_ref,
+                                position,
+                            ),
+                            module=module_ref,
+                            witness=definition,
+                        )
+                        for position, definition in enumerate(
+                            module_witness.script.definitions
+                        )
+                    )
+                binding = _package_capability_requirement_binding(package_authority)
                 package_capability_facts = (
                     None
                     if capability_facts is None
@@ -1657,10 +1921,10 @@ def _build_package_graph(
                     binding = _validated_provenance_binding(
                         binding,
                         package_capability_facts,
-                        package.entry.package,
+                        package_authority,
                     )
                 selector_authority = _package_extension_signature_requirement_selectors(
-                    package.entry.package,
+                    package_authority,
                     binding,
                 )
                 if package_capability_facts is not None:
@@ -1751,6 +2015,8 @@ def _build_package_graph(
                 selectors=tuple(selectors),
                 capability_evaluations=capability_evaluations,
                 catalog_evidence=catalog_evidence,
+                modules=tuple(modules),
+                declarations=tuple(declarations),
             )
             return PackageGraphResult(
                 PackageGraphOutcome.SUCCESS,
