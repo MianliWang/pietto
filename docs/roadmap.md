@@ -446,7 +446,7 @@ release operation, or route expansion. The controlling closure is
 
 ## Phase 59 route
 
-Phase 59 is active, Slice 1 is completed, Slice 2 is current, and Slice 3 is next / unstarted. The published route has exactly 12 slices.
+Phase 59 is active, Slices 1–2 are completed, Slice 3 is current, and Slice 4 is next / unstarted. The published route has exactly 12 slices.
 
 The exact owner is **Local package graph, attribution, provenance, and lineage**.
 
@@ -481,8 +481,17 @@ future-domain placeholder, Project Explain field, public export, or CLI. The
 controlling model is
 [Phase 59 Slice 2 private package graph model](spec/phase59-slice2-private-package-graph-model-snapshot-identity-v1.md).
 
+Slice 3 constructs that model deterministically from one exact
+`PackageInspectionFactSet` and its retained load-plan authority. It maps every
+inspection package and authored dependency occurrence in existing order,
+retains exact dependency witnesses and resolved target positions, creates one
+fresh runtime scope per construction, and projects exact success/rejected/error
+terminals without partial graphs. It adds no loader, resolver, traversal,
+canonical serializer, public field, or CLI behavior. The controlling contract
+is [Phase 59 Slice 3 canonical package graph construction](spec/phase59-slice3-canonical-package-graph-construction-v1.md).
+
 Project Explain v1, existing CLI behavior, package loading, semantic lineage,
-and all public schemas remain exact zero-delta. Slice 3 remains next/unstarted;
+and all public schemas remain exact zero-delta. Slice 4 remains next/unstarted;
 this route does not authorize it.
 
 ## Retained later ownership

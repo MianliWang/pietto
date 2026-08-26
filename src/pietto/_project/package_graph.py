@@ -5,8 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from pietto._project.model import ProjectDiscoveryError
-from pietto._project.package_inspection import PackageInspectionPackageRole
+from pietto._project.model import ProjectDiscoveryError, ProjectDiscoveryErrorKind
+from pietto._project.package_inspection import (
+    PackageInspection,
+    PackageInspectionFactSet,
+    PackageInspectionOutcome,
+    PackageInspectionPackageRole,
+)
 from pietto._project.package_load_plan import (
     PackageDependencyOccurrence,
     PackageLoadPlanBlocker,
@@ -312,3 +317,90 @@ def _require_exact_tuple(
         type(value) is not item_type for value in values
     ):
         raise TypeError(f"{label} require an exact tuple of {item_type.__name__}.")
+
+
+def _build_package_graph(facts: PackageInspectionFactSet) -> PackageGraphResult:
+    """Construct one package graph from exact retained inspection/plan authority."""
+
+    if type(facts) is not PackageInspectionFactSet:
+        raise TypeError("Package graph construction requires exact inspection facts.")
+    inspection = facts.inspection
+    if (
+        type(inspection) is not PackageInspection
+        or inspection is not facts.authority.inspection
+        or facts.canonical_bytes is not facts.authority.canonical_bytes
+        or inspection.plan_result is not facts.authority.plan_result
+    ):
+        return _package_graph_construction_error(
+            "inspection facts do not retain one exact authority",
+        )
+
+    plan_result = inspection.plan_result
+    try:
+        if inspection.outcome is PackageInspectionOutcome.SUCCESS:
+            scope = PackageGraphScope()
+            packages = tuple(
+                PackageGraphPackage(
+                    ref=PackageGraphPackageRef(scope, package.position),
+                    coordinate=package.coordinate,
+                    content_digest=package.content_digest,
+                    role=package.role,
+                )
+                for package in inspection.packages
+            )
+            dependencies: list[PackageGraphDependency] = []
+            for package in inspection.packages:
+                declaring_ref = PackageGraphPackageRef(scope, package.position)
+                for dependency in package.dependencies:
+                    dependencies.append(
+                        PackageGraphDependency(
+                            ref=PackageGraphDependencyRef(
+                                scope,
+                                declaring_ref,
+                                dependency.position,
+                            ),
+                            declaring_package=declaring_ref,
+                            resolved_package=PackageGraphPackageRef(
+                                scope,
+                                dependency.target_package_position,
+                            ),
+                            witness=dependency.edge.occurrence,
+                        )
+                    )
+            snapshot = PackageGraphSnapshot(
+                scope=scope,
+                packages=packages,
+                dependencies=tuple(dependencies),
+            )
+            return PackageGraphResult(
+                PackageGraphOutcome.SUCCESS,
+                snapshot,
+                diagnostics=plan_result.diagnostics,
+            )
+        if inspection.outcome is PackageInspectionOutcome.REJECTED:
+            return PackageGraphResult(
+                PackageGraphOutcome.REJECTED,
+                blockers=plan_result.blockers,
+                diagnostics=plan_result.diagnostics,
+            )
+        if inspection.outcome is PackageInspectionOutcome.ERROR:
+            return PackageGraphResult(
+                PackageGraphOutcome.ERROR,
+                errors=plan_result.errors,
+                diagnostics=plan_result.diagnostics,
+            )
+        raise ValueError("Package inspection requires an exact outcome.")
+    except (TypeError, ValueError) as error:
+        return _package_graph_construction_error(str(error))
+
+
+def _package_graph_construction_error(message: str) -> PackageGraphResult:
+    return PackageGraphResult(
+        PackageGraphOutcome.ERROR,
+        errors=(
+            ProjectDiscoveryError(
+                ProjectDiscoveryErrorKind.PROJECT_RESOURCE,
+                f"Package graph construction failed: {message}",
+            ),
+        ),
+    )
