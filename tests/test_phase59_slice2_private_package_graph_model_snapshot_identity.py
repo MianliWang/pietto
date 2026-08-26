@@ -12,6 +12,10 @@ import pietto
 import pietto._project as project_package
 from pietto._project.model import ProjectDiscoveryError, ProjectDiscoveryErrorKind
 from pietto._project.package_graph import (
+    PackageGraphCapabilityEvaluation,
+    PackageGraphCapabilityEvaluationRef,
+    PackageGraphCatalogEvidence,
+    PackageGraphCatalogEvidenceRef,
     PackageGraphDependency,
     PackageGraphDependencyRef,
     PackageGraphOutcome,
@@ -56,6 +60,10 @@ MODEL_TYPES = (
     "PackageGraphRequirementCollection",
     "PackageGraphRequirement",
     "PackageGraphSelector",
+    "PackageGraphCapabilityEvaluationRef",
+    "PackageGraphCatalogEvidenceRef",
+    "PackageGraphCapabilityEvaluation",
+    "PackageGraphCatalogEvidence",
     "PackageGraphSnapshot",
     "PackageGraphOutcome",
     "PackageGraphResult",
@@ -429,6 +437,8 @@ def test_model_shape_is_private_typed_and_contains_no_deferred_products() -> Non
         "requirement_collections",
         "requirements",
         "selectors",
+        "capability_evaluations",
+        "catalog_evidence",
     )
     assert tuple(field.name for field in fields(PackageGraphResult)) == (
         "outcome",
@@ -451,6 +461,10 @@ def test_model_shape_is_private_typed_and_contains_no_deferred_products() -> Non
         PackageGraphDependencyRef,
         PackageGraphPackage,
         PackageGraphDependency,
+        PackageGraphCapabilityEvaluationRef,
+        PackageGraphCatalogEvidenceRef,
+        PackageGraphCapabilityEvaluation,
+        PackageGraphCatalogEvidence,
         PackageGraphSnapshot,
         PackageGraphResult,
     ):

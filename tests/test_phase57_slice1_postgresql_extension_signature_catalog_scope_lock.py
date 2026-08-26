@@ -243,6 +243,7 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
     package_selectors_path = (
         source_root / "_project/package_extension_signature_selectors.py"
     )
+    package_graph_path = source_root / "_project/package_graph.py"
     provider_path = source_root / "_project/extension_signature_provider.py"
     selector_path = source_root / "semantic/extension_signature_requirements.py"
     catalog_paths = {
@@ -263,6 +264,7 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
         project_environment_path,
         package_manifest_path,
         package_selectors_path,
+        package_graph_path,
         provider_path,
         selector_path,
     }

@@ -17,17 +17,18 @@ EXPECTED_STATUS = (
     ("Slice 1", "`COMPLETED`"),
     ("Slice 2", "`COMPLETED`"),
     ("Slice 3", "`COMPLETED`"),
-    ("Slice 4", "`CURRENT`"),
-    ("Slice 5", "`NEXT / UNSTARTED`"),
+    ("Slice 4", "`COMPLETED`"),
+    ("Slice 5", "`CURRENT`"),
+    ("Slice 6", "`NEXT / UNSTARTED`"),
     (
         "Next",
-        "`PHASE59_SLICE5_CAPABILITY_CATALOG_TYPED_NEGATIVE_EVIDENCE_PROVENANCE_END_TO_END`",
+        "`PHASE59_SLICE6_DIRECT_TRANSITIVE_WHY_NOT_PROVENANCE_END_TO_END`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
-    "Phase 59 is active, Slices 1–3 are completed, Slice 4 is current, and "
-    "Slice 5 is next / unstarted. The published route has exactly 12 slices."
+    "Phase 59 is active, Slices 1–4 are completed, Slice 5 is current, and "
+    "Slice 6 is next / unstarted. The published route has exactly 12 slices."
 )
 EXPECTED_PHASE59_OWNER = "Local package graph, attribution, provenance, and lineage"
 EXPECTED_PHASE58_ROUTE = (
@@ -128,11 +129,14 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     status = _read(STATUS)
     assert _table_rows(status)[1:] == EXPECTED_STATUS
     normalized = " ".join(status.split())
-    assert "Slice 4 is the current requirement-selector attribution owner" in normalized
-    assert "Live Git and natural exact-head CI own Phase 59 Slice 4 completion" in (
+    assert (
+        "Slice 5 is the current capability, catalog, and typed-negative-evidence provenance owner"
+        in normalized
+    )
+    assert "Live Git and natural exact-head CI own Phase 59 Slice 5 completion" in (
         normalized
     )
-    assert "does not authorize Slice 5" in normalized
+    assert "does not authorize Slice 6" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:

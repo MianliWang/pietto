@@ -446,7 +446,7 @@ release operation, or route expansion. The controlling closure is
 
 ## Phase 59 route
 
-Phase 59 is active, Slices 1–3 are completed, Slice 4 is current, and Slice 5 is next / unstarted. The published route has exactly 12 slices.
+Phase 59 is active, Slices 1–4 are completed, Slice 5 is current, and Slice 6 is next / unstarted. The published route has exactly 12 slices.
 
 The exact owner is **Local package graph, attribution, provenance, and lineage**.
 
@@ -498,8 +498,18 @@ witnesses, schema-v2 unbound requirements, and schema-v3 position-based
 coverage without checking, provider, catalog, or public behavior. The
 controlling contract is [Phase 59 Slice 4 requirement and selector attribution](spec/phase59-slice4-requirement-selector-attribution-v1.md).
 
+Slice 5 attaches existing Phase 58 capability checks, blockers, target
+contexts, catalog selections, providers, catalogs, and source facts to exact
+Slice 4 requirement and selector occurrences. Snapshot-scoped typed refs use
+only package-local requirement/selector and target positions; exact upstream
+fact sets remain the witnesses. Checked statuses, `BLOCKED`, catalog selection
+outcomes, provider lookup states, source order, and multiplicity remain typed
+and distinct without rechecking, reselection, catalog rebuilding, inferred
+negative edges, or installation identity. The controlling contract is
+[Phase 59 Slice 5 capability, catalog, and typed negative evidence provenance](spec/phase59-slice5-capability-catalog-typed-negative-evidence-provenance-v1.md).
+
 Project Explain v1, existing CLI behavior, package loading, semantic lineage,
-and all public schemas remain exact zero-delta. Slice 5 remains next/unstarted;
+and all public schemas remain exact zero-delta. Slice 6 remains next/unstarted;
 this route does not authorize it.
 
 ## Retained later ownership

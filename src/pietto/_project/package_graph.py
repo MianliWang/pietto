@@ -8,6 +8,21 @@ from enum import StrEnum
 from pietto._project.capability_availability import (
     PackageCapabilityRequirementBinding,
 )
+from pietto._project.capability_checking import (
+    CapabilityRequirementCheck,
+    PackageCapabilityRequirementsBlocked,
+    PackageCapabilityRequirementsChecked,
+)
+from pietto._project.capability_inspection import CapabilityInspectionFactSet
+from pietto._project.capability_matrix import (
+    CapabilityCheckingMatrixCell,
+    PackageCapabilityCheckingMatrix,
+)
+from pietto._project.extension_catalog_inspection import (
+    ExtensionCatalogInspection,
+    ExtensionCatalogInspectionFactSet,
+    ExtensionCatalogInspectionProviderOccurrence,
+)
 from pietto._project.model import ProjectDiscoveryError, ProjectDiscoveryErrorKind
 from pietto._project.package_capability_requirements import (
     _package_capability_requirement_binding,
@@ -297,6 +312,147 @@ class PackageGraphSelector:
 
 
 @dataclass(frozen=True, slots=True)
+class PackageGraphCapabilityEvaluationRef:
+    """One requirement-by-target evaluation coordinate in one snapshot."""
+
+    scope: PackageGraphScope
+    requirement: PackageGraphRequirementRef
+    target_position: int
+
+    def __post_init__(self) -> None:
+        if type(self.scope) is not PackageGraphScope:
+            raise TypeError("Capability evaluation refs require an exact scope.")
+        if type(self.requirement) is not PackageGraphRequirementRef:
+            raise TypeError("Capability evaluation refs require a requirement ref.")
+        if self.requirement.scope is not self.scope:
+            raise ValueError(
+                "Capability evaluation refs require the requirement snapshot scope."
+            )
+        if type(self.target_position) is not int or self.target_position < 0:
+            raise ValueError(
+                "Capability evaluation target position must be non-negative."
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphCatalogEvidenceRef:
+    """One selector-by-target catalog evidence coordinate in one snapshot."""
+
+    scope: PackageGraphScope
+    selector: PackageGraphSelectorRef
+    target_position: int
+
+    def __post_init__(self) -> None:
+        if type(self.scope) is not PackageGraphScope:
+            raise TypeError("Catalog evidence refs require an exact scope.")
+        if type(self.selector) is not PackageGraphSelectorRef:
+            raise TypeError("Catalog evidence refs require a selector ref.")
+        if self.selector.scope is not self.scope:
+            raise ValueError(
+                "Catalog evidence refs require the selector snapshot scope."
+            )
+        if type(self.target_position) is not int or self.target_position < 0:
+            raise ValueError("Catalog evidence target position must be non-negative.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphCapabilityEvaluation:
+    """One exact upstream checked or blocked requirement-target evaluation."""
+
+    ref: PackageGraphCapabilityEvaluationRef
+    selector: PackageGraphSelectorRef | None
+    facts: CapabilityInspectionFactSet = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    cell: CapabilityCheckingMatrixCell = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    evidence: CapabilityRequirementCheck | PackageCapabilityRequirementsBlocked = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.ref) is not PackageGraphCapabilityEvaluationRef:
+            raise TypeError("Capability evaluations require an exact ref.")
+        if self.selector is not None:
+            if type(self.selector) is not PackageGraphSelectorRef:
+                raise TypeError("Capability evaluations require an exact selector ref.")
+            if (
+                self.selector.scope is not self.ref.scope
+                or self.selector.package != self.ref.requirement.package
+            ):
+                raise ValueError(
+                    "Capability evaluation selector requires exact package ownership."
+                )
+        if type(self.facts) is not CapabilityInspectionFactSet:
+            raise TypeError("Capability evaluations require exact inspection facts.")
+        if type(self.cell) is not CapabilityCheckingMatrixCell:
+            raise TypeError("Capability evaluations require an exact matrix cell.")
+        if self.cell.column.position != self.ref.target_position:
+            raise ValueError(
+                "Capability evaluation ref must retain the target position."
+            )
+        if self.cell.check is None:
+            if (
+                type(self.cell.column.result)
+                is not PackageCapabilityRequirementsBlocked
+                or self.evidence is not self.cell.column.result
+            ):
+                raise ValueError(
+                    "Blocked capability evaluations require exact blocker evidence."
+                )
+        elif (
+            type(self.cell.column.result) is not PackageCapabilityRequirementsChecked
+            or type(self.cell.check) is not CapabilityRequirementCheck
+            or self.evidence is not self.cell.check
+        ):
+            raise ValueError(
+                "Checked capability evaluations require the exact check evidence."
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphCatalogEvidence:
+    """One exact catalog/provider/source fact attached to a selector evaluation."""
+
+    ref: PackageGraphCatalogEvidenceRef
+    capability: PackageGraphCapabilityEvaluationRef
+    facts: ExtensionCatalogInspectionFactSet = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    provider: ExtensionCatalogInspectionProviderOccurrence = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.ref) is not PackageGraphCatalogEvidenceRef:
+            raise TypeError("Catalog evidence requires an exact ref.")
+        if type(self.capability) is not PackageGraphCapabilityEvaluationRef:
+            raise TypeError("Catalog evidence requires a capability evaluation ref.")
+        if (
+            self.capability.scope is not self.ref.scope
+            or self.capability.target_position != self.ref.target_position
+        ):
+            raise ValueError(
+                "Catalog and capability evidence require one snapshot target."
+            )
+        if type(self.facts) is not ExtensionCatalogInspectionFactSet:
+            raise TypeError("Catalog evidence requires exact inspection facts.")
+        if type(self.provider) is not ExtensionCatalogInspectionProviderOccurrence:
+            raise TypeError("Catalog evidence requires an exact provider occurrence.")
+
+
+@dataclass(frozen=True, slots=True)
 class PackageGraphSnapshot:
     """One immutable ordered package/dependency graph domain snapshot."""
 
@@ -306,6 +462,8 @@ class PackageGraphSnapshot:
     requirement_collections: tuple[PackageGraphRequirementCollection, ...] = ()
     requirements: tuple[PackageGraphRequirement, ...] = ()
     selectors: tuple[PackageGraphSelector, ...] = ()
+    capability_evaluations: tuple[PackageGraphCapabilityEvaluation, ...] = ()
+    catalog_evidence: tuple[PackageGraphCatalogEvidence, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.scope) is not PackageGraphScope:
@@ -334,6 +492,16 @@ class PackageGraphSnapshot:
             self.selectors,
             PackageGraphSelector,
             "Package graph selectors",
+        )
+        _require_exact_tuple(
+            self.capability_evaluations,
+            PackageGraphCapabilityEvaluation,
+            "Package graph capability evaluations",
+        )
+        _require_exact_tuple(
+            self.catalog_evidence,
+            PackageGraphCatalogEvidence,
+            "Package graph catalog evidence",
         )
         if not self.packages:
             raise ValueError(
@@ -373,6 +541,7 @@ class PackageGraphSnapshot:
                     "Package graph dependency witness must resolve to its exact target."
                 )
         _validate_requirement_attribution(self)
+        _validate_provenance_attribution(self)
 
     def package(self, ref: PackageGraphPackageRef) -> PackageGraphPackage:
         """Resolve one exact owned package ref without semantic fallback."""
@@ -439,6 +608,38 @@ class PackageGraphSnapshot:
             if selector.ref == ref:
                 return selector
         raise ValueError("Selector ref was not found.")
+
+    def capability_evaluation(
+        self,
+        ref: PackageGraphCapabilityEvaluationRef,
+    ) -> PackageGraphCapabilityEvaluation:
+        """Resolve one exact requirement-target evaluation occurrence."""
+
+        if type(ref) is not PackageGraphCapabilityEvaluationRef:
+            raise TypeError("Capability evaluation lookup requires an exact ref.")
+        if ref.scope is not self.scope:
+            raise ValueError("Capability evaluation ref belongs to a foreign snapshot.")
+        # ponytail: local attribution uses scans; Slice 9 owns derived indexes.
+        for evaluation in self.capability_evaluations:
+            if evaluation.ref == ref:
+                return evaluation
+        raise ValueError("Capability evaluation ref was not found.")
+
+    def catalog_evidence_occurrence(
+        self,
+        ref: PackageGraphCatalogEvidenceRef,
+    ) -> PackageGraphCatalogEvidence:
+        """Resolve one exact selector-target catalog evidence occurrence."""
+
+        if type(ref) is not PackageGraphCatalogEvidenceRef:
+            raise TypeError("Catalog evidence lookup requires an exact ref.")
+        if ref.scope is not self.scope:
+            raise ValueError("Catalog evidence ref belongs to a foreign snapshot.")
+        # ponytail: local attribution uses scans; Slice 9 owns derived indexes.
+        for evidence in self.catalog_evidence:
+            if evidence.ref == ref:
+                return evidence
+        raise ValueError("Catalog evidence ref was not found.")
 
 
 class PackageGraphOutcome(StrEnum):
@@ -592,7 +793,490 @@ def _validate_requirement_attribution(snapshot: PackageGraphSnapshot) -> None:
             raise ValueError("Selector attribution must retain exact coverage order.")
 
 
-def _build_package_graph(facts: PackageInspectionFactSet) -> PackageGraphResult:
+def _validate_provenance_attribution(snapshot: PackageGraphSnapshot) -> None:
+    if not snapshot.capability_evaluations and not snapshot.catalog_evidence:
+        return
+    if snapshot.catalog_evidence and not snapshot.capability_evaluations:
+        raise ValueError("Catalog evidence requires capability evaluations.")
+
+    capability_refs = tuple(
+        evaluation.ref for evaluation in snapshot.capability_evaluations
+    )
+    if len(set(capability_refs)) != len(capability_refs):
+        raise ValueError("Capability evaluations require unique occurrence refs.")
+    previous_capability_coordinate: tuple[int, int, int] | None = None
+    for evaluation in snapshot.capability_evaluations:
+        requirement = snapshot.requirement(evaluation.ref.requirement)
+        package_position = requirement.package.position
+        collection = snapshot.requirement_collections[package_position]
+        matrix = _capability_matrix(evaluation.facts)
+        if (
+            collection.binding is None
+            or matrix.binding is not collection.binding
+            or matrix.package is not collection.binding.package
+        ):
+            raise ValueError(
+                "Capability evaluations require exact package binding authority."
+            )
+        if evaluation.ref.requirement.position >= len(matrix.rows):
+            raise ValueError("Capability evaluation requirement does not resolve.")
+        row = matrix.rows[evaluation.ref.requirement.position]
+        if row.occurrence is not requirement.witness:
+            raise ValueError(
+                "Capability evaluation must retain its exact requirement witness."
+            )
+        if evaluation.ref.target_position >= len(row.cells) or (
+            evaluation.ref.target_position >= len(matrix.columns)
+        ):
+            raise ValueError("Capability evaluation target does not resolve.")
+        if (
+            row.cells[evaluation.ref.target_position] is not evaluation.cell
+            or matrix.columns[evaluation.ref.target_position]
+            is not evaluation.cell.column
+        ):
+            raise ValueError("Capability evaluation rejects a grafted matrix cell.")
+
+        selector_matches = tuple(
+            selector.ref
+            for selector in snapshot.selectors
+            if selector.requirement == requirement.ref
+        )
+        if len(selector_matches) > 1:
+            raise ValueError("Capability evaluation selector mapping is ambiguous.")
+        expected_selector = None if not selector_matches else selector_matches[0]
+        if evaluation.selector != expected_selector:
+            raise ValueError(
+                "Capability evaluation must retain exact selector attribution."
+            )
+
+        coordinate = (
+            package_position,
+            requirement.ref.position,
+            evaluation.ref.target_position,
+        )
+        if (
+            previous_capability_coordinate is not None
+            and coordinate <= previous_capability_coordinate
+        ):
+            raise ValueError(
+                "Capability evaluations must retain package-requirement-target order."
+            )
+        previous_capability_coordinate = coordinate
+
+    for position, evaluation in enumerate(snapshot.capability_evaluations):
+        if any(
+            earlier.facts is evaluation.facts
+            for earlier in snapshot.capability_evaluations[:position]
+        ):
+            continue
+        matrix = _capability_matrix(evaluation.facts)
+        package_position = evaluation.ref.requirement.package.position
+        requirements = tuple(
+            requirement
+            for requirement in snapshot.requirements
+            if requirement.package.position == package_position
+        )
+        if len(requirements) != len(matrix.rows):
+            raise ValueError(
+                "Capability facts must cover every package requirement occurrence."
+            )
+        expected_refs: list[PackageGraphCapabilityEvaluationRef] = []
+        for requirement, row in zip(requirements, matrix.rows, strict=True):
+            if row.occurrence is not requirement.witness or len(row.cells) != len(
+                matrix.columns
+            ):
+                raise ValueError(
+                    "Capability facts must retain the complete target denominator."
+                )
+            expected_refs.extend(
+                PackageGraphCapabilityEvaluationRef(
+                    snapshot.scope,
+                    requirement.ref,
+                    target_position,
+                )
+                for target_position in range(len(row.cells))
+            )
+        actual_refs = tuple(
+            candidate.ref
+            for candidate in snapshot.capability_evaluations
+            if candidate.facts is evaluation.facts
+        )
+        if actual_refs != tuple(expected_refs):
+            raise ValueError(
+                "Capability evaluations must retain every fact-set matrix cell."
+            )
+
+    catalog_refs = tuple(evidence.ref for evidence in snapshot.catalog_evidence)
+    if len(set(catalog_refs)) != len(catalog_refs):
+        raise ValueError("Catalog evidence requires unique occurrence refs.")
+    previous_catalog_coordinate: tuple[int, int, int] | None = None
+    for evidence in snapshot.catalog_evidence:
+        capability = snapshot.capability_evaluation(evidence.capability)
+        selector = snapshot.selector(evidence.ref.selector)
+        if (
+            capability.selector != selector.ref
+            or capability.ref.requirement != selector.requirement
+        ):
+            raise ValueError(
+                "Catalog evidence must attach to the exact selector evaluation."
+            )
+        inspection = _catalog_inspection(evidence.facts)
+        provider_context = (
+            capability.cell.column.context.extension_signature_provider_context
+        )
+        selector_position = selector.ref.position
+        if (
+            provider_context is None
+            or inspection.context is not provider_context
+            or selector_position >= len(inspection.provider_occurrences)
+            or inspection.provider_occurrences[selector_position]
+            is not evidence.provider
+        ):
+            raise ValueError(
+                "Catalog evidence rejects foreign provider context authority."
+            )
+        if evidence.provider.requirement_position != selector.requirement.position:
+            raise ValueError(
+                "Catalog provider occurrence must retain exact requirement coverage."
+            )
+        check = capability.cell.check
+        if (
+            type(check) is not CapabilityRequirementCheck
+            or type(capability.cell.column.result)
+            is not PackageCapabilityRequirementsChecked
+            or check.extension_signature_provider_authority is None
+        ):
+            raise ValueError(
+                "Catalog evidence requires checked extension provider authority."
+            )
+        authority = check.extension_signature_provider_authority
+        requirement = snapshot.requirement(capability.ref.requirement)
+        if authority.requirement is not requirement.witness:
+            raise ValueError(
+                "Catalog evidence requires exact capability requirement authority."
+            )
+        if (
+            authority.selector_occurrence
+            is not provider_context.selectors.occurrences[selector_position]
+            or authority.selection_occurrence
+            is not provider_context.selections[selector_position]
+        ):
+            raise ValueError(
+                "Catalog evidence requires exact selector and selection witnesses."
+            )
+
+        coordinate = (
+            selector.package.position,
+            evidence.ref.target_position,
+            selector.ref.position,
+        )
+        if (
+            previous_catalog_coordinate is not None
+            and coordinate <= previous_catalog_coordinate
+        ):
+            raise ValueError(
+                "Catalog evidence must retain package-target-selector order."
+            )
+        previous_catalog_coordinate = coordinate
+
+    for evaluation in snapshot.capability_evaluations:
+        matches = tuple(
+            evidence
+            for evidence in snapshot.catalog_evidence
+            if evidence.capability == evaluation.ref
+        )
+        provider_context = (
+            evaluation.cell.column.context.extension_signature_provider_context
+        )
+        requires_catalog = (
+            evaluation.selector is not None
+            and type(evaluation.cell.column.result)
+            is PackageCapabilityRequirementsChecked
+            and provider_context is not None
+            and bool(provider_context.selectors.occurrences)
+        )
+        if len(matches) != int(requires_catalog):
+            raise ValueError(
+                "Catalog evidence coverage must match checked selector evaluations."
+            )
+
+
+def _capability_matrix(
+    facts: CapabilityInspectionFactSet,
+) -> PackageCapabilityCheckingMatrix:
+    if type(facts) is not CapabilityInspectionFactSet:
+        raise TypeError("Package graph provenance requires exact capability facts.")
+    inspection = facts.inspection
+    authority = facts.authority
+    if (
+        inspection is not authority.inspection
+        or facts.canonical_bytes is not authority.canonical_bytes
+        or inspection.matrix is not authority.matrix
+        or type(inspection.matrix) is not PackageCapabilityCheckingMatrix
+    ):
+        raise ValueError("Package graph provenance rejects grafted capability facts.")
+    return inspection.matrix
+
+
+def _catalog_inspection(
+    facts: ExtensionCatalogInspectionFactSet,
+) -> ExtensionCatalogInspection:
+    if type(facts) is not ExtensionCatalogInspectionFactSet:
+        raise TypeError("Package graph provenance requires exact catalog facts.")
+    inspection = facts.inspection
+    authority = facts.authority
+    if (
+        inspection is not authority.inspection
+        or facts.canonical_bytes is not authority.canonical_bytes
+        or inspection.context is not authority.context
+        or type(inspection) is not ExtensionCatalogInspection
+    ):
+        raise ValueError("Package graph provenance rejects grafted catalog facts.")
+    return inspection
+
+
+def _validated_provenance_binding(
+    expected: PackageCapabilityRequirementBinding | None,
+    facts: CapabilityInspectionFactSet,
+    package: object,
+) -> PackageCapabilityRequirementBinding | None:
+    matrix = _capability_matrix(facts)
+    if matrix.package is not package:
+        raise ValueError(
+            "Capability facts must retain their exact package occurrence order."
+        )
+    actual = matrix.binding
+    if expected is None:
+        if actual is not None:
+            raise ValueError("Undeclared package requirements reject supplied binding.")
+        return None
+    if type(actual) is not PackageCapabilityRequirementBinding:
+        raise ValueError("Declared package requirements require supplied binding.")
+    if actual.package is not expected.package:
+        raise ValueError("Capability facts retain a foreign package binding.")
+    actual_requirements = actual.requirements
+    expected_requirements = expected.requirements
+    if actual_requirements.identity != expected_requirements.identity or len(
+        actual_requirements.occurrences
+    ) != len(expected_requirements.occurrences):
+        raise ValueError(
+            "Capability facts do not match the package requirement collection."
+        )
+    for actual_occurrence, expected_occurrence in zip(
+        actual_requirements.occurrences,
+        expected_requirements.occurrences,
+        strict=True,
+    ):
+        if (
+            actual_occurrence.position != expected_occurrence.position
+            or actual_occurrence.key != expected_occurrence.key
+        ):
+            raise ValueError(
+                "Capability facts do not match exact requirement occurrences."
+            )
+    return actual
+
+
+def _validate_provider_selectors(
+    matrix: PackageCapabilityCheckingMatrix,
+    selectors: ExtensionSignatureRequirementSelectors | None,
+) -> None:
+    expected = () if selectors is None else selectors.occurrences
+    for context in matrix.contexts:
+        provider_context = context.extension_signature_provider_context
+        if provider_context is None:
+            continue
+        if (
+            matrix.binding is None
+            or provider_context.selectors.requirements
+            is not matrix.binding.requirements
+        ):
+            raise ValueError(
+                "Provider contexts require exact requirement collection authority."
+            )
+        actual = provider_context.selectors.occurrences
+        if len(actual) != len(expected) or any(
+            left.requirement_position != right.requirement_position
+            or left.selector != right.selector
+            for left, right in zip(actual, expected, strict=True)
+        ):
+            raise ValueError(
+                "Provider contexts do not map exactly to graph selector occurrences."
+            )
+
+
+def _selector_ref_for_requirement(
+    selectors: tuple[PackageGraphSelector, ...],
+    requirement: PackageGraphRequirementRef,
+) -> PackageGraphSelectorRef | None:
+    matches = tuple(
+        selector.ref for selector in selectors if selector.requirement == requirement
+    )
+    if len(matches) > 1:
+        raise ValueError("Requirement provenance rejects ambiguous selector mapping.")
+    return None if not matches else matches[0]
+
+
+def _build_capability_evaluations(
+    scope: PackageGraphScope,
+    requirement_groups: tuple[tuple[PackageGraphRequirement, ...], ...],
+    selector_groups: tuple[tuple[PackageGraphSelector, ...], ...],
+    capability_facts: tuple[CapabilityInspectionFactSet, ...],
+) -> tuple[PackageGraphCapabilityEvaluation, ...]:
+    evaluations: list[PackageGraphCapabilityEvaluation] = []
+    for requirements, selectors, facts in zip(
+        requirement_groups,
+        selector_groups,
+        capability_facts,
+        strict=True,
+    ):
+        matrix = _capability_matrix(facts)
+        if len(matrix.rows) != len(requirements):
+            raise ValueError(
+                "Capability facts must retain every graph requirement occurrence."
+            )
+        for requirement, row in zip(requirements, matrix.rows, strict=True):
+            if row.occurrence is not requirement.witness:
+                raise ValueError(
+                    "Capability facts must retain exact graph requirement witnesses."
+                )
+            if len(row.cells) != len(matrix.columns):
+                raise ValueError(
+                    "Capability facts must retain the complete target denominator."
+                )
+            selector = _selector_ref_for_requirement(selectors, requirement.ref)
+            for target_position, cell in enumerate(row.cells):
+                if (
+                    cell.column is not matrix.columns[target_position]
+                    or cell.column.position != target_position
+                ):
+                    raise ValueError(
+                        "Capability facts must retain exact target context order."
+                    )
+                evidence: (
+                    CapabilityRequirementCheck | PackageCapabilityRequirementsBlocked
+                )
+                if cell.check is None:
+                    if (
+                        type(cell.column.result)
+                        is not PackageCapabilityRequirementsBlocked
+                    ):
+                        raise ValueError(
+                            "Capability cells require checked or blocked evidence."
+                        )
+                    evidence = cell.column.result
+                else:
+                    if (
+                        type(cell.column.result)
+                        is not PackageCapabilityRequirementsChecked
+                        or type(cell.check) is not CapabilityRequirementCheck
+                    ):
+                        raise ValueError(
+                            "Capability cells require exact checked evidence."
+                        )
+                    evidence = cell.check
+                evaluations.append(
+                    PackageGraphCapabilityEvaluation(
+                        ref=PackageGraphCapabilityEvaluationRef(
+                            scope,
+                            requirement.ref,
+                            target_position,
+                        ),
+                        selector=selector,
+                        facts=facts,
+                        cell=cell,
+                        evidence=evidence,
+                    )
+                )
+    return tuple(evaluations)
+
+
+def _build_catalog_evidence(
+    scope: PackageGraphScope,
+    selector_groups: tuple[tuple[PackageGraphSelector, ...], ...],
+    capability_facts: tuple[CapabilityInspectionFactSet, ...],
+    catalog_facts: tuple[ExtensionCatalogInspectionFactSet | None, ...],
+) -> tuple[PackageGraphCatalogEvidence, ...]:
+    expected_slots = sum(
+        len(_capability_matrix(facts).columns) for facts in capability_facts
+    )
+    if len(catalog_facts) != expected_slots:
+        raise ValueError(
+            "Catalog facts require one exact slot per package target context."
+        )
+    evidence: list[PackageGraphCatalogEvidence] = []
+    slot_position = 0
+    for selectors, capability in zip(
+        selector_groups,
+        capability_facts,
+        strict=True,
+    ):
+        matrix = _capability_matrix(capability)
+        for column in matrix.columns:
+            facts = catalog_facts[slot_position]
+            slot_position += 1
+            provider_context = column.context.extension_signature_provider_context
+            requires_facts = (
+                type(column.result) is PackageCapabilityRequirementsChecked
+                and provider_context is not None
+                and bool(provider_context.selectors.occurrences)
+            )
+            if not requires_facts:
+                if facts is not None:
+                    raise ValueError(
+                        "Non-provider target contexts forbid catalog evidence."
+                    )
+                continue
+            if type(facts) is not ExtensionCatalogInspectionFactSet:
+                raise ValueError(
+                    "Checked selector contexts require exact catalog evidence."
+                )
+            inspection = _catalog_inspection(facts)
+            if inspection.context is not provider_context:
+                raise ValueError(
+                    "Catalog evidence requires the exact provider target context."
+                )
+            if len(inspection.provider_occurrences) != len(selectors):
+                raise ValueError(
+                    "Catalog evidence must retain every selector occurrence."
+                )
+            for selector, provider in zip(
+                selectors,
+                inspection.provider_occurrences,
+                strict=True,
+            ):
+                if provider.requirement_position != selector.requirement.position:
+                    raise ValueError(
+                        "Catalog evidence must retain exact selector coverage."
+                    )
+                capability_ref = PackageGraphCapabilityEvaluationRef(
+                    scope,
+                    selector.requirement,
+                    column.position,
+                )
+                evidence.append(
+                    PackageGraphCatalogEvidence(
+                        ref=PackageGraphCatalogEvidenceRef(
+                            scope,
+                            selector.ref,
+                            column.position,
+                        ),
+                        capability=capability_ref,
+                        facts=facts,
+                        provider=provider,
+                    )
+                )
+    return tuple(evidence)
+
+
+def _build_package_graph(
+    facts: PackageInspectionFactSet,
+    *,
+    capability_facts: tuple[CapabilityInspectionFactSet, ...] | None = None,
+    extension_catalog_facts: (
+        tuple[ExtensionCatalogInspectionFactSet | None, ...] | None
+    ) = None,
+) -> PackageGraphResult:
     """Construct one package graph from exact retained inspection/plan authority."""
 
     if type(facts) is not PackageInspectionFactSet:
@@ -611,6 +1295,29 @@ def _build_package_graph(facts: PackageInspectionFactSet) -> PackageGraphResult:
     plan_result = inspection.plan_result
     try:
         if inspection.outcome is PackageInspectionOutcome.SUCCESS:
+            if capability_facts is None:
+                if extension_catalog_facts is not None:
+                    raise ValueError("Catalog facts require explicit capability facts.")
+            else:
+                if (
+                    type(capability_facts) is not tuple
+                    or len(capability_facts) != len(inspection.packages)
+                    or any(
+                        type(item) is not CapabilityInspectionFactSet
+                        for item in capability_facts
+                    )
+                ):
+                    raise ValueError(
+                        "Capability facts require one exact entry per package."
+                    )
+                if type(extension_catalog_facts) is not tuple or any(
+                    item is not None
+                    and type(item) is not ExtensionCatalogInspectionFactSet
+                    for item in extension_catalog_facts
+                ):
+                    raise ValueError(
+                        "Catalog facts require an exact ordered slot tuple."
+                    )
             scope = PackageGraphScope()
             packages = tuple(
                 PackageGraphPackage(
@@ -625,6 +1332,8 @@ def _build_package_graph(facts: PackageInspectionFactSet) -> PackageGraphResult:
             requirement_collections: list[PackageGraphRequirementCollection] = []
             requirements: list[PackageGraphRequirement] = []
             selectors: list[PackageGraphSelector] = []
+            requirement_groups: list[tuple[PackageGraphRequirement, ...]] = []
+            selector_groups: list[tuple[PackageGraphSelector, ...]] = []
             for package in inspection.packages:
                 declaring_ref = PackageGraphPackageRef(scope, package.position)
                 for dependency in package.dependencies:
@@ -644,10 +1353,26 @@ def _build_package_graph(facts: PackageInspectionFactSet) -> PackageGraphResult:
                         )
                     )
                 binding = _package_capability_requirement_binding(package.entry.package)
+                package_capability_facts = (
+                    None
+                    if capability_facts is None
+                    else capability_facts[package.position]
+                )
+                if package_capability_facts is not None:
+                    binding = _validated_provenance_binding(
+                        binding,
+                        package_capability_facts,
+                        package.entry.package,
+                    )
                 selector_authority = _package_extension_signature_requirement_selectors(
                     package.entry.package,
                     binding,
                 )
+                if package_capability_facts is not None:
+                    _validate_provider_selectors(
+                        _capability_matrix(package_capability_facts),
+                        selector_authority,
+                    )
                 requirement_collections.append(
                     PackageGraphRequirementCollection(
                         package=declaring_ref,
@@ -660,8 +1385,10 @@ def _build_package_graph(facts: PackageInspectionFactSet) -> PackageGraphResult:
                         selectors=selector_authority,
                     )
                 )
-                if binding is not None:
-                    requirements.extend(
+                package_requirements = (
+                    ()
+                    if binding is None
+                    else tuple(
                         PackageGraphRequirement(
                             ref=PackageGraphRequirementRef(
                                 scope,
@@ -673,8 +1400,13 @@ def _build_package_graph(facts: PackageInspectionFactSet) -> PackageGraphResult:
                         )
                         for occurrence in binding.requirements.occurrences
                     )
-                if selector_authority is not None:
-                    selectors.extend(
+                )
+                requirements.extend(package_requirements)
+                requirement_groups.append(package_requirements)
+                package_selectors = (
+                    ()
+                    if selector_authority is None
+                    else tuple(
                         PackageGraphSelector(
                             ref=PackageGraphSelectorRef(
                                 scope,
@@ -693,6 +1425,28 @@ def _build_package_graph(facts: PackageInspectionFactSet) -> PackageGraphResult:
                             selector_authority.occurrences
                         )
                     )
+                )
+                selectors.extend(package_selectors)
+                selector_groups.append(package_selectors)
+            capability_evaluations: tuple[
+                PackageGraphCapabilityEvaluation,
+                ...,
+            ] = ()
+            catalog_evidence: tuple[PackageGraphCatalogEvidence, ...] = ()
+            if capability_facts is not None:
+                assert extension_catalog_facts is not None
+                capability_evaluations = _build_capability_evaluations(
+                    scope,
+                    tuple(requirement_groups),
+                    tuple(selector_groups),
+                    capability_facts,
+                )
+                catalog_evidence = _build_catalog_evidence(
+                    scope,
+                    tuple(selector_groups),
+                    capability_facts,
+                    extension_catalog_facts,
+                )
             snapshot = PackageGraphSnapshot(
                 scope=scope,
                 packages=packages,
@@ -700,6 +1454,8 @@ def _build_package_graph(facts: PackageInspectionFactSet) -> PackageGraphResult:
                 requirement_collections=tuple(requirement_collections),
                 requirements=tuple(requirements),
                 selectors=tuple(selectors),
+                capability_evaluations=capability_evaluations,
+                catalog_evidence=catalog_evidence,
             )
             return PackageGraphResult(
                 PackageGraphOutcome.SUCCESS,
@@ -719,7 +1475,7 @@ def _build_package_graph(facts: PackageInspectionFactSet) -> PackageGraphResult:
                 diagnostics=plan_result.diagnostics,
             )
         raise ValueError("Package inspection requires an exact outcome.")
-    except (TypeError, ValueError) as error:
+    except (AttributeError, TypeError, ValueError) as error:
         return _package_graph_construction_error(str(error))
 
 

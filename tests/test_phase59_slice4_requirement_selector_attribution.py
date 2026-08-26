@@ -289,7 +289,7 @@ def test_repeated_attribution_preserves_coordinates_and_package_topology(
     assert first.snapshot.requirements[0].ref != second.snapshot.requirements[0].ref
 
 
-def test_attribution_is_private_and_contains_no_checking_or_later_domains() -> None:
+def test_attribution_is_private_and_slice5_only_attaches_existing_evidence() -> None:
     source = SOURCE.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(SOURCE))
     imported_modules = {
@@ -298,16 +298,14 @@ def test_attribution_is_private_and_contains_no_checking_or_later_domains() -> N
         if isinstance(node, ast.ImportFrom) and node.module is not None
     }
 
-    assert (
-        not {
-            "pietto._project.capability_checking",
-            "pietto._project.capability_matrix",
-            "pietto._project.extension_signature_provider",
-            "pietto._project.extension_catalog_availability",
-            "pietto._project.extension_catalog_inspection",
-            "pietto._project_explain",
-        }
-        & imported_modules
+    assert {
+        "pietto._project.capability_checking",
+        "pietto._project.capability_inspection",
+        "pietto._project.capability_matrix",
+        "pietto._project.extension_catalog_inspection",
+    } <= imported_modules
+    assert not any(
+        module.startswith("pietto._project_explain") for module in imported_modules
     )
     builder_source = ast.get_source_segment(
         source,
