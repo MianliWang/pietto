@@ -9,27 +9,12 @@ documentation does not supersede that evidence.
 | Phase 55 | `COMPLETED` |
 | Phase 56 | `COMPLETED` |
 | Phase 57 | `COMPLETED` |
-| Phase 58 | `ACTIVE` |
-| Slice 1 | `COMPLETED` |
-| Slice 2 | `COMPLETED` |
-| Slice 3 | `COMPLETED` |
-| Slice 4 | `COMPLETED` |
-| Slice 5 | `COMPLETED` |
-| Slice 6 | `COMPLETED` |
-| Slice 7 | `COMPLETED` |
-| Slice 8 | `COMPLETED` |
-| Slice 9 | `COMPLETED` |
-| Slice 10 | `COMPLETED` |
-| Slice 11 | `COMPLETED` |
-| Slice 12 | `COMPLETED` |
-| Slice 13 | `COMPLETED` |
-| Slice 14 | `COMPLETED` |
-| Slice 15 | `COMPLETED` |
-| Slice 16 | `COMPLETED` |
-| Slice 17 | `CURRENT` |
-| Phase 59 | `UNSTARTED / NOT AUTHORIZED` |
-| Next | `PHASE58_SLICE17_COMPLETION_AUDIT_PHASE59_HANDOFF_END_TO_END` |
+| Phase 58 | `COMPLETED` |
+| Phase 59 | `ACTIVE` |
+| Slice 1 | `CURRENT` |
+| Slice 2 | `NEXT / UNSTARTED` |
+| Next | `PHASE59_SLICE2_PRIVATE_PACKAGE_GRAPH_MODEL_SNAPSHOT_IDENTITY_END_TO_END` |
 
-Slice 17 is the current completion owner. Live Git and natural exact-head CI
-own Phase 58 completion; no post-CI status-flip commit is required. This status
-does not authorize Phase 59.
+Slice 1 is the current Phase 59 architecture owner. Live Git and natural
+exact-head CI own Phase 59 Slice 1 completion; no post-CI status-flip commit is
+required. This status does not authorize Slice 2.

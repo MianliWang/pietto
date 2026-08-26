@@ -12,31 +12,21 @@ EXPECTED_STATUS = (
     ("Phase 55", "`COMPLETED`"),
     ("Phase 56", "`COMPLETED`"),
     ("Phase 57", "`COMPLETED`"),
-    ("Phase 58", "`ACTIVE`"),
-    ("Slice 1", "`COMPLETED`"),
-    ("Slice 2", "`COMPLETED`"),
-    ("Slice 3", "`COMPLETED`"),
-    ("Slice 4", "`COMPLETED`"),
-    ("Slice 5", "`COMPLETED`"),
-    ("Slice 6", "`COMPLETED`"),
-    ("Slice 7", "`COMPLETED`"),
-    ("Slice 8", "`COMPLETED`"),
-    ("Slice 9", "`COMPLETED`"),
-    ("Slice 10", "`COMPLETED`"),
-    ("Slice 11", "`COMPLETED`"),
-    ("Slice 12", "`COMPLETED`"),
-    ("Slice 13", "`COMPLETED`"),
-    ("Slice 14", "`COMPLETED`"),
-    ("Slice 15", "`COMPLETED`"),
-    ("Slice 16", "`COMPLETED`"),
-    ("Slice 17", "`CURRENT`"),
-    ("Phase 59", "`UNSTARTED / NOT AUTHORIZED`"),
-    ("Next", "`PHASE58_SLICE17_COMPLETION_AUDIT_PHASE59_HANDOFF_END_TO_END`"),
+    ("Phase 58", "`COMPLETED`"),
+    ("Phase 59", "`ACTIVE`"),
+    ("Slice 1", "`CURRENT`"),
+    ("Slice 2", "`NEXT / UNSTARTED`"),
+    (
+        "Next",
+        "`PHASE59_SLICE2_PRIVATE_PACKAGE_GRAPH_MODEL_SNAPSHOT_IDENTITY_END_TO_END`",
+    ),
 )
-EXPECTED_ROADMAP_STATE = (
-    "Phase 58 is active, Slices 1–16 are completed, Slice 17 is current, "
-    "and Phase 59 is next / unstarted."
+EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
+EXPECTED_PHASE59_STATE = (
+    "Phase 59 is active, Slice 1 is current, and Slice 2 is next / unstarted. "
+    "The published route has exactly 12 slices."
 )
+EXPECTED_PHASE59_OWNER = "Local package graph, attribution, provenance, and lineage"
 EXPECTED_PHASE58_ROUTE = (
     (
         "1",
@@ -92,6 +82,23 @@ EXPECTED_PHASE58_ROUTE = (
         "Completion audit; Phase 59 handoff; Phase 60/64/67/69 readiness reconciliation",
     ),
 )
+EXPECTED_PHASE59_ROUTE = (
+    ("1", "Graph Domains, Identity Laws, And Route Lock"),
+    ("2", "Private Package Graph Model And Snapshot Identity"),
+    ("3", "Canonical Package Graph Construction"),
+    ("4", "Requirement And Selector Attribution"),
+    ("5", "Capability, Catalog, And Typed Negative Evidence Provenance"),
+    ("6", "Direct, Transitive, And Why-Not Provenance"),
+    ("7", "Package-to-Module Attribution Bridge"),
+    ("8", "Semantic And Field-Lineage Integration"),
+    (
+        "9",
+        "Private Graph Integrity, Inspection, Query, And Canonical Pure Boundary",
+    ),
+    ("10", "Real Multi-Package Provenance And Lineage E2E"),
+    ("11", "Differential Compatibility Assurance"),
+    ("12", "Completion Audit And Phase 60 Handoff"),
+)
 
 
 def _read(path: Path) -> str:
@@ -118,13 +125,21 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     status = _read(STATUS)
     assert _table_rows(status)[1:] == EXPECTED_STATUS
     normalized = " ".join(status.split())
-    assert "Slice 17 is the current completion owner" in normalized
-    assert "Live Git and natural exact-head CI own Phase 58 completion" in (normalized)
-    assert "does not authorize Phase 59" in normalized
+    assert "Slice 1 is the current Phase 59 architecture owner" in normalized
+    assert "Live Git and natural exact-head CI own Phase 59 Slice 1 completion" in (
+        normalized
+    )
+    assert "does not authorize Slice 2" in normalized
 
 
-def test_active_roadmap_current_owner_sentence_is_exact() -> None:
-    phase58 = _section(_read(ROADMAP), "Phase 58 route").lstrip()
-    assert phase58.startswith(f"{EXPECTED_ROADMAP_STATE}\n")
-    assert phase58.count(EXPECTED_ROADMAP_STATE) == 1
+def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
+    roadmap = _read(ROADMAP)
+    phase58 = _section(roadmap, "Phase 58 route").lstrip()
+    phase59 = _section(roadmap, "Phase 59 route").lstrip()
+    assert phase58.startswith(f"{EXPECTED_PHASE58_STATE}\n")
+    assert phase58.count(EXPECTED_PHASE58_STATE) == 1
     assert _table_rows(phase58)[1:] == EXPECTED_PHASE58_ROUTE
+    assert phase59.startswith(f"{EXPECTED_PHASE59_STATE}\n")
+    assert phase59.count(EXPECTED_PHASE59_STATE) == 1
+    assert phase59.count(EXPECTED_PHASE59_OWNER) == 1
+    assert _table_rows(phase59)[1:] == EXPECTED_PHASE59_ROUTE

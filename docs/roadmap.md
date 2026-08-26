@@ -6,14 +6,14 @@ Every substantive slice begins by identifying its authority roots, current
 invariants, compatibility boundary, and the smallest behavior that is actually
 needed.
 
-The active product direction is a deterministic public project-explain
-artifact composed from existing private package, capability, and extension-
-catalog authorities. It remains compiler-only: no package or catalog registry,
-dependency solver, remote loading, database execution, runtime evaluation,
-installation discovery, or implicit project discovery is authorized. Future
-work must preserve established identity, complete collection, provenance,
-ordering, trust, and diagnostic boundaries unless a new explicit product
-decision changes them.
+The active product direction is a private typed local-package graph integrating
+existing package, module, requirement, capability, catalog, provenance, and
+lineage authorities. Project Explain v1 remains unchanged. Pietto remains
+compiler-only: no package or catalog registry, dependency solver, remote
+loading, database execution, runtime evaluation, installation discovery, or
+implicit project discovery is authorized. Future work must preserve established
+identity, complete collection, provenance, ordering, trust, and diagnostic
+boundaries unless a new explicit product decision changes them.
 
 ## Phase 55 route
 
@@ -246,7 +246,7 @@ The controlling closure is
 
 ## Phase 58 route
 
-Phase 58 is active, Slices 1–16 are completed, Slice 17 is current, and Phase 59 is next / unstarted.
+All 17 slices are completed. Phase 58 is complete.
 The original route had exactly 12 slices. After published Slice 8, a read-only
 runtime-builder authority audit proved an independent missing lifecycle, so
 the route expanded to 16 slices. After published Slice 11, production tracing
@@ -444,11 +444,42 @@ implementing later work. It adds no production semantics, public field,
 release operation, or route expansion. The controlling closure is
 [Phase 58 completion audit and Phase 59 handoff](spec/phase58-completion-audit-phase59-handoff-v1.md).
 
+## Phase 59 route
+
+Phase 59 is active, Slice 1 is current, and Slice 2 is next / unstarted. The published route has exactly 12 slices.
+
+The exact owner is **Local package graph, attribution, provenance, and lineage**.
+
+| Slice | Owner |
+| ---: | --- |
+| 1 | Graph Domains, Identity Laws, And Route Lock |
+| 2 | Private Package Graph Model And Snapshot Identity |
+| 3 | Canonical Package Graph Construction |
+| 4 | Requirement And Selector Attribution |
+| 5 | Capability, Catalog, And Typed Negative Evidence Provenance |
+| 6 | Direct, Transitive, And Why-Not Provenance |
+| 7 | Package-to-Module Attribution Bridge |
+| 8 | Semantic And Field-Lineage Integration |
+| 9 | Private Graph Integrity, Inspection, Query, And Canonical Pure Boundary |
+| 10 | Real Multi-Package Provenance And Lineage E2E |
+| 11 | Differential Compatibility Assurance |
+| 12 | Completion Audit And Phase 60 Handoff |
+
+Slice 1 freezes graph-snapshot-scoped identity, separate typed domains,
+occurrence/witness links, ordered and n-ary facts, sparse positive topology
+with typed evidence, domain-specific cycle semantics, all-path provenance,
+private canonical inspection readiness, and the exact route without production
+implementation. The controlling contract is
+[Phase 59 Slice 1 graph domains and identity laws](spec/phase59-graph-domains-identity-laws-route-lock-v1.md).
+
+Project Explain v1, existing CLI behavior, package loading, semantic lineage,
+and all public schemas remain exact zero-delta. Slice 2 remains next/unstarted;
+this route does not authorize it.
+
 ## Retained later ownership
 
 | Phase | Owner |
 | ---: | --- |
-| 59 | Local package graph, attribution, provenance, and lineage |
 | 60 | Advanced windows and Phase 51–60 readiness checkpoint |
 | 61 | Project IR and semantic composition |
 | 62 | Relationship, JOIN, grain, and fanout-safe semantics |
