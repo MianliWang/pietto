@@ -94,7 +94,7 @@ jobs:
           PY
 
       - name: Run authoritative validation
-        run: uv run python scripts/validate.py --timings --pytest-workers auto --pytest-dist loadfile --pytest-maxprocesses 4
+        run: uv run python scripts/validate.py --timings
 
       - name: Verify generated files
         run: uv run python scripts/check_generated.py

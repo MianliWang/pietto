@@ -13,7 +13,7 @@ EXPECTED_STATUS = (
     ("Phase 56", "`COMPLETED`"),
     ("Phase 57", "`COMPLETED`"),
     ("Phase 58", "`COMPLETED`"),
-    ("Phase 59", "`COMPLETION CANDIDATE`"),
+    ("Phase 59", "`COMPLETED`"),
     ("Slice 1", "`COMPLETED`"),
     ("Slice 2", "`COMPLETED`"),
     ("Slice 3", "`COMPLETED`"),
@@ -25,23 +25,25 @@ EXPECTED_STATUS = (
     ("Slice 9", "`COMPLETED`"),
     ("Slice 10", "`COMPLETED`"),
     ("Slice 11", "`COMPLETED`"),
-    ("Slice 12", "`CURRENT / COMPLETION CANDIDATE`"),
+    ("Slice 12", "`COMPLETED`"),
     (
         "Validation/Test Performance Optimization Interlude",
-        "`NEXT / UNSTARTED`",
+        "`ACTIVE`",
     ),
+    ("Interlude Slice 1", "`CURRENT / PUBLICATION CANDIDATE`"),
+    ("Interlude Slice 2", "`NEXT / UNSTARTED`"),
     ("Phase 60", "`BLOCKED / NOT ACTIVATED`"),
     (
         "Next",
-        "`VALIDATION_TEST_PERFORMANCE_OPTIMIZATION_INTERLUDE`",
+        "`VALIDATION_PERFORMANCE_INTERLUDE_SLICE2_DIFFERENTIAL_PROBE_RUNTIME_DECOMPOSITION_AND_OPTIMIZATION`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
-    "Phase 59 is a completion candidate, Slices 1–11 are completed, Slice 12 "
-    "is the current completion candidate, the Validation/Test Performance "
-    "Optimization Interlude is next / unstarted, and Phase 60 is blocked / not "
-    "activated. The published route has exactly 12 slices."
+    "Phase 59 is completed, all 12 Slices are completed, the Validation/Test\n"
+    "Performance Optimization Interlude is active with Slice 1 as its current\n"
+    "publication candidate, and Phase 60 is blocked / not activated. The published\n"
+    "Phase 59 route has exactly 12 slices."
 )
 EXPECTED_PHASE59_OWNER = "Local package graph, attribution, provenance, and lineage"
 EXPECTED_PHASE58_ROUTE = (
@@ -116,6 +118,14 @@ EXPECTED_PHASE59_ROUTE = (
     ("11", "Differential Compatibility Assurance"),
     ("12", "Completion Audit And Phase 60 Handoff"),
 )
+EXPECTED_INTERLUDE_ROUTE = (
+    ("1", "Baseline Profiling, Cost Attribution, And Route Lock"),
+    ("2", "Differential Probe Runtime Decomposition And Optimization"),
+    ("3", "Repository Reader Acquisition Reuse"),
+    ("4", "Validator Static-Analysis Stage Optimization"),
+    ("5", "Current-Suite Isolation Audit And Xdist Decision"),
+    ("6", "Completion Benchmark And Phase 60 Readiness Assurance"),
+)
 EXPECTED_RETAINED_LATER_OWNERS = (
     ("60", "Advanced windows and Phase 51–60 readiness checkpoint"),
     ("61", "Project IR and semantic composition"),
@@ -132,12 +142,16 @@ EXPECTED_RETAINED_LATER_OWNERS = (
     ),
     ("70", "Public schema/lineage expansion and v0.2 release-readiness decision"),
 )
-EXPECTED_SLICE12_CHANGED_PATHS = (
+EXPECTED_INTERLUDE_SLICE1_CHANGED_PATHS = (
+    ".github/workflows/ci.yml",
     "docs/roadmap.md",
-    "docs/spec/phase59-completion-audit-phase60-handoff-v1.md",
+    "docs/spec/validation-performance-interlude-slice1-baseline-profiling-cost-attribution-route-lock-v1.md",
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_validation_performance_interlude_slice1_baseline_profiling_cost_attribution_route_lock.py",
     "tests/test_phase59_slice12_completion_audit_phase60_handoff.py",
+    "tests/test_workflow_lifecycle_validation_efficiency.py",
 )
 
 
@@ -165,13 +179,12 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     status = _read(STATUS)
     assert _table_rows(status)[1:] == EXPECTED_STATUS
     normalized = " ".join(status.split())
-    assert "Slice 12 is the current Phase 59 completion candidate" in normalized
-    assert (
-        "Live Git and natural exact-head CI on its single commit own Phase 59 completion"
-        in normalized
-    )
+    assert "Phase 59 is completed by live Git" in normalized
+    assert "Interlude Slice 1 is the current publication candidate" in normalized
+    assert "natural exact-head CI on its single commit completes Slice 1" in normalized
     assert "no post-CI status-flip commit is required" in normalized
-    assert "does not activate the performance interlude or Phase 60" in normalized
+    assert "performance interlude is active" in normalized
+    assert "Phase 60 remains blocked and not activated" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
@@ -188,21 +201,41 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
 
     retained = _section(roadmap, "Retained later ownership")
     assert _table_rows(retained)[1:] == EXPECTED_RETAINED_LATER_OWNERS
-    interlude = " ".join(
-        _section(roadmap, "Validation/Test Performance Optimization Interlude").split()
+    interlude = _section(
+        roadmap,
+        "Validation/Test Performance Optimization Interlude",
     )
+    interlude_normalized = " ".join(interlude.split())
     assert (
         "Phase 59 completion -> Validation/Test Performance Optimization Interlude "
-        "-> Phase 60 activation" in interlude
+        "-> Phase 60 activation" in interlude_normalized
     )
     assert (
         "evidence-backed optimization of Pietto's test/validation runtime without "
-        "weakening validation semantics or deterministic authority" in interlude
+        "weakening validation semantics or deterministic authority"
+        in interlude_normalized
     )
-    assert "detailed Slice route remains evidence-driven and unfrozen" in interlude
-    assert "Phase 60 is `BLOCKED / NOT ACTIVATED`" in interlude
-    assert all((REPO_ROOT / path).is_file() for path in EXPECTED_SLICE12_CHANGED_PATHS)
+    assert _table_rows(interlude)[1:] == EXPECTED_INTERLUDE_ROUTE
+    assert "RepositoryTestIndex" not in interlude_normalized
+    assert "only partially supported" in interlude_normalized
+    assert "Differential Probe Runtime Decomposition And Optimization" in (
+        interlude_normalized
+    )
+    assert (
+        "Natural CI and the authoritative local validator remain serial"
+        in interlude_normalized
+    )
+    assert "Phase 60 is `BLOCKED / NOT ACTIVATED`" in interlude_normalized
+    assert len(EXPECTED_INTERLUDE_SLICE1_CHANGED_PATHS) == 9
+    assert all(
+        (REPO_ROOT / path).is_file() for path in EXPECTED_INTERLUDE_SLICE1_CHANGED_PATHS
+    )
     assert not any(
-        path.startswith(("src/", "scripts/", ".github/"))
-        for path in EXPECTED_SLICE12_CHANGED_PATHS
+        path.startswith(("src/", "scripts/", "grammar/"))
+        for path in EXPECTED_INTERLUDE_SLICE1_CHANGED_PATHS
     )
+    assert tuple(
+        path
+        for path in EXPECTED_INTERLUDE_SLICE1_CHANGED_PATHS
+        if path.startswith(".github/")
+    ) == (".github/workflows/ci.yml",)

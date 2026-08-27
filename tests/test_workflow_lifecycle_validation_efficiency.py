@@ -40,6 +40,7 @@ def _product_tests() -> tuple[Path, ...]:
                 *TESTS_ROOT.glob("test_phase56_*.py"),
                 *TESTS_ROOT.glob("test_phase57_*.py"),
                 *TESTS_ROOT.glob("test_phase58_slice*.py"),
+                *TESTS_ROOT.glob("test_phase59_slice*.py"),
             }
         )
     )
@@ -89,6 +90,19 @@ def test_product_tests_have_no_mutable_lifecycle_or_roadmap_dependency() -> None
         assert path not in status_readers
         assert path not in roadmap_readers
         assert _MUTABLE_LIFECYCLE.search(source) is None, path
+        tree = ast.parse(source, filename=str(path))
+        imported_modules = {
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        } | {
+            node.module
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module is not None
+        }
+        if path.name.startswith("test_phase59_"):
+            assert ACTIVE_READER.stem not in imported_modules, path
 
     phase58_sources = "\n".join(
         _read(path) for path in product_tests if path.name.startswith("test_phase58_")

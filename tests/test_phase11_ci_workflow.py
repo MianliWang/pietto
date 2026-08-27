@@ -13,7 +13,7 @@ EXPECTED_ACTIONS = (
     "astral-sh/setup-uv",
 )
 EXPECTED_COMMANDS = (
-    "uv run python scripts/validate.py --timings --pytest-workers auto --pytest-dist loadfile --pytest-maxprocesses 4",
+    "uv run python scripts/validate.py --timings",
     "uv run python scripts/check_generated.py",
     "uv run python scripts/check_goldens.py",
     "uv run python scripts/package_smoke.py",

@@ -10,7 +10,7 @@ documentation does not supersede that evidence.
 | Phase 56 | `COMPLETED` |
 | Phase 57 | `COMPLETED` |
 | Phase 58 | `COMPLETED` |
-| Phase 59 | `COMPLETION CANDIDATE` |
+| Phase 59 | `COMPLETED` |
 | Slice 1 | `COMPLETED` |
 | Slice 2 | `COMPLETED` |
 | Slice 3 | `COMPLETED` |
@@ -22,14 +22,16 @@ documentation does not supersede that evidence.
 | Slice 9 | `COMPLETED` |
 | Slice 10 | `COMPLETED` |
 | Slice 11 | `COMPLETED` |
-| Slice 12 | `CURRENT / COMPLETION CANDIDATE` |
-| Validation/Test Performance Optimization Interlude | `NEXT / UNSTARTED` |
+| Slice 12 | `COMPLETED` |
+| Validation/Test Performance Optimization Interlude | `ACTIVE` |
+| Interlude Slice 1 | `CURRENT / PUBLICATION CANDIDATE` |
+| Interlude Slice 2 | `NEXT / UNSTARTED` |
 | Phase 60 | `BLOCKED / NOT ACTIVATED` |
-| Next | `VALIDATION_TEST_PERFORMANCE_OPTIMIZATION_INTERLUDE` |
+| Next | `VALIDATION_PERFORMANCE_INTERLUDE_SLICE2_DIFFERENTIAL_PROBE_RUNTIME_DECOMPOSITION_AND_OPTIMIZATION` |
 
-Slice 12 is the current Phase 59 completion candidate. Live Git and natural
-exact-head CI on its single commit own Phase 59 completion; no post-CI
-status-flip commit is required. Successful publication establishes Phase 59 as
-completed while leaving the Validation/Test Performance Optimization
-Interlude next and Phase 60 not activated. This candidate does not activate the
-performance interlude or Phase 60.
+Phase 59 is completed by live Git and successful natural exact-head CI on its
+single Slice 12 commit. Interlude Slice 1 is the current publication candidate.
+Successful natural exact-head CI on its single commit completes Slice 1 and
+leaves Differential Probe Runtime Decomposition And Optimization next; no
+post-CI status-flip commit is required. The performance interlude is active,
+while Phase 60 remains blocked and not activated.

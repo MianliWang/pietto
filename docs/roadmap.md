@@ -446,7 +446,10 @@ release operation, or route expansion. The controlling closure is
 
 ## Phase 59 route
 
-Phase 59 is a completion candidate, Slices 1–11 are completed, Slice 12 is the current completion candidate, the Validation/Test Performance Optimization Interlude is next / unstarted, and Phase 60 is blocked / not activated. The published route has exactly 12 slices.
+Phase 59 is completed, all 12 Slices are completed, the Validation/Test
+Performance Optimization Interlude is active with Slice 1 as its current
+publication candidate, and Phase 60 is blocked / not activated. The published
+Phase 59 route has exactly 12 slices.
 
 The exact owner is **Local package graph, attribution, provenance, and lineage**.
 
@@ -577,13 +580,13 @@ interlude without beginning it or Phase 60. The controlling closure is
 
 Project Explain v1, existing CLI behavior, package loading, semantic lineage,
 and all public schemas remain exact zero-delta. Successful natural exact-head
-CI on the single Slice 12 commit establishes Phase 59 completion without a
-status-only follow-up commit, leaves the performance interlude next, and leaves
-Phase 60 not activated.
+CI on the single Slice 12 commit established Phase 59 completion without a
+status-only follow-up commit, activated the performance interlude as the next
+owner, and left Phase 60 not activated.
 
 ## Validation/Test Performance Optimization Interlude
 
-This mandatory owner is `NEXT / UNSTARTED` after Phase 59 completion:
+This mandatory owner is `ACTIVE` after Phase 59 completion:
 
 ```text
 Phase 59 completion
@@ -600,11 +603,41 @@ it. Scanner consolidation must preserve policy; determinism and isolation must
 be audited before any pytest-xdist benchmark, and parallel execution requires
 measured safety and benefit.
 
+| Slice | Owner |
+| ---: | --- |
+| 1 | Baseline Profiling, Cost Attribution, And Route Lock |
+| 2 | Differential Probe Runtime Decomposition And Optimization |
+| 3 | Repository Reader Acquisition Reuse |
+| 4 | Validator Static-Analysis Stage Optimization |
+| 5 | Current-Suite Isolation Audit And Xdist Decision |
+| 6 | Completion Benchmark And Phase 60 Readiness Assurance |
+
+Slice 1 measures the current serial suite and validator stages, attributes the
+dominant cost to repeated cross-process differential probes, records historical
+repository-reader duplication, and freezes this six-Slice route without
+implementing an optimization. A complete general-purpose repository test index
+is only partially supported: immutable shared acquisition is justified for the
+measured duplicate-reader slice, but repository scans are not the dominant wall
+time. The controlling evidence and success metrics are
+[Interlude Slice 1 baseline profiling and route lock](spec/validation-performance-interlude-slice1-baseline-profiling-cost-attribution-route-lock-v1.md).
+
+Slice 2 first decomposes runtime inside the cross-process differential probes,
+then optimizes only measured internal cost while preserving every seed,
+interpreter, relocation, installed-wheel, failure, order, multiplicity, and
+byte-exact witness. Slice 3 owns the smallest immutable shared repository-reader
+acquisition supported by the measured duplication; it does not presuppose a
+monolithic index. Slice 4 owns the separately measured production/test Pyright
+stage cost. Slice 5 must audit the current suite's mutable state, filesystem
+isolation, caches, cwd/environment changes, build paths, and ordering before any
+controlled xdist comparison or CI decision. Slice 6 owns same-method completion
+measurement and readiness assurance; it does not activate Phase 60.
+
 Python 3.12/3.13, generated, golden, package-smoke, reader-closure, and failure
 semantics remain mandatory. The Python suite is not rewritten in Rust merely
-for speed, and the first Rust-kernel decision remains later-owned. No profiling
-or optimization begins in Slice 12, and the interlude's detailed Slice route
-remains evidence-driven and unfrozen.
+for speed, and the first Rust-kernel decision remains later-owned. Interlude
+Slice 1 changes no production or validation semantics. Natural CI and the
+authoritative local validator remain serial through Slice 1; installed xdist
+tooling grants no current-suite safety or performance authority.
 
 Phase 60 is `BLOCKED / NOT ACTIVATED` until this interlude is completed by its
 own later live authority.

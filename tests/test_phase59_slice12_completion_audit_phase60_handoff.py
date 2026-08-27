@@ -11,7 +11,6 @@ import pietto._project as project_package
 import pietto._project.package_graph as graph
 import pietto._project.package_graph_inspection as graph_inspection
 import pietto._project_explain as project_explain_package
-import test_active_phase_lifecycle as lifecycle
 import test_phase59_slice11_differential_compatibility_assurance as differential
 from pietto._metadata.model import (
     SEMANTIC_METADATA_ARTIFACT_NAME,
@@ -23,8 +22,34 @@ from pietto._project_explain.model import ProjectExplainFormat
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SPEC = REPO_ROOT / "docs/spec/phase59-completion-audit-phase60-handoff-v1.md"
+ROUTE_LOCK = (
+    REPO_ROOT / "docs/spec/phase59-graph-domains-identity-laws-route-lock-v1.md"
+)
+INTERLUDE_BASELINE = (
+    REPO_ROOT
+    / "docs/spec/validation-performance-interlude-slice1-baseline-profiling-cost-attribution-route-lock-v1.md"
+)
 SOURCE = REPO_ROOT / "tests/test_phase59_slice12_completion_audit_phase60_handoff.py"
 PHASE59_BASE = "d5487fe162d1ee47878284ea289f5d15f96bc49b"
+
+_DECLARED_LATER_OWNERS = (
+    "Advanced windows and Phase 51–60 readiness checkpoint",
+    "Project IR and semantic composition",
+    "Relationship, JOIN, grain, and fanout-safe semantics",
+    "Multi-relation SQL, project emit-SQL, and QUALIFY lowering",
+    "Advanced types, coercion, temporal, Decimal, and native mapping",
+    "Advanced aggregation and grouping",
+    "Advanced module and semantic-package assets",
+    "Remote package manager and trust boundary",
+    "Dependency solver, canonical lockfile, and first Rust kernel decision",
+    (
+        "Release-aware PostgreSQL core builtin signature catalog, "
+        "backend-specific core catalog foundations, generated/multi-source "
+        "extension catalog assembly, extension-specific lowering, and "
+        "additional dialect foundations"
+    ),
+    "Public schema/lineage expansion and v0.2 release-readiness decision",
+)
 
 _SLICE_AUTHORITIES = (
     (
@@ -169,6 +194,14 @@ _PUBLISHED_SLICES = (
     ),
 )
 
+_PUBLISHED_SLICE12 = (
+    12,
+    "6a3d5d54ce728b60985718ed7b867721a1680f13",
+    "d9469ac3fb715e8b6e689aa7fef9384f0662b3de",
+    "33053099675",
+    "Complete Phase 59 package graph provenance",
+)
+
 
 def _section(document: str, heading: str) -> str:
     marker = f"## {heading}\n"
@@ -207,22 +240,16 @@ def _git(*arguments: str) -> str:
     return result.stdout.strip()
 
 
-def _commit_is_available(commit: str) -> bool:
-    result = subprocess.run(
-        ("git", "cat-file", "-e", f"{commit}^{{commit}}"),
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-    )
-    return result.returncode == 0
-
-
 def test_all_12_route_owners_have_exact_spec_test_and_production_authority() -> None:
     specs = {path.name for path in (REPO_ROOT / "docs/spec").glob("phase59*.md")}
     tests = {path.name for path in (REPO_ROOT / "tests").glob("test_phase59_slice*.py")}
     assert specs == {spec for spec, _test, _production in _SLICE_AUTHORITIES}
     assert tests == {test for _spec, test, _production in _SLICE_AUTHORITIES}
-    assert len(_SLICE_AUTHORITIES) == len(lifecycle.EXPECTED_PHASE59_ROUTE) == 12
+    route_rows = _table(
+        _section(ROUTE_LOCK.read_text(encoding="utf-8"), "Exact 12-slice Route")
+    )
+    expected_route = tuple((row[0], row[1]) for row in route_rows)
+    assert len(_SLICE_AUTHORITIES) == len(expected_route) == 12
     assert all(
         (REPO_ROOT / path).is_file()
         for _spec, _test, production in _SLICE_AUTHORITIES
@@ -231,7 +258,7 @@ def test_all_12_route_owners_have_exact_spec_test_and_production_authority() -> 
 
     document = SPEC.read_text(encoding="utf-8")
     rows = _table(_section(document, "Final 12-Slice Completion Matrix"))
-    assert tuple((row[0], row[1]) for row in rows) == lifecycle.EXPECTED_PHASE59_ROUTE
+    assert tuple((row[0], row[1]) for row in rows) == expected_route
     assert tuple(row[2] for row in rows[:11]) == ("`COMPLETED / PUBLISHED`",) * 11
     assert rows[11][2] == "`CURRENT / PENDING NATURAL CI`"
     assert tuple(Path(row[3].strip("`")).name for row in rows) == tuple(
@@ -243,7 +270,7 @@ def test_all_12_route_owners_have_exact_spec_test_and_production_authority() -> 
     assert "ownership obligations evidenced: 12 / 12" in document
 
 
-def test_slices_1_through_11_have_exact_live_commit_tree_and_ci_chain() -> None:
+def test_phase59_publication_chain_uses_stable_slice12_authority() -> None:
     rows = _table(
         _section(SPEC.read_text(encoding="utf-8"), "Published Slice 1-11 Authority")
     )
@@ -259,26 +286,42 @@ def test_slices_1_through_11_have_exact_live_commit_tree_and_ci_chain() -> None:
         for number, commit, tree, run_id, subject in _PUBLISHED_SLICES
     )
 
-    commits = tuple(row[1] for row in _PUBLISHED_SLICES)
-    if all(_commit_is_available(commit) for commit in commits):
-        assert (
-            tuple(
-                _git(
-                    "log", "--reverse", "--format=%H", f"{PHASE59_BASE}..{commits[-1]}"
-                ).splitlines()
-            )
-            == commits
+    published_slices = (*_PUBLISHED_SLICES, _PUBLISHED_SLICE12)
+    commits = tuple(row[1] for row in published_slices)
+    slice12 = _section(
+        INTERLUDE_BASELINE.read_text(encoding="utf-8"),
+        "Starting Authority",
+    )
+    for value in _PUBLISHED_SLICE12[1:]:
+        assert f"`{value}`" in slice12
+    assert "`push`, attempt `1`, successful exact head" in slice12
+
+    if _git("rev-parse", "--is-shallow-repository") == "true":
+        historical = " ".join(
+            _section(
+                SPEC.read_text(encoding="utf-8"),
+                "Published Slice 1-11 Authority",
+            ).split()
         )
-        for position, (_number, commit, tree, _run_id, subject) in enumerate(
-            _PUBLISHED_SLICES
-        ):
-            assert _git("show", "-s", "--format=%T", commit) == tree
-            assert _git("show", "-s", "--format=%s", commit) == subject
-            expected_parent = PHASE59_BASE if position == 0 else commits[position - 1]
-            assert _git("show", "-s", "--format=%P", commit) == expected_parent
-    else:
-        assert _git("rev-parse", "--is-shallow-repository") == "true"
-        assert f"parent {commits[-1]}" in _git("cat-file", "-p", "HEAD")
+        assert "commits form one direct parent chain" in historical
+        assert "Slice 12 head's exact Slice 11 parent" in historical
+        return
+
+    assert (
+        tuple(
+            _git(
+                "log", "--reverse", "--format=%H", f"{PHASE59_BASE}..{commits[-1]}"
+            ).splitlines()
+        )
+        == commits
+    )
+    for position, (_number, commit, tree, _run_id, subject) in enumerate(
+        published_slices
+    ):
+        assert _git("show", "-s", "--format=%T", commit) == tree
+        assert _git("show", "-s", "--format=%s", commit) == subject
+        expected_parent = PHASE59_BASE if position == 0 else commits[position - 1]
+        assert _git("show", "-s", "--format=%P", commit) == expected_parent
 
 
 def test_identity_domains_and_private_snapshot_boundary_remain_exact() -> None:
@@ -478,15 +521,18 @@ def test_compatibility_public_behavior_and_central_assurance_remain_zero_delta()
         assert (REPO_ROOT / path).is_file()
 
 
-def test_deferred_readiness_ledger_matches_the_live_roadmap() -> None:
-    later_owners = dict(lifecycle.EXPECTED_RETAINED_LATER_OWNERS)
+def test_deferred_readiness_ledger_preserves_the_declared_phase59_handoff() -> None:
     document = SPEC.read_text(encoding="utf-8")
     deferred_rows = _table(_section(document, "Deferred And Readiness Ledger"))
-    assert tuple(row[0] for row in deferred_rows) == tuple(later_owners)
+    readiness_rows = _table(
+        _section(ROUTE_LOCK.read_text(encoding="utf-8"), "Phase 60–70 Readiness")
+    )
+    assert tuple(row[0] for row in deferred_rows) == tuple(
+        row[0] for row in readiness_rows
+    )
+    assert tuple(row[2] for row in deferred_rows) == _DECLARED_LATER_OWNERS
     assert all(
-        row[1] == "`TRANSFERRED_TO_EXACT_LATER_OWNER`"
-        and row[2] == later_owners[row[0]]
-        and row[3]
+        row[1] == "`TRANSFERRED_TO_EXACT_LATER_OWNER`" and row[3]
         for row in deferred_rows
     )
     phase60 = deferred_rows[0][3]
@@ -494,7 +540,7 @@ def test_deferred_readiness_ledger_matches_the_live_roadmap() -> None:
     assert "no advanced frame semantics" in phase60
 
 
-def test_performance_interlude_is_mandatory_next_and_phase60_is_not_active() -> None:
+def test_phase59_completion_declares_the_interlude_before_phase60_activation() -> None:
     document = SPEC.read_text(encoding="utf-8")
     interlude = _section(document, "Mandatory Performance Interlude")
     normalized = " ".join(interlude.split())
@@ -525,24 +571,29 @@ def test_performance_interlude_is_mandatory_next_and_phase60_is_not_active() -> 
     assert "detailed Slice route remains evidence-driven and unfrozen" in normalized
     assert "| Slice |" not in interlude
 
-    assert (
-        "Validation/Test Performance Optimization Interlude",
-        "`NEXT / UNSTARTED`",
-    ) in lifecycle.EXPECTED_STATUS
-    assert ("Phase 60", "`BLOCKED / NOT ACTIVATED`") in lifecycle.EXPECTED_STATUS
-    assert "Interlude is next / unstarted" in lifecycle.EXPECTED_PHASE59_STATE
-    assert "Phase 60 is blocked / not activated" in lifecycle.EXPECTED_PHASE59_STATE
-
-
-def test_slice12_candidate_is_docs_static_tests_only_and_has_one_lifecycle_owner() -> (
-    None
-):
-    changed_paths = lifecycle.EXPECTED_SLICE12_CHANGED_PATHS
-    assert len(changed_paths) == 5
-    assert all((REPO_ROOT / path).is_file() for path in changed_paths)
-    assert not any(
-        path.startswith(("src/", "scripts/", ".github/")) for path in changed_paths
+    historical_lifecycle = " ".join(
+        _section(document, "Lifecycle And Publication Subject").split()
     )
+    assert "Phase 59: COMPLETION CANDIDATE" in historical_lifecycle
+    assert "Slice 12: CURRENT / COMPLETION CANDIDATE" in historical_lifecycle
+    assert (
+        "Validation/Test Performance Optimization Interlude: NEXT / UNSTARTED"
+        in historical_lifecycle
+    )
+    assert "Phase 60: BLOCKED / NOT ACTIVATED" in historical_lifecycle
+
+
+def test_slice12_historical_candidate_is_static_and_has_no_runtime_owner() -> None:
+    delta = " ".join(
+        _section(
+            SPEC.read_text(encoding="utf-8"), "Phase 59 Production And Public Delta"
+        ).split()
+    )
+    assert "five-path documentation/static test allowlist" in delta
+    assert "production delta = 0" in delta
+    assert "generated delta = 0" in delta
+    assert "golden delta = 0" in delta
+
     source_tree = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
     assert not any(
         isinstance(node, ast.Call)
