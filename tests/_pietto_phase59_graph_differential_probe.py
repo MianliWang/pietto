@@ -6,9 +6,7 @@ import argparse
 import hashlib
 from importlib.metadata import version
 import json
-import os
 from pathlib import Path
-import subprocess
 import sys
 
 from _pietto_project_explain_scenarios import (
@@ -19,6 +17,7 @@ from _pietto_project_explain_scenarios import (
     _profile,
     _project_config,
     _target,
+    _run_cli_pair,
     _write_package,
 )
 import pietto._project.check as project_check
@@ -121,9 +120,6 @@ MODULE_SOURCE = (
     "            order by:\n"
     "                id desc\n"
 ).encode()
-_CLI_CODE = (
-    "import sys\nfrom pietto.cli import main\nraise SystemExit(main(sys.argv[1:]))\n"
-)
 
 
 def _write_semantic_config(package_root: Path) -> None:
@@ -482,28 +478,16 @@ def _runtime_refs_are_distinct(
     return True
 
 
-def _run_cli(
-    arguments: tuple[str, ...], cwd: Path
-) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(
-        (sys.executable, "-c", _CLI_CODE, *arguments),
-        check=False,
-        capture_output=True,
-        cwd=cwd,
-        env=os.environ.copy(),
-    )
-
-
 def _project_explain_observation(project: Path, cwd: Path) -> dict[str, object]:
     result = runtime_builder._build_project_explain_runtime(project)
     assert result.outcome is ProjectExplainRuntimeOutcome.SUCCESS
     json_document = serialize_project_explain_json_document(result.envelope)
     text_document = render_project_explain_text(result.envelope).encode()
-    json_cli = _run_cli(
+    json_cli, text_cli = _run_cli_pair(
         ("explain", "--project", project.as_posix(), "--format", "json"),
+        ("explain", "--project", project.as_posix()),
         cwd,
     )
-    text_cli = _run_cli(("explain", "--project", project.as_posix()), cwd)
     assert (json_cli.returncode, json_cli.stdout, json_cli.stderr) == (
         0,
         json_document,

@@ -5,9 +5,7 @@ from __future__ import annotations
 import argparse
 from importlib.metadata import version
 import json
-import os
 from pathlib import Path
-import subprocess
 import sys
 
 from _pietto_project_explain_scenarios import (
@@ -16,6 +14,7 @@ from _pietto_project_explain_scenarios import (
     _manifest,
     _multi_package_multi_target_project,
     _profile,
+    _run_cli_pair,
     _target,
     _write_single_project,
 )
@@ -32,21 +31,6 @@ from pietto._project_explain.text import render_project_explain_text
 
 OBSERVATION_FORMAT = "pietto.project-explain-differential.v1"
 SCENARIO_ORDER = ("matrix", "empty", "portable", "diagnostic", "resource")
-_CLI_CODE = (
-    "import sys\nfrom pietto.cli import main\nraise SystemExit(main(sys.argv[1:]))\n"
-)
-
-
-def _run_cli(
-    arguments: tuple[str, ...], cwd: Path
-) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(
-        (sys.executable, "-c", _CLI_CODE, *arguments),
-        check=False,
-        capture_output=True,
-        cwd=cwd,
-        env=os.environ.copy(),
-    )
 
 
 def _project_observation(root: Path, cwd: Path) -> dict[str, object]:
@@ -58,11 +42,11 @@ def _project_observation(root: Path, cwd: Path) -> dict[str, object]:
         ProjectExplainRuntimeOutcome.DIAGNOSTIC_ERROR: 1,
         ProjectExplainRuntimeOutcome.USAGE_OR_RESOURCE_ERROR: 2,
     }[result.outcome]
-    json_cli = _run_cli(
+    json_cli, text_cli = _run_cli_pair(
         ("explain", "--project", root.as_posix(), "--format", "json"),
+        ("explain", "--project", root.as_posix()),
         cwd,
     )
-    text_cli = _run_cli(("explain", "--project", root.as_posix()), cwd)
     if result.outcome is ProjectExplainRuntimeOutcome.SUCCESS:
         expected_text_stdout, expected_text_stderr = text_document, b""
     else:
@@ -93,8 +77,8 @@ def _project_observation(root: Path, cwd: Path) -> dict[str, object]:
 def _single_file_observation(workspace: Path) -> dict[str, object]:
     source = workspace / "single.pietto"
     source.write_text("shape Row:\n    id: Int not null\n", encoding="utf-8")
-    text_cli = _run_cli(("explain", "single.pietto"), workspace)
-    json_cli = _run_cli(
+    text_cli, json_cli = _run_cli_pair(
+        ("explain", "single.pietto"),
         ("explain", "single.pietto", "--format", "json"),
         workspace,
     )

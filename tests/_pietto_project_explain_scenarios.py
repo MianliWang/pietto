@@ -1,8 +1,13 @@
-"""Mechanical real-input builders shared by Project Explain assurance tests."""
+"""Mechanical real-input and CLI helpers for Project Explain assurance tests."""
 
 from __future__ import annotations
 
+import base64
+import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 from pietto._project.package_loader import _compute_package_content_sha256
 
@@ -36,6 +41,97 @@ CONFLICT_REQUIREMENT = """[[capability_requirements.entries]]
 domain = "logical_type"
 subject = "ConflictType"
 operands = []"""
+
+_CLI_PAIR_CODE = r"""
+import base64
+import io
+import json
+import sys
+from pietto.cli import main
+
+class Capture:
+    encoding = "utf-8"
+
+    def __init__(self):
+        self.buffer = io.BytesIO()
+
+    def write(self, value):
+        self.buffer.write(value.encode(self.encoding))
+        return len(value)
+
+    def flush(self):
+        pass
+
+    def isatty(self):
+        return False
+
+def run(arguments):
+    stdout = Capture()
+    stderr = Capture()
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    try:
+        sys.stdout = stdout
+        sys.stderr = stderr
+        try:
+            returncode = main(arguments)
+        except SystemExit as error:
+            returncode = error.code
+    finally:
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+    assert type(returncode) is int
+    return [
+        returncode,
+        base64.b64encode(stdout.buffer.getvalue()).decode("ascii"),
+        base64.b64encode(stderr.buffer.getvalue()).decode("ascii"),
+    ]
+
+commands = json.loads(sys.argv[1])
+assert type(commands) is list and len(commands) == 2
+sys.stdout.write(json.dumps([run(command) for command in commands], separators=(",", ":")))
+"""
+
+
+def _run_cli_pair(
+    first: tuple[str, ...],
+    second: tuple[str, ...],
+    cwd: Path,
+) -> tuple[subprocess.CompletedProcess[bytes], subprocess.CompletedProcess[bytes]]:
+    commands = (first, second)
+    completed = subprocess.run(
+        (
+            sys.executable,
+            "-c",
+            _CLI_PAIR_CODE,
+            json.dumps(commands, separators=(",", ":")),
+        ),
+        check=True,
+        capture_output=True,
+        cwd=cwd,
+        env=os.environ.copy(),
+    )
+    assert completed.stderr == b""
+    payload = json.loads(completed.stdout)
+    assert type(payload) is list and len(payload) == len(commands)
+    results = []
+    for arguments, item in zip(commands, payload, strict=True):
+        assert (
+            type(item) is list
+            and len(item) == 3
+            and type(item[0]) is int
+            and type(item[1]) is str
+            and type(item[2]) is str
+        )
+        results.append(
+            subprocess.CompletedProcess(
+                arguments,
+                item[0],
+                base64.b64decode(item[1]),
+                base64.b64decode(item[2]),
+            )
+        )
+    return results[0], results[1]
 
 
 def _manifest(
