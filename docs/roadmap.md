@@ -446,7 +446,7 @@ release operation, or route expansion. The controlling closure is
 
 ## Phase 59 route
 
-Phase 59 is active, Slices 1–10 are completed, Slice 11 is current, and Slice 12 is next / unstarted. The published route has exactly 12 slices.
+Phase 59 is a completion candidate, Slices 1–11 are completed, Slice 12 is the current completion candidate, the Validation/Test Performance Optimization Interlude is next / unstarted, and Phase 60 is blocked / not activated. The published route has exactly 12 slices.
 
 The exact owner is **Local package graph, attribution, provenance, and lineage**.
 
@@ -568,11 +568,46 @@ adds no production behavior, public artifact, golden file, workflow, or
 performance optimization. The controlling contract is
 [Phase 59 Slice 11 differential compatibility assurance](spec/phase59-slice11-differential-compatibility-assurance-v1.md).
 
+Slice 12 audits all 12 route owners, all 22 exit criteria, the exact Slice
+1–11 commit/tree/natural-CI chain, identity and provenance laws, private/public
+boundaries, compatibility, zero self-owned-open subjects, and Phase 60–70
+readiness. It adds no production behavior and binds the mandatory performance
+interlude without beginning it or Phase 60. The controlling closure is
+[Phase 59 completion audit and Phase 60 handoff](spec/phase59-completion-audit-phase60-handoff-v1.md).
+
 Project Explain v1, existing CLI behavior, package loading, semantic lineage,
-and all public schemas remain exact zero-delta. Slice 12 remains next/unstarted;
-this route does not authorize it. Slice 12 must record the already-decided
-Phase 59 completion → validation/test performance optimization interlude →
-Phase 60 activation prerequisite without starting that interlude early.
+and all public schemas remain exact zero-delta. Successful natural exact-head
+CI on the single Slice 12 commit establishes Phase 59 completion without a
+status-only follow-up commit, leaves the performance interlude next, and leaves
+Phase 60 not activated.
+
+## Validation/Test Performance Optimization Interlude
+
+This mandatory owner is `NEXT / UNSTARTED` after Phase 59 completion:
+
+```text
+Phase 59 completion
+-> Validation/Test Performance Optimization Interlude
+-> Phase 60 activation
+```
+
+Its owner is evidence-backed optimization of Pietto's test/validation runtime
+without weakening validation semantics or deterministic authority. It must
+profile pytest and validator stages, measure repeated filesystem/source/AST/
+import scans, identify duplicated historical readers, and consider an
+immutable session-scoped repository test index only when profiling supports
+it. Scanner consolidation must preserve policy; determinism and isolation must
+be audited before any pytest-xdist benchmark, and parallel execution requires
+measured safety and benefit.
+
+Python 3.12/3.13, generated, golden, package-smoke, reader-closure, and failure
+semantics remain mandatory. The Python suite is not rewritten in Rust merely
+for speed, and the first Rust-kernel decision remains later-owned. No profiling
+or optimization begins in Slice 12, and the interlude's detailed Slice route
+remains evidence-driven and unfrozen.
+
+Phase 60 is `BLOCKED / NOT ACTIVATED` until this interlude is completed by its
+own later live authority.
 
 ## Retained later ownership
 

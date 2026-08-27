@@ -10,7 +10,7 @@ documentation does not supersede that evidence.
 | Phase 56 | `COMPLETED` |
 | Phase 57 | `COMPLETED` |
 | Phase 58 | `COMPLETED` |
-| Phase 59 | `ACTIVE` |
+| Phase 59 | `COMPLETION CANDIDATE` |
 | Slice 1 | `COMPLETED` |
 | Slice 2 | `COMPLETED` |
 | Slice 3 | `COMPLETED` |
@@ -21,11 +21,15 @@ documentation does not supersede that evidence.
 | Slice 8 | `COMPLETED` |
 | Slice 9 | `COMPLETED` |
 | Slice 10 | `COMPLETED` |
-| Slice 11 | `CURRENT` |
-| Slice 12 | `NEXT / UNSTARTED` |
-| Next | `PHASE59_SLICE12_COMPLETION_AUDIT_PHASE60_HANDOFF_END_TO_END` |
+| Slice 11 | `COMPLETED` |
+| Slice 12 | `CURRENT / COMPLETION CANDIDATE` |
+| Validation/Test Performance Optimization Interlude | `NEXT / UNSTARTED` |
+| Phase 60 | `BLOCKED / NOT ACTIVATED` |
+| Next | `VALIDATION_TEST_PERFORMANCE_OPTIMIZATION_INTERLUDE` |
 
-Slice 11 is the current differential compatibility assurance owner. Live Git
-and natural exact-head CI own Phase 59 Slice 11 completion; no post-CI
-status-flip commit is required. This status does not authorize Slice 12 or the
-post-Phase-59 validation/test performance optimization interlude.
+Slice 12 is the current Phase 59 completion candidate. Live Git and natural
+exact-head CI on its single commit own Phase 59 completion; no post-CI
+status-flip commit is required. Successful publication establishes Phase 59 as
+completed while leaving the Validation/Test Performance Optimization
+Interlude next and Phase 60 not activated. This candidate does not activate the
+performance interlude or Phase 60.

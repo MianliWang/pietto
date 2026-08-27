@@ -13,7 +13,7 @@ EXPECTED_STATUS = (
     ("Phase 56", "`COMPLETED`"),
     ("Phase 57", "`COMPLETED`"),
     ("Phase 58", "`COMPLETED`"),
-    ("Phase 59", "`ACTIVE`"),
+    ("Phase 59", "`COMPLETION CANDIDATE`"),
     ("Slice 1", "`COMPLETED`"),
     ("Slice 2", "`COMPLETED`"),
     ("Slice 3", "`COMPLETED`"),
@@ -24,17 +24,24 @@ EXPECTED_STATUS = (
     ("Slice 8", "`COMPLETED`"),
     ("Slice 9", "`COMPLETED`"),
     ("Slice 10", "`COMPLETED`"),
-    ("Slice 11", "`CURRENT`"),
-    ("Slice 12", "`NEXT / UNSTARTED`"),
+    ("Slice 11", "`COMPLETED`"),
+    ("Slice 12", "`CURRENT / COMPLETION CANDIDATE`"),
+    (
+        "Validation/Test Performance Optimization Interlude",
+        "`NEXT / UNSTARTED`",
+    ),
+    ("Phase 60", "`BLOCKED / NOT ACTIVATED`"),
     (
         "Next",
-        "`PHASE59_SLICE12_COMPLETION_AUDIT_PHASE60_HANDOFF_END_TO_END`",
+        "`VALIDATION_TEST_PERFORMANCE_OPTIMIZATION_INTERLUDE`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
-    "Phase 59 is active, Slices 1–10 are completed, Slice 11 is current, and "
-    "Slice 12 is next / unstarted. The published route has exactly 12 slices."
+    "Phase 59 is a completion candidate, Slices 1–11 are completed, Slice 12 "
+    "is the current completion candidate, the Validation/Test Performance "
+    "Optimization Interlude is next / unstarted, and Phase 60 is blocked / not "
+    "activated. The published route has exactly 12 slices."
 )
 EXPECTED_PHASE59_OWNER = "Local package graph, attribution, provenance, and lineage"
 EXPECTED_PHASE58_ROUTE = (
@@ -109,6 +116,29 @@ EXPECTED_PHASE59_ROUTE = (
     ("11", "Differential Compatibility Assurance"),
     ("12", "Completion Audit And Phase 60 Handoff"),
 )
+EXPECTED_RETAINED_LATER_OWNERS = (
+    ("60", "Advanced windows and Phase 51–60 readiness checkpoint"),
+    ("61", "Project IR and semantic composition"),
+    ("62", "Relationship, JOIN, grain, and fanout-safe semantics"),
+    ("63", "Multi-relation SQL, project emit-SQL, and QUALIFY lowering"),
+    ("64", "Advanced types, coercion, temporal, Decimal, and native mapping"),
+    ("65", "Advanced aggregation and grouping"),
+    ("66", "Advanced module and semantic-package assets"),
+    ("67", "Remote package manager and trust boundary"),
+    ("68", "Dependency solver, canonical lockfile, and first Rust kernel decision"),
+    (
+        "69",
+        "Release-aware PostgreSQL core builtin signature catalog, backend-specific core catalog foundations, generated/multi-source extension catalog assembly, extension-specific lowering, and additional dialect foundations",
+    ),
+    ("70", "Public schema/lineage expansion and v0.2 release-readiness decision"),
+)
+EXPECTED_SLICE12_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase59-completion-audit-phase60-handoff-v1.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase59_slice12_completion_audit_phase60_handoff.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -135,14 +165,13 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     status = _read(STATUS)
     assert _table_rows(status)[1:] == EXPECTED_STATUS
     normalized = " ".join(status.split())
-    assert "Slice 11 is the current differential compatibility assurance owner" in (
-        normalized
+    assert "Slice 12 is the current Phase 59 completion candidate" in normalized
+    assert (
+        "Live Git and natural exact-head CI on its single commit own Phase 59 completion"
+        in normalized
     )
-    assert "Live Git and natural exact-head CI own Phase 59 Slice 11 completion" in (
-        normalized
-    )
-    assert "does not authorize Slice 12" in normalized
-    assert "validation/test performance optimization interlude" in normalized
+    assert "no post-CI status-flip commit is required" in normalized
+    assert "does not activate the performance interlude or Phase 60" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
@@ -156,3 +185,24 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     assert phase59.count(EXPECTED_PHASE59_STATE) == 1
     assert phase59.count(EXPECTED_PHASE59_OWNER) == 1
     assert _table_rows(phase59)[1:] == EXPECTED_PHASE59_ROUTE
+
+    retained = _section(roadmap, "Retained later ownership")
+    assert _table_rows(retained)[1:] == EXPECTED_RETAINED_LATER_OWNERS
+    interlude = " ".join(
+        _section(roadmap, "Validation/Test Performance Optimization Interlude").split()
+    )
+    assert (
+        "Phase 59 completion -> Validation/Test Performance Optimization Interlude "
+        "-> Phase 60 activation" in interlude
+    )
+    assert (
+        "evidence-backed optimization of Pietto's test/validation runtime without "
+        "weakening validation semantics or deterministic authority" in interlude
+    )
+    assert "detailed Slice route remains evidence-driven and unfrozen" in interlude
+    assert "Phase 60 is `BLOCKED / NOT ACTIVATED`" in interlude
+    assert all((REPO_ROOT / path).is_file() for path in EXPECTED_SLICE12_CHANGED_PATHS)
+    assert not any(
+        path.startswith(("src/", "scripts/", ".github/"))
+        for path in EXPECTED_SLICE12_CHANGED_PATHS
+    )
