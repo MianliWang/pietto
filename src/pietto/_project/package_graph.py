@@ -20,13 +20,51 @@ from pietto._project.capability_matrix import (
     CapabilityCheckingMatrixCell,
     PackageCapabilityCheckingMatrix,
 )
+from pietto._project.aggregate_grouped_clause_facts import (
+    ProjectAggregateGroupedClauseReadiness,
+    ProjectAggregateGroupedClauseReadinessReason,
+    ProjectAggregateGroupedClauseReadinessStatus,
+)
 from pietto._project.extension_catalog_inspection import (
     ExtensionCatalogInspection,
     ExtensionCatalogInspectionFactSet,
     ExtensionCatalogInspectionLookupVariant,
     ExtensionCatalogInspectionProviderOccurrence,
 )
-from pietto._project.model import ProjectDiscoveryError, ProjectDiscoveryErrorKind
+from pietto._project.let_scope_facts import (
+    ProjectLetScopeFactsReason,
+    ProjectLetScopeFactsStatus,
+    ProjectRelationLetScopeFacts,
+)
+from pietto._project.model import (
+    ProjectAggregateResultFact,
+    ProjectDiscoveryError,
+    ProjectDiscoveryErrorKind,
+    ProjectRelationRowSchemaReason,
+    ProjectRelationRowSchemaStatus,
+    ProjectRowField,
+    ProjectRowFieldProvenanceKind,
+    ProjectSymbolNamespace,
+)
+from pietto._project.module_attribution import (
+    ProjectModuleProjectionKind,
+    ProjectModuleRowFieldIdentity,
+    ProjectModuleRowFieldKind,
+    ProjectModuleRowLineageHop,
+    ProjectModuleSourceFieldOrigin,
+)
+from pietto._project.module_package_neutral_identity import (
+    ProjectModulePackageNeutralIdentityFactSet,
+)
+from pietto._project.module_semantic_fact_preservation import (
+    ProjectModuleCandidateBucketStatus,
+    ProjectModuleExpressionReferenceFact,
+    ProjectModuleFactOccurrenceRole,
+    ProjectModuleLetBindingFact,
+    ProjectModuleRelationSemanticFacts,
+    ProjectModuleSelectFact,
+    ProjectModuleWindowOutputFact,
+)
 from pietto._project.package_capability_requirements import (
     _package_capability_requirement_binding,
 )
@@ -55,6 +93,11 @@ from pietto._project.package_loader import (
 from pietto._project.package_manifest import (
     PackageCoordinate,
     _is_valid_content_digest_pin,
+)
+from pietto._project.row_dependency_graph import ProjectRowDependencyNodeKind
+from pietto._project.window_semantics import (
+    WindowDependencyOccurrence,
+    WindowDependencyRole,
 )
 from pietto.errors import Diagnostic, Severity
 from pietto.ast_nodes import Definition
@@ -429,6 +472,534 @@ class PackageGraphDeclaration:
 
 
 @dataclass(frozen=True, slots=True)
+class PackageGraphSemanticAuthority:
+    """One package occurrence's exact joined attribution/semantic authority."""
+
+    package: PackageGraphPackageRef
+    witness: ProjectModulePackageNeutralIdentityFactSet = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.package) is not PackageGraphPackageRef:
+            raise TypeError("Graph semantic authority requires a package ref.")
+        if type(self.witness) is not ProjectModulePackageNeutralIdentityFactSet:
+            raise TypeError("Graph semantic authority requires exact joined facts.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphFieldRef:
+    """One declaration-qualified semantic field occurrence in one snapshot."""
+
+    scope: PackageGraphScope
+    declaration: PackageGraphDeclarationRef
+    position: int
+
+    def __post_init__(self) -> None:
+        if type(self.scope) is not PackageGraphScope:
+            raise TypeError("Package graph field refs require an exact scope.")
+        if type(self.declaration) is not PackageGraphDeclarationRef:
+            raise TypeError("Package graph field refs require a declaration ref.")
+        if self.declaration.scope is not self.scope:
+            raise ValueError("Package graph field refs require the declaration scope.")
+        if type(self.position) is not int or self.position < 0:
+            raise ValueError("Package graph field position must be non-negative.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphLetRef:
+    """One declaration-qualified let-binding occurrence in one snapshot."""
+
+    scope: PackageGraphScope
+    declaration: PackageGraphDeclarationRef
+    position: int
+
+    def __post_init__(self) -> None:
+        if type(self.scope) is not PackageGraphScope:
+            raise TypeError("Package graph let refs require an exact scope.")
+        if type(self.declaration) is not PackageGraphDeclarationRef:
+            raise TypeError("Package graph let refs require a declaration ref.")
+        if self.declaration.scope is not self.scope:
+            raise ValueError("Package graph let refs require the declaration scope.")
+        if type(self.position) is not int or self.position < 0:
+            raise ValueError("Package graph let position must be non-negative.")
+
+
+type PackageGraphFieldWitness = ProjectModuleRowFieldIdentity | ProjectModuleSelectFact
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphField:
+    """One exact semantic field occurrence and its existing witness."""
+
+    ref: PackageGraphFieldRef
+    declaration: PackageGraphDeclarationRef
+    kind: ProjectModuleRowFieldKind
+    name: str
+    semantic_field: ProjectRowField | None = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    witness: PackageGraphFieldWitness = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.ref) is not PackageGraphFieldRef:
+            raise TypeError("Graph fields require an exact field ref.")
+        if type(self.declaration) is not PackageGraphDeclarationRef:
+            raise TypeError("Graph fields require a declaration ref.")
+        if self.ref.declaration != self.declaration:
+            raise ValueError("Graph field ref must name its declaration.")
+        if type(self.kind) is not ProjectModuleRowFieldKind:
+            raise TypeError("Graph fields require an exact field kind.")
+        if type(self.name) is not str or not self.name:
+            raise ValueError("Graph fields require a non-empty name witness.")
+        if self.semantic_field is not None and type(self.semantic_field) is not (
+            ProjectRowField
+        ):
+            raise TypeError("Graph semantic fields require exact row-field evidence.")
+        if type(self.witness) is ProjectModuleRowFieldIdentity:
+            if (
+                self.witness.kind is not self.kind
+                or self.witness.field_position != self.ref.position
+                or self.witness.name != self.name
+            ):
+                raise ValueError("Graph field identity witness does not align.")
+            return
+        if type(self.witness) is not ProjectModuleSelectFact:
+            raise TypeError("Graph fields require exact typed field evidence.")
+        if (
+            self.kind is not ProjectModuleRowFieldKind.RELATION_OUTPUT
+            or self.witness.selected_output_ordinal != self.ref.position
+            or self.witness.field is not self.semantic_field
+            or self.semantic_field is None
+            or self.semantic_field.name != self.name
+        ):
+            raise ValueError("Graph selected-output field witness does not align.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphLetBinding:
+    """One exact source-ordered let-binding occurrence."""
+
+    ref: PackageGraphLetRef
+    declaration: PackageGraphDeclarationRef
+    witness: ProjectModuleLetBindingFact = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.ref) is not PackageGraphLetRef:
+            raise TypeError("Graph let bindings require an exact let ref.")
+        if type(self.declaration) is not PackageGraphDeclarationRef:
+            raise TypeError("Graph let bindings require a declaration ref.")
+        if self.ref.declaration != self.declaration:
+            raise ValueError("Graph let ref must name its declaration.")
+        if type(self.witness) is not ProjectModuleLetBindingFact:
+            raise TypeError("Graph let bindings require exact semantic evidence.")
+        if self.witness.binding_ordinal != self.ref.position:
+            raise ValueError("Graph let binding must retain source order.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphSourceLineage:
+    """One exact source-row field to shape-field origin relationship."""
+
+    output: PackageGraphFieldRef
+    upstream: PackageGraphFieldRef
+    witness: ProjectModuleSourceFieldOrigin = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.output) is not PackageGraphFieldRef
+            or type(self.upstream) is not PackageGraphFieldRef
+        ):
+            raise TypeError("Source lineage requires exact field refs.")
+        if self.output.scope is not self.upstream.scope:
+            raise ValueError("Source lineage refs require one snapshot scope.")
+        if type(self.witness) is not ProjectModuleSourceFieldOrigin:
+            raise TypeError("Source lineage requires exact source-origin evidence.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphProjectionLineage:
+    """One exact direct or renamed projection relationship."""
+
+    kind: ProjectModuleProjectionKind
+    output: PackageGraphFieldRef
+    upstream: PackageGraphFieldRef
+    witness: ProjectModuleRowLineageHop = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not ProjectModuleProjectionKind:
+            raise TypeError("Projection lineage requires an exact projection kind.")
+        if (
+            type(self.output) is not PackageGraphFieldRef
+            or type(self.upstream) is not PackageGraphFieldRef
+        ):
+            raise TypeError("Projection lineage requires exact field refs.")
+        if self.output.scope is not self.upstream.scope:
+            raise ValueError("Projection lineage refs require one snapshot scope.")
+        if type(self.witness) is not ProjectModuleRowLineageHop:
+            raise TypeError("Projection lineage requires an exact lineage hop.")
+        if self.witness.projection_kind is not self.kind:
+            raise ValueError("Projection lineage kind must retain its exact witness.")
+
+
+class PackageGraphExpressionLineageKind(StrEnum):
+    """Closed non-window expression lineage relationship kinds."""
+
+    COMPUTED = "computed"
+    LET_OUTPUT = "let_output"
+    LET_EXPRESSION = "let_expression"
+    AGGREGATE = "aggregate"
+
+
+type PackageGraphExpressionOutputRef = PackageGraphFieldRef | PackageGraphLetRef
+type PackageGraphExpressionUpstreamRef = PackageGraphFieldRef | PackageGraphLetRef
+type PackageGraphExpressionOwnerWitness = (
+    ProjectModuleSelectFact | ProjectModuleLetBindingFact
+)
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphExpressionLineage:
+    """One ordered computed, let, or aggregate input occurrence."""
+
+    kind: PackageGraphExpressionLineageKind
+    output: PackageGraphExpressionOutputRef
+    upstream: PackageGraphExpressionUpstreamRef
+    role: ProjectModuleFactOccurrenceRole
+    container_position: int
+    input_position: int
+    owner_witness: PackageGraphExpressionOwnerWitness = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    witness: ProjectModuleExpressionReferenceFact = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    aggregate_evidence: ProjectAggregateResultFact | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not PackageGraphExpressionLineageKind:
+            raise TypeError("Expression lineage requires an exact kind.")
+        if type(self.output) not in {PackageGraphFieldRef, PackageGraphLetRef} or (
+            type(self.upstream) not in {PackageGraphFieldRef, PackageGraphLetRef}
+        ):
+            raise TypeError("Expression lineage requires exact typed refs.")
+        if self.output.scope is not self.upstream.scope:
+            raise ValueError("Expression lineage refs require one snapshot scope.")
+        if type(self.role) is not ProjectModuleFactOccurrenceRole:
+            raise TypeError("Expression lineage requires an exact role.")
+        if type(self.container_position) is not int or self.container_position < 0:
+            raise ValueError("Expression lineage container position is invalid.")
+        if type(self.input_position) is not int or self.input_position < 0:
+            raise ValueError("Expression lineage input position is invalid.")
+        if type(self.witness) is not ProjectModuleExpressionReferenceFact:
+            raise TypeError("Expression lineage requires an exact input witness.")
+        if (
+            self.witness.role is not self.role
+            or self.witness.container_ordinal != self.container_position
+            or self.witness.dependency_ordinal != self.input_position
+            or self.witness.status is not ProjectModuleCandidateBucketStatus.CONCRETE
+        ):
+            raise ValueError("Expression lineage must retain one concrete input.")
+        if type(self.owner_witness) is ProjectModuleSelectFact:
+            if (
+                type(self.output) is not PackageGraphFieldRef
+                or self.owner_witness.selected_output_ordinal != self.container_position
+                or self.input_position >= len(self.owner_witness.references)
+                or self.owner_witness.references[self.input_position]
+                is not self.witness
+            ):
+                raise ValueError("Selected expression lineage owner does not align.")
+            expected_kind = (
+                PackageGraphExpressionLineageKind.AGGREGATE
+                if self.owner_witness.aggregate_result_fact is not None
+                else (
+                    PackageGraphExpressionLineageKind.LET_OUTPUT
+                    if self.owner_witness.field is not None
+                    and self.owner_witness.field.provenance is not None
+                    and self.owner_witness.field.provenance.kind
+                    is ProjectRowFieldProvenanceKind.LET_DERIVED
+                    else PackageGraphExpressionLineageKind.COMPUTED
+                )
+            )
+            if self.kind is not expected_kind:
+                raise ValueError(
+                    "Selected expression lineage kind must retain exact evidence."
+                )
+        elif type(self.owner_witness) is ProjectModuleLetBindingFact:
+            if (
+                type(self.output) is not PackageGraphLetRef
+                or self.owner_witness.binding_ordinal != self.container_position
+                or self.input_position >= len(self.owner_witness.references)
+                or self.owner_witness.references[self.input_position]
+                is not self.witness
+            ):
+                raise ValueError("Let expression lineage owner does not align.")
+            if self.kind is not PackageGraphExpressionLineageKind.LET_EXPRESSION:
+                raise ValueError(
+                    "Let expression lineage kind must retain exact evidence."
+                )
+        else:
+            raise TypeError("Expression lineage requires exact owner evidence.")
+        if self.kind is PackageGraphExpressionLineageKind.AGGREGATE:
+            if (
+                type(self.owner_witness) is not ProjectModuleSelectFact
+                or type(self.aggregate_evidence) is not ProjectAggregateResultFact
+                or self.owner_witness.aggregate_result_fact
+                is not self.aggregate_evidence
+            ):
+                raise ValueError("Aggregate lineage requires exact aggregate evidence.")
+        elif self.aggregate_evidence is not None:
+            raise ValueError("Non-aggregate lineage forbids aggregate evidence.")
+
+
+type PackageGraphCurrentWindowUpstreamRef = (
+    PackageGraphFieldRef | PackageGraphLetRef | PackageGraphDeclarationRef
+)
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphCurrentWindowLineage:
+    """One existing current-window dependency occurrence, without frame facts."""
+
+    output: PackageGraphFieldRef
+    upstream: PackageGraphCurrentWindowUpstreamRef
+    role: WindowDependencyRole
+    global_position: int
+    role_position: int
+    output_witness: ProjectModuleWindowOutputFact = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    witness: WindowDependencyOccurrence = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.output) is not PackageGraphFieldRef or type(self.upstream) not in {
+            PackageGraphFieldRef,
+            PackageGraphLetRef,
+            PackageGraphDeclarationRef,
+        }:
+            raise TypeError("Current-window lineage requires exact typed refs.")
+        if self.output.scope is not self.upstream.scope:
+            raise ValueError("Current-window lineage refs require one snapshot scope.")
+        if type(self.role) is not WindowDependencyRole:
+            raise TypeError("Current-window lineage requires an exact role.")
+        if type(self.output_witness) is not ProjectModuleWindowOutputFact:
+            raise TypeError("Current-window lineage requires exact output evidence.")
+        if type(self.witness) is not WindowDependencyOccurrence:
+            raise TypeError("Current-window lineage requires exact input evidence.")
+        if (
+            self.output_witness.status
+            is not ProjectModuleCandidateBucketStatus.CONCRETE
+            or self.output_witness.project_fact is None
+            or not any(
+                self.witness is occurrence
+                for occurrence in self.output_witness.project_fact.dependency_occurrences
+            )
+            or self.witness.role is not self.role
+            or self.witness.global_ordinal != self.global_position
+            or self.witness.role_ordinal != self.role_position
+        ):
+            raise ValueError("Current-window lineage must retain exact input order.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphRelationLineageState:
+    """One exact non-concrete relation-lineage status and reason."""
+
+    declaration: PackageGraphDeclarationRef
+    status: ProjectRelationRowSchemaStatus
+    reason: ProjectRelationRowSchemaReason
+    witness: ProjectModuleRelationSemanticFacts = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.declaration) is not PackageGraphDeclarationRef:
+            raise TypeError("Relation lineage state requires a declaration ref.")
+        if (
+            type(self.status) is not ProjectRelationRowSchemaStatus
+            or type(self.reason) is not ProjectRelationRowSchemaReason
+        ):
+            raise TypeError("Relation lineage state requires exact typed state.")
+        if self.status is ProjectRelationRowSchemaStatus.CONCRETE:
+            raise ValueError("Relation lineage states retain only non-concrete facts.")
+        if (
+            type(self.witness) is not ProjectModuleRelationSemanticFacts
+            or self.witness.state.status is not self.status
+            or self.witness.state.reason is not self.reason
+        ):
+            raise ValueError("Relation lineage state must retain exact evidence.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphLetLineageState:
+    """One exact non-concrete or absent let-lineage status and reason."""
+
+    declaration: PackageGraphDeclarationRef
+    status: ProjectLetScopeFactsStatus
+    reason: ProjectLetScopeFactsReason
+    witness: ProjectRelationLetScopeFacts = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.declaration) is not PackageGraphDeclarationRef:
+            raise TypeError("Let lineage state requires a declaration ref.")
+        if (
+            type(self.status) is not ProjectLetScopeFactsStatus
+            or type(self.reason) is not ProjectLetScopeFactsReason
+        ):
+            raise TypeError("Let lineage state requires exact typed state.")
+        if self.status is ProjectLetScopeFactsStatus.CONCRETE:
+            raise ValueError("Let lineage states retain only non-concrete facts.")
+        if (
+            type(self.witness) is not ProjectRelationLetScopeFacts
+            or self.witness.status is not self.status
+            or self.witness.reason is not self.reason
+        ):
+            raise ValueError("Let lineage state must retain exact evidence.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphAggregateLineageState:
+    """One exact non-concrete aggregate/grouped lineage status and reason."""
+
+    declaration: PackageGraphDeclarationRef
+    status: ProjectAggregateGroupedClauseReadinessStatus
+    reason: ProjectAggregateGroupedClauseReadinessReason
+    witness: ProjectAggregateGroupedClauseReadiness = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.declaration) is not PackageGraphDeclarationRef:
+            raise TypeError("Aggregate lineage state requires a declaration ref.")
+        if type(self.status) is not ProjectAggregateGroupedClauseReadinessStatus or (
+            type(self.reason) is not ProjectAggregateGroupedClauseReadinessReason
+        ):
+            raise TypeError("Aggregate lineage state requires exact typed state.")
+        if self.status is ProjectAggregateGroupedClauseReadinessStatus.CONCRETE:
+            raise ValueError("Aggregate lineage states retain only non-concrete facts.")
+        if (
+            type(self.witness) is not ProjectAggregateGroupedClauseReadiness
+            or self.witness.status is not self.status
+            or self.witness.reason is not self.reason
+        ):
+            raise ValueError("Aggregate lineage state must retain exact evidence.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphExpressionLineageState:
+    """One exact unresolved expression-input occurrence without a guessed reason."""
+
+    declaration: PackageGraphDeclarationRef
+    role: ProjectModuleFactOccurrenceRole
+    container_position: int
+    input_position: int
+    status: ProjectModuleCandidateBucketStatus
+    witness: ProjectModuleExpressionReferenceFact = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.declaration) is not PackageGraphDeclarationRef:
+            raise TypeError("Expression lineage state requires a declaration ref.")
+        if (
+            type(self.role) is not ProjectModuleFactOccurrenceRole
+            or type(self.status) is not ProjectModuleCandidateBucketStatus
+        ):
+            raise TypeError("Expression lineage state requires exact typed state.")
+        if self.status is ProjectModuleCandidateBucketStatus.CONCRETE:
+            raise ValueError("Expression lineage states retain unresolved inputs only.")
+        if (
+            type(self.witness) is not ProjectModuleExpressionReferenceFact
+            or self.witness.role is not self.role
+            or self.witness.container_ordinal != self.container_position
+            or self.witness.dependency_ordinal != self.input_position
+            or self.witness.status is not self.status
+        ):
+            raise ValueError("Expression lineage state must retain exact evidence.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphCurrentWindowLineageState:
+    """One exact non-concrete current-window output status and reason."""
+
+    declaration: PackageGraphDeclarationRef
+    output_position: int
+    status: ProjectModuleCandidateBucketStatus
+    reason: str | None
+    witness: ProjectModuleWindowOutputFact = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.declaration) is not PackageGraphDeclarationRef:
+            raise TypeError("Window lineage state requires a declaration ref.")
+        if type(self.output_position) is not int or self.output_position < 0:
+            raise ValueError("Window lineage output position is invalid.")
+        if type(self.status) is not ProjectModuleCandidateBucketStatus:
+            raise TypeError("Window lineage state requires an exact status.")
+        if self.status is ProjectModuleCandidateBucketStatus.CONCRETE:
+            raise ValueError("Window lineage states retain non-concrete outputs only.")
+        if self.reason is not None and (
+            type(self.reason) is not str or not self.reason
+        ):
+            raise ValueError("Window lineage state reason must be non-empty.")
+        if (
+            type(self.witness) is not ProjectModuleWindowOutputFact
+            or self.witness.selected_output_ordinal != self.output_position
+            or self.witness.status is not self.status
+            or self.witness.reason != self.reason
+        ):
+            raise ValueError("Window lineage state must retain exact evidence.")
+
+
+@dataclass(frozen=True, slots=True)
 class PackageGraphCapabilityEvaluationRef:
     """One requirement-by-target evaluation coordinate in one snapshot."""
 
@@ -583,6 +1154,21 @@ class PackageGraphSnapshot:
     catalog_evidence: tuple[PackageGraphCatalogEvidence, ...] = ()
     modules: tuple[PackageGraphModule, ...] = ()
     declarations: tuple[PackageGraphDeclaration, ...] = ()
+    semantic_authorities: tuple[PackageGraphSemanticAuthority, ...] = ()
+    fields: tuple[PackageGraphField, ...] = ()
+    let_bindings: tuple[PackageGraphLetBinding, ...] = ()
+    source_lineage: tuple[PackageGraphSourceLineage, ...] = ()
+    projection_lineage: tuple[PackageGraphProjectionLineage, ...] = ()
+    expression_lineage: tuple[PackageGraphExpressionLineage, ...] = ()
+    current_window_lineage: tuple[PackageGraphCurrentWindowLineage, ...] = ()
+    relation_lineage_states: tuple[PackageGraphRelationLineageState, ...] = ()
+    let_lineage_states: tuple[PackageGraphLetLineageState, ...] = ()
+    aggregate_lineage_states: tuple[PackageGraphAggregateLineageState, ...] = ()
+    expression_lineage_states: tuple[PackageGraphExpressionLineageState, ...] = ()
+    current_window_lineage_states: tuple[
+        PackageGraphCurrentWindowLineageState,
+        ...,
+    ] = ()
 
     def __post_init__(self) -> None:
         if type(self.scope) is not PackageGraphScope:
@@ -632,6 +1218,66 @@ class PackageGraphSnapshot:
             PackageGraphDeclaration,
             "Package graph declarations",
         )
+        _require_exact_tuple(
+            self.semantic_authorities,
+            PackageGraphSemanticAuthority,
+            "Package graph semantic authorities",
+        )
+        _require_exact_tuple(
+            self.fields,
+            PackageGraphField,
+            "Package graph fields",
+        )
+        _require_exact_tuple(
+            self.let_bindings,
+            PackageGraphLetBinding,
+            "Package graph let bindings",
+        )
+        _require_exact_tuple(
+            self.source_lineage,
+            PackageGraphSourceLineage,
+            "Package graph source lineage",
+        )
+        _require_exact_tuple(
+            self.projection_lineage,
+            PackageGraphProjectionLineage,
+            "Package graph projection lineage",
+        )
+        _require_exact_tuple(
+            self.expression_lineage,
+            PackageGraphExpressionLineage,
+            "Package graph expression lineage",
+        )
+        _require_exact_tuple(
+            self.current_window_lineage,
+            PackageGraphCurrentWindowLineage,
+            "Package graph current-window lineage",
+        )
+        _require_exact_tuple(
+            self.relation_lineage_states,
+            PackageGraphRelationLineageState,
+            "Package graph relation lineage states",
+        )
+        _require_exact_tuple(
+            self.let_lineage_states,
+            PackageGraphLetLineageState,
+            "Package graph let lineage states",
+        )
+        _require_exact_tuple(
+            self.aggregate_lineage_states,
+            PackageGraphAggregateLineageState,
+            "Package graph aggregate lineage states",
+        )
+        _require_exact_tuple(
+            self.expression_lineage_states,
+            PackageGraphExpressionLineageState,
+            "Package graph expression lineage states",
+        )
+        _require_exact_tuple(
+            self.current_window_lineage_states,
+            PackageGraphCurrentWindowLineageState,
+            "Package graph current-window lineage states",
+        )
         if not self.packages:
             raise ValueError(
                 "Package graph snapshots require at least one package occurrence."
@@ -672,6 +1318,7 @@ class PackageGraphSnapshot:
         _validate_requirement_attribution(self)
         _validate_provenance_attribution(self)
         _validate_module_attribution(self)
+        _validate_semantic_lineage_attribution(self)
 
     def package(self, ref: PackageGraphPackageRef) -> PackageGraphPackage:
         """Resolve one exact owned package ref without semantic fallback."""
@@ -800,6 +1447,32 @@ class PackageGraphSnapshot:
                 return declaration
         raise ValueError("Declaration ref was not found.")
 
+    def field(self, ref: PackageGraphFieldRef) -> PackageGraphField:
+        """Resolve one exact declaration-qualified semantic field occurrence."""
+
+        if type(ref) is not PackageGraphFieldRef:
+            raise TypeError("Field lookup requires an exact field ref.")
+        if ref.scope is not self.scope:
+            raise ValueError("Field ref belongs to a foreign snapshot.")
+        # ponytail: local attribution uses scans; Slice 9 owns derived indexes.
+        for graph_field in self.fields:
+            if graph_field.ref == ref:
+                return graph_field
+        raise ValueError("Field ref was not found.")
+
+    def let_binding(self, ref: PackageGraphLetRef) -> PackageGraphLetBinding:
+        """Resolve one exact declaration-qualified let-binding occurrence."""
+
+        if type(ref) is not PackageGraphLetRef:
+            raise TypeError("Let lookup requires an exact let ref.")
+        if ref.scope is not self.scope:
+            raise ValueError("Let ref belongs to a foreign snapshot.")
+        # ponytail: local attribution uses scans; Slice 9 owns derived indexes.
+        for binding in self.let_bindings:
+            if binding.ref == ref:
+                return binding
+        raise ValueError("Let ref was not found.")
+
 
 class PackageGraphOutcome(StrEnum):
     """Closed terminal outcomes for the private package-graph domain."""
@@ -879,6 +1552,10 @@ type PackageGraphProvenanceRef = (
     | PackageGraphSelectorRef
     | PackageGraphCapabilityEvaluationRef
     | PackageGraphCatalogEvidenceRef
+    | PackageGraphModuleRef
+    | PackageGraphDeclarationRef
+    | PackageGraphFieldRef
+    | PackageGraphLetRef
 )
 
 type PackageGraphDirectProvenanceWitness = (
@@ -887,6 +1564,14 @@ type PackageGraphDirectProvenanceWitness = (
     | PackageGraphSelector
     | PackageGraphCapabilityEvaluation
     | PackageGraphCatalogEvidence
+    | PackageGraphModule
+    | PackageGraphDeclaration
+    | PackageGraphField
+    | PackageGraphLetBinding
+    | PackageGraphSourceLineage
+    | PackageGraphProjectionLineage
+    | PackageGraphExpressionLineage
+    | PackageGraphCurrentWindowLineage
 )
 
 type PackageGraphWhyNotEvidence = (
@@ -909,6 +1594,14 @@ class PackageGraphDirectProvenanceStep:
             PackageGraphSelector,
             PackageGraphCapabilityEvaluation,
             PackageGraphCatalogEvidence,
+            PackageGraphModule,
+            PackageGraphDeclaration,
+            PackageGraphField,
+            PackageGraphLetBinding,
+            PackageGraphSourceLineage,
+            PackageGraphProjectionLineage,
+            PackageGraphExpressionLineage,
+            PackageGraphCurrentWindowLineage,
         }:
             raise TypeError("Direct provenance steps require an exact witness.")
 
@@ -1018,6 +1711,10 @@ def _provenance_ref_scope(ref: PackageGraphProvenanceRef) -> PackageGraphScope:
         PackageGraphSelectorRef,
         PackageGraphCapabilityEvaluationRef,
         PackageGraphCatalogEvidenceRef,
+        PackageGraphModuleRef,
+        PackageGraphDeclarationRef,
+        PackageGraphFieldRef,
+        PackageGraphLetRef,
     }:
         raise TypeError("Provenance endpoints require an exact typed graph ref.")
     return ref.scope
@@ -1037,8 +1734,25 @@ def _direct_step_source(
         return witness.requirement
     if type(witness) is PackageGraphCapabilityEvaluation:
         return witness.ref.requirement if witness.selector is None else witness.selector
-    assert type(witness) is PackageGraphCatalogEvidence
-    return witness.capability
+    if type(witness) is PackageGraphCatalogEvidence:
+        return witness.capability
+    if type(witness) is PackageGraphModule:
+        return witness.package
+    if type(witness) is PackageGraphDeclaration:
+        return witness.module
+    if type(witness) is PackageGraphField:
+        return witness.declaration
+    if type(witness) is PackageGraphLetBinding:
+        return witness.declaration
+    if type(witness) is PackageGraphSourceLineage:
+        return witness.output
+    if type(witness) is PackageGraphProjectionLineage:
+        return witness.output
+    if type(witness) is PackageGraphExpressionLineage:
+        return witness.output
+    if type(witness) is PackageGraphCurrentWindowLineage:
+        return witness.output
+    raise AssertionError("Unsupported direct provenance witness.")
 
 
 def _direct_step_target(
@@ -1055,8 +1769,25 @@ def _direct_step_target(
         return witness.ref
     if type(witness) is PackageGraphCapabilityEvaluation:
         return witness.ref
-    assert type(witness) is PackageGraphCatalogEvidence
-    return witness.ref
+    if type(witness) is PackageGraphCatalogEvidence:
+        return witness.ref
+    if type(witness) is PackageGraphModule:
+        return witness.ref
+    if type(witness) is PackageGraphDeclaration:
+        return witness.ref
+    if type(witness) is PackageGraphField:
+        return witness.ref
+    if type(witness) is PackageGraphLetBinding:
+        return witness.ref
+    if type(witness) is PackageGraphSourceLineage:
+        return witness.upstream
+    if type(witness) is PackageGraphProjectionLineage:
+        return witness.upstream
+    if type(witness) is PackageGraphExpressionLineage:
+        return witness.upstream
+    if type(witness) is PackageGraphCurrentWindowLineage:
+        return witness.upstream
+    raise AssertionError("Unsupported direct provenance witness.")
 
 
 def _resolve_provenance_ref(
@@ -1078,6 +1809,18 @@ def _resolve_provenance_ref(
     if type(ref) is PackageGraphCatalogEvidenceRef:
         snapshot.catalog_evidence_occurrence(ref)
         return
+    if type(ref) is PackageGraphModuleRef:
+        snapshot.module(ref)
+        return
+    if type(ref) is PackageGraphDeclarationRef:
+        snapshot.declaration(ref)
+        return
+    if type(ref) is PackageGraphFieldRef:
+        snapshot.field(ref)
+        return
+    if type(ref) is PackageGraphLetRef:
+        snapshot.let_binding(ref)
+        return
     raise TypeError("Provenance endpoint requires an exact supported graph ref.")
 
 
@@ -1094,6 +1837,14 @@ def _package_graph_direct_provenance_steps(
         *snapshot.selectors,
         *snapshot.capability_evaluations,
         *snapshot.catalog_evidence,
+        *snapshot.modules,
+        *snapshot.declarations,
+        *snapshot.fields,
+        *snapshot.let_bindings,
+        *snapshot.source_lineage,
+        *snapshot.projection_lineage,
+        *snapshot.expression_lineage,
+        *snapshot.current_window_lineage,
     ]
     return tuple(PackageGraphDirectProvenanceStep(witness) for witness in witnesses)
 
@@ -1529,6 +2280,724 @@ def _validate_module_attribution(snapshot: PackageGraphSnapshot) -> None:
             )
 
 
+type _PackageGraphSemanticProjection = tuple[
+    tuple[PackageGraphSemanticAuthority, ...],
+    tuple[PackageGraphField, ...],
+    tuple[PackageGraphLetBinding, ...],
+    tuple[PackageGraphSourceLineage, ...],
+    tuple[PackageGraphProjectionLineage, ...],
+    tuple[PackageGraphExpressionLineage, ...],
+    tuple[PackageGraphCurrentWindowLineage, ...],
+    tuple[PackageGraphRelationLineageState, ...],
+    tuple[PackageGraphLetLineageState, ...],
+    tuple[PackageGraphAggregateLineageState, ...],
+    tuple[PackageGraphExpressionLineageState, ...],
+    tuple[PackageGraphCurrentWindowLineageState, ...],
+]
+
+
+def _build_semantic_lineage_projection(
+    scope: PackageGraphScope,
+    packages: tuple[PackageGraphPackage, ...],
+    modules: tuple[PackageGraphModule, ...],
+    declarations: tuple[PackageGraphDeclaration, ...],
+    facts: tuple[ProjectModulePackageNeutralIdentityFactSet, ...],
+) -> _PackageGraphSemanticProjection:
+    """Project exact existing semantic facts without resolving semantics again."""
+
+    semantic_authorities = tuple(
+        PackageGraphSemanticAuthority(package=package.ref, witness=authority)
+        for package, authority in zip(packages, facts, strict=True)
+    )
+    relations: dict[
+        PackageGraphDeclarationRef,
+        ProjectModuleRelationSemanticFacts,
+    ] = {}
+
+    for package, authority in zip(packages, facts, strict=True):
+        package_modules = tuple(
+            module for module in modules if module.package == package.ref
+        )
+        if len(authority.module_assets) != len(package_modules):
+            raise ValueError(
+                "Semantic authority must cover every package module occurrence."
+            )
+        for module, asset in zip(package_modules, authority.module_assets, strict=True):
+            source_bytes = asset.snapshot.source_text.encode("utf-8")
+            if (
+                asset.position != module.ref.position
+                or asset.module != module.witness.identity
+                or source_bytes != module.witness.source.content
+                or asset.digest.byte_count != len(source_bytes)
+                or asset.digest.digest != asset.snapshot.sha256
+            ):
+                raise ValueError(
+                    "Semantic authority must retain exact package module bytes and order."
+                )
+
+        package_declarations = tuple(
+            declaration
+            for declaration in declarations
+            if declaration.module.package == package.ref
+        )
+        if len(authority.declaration_assets) != len(package_declarations):
+            raise ValueError(
+                "Semantic authority must cover every package declaration occurrence."
+            )
+        for declaration in package_declarations:
+            matches = tuple(
+                asset
+                for asset in authority.declaration_assets
+                if asset.occurrence.module_position == declaration.module.position
+                and asset.declaration_position == declaration.ref.position
+            )
+            if len(matches) != 1:
+                raise ValueError(
+                    "Semantic declaration attribution must resolve exactly once."
+                )
+            asset = matches[0]
+            if asset.identity.namespace is ProjectSymbolNamespace.RELATION:
+                if len(asset.semantic_facts) != 1:
+                    raise ValueError(
+                        "Relation declarations require one exact semantic fact."
+                    )
+                relation = asset.semantic_facts[0]
+                if relation.owner is not asset.occurrence:
+                    raise ValueError(
+                        "Relation semantic facts require exact declaration evidence."
+                    )
+                relations[declaration.ref] = relation
+            elif asset.semantic_facts:
+                raise ValueError(
+                    "Non-relation declarations forbid relation semantic facts."
+                )
+
+    fields: list[PackageGraphField] = []
+    field_refs: set[PackageGraphFieldRef] = set()
+
+    def add_field(graph_field: PackageGraphField) -> None:
+        if graph_field.ref in field_refs:
+            existing = next(item for item in fields if item.ref == graph_field.ref)
+            if (
+                existing.kind is not graph_field.kind
+                or existing.name != graph_field.name
+                or existing.semantic_field is not graph_field.semantic_field
+            ):
+                raise ValueError("Semantic field occurrence attribution is ambiguous.")
+            return
+        field_refs.add(graph_field.ref)
+        fields.append(graph_field)
+
+    for declaration in declarations:
+        package_ref = declaration.module.package
+        authority = facts[package_ref.position]
+        relation = relations.get(declaration.ref)
+        origins = tuple(
+            origin
+            for origin in authority.authority.attribution.source_field_origins
+            if _row_field_owner_matches_declaration(
+                origin.source_field,
+                declaration.ref,
+            )
+            or _row_field_owner_matches_declaration(
+                origin.shape_field,
+                declaration.ref,
+            )
+        )
+        for origin in origins:
+            identity = (
+                origin.source_field
+                if _row_field_owner_matches_declaration(
+                    origin.source_field,
+                    declaration.ref,
+                )
+                else origin.shape_field
+            )
+            semantic_field = None
+            if identity.kind is ProjectModuleRowFieldKind.SOURCE_FIELD:
+                if relation is None or relation.state.schema is None:
+                    raise ValueError(
+                        "Concrete source field requires exact semantic schema evidence."
+                    )
+                schema_fields = tuple(relation.state.schema.fields.values())
+                if identity.field_position >= len(schema_fields):
+                    raise ValueError("Source field position does not resolve.")
+                semantic_field = schema_fields[identity.field_position]
+                if semantic_field.name != identity.name:
+                    raise ValueError("Source field name disagrees with semantic order.")
+            add_field(
+                PackageGraphField(
+                    ref=PackageGraphFieldRef(
+                        scope,
+                        declaration.ref,
+                        identity.field_position,
+                    ),
+                    declaration=declaration.ref,
+                    kind=identity.kind,
+                    name=identity.name,
+                    semantic_field=semantic_field,
+                    witness=identity,
+                )
+            )
+        if relation is None:
+            continue
+        for select in relation.select_facts:
+            if select.field is None:
+                continue
+            add_field(
+                PackageGraphField(
+                    ref=PackageGraphFieldRef(
+                        scope,
+                        declaration.ref,
+                        select.selected_output_ordinal,
+                    ),
+                    declaration=declaration.ref,
+                    kind=ProjectModuleRowFieldKind.RELATION_OUTPUT,
+                    name=select.field.name,
+                    semantic_field=select.field,
+                    witness=select,
+                )
+            )
+
+    let_bindings = tuple(
+        PackageGraphLetBinding(
+            ref=PackageGraphLetRef(
+                scope,
+                declaration.ref,
+                binding.binding_ordinal,
+            ),
+            declaration=declaration.ref,
+            witness=binding,
+        )
+        for declaration in declarations
+        for relation in (
+            () if declaration.ref not in relations else (relations[declaration.ref],)
+        )
+        for binding in relation.let_bindings
+    )
+
+    source_lineage: list[PackageGraphSourceLineage] = []
+    projection_lineage: list[PackageGraphProjectionLineage] = []
+    expression_lineage: list[PackageGraphExpressionLineage] = []
+    current_window_lineage: list[PackageGraphCurrentWindowLineage] = []
+    relation_states: list[PackageGraphRelationLineageState] = []
+    let_states: list[PackageGraphLetLineageState] = []
+    aggregate_states: list[PackageGraphAggregateLineageState] = []
+    expression_states: list[PackageGraphExpressionLineageState] = []
+    window_states: list[PackageGraphCurrentWindowLineageState] = []
+
+    for package, authority in zip(packages, facts, strict=True):
+        for origin in authority.authority.attribution.source_field_origins:
+            source_lineage.append(
+                PackageGraphSourceLineage(
+                    output=_field_ref_for_identity(
+                        fields,
+                        package.ref,
+                        origin.source_field,
+                    ),
+                    upstream=_field_ref_for_identity(
+                        fields,
+                        package.ref,
+                        origin.shape_field,
+                    ),
+                    witness=origin,
+                )
+            )
+
+        projection_by_reference: dict[object, ProjectModuleRowLineageHop] = {}
+        for lineage in authority.authority.attribution.row_lineages:
+            if lineage.status is not ProjectRelationRowSchemaStatus.CONCRETE:
+                continue
+            for field_lineage in lineage.fields:
+                for path in field_lineage.paths:
+                    for hop in path.hops:
+                        previous = projection_by_reference.get(hop.reference)
+                        if previous is not None:
+                            if previous != hop:
+                                raise ValueError(
+                                    "Projection occurrence has conflicting lineage hops."
+                                )
+                            continue
+                        projection_by_reference[hop.reference] = hop
+                        projection_lineage.append(
+                            PackageGraphProjectionLineage(
+                                kind=hop.projection_kind,
+                                output=_field_ref_for_identity(
+                                    fields,
+                                    package.ref,
+                                    hop.output_field,
+                                ),
+                                upstream=_field_ref_for_identity(
+                                    fields,
+                                    package.ref,
+                                    hop.upstream_field,
+                                ),
+                                witness=hop,
+                            )
+                        )
+
+    projection_outputs = {item.output for item in projection_lineage}
+    for declaration in declarations:
+        relation = relations.get(declaration.ref)
+        if relation is None:
+            continue
+        if relation.state.status is not ProjectRelationRowSchemaStatus.CONCRETE:
+            relation_states.append(
+                PackageGraphRelationLineageState(
+                    declaration=declaration.ref,
+                    status=relation.state.status,
+                    reason=relation.state.reason,
+                    witness=relation,
+                )
+            )
+        let_scope = relation.let_scope_facts
+        if let_scope is not None and (
+            let_scope.status is not ProjectLetScopeFactsStatus.CONCRETE
+        ):
+            let_states.append(
+                PackageGraphLetLineageState(
+                    declaration=declaration.ref,
+                    status=let_scope.status,
+                    reason=let_scope.reason,
+                    witness=let_scope,
+                )
+            )
+        readiness = relation.aggregate_grouped_clause_readiness
+        if readiness is not None and (
+            readiness.status
+            is not ProjectAggregateGroupedClauseReadinessStatus.CONCRETE
+        ):
+            aggregate_states.append(
+                PackageGraphAggregateLineageState(
+                    declaration=declaration.ref,
+                    status=readiness.status,
+                    reason=readiness.reason,
+                    witness=readiness,
+                )
+            )
+
+        all_references = tuple(
+            reference
+            for binding in relation.let_bindings
+            for reference in binding.references
+        ) + tuple(
+            reference
+            for select in relation.select_facts
+            for reference in select.references
+        )
+        expression_states.extend(
+            PackageGraphExpressionLineageState(
+                declaration=declaration.ref,
+                role=reference.role,
+                container_position=reference.container_ordinal,
+                input_position=reference.dependency_ordinal,
+                status=reference.status,
+                witness=reference,
+            )
+            for reference in all_references
+            if reference.status is not ProjectModuleCandidateBucketStatus.CONCRETE
+        )
+
+        if (
+            let_scope is not None
+            and let_scope.status is ProjectLetScopeFactsStatus.CONCRETE
+        ):
+            for binding in relation.let_bindings:
+                output = PackageGraphLetRef(
+                    scope,
+                    declaration.ref,
+                    binding.binding_ordinal,
+                )
+                for reference in binding.references:
+                    if (
+                        reference.status
+                        is not ProjectModuleCandidateBucketStatus.CONCRETE
+                    ):
+                        continue
+                    expression_lineage.append(
+                        PackageGraphExpressionLineage(
+                            kind=PackageGraphExpressionLineageKind.LET_EXPRESSION,
+                            output=output,
+                            upstream=_expression_reference_target(
+                                reference,
+                                relation,
+                                declaration.ref,
+                                fields,
+                                let_bindings,
+                                relations,
+                            ),
+                            role=reference.role,
+                            container_position=reference.container_ordinal,
+                            input_position=reference.dependency_ordinal,
+                            owner_witness=binding,
+                            witness=reference,
+                        )
+                    )
+
+        if relation.state.status is ProjectRelationRowSchemaStatus.CONCRETE:
+            for select in relation.select_facts:
+                if select.field is None:
+                    continue
+                output = PackageGraphFieldRef(
+                    scope,
+                    declaration.ref,
+                    select.selected_output_ordinal,
+                )
+                if output in projection_outputs:
+                    continue
+                if select.aggregate_result_fact is not None:
+                    kind = PackageGraphExpressionLineageKind.AGGREGATE
+                elif (
+                    select.field.provenance is not None
+                    and select.field.provenance.kind
+                    is ProjectRowFieldProvenanceKind.LET_DERIVED
+                ):
+                    kind = PackageGraphExpressionLineageKind.LET_OUTPUT
+                else:
+                    kind = PackageGraphExpressionLineageKind.COMPUTED
+                for reference in select.references:
+                    if (
+                        reference.status
+                        is not ProjectModuleCandidateBucketStatus.CONCRETE
+                    ):
+                        continue
+                    expression_lineage.append(
+                        PackageGraphExpressionLineage(
+                            kind=kind,
+                            output=output,
+                            upstream=_expression_reference_target(
+                                reference,
+                                relation,
+                                declaration.ref,
+                                fields,
+                                let_bindings,
+                                relations,
+                            ),
+                            role=reference.role,
+                            container_position=reference.container_ordinal,
+                            input_position=reference.dependency_ordinal,
+                            owner_witness=select,
+                            witness=reference,
+                            aggregate_evidence=select.aggregate_result_fact,
+                        )
+                    )
+
+        for window in relation.window_outputs:
+            if (
+                window.status is not ProjectModuleCandidateBucketStatus.CONCRETE
+                or window.project_fact is None
+            ):
+                window_states.append(
+                    PackageGraphCurrentWindowLineageState(
+                        declaration=declaration.ref,
+                        output_position=window.selected_output_ordinal,
+                        status=window.status,
+                        reason=window.reason,
+                        witness=window,
+                    )
+                )
+                continue
+            output = PackageGraphFieldRef(
+                scope,
+                declaration.ref,
+                window.selected_output_ordinal,
+            )
+            _field_from_ref(fields, output)
+            for occurrence in window.project_fact.dependency_occurrences:
+                current_window_lineage.append(
+                    PackageGraphCurrentWindowLineage(
+                        output=output,
+                        upstream=_window_dependency_target(
+                            occurrence,
+                            relation,
+                            declaration.ref,
+                            fields,
+                            let_bindings,
+                            relations,
+                        ),
+                        role=occurrence.role,
+                        global_position=occurrence.global_ordinal,
+                        role_position=occurrence.role_ordinal,
+                        output_witness=window,
+                        witness=occurrence,
+                    )
+                )
+
+    return (
+        semantic_authorities,
+        tuple(fields),
+        tuple(let_bindings),
+        tuple(source_lineage),
+        tuple(projection_lineage),
+        tuple(expression_lineage),
+        tuple(current_window_lineage),
+        tuple(relation_states),
+        tuple(let_states),
+        tuple(aggregate_states),
+        tuple(expression_states),
+        tuple(window_states),
+    )
+
+
+def _row_field_owner_matches_declaration(
+    identity: ProjectModuleRowFieldIdentity,
+    declaration: PackageGraphDeclarationRef,
+) -> bool:
+    owner = identity.owner
+    return (
+        owner.module_position == declaration.module.position
+        and owner.declaration_position == declaration.position
+    )
+
+
+def _field_ref_for_identity(
+    fields: list[PackageGraphField],
+    package: PackageGraphPackageRef,
+    identity: ProjectModuleRowFieldIdentity,
+) -> PackageGraphFieldRef:
+    matches = tuple(
+        graph_field.ref
+        for graph_field in fields
+        if graph_field.declaration.module.package == package
+        and _row_field_owner_matches_declaration(identity, graph_field.declaration)
+        and graph_field.ref.position == identity.field_position
+        and graph_field.kind is identity.kind
+        and graph_field.name == identity.name
+    )
+    if len(matches) != 1:
+        raise ValueError("Semantic field identity must resolve exactly once.")
+    return matches[0]
+
+
+def _field_from_ref(
+    fields: list[PackageGraphField],
+    ref: PackageGraphFieldRef,
+) -> PackageGraphField:
+    matches = tuple(graph_field for graph_field in fields if graph_field.ref == ref)
+    if len(matches) != 1:
+        raise ValueError("Semantic field ref must resolve exactly once.")
+    return matches[0]
+
+
+def _declaration_ref_for_owner(
+    relations: dict[PackageGraphDeclarationRef, ProjectModuleRelationSemanticFacts],
+    package: PackageGraphPackageRef,
+    owner: object,
+) -> PackageGraphDeclarationRef:
+    module_position = getattr(owner, "module_position", None)
+    declaration_position = getattr(owner, "declaration_position", None)
+    matches = tuple(
+        declaration
+        for declaration, relation in relations.items()
+        if declaration.module.package == package
+        and declaration.module.position == module_position
+        and declaration.position == declaration_position
+        and relation.owner.identity == getattr(owner, "identity", None)
+    )
+    if len(matches) != 1:
+        raise ValueError("Semantic declaration owner must resolve exactly once.")
+    return matches[0]
+
+
+def _expression_reference_target(
+    reference: ProjectModuleExpressionReferenceFact,
+    relation: ProjectModuleRelationSemanticFacts,
+    declaration: PackageGraphDeclarationRef,
+    fields: list[PackageGraphField],
+    let_bindings: tuple[PackageGraphLetBinding, ...],
+    relations: dict[PackageGraphDeclarationRef, ProjectModuleRelationSemanticFacts],
+) -> PackageGraphExpressionUpstreamRef:
+    if reference.status is not ProjectModuleCandidateBucketStatus.CONCRETE:
+        raise ValueError("Only concrete expression inputs create lineage.")
+    if reference.input_field is not None:
+        if relation.resolution is None:
+            raise ValueError("Concrete input field requires exact relation resolution.")
+        target_declaration = _declaration_ref_for_owner(
+            relations,
+            declaration.module.package,
+            relation.resolution.target_symbol.target_occurrence,
+        )
+        matches = tuple(
+            graph_field.ref
+            for graph_field in fields
+            if graph_field.declaration == target_declaration
+            and graph_field.semantic_field is reference.input_field
+        )
+    elif reference.let_candidates:
+        matches = tuple(
+            binding.ref
+            for binding in let_bindings
+            if binding.declaration == declaration
+            and any(
+                binding.witness.binding is item for item in reference.let_candidates
+            )
+        )
+    else:
+        matches = tuple(
+            graph_field.ref
+            for graph_field in fields
+            if graph_field.declaration == declaration
+            and type(graph_field.witness) is ProjectModuleSelectFact
+            and any(
+                graph_field.witness.item is item
+                for item in reference.selected_output_candidates
+            )
+        )
+    if len(matches) != 1:
+        raise ValueError("Concrete expression input must resolve exactly once.")
+    return matches[0]
+
+
+def _window_dependency_target(
+    occurrence: WindowDependencyOccurrence,
+    relation: ProjectModuleRelationSemanticFacts,
+    declaration: PackageGraphDeclarationRef,
+    fields: list[PackageGraphField],
+    let_bindings: tuple[PackageGraphLetBinding, ...],
+    relations: dict[PackageGraphDeclarationRef, ProjectModuleRelationSemanticFacts],
+) -> PackageGraphCurrentWindowUpstreamRef:
+    if relation.resolution is None:
+        raise ValueError("Concrete window input requires exact relation resolution.")
+    target_declaration = _declaration_ref_for_owner(
+        relations,
+        declaration.module.package,
+        relation.resolution.target_symbol.target_occurrence,
+    )
+    target = occurrence.target
+    if target.kind is ProjectRowDependencyNodeKind.RELATION_INPUT:
+        return target_declaration
+    if target.kind is ProjectRowDependencyNodeKind.UPSTREAM_FIELD:
+        target_relation = relations[target_declaration]
+        if target_relation.state.schema is None or target.field_name is None:
+            raise ValueError("Window upstream field requires exact schema evidence.")
+        semantic_field = target_relation.state.schema.fields.get(target.field_name)
+        matches: tuple[PackageGraphCurrentWindowUpstreamRef, ...] = tuple(
+            graph_field.ref
+            for graph_field in fields
+            if graph_field.declaration == target_declaration
+            and graph_field.semantic_field is semantic_field
+        )
+    elif target.kind is ProjectRowDependencyNodeKind.LET_BINDING:
+        matches = tuple(
+            binding.ref
+            for binding in let_bindings
+            if binding.declaration == declaration
+            and binding.witness.binding.name == target.binding_name
+        )
+    elif target.kind is ProjectRowDependencyNodeKind.OUTPUT_FIELD:
+        matches = tuple(
+            graph_field.ref
+            for graph_field in fields
+            if graph_field.declaration == declaration
+            and graph_field.name == target.output_name
+        )
+    else:
+        raise ValueError("Window input has an unsupported existing target kind.")
+    if len(matches) != 1:
+        raise ValueError("Concrete window input must resolve exactly once.")
+    return matches[0]
+
+
+def _validate_semantic_lineage_attribution(snapshot: PackageGraphSnapshot) -> None:
+    semantic_collections = (
+        snapshot.fields,
+        snapshot.let_bindings,
+        snapshot.source_lineage,
+        snapshot.projection_lineage,
+        snapshot.expression_lineage,
+        snapshot.current_window_lineage,
+        snapshot.relation_lineage_states,
+        snapshot.let_lineage_states,
+        snapshot.aggregate_lineage_states,
+        snapshot.expression_lineage_states,
+        snapshot.current_window_lineage_states,
+    )
+    if not snapshot.semantic_authorities:
+        if any(semantic_collections):
+            raise ValueError("Semantic graph facts require exact package authorities.")
+        return
+    if len(snapshot.semantic_authorities) != len(snapshot.packages) or any(
+        authority.package != package.ref
+        for package, authority in zip(
+            snapshot.packages,
+            snapshot.semantic_authorities,
+            strict=True,
+        )
+    ):
+        raise ValueError("Semantic authorities must retain exact package order.")
+
+    actual_projection: _PackageGraphSemanticProjection = (
+        snapshot.semantic_authorities,
+        *semantic_collections,
+    )
+    expected_projection = _build_semantic_lineage_projection(
+        snapshot.scope,
+        snapshot.packages,
+        snapshot.modules,
+        snapshot.declarations,
+        tuple(authority.witness for authority in snapshot.semantic_authorities),
+    )
+    for actual, expected in zip(
+        actual_projection,
+        expected_projection,
+        strict=True,
+    ):
+        if len(actual) != len(expected) or any(
+            not _same_semantic_projection_item(actual_item, expected_item)
+            for actual_item, expected_item in zip(actual, expected, strict=True)
+        ):
+            raise ValueError(
+                "Semantic graph requires the complete exact semantic projection."
+            )
+
+
+def _same_semantic_projection_item(actual: object, expected: object) -> bool:
+    """Compare one projected carrier plus every excluded authority witness."""
+
+    if type(actual) is not type(expected) or actual != expected:
+        return False
+    if type(actual) is PackageGraphSemanticAuthority:
+        assert type(expected) is PackageGraphSemanticAuthority
+        return actual.witness is expected.witness
+    if type(actual) is PackageGraphField:
+        assert type(expected) is PackageGraphField
+        return (
+            actual.semantic_field is expected.semantic_field
+            and actual.witness is expected.witness
+        )
+    if type(actual) is PackageGraphLetBinding:
+        assert type(expected) is PackageGraphLetBinding
+        return actual.witness is expected.witness
+    if type(actual) is PackageGraphSourceLineage:
+        assert type(expected) is PackageGraphSourceLineage
+        return actual.witness is expected.witness
+    if type(actual) is PackageGraphProjectionLineage:
+        assert type(expected) is PackageGraphProjectionLineage
+        return actual.witness is expected.witness
+    if type(actual) is PackageGraphExpressionLineage:
+        assert type(expected) is PackageGraphExpressionLineage
+        return (
+            actual.owner_witness is expected.owner_witness
+            and actual.witness is expected.witness
+            and actual.aggregate_evidence is expected.aggregate_evidence
+        )
+    if type(actual) is PackageGraphCurrentWindowLineage:
+        assert type(expected) is PackageGraphCurrentWindowLineage
+        return (
+            actual.output_witness is expected.output_witness
+            and actual.witness is expected.witness
+        )
+    if type(actual) in {
+        PackageGraphRelationLineageState,
+        PackageGraphLetLineageState,
+        PackageGraphAggregateLineageState,
+        PackageGraphExpressionLineageState,
+        PackageGraphCurrentWindowLineageState,
+    }:
+        return getattr(actual, "witness") is getattr(expected, "witness")
+    raise AssertionError("Unsupported semantic projection carrier.")
+
+
 def _capability_matrix(
     facts: CapabilityInspectionFactSet,
 ) -> PackageCapabilityCheckingMatrix:
@@ -1804,6 +3273,9 @@ def _build_package_graph(
     extension_catalog_facts: (
         tuple[ExtensionCatalogInspectionFactSet | None, ...] | None
     ) = None,
+    module_identity_facts: (
+        tuple[ProjectModulePackageNeutralIdentityFactSet, ...] | None
+    ) = None,
 ) -> PackageGraphResult:
     """Construct one package graph from exact retained inspection/plan authority."""
 
@@ -1846,6 +3318,17 @@ def _build_package_graph(
                     raise ValueError(
                         "Catalog facts require an exact ordered slot tuple."
                     )
+            if module_identity_facts is not None and (
+                type(module_identity_facts) is not tuple
+                or len(module_identity_facts) != len(inspection.packages)
+                or any(
+                    type(item) is not ProjectModulePackageNeutralIdentityFactSet
+                    for item in module_identity_facts
+                )
+            ):
+                raise ValueError(
+                    "Semantic facts require one exact joined authority per package."
+                )
             scope = PackageGraphScope()
             packages = tuple(
                 PackageGraphPackage(
@@ -2006,6 +3489,42 @@ def _build_package_graph(
                     capability_facts,
                     extension_catalog_facts,
                 )
+            semantic_projection: _PackageGraphSemanticProjection = (
+                (),
+                (),
+                (),
+                (),
+                (),
+                (),
+                (),
+                (),
+                (),
+                (),
+                (),
+                (),
+            )
+            if module_identity_facts is not None:
+                semantic_projection = _build_semantic_lineage_projection(
+                    scope,
+                    packages,
+                    tuple(modules),
+                    tuple(declarations),
+                    module_identity_facts,
+                )
+            (
+                semantic_authorities,
+                graph_fields,
+                let_bindings,
+                source_lineage,
+                projection_lineage,
+                expression_lineage,
+                current_window_lineage,
+                relation_lineage_states,
+                let_lineage_states,
+                aggregate_lineage_states,
+                expression_lineage_states,
+                current_window_lineage_states,
+            ) = semantic_projection
             snapshot = PackageGraphSnapshot(
                 scope=scope,
                 packages=packages,
@@ -2017,6 +3536,18 @@ def _build_package_graph(
                 catalog_evidence=catalog_evidence,
                 modules=tuple(modules),
                 declarations=tuple(declarations),
+                semantic_authorities=semantic_authorities,
+                fields=graph_fields,
+                let_bindings=let_bindings,
+                source_lineage=source_lineage,
+                projection_lineage=projection_lineage,
+                expression_lineage=expression_lineage,
+                current_window_lineage=current_window_lineage,
+                relation_lineage_states=relation_lineage_states,
+                let_lineage_states=let_lineage_states,
+                aggregate_lineage_states=aggregate_lineage_states,
+                expression_lineage_states=expression_lineage_states,
+                current_window_lineage_states=current_window_lineage_states,
             )
             return PackageGraphResult(
                 PackageGraphOutcome.SUCCESS,

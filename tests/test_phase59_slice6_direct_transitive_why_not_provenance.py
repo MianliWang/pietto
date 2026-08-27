@@ -178,6 +178,14 @@ def test_requirement_selector_capability_and_catalog_paths_keep_exact_witnesses(
         *snapshot.selectors,
         *snapshot.capability_evaluations,
         *snapshot.catalog_evidence,
+        *snapshot.modules,
+        *snapshot.declarations,
+        *snapshot.fields,
+        *snapshot.let_bindings,
+        *snapshot.source_lineage,
+        *snapshot.projection_lineage,
+        *snapshot.expression_lineage,
+        *snapshot.current_window_lineage,
     )
     assert len(direct) == len(expected)
     assert all(
@@ -463,7 +471,7 @@ def test_missing_positive_edge_and_zero_targets_create_no_why_not(
     )
 
 
-def test_path_model_is_private_on_demand_and_contains_no_later_slice_surface() -> None:
+def test_path_model_remains_private_on_demand_without_cached_query_surface() -> None:
     source = SOURCE.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(SOURCE))
     snapshot = next(
@@ -524,7 +532,13 @@ def test_path_model_is_private_on_demand_and_contains_no_later_slice_surface() -
     assert "Node[Any]" not in source
     assert "Edge[Any]" not in source
     assert "dict[str, object]" not in source
-    assert "pietto._project.module_" not in source
+    assert "pietto._project.module_package_neutral_identity" in source
+    assert "pietto._project.module_attribution" in source
+    assert "pietto._project.module_semantic_fact_preservation" in source
+    assert "pietto._project.module_bindings" not in source
+    assert "pietto._project.module_exports" not in source
+    assert "pietto._project.module_resolution" not in source
+    assert "pietto._project.module_relation_resolution" not in source
     assert "pietto._project.row_lineage" not in source
     assert "pietto._project_explain" not in source
     assert project_package.__all__ == ()

@@ -17,10 +17,11 @@ documentation does not supersede that evidence.
 | Slice 4 | `COMPLETED` |
 | Slice 5 | `COMPLETED` |
 | Slice 6 | `COMPLETED` |
-| Slice 7 | `CURRENT` |
-| Slice 8 | `NEXT / UNSTARTED` |
-| Next | `PHASE59_SLICE8_SEMANTIC_FIELD_LINEAGE_INTEGRATION_END_TO_END` |
+| Slice 7 | `COMPLETED` |
+| Slice 8 | `CURRENT` |
+| Slice 9 | `NEXT / UNSTARTED` |
+| Next | `PHASE59_SLICE9_PRIVATE_GRAPH_INTEGRITY_INSPECTION_QUERY_CANONICAL_PURE_BOUNDARY_END_TO_END` |
 
-Slice 7 is the current package-to-module attribution bridge owner. Live Git and
-natural exact-head CI own Phase 59 Slice 7 completion; no post-CI status-flip
-commit is required. This status does not authorize Slice 8.
+Slice 8 is the current semantic and field-lineage integration owner. Live Git
+and natural exact-head CI own Phase 59 Slice 8 completion; no post-CI
+status-flip commit is required. This status does not authorize Slice 9.

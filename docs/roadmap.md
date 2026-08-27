@@ -446,7 +446,7 @@ release operation, or route expansion. The controlling closure is
 
 ## Phase 59 route
 
-Phase 59 is active, Slices 1–6 are completed, Slice 7 is current, and Slice 8 is next / unstarted. The published route has exactly 12 slices.
+Phase 59 is active, Slices 1–7 are completed, Slice 8 is current, and Slice 9 is next / unstarted. The published route has exactly 12 slices.
 
 The exact owner is **Local package graph, attribution, provenance, and lineage**.
 
@@ -528,8 +528,18 @@ does not construct semantic catalogs, grant visibility, create cross-package
 imports, or extend Slice 6 traversal. The controlling contract is
 [Phase 59 Slice 7 package-to-module attribution bridge](spec/phase59-slice7-package-to-module-attribution-bridge-v1.md).
 
+Slice 8 joins each package occurrence to one exact existing package-neutral
+module identity fact set, then projects package-qualified field and let
+occurrences plus source, direct, renamed, computed, let, aggregate, and
+current-window lineage. Exact input witnesses, roles, local positions, order,
+multiplicity, and typed non-concrete statuses/reasons remain authoritative;
+transitive paths remain on-demand. The integration adds no semantic inference,
+cross-package visibility, eager closure, reverse index, frame semantics, public
+artifact, or serializer. The controlling contract is
+[Phase 59 Slice 8 semantic and field-lineage integration](spec/phase59-slice8-semantic-field-lineage-integration-v1.md).
+
 Project Explain v1, existing CLI behavior, package loading, semantic lineage,
-and all public schemas remain exact zero-delta. Slice 8 remains next/unstarted;
+and all public schemas remain exact zero-delta. Slice 9 remains next/unstarted;
 this route does not authorize it.
 
 ## Retained later ownership

@@ -20,17 +20,18 @@ EXPECTED_STATUS = (
     ("Slice 4", "`COMPLETED`"),
     ("Slice 5", "`COMPLETED`"),
     ("Slice 6", "`COMPLETED`"),
-    ("Slice 7", "`CURRENT`"),
-    ("Slice 8", "`NEXT / UNSTARTED`"),
+    ("Slice 7", "`COMPLETED`"),
+    ("Slice 8", "`CURRENT`"),
+    ("Slice 9", "`NEXT / UNSTARTED`"),
     (
         "Next",
-        "`PHASE59_SLICE8_SEMANTIC_FIELD_LINEAGE_INTEGRATION_END_TO_END`",
+        "`PHASE59_SLICE9_PRIVATE_GRAPH_INTEGRITY_INSPECTION_QUERY_CANONICAL_PURE_BOUNDARY_END_TO_END`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
-    "Phase 59 is active, Slices 1–6 are completed, Slice 7 is current, and "
-    "Slice 8 is next / unstarted. The published route has exactly 12 slices."
+    "Phase 59 is active, Slices 1–7 are completed, Slice 8 is current, and "
+    "Slice 9 is next / unstarted. The published route has exactly 12 slices."
 )
 EXPECTED_PHASE59_OWNER = "Local package graph, attribution, provenance, and lineage"
 EXPECTED_PHASE58_ROUTE = (
@@ -132,13 +133,13 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert _table_rows(status)[1:] == EXPECTED_STATUS
     normalized = " ".join(status.split())
     assert (
-        "Slice 7 is the current package-to-module attribution bridge owner"
+        "Slice 8 is the current semantic and field-lineage integration owner"
         in normalized
     )
-    assert "Live Git and natural exact-head CI own Phase 59 Slice 7 completion" in (
+    assert "Live Git and natural exact-head CI own Phase 59 Slice 8 completion" in (
         normalized
     )
-    assert "does not authorize Slice 8" in normalized
+    assert "does not authorize Slice 9" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:

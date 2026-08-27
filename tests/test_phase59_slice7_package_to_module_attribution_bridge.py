@@ -16,7 +16,6 @@ from pietto._project.package_graph import (
     PackageGraphModule,
     PackageGraphModuleRef,
     PackageGraphOutcome,
-    PackageGraphPackageRef,
     PackageGraphSnapshot,
     _build_package_graph,
     _derive_package_graph_provenance_paths,
@@ -150,7 +149,7 @@ def test_equal_module_paths_names_and_source_bytes_never_merge_packages(
     assert root_declaration.ref.module.package.position == 1
 
 
-def test_package_dependency_does_not_create_module_visibility_or_slice6_steps(
+def test_slice8_provenance_adds_ownership_without_semantic_visibility(
     tmp_path: Path,
 ) -> None:
     dep_digest = package_upstream._write_package(tmp_path, "dep", name="dep")
@@ -164,16 +163,15 @@ def test_package_dependency_does_not_create_module_visibility_or_slice6_steps(
         step.witness for step in _package_graph_direct_provenance_steps(snapshot)
     )
 
-    assert not any(
-        type(witness) in {PackageGraphModule, PackageGraphDeclaration}
-        for witness in direct_witnesses
+    assert any(type(witness) is PackageGraphModule for witness in direct_witnesses)
+    assert any(type(witness) is PackageGraphDeclaration for witness in direct_witnesses)
+    assert _derive_package_graph_provenance_paths(
+        snapshot,
+        snapshot.packages[-1].ref,
+        snapshot.modules[-1].ref,
     )
-    with pytest.raises(TypeError, match="supported graph ref"):
-        _derive_package_graph_provenance_paths(
-            snapshot,
-            snapshot.packages[-1].ref,
-            cast(PackageGraphPackageRef, snapshot.modules[0].ref),
-        )
+    assert snapshot.semantic_authorities == ()
+    assert snapshot.fields == snapshot.expression_lineage == ()
     assert snapshot.modules[0].package == snapshot.packages[0].ref
     assert snapshot.modules[1].package == snapshot.packages[1].ref
 
@@ -272,7 +270,7 @@ def test_reconstruction_preserves_local_coordinates_with_fresh_scope(
     )
 
 
-def test_bridge_is_private_and_contains_no_visibility_lineage_or_later_behavior() -> (
+def test_bridge_stays_private_while_slice8_adds_only_authorized_lineage_readers() -> (
     None
 ):
     source = SOURCE.read_text(encoding="utf-8")
@@ -284,23 +282,25 @@ def test_bridge_is_private_and_contains_no_visibility_lineage_or_later_behavior(
     }
     assert "pietto._project.package_loader" in imported_modules
     assert "pietto.ast_nodes" in imported_modules
+    assert "pietto._project.module_attribution" in imported_modules
+    assert "pietto._project.module_package_neutral_identity" in imported_modules
+    assert "pietto._project.module_semantic_fact_preservation" in imported_modules
     assert (
         not {
-            "pietto._project.module_attribution",
             "pietto._project.module_bindings",
             "pietto._project.module_catalog",
             "pietto._project.module_exports",
             "pietto._project.module_resolution",
             "pietto._project.module_relation_resolution",
-            "pietto._project.module_semantic_fact_preservation",
             "pietto._project.row_lineage",
             "pietto._project_explain",
         }
         & imported_modules
     )
     snapshot_fields = tuple(field.name for field in fields(PackageGraphSnapshot))
-    assert snapshot_fields[-2:] == ("modules", "declarations")
-    assert not any("field" in name or "lineage" in name for name in snapshot_fields)
+    assert snapshot_fields[8:10] == ("modules", "declarations")
+    assert "fields" in snapshot_fields
+    assert "expression_lineage" in snapshot_fields
     assert tuple(field.name for field in fields(PackageGraphModuleRef)) == (
         "scope",
         "package",
