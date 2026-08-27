@@ -854,6 +854,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
     model_rel = "src/pietto/_project/model.py"
     package_manifest_rel = "src/pietto/_project/package_manifest.py"
     package_graph_rel = "src/pietto/_project/package_graph.py"
+    package_graph_inspection_rel = "src/pietto/_project/package_graph_inspection.py"
     package_requirements_rel = "src/pietto/_project/package_capability_requirements.py"
     package_selectors_rel = (
         "src/pietto/_project/package_extension_signature_selectors.py"
@@ -911,6 +912,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                     model_rel,
                     package_manifest_rel,
                     package_graph_rel,
+                    package_graph_inspection_rel,
                     package_requirements_rel,
                     package_selectors_rel,
                     project_environment_rel,
@@ -933,6 +935,13 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
     assert all(name not in package_graph_source for name in forbidden_names)
     assert all(
         (f"semantic.{stem}" in package_graph_source) is (stem in package_graph_stems)
+        for stem in module_stems
+    )
+    package_graph_inspection_source = _read(REPO_ROOT / package_graph_inspection_rel)
+    assert "snapshot.capability_evaluations" in package_graph_inspection_source
+    assert all(name not in package_graph_inspection_source for name in forbidden_names)
+    assert all(
+        f"semantic.{stem}" not in package_graph_inspection_source
         for stem in module_stems
     )
     selector_source = _read(REPO_ROOT / SELECTOR_REL)

@@ -150,6 +150,7 @@ def _required_runtime_files(prefix: str) -> frozenset[str]:
         f"{prefix}/_project/package_capability_requirements.py",
         f"{prefix}/_project/package_extension_signature_selectors.py",
         f"{prefix}/_project/package_graph.py",
+        f"{prefix}/_project/package_graph_inspection.py",
         f"{prefix}/_project/project_capability_environment.py",
         f"{prefix}/_project/extension_catalog_availability.py",
         f"{prefix}/_project/extension_catalog_inspection.py",
@@ -338,6 +339,18 @@ def _smoke_installed_cli(
             "-I",
             "-c",
             "import pietto._project.package_graph",
+        ),
+        cwd=scratch_dir,
+        capture_output=True,
+        env=environment,
+    )
+    _run_command(
+        "installed private Phase 59 package graph inspection import",
+        (
+            str(_venv_python(venv_dir)),
+            "-I",
+            "-c",
+            "import pietto._project.package_graph_inspection",
         ),
         cwd=scratch_dir,
         capture_output=True,

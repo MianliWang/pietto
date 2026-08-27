@@ -446,7 +446,7 @@ release operation, or route expansion. The controlling closure is
 
 ## Phase 59 route
 
-Phase 59 is active, Slices 1–7 are completed, Slice 8 is current, and Slice 9 is next / unstarted. The published route has exactly 12 slices.
+Phase 59 is active, Slices 1–8 are completed, Slice 9 is current, and Slice 10 is next / unstarted. The published route has exactly 12 slices.
 
 The exact owner is **Local package graph, attribution, provenance, and lineage**.
 
@@ -538,8 +538,17 @@ cross-package visibility, eager closure, reverse index, frame semantics, public
 artifact, or serializer. The controlling contract is
 [Phase 59 Slice 8 semantic and field-lineage integration](spec/phase59-slice8-semantic-field-lineage-integration-v1.md).
 
+Slice 9 revalidates every Slice 2–8 graph invariant and projects one private
+canonical inspection with closed typed local coordinates, ordered direct
+positive links, separate typed negative states, and no runtime scope token.
+Pure evaluation rejects malformed ownership, domain, ordinal, dangling-ref,
+and canonical-data shapes. Direct upstream/downstream and all-path/why queries
+scan the same direct-link authority on demand; no reverse index, cache, eager
+closure, sorting, deduplication, or winner is introduced. The controlling
+contract is [Phase 59 Slice 9 private graph integrity, inspection, query, and canonical pure boundary](spec/phase59-slice9-private-graph-integrity-inspection-query-canonical-pure-boundary-v1.md).
+
 Project Explain v1, existing CLI behavior, package loading, semantic lineage,
-and all public schemas remain exact zero-delta. Slice 9 remains next/unstarted;
+and all public schemas remain exact zero-delta. Slice 10 remains next/unstarted;
 this route does not authorize it.
 
 ## Retained later ownership
