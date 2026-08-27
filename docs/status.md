@@ -19,11 +19,11 @@ documentation does not supersede that evidence.
 | Slice 6 | `COMPLETED` |
 | Slice 7 | `COMPLETED` |
 | Slice 8 | `COMPLETED` |
-| Slice 9 | `CURRENT` |
-| Slice 10 | `NEXT / UNSTARTED` |
-| Next | `PHASE59_SLICE10_REAL_MULTI_PACKAGE_PROVENANCE_AND_LINEAGE_E2E_END_TO_END` |
+| Slice 9 | `COMPLETED` |
+| Slice 10 | `CURRENT` |
+| Slice 11 | `NEXT / UNSTARTED` |
+| Next | `PHASE59_SLICE11_DIFFERENTIAL_COMPATIBILITY_ASSURANCE_END_TO_END` |
 
-Slice 9 is the current private graph integrity, inspection, query, and
-canonical pure-boundary owner. Live Git and natural exact-head CI own Phase 59
-Slice 9 completion; no post-CI status-flip commit is required. This status does
-not authorize Slice 10.
+Slice 10 is the current real multi-package provenance and lineage E2E owner.
+Live Git and natural exact-head CI own Phase 59 Slice 10 completion; no post-CI
+status-flip commit is required. This status does not authorize Slice 11.

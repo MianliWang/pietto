@@ -446,7 +446,7 @@ release operation, or route expansion. The controlling closure is
 
 ## Phase 59 route
 
-Phase 59 is active, Slices 1–8 are completed, Slice 9 is current, and Slice 10 is next / unstarted. The published route has exactly 12 slices.
+Phase 59 is active, Slices 1–9 are completed, Slice 10 is current, and Slice 11 is next / unstarted. The published route has exactly 12 slices.
 
 The exact owner is **Local package graph, attribution, provenance, and lineage**.
 
@@ -547,8 +547,19 @@ scan the same direct-link authority on demand; no reverse index, cache, eager
 closure, sorting, deduplication, or winner is introduced. The controlling
 contract is [Phase 59 Slice 9 private graph integrity, inspection, query, and canonical pure boundary](spec/phase59-slice9-private-graph-integrity-inspection-query-canonical-pure-boundary-v1.md).
 
+Slice 10 proves the complete private graph from real temporary authored
+schema-v4 project, root/dependency package manifests, package modules,
+capability requirements/selectors, and per-package schema-v2 semantic
+compilation. It follows existing discovery, loading, inspection, capability,
+semantic, graph, integrity, canonical inspection, and query entry points. Equal
+module/declaration/field spellings remain package-distinct; reachable source,
+direct, renamed, computed, let, aggregate, and current-window lineage plus one
+real typed why-not case are exercised without hand-building a final snapshot or
+adding production behavior. The controlling contract is
+[Phase 59 Slice 10 real multi-package provenance and lineage E2E](spec/phase59-slice10-real-multi-package-provenance-lineage-e2e-v1.md).
+
 Project Explain v1, existing CLI behavior, package loading, semantic lineage,
-and all public schemas remain exact zero-delta. Slice 10 remains next/unstarted;
+and all public schemas remain exact zero-delta. Slice 11 remains next/unstarted;
 this route does not authorize it.
 
 ## Retained later ownership
