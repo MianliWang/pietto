@@ -446,7 +446,7 @@ release operation, or route expansion. The controlling closure is
 
 ## Phase 59 route
 
-Phase 59 is active, Slices 1–9 are completed, Slice 10 is current, and Slice 11 is next / unstarted. The published route has exactly 12 slices.
+Phase 59 is active, Slices 1–10 are completed, Slice 11 is current, and Slice 12 is next / unstarted. The published route has exactly 12 slices.
 
 The exact owner is **Local package graph, attribution, provenance, and lineage**.
 
@@ -558,9 +558,21 @@ real typed why-not case are exercised without hand-building a final snapshot or
 adding production behavior. The controlling contract is
 [Phase 59 Slice 10 real multi-package provenance and lineage E2E](spec/phase59-slice10-real-multi-package-provenance-lineage-e2e-v1.md).
 
+Slice 11 reuses that real authored corpus under Python 3.12/3.13, four fixed
+hash seeds, distinct project and source roots, independent runtime scopes, and
+an isolated installed wheel. One common test-local expectation compares the
+complete ordered private inspection and query projection, exact canonical
+bytes, typed why-not terminal, Project Explain/CLI checkpoints, and intentional
+runtime-ref inequality without normalizing paths, order, or multiplicity. It
+adds no production behavior, public artifact, golden file, workflow, or
+performance optimization. The controlling contract is
+[Phase 59 Slice 11 differential compatibility assurance](spec/phase59-slice11-differential-compatibility-assurance-v1.md).
+
 Project Explain v1, existing CLI behavior, package loading, semantic lineage,
-and all public schemas remain exact zero-delta. Slice 11 remains next/unstarted;
-this route does not authorize it.
+and all public schemas remain exact zero-delta. Slice 12 remains next/unstarted;
+this route does not authorize it. Slice 12 must record the already-decided
+Phase 59 completion → validation/test performance optimization interlude →
+Phase 60 activation prerequisite without starting that interlude early.
 
 ## Retained later ownership
 

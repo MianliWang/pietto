@@ -20,10 +20,12 @@ documentation does not supersede that evidence.
 | Slice 7 | `COMPLETED` |
 | Slice 8 | `COMPLETED` |
 | Slice 9 | `COMPLETED` |
-| Slice 10 | `CURRENT` |
-| Slice 11 | `NEXT / UNSTARTED` |
-| Next | `PHASE59_SLICE11_DIFFERENTIAL_COMPATIBILITY_ASSURANCE_END_TO_END` |
+| Slice 10 | `COMPLETED` |
+| Slice 11 | `CURRENT` |
+| Slice 12 | `NEXT / UNSTARTED` |
+| Next | `PHASE59_SLICE12_COMPLETION_AUDIT_PHASE60_HANDOFF_END_TO_END` |
 
-Slice 10 is the current real multi-package provenance and lineage E2E owner.
-Live Git and natural exact-head CI own Phase 59 Slice 10 completion; no post-CI
-status-flip commit is required. This status does not authorize Slice 11.
+Slice 11 is the current differential compatibility assurance owner. Live Git
+and natural exact-head CI own Phase 59 Slice 11 completion; no post-CI
+status-flip commit is required. This status does not authorize Slice 12 or the
+post-Phase-59 validation/test performance optimization interlude.
