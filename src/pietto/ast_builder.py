@@ -589,7 +589,7 @@ class AstBuilder(PiettoVisitor):
                 self._order_item(item, reject_ordinal=False)
                 for item in order_clause.orderByBody().orderItem()
             )
-        frame_clause = body.rowsFrameClause()
+        frame_clause = body.windowFrameClause()
         frame = (
             AuthoredWindowFrame(kind=AuthoredWindowFrameKind.OMITTED)
             if frame_clause is None
@@ -607,21 +607,22 @@ class AstBuilder(PiettoVisitor):
 
         return self.visit(ctx.expression())
 
-    def visitRowsFrameClause(self, ctx: _AntlrContext) -> AuthoredWindowFrame:
-        """Preserve shorthand versus explicit ROWS frame authorship."""
+    def visitWindowFrameClause(self, ctx: _AntlrContext) -> AuthoredWindowFrame:
+        """Preserve frame unit and shorthand versus BETWEEN authorship."""
 
         bounds = tuple(self.visit(bound) for bound in ctx.frameBound())
+        unit = WindowFrameUnit.ROWS if ctx.ROWS() is not None else WindowFrameUnit.RANGE
         if ctx.BETWEEN() is None:
             assert len(bounds) == 1
             return AuthoredWindowFrame(
                 kind=AuthoredWindowFrameKind.SHORTHAND,
-                unit=WindowFrameUnit.ROWS,
+                unit=unit,
                 start=bounds[0],
             )
         assert len(bounds) == 2
         return AuthoredWindowFrame(
             kind=AuthoredWindowFrameKind.BETWEEN,
-            unit=WindowFrameUnit.ROWS,
+            unit=unit,
             start=bounds[0],
             end=bounds[1],
         )

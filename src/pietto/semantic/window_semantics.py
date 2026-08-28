@@ -890,6 +890,336 @@ def _rows_frame_bound_position(
     raise AssertionError("validated ROWS bound kind must be complete")
 
 
+class RangeOrderDirection(StrEnum):
+    """Resolved ordering directions relevant to RANGE offset orientation."""
+
+    ASC = "asc"
+    DESC = "desc"
+
+
+class RangeOffsetOrientation(StrEnum):
+    """Logical movement in the ordering-value domain without arithmetic."""
+
+    LOWER_ORDERING_VALUES = "lower_ordering_values"
+    HIGHER_ORDERING_VALUES = "higher_ordering_values"
+
+
+class RangeFrameBoundRole(StrEnum):
+    """Whether one logical RANGE request supplies the start or end bound."""
+
+    START = "start"
+    END = "end"
+
+
+class RangePeerBoundaryKind(StrEnum):
+    """Peer boundary required by RANGE CURRENT ROW for one bound role."""
+
+    FIRST_PEER = "first_peer"
+    LAST_PEER = "last_peer"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RangeOffsetArithmeticRequirement:
+    """Unresolved Phase 64 request retaining exact RANGE ordering evidence."""
+
+    role: RangeFrameBoundRole
+    bound: WindowFrameBound
+    ordering: OrderItem
+    direction: RangeOrderDirection
+    orientation: RangeOffsetOrientation
+
+    def __post_init__(self) -> None:
+        if type(self.role) is not RangeFrameBoundRole:
+            raise TypeError("RANGE offset role must be exact")
+        if type(self.bound) is not WindowFrameBound:
+            raise TypeError("RANGE offset bound must be exact")
+        if self.bound.kind not in {
+            WindowFrameBoundKind.OFFSET_PRECEDING,
+            WindowFrameBoundKind.OFFSET_FOLLOWING,
+        }:
+            raise ValueError("RANGE arithmetic requirements need an offset bound")
+        if type(self.ordering) is not OrderItem:
+            raise TypeError("RANGE offset ordering must be exact")
+        if type(self.direction) is not RangeOrderDirection:
+            raise TypeError("RANGE offset direction must be exact")
+        if type(self.orientation) is not RangeOffsetOrientation:
+            raise TypeError("RANGE offset orientation must be exact")
+        if self.direction is not _range_order_direction(self.ordering):
+            raise ValueError("RANGE offset direction must match resolved ordering")
+        if self.orientation is not _range_offset_orientation(
+            self.bound.kind,
+            self.direction,
+        ):
+            raise ValueError("RANGE offset orientation must match bound and direction")
+
+    @property
+    def offset_expression(self) -> Expression:
+        """Return the exact authored offset expression for Phase 64 evidence."""
+
+        assert self.bound.offset is not None
+        return self.bound.offset
+
+    @property
+    def ordering_expression(self) -> Expression:
+        """Return the exact resolved ordering expression for Phase 64 evidence."""
+
+        return self.ordering.expression
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RangeFrameLogicalView:
+    """Lazy RANGE boundary request without peer comparison or typed arithmetic."""
+
+    specification: ValidatedWindowSpecification
+    offset_requirements: tuple[RangeOffsetArithmeticRequirement, ...]
+
+    def __post_init__(self) -> None:
+        _require_range_specification(self.specification)
+        if type(self.offset_requirements) is not tuple or any(
+            type(item) is not RangeOffsetArithmeticRequirement
+            for item in self.offset_requirements
+        ):
+            raise TypeError("RANGE offset requirements must be an exact typed tuple")
+        expected = _range_offset_requirements(self.specification)
+        if self.offset_requirements != expected:
+            raise ValueError("RANGE offset requirements must be complete and ordered")
+
+    @property
+    def frame(self) -> ValidatedFrame:
+        """Return the exact validated RANGE frame."""
+
+        frame = self.specification.frame
+        assert type(frame) is ValidatedFrame
+        return frame
+
+    @property
+    def order_by(self) -> tuple[OrderItem, ...]:
+        """Return complete resolved ordering evidence without winner selection."""
+
+        return self.specification.resolved.order_by
+
+    @property
+    def start_peer_boundary(self) -> RangePeerBoundaryKind | None:
+        """Return RANGE CURRENT ROW start peer authority when required."""
+
+        assert self.frame.resolved.start is not None
+        if self.frame.resolved.start.kind is WindowFrameBoundKind.CURRENT_ROW:
+            return RangePeerBoundaryKind.FIRST_PEER
+        return None
+
+    @property
+    def end_peer_boundary(self) -> RangePeerBoundaryKind | None:
+        """Return RANGE CURRENT ROW end peer authority when required."""
+
+        assert self.frame.resolved.end is not None
+        if self.frame.resolved.end.kind is WindowFrameBoundKind.CURRENT_ROW:
+            return RangePeerBoundaryKind.LAST_PEER
+        return None
+
+    @property
+    def requires_phase64_arithmetic(self) -> bool:
+        """Whether unresolved offset/order compatibility evidence is required."""
+
+        return bool(self.offset_requirements)
+
+    @property
+    def requires_whole_partition_peer_evidence(self) -> bool:
+        """Whether no ordering makes the entire partition one peer group."""
+
+        return not self.order_by
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RangeOffsetOrderingFailure:
+    """Typed failure when offset RANGE lacks exactly one ordering key."""
+
+    specification: ValidatedWindowSpecification
+    order_key_count: int
+
+    def __post_init__(self) -> None:
+        _require_range_specification(self.specification)
+        if type(self.order_key_count) is not int:
+            raise TypeError("RANGE order-key count must be an exact integer")
+        actual = len(self.specification.resolved.order_by)
+        if self.order_key_count != actual:
+            raise ValueError("RANGE order-key failure must retain the exact count")
+        if actual == 1 or not _range_offset_bounds(self.specification):
+            raise ValueError(
+                "RANGE order-key failure requires offset bounds and 0 or 2+ keys"
+            )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RangePeerBoundaryEvidence:
+    """Explicit Slice 6-owned peer positions consumed without peer computation."""
+
+    partition_size: int
+    current_position: int
+    first_peer_position: int
+    last_peer_position: int
+
+    def __post_init__(self) -> None:
+        if type(self.partition_size) is not int:
+            raise TypeError("RANGE peer partition size must be exact")
+        if self.partition_size <= 0:
+            raise ValueError("RANGE peer partition size must be positive")
+        if any(
+            type(value) is not int
+            for value in (
+                self.current_position,
+                self.first_peer_position,
+                self.last_peer_position,
+            )
+        ):
+            raise TypeError("RANGE peer positions must be exact integers")
+        if not (
+            0
+            <= self.first_peer_position
+            <= self.current_position
+            <= self.last_peer_position
+            < self.partition_size
+        ):
+            raise ValueError("RANGE peer evidence must contain the current position")
+
+
+def range_frame_logical_view(
+    specification: ValidatedWindowSpecification,
+) -> RangeFrameLogicalView | RangeOffsetOrderingFailure:
+    """Build one RANGE request or fail its offset ordering cardinality rule."""
+
+    _require_range_specification(specification)
+    order_key_count = len(specification.resolved.order_by)
+    if _range_offset_bounds(specification) and order_key_count != 1:
+        return RangeOffsetOrderingFailure(
+            specification=specification,
+            order_key_count=order_key_count,
+        )
+    return RangeFrameLogicalView(
+        specification=specification,
+        offset_requirements=_range_offset_requirements(specification),
+    )
+
+
+def resolve_range_current_row_boundary(
+    view: RangeFrameLogicalView,
+    *,
+    role: RangeFrameBoundRole,
+    evidence: RangePeerBoundaryEvidence,
+) -> int:
+    """Consume explicit peer evidence for one RANGE CURRENT ROW boundary."""
+
+    if type(view) is not RangeFrameLogicalView:
+        raise TypeError("RANGE peer resolution requires an exact logical view")
+    if type(role) is not RangeFrameBoundRole:
+        raise TypeError("RANGE peer resolution role must be exact")
+    if type(evidence) is not RangePeerBoundaryEvidence:
+        raise TypeError("RANGE peer resolution evidence must be exact")
+    bound = (
+        view.frame.resolved.start
+        if role is RangeFrameBoundRole.START
+        else view.frame.resolved.end
+    )
+    assert bound is not None
+    if bound.kind is not WindowFrameBoundKind.CURRENT_ROW:
+        raise ValueError("RANGE peer resolution requires a CURRENT ROW bound")
+    if view.requires_whole_partition_peer_evidence and (
+        evidence.first_peer_position != 0
+        or evidence.last_peer_position != evidence.partition_size - 1
+    ):
+        raise ValueError("unordered RANGE requires whole-partition peer evidence")
+    return (
+        evidence.first_peer_position
+        if role is RangeFrameBoundRole.START
+        else evidence.last_peer_position
+    )
+
+
+def _require_range_specification(
+    specification: ValidatedWindowSpecification,
+) -> None:
+    if type(specification) is not ValidatedWindowSpecification:
+        raise TypeError("RANGE semantics require an exact validated specification")
+    frame = specification.frame
+    if type(frame) is not ValidatedFrame:
+        raise ValueError("RANGE semantics require an applicable validated frame")
+    if frame.resolved.unit is not WindowFrameUnit.RANGE:
+        raise ValueError("RANGE semantics require a RANGE frame")
+    if frame.resolved.exclusion is not WindowFrameExclusion.NO_OTHERS:
+        raise ValueError("RANGE base semantics require EXCLUDE NO OTHERS")
+
+
+def _range_offset_bounds(
+    specification: ValidatedWindowSpecification,
+) -> tuple[tuple[RangeFrameBoundRole, WindowFrameBound], ...]:
+    frame = specification.frame
+    assert type(frame) is ValidatedFrame
+    assert frame.resolved.start is not None
+    assert frame.resolved.end is not None
+    return tuple(
+        (role, bound)
+        for role, bound in (
+            (RangeFrameBoundRole.START, frame.resolved.start),
+            (RangeFrameBoundRole.END, frame.resolved.end),
+        )
+        if bound.kind
+        in {
+            WindowFrameBoundKind.OFFSET_PRECEDING,
+            WindowFrameBoundKind.OFFSET_FOLLOWING,
+        }
+    )
+
+
+def _range_offset_requirements(
+    specification: ValidatedWindowSpecification,
+) -> tuple[RangeOffsetArithmeticRequirement, ...]:
+    offset_bounds = _range_offset_bounds(specification)
+    if not offset_bounds:
+        return ()
+    order_by = specification.resolved.order_by
+    if len(order_by) != 1:
+        raise ValueError("offset RANGE requirements need exactly one ordering key")
+    ordering = order_by[0]
+    direction = _range_order_direction(ordering)
+    return tuple(
+        RangeOffsetArithmeticRequirement(
+            role=role,
+            bound=bound,
+            ordering=ordering,
+            direction=direction,
+            orientation=_range_offset_orientation(bound.kind, direction),
+        )
+        for role, bound in offset_bounds
+    )
+
+
+def _range_order_direction(ordering: OrderItem) -> RangeOrderDirection:
+    if ordering.direction is None or ordering.direction == "asc":
+        return RangeOrderDirection.ASC
+    if ordering.direction == "desc":
+        return RangeOrderDirection.DESC
+    raise ValueError("RANGE ordering direction must be omitted, asc, or desc")
+
+
+def _range_offset_orientation(
+    kind: WindowFrameBoundKind,
+    direction: RangeOrderDirection,
+) -> RangeOffsetOrientation:
+    if (
+        kind is WindowFrameBoundKind.OFFSET_PRECEDING
+        and direction is RangeOrderDirection.ASC
+    ) or (
+        kind is WindowFrameBoundKind.OFFSET_FOLLOWING
+        and direction is RangeOrderDirection.DESC
+    ):
+        return RangeOffsetOrientation.LOWER_ORDERING_VALUES
+    if kind in {
+        WindowFrameBoundKind.OFFSET_PRECEDING,
+        WindowFrameBoundKind.OFFSET_FOLLOWING,
+    }:
+        return RangeOffsetOrientation.HIGHER_ORDERING_VALUES
+    raise ValueError("RANGE orientation requires an offset bound")
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class WindowOccurrenceIdentity:
     """Stable structural identity for one selected window occurrence."""

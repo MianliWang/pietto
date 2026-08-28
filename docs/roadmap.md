@@ -676,12 +676,12 @@ validation.
 
 Successful natural exact-head CI on the single Slice 6 completion commit
 completed the Interlude and handed off authority. Phase 60 is `ACTIVE`, Slice 1
-through Slice 3 are completed, Slice 4 is current, and Slice 5 is next /
+through Slice 4 are completed, Slice 5 is current, and Slice 6 is next /
 unstarted.
 
 ## Phase 60 route
 
-Phase 60 is active, Slices 1-3 are completed, Slice 4 is current, and Slice 5
+Phase 60 is active, Slices 1-4 are completed, Slice 5 is current, and Slice 6
 is next / unstarted. The published route has exactly 13 slices.
 
 The exact owner is **Advanced Windows And Phase 51–60 Readiness Checkpoint**.
@@ -742,10 +742,20 @@ callers and activates SQL emission, Slice 10 owns capability gating, and Slice
 11 owns broad real authored E2E. The controlling contract is
 [Phase 60 Slice 4 ROWS semantics and lowering](spec/phase60-slice4-rows-semantics-lowering-v1.md).
 
-Public syntax now recognizes ROWS while current function-policy rejection and
-all existing successful SQL remain deterministic. Live Git and natural
-exact-head CI own Slice 4 completion without a status-only follow-up commit.
-Slice 5 remains unimplemented and unauthorized by Slice 4.
+Slice 5 adds authored RANGE to the shared frame grammar/AST and defines a lazy
+ordering-domain request with explicit ASC/DESC offset orientation. Offset
+frames require exactly one complete ordering key and emit unresolved Phase 64
+type/arithmetic requirements; CURRENT ROW consumes an explicit Slice 6 peer
+boundary seam without computing peers. Current functions continue rejecting
+explicit RANGE. No peer algorithm, frame IR, SQL renderer, legal
+frame-sensitive identity, capability, lineage, or public schema is added. The
+controlling contract is
+[Phase 60 Slice 5 RANGE semantics and lowering](spec/phase60-slice5-range-semantics-lowering-v1.md).
+
+Public syntax now recognizes ROWS and RANGE while current function-policy
+rejection and all existing successful SQL remain deterministic. Live Git and
+natural exact-head CI own Slice 5 completion without a status-only follow-up
+commit. Slice 6 remains unimplemented and unauthorized by Slice 5.
 
 ## Retained later ownership
 

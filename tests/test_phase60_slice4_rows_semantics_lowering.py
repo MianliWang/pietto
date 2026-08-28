@@ -486,7 +486,6 @@ def test_new_frame_words_remain_contextual_identifiers_outside_frame_clause() ->
 @pytest.mark.parametrize(
     "frame",
     (
-        "range current row",
         "groups current row",
         "rows current row exclude ties",
     ),

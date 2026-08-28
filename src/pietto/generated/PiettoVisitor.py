@@ -359,8 +359,8 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by PiettoParser#rowsFrameClause.
-    def visitRowsFrameClause(self, ctx:PiettoParser.RowsFrameClauseContext):
+    # Visit a parse tree produced by PiettoParser#windowFrameClause.
+    def visitWindowFrameClause(self, ctx:PiettoParser.WindowFrameClauseContext):
         return self.visitChildren(ctx)
 
 
