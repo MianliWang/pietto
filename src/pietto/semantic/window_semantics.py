@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from pietto._window_identity import WindowFunctionIdentity
@@ -15,6 +15,7 @@ from pietto.ast_nodes import (
     Span,
     WindowExpr,
 )
+from pietto.semantic.aggregates import child_expressions
 from pietto.semantic.generic_compatibility import SignatureMatch
 from pietto.semantic.model import (
     EffectiveNullability,
@@ -423,6 +424,450 @@ def _resolve_authored_window_frame(
         start=authored.start,
         end=end,
         exclusion=_effective_window_frame_exclusion(authored.exclusion),
+    )
+
+
+class WindowFrameEmptinessClassification(StrEnum):
+    """Closed frame-cardinality evidence available at validation time."""
+
+    STRUCTURALLY_INVALID = "structurally_invalid"
+    GUARANTEED_NONEMPTY = "guaranteed_nonempty"
+    POSSIBLY_EMPTY = "possibly_empty"
+    ALWAYS_EMPTY = "always_empty"
+
+
+class WindowFrameStructuralFailureKind(StrEnum):
+    """Closed structural bound failures independent of offset values."""
+
+    START_UNBOUNDED_FOLLOWING = "start_unbounded_following"
+    END_UNBOUNDED_PRECEDING = "end_unbounded_preceding"
+    REVERSED_BOUND_CATEGORIES = "reversed_bound_categories"
+
+
+class WindowFunctionFramePolicyKind(StrEnum):
+    """Whether one exact function identity admits effective frame semantics."""
+
+    FRAME_SENSITIVE = "frame_sensitive"
+    FRAME_INSENSITIVE_EXPLICIT_FORBIDDEN = "frame_insensitive_explicit_forbidden"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WindowFunctionFramePolicy:
+    """Extensible frame authority bound to one exact semantic identity."""
+
+    identity: WindowFunctionIdentity
+    kind: WindowFunctionFramePolicyKind
+
+    def __post_init__(self) -> None:
+        if type(self.identity) is not WindowFunctionIdentity:
+            raise TypeError("frame policy identity must be exact")
+        if type(self.kind) is not WindowFunctionFramePolicyKind:
+            raise TypeError("frame policy kind must be exact")
+
+    @property
+    def required_frame_applicability(self) -> WindowFrameApplicability:
+        """Return the exact Slice 2 applicability required by this policy."""
+
+        if self.kind is WindowFunctionFramePolicyKind.FRAME_SENSITIVE:
+            return WindowFrameApplicability.APPLICABLE
+        return WindowFrameApplicability.NOT_APPLICABLE
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ValidatedFrame:
+    """One structurally valid applicable frame with exact emptiness evidence."""
+
+    resolved: ResolvedWindowFrame
+    classification: WindowFrameEmptinessClassification
+
+    def __post_init__(self) -> None:
+        if type(self.resolved) is not ResolvedWindowFrame:
+            raise TypeError("validated frame requires an exact resolved frame")
+        if type(self.classification) is not WindowFrameEmptinessClassification:
+            raise TypeError("validated frame classification must be exact")
+        if self.resolved.applicability is not WindowFrameApplicability.APPLICABLE:
+            raise ValueError("validated frames require applicable frame semantics")
+        if self.classification is (
+            WindowFrameEmptinessClassification.STRUCTURALLY_INVALID
+        ):
+            raise ValueError("validated frames forbid structural invalidity")
+        if _structural_frame_failures(self.resolved):
+            raise ValueError("structurally invalid frames cannot be validated")
+        if self.classification is not _classify_valid_frame(self.resolved):
+            raise ValueError("validated frame classification must be strongest known")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ValidatedFrameNotApplicable:
+    """One validated typed absence of function-owned frame semantics."""
+
+    resolved: ResolvedWindowFrame
+
+    def __post_init__(self) -> None:
+        if type(self.resolved) is not ResolvedWindowFrame:
+            raise TypeError("validated frame absence requires an exact resolved frame")
+        if self.resolved.applicability is not (WindowFrameApplicability.NOT_APPLICABLE):
+            raise ValueError("validated frame absence requires NOT_APPLICABLE")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class StructurallyInvalidFrame:
+    """Complete structural rejection evidence with no validated frame."""
+
+    resolved: ResolvedWindowFrame
+    failures: tuple[WindowFrameStructuralFailureKind, ...]
+    classification: WindowFrameEmptinessClassification = field(
+        init=False,
+        default=WindowFrameEmptinessClassification.STRUCTURALLY_INVALID,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.resolved) is not ResolvedWindowFrame:
+            raise TypeError("invalid frame evidence requires an exact resolved frame")
+        if type(self.failures) is not tuple or any(
+            type(item) is not WindowFrameStructuralFailureKind for item in self.failures
+        ):
+            raise TypeError("structural frame failures must be an exact typed tuple")
+        expected = _structural_frame_failures(self.resolved)
+        if not expected or self.failures != expected:
+            raise ValueError("structural frame failures must be complete and ordered")
+
+
+class WindowValidationIssueKind(StrEnum):
+    """Closed reasons a resolved window cannot enter the validated stage."""
+
+    STRUCTURALLY_INVALID_FRAME = "structurally_invalid_frame"
+    MISSING_FUNCTION_FRAME_POLICY = "missing_function_frame_policy"
+    FUNCTION_FRAME_POLICY_IDENTITY_MISMATCH = "function_frame_policy_identity_mismatch"
+    FRAME_APPLICABILITY_MISMATCH = "frame_applicability_mismatch"
+    EXPLICIT_FRAME_FORBIDDEN = "explicit_frame_forbidden"
+    NESTED_WINDOW_EXPRESSION = "nested_window_expression"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WindowValidationIssue:
+    """One typed issue with exact structural or nested evidence when applicable."""
+
+    kind: WindowValidationIssueKind
+    structural_failure: StructurallyInvalidFrame | None = None
+    nested_expressions: tuple[WindowExpr, ...] = ()
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not WindowValidationIssueKind:
+            raise TypeError("window validation issue kind must be exact")
+        if (
+            self.structural_failure is not None
+            and type(self.structural_failure) is not StructurallyInvalidFrame
+        ):
+            raise TypeError("structural failure evidence must be exact")
+        if type(self.nested_expressions) is not tuple or any(
+            type(item) is not WindowExpr for item in self.nested_expressions
+        ):
+            raise TypeError("nested window evidence must be an exact WindowExpr tuple")
+
+        if self.kind is WindowValidationIssueKind.STRUCTURALLY_INVALID_FRAME:
+            if self.structural_failure is None or self.nested_expressions:
+                raise ValueError("structural issues require only structural evidence")
+            return
+        if self.kind is WindowValidationIssueKind.NESTED_WINDOW_EXPRESSION:
+            if self.structural_failure is not None or not self.nested_expressions:
+                raise ValueError("nested issues require only nonempty nested evidence")
+            return
+        if self.structural_failure is not None or self.nested_expressions:
+            raise ValueError("policy issues forbid structural or nested evidence")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ValidatedWindowSpecification:
+    """One complete immutable Resolved-to-Validated normalization."""
+
+    resolved: ResolvedWindowSpecification
+    function_identity: WindowFunctionIdentity
+    function_policy: WindowFunctionFramePolicy
+    argument_expressions: tuple[Expression, ...]
+    frame: ValidatedFrame | ValidatedFrameNotApplicable
+
+    def __post_init__(self) -> None:
+        _require_window_validation_inputs(
+            self.resolved,
+            self.function_identity,
+            self.function_policy,
+            self.argument_expressions,
+        )
+        if type(self.frame) not in {ValidatedFrame, ValidatedFrameNotApplicable}:
+            raise TypeError("validated window frame evidence must be exact")
+        if self.frame.resolved is not self.resolved.frame:
+            raise ValueError("validated frame must retain the exact resolved frame")
+        if _window_validation_issues(
+            self.resolved,
+            self.function_identity,
+            self.function_policy,
+            self.argument_expressions,
+        ):
+            raise ValueError("invalid resolved windows cannot be validated")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WindowSpecificationValidationFailure:
+    """One complete ordered rejection with no partial validated value."""
+
+    resolved: ResolvedWindowSpecification
+    function_identity: WindowFunctionIdentity
+    function_policy: WindowFunctionFramePolicy | None
+    argument_expressions: tuple[Expression, ...]
+    issues: tuple[WindowValidationIssue, ...]
+
+    def __post_init__(self) -> None:
+        _require_window_validation_inputs(
+            self.resolved,
+            self.function_identity,
+            self.function_policy,
+            self.argument_expressions,
+        )
+        if type(self.issues) is not tuple or any(
+            type(item) is not WindowValidationIssue for item in self.issues
+        ):
+            raise TypeError("window validation issues must be an exact typed tuple")
+        expected = _window_validation_issues(
+            self.resolved,
+            self.function_identity,
+            self.function_policy,
+            self.argument_expressions,
+        )
+        if not expected or self.issues != expected:
+            raise ValueError("window validation issues must be complete and ordered")
+
+
+_WINDOW_FRAME_BOUND_CATEGORY_ORDER = (
+    WindowFrameBoundKind.UNBOUNDED_PRECEDING,
+    WindowFrameBoundKind.OFFSET_PRECEDING,
+    WindowFrameBoundKind.CURRENT_ROW,
+    WindowFrameBoundKind.OFFSET_FOLLOWING,
+    WindowFrameBoundKind.UNBOUNDED_FOLLOWING,
+)
+
+
+def _structural_frame_failures(
+    frame: ResolvedWindowFrame,
+) -> tuple[WindowFrameStructuralFailureKind, ...]:
+    if frame.applicability is WindowFrameApplicability.NOT_APPLICABLE:
+        return ()
+    assert frame.start is not None
+    assert frame.end is not None
+    failures: list[WindowFrameStructuralFailureKind] = []
+    if frame.start.kind is WindowFrameBoundKind.UNBOUNDED_FOLLOWING:
+        failures.append(WindowFrameStructuralFailureKind.START_UNBOUNDED_FOLLOWING)
+    if frame.end.kind is WindowFrameBoundKind.UNBOUNDED_PRECEDING:
+        failures.append(WindowFrameStructuralFailureKind.END_UNBOUNDED_PRECEDING)
+    if _WINDOW_FRAME_BOUND_CATEGORY_ORDER.index(
+        frame.start.kind
+    ) > _WINDOW_FRAME_BOUND_CATEGORY_ORDER.index(frame.end.kind):
+        failures.append(WindowFrameStructuralFailureKind.REVERSED_BOUND_CATEGORIES)
+    return tuple(failures)
+
+
+def _classify_valid_frame(
+    frame: ResolvedWindowFrame,
+) -> WindowFrameEmptinessClassification:
+    assert frame.unit is not None
+    assert frame.start is not None
+    assert frame.end is not None
+    assert frame.exclusion is not None
+    start_kind = frame.start.kind
+    end_kind = frame.end.kind
+
+    if (
+        start_kind is WindowFrameBoundKind.CURRENT_ROW
+        and end_kind is WindowFrameBoundKind.CURRENT_ROW
+        and (
+            frame.exclusion is WindowFrameExclusion.GROUP
+            or (
+                frame.unit is WindowFrameUnit.ROWS
+                and frame.exclusion is WindowFrameExclusion.CURRENT_ROW
+            )
+        )
+    ):
+        return WindowFrameEmptinessClassification.ALWAYS_EMPTY
+
+    current_rank = _WINDOW_FRAME_BOUND_CATEGORY_ORDER.index(
+        WindowFrameBoundKind.CURRENT_ROW
+    )
+    retains_current = _WINDOW_FRAME_BOUND_CATEGORY_ORDER.index(
+        start_kind
+    ) <= current_rank <= _WINDOW_FRAME_BOUND_CATEGORY_ORDER.index(
+        end_kind
+    ) and frame.exclusion in {WindowFrameExclusion.NO_OTHERS, WindowFrameExclusion.TIES}
+    if retains_current:
+        return WindowFrameEmptinessClassification.GUARANTEED_NONEMPTY
+    return WindowFrameEmptinessClassification.POSSIBLY_EMPTY
+
+
+def _require_window_validation_inputs(
+    resolved: ResolvedWindowSpecification,
+    function_identity: WindowFunctionIdentity,
+    function_policy: WindowFunctionFramePolicy | None,
+    argument_expressions: tuple[Expression, ...],
+) -> None:
+    if type(resolved) is not ResolvedWindowSpecification:
+        raise TypeError("window validation requires an exact resolved specification")
+    if type(function_identity) is not WindowFunctionIdentity:
+        raise TypeError("window validation requires an exact function identity")
+    if (
+        function_policy is not None
+        and type(function_policy) is not WindowFunctionFramePolicy
+    ):
+        raise TypeError("window validation policy must be exact or absent")
+    if type(argument_expressions) is not tuple or any(
+        not isinstance(item, Expression) for item in argument_expressions
+    ):
+        raise TypeError("window validation arguments must be an Expression tuple")
+
+
+def _nested_window_expressions(
+    resolved: ResolvedWindowSpecification,
+    argument_expressions: tuple[Expression, ...],
+) -> tuple[WindowExpr, ...]:
+    roots: list[Expression] = [
+        *argument_expressions,
+        *resolved.partition_by,
+        *(item.expression for item in resolved.order_by),
+    ]
+    for bound in (resolved.frame.start, resolved.frame.end):
+        if bound is not None and bound.offset is not None:
+            roots.append(bound.offset)
+    return tuple(
+        nested for root in roots for nested in _window_expressions_in_source_order(root)
+    )
+
+
+def _window_expressions_in_source_order(
+    expression: Expression,
+) -> tuple[WindowExpr, ...]:
+    if type(expression) is WindowExpr:
+        return (expression,)
+    return tuple(
+        nested
+        for child in child_expressions(expression)
+        for nested in _window_expressions_in_source_order(child)
+    )
+
+
+def _window_validation_issues(
+    resolved: ResolvedWindowSpecification,
+    function_identity: WindowFunctionIdentity,
+    function_policy: WindowFunctionFramePolicy | None,
+    argument_expressions: tuple[Expression, ...],
+) -> tuple[WindowValidationIssue, ...]:
+    issues: list[WindowValidationIssue] = []
+    structural_failures = _structural_frame_failures(resolved.frame)
+    if structural_failures:
+        issues.append(
+            WindowValidationIssue(
+                kind=WindowValidationIssueKind.STRUCTURALLY_INVALID_FRAME,
+                structural_failure=StructurallyInvalidFrame(
+                    resolved=resolved.frame,
+                    failures=structural_failures,
+                ),
+            )
+        )
+
+    policy_matches = (
+        function_policy is not None and function_policy.identity == function_identity
+    )
+    if function_policy is None:
+        issues.append(
+            WindowValidationIssue(
+                kind=WindowValidationIssueKind.MISSING_FUNCTION_FRAME_POLICY,
+            )
+        )
+    elif not policy_matches:
+        issues.append(
+            WindowValidationIssue(
+                kind=(
+                    WindowValidationIssueKind.FUNCTION_FRAME_POLICY_IDENTITY_MISMATCH
+                ),
+            )
+        )
+    else:
+        if (
+            resolved.frame.applicability
+            is not function_policy.required_frame_applicability
+        ):
+            issues.append(
+                WindowValidationIssue(
+                    kind=WindowValidationIssueKind.FRAME_APPLICABILITY_MISMATCH,
+                )
+            )
+        if (
+            function_policy.kind
+            is WindowFunctionFramePolicyKind.FRAME_INSENSITIVE_EXPLICIT_FORBIDDEN
+            and resolved.frame.authored.kind is not AuthoredWindowFrameKind.OMITTED
+        ):
+            issues.append(
+                WindowValidationIssue(
+                    kind=WindowValidationIssueKind.EXPLICIT_FRAME_FORBIDDEN,
+                )
+            )
+
+    nested_expressions = _nested_window_expressions(
+        resolved,
+        argument_expressions,
+    )
+    if nested_expressions:
+        issues.append(
+            WindowValidationIssue(
+                kind=WindowValidationIssueKind.NESTED_WINDOW_EXPRESSION,
+                nested_expressions=nested_expressions,
+            )
+        )
+    return tuple(issues)
+
+
+def validate_resolved_window_specification(
+    resolved: ResolvedWindowSpecification,
+    *,
+    function_identity: WindowFunctionIdentity,
+    function_policy: WindowFunctionFramePolicy | None,
+    argument_expressions: tuple[Expression, ...] = (),
+) -> ValidatedWindowSpecification | WindowSpecificationValidationFailure:
+    """Validate one complete resolved specification without target behavior."""
+
+    _require_window_validation_inputs(
+        resolved,
+        function_identity,
+        function_policy,
+        argument_expressions,
+    )
+    issues = _window_validation_issues(
+        resolved,
+        function_identity,
+        function_policy,
+        argument_expressions,
+    )
+    if issues:
+        return WindowSpecificationValidationFailure(
+            resolved=resolved,
+            function_identity=function_identity,
+            function_policy=function_policy,
+            argument_expressions=argument_expressions,
+            issues=issues,
+        )
+
+    assert function_policy is not None
+    frame: ValidatedFrame | ValidatedFrameNotApplicable
+    if resolved.frame.applicability is WindowFrameApplicability.NOT_APPLICABLE:
+        frame = ValidatedFrameNotApplicable(resolved=resolved.frame)
+    else:
+        frame = ValidatedFrame(
+            resolved=resolved.frame,
+            classification=_classify_valid_frame(resolved.frame),
+        )
+    return ValidatedWindowSpecification(
+        resolved=resolved,
+        function_identity=function_identity,
+        function_policy=function_policy,
+        argument_expressions=argument_expressions,
+        frame=frame,
     )
 
 

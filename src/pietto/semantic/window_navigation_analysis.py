@@ -51,6 +51,8 @@ from pietto.semantic.window_semantics import (
     NavigationDirection,
     NavigationOffsetFact,
     NavigationWindowSemanticFact,
+    WindowFunctionFramePolicy,
+    WindowFunctionFramePolicyKind,
     WindowExpressionSemanticFact,
     WindowExpressionUnsupported,
     WindowOccurrenceIdentity,
@@ -118,8 +120,27 @@ _NAVIGATION_IDENTITIES = (
         NavigationDirection.LEAD,
     ),
 )
-
 type BoundedNavigationExpression = NameExpr | DottedNameExpr | LiteralExpr
+
+
+def navigation_window_function_frame_policy(
+    identity: WindowFunctionIdentity,
+) -> WindowFunctionFramePolicy | None:
+    """Return exact navigation metadata policy or fail closed when absent."""
+
+    if type(identity) is not WindowFunctionIdentity:
+        raise TypeError("navigation frame policy lookup requires an exact identity")
+    matches = tuple(
+        WindowFunctionFramePolicy(
+            identity=registered_identity,
+            kind=WindowFunctionFramePolicyKind.FRAME_INSENSITIVE_EXPLICIT_FORBIDDEN,
+        )
+        for registered_identity, _direction in _NAVIGATION_IDENTITIES
+        if registered_identity == identity
+    )
+    if len(matches) > 1:
+        raise ValueError("navigation frame policy identity must be unique")
+    return matches[0] if matches else None
 
 
 def navigation_direction(expression: WindowExpr) -> NavigationDirection | None:

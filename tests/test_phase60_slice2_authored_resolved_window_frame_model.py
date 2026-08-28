@@ -177,7 +177,6 @@ def test_closed_type_and_carrier_inventories_are_exact_private_and_immutable() -
     assert window_semantics.__all__ == ()
     for public in (pietto, semantic_package):
         assert all(not hasattr(public, symbol.__name__) for symbol in symbols)
-    assert not hasattr(window_semantics, "ValidatedWindowSpecification")
     assert not hasattr(window_semantics, "TargetLowerableWindowSpecification")
 
 

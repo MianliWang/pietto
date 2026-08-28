@@ -676,12 +676,12 @@ validation.
 
 Successful natural exact-head CI on the single Slice 6 completion commit
 completed the Interlude and handed off authority. Phase 60 is `ACTIVE`, Slice 1
-is completed, Slice 2 is current, and Slice 3 is next / unstarted.
+and Slice 2 are completed, Slice 3 is current, and Slice 4 is next / unstarted.
 
 ## Phase 60 route
 
-Phase 60 is active, Slice 1 is completed, Slice 2 is current, and Slice 3 is
-next / unstarted. The published route has exactly 13 slices.
+Phase 60 is active, Slices 1 and 2 are completed, Slice 3 is current, and Slice
+4 is next / unstarted. The published route has exactly 13 slices.
 
 The exact owner is **Advanced Windows And Phase 51–60 Readiness Checkpoint**.
 
@@ -719,9 +719,19 @@ adding legality, named-window resolution, analysis integration, IR, SQL, or
 public behavior. The controlling contract is
 [Phase 60 Slice 2 authored/resolved window-frame model](spec/phase60-slice2-authored-resolved-window-frame-model-v1.md).
 
+Slice 3 adds the private validated semantic stage, categorical bound legality,
+complete typed rejection evidence, conservative frame-emptiness
+classification, and exact function/frame policy derived from the existing
+builtin identity metadata. It rejects explicit frames for frame-insensitive
+functions and nested window inputs while preserving current same-stage scope
+and aggregate-before-window behavior. It adds no grammar, unit-specific
+membership/lowering, target capability, identity/lineage, IR, SQL, CLI, JSON,
+or public behavior. The controlling contract is
+[Phase 60 Slice 3 frame validation and function policy](spec/phase60-slice3-frame-validation-function-policy-v1.md).
+
 Current public language and SQL behavior remain frame free. Live Git and
-natural exact-head CI own Slice 2 completion without a status-only follow-up
-commit. Slice 3 remains unimplemented and unauthorized by Slice 2.
+natural exact-head CI own Slice 3 completion without a status-only follow-up
+commit. Slice 4 remains unimplemented and unauthorized by Slice 3.
 
 ## Retained later ownership
 

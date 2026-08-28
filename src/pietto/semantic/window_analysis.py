@@ -50,6 +50,8 @@ from pietto.semantic.window_semantics import (
     WindowExpressionAnalysis,
     WindowExpressionSemanticFact,
     WindowExpressionUnsupported,
+    WindowFunctionFramePolicy,
+    WindowFunctionFramePolicyKind,
     WindowOccurrenceIdentity,
     WindowOrderBindingFact,
     WindowPartitionBindingFact,
@@ -58,6 +60,7 @@ from pietto.semantic.window_semantics import (
 )
 from pietto.semantic.window_navigation_analysis import (
     analyze_navigation_arguments,
+    navigation_window_function_frame_policy,
     navigation_direction,
 )
 from pietto.semantic.window_order_analysis import bind_window_order_fields
@@ -191,6 +194,29 @@ _DISTRIBUTION_FUNCTIONS = (
         _NTILE_RESULT_FORMULA,
     ),
 )
+
+
+def builtin_window_function_frame_policy(
+    identity: WindowFunctionIdentity,
+) -> WindowFunctionFramePolicy | None:
+    """Return exact current builtin metadata policy or fail closed when absent."""
+
+    if type(identity) is not WindowFunctionIdentity:
+        raise TypeError("builtin frame policy lookup requires an exact identity")
+    matches = tuple(
+        WindowFunctionFramePolicy(
+            identity=definition[0],
+            kind=WindowFunctionFramePolicyKind.FRAME_INSENSITIVE_EXPLICIT_FORBIDDEN,
+        )
+        for definition in (*_RANKING_POLICIES, *_DISTRIBUTION_FUNCTIONS)
+        if definition[0] == identity
+    )
+    navigation_policy = navigation_window_function_frame_policy(identity)
+    if navigation_policy is not None:
+        matches = (*matches, navigation_policy)
+    if len(matches) > 1:
+        raise ValueError("builtin frame policy identity must be unique")
+    return matches[0] if matches else None
 
 
 def analyze_window_expression(
