@@ -33,6 +33,399 @@ class WindowExpressionStage(StrEnum):
     WINDOW = "WINDOW"
 
 
+class WindowFrameUnit(StrEnum):
+    """Closed frame-unit semantics independent of target SQL support."""
+
+    ROWS = "rows"
+    RANGE = "range"
+    GROUPS = "groups"
+
+
+class WindowFrameBoundKind(StrEnum):
+    """Closed structural frame-bound variants without legality semantics."""
+
+    UNBOUNDED_PRECEDING = "unbounded_preceding"
+    OFFSET_PRECEDING = "offset_preceding"
+    CURRENT_ROW = "current_row"
+    OFFSET_FOLLOWING = "offset_following"
+    UNBOUNDED_FOLLOWING = "unbounded_following"
+
+
+_OFFSET_WINDOW_FRAME_BOUND_KINDS = frozenset(
+    {
+        WindowFrameBoundKind.OFFSET_PRECEDING,
+        WindowFrameBoundKind.OFFSET_FOLLOWING,
+    }
+)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WindowFrameBound:
+    """One typed bound retaining the exact existing expression authority."""
+
+    kind: WindowFrameBoundKind
+    offset: Expression | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not WindowFrameBoundKind:
+            raise TypeError("frame bound kind must be an exact WindowFrameBoundKind")
+        if self.kind in _OFFSET_WINDOW_FRAME_BOUND_KINDS:
+            if not isinstance(self.offset, Expression):
+                raise TypeError("offset frame bounds require an Expression")
+        elif self.offset is not None:
+            raise ValueError("non-offset frame bounds forbid an offset expression")
+
+
+class WindowFrameExclusion(StrEnum):
+    """Concrete effective frame-exclusion semantics."""
+
+    NO_OTHERS = "no_others"
+    CURRENT_ROW = "current_row"
+    GROUP = "group"
+    TIES = "ties"
+
+
+class AuthoredWindowFrameExclusion(StrEnum):
+    """Omitted or explicit source exclusion without collapsing authorship."""
+
+    OMITTED = "omitted"
+    NO_OTHERS = "no_others"
+    CURRENT_ROW = "current_row"
+    GROUP = "group"
+    TIES = "ties"
+
+
+class AuthoredWindowFrameKind(StrEnum):
+    """Closed authored frame-clause forms."""
+
+    OMITTED = "omitted"
+    SHORTHAND = "shorthand"
+    BETWEEN = "between"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AuthoredWindowFrame:
+    """One exact authored frame form with explicit omission evidence."""
+
+    kind: AuthoredWindowFrameKind
+    unit: WindowFrameUnit | None = None
+    start: WindowFrameBound | None = None
+    end: WindowFrameBound | None = None
+    exclusion: AuthoredWindowFrameExclusion = AuthoredWindowFrameExclusion.OMITTED
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not AuthoredWindowFrameKind:
+            raise TypeError(
+                "authored frame kind must be an exact AuthoredWindowFrameKind"
+            )
+        if self.unit is not None and type(self.unit) is not WindowFrameUnit:
+            raise TypeError("authored frame unit must be an exact WindowFrameUnit")
+        if self.start is not None and type(self.start) is not WindowFrameBound:
+            raise TypeError("authored frame start must be an exact WindowFrameBound")
+        if self.end is not None and type(self.end) is not WindowFrameBound:
+            raise TypeError("authored frame end must be an exact WindowFrameBound")
+        if type(self.exclusion) is not AuthoredWindowFrameExclusion:
+            raise TypeError(
+                "authored frame exclusion must be an exact AuthoredWindowFrameExclusion"
+            )
+
+        if self.kind is AuthoredWindowFrameKind.OMITTED:
+            if (
+                self.unit is not None
+                or self.start is not None
+                or self.end is not None
+                or self.exclusion is not AuthoredWindowFrameExclusion.OMITTED
+            ):
+                raise ValueError("omitted frames forbid authored frame components")
+            return
+        if self.unit is None or self.start is None:
+            raise ValueError("explicit frames require a unit and start bound")
+        if self.kind is AuthoredWindowFrameKind.SHORTHAND:
+            if self.end is not None:
+                raise ValueError("shorthand frames require an omitted end bound")
+            return
+        if self.end is None:
+            raise ValueError("BETWEEN frames require an explicit end bound")
+
+
+class WindowFrameApplicability(StrEnum):
+    """Whether the owning function family has frame semantics."""
+
+    APPLICABLE = "applicable"
+    NOT_APPLICABLE = "not_applicable"
+
+
+class WindowComponentOrigin(StrEnum):
+    """Authorship provenance for one resolved window component."""
+
+    LOCALLY_AUTHORED = "locally_authored"
+    INHERITED = "inherited"
+    EFFECTIVE_DEFAULT = "effective_default"
+    NOT_APPLICABLE = "not_applicable"
+
+
+def _effective_window_frame_exclusion(
+    authored: AuthoredWindowFrameExclusion,
+) -> WindowFrameExclusion:
+    return (
+        WindowFrameExclusion.NO_OTHERS
+        if authored is AuthoredWindowFrameExclusion.OMITTED
+        else WindowFrameExclusion(authored.value)
+    )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ResolvedWindowFrame:
+    """Concrete effective frame or one explicit not-applicable state."""
+
+    applicability: WindowFrameApplicability
+    origin: WindowComponentOrigin
+    authored: AuthoredWindowFrame
+    unit: WindowFrameUnit | None = None
+    start: WindowFrameBound | None = None
+    end: WindowFrameBound | None = None
+    exclusion: WindowFrameExclusion | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.applicability) is not WindowFrameApplicability:
+            raise TypeError(
+                "resolved frame applicability must be an exact WindowFrameApplicability"
+            )
+        if type(self.origin) is not WindowComponentOrigin:
+            raise TypeError(
+                "resolved frame origin must be an exact WindowComponentOrigin"
+            )
+        if type(self.authored) is not AuthoredWindowFrame:
+            raise TypeError("resolved frame requires an exact authored frame")
+        if self.unit is not None and type(self.unit) is not WindowFrameUnit:
+            raise TypeError("resolved frame unit must be an exact WindowFrameUnit")
+        if self.start is not None and type(self.start) is not WindowFrameBound:
+            raise TypeError("resolved frame start must be an exact WindowFrameBound")
+        if self.end is not None and type(self.end) is not WindowFrameBound:
+            raise TypeError("resolved frame end must be an exact WindowFrameBound")
+        if (
+            self.exclusion is not None
+            and type(self.exclusion) is not WindowFrameExclusion
+        ):
+            raise TypeError(
+                "resolved frame exclusion must be an exact WindowFrameExclusion"
+            )
+
+        if self.applicability is WindowFrameApplicability.NOT_APPLICABLE:
+            if self.origin is not WindowComponentOrigin.NOT_APPLICABLE:
+                raise ValueError("not-applicable frames require NOT_APPLICABLE origin")
+            if any(
+                value is not None
+                for value in (self.unit, self.start, self.end, self.exclusion)
+            ):
+                raise ValueError("not-applicable frames forbid effective components")
+            return
+
+        if self.origin is WindowComponentOrigin.NOT_APPLICABLE:
+            raise ValueError("applicable frames forbid NOT_APPLICABLE origin")
+        if any(
+            value is None for value in (self.unit, self.start, self.end, self.exclusion)
+        ):
+            raise ValueError("applicable frames require complete effective components")
+        if self.origin is WindowComponentOrigin.EFFECTIVE_DEFAULT:
+            if self.authored.kind is not AuthoredWindowFrameKind.OMITTED:
+                raise ValueError("defaulted frames require authored omission")
+            if (
+                self.unit is not WindowFrameUnit.RANGE
+                or self.start
+                != WindowFrameBound(
+                    kind=WindowFrameBoundKind.UNBOUNDED_PRECEDING,
+                )
+                or self.end != WindowFrameBound(kind=WindowFrameBoundKind.CURRENT_ROW)
+                or self.exclusion is not WindowFrameExclusion.NO_OTHERS
+            ):
+                raise ValueError("defaulted frames require Pietto effective defaults")
+            return
+
+        if self.authored.kind is AuthoredWindowFrameKind.OMITTED:
+            raise ValueError("authored or inherited frames require an explicit frame")
+        assert self.authored.unit is not None
+        assert self.authored.start is not None
+        expected_end = (
+            WindowFrameBound(kind=WindowFrameBoundKind.CURRENT_ROW)
+            if self.authored.kind is AuthoredWindowFrameKind.SHORTHAND
+            else self.authored.end
+        )
+        assert expected_end is not None
+        if (
+            self.unit is not self.authored.unit
+            or self.start is not self.authored.start
+            or (
+                self.authored.kind is AuthoredWindowFrameKind.BETWEEN
+                and self.end is not expected_end
+            )
+            or (
+                self.authored.kind is AuthoredWindowFrameKind.SHORTHAND
+                and self.end != expected_end
+            )
+            or self.exclusion
+            is not _effective_window_frame_exclusion(self.authored.exclusion)
+        ):
+            raise ValueError("resolved frame components must match authored evidence")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AuthoredWindowSpecification:
+    """One source-located authored window specification before resolution."""
+
+    span: Span
+    partition_by: tuple[Expression, ...]
+    order_by: tuple[OrderItem, ...]
+    frame: AuthoredWindowFrame
+
+    def __post_init__(self) -> None:
+        if type(self.span) is not Span:
+            raise TypeError("authored window span must be an exact Span")
+        if type(self.partition_by) is not tuple or any(
+            not isinstance(item, Expression) for item in self.partition_by
+        ):
+            raise TypeError("authored window partition must be an Expression tuple")
+        if type(self.order_by) is not tuple or any(
+            type(item) is not OrderItem for item in self.order_by
+        ):
+            raise TypeError("authored window order must be an exact OrderItem tuple")
+        if type(self.frame) is not AuthoredWindowFrame:
+            raise TypeError("authored window requires an exact authored frame")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ResolvedWindowSpecification:
+    """One complete resolved window specification without validation behavior."""
+
+    authored: AuthoredWindowSpecification
+    partition_by: tuple[Expression, ...]
+    order_by: tuple[OrderItem, ...]
+    partition_origin: WindowComponentOrigin
+    ordering_origin: WindowComponentOrigin
+    frame: ResolvedWindowFrame
+
+    def __post_init__(self) -> None:
+        if type(self.authored) is not AuthoredWindowSpecification:
+            raise TypeError("resolved window requires an exact authored window")
+        if type(self.partition_by) is not tuple or any(
+            not isinstance(item, Expression) for item in self.partition_by
+        ):
+            raise TypeError("resolved window partition must be an Expression tuple")
+        if type(self.order_by) is not tuple or any(
+            type(item) is not OrderItem for item in self.order_by
+        ):
+            raise TypeError("resolved window order must be an exact OrderItem tuple")
+        _require_resolved_component_origin(
+            self.partition_by,
+            self.authored.partition_by,
+            self.partition_origin,
+            "partition",
+        )
+        _require_resolved_component_origin(
+            self.order_by,
+            self.authored.order_by,
+            self.ordering_origin,
+            "ordering",
+        )
+        if type(self.frame) is not ResolvedWindowFrame:
+            raise TypeError("resolved window requires an exact resolved frame")
+
+
+def _require_resolved_component_origin(
+    values: tuple[object, ...],
+    authored_values: tuple[object, ...],
+    origin: WindowComponentOrigin,
+    label: str,
+) -> None:
+    if type(origin) is not WindowComponentOrigin:
+        raise TypeError(f"resolved {label} origin must be exact")
+    if origin is WindowComponentOrigin.NOT_APPLICABLE:
+        raise ValueError(f"resolved {label} forbids NOT_APPLICABLE origin")
+    if origin is WindowComponentOrigin.EFFECTIVE_DEFAULT:
+        if values or authored_values:
+            raise ValueError(f"defaulted {label} requires authored omission")
+    elif origin is WindowComponentOrigin.LOCALLY_AUTHORED:
+        if not values or values != authored_values:
+            raise ValueError(f"local {label} must equal authored values")
+    elif not values or authored_values:
+        raise ValueError(f"inherited {label} requires local omission and values")
+
+
+def resolve_authored_window_specification(
+    authored: AuthoredWindowSpecification,
+    *,
+    frame_applicability: WindowFrameApplicability,
+) -> ResolvedWindowSpecification:
+    """Resolve only authored omission, shorthand, and effective defaults."""
+
+    if type(authored) is not AuthoredWindowSpecification:
+        raise TypeError("window resolution requires an exact authored specification")
+    if type(frame_applicability) is not WindowFrameApplicability:
+        raise TypeError("window resolution requires exact frame applicability")
+    return ResolvedWindowSpecification(
+        authored=authored,
+        partition_by=authored.partition_by,
+        order_by=authored.order_by,
+        partition_origin=(
+            WindowComponentOrigin.LOCALLY_AUTHORED
+            if authored.partition_by
+            else WindowComponentOrigin.EFFECTIVE_DEFAULT
+        ),
+        ordering_origin=(
+            WindowComponentOrigin.LOCALLY_AUTHORED
+            if authored.order_by
+            else WindowComponentOrigin.EFFECTIVE_DEFAULT
+        ),
+        frame=_resolve_authored_window_frame(
+            authored.frame,
+            frame_applicability=frame_applicability,
+        ),
+    )
+
+
+def _resolve_authored_window_frame(
+    authored: AuthoredWindowFrame,
+    *,
+    frame_applicability: WindowFrameApplicability,
+) -> ResolvedWindowFrame:
+    if frame_applicability is WindowFrameApplicability.NOT_APPLICABLE:
+        return ResolvedWindowFrame(
+            applicability=frame_applicability,
+            origin=WindowComponentOrigin.NOT_APPLICABLE,
+            authored=authored,
+        )
+    if authored.kind is AuthoredWindowFrameKind.OMITTED:
+        return ResolvedWindowFrame(
+            applicability=frame_applicability,
+            origin=WindowComponentOrigin.EFFECTIVE_DEFAULT,
+            authored=authored,
+            unit=WindowFrameUnit.RANGE,
+            start=WindowFrameBound(
+                kind=WindowFrameBoundKind.UNBOUNDED_PRECEDING,
+            ),
+            end=WindowFrameBound(kind=WindowFrameBoundKind.CURRENT_ROW),
+            exclusion=WindowFrameExclusion.NO_OTHERS,
+        )
+
+    assert authored.unit is not None
+    assert authored.start is not None
+    end = (
+        WindowFrameBound(kind=WindowFrameBoundKind.CURRENT_ROW)
+        if authored.kind is AuthoredWindowFrameKind.SHORTHAND
+        else authored.end
+    )
+    assert end is not None
+    return ResolvedWindowFrame(
+        applicability=frame_applicability,
+        origin=WindowComponentOrigin.LOCALLY_AUTHORED,
+        authored=authored,
+        unit=authored.unit,
+        start=authored.start,
+        end=end,
+        exclusion=_effective_window_frame_exclusion(authored.exclusion),
+    )
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class WindowOccurrenceIdentity:
     """Stable structural identity for one selected window occurrence."""

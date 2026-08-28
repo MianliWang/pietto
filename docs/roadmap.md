@@ -675,13 +675,13 @@ both Python jobs and uses the same resource-aware pytest policy as local
 validation.
 
 Successful natural exact-head CI on the single Slice 6 completion commit
-completed the Interlude and handed off authority. Phase 60 is now `ACTIVE`,
-Slice 1 is current, and Slice 2 is next / unstarted.
+completed the Interlude and handed off authority. Phase 60 is `ACTIVE`, Slice 1
+is completed, Slice 2 is current, and Slice 3 is next / unstarted.
 
 ## Phase 60 route
 
-Phase 60 is active, Slice 1 is current, and Slice 2 is next / unstarted. The
-published route has exactly 13 slices.
+Phase 60 is active, Slice 1 is completed, Slice 2 is current, and Slice 3 is
+next / unstarted. The published route has exactly 13 slices.
 
 The exact owner is **Advanced Windows And Phase 51–60 Readiness Checkpoint**.
 
@@ -711,9 +711,17 @@ contract, and the exact route without production implementation. The
 controlling contract is
 [Phase 60 Slice 1 advanced-window semantic laws and route lock](spec/phase60-advanced-windows-scope-semantic-laws-route-lock-v1.md).
 
+Slice 2 adds the private frozen authored/resolved window-frame model in the
+existing semantic owner. Closed frame units, bound tags, exclusions, authored
+omission/shorthand/`BETWEEN`, component origins, typed frame applicability,
+and pure default normalization reuse exact existing expression objects without
+adding legality, named-window resolution, analysis integration, IR, SQL, or
+public behavior. The controlling contract is
+[Phase 60 Slice 2 authored/resolved window-frame model](spec/phase60-slice2-authored-resolved-window-frame-model-v1.md).
+
 Current public language and SQL behavior remain frame free. Live Git and
-natural exact-head CI own Slice 1 completion without a status-only follow-up
-commit. Slice 2 remains unimplemented and unauthorized by Slice 1.
+natural exact-head CI own Slice 2 completion without a status-only follow-up
+commit. Slice 3 remains unimplemented and unauthorized by Slice 2.
 
 ## Retained later ownership
 

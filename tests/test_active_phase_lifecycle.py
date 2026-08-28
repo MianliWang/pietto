@@ -69,11 +69,12 @@ EXPECTED_STATUS = (
     ("Phase 59", "`COMPLETED`"),
     ("Validation/Test Performance Optimization Interlude", "`COMPLETED`"),
     ("Phase 60", "`ACTIVE`"),
-    ("Slice 1", "`CURRENT`"),
-    ("Slice 2", "`NEXT / UNSTARTED`"),
+    ("Slice 1", "`COMPLETED`"),
+    ("Slice 2", "`CURRENT`"),
+    ("Slice 3", "`NEXT / UNSTARTED`"),
     (
         "Next",
-        "`PHASE60_SLICE2_AUTHORED_TO_RESOLVED_WINDOW_AND_FRAME_MODEL_END_TO_END`",
+        "`PHASE60_SLICE3_FRAME_VALIDATION_AND_FUNCTION_POLICY_END_TO_END`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -85,8 +86,8 @@ EXPECTED_PHASE59_STATE = (
 )
 EXPECTED_PHASE59_OWNER = "Local package graph, attribution, provenance, and lineage"
 EXPECTED_PHASE60_STATE = (
-    "Phase 60 is active, Slice 1 is current, and Slice 2 is next / unstarted. The\n"
-    "published route has exactly 13 slices."
+    "Phase 60 is active, Slice 1 is completed, Slice 2 is current, and Slice 3 is\n"
+    "next / unstarted. The published route has exactly 13 slices."
 )
 EXPECTED_PHASE60_OWNER = "Advanced Windows And Phase 51–60 Readiness Checkpoint"
 EXPECTED_PHASE58_ROUTE = (
@@ -226,6 +227,15 @@ EXPECTED_PHASE60_SLICE1_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice3_repository_reader_acquisition_reuse.py",
     "tests/test_workflow_lifecycle_validation_efficiency.py",
 )
+EXPECTED_PHASE60_SLICE2_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase60-slice2-authored-resolved-window-frame-model-v1.md",
+    "docs/status.md",
+    "src/pietto/semantic/window_semantics.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase60_slice2_authored_resolved_window_frame_model.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -268,10 +278,11 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "Phase 59 and the Validation/Test Performance Optimization Interlude are "
         "completed by live Git and successful natural exact-head CI" in normalized
     )
-    assert "Slice 1 is the current Phase 60 architecture owner" in normalized
-    assert "Live Git and natural exact-head CI own Slice 1 completion" in normalized
+    assert "Slice 1 is completed" in normalized
+    assert "Slice 2 is the current Phase 60 private model owner" in normalized
+    assert "Live Git and natural exact-head CI own Slice 2 completion" in normalized
     assert "no post-CI status-flip commit is required" in normalized
-    assert "does not authorize Slice 2" in normalized
+    assert "does not authorize Slice 3" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
@@ -291,8 +302,10 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     assert phase60.count(EXPECTED_PHASE60_OWNER) == 1
     assert _table_rows(phase60)[1:] == EXPECTED_PHASE60_ROUTE
     assert "phase60-advanced-windows-scope-semantic-laws-route-lock-v1.md" in phase60
+    assert "phase60-slice2-authored-resolved-window-frame-model-v1.md" in phase60
+    assert "private frozen authored/resolved window-frame model" in phase60
     assert "Current public language and SQL behavior remain frame free" in phase60
-    assert "Slice 2 remains unimplemented and unauthorized" in phase60
+    assert "Slice 3 remains unimplemented and unauthorized" in phase60
 
     retained = _section(roadmap, "Retained later ownership")
     assert _table_rows(retained)[1:] == EXPECTED_RETAINED_LATER_OWNERS
@@ -327,10 +340,9 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "Successful natural exact-head CI on the single Slice 6 completion commit "
         "completed the Interlude and handed off authority" in interlude_normalized
     )
-    assert "Phase 60 is now `ACTIVE`" in interlude_normalized
-    assert "Slice 1 is current, and Slice 2 is next / unstarted" in (
-        interlude_normalized
-    )
+    assert "Phase 60 is `ACTIVE`" in interlude_normalized
+    assert "Slice 1 is completed, Slice 2 is current" in interlude_normalized
+    assert "Slice 3 is next / unstarted" in (interlude_normalized)
     assert len(EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS) == 4
     assert all(
         (REPO_ROOT / path).is_file() for path in EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS
@@ -421,4 +433,21 @@ def test_phase60_slice1_changed_paths_are_exact() -> None:
     assert not any(
         path.startswith((".github/", "src/", "scripts/", "grammar/"))
         for path in EXPECTED_PHASE60_SLICE1_CHANGED_PATHS
+    )
+
+
+def test_phase60_slice2_changed_paths_are_exact() -> None:
+    assert len(EXPECTED_PHASE60_SLICE2_CHANGED_PATHS) == 7
+    assert all(
+        (REPO_ROOT / path).is_file() for path in EXPECTED_PHASE60_SLICE2_CHANGED_PATHS
+    )
+    production = tuple(
+        path
+        for path in EXPECTED_PHASE60_SLICE2_CHANGED_PATHS
+        if path.startswith("src/")
+    )
+    assert production == ("src/pietto/semantic/window_semantics.py",)
+    assert not any(
+        path.startswith((".github/", "grammar/", "scripts/"))
+        for path in EXPECTED_PHASE60_SLICE2_CHANGED_PATHS
     )

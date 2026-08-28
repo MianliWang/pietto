@@ -13,12 +13,13 @@ documentation does not supersede that evidence.
 | Phase 59 | `COMPLETED` |
 | Validation/Test Performance Optimization Interlude | `COMPLETED` |
 | Phase 60 | `ACTIVE` |
-| Slice 1 | `CURRENT` |
-| Slice 2 | `NEXT / UNSTARTED` |
-| Next | `PHASE60_SLICE2_AUTHORED_TO_RESOLVED_WINDOW_AND_FRAME_MODEL_END_TO_END` |
+| Slice 1 | `COMPLETED` |
+| Slice 2 | `CURRENT` |
+| Slice 3 | `NEXT / UNSTARTED` |
+| Next | `PHASE60_SLICE3_FRAME_VALIDATION_AND_FUNCTION_POLICY_END_TO_END` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
-completed by live Git and successful natural exact-head CI. Slice 1 is the
-current Phase 60 architecture owner. Live Git and natural exact-head CI own
-Slice 1 completion; no post-CI status-flip commit is required. This status does
-not authorize Slice 2.
+completed by live Git and successful natural exact-head CI. Slice 1 is
+completed, and Slice 2 is the current Phase 60 private model owner. Live Git
+and natural exact-head CI own Slice 2 completion; no post-CI status-flip commit
+is required. This status does not authorize Slice 3.
