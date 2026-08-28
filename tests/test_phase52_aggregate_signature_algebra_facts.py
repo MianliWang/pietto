@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import pytest
 
+from _pietto_repository_facts import REPOSITORY_FACTS
 import pietto.semantic.capability_aggregates as capability_aggregates
 from pietto.semantic.capability_facts import (
     CapabilityDispositionKind,
@@ -1073,27 +1074,26 @@ def test_no_existing_consumer_public_export_registry_io_or_callback_exists() -> 
             or "generated" in path.parts
         ):
             continue
-        source = _read(path)
+        source = REPOSITORY_FACTS.python(path).text
         assert "semantic.capability_aggregates" not in source
         assert "aggregate_lookup_inputs" not in source
-    preservation_source = _read(preservation_path)
+    preservation_source = REPOSITORY_FACTS.python(preservation_path).text
     assert "semantic.capability_aggregates" in preservation_source
     assert "aggregate_lookup_inputs" not in preservation_source
-    provider_source = _read(provider_path)
+    provider_source = REPOSITORY_FACTS.python(provider_path).text
     assert "semantic.capability_aggregates" in provider_source
     assert "aggregate_lookup_inputs" in provider_source
-    assert "capability_aggregates" not in _read(
-        REPO_ROOT / "src/pietto/semantic/__init__.py"
+    assert (
+        "capability_aggregates"
+        not in REPOSITORY_FACTS.python(
+            REPO_ROOT / "src/pietto/semantic/__init__.py"
+        ).text
     )
-    assert "capability_aggregates" not in _read(REPO_ROOT / "src/pietto/__init__.py")
-    tree = ast.parse(_read(SOURCE_PATH), filename=SOURCE_REL)
-    assigned_names = {
-        target.id
-        for node in tree.body
-        if isinstance(node, (ast.Assign, ast.AnnAssign))
-        for target in (node.targets if isinstance(node, ast.Assign) else (node.target,))
-        if isinstance(target, ast.Name)
-    }
+    assert (
+        "capability_aggregates"
+        not in REPOSITORY_FACTS.python(REPO_ROOT / "src/pietto/__init__.py").text
+    )
+    assigned_names = REPOSITORY_FACTS.python(SOURCE_PATH).top_level_assigned_names
     assert not any(
         token in name.lower()
         for name in assigned_names

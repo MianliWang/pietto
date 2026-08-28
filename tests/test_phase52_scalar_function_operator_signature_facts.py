@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import pytest
 
+from _pietto_repository_facts import REPOSITORY_FACTS
 import pietto.semantic.capability_inventory as capability_inventory
 import pietto.semantic.capability_signatures as capability_signatures
 from pietto.semantic.capability_facts import (
@@ -753,19 +754,25 @@ def test_no_compiler_project_public_or_runtime_consumer_exists() -> None:
             or "generated" in path.parts
         ):
             continue
-        source = _read(path)
+        source = REPOSITORY_FACTS.python(path).text
         assert "semantic.capability_signatures" not in source
         assert "signature_lookup_inputs" not in source
-    preservation_source = _read(preservation_path)
+    preservation_source = REPOSITORY_FACTS.python(preservation_path).text
     assert "semantic.capability_signatures" in preservation_source
     assert "signature_lookup_inputs" not in preservation_source
-    provider_source = _read(provider_path)
+    provider_source = REPOSITORY_FACTS.python(provider_path).text
     assert "semantic.capability_signatures" in provider_source
     assert "signature_lookup_inputs" in provider_source
-    assert "capability_signatures" not in _read(
-        REPO_ROOT / "src/pietto/semantic/__init__.py"
+    assert (
+        "capability_signatures"
+        not in REPOSITORY_FACTS.python(
+            REPO_ROOT / "src/pietto/semantic/__init__.py"
+        ).text
     )
-    assert "capability_signatures" not in _read(REPO_ROOT / "src/pietto/__init__.py")
+    assert (
+        "capability_signatures"
+        not in REPOSITORY_FACTS.python(REPO_ROOT / "src/pietto/__init__.py").text
+    )
 
 
 def test_slice4_inventory_fact_count_and_completeness_are_unchanged() -> None:

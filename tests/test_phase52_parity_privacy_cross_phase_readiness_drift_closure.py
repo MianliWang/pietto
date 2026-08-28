@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import pytest
 
+from _pietto_repository_facts import REPOSITORY_FACTS
 import pietto.semantic.capability_aggregates as capability_aggregates
 import pietto.semantic.capability_composition as capability_composition
 import pietto.semantic.capability_contexts as capability_contexts
@@ -890,14 +891,14 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
             or "generated" in path.parts
         ):
             continue
-        source = _read(path)
+        source = REPOSITORY_FACTS.python(path).text
         assert all(name not in source for name in forbidden_names)
         assert all(f"semantic.{stem}" not in source for stem in module_stems)
     for directory in ("_project", "sql", "metadata"):
         root = REPO_ROOT / "src/pietto" / directory
         if root.exists():
             assert all(
-                "capability_" not in _read(path)
+                "capability_" not in REPOSITORY_FACTS.python(path).text
                 for path in root.rglob("*.py")
                 if "generated" not in path.parts
                 and path.relative_to(REPO_ROOT).as_posix()
@@ -921,37 +922,39 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                     EXTENSION_INSPECTION_PURE_REL,
                 }
             )
-    provider_source = _read(REPO_ROOT / PROVIDER_REL)
+    provider_source = REPOSITORY_FACTS.python(REPO_ROOT / PROVIDER_REL).text
     assert all(name in provider_source for name in forbidden_names)
-    availability_source = _read(REPO_ROOT / availability_rel)
+    availability_source = REPOSITORY_FACTS.python(REPO_ROOT / availability_rel).text
     assert "semantic.capability_profiles" in availability_source
     assert all(name not in availability_source for name in forbidden_names)
     assert all(
         f"semantic.{stem}" not in availability_source
         for stem in module_stems - {"capability_profiles"}
     )
-    package_graph_source = _read(REPO_ROOT / package_graph_rel)
+    package_graph_source = REPOSITORY_FACTS.python(REPO_ROOT / package_graph_rel).text
     package_graph_stems = {"capability_profiles"}
     assert all(name not in package_graph_source for name in forbidden_names)
     assert all(
         (f"semantic.{stem}" in package_graph_source) is (stem in package_graph_stems)
         for stem in module_stems
     )
-    package_graph_inspection_source = _read(REPO_ROOT / package_graph_inspection_rel)
+    package_graph_inspection_source = REPOSITORY_FACTS.python(
+        REPO_ROOT / package_graph_inspection_rel
+    ).text
     assert "snapshot.capability_evaluations" in package_graph_inspection_source
     assert all(name not in package_graph_inspection_source for name in forbidden_names)
     assert all(
         f"semantic.{stem}" not in package_graph_inspection_source
         for stem in module_stems
     )
-    selector_source = _read(REPO_ROOT / SELECTOR_REL)
+    selector_source = REPOSITORY_FACTS.python(REPO_ROOT / SELECTOR_REL).text
     assert all(name not in selector_source for name in forbidden_names)
     selector_stems = {"capability_facts", "capability_profiles"}
     assert all(
         (f"semantic.{stem}" in selector_source) is (stem in selector_stems)
         for stem in module_stems
     )
-    checking_source = _read(REPO_ROOT / checking_rel)
+    checking_source = REPOSITORY_FACTS.python(REPO_ROOT / checking_rel).text
     checking_stems = {
         "capability_composition",
         "capability_facts",
@@ -964,14 +967,14 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
         (f"semantic.{stem}" in checking_source) is (stem in checking_stems)
         for stem in module_stems
     )
-    matrix_source = _read(REPO_ROOT / matrix_rel)
+    matrix_source = REPOSITORY_FACTS.python(REPO_ROOT / matrix_rel).text
     matrix_stems = {"capability_composition", "capability_profiles"}
     assert all(name not in matrix_source for name in forbidden_names)
     assert all(
         (f"semantic.{stem}" in matrix_source) is (stem in matrix_stems)
         for stem in module_stems
     )
-    inspection_source = _read(REPO_ROOT / inspection_rel)
+    inspection_source = REPOSITORY_FACTS.python(REPO_ROOT / inspection_rel).text
     inspection_stems = {
         "capability_composition",
         "capability_facts",
@@ -983,10 +986,10 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
         (f"semantic.{stem}" in inspection_source) is (stem in inspection_stems)
         for stem in module_stems
     )
-    pure_boundary_source = _read(REPO_ROOT / pure_boundary_rel)
+    pure_boundary_source = REPOSITORY_FACTS.python(REPO_ROOT / pure_boundary_rel).text
     assert all(name not in pure_boundary_source for name in forbidden_names)
     assert all(f"semantic.{stem}" not in pure_boundary_source for stem in module_stems)
-    preservation_source = _read(REPO_ROOT / preservation_rel)
+    preservation_source = REPOSITORY_FACTS.python(REPO_ROOT / preservation_rel).text
     assert "canonical_capability_provider_inputs" in preservation_source
     assert all(name not in preservation_source for name in forbidden_names)
     assert "__all__: tuple[str, ...] = ()" in preservation_source

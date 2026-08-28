@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import pytest
 
+from _pietto_repository_facts import REPOSITORY_FACTS
 import pietto.semantic.capability_lookup as capability_lookup
 from pietto.semantic.capability_facts import (
     CapabilityDisposition,
@@ -50,6 +51,16 @@ SOURCE_PATH = REPO_ROOT / SOURCE_REL
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _top_level_assign_call_names(tree: ast.Module) -> tuple[str, ...]:
+    return tuple(
+        node.value.func.id
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+    )
 
 
 def _key(
@@ -270,17 +281,14 @@ def test_lookup_is_pure_deterministic_and_does_not_mutate_input() -> None:
 def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry() -> (
     None
 ):
-    tree = ast.parse(_read(SOURCE_PATH), filename=SOURCE_REL)
+    source_facts = REPOSITORY_FACTS.python(SOURCE_PATH)
+    tree = ast.parse(source_facts.text, filename=SOURCE_REL)
     classes = {node.name for node in tree.body if isinstance(node, ast.ClassDef)}
     functions = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
     assert classes == {"Found", "Absent", "Unknown", "Conflict"}
     assert functions == {"lookup_capability"}
     assert not any(
-        isinstance(node, ast.Assign)
-        and isinstance(node.value, ast.Call)
-        and isinstance(node.value.func, ast.Name)
-        and node.value.func.id.startswith("Capability")
-        for node in tree.body
+        name.startswith("Capability") for name in _top_level_assign_call_names(tree)
     )
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
         if (
@@ -316,45 +324,46 @@ def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry()
             or "generated" in path.parts
         ):
             continue
-        source = _read(path)
+        facts = REPOSITORY_FACTS.python(path)
+        source = facts.text
         assert "semantic.capability_facts" not in source
         assert "CapabilityFact" not in source
-        source_tree = ast.parse(source, filename=str(path))
-        capability_key_identifiers = (
-            {node.id for node in ast.walk(source_tree) if isinstance(node, ast.Name)}
-            | {
-                node.attr
-                for node in ast.walk(source_tree)
-                if isinstance(node, ast.Attribute)
-            }
-            | {
-                node.name.rsplit(".", 1)[-1]
-                for node in ast.walk(source_tree)
-                if isinstance(node, ast.alias)
-            }
-        )
-        assert "CapabilityKey" not in capability_key_identifiers
-    signature_source = _read(REPO_ROOT / SIGNATURE_REL)
+        assert "CapabilityKey" not in facts.identifiers
+    signature_source = REPOSITORY_FACTS.python(REPO_ROOT / SIGNATURE_REL).text
     assert "semantic.capability_facts" in signature_source
     assert "CapabilityFact" in signature_source
     assert "CapabilityKey" in signature_source
-    selector_source = _read(REPO_ROOT / SELECTOR_REL)
+    selector_source = REPOSITORY_FACTS.python(REPO_ROOT / SELECTOR_REL).text
     assert "semantic.capability_facts" in selector_source
     assert "CapabilityDomain" in selector_source
     assert "CapabilityFact" not in selector_source
-    inspection_source = _read(REPO_ROOT / INSPECTION_REL)
+    inspection_source = REPOSITORY_FACTS.python(REPO_ROOT / INSPECTION_REL).text
     assert "semantic.capability_facts" in inspection_source
     assert "CapabilityFact" in inspection_source
     assert "CapabilityKey" in inspection_source
-    extension_inspection_source = _read(REPO_ROOT / EXTENSION_INSPECTION_REL)
+    extension_inspection_source = REPOSITORY_FACTS.python(
+        REPO_ROOT / EXTENSION_INSPECTION_REL
+    ).text
     assert "semantic.capability_lookup" in extension_inspection_source
     assert "lookup_capability" in extension_inspection_source
     assert "CapabilityFact" in extension_inspection_source
-    preservation_source = _read(
+    preservation_source = REPOSITORY_FACTS.python(
         REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py"
-    )
+    ).text
     assert "semantic.capability_facts" in preservation_source
     assert "__all__: tuple[str, ...] = ()" in preservation_source
+
+
+def test_private_consumer_policy_remains_assign_only() -> None:
+    tree = ast.parse(
+        "PLAIN = CapabilityPlain()\n"
+        "ANNOTATED: object = CapabilityAnnotated()\n"
+        "LATER = CapabilityLater()\n"
+    )
+    assert _top_level_assign_call_names(tree) == (
+        "CapabilityPlain",
+        "CapabilityLater",
+    )
 
 
 def test_zero_match_uses_only_the_explicit_incomplete_domain_reason() -> None:

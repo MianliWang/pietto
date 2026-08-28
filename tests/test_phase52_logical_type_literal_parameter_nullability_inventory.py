@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import pytest
 
+from _pietto_repository_facts import REPOSITORY_FACTS
 import pietto.semantic.capability_inventory as capability_inventory
 from pietto.semantic.capability_facts import (
     CapabilityDisposition,
@@ -675,16 +676,22 @@ def test_private_inventory_has_no_compiler_public_or_serializer_consumer() -> No
             or "generated" in path.parts
         ):
             continue
-        source = _read(path)
+        source = REPOSITORY_FACTS.python(path).text
         assert "semantic.capability_inventory" not in source
         assert "inventory_lookup_inputs" not in source
-    preservation_source = _read(preservation_path)
+    preservation_source = REPOSITORY_FACTS.python(preservation_path).text
     assert "semantic.capability_inventory" in preservation_source
     assert "inventory_lookup_inputs" not in preservation_source
-    provider_source = _read(provider_path)
+    provider_source = REPOSITORY_FACTS.python(provider_path).text
     assert "semantic.capability_inventory" in provider_source
     assert "inventory_lookup_inputs" in provider_source
-    assert "capability_inventory" not in _read(
-        REPO_ROOT / "src/pietto/semantic/__init__.py"
+    assert (
+        "capability_inventory"
+        not in REPOSITORY_FACTS.python(
+            REPO_ROOT / "src/pietto/semantic/__init__.py"
+        ).text
     )
-    assert "capability_inventory" not in _read(REPO_ROOT / "src/pietto/__init__.py")
+    assert (
+        "capability_inventory"
+        not in REPOSITORY_FACTS.python(REPO_ROOT / "src/pietto/__init__.py").text
+    )

@@ -9,6 +9,7 @@ from typing import Any, cast
 
 import pytest
 
+from _pietto_repository_facts import REPOSITORY_FACTS
 import pietto.semantic.capability_facts as capability_facts
 from pietto.semantic.capability_facts import (
     CapabilityDisposition,
@@ -520,64 +521,59 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
             or "generated" in path.parts
         ):
             continue
-        source = _read(path)
+        facts = REPOSITORY_FACTS.python(path)
+        source = facts.text
         assert "semantic.capability_facts" not in source
         assert "CapabilityFact" not in source
-        source_tree = ast.parse(source, filename=str(path))
-        capability_key_identifiers = (
-            {node.id for node in ast.walk(source_tree) if isinstance(node, ast.Name)}
-            | {
-                node.attr
-                for node in ast.walk(source_tree)
-                if isinstance(node, ast.Attribute)
-            }
-            | {
-                node.name.rsplit(".", 1)[-1]
-                for node in ast.walk(source_tree)
-                if isinstance(node, ast.alias)
-            }
-        )
-        assert "CapabilityKey" not in capability_key_identifiers
-    assert "capability_facts" not in _read(
-        REPO_ROOT / "src/pietto/semantic/__init__.py"
+        assert "CapabilityKey" not in facts.identifiers
+    assert (
+        "capability_facts"
+        not in REPOSITORY_FACTS.python(
+            REPO_ROOT / "src/pietto/semantic/__init__.py"
+        ).text
     )
-    assert "capability_facts" not in _read(REPO_ROOT / "src/pietto/__init__.py")
-    lookup_source = _read(LOOKUP_PATH)
+    assert (
+        "capability_facts"
+        not in REPOSITORY_FACTS.python(REPO_ROOT / "src/pietto/__init__.py").text
+    )
+    lookup_source = REPOSITORY_FACTS.python(LOOKUP_PATH).text
     assert "semantic.capability_facts" in lookup_source
     assert "CapabilityFact" in lookup_source
     assert "CapabilityKey" in lookup_source
-    inventory_source = _read(INVENTORY_PATH)
+    inventory_source = REPOSITORY_FACTS.python(INVENTORY_PATH).text
     assert "semantic.capability_facts" in inventory_source
     assert "CapabilityFact" in inventory_source
     assert "CapabilityKey" in inventory_source
-    signature_source = _read(SIGNATURE_PATH)
+    signature_source = REPOSITORY_FACTS.python(SIGNATURE_PATH).text
     assert "semantic.capability_facts" in signature_source
     assert "CapabilityFact" in signature_source
-    selector_source = _read(REPO_ROOT / SELECTOR_REL)
+    selector_source = REPOSITORY_FACTS.python(REPO_ROOT / SELECTOR_REL).text
     assert "semantic.capability_facts" in selector_source
     assert "CapabilityDomain" in selector_source
     assert "CapabilityFact" not in selector_source
-    provider_source = _read(REPO_ROOT / PROVIDER_REL)
+    provider_source = REPOSITORY_FACTS.python(REPO_ROOT / PROVIDER_REL).text
     assert "semantic.capability_facts" in provider_source
     assert "CapabilityFact" in provider_source
     assert "CapabilityKey" in provider_source
-    composition_source = _read(REPO_ROOT / COMPOSITION_REL)
+    composition_source = REPOSITORY_FACTS.python(REPO_ROOT / COMPOSITION_REL).text
     assert "semantic.capability_facts" in composition_source
     assert "CapabilityFact" in composition_source
-    checking_source = _read(REPO_ROOT / CHECKING_REL)
+    checking_source = REPOSITORY_FACTS.python(REPO_ROOT / CHECKING_REL).text
     assert "semantic.capability_facts" in checking_source
     assert "CapabilitySupport" in checking_source
-    inspection_source = _read(REPO_ROOT / INSPECTION_REL)
+    inspection_source = REPOSITORY_FACTS.python(REPO_ROOT / INSPECTION_REL).text
     assert "semantic.capability_facts" in inspection_source
     assert "CapabilityFact" in inspection_source
     assert "CapabilityKey" in inspection_source
-    extension_inspection_source = _read(REPO_ROOT / EXTENSION_INSPECTION_REL)
+    extension_inspection_source = REPOSITORY_FACTS.python(
+        REPO_ROOT / EXTENSION_INSPECTION_REL
+    ).text
     assert "semantic.capability_facts" in extension_inspection_source
     assert "CapabilityFact" in extension_inspection_source
     assert "CapabilityKey" in extension_inspection_source
-    preservation_source = _read(
+    preservation_source = REPOSITORY_FACTS.python(
         REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py"
-    )
+    ).text
     assert "semantic.capability_facts" in preservation_source
     assert "__all__: tuple[str, ...] = ()" in preservation_source
     assert "CapabilityKey" in signature_source

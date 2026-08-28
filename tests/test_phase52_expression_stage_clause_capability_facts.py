@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import pytest
 
+from _pietto_repository_facts import REPOSITORY_FACTS
 import pietto.semantic.capability_contexts as capability_contexts
 import pietto.semantic.capability_inventory as capability_inventory
 import pietto.semantic.capability_signatures as capability_signatures
@@ -314,19 +315,25 @@ def test_no_existing_consumer_or_public_export_is_added() -> None:
             or "generated" in path.parts
         ):
             continue
-        source = _read(path)
+        source = REPOSITORY_FACTS.python(path).text
         assert "semantic.capability_contexts" not in source
         assert "stage_clause_lookup_inputs" not in source
-    preservation_source = _read(preservation_path)
+    preservation_source = REPOSITORY_FACTS.python(preservation_path).text
     assert "semantic.capability_contexts" in preservation_source
     assert "stage_clause_lookup_inputs" not in preservation_source
-    provider_source = _read(provider_path)
+    provider_source = REPOSITORY_FACTS.python(provider_path).text
     assert "semantic.capability_contexts" in provider_source
     assert "stage_clause_lookup_inputs" in provider_source
-    assert "capability_contexts" not in _read(
-        REPO_ROOT / "src/pietto/semantic/__init__.py"
+    assert (
+        "capability_contexts"
+        not in REPOSITORY_FACTS.python(
+            REPO_ROOT / "src/pietto/semantic/__init__.py"
+        ).text
     )
-    assert "capability_contexts" not in _read(REPO_ROOT / "src/pietto/__init__.py")
+    assert (
+        "capability_contexts"
+        not in REPOSITORY_FACTS.python(REPO_ROOT / "src/pietto/__init__.py").text
+    )
 
 
 def test_prior_slice4_and_slice5_fact_counts_are_unchanged() -> None:

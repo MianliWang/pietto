@@ -25,15 +25,16 @@ documentation does not supersede that evidence.
 | Slice 12 | `COMPLETED` |
 | Validation/Test Performance Optimization Interlude | `ACTIVE` |
 | Interlude Slice 1 | `COMPLETED` |
-| Interlude Slice 2 | `CURRENT / PUBLICATION CANDIDATE` |
-| Interlude Slice 3 | `NEXT / UNSTARTED` |
+| Interlude Slice 2 | `COMPLETED` |
+| Interlude Slice 3 | `CURRENT / PUBLICATION CANDIDATE` |
+| Interlude Slice 4 | `NEXT / UNSTARTED` |
 | Phase 60 | `BLOCKED / NOT ACTIVATED` |
-| Next | `VALIDATION_PERFORMANCE_INTERLUDE_SLICE3_REPOSITORY_READER_ACQUISITION_REUSE` |
+| Next | `VALIDATION_PERFORMANCE_INTERLUDE_SLICE4_VALIDATOR_STATIC_ANALYSIS_STAGE_OPTIMIZATION` |
 
 Phase 59 is completed by live Git and successful natural exact-head CI on its
-single Slice 12 commit. Interlude Slice 1 is published complete, and Slice 2 is
-the current publication candidate. Successful natural exact-head CI on the
-single Slice 2 commit completes its differential-probe optimization and leaves
-Repository Reader Acquisition Reuse next; no post-CI status-flip commit is
-required. The performance interlude is active, while Phase 60 remains blocked
-and not activated.
+single Slice 12 commit. Interlude Slices 1–2 are published complete, and Slice 3
+is the current publication candidate. Successful natural exact-head CI on the
+single Slice 3 commit completes repository-reader acquisition reuse and leaves
+Validator Static-Analysis Stage Optimization next; no post-CI status-flip
+commit is required. The performance interlude is active, while Phase 60 remains
+blocked and not activated.
