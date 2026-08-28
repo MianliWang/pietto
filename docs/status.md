@@ -26,15 +26,17 @@ documentation does not supersede that evidence.
 | Validation/Test Performance Optimization Interlude | `ACTIVE` |
 | Interlude Slice 1 | `COMPLETED` |
 | Interlude Slice 2 | `COMPLETED` |
-| Interlude Slice 3 | `CURRENT / PUBLICATION CANDIDATE` |
-| Interlude Slice 4 | `NEXT / UNSTARTED` |
+| Interlude Slice 3 | `COMPLETED` |
+| Interlude Slice 4 | `CURRENT / PUBLICATION CANDIDATE` |
+| Interlude Slice 5 | `NEXT / UNSTARTED` |
 | Phase 60 | `BLOCKED / NOT ACTIVATED` |
-| Next | `VALIDATION_PERFORMANCE_INTERLUDE_SLICE4_VALIDATOR_STATIC_ANALYSIS_STAGE_OPTIMIZATION` |
+| Next | `VALIDATION_PERFORMANCE_INTERLUDE_SLICE5_CURRENT_SUITE_ISOLATION_RESOURCE_AWARE_XDIST_SCHEDULING_CI_PARALLELISM_DECISION` |
 
 Phase 59 is completed by live Git and successful natural exact-head CI on its
-single Slice 12 commit. Interlude Slices 1–2 are published complete, and Slice 3
+single Slice 12 commit. Interlude Slices 1–3 are published complete, and Slice 4
 is the current publication candidate. Successful natural exact-head CI on the
-single Slice 3 commit completes repository-reader acquisition reuse and leaves
-Validator Static-Analysis Stage Optimization next; no post-CI status-flip
-commit is required. The performance interlude is active, while Phase 60 remains
-blocked and not activated.
+single Slice 4 closure commit completes its no-gain investigation while
+retaining the current two-stage typing authority, and leaves Current-Suite
+Isolation, Resource-Aware Xdist Scheduling, And CI Parallelism Decision next;
+no post-CI status-flip commit is required. The performance interlude is active,
+while Phase 60 remains blocked and not activated.

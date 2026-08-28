@@ -448,9 +448,9 @@ release operation, or route expansion. The controlling closure is
 
 Phase 59 is completed, all 12 Phase 59 Slices are completed, the Validation/
 Test Performance Optimization Interlude is active with Slice 1 published
-complete, Slice 2 published complete, Slice 3 as its current publication
-candidate, Slice 4 next / unstarted, and Phase 60 blocked / not activated. The
-published Phase 59 route has exactly 12 slices.
+complete, Slice 2 published complete, Slice 3 published complete, Slice 4 as
+its current publication candidate, Slice 5 next / unstarted, and Phase 60
+blocked / not activated. The published Phase 59 route has exactly 12 slices.
 
 The exact owner is **Local package graph, attribution, provenance, and lineage**.
 
@@ -609,8 +609,8 @@ measured safety and benefit.
 | 1 | Baseline Profiling, Cost Attribution, And Route Lock |
 | 2 | Differential Probe Runtime Decomposition And Optimization |
 | 3 | Repository Reader Acquisition Reuse |
-| 4 | Validator Static-Analysis Stage Optimization |
-| 5 | Current-Suite Isolation Audit And Xdist Decision |
+| 4 | Validator Static-Analysis Stage Optimization Investigation |
+| 5 | Current-Suite Isolation, Resource-Aware Xdist Scheduling, And CI Parallelism Decision |
 | 6 | Completion Benchmark And Phase 60 Readiness Assurance |
 
 Slice 1 measured the serial suite and validator stages, attributed the dominant
@@ -630,10 +630,9 @@ targeted wall median fell from 95.69s to 61.44s, materially beyond observed
 noise. Its published evidence is
 [Interlude Slice 2 differential probe runtime decomposition and optimization](spec/validation-performance-interlude-slice2-differential-probe-runtime-decomposition-optimization-v1.md).
 
-Slice 3 is the current publication candidate. It caches exact text, literals,
-imports, identifiers, and top-level structural names for paths explicitly
-selected by nine measured scanner owners while leaving every path and policy
-selection owner-local.
+Slice 3 caches exact text, literals, imports, identifiers, and top-level
+structural names for paths explicitly selected by nine measured scanner owners
+while leaving every path and policy selection owner-local.
 Each owner retains its exact historical `glob`/`rglob` path universe and AST
 node-class selection. Targeted text reads fall from 2,412 to 483 and AST parses
 from 1,661 to 484; duplicate text acquisition falls to zero, duplicate AST
@@ -643,18 +642,28 @@ within observed noise, so no wall-time gain is claimed and no material
 regression is established. The controlling evidence is
 [Interlude Slice 3 repository reader acquisition reuse](spec/validation-performance-interlude-slice3-repository-reader-acquisition-reuse-v1.md).
 
-Slice 4 is next / unstarted and owns the separately measured production/test
-Pyright stage cost. Slice 5 must audit the current suite's mutable state,
-filesystem isolation, caches, cwd/environment changes, build paths, and
-ordering before any controlled xdist comparison or CI decision. Slice 6 owns
-same-method completion measurement and readiness assurance; it does not
-activate Phase 60.
+Slice 4 is the current publication candidate. It preserves the exact 137-file
+production and 358-file test typing authorities while retaining the published
+two-stage Pyright validator. The investigated one-process candidate preserved
+representative diagnostics, but its 52.94s median versus the legacy 53.13s
+median improved by only 0.19s / 0.36%, within observed noise. The optimization
+is not adopted; Slice 4 closes with `NO MATERIAL GAIN — CURRENT TWO-STAGE
+AUTHORITY RETAINED`. The controlling evidence is
+[Interlude Slice 4 validator static-analysis stage optimization](spec/validation-performance-interlude-slice4-validator-static-analysis-stage-optimization-v1.md).
+
+Slice 5 is next / unstarted and must audit the current suite's mutable state,
+filesystem isolation, caches, cwd/environment changes, build paths, CPU and
+available RAM, worker memory, subprocess amplification, adaptive worker counts,
+GitHub CI runner compatibility, and local-versus-CI policy equivalence before
+any controlled xdist scheduling or CI parallelism decision. Slice 6 owns
+same-method completion measurement and readiness assurance; it does not activate
+Phase 60.
 
 Python 3.12/3.13, generated, golden, package-smoke, reader-closure, and failure
 semantics remain mandatory. The Python suite is not rewritten in Rust merely
 for speed, and the first Rust-kernel decision remains later-owned. Interlude
-Slices 1–3 change no production or validation semantics. Natural CI and the
-authoritative local validator remain serial through Slice 3; installed xdist
+Slices 1–4 change no production or validation semantics. Natural CI and the
+authoritative local validator remain serial through Slice 4; installed xdist
 tooling grants no current-suite safety or performance authority.
 
 Phase 60 is `BLOCKED / NOT ACTIVATED` until this interlude is completed by its
