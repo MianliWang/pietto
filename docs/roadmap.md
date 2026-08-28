@@ -676,12 +676,13 @@ validation.
 
 Successful natural exact-head CI on the single Slice 6 completion commit
 completed the Interlude and handed off authority. Phase 60 is `ACTIVE`, Slice 1
-and Slice 2 are completed, Slice 3 is current, and Slice 4 is next / unstarted.
+through Slice 3 are completed, Slice 4 is current, and Slice 5 is next /
+unstarted.
 
 ## Phase 60 route
 
-Phase 60 is active, Slices 1 and 2 are completed, Slice 3 is current, and Slice
-4 is next / unstarted. The published route has exactly 13 slices.
+Phase 60 is active, Slices 1-3 are completed, Slice 4 is current, and Slice 5
+is next / unstarted. The published route has exactly 13 slices.
 
 The exact owner is **Advanced Windows And Phase 51–60 Readiness Checkpoint**.
 
@@ -729,9 +730,22 @@ membership/lowering, target capability, identity/lineage, IR, SQL, CLI, JSON,
 or public behavior. The controlling contract is
 [Phase 60 Slice 3 frame validation and function policy](spec/phase60-slice3-frame-validation-function-policy-v1.md).
 
-Current public language and SQL behavior remain frame free. Live Git and
-natural exact-head CI own Slice 3 completion without a status-only follow-up
-commit. Slice 4 remains unimplemented and unauthorized by Slice 3.
+Slice 4 adds the authored ROWS grammar/AST path, routes it through the Slice 2
+and Slice 3 stages, and defines lazy physical-position interval/intersection
+semantics plus the canonical ROWS lowering contract. All eight current
+frame-insensitive functions reject explicit ROWS with function-policy evidence.
+No frame IR, SQL renderer branch, legal frame-sensitive identity, capability,
+lineage, or public schema is added. The architecture continuation keeps the
+13-slice route unchanged: Slices 4-7 establish frame semantics/lowering
+contracts, Slice 9 introduces the first legal frame-sensitive value-function
+callers and activates SQL emission, Slice 10 owns capability gating, and Slice
+11 owns broad real authored E2E. The controlling contract is
+[Phase 60 Slice 4 ROWS semantics and lowering](spec/phase60-slice4-rows-semantics-lowering-v1.md).
+
+Public syntax now recognizes ROWS while current function-policy rejection and
+all existing successful SQL remain deterministic. Live Git and natural
+exact-head CI own Slice 4 completion without a status-only follow-up commit.
+Slice 5 remains unimplemented and unauthorized by Slice 4.
 
 ## Retained later ownership
 

@@ -13,6 +13,8 @@ from antlr4.tree.Tree import TerminalNode
 from pietto import _window_identity
 from pietto.ast_nodes import (
     Annotation,
+    AuthoredWindowFrame,
+    AuthoredWindowFrameKind,
     BetweenExpr,
     BinaryExpr,
     CallExpr,
@@ -63,6 +65,9 @@ from pietto.ast_nodes import (
     UniqueDef,
     WhereClause,
     WindowExpr,
+    WindowFrameBound,
+    WindowFrameBoundKind,
+    WindowFrameUnit,
     WindowSpec,
 )
 from pietto.errors import AstBuildError, source_path
@@ -584,16 +589,61 @@ class AstBuilder(PiettoVisitor):
                 self._order_item(item, reject_ordinal=False)
                 for item in order_clause.orderByBody().orderItem()
             )
+        frame_clause = body.rowsFrameClause()
+        frame = (
+            AuthoredWindowFrame(kind=AuthoredWindowFrameKind.OMITTED)
+            if frame_clause is None
+            else self.visit(frame_clause)
+        )
         return WindowSpec(
             span=self._span(ctx),
             partition_by=partition_by,
             order_by=order_by,
+            frame=frame,
         )
 
     def visitWindowPartitionItem(self, ctx: _AntlrContext) -> Expression:
         """Preserve one window partition expression without a wrapper node."""
 
         return self.visit(ctx.expression())
+
+    def visitRowsFrameClause(self, ctx: _AntlrContext) -> AuthoredWindowFrame:
+        """Preserve shorthand versus explicit ROWS frame authorship."""
+
+        bounds = tuple(self.visit(bound) for bound in ctx.frameBound())
+        if ctx.BETWEEN() is None:
+            assert len(bounds) == 1
+            return AuthoredWindowFrame(
+                kind=AuthoredWindowFrameKind.SHORTHAND,
+                unit=WindowFrameUnit.ROWS,
+                start=bounds[0],
+            )
+        assert len(bounds) == 2
+        return AuthoredWindowFrame(
+            kind=AuthoredWindowFrameKind.BETWEEN,
+            unit=WindowFrameUnit.ROWS,
+            start=bounds[0],
+            end=bounds[1],
+        )
+
+    def visitFrameBound(self, ctx: _AntlrContext) -> WindowFrameBound:
+        """Build one frozen frame-bound variant with its exact offset expression."""
+
+        if ctx.UNBOUNDED() is not None:
+            kind = (
+                WindowFrameBoundKind.UNBOUNDED_PRECEDING
+                if ctx.PRECEDING() is not None
+                else WindowFrameBoundKind.UNBOUNDED_FOLLOWING
+            )
+            return WindowFrameBound(kind=kind)
+        if ctx.CURRENT() is not None:
+            return WindowFrameBound(kind=WindowFrameBoundKind.CURRENT_ROW)
+        kind = (
+            WindowFrameBoundKind.OFFSET_PRECEDING
+            if ctx.PRECEDING() is not None
+            else WindowFrameBoundKind.OFFSET_FOLLOWING
+        )
+        return WindowFrameBound(kind=kind, offset=self.visit(ctx.expression()))
 
     def visitSatisfyingClause(self, ctx: _AntlrContext) -> SatisfyingClause:
         """Build a parse-only result predicate without semantic validation."""

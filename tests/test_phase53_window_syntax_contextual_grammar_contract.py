@@ -357,14 +357,6 @@ RAW_NEGATIVE_CASES = (
         ),
     ),
     (
-        "frame_syntax",
-        _window_query("""
-            order by:
-                observed_at
-            rows between unbounded preceding and current row
-        """),
-    ),
-    (
         "nulls_first",
         _window_query("""
             order by:
@@ -525,12 +517,18 @@ def test_candidate_b_global_window_and_contextual_keyword_policy_is_locked() -> 
     identifier_token = grammar.index("IDENTIFIER\n    :")
     assert grammar.index("WINDOW: 'window';") < identifier_token
     assert grammar.index("PARTITION: 'partition';") < identifier_token
+    for token in ("ROWS", "CURRENT", "ROW", "UNBOUNDED", "PRECEDING", "FOLLOWING"):
+        assert grammar.index(f"{token}: '{token.lower()}';") < identifier_token
     identifier_start = grammar.index("\nidentifier\n") + 1
     call_suffix_start = grammar.index("\ncallSuffix\n") + 1
     name_part_start = grammar.index("\nnamePart\n") + 1
     identifier_rule = grammar[identifier_start:call_suffix_start]
     name_part_rule = grammar[name_part_start:identifier_start]
     assert "| PARTITION" in identifier_rule
+    assert all(
+        f"| {token}" in identifier_rule
+        for token in ("ROWS", "CURRENT", "ROW", "UNBOUNDED", "PRECEDING", "FOLLOWING")
+    )
     assert "WINDOW" not in identifier_rule
     assert "WINDOW" not in name_part_rule
     assert "OVER:" not in grammar
@@ -545,15 +543,19 @@ def test_combined_grammar_rules_and_token_order_are_exact() -> None:
         "selectItem : identifier ASSIGN windowExpression | identifier ASSIGN expression NEWLINE | expression NEWLINE ;",
         "windowExpression : dottedName callSuffix windowSpec ;",
         "windowSpec : WINDOW COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT ;",
-        "windowSpecBody : NEWLINE* partitionByClause NEWLINE* orderByClause? NEWLINE* | NEWLINE* orderByClause NEWLINE* ;",
+        "windowSpecBody : NEWLINE* partitionByClause NEWLINE* orderByClause? NEWLINE* rowsFrameClause? NEWLINE* | NEWLINE* orderByClause NEWLINE* rowsFrameClause? NEWLINE* | NEWLINE* rowsFrameClause NEWLINE* ;",
         "partitionByClause : PARTITION BY COLON NEWLINE NEWLINE* INDENT windowPartitionBody DEDENT ;",
         "windowPartitionBody : NEWLINE* windowPartitionItem (windowPartitionItem | NEWLINE)* ;",
         "windowPartitionItem : expression NEWLINE ;",
+        "rowsFrameClause : ROWS (BETWEEN frameBound AND frameBound | frameBound) NEWLINE ;",
+        "frameBound : UNBOUNDED (PRECEDING | FOLLOWING) | CURRENT ROW | expression (PRECEDING | FOLLOWING) ;",
     ):
         assert rule in normalized, rule
     assert normalized.count("windowExpression :") == 1
     assert normalized.count("windowSpec :") == 1
     assert normalized.count("partitionByClause :") == 1
+    assert normalized.count("rowsFrameClause :") == 1
+    assert normalized.count("frameBound :") == 1
 
 
 @pytest.mark.parametrize(

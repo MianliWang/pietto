@@ -15,12 +15,13 @@ documentation does not supersede that evidence.
 | Phase 60 | `ACTIVE` |
 | Slice 1 | `COMPLETED` |
 | Slice 2 | `COMPLETED` |
-| Slice 3 | `CURRENT` |
-| Slice 4 | `NEXT / UNSTARTED` |
-| Next | `PHASE60_SLICE4_ROWS_SEMANTICS_AND_LOWERING` |
+| Slice 3 | `COMPLETED` |
+| Slice 4 | `CURRENT` |
+| Slice 5 | `NEXT / UNSTARTED` |
+| Next | `PHASE60_SLICE5_RANGE_SEMANTICS_AND_LOWERING` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
-completed by live Git and successful natural exact-head CI. Slices 1 and 2 are
-completed, and Slice 3 is the current Phase 60 validation/policy owner. Live
-Git and natural exact-head CI own Slice 3 completion; no post-CI status-flip
-commit is required. This status does not authorize Slice 4.
+completed by live Git and successful natural exact-head CI. Slices 1-3 are
+completed, and Slice 4 is the current Phase 60 ROWS infrastructure owner. Live
+Git and natural exact-head CI own Slice 4 completion; no post-CI status-flip
+commit is required. This status does not authorize Slice 5.

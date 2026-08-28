@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from pietto import _window_identity
@@ -113,6 +113,112 @@ class IsNullExpr(Expression):
 
     value: Expression
     negated: bool
+
+
+class WindowFrameUnit(StrEnum):
+    """Closed frame units shared by authored AST and semantic stages."""
+
+    ROWS = "rows"
+    RANGE = "range"
+    GROUPS = "groups"
+
+
+class WindowFrameBoundKind(StrEnum):
+    """Closed structural frame-bound variants without legality semantics."""
+
+    UNBOUNDED_PRECEDING = "unbounded_preceding"
+    OFFSET_PRECEDING = "offset_preceding"
+    CURRENT_ROW = "current_row"
+    OFFSET_FOLLOWING = "offset_following"
+    UNBOUNDED_FOLLOWING = "unbounded_following"
+
+
+_OFFSET_WINDOW_FRAME_BOUND_KINDS = frozenset(
+    {
+        WindowFrameBoundKind.OFFSET_PRECEDING,
+        WindowFrameBoundKind.OFFSET_FOLLOWING,
+    }
+)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WindowFrameBound:
+    """One typed bound retaining the exact existing expression authority."""
+
+    kind: WindowFrameBoundKind
+    offset: Expression | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not WindowFrameBoundKind:
+            raise TypeError("frame bound kind must be an exact WindowFrameBoundKind")
+        if self.kind in _OFFSET_WINDOW_FRAME_BOUND_KINDS:
+            if not isinstance(self.offset, Expression):
+                raise TypeError("offset frame bounds require an Expression")
+        elif self.offset is not None:
+            raise ValueError("non-offset frame bounds forbid an offset expression")
+
+
+class AuthoredWindowFrameExclusion(StrEnum):
+    """Omitted or explicit source exclusion without collapsing authorship."""
+
+    OMITTED = "omitted"
+    NO_OTHERS = "no_others"
+    CURRENT_ROW = "current_row"
+    GROUP = "group"
+    TIES = "ties"
+
+
+class AuthoredWindowFrameKind(StrEnum):
+    """Closed authored frame-clause forms."""
+
+    OMITTED = "omitted"
+    SHORTHAND = "shorthand"
+    BETWEEN = "between"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AuthoredWindowFrame:
+    """One exact authored frame form with explicit omission evidence."""
+
+    kind: AuthoredWindowFrameKind
+    unit: WindowFrameUnit | None = None
+    start: WindowFrameBound | None = None
+    end: WindowFrameBound | None = None
+    exclusion: AuthoredWindowFrameExclusion = AuthoredWindowFrameExclusion.OMITTED
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not AuthoredWindowFrameKind:
+            raise TypeError(
+                "authored frame kind must be an exact AuthoredWindowFrameKind"
+            )
+        if self.unit is not None and type(self.unit) is not WindowFrameUnit:
+            raise TypeError("authored frame unit must be an exact WindowFrameUnit")
+        if self.start is not None and type(self.start) is not WindowFrameBound:
+            raise TypeError("authored frame start must be an exact WindowFrameBound")
+        if self.end is not None and type(self.end) is not WindowFrameBound:
+            raise TypeError("authored frame end must be an exact WindowFrameBound")
+        if type(self.exclusion) is not AuthoredWindowFrameExclusion:
+            raise TypeError(
+                "authored frame exclusion must be an exact AuthoredWindowFrameExclusion"
+            )
+
+        if self.kind is AuthoredWindowFrameKind.OMITTED:
+            if (
+                self.unit is not None
+                or self.start is not None
+                or self.end is not None
+                or self.exclusion is not AuthoredWindowFrameExclusion.OMITTED
+            ):
+                raise ValueError("omitted frames forbid authored frame components")
+            return
+        if self.unit is None or self.start is None:
+            raise ValueError("explicit frames require a unit and start bound")
+        if self.kind is AuthoredWindowFrameKind.SHORTHAND:
+            if self.end is not None:
+                raise ValueError("shorthand frames require an omitted end bound")
+            return
+        if self.end is None:
+            raise ValueError("BETWEEN frames require an explicit end bound")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -419,6 +525,11 @@ class WindowSpec(Node):
 
     partition_by: tuple[Expression, ...]
     order_by: tuple[OrderItem, ...]
+    frame: AuthoredWindowFrame = field(
+        default_factory=lambda: AuthoredWindowFrame(
+            kind=AuthoredWindowFrameKind.OMITTED
+        )
+    )
 
     def __post_init__(self) -> None:
         """Enforce the immutable, non-empty window-spec shape."""
@@ -431,7 +542,13 @@ class WindowSpec(Node):
             raise TypeError("partition_by items must be Expression instances")
         if not all(isinstance(item, OrderItem) for item in self.order_by):
             raise TypeError("order_by items must be OrderItem instances")
-        if not self.partition_by and not self.order_by:
+        if type(self.frame) is not AuthoredWindowFrame:
+            raise TypeError("window frame must be an exact AuthoredWindowFrame")
+        if (
+            not self.partition_by
+            and not self.order_by
+            and self.frame.kind is AuthoredWindowFrameKind.OMITTED
+        ):
             raise ValueError("window spec requires partition_by or order_by")
 
 

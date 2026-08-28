@@ -71,11 +71,12 @@ EXPECTED_STATUS = (
     ("Phase 60", "`ACTIVE`"),
     ("Slice 1", "`COMPLETED`"),
     ("Slice 2", "`COMPLETED`"),
-    ("Slice 3", "`CURRENT`"),
-    ("Slice 4", "`NEXT / UNSTARTED`"),
+    ("Slice 3", "`COMPLETED`"),
+    ("Slice 4", "`CURRENT`"),
+    ("Slice 5", "`NEXT / UNSTARTED`"),
     (
         "Next",
-        "`PHASE60_SLICE4_ROWS_SEMANTICS_AND_LOWERING`",
+        "`PHASE60_SLICE5_RANGE_SEMANTICS_AND_LOWERING`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -87,8 +88,8 @@ EXPECTED_PHASE59_STATE = (
 )
 EXPECTED_PHASE59_OWNER = "Local package graph, attribution, provenance, and lineage"
 EXPECTED_PHASE60_STATE = (
-    "Phase 60 is active, Slices 1 and 2 are completed, Slice 3 is current, and Slice\n"
-    "4 is next / unstarted. The published route has exactly 13 slices."
+    "Phase 60 is active, Slices 1-3 are completed, Slice 4 is current, and Slice 5\n"
+    "is next / unstarted. The published route has exactly 13 slices."
 )
 EXPECTED_PHASE60_OWNER = "Advanced Windows And Phase 51–60 Readiness Checkpoint"
 EXPECTED_PHASE58_ROUTE = (
@@ -249,6 +250,30 @@ EXPECTED_PHASE60_SLICE3_CHANGED_PATHS = (
     "tests/test_phase60_slice3_frame_validation_function_policy.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE60_SLICE4_CHANGED_PATHS = (
+    "docs/language.md",
+    "docs/roadmap.md",
+    "docs/spec/phase60-slice4-rows-semantics-lowering-v1.md",
+    "docs/status.md",
+    "grammar/Pietto.g4",
+    "src/pietto/generated/Pietto.interp",
+    "src/pietto/generated/Pietto.tokens",
+    "src/pietto/generated/PiettoLexer.interp",
+    "src/pietto/generated/PiettoLexer.py",
+    "src/pietto/generated/PiettoLexer.tokens",
+    "src/pietto/generated/PiettoParser.py",
+    "src/pietto/generated/PiettoVisitor.py",
+    "src/pietto/ast_builder.py",
+    "src/pietto/ast_nodes.py",
+    "src/pietto/ir/lowering.py",
+    "src/pietto/semantic/window_analysis.py",
+    "src/pietto/semantic/window_semantics.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+    "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
+    "tests/test_phase60_slice4_rows_semantics_lowering.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -291,11 +316,11 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "Phase 59 and the Validation/Test Performance Optimization Interlude are "
         "completed by live Git and successful natural exact-head CI" in normalized
     )
-    assert "Slices 1 and 2 are completed" in normalized
-    assert "Slice 3 is the current Phase 60 validation/policy owner" in normalized
-    assert "Live Git and natural exact-head CI own Slice 3 completion" in normalized
+    assert "Slices 1-3 are completed" in normalized
+    assert "Slice 4 is the current Phase 60 ROWS infrastructure owner" in normalized
+    assert "Live Git and natural exact-head CI own Slice 4 completion" in normalized
     assert "no post-CI status-flip commit is required" in normalized
-    assert "does not authorize Slice 4" in normalized
+    assert "does not authorize Slice 5" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
@@ -317,10 +342,12 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     assert "phase60-advanced-windows-scope-semantic-laws-route-lock-v1.md" in phase60
     assert "phase60-slice2-authored-resolved-window-frame-model-v1.md" in phase60
     assert "phase60-slice3-frame-validation-function-policy-v1.md" in phase60
+    assert "phase60-slice4-rows-semantics-lowering-v1.md" in phase60
     assert "private frozen authored/resolved window-frame model" in phase60
     assert "private validated semantic stage" in phase60
-    assert "Current public language and SQL behavior remain frame free" in phase60
-    assert "Slice 4 remains unimplemented and unauthorized" in phase60
+    assert "authored ROWS grammar/AST path" in phase60
+    assert "Slice 9 introduces the first legal frame-sensitive" in phase60
+    assert "Slice 5 remains unimplemented and unauthorized" in phase60
 
     retained = _section(roadmap, "Retained later ownership")
     assert _table_rows(retained)[1:] == EXPECTED_RETAINED_LATER_OWNERS
@@ -356,10 +383,10 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "completed the Interlude and handed off authority" in interlude_normalized
     )
     assert "Phase 60 is `ACTIVE`" in interlude_normalized
-    assert "Slice 1 and Slice 2 are completed, Slice 3 is current" in (
+    assert "Slice 1 through Slice 3 are completed, Slice 4 is current" in (
         interlude_normalized
     )
-    assert "Slice 4 is next / unstarted" in interlude_normalized
+    assert "Slice 5 is next / unstarted" in interlude_normalized
     assert len(EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS) == 4
     assert all(
         (REPO_ROOT / path).is_file() for path in EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS
@@ -488,4 +515,26 @@ def test_phase60_slice3_changed_paths_are_exact() -> None:
     assert not any(
         path.startswith((".github/", "grammar/", "scripts/"))
         for path in EXPECTED_PHASE60_SLICE3_CHANGED_PATHS
+    )
+
+
+def test_phase60_slice4_changed_paths_are_exact() -> None:
+    assert len(EXPECTED_PHASE60_SLICE4_CHANGED_PATHS) == 22
+    assert all(
+        (REPO_ROOT / path).is_file() for path in EXPECTED_PHASE60_SLICE4_CHANGED_PATHS
+    )
+    generated = tuple(
+        path
+        for path in EXPECTED_PHASE60_SLICE4_CHANGED_PATHS
+        if path.startswith("src/pietto/generated/")
+    )
+    assert len(generated) == 7
+    assert "src/pietto/generated/__init__.py" not in generated
+    assert not any(
+        path.startswith((".github/", "scripts/"))
+        for path in EXPECTED_PHASE60_SLICE4_CHANGED_PATHS
+    )
+    assert not any(
+        path.startswith(("src/pietto/ir/model.py", "src/pietto/sql/"))
+        for path in EXPECTED_PHASE60_SLICE4_CHANGED_PATHS
     )

@@ -47,6 +47,7 @@ from pietto.semantic.window_semantics import (
     NavigationWindowSemanticFact,
     RankingAdvancePolicy,
     RankingWindowSemanticFact,
+    ValidatedWindowSpecification,
     WindowExpressionAnalysis,
     WindowExpressionSemanticFact,
     WindowExpressionUnsupported,
@@ -57,6 +58,11 @@ from pietto.semantic.window_semantics import (
     WindowPartitionBindingFact,
     WindowResultAvailability,
     WindowResultAvailabilityKind,
+    WindowSpecificationValidationFailure,
+    WindowValidationIssueKind,
+    authored_window_specification_from_ast,
+    resolve_authored_window_specification,
+    validate_resolved_window_specification,
 )
 from pietto.semantic.window_navigation_analysis import (
     analyze_navigation_arguments,
@@ -217,6 +223,27 @@ def builtin_window_function_frame_policy(
     if len(matches) > 1:
         raise ValueError("builtin frame policy identity must be unique")
     return matches[0] if matches else None
+
+
+def _validate_recognized_window_specification(
+    expression: WindowExpr,
+) -> ValidatedWindowSpecification | WindowSpecificationValidationFailure:
+    """Run the published authored, resolved, and validated frame stages."""
+
+    policy = builtin_window_function_frame_policy(expression.identity)
+    if policy is None:
+        raise AssertionError("recognized window identity requires frame policy")
+    authored = authored_window_specification_from_ast(expression.spec)
+    resolved = resolve_authored_window_specification(
+        authored,
+        frame_applicability=policy.required_frame_applicability,
+    )
+    return validate_resolved_window_specification(
+        resolved,
+        function_identity=expression.identity,
+        function_policy=policy,
+        argument_expressions=expression.call.arguments,
+    )
 
 
 def analyze_window_expression(
@@ -672,6 +699,29 @@ def _analyze_recognized_window_expression(
                 )
                 else "window order field type must be concrete"
             ),
+        )
+
+    frame_validation = _validate_recognized_window_specification(expression)
+    if type(frame_validation) is WindowSpecificationValidationFailure:
+        issue_kinds = tuple(issue.kind for issue in frame_validation.issues)
+        unit = expression.spec.frame.unit
+        unit_name = "window" if unit is None else unit.value.upper()
+        if WindowValidationIssueKind.EXPLICIT_FRAME_FORBIDDEN in issue_kinds:
+            reason = f"explicit {unit_name} frame forbidden by function policy"
+            message = (
+                f"Invalid window frame for function {function_name}: explicit "
+                f"{unit_name} frame is not allowed"
+            )
+        else:
+            reason = "window frame validation failed"
+            message = f"Invalid window frame for function {function_name}"
+        return _unsupported(
+            occurrence=occurrence,
+            expression=expression,
+            reason=reason,
+            diagnostics=diagnostics,
+            code="PIE-S2104",
+            message=message,
         )
 
     if navigation is not None:

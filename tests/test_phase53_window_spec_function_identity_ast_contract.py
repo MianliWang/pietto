@@ -153,7 +153,6 @@ MALFORMED_CASES = (
         None,
     ),
     ("unknown_clause", "cluster by:\n    account_id", None, None),
-    ("frame", "order by:\n    observed_at\nrows current row", None, None),
     ("nulls_first", "order by:\n    observed_at nulls first", None, None),
     ("malformed_order", "order by:\n    observed_at +", None, None),
     ("malformed_partition", "partition by:\n    account_id +", None, None),

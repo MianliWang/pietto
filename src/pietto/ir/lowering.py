@@ -6,6 +6,7 @@ from collections.abc import Mapping
 
 from pietto._window_identity import WindowFunctionRole
 from pietto.ast_nodes import (
+    AuthoredWindowFrameKind,
     BetweenExpr,
     BinaryExpr,
     CallExpr,
@@ -262,6 +263,11 @@ def _lower_window_expr(
         raise _WindowExpressionLoweringError(
             expression,
             "supported window function arity",
+        )
+    if expression.spec.frame.kind is not AuthoredWindowFrameKind.OMITTED:
+        raise _WindowExpressionLoweringError(
+            expression,
+            "validated explicit window frame lowering authority",
         )
     if not expression.spec.order_by:
         raise _WindowExpressionLoweringError(

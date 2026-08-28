@@ -315,8 +315,9 @@ windowSpec
     ;
 
 windowSpecBody
-    : NEWLINE* partitionByClause NEWLINE* orderByClause? NEWLINE*
-    | NEWLINE* orderByClause NEWLINE*
+    : NEWLINE* partitionByClause NEWLINE* orderByClause? NEWLINE* rowsFrameClause? NEWLINE*
+    | NEWLINE* orderByClause NEWLINE* rowsFrameClause? NEWLINE*
+    | NEWLINE* rowsFrameClause NEWLINE*
     ;
 
 partitionByClause
@@ -329,6 +330,16 @@ windowPartitionBody
 
 windowPartitionItem
     : expression NEWLINE
+    ;
+
+rowsFrameClause
+    : ROWS (BETWEEN frameBound AND frameBound | frameBound) NEWLINE
+    ;
+
+frameBound
+    : UNBOUNDED (PRECEDING | FOLLOWING)
+    | CURRENT ROW
+    | expression (PRECEDING | FOLLOWING)
     ;
 
 satisfyingClause
@@ -440,6 +451,12 @@ identifier
     | ASC
     | DESC
     | PARTITION
+    | ROWS
+    | CURRENT
+    | ROW
+    | UNBOUNDED
+    | PRECEDING
+    | FOLLOWING
     | GROUP
     | LET
     | SATISFYING
@@ -497,6 +514,12 @@ EXPORT: 'export';
 AS: 'as';
 WINDOW: 'window';
 PARTITION: 'partition';
+ROWS: 'rows';
+CURRENT: 'current';
+ROW: 'row';
+UNBOUNDED: 'unbounded';
+PRECEDING: 'preceding';
+FOLLOWING: 'following';
 ENSURE: 'ensure';
 NULLABLE: 'nullable';
 AND: 'and';

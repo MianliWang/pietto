@@ -158,8 +158,20 @@ query ranked:
 The current bounded window identities are `row_number`, `rank`, `dense_rank`,
 `percent_rank`, `cume_dist`, `ntile`, `lag`, and `lead`. Partition and local
 order items preserve source order, duplicates, qualification, and direction.
-Frames, named windows, `QUALIFY`, arbitrary nesting, and window expressions in
-unsupported clauses remain rejected.
+Window specifications also recognize the authored ROWS forms:
+
+```pietto
+rows 2 preceding
+rows between 2 preceding and current row
+```
+
+Bounds may use `unbounded preceding`, an expression plus `preceding`, `current
+row`, an expression plus `following`, or `unbounded following`. The current
+eight window identities are frame-insensitive, so any explicit ROWS frame is
+rejected by function/frame policy until Slice 9 introduces a legal
+frame-sensitive caller. RANGE, GROUPS, EXCLUDE, named windows, `QUALIFY`,
+arbitrary nesting, and window expressions in unsupported clauses remain
+rejected.
 
 ## Modules and relationships
 

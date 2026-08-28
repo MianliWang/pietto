@@ -7,6 +7,9 @@ from enum import StrEnum
 
 from pietto._window_identity import WindowFunctionIdentity
 from pietto.ast_nodes import (
+    AuthoredWindowFrame,
+    AuthoredWindowFrameExclusion,
+    AuthoredWindowFrameKind,
     DottedNameExpr,
     Expression,
     LiteralExpr,
@@ -14,6 +17,10 @@ from pietto.ast_nodes import (
     OrderItem,
     Span,
     WindowExpr,
+    WindowFrameBound,
+    WindowFrameBoundKind,
+    WindowFrameUnit,
+    WindowSpec,
 )
 from pietto.semantic.aggregates import child_expressions
 from pietto.semantic.generic_compatibility import SignatureMatch
@@ -34,49 +41,6 @@ class WindowExpressionStage(StrEnum):
     WINDOW = "WINDOW"
 
 
-class WindowFrameUnit(StrEnum):
-    """Closed frame-unit semantics independent of target SQL support."""
-
-    ROWS = "rows"
-    RANGE = "range"
-    GROUPS = "groups"
-
-
-class WindowFrameBoundKind(StrEnum):
-    """Closed structural frame-bound variants without legality semantics."""
-
-    UNBOUNDED_PRECEDING = "unbounded_preceding"
-    OFFSET_PRECEDING = "offset_preceding"
-    CURRENT_ROW = "current_row"
-    OFFSET_FOLLOWING = "offset_following"
-    UNBOUNDED_FOLLOWING = "unbounded_following"
-
-
-_OFFSET_WINDOW_FRAME_BOUND_KINDS = frozenset(
-    {
-        WindowFrameBoundKind.OFFSET_PRECEDING,
-        WindowFrameBoundKind.OFFSET_FOLLOWING,
-    }
-)
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class WindowFrameBound:
-    """One typed bound retaining the exact existing expression authority."""
-
-    kind: WindowFrameBoundKind
-    offset: Expression | None = None
-
-    def __post_init__(self) -> None:
-        if type(self.kind) is not WindowFrameBoundKind:
-            raise TypeError("frame bound kind must be an exact WindowFrameBoundKind")
-        if self.kind in _OFFSET_WINDOW_FRAME_BOUND_KINDS:
-            if not isinstance(self.offset, Expression):
-                raise TypeError("offset frame bounds require an Expression")
-        elif self.offset is not None:
-            raise ValueError("non-offset frame bounds forbid an offset expression")
-
-
 class WindowFrameExclusion(StrEnum):
     """Concrete effective frame-exclusion semantics."""
 
@@ -84,69 +48,6 @@ class WindowFrameExclusion(StrEnum):
     CURRENT_ROW = "current_row"
     GROUP = "group"
     TIES = "ties"
-
-
-class AuthoredWindowFrameExclusion(StrEnum):
-    """Omitted or explicit source exclusion without collapsing authorship."""
-
-    OMITTED = "omitted"
-    NO_OTHERS = "no_others"
-    CURRENT_ROW = "current_row"
-    GROUP = "group"
-    TIES = "ties"
-
-
-class AuthoredWindowFrameKind(StrEnum):
-    """Closed authored frame-clause forms."""
-
-    OMITTED = "omitted"
-    SHORTHAND = "shorthand"
-    BETWEEN = "between"
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class AuthoredWindowFrame:
-    """One exact authored frame form with explicit omission evidence."""
-
-    kind: AuthoredWindowFrameKind
-    unit: WindowFrameUnit | None = None
-    start: WindowFrameBound | None = None
-    end: WindowFrameBound | None = None
-    exclusion: AuthoredWindowFrameExclusion = AuthoredWindowFrameExclusion.OMITTED
-
-    def __post_init__(self) -> None:
-        if type(self.kind) is not AuthoredWindowFrameKind:
-            raise TypeError(
-                "authored frame kind must be an exact AuthoredWindowFrameKind"
-            )
-        if self.unit is not None and type(self.unit) is not WindowFrameUnit:
-            raise TypeError("authored frame unit must be an exact WindowFrameUnit")
-        if self.start is not None and type(self.start) is not WindowFrameBound:
-            raise TypeError("authored frame start must be an exact WindowFrameBound")
-        if self.end is not None and type(self.end) is not WindowFrameBound:
-            raise TypeError("authored frame end must be an exact WindowFrameBound")
-        if type(self.exclusion) is not AuthoredWindowFrameExclusion:
-            raise TypeError(
-                "authored frame exclusion must be an exact AuthoredWindowFrameExclusion"
-            )
-
-        if self.kind is AuthoredWindowFrameKind.OMITTED:
-            if (
-                self.unit is not None
-                or self.start is not None
-                or self.end is not None
-                or self.exclusion is not AuthoredWindowFrameExclusion.OMITTED
-            ):
-                raise ValueError("omitted frames forbid authored frame components")
-            return
-        if self.unit is None or self.start is None:
-            raise ValueError("explicit frames require a unit and start bound")
-        if self.kind is AuthoredWindowFrameKind.SHORTHAND:
-            if self.end is not None:
-                raise ValueError("shorthand frames require an omitted end bound")
-            return
-        if self.end is None:
-            raise ValueError("BETWEEN frames require an explicit end bound")
 
 
 class WindowFrameApplicability(StrEnum):
@@ -292,6 +193,21 @@ class AuthoredWindowSpecification:
             raise TypeError("authored window order must be an exact OrderItem tuple")
         if type(self.frame) is not AuthoredWindowFrame:
             raise TypeError("authored window requires an exact authored frame")
+
+
+def authored_window_specification_from_ast(
+    specification: WindowSpec,
+) -> AuthoredWindowSpecification:
+    """Lift one parsed specification into the existing authored model."""
+
+    if type(specification) is not WindowSpec:
+        raise TypeError("authored window construction requires an exact WindowSpec")
+    return AuthoredWindowSpecification(
+        span=specification.span,
+        partition_by=specification.partition_by,
+        order_by=specification.order_by,
+        frame=specification.frame,
+    )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -869,6 +785,109 @@ def validate_resolved_window_specification(
         argument_expressions=argument_expressions,
         frame=frame,
     )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RowsFramePositionInterval:
+    """One lazy half-open ROWS base-frame view over partition positions."""
+
+    partition_size: int
+    start: int
+    stop: int
+
+    def __post_init__(self) -> None:
+        if type(self.partition_size) is not int:
+            raise TypeError("ROWS partition size must be an exact integer")
+        if self.partition_size <= 0:
+            raise ValueError("ROWS partition size must be positive")
+        if type(self.start) is not int or type(self.stop) is not int:
+            raise TypeError("ROWS interval bounds must be exact integers")
+        if not 0 <= self.start <= self.partition_size:
+            raise ValueError("ROWS interval start must be a partition boundary")
+        if not 0 <= self.stop <= self.partition_size:
+            raise ValueError("ROWS interval stop must be a partition boundary")
+
+    @property
+    def positions(self) -> range:
+        """Return the lazy physical-position view without row allocation."""
+
+        return range(self.start, self.stop)
+
+    @property
+    def empty(self) -> bool:
+        """Whether the intersected half-open interval contains no positions."""
+
+        return self.start >= self.stop
+
+
+def rows_frame_position_interval(
+    frame: ValidatedFrame,
+    *,
+    partition_size: int,
+    current_position: int,
+) -> RowsFramePositionInterval:
+    """Intersect one validated ROWS base frame with its partition positions."""
+
+    if type(frame) is not ValidatedFrame:
+        raise TypeError("ROWS interval evaluation requires an exact ValidatedFrame")
+    if type(partition_size) is not int:
+        raise TypeError("ROWS partition size must be an exact integer")
+    if partition_size <= 0:
+        raise ValueError("ROWS partition size must be positive")
+    if type(current_position) is not int:
+        raise TypeError("ROWS current position must be an exact integer")
+    if not 0 <= current_position < partition_size:
+        raise ValueError("ROWS current position must belong to the partition")
+
+    resolved = frame.resolved
+    if resolved.unit is not WindowFrameUnit.ROWS:
+        raise ValueError("ROWS interval evaluation requires ROWS frame semantics")
+    if resolved.exclusion is not WindowFrameExclusion.NO_OTHERS:
+        raise ValueError("ROWS base-frame evaluation requires EXCLUDE NO OTHERS")
+    assert resolved.start is not None
+    assert resolved.end is not None
+    raw_start = _rows_frame_bound_position(
+        resolved.start,
+        partition_size=partition_size,
+        current_position=current_position,
+    )
+    raw_end = _rows_frame_bound_position(
+        resolved.end,
+        partition_size=partition_size,
+        current_position=current_position,
+    )
+    return RowsFramePositionInterval(
+        partition_size=partition_size,
+        start=min(max(raw_start, 0), partition_size),
+        stop=min(max(raw_end + 1, 0), partition_size),
+    )
+
+
+def _rows_frame_bound_position(
+    bound: WindowFrameBound,
+    *,
+    partition_size: int,
+    current_position: int,
+) -> int:
+    if bound.kind is WindowFrameBoundKind.UNBOUNDED_PRECEDING:
+        return 0
+    if bound.kind is WindowFrameBoundKind.CURRENT_ROW:
+        return current_position
+    if bound.kind is WindowFrameBoundKind.UNBOUNDED_FOLLOWING:
+        return partition_size - 1
+
+    offset = bound.offset
+    if (
+        type(offset) is not LiteralExpr
+        or type(offset.value) is not int
+        or offset.value < 0
+    ):
+        raise ValueError("ROWS offsets require nonnegative integer literal evidence")
+    if bound.kind is WindowFrameBoundKind.OFFSET_PRECEDING:
+        return current_position - offset.value
+    if bound.kind is WindowFrameBoundKind.OFFSET_FOLLOWING:
+        return current_position + offset.value
+    raise AssertionError("validated ROWS bound kind must be complete")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
