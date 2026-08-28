@@ -264,6 +264,7 @@ def test_each_migrated_owner_retains_its_legacy_path_selector() -> None:
             ("TESTS_ROOT", "test_phase57_*.py"),
             ("TESTS_ROOT", "test_phase58_slice*.py"),
             ("TESTS_ROOT", "test_phase59_slice*.py"),
+            ("TESTS_ROOT", "test_phase60_slice*.py"),
         )
     )
     assert not any(

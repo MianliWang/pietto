@@ -11,6 +11,10 @@ SLICE6_SPEC = (
     REPO_ROOT
     / "docs/spec/validation-performance-interlude-slice6-completion-benchmark-phase60-readiness-v1.md"
 )
+PHASE60_SLICE1_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase60-advanced-windows-scope-semantic-laws-route-lock-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -48,6 +52,13 @@ PUBLISHED_INTERLUDE = (
         "Adopt resource-aware xdist scheduling",
     ),
 )
+INTERLUDE_COMPLETION = (
+    "e6da1fbe6b18ad88ae3c09568ba1f7d0e76817d1",
+    "16d5618006e5c84a202300f0c69ea462dc9d8084",
+    "df7fe30381aa0c690b132b829627a11e971c0c59",
+    "33155753995",
+    "Complete validation performance interlude",
+)
 
 EXPECTED_STATUS = (
     ("Package and CLI", "`0.1.0`"),
@@ -56,43 +67,28 @@ EXPECTED_STATUS = (
     ("Phase 57", "`COMPLETED`"),
     ("Phase 58", "`COMPLETED`"),
     ("Phase 59", "`COMPLETED`"),
-    ("Slice 1", "`COMPLETED`"),
-    ("Slice 2", "`COMPLETED`"),
-    ("Slice 3", "`COMPLETED`"),
-    ("Slice 4", "`COMPLETED`"),
-    ("Slice 5", "`COMPLETED`"),
-    ("Slice 6", "`COMPLETED`"),
-    ("Slice 7", "`COMPLETED`"),
-    ("Slice 8", "`COMPLETED`"),
-    ("Slice 9", "`COMPLETED`"),
-    ("Slice 10", "`COMPLETED`"),
-    ("Slice 11", "`COMPLETED`"),
-    ("Slice 12", "`COMPLETED`"),
-    (
-        "Validation/Test Performance Optimization Interlude",
-        "`COMPLETION CANDIDATE`",
-    ),
-    ("Interlude Slice 1", "`COMPLETED`"),
-    ("Interlude Slice 2", "`COMPLETED`"),
-    ("Interlude Slice 3", "`COMPLETED`"),
-    ("Interlude Slice 4", "`COMPLETED`"),
-    ("Interlude Slice 5", "`COMPLETED`"),
-    ("Interlude Slice 6", "`CURRENT / COMPLETION CANDIDATE`"),
-    ("Phase 60", "`NEXT / NOT YET IMPLEMENTED`"),
+    ("Validation/Test Performance Optimization Interlude", "`COMPLETED`"),
+    ("Phase 60", "`ACTIVE`"),
+    ("Slice 1", "`CURRENT`"),
+    ("Slice 2", "`NEXT / UNSTARTED`"),
     (
         "Next",
-        "`PHASE60_ADVANCED_WINDOWS_PHASE51_60_READINESS_CHECKPOINT`",
+        "`PHASE60_SLICE2_AUTHORED_TO_RESOLVED_WINDOW_AND_FRAME_MODEL_END_TO_END`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
-    "Phase 59 is completed, all 12 Phase 59 Slices are completed, and Validation/Test\n"
-    "Performance Optimization Interlude Slices 1–5 are published complete. Slice 6\n"
-    "is the current Interlude completion candidate. Successful publication completes\n"
-    "the Interlude and leaves Phase 60 next / not yet implemented. The published\n"
+    "Phase 59 and all 12 Phase 59 Slices are completed. The Validation/Test\n"
+    "Performance Optimization Interlude is also completed by successful natural\n"
+    "exact-head CI on its Slice 6 commit, which activates Phase 60. The published\n"
     "Phase 59 route has exactly 12 slices."
 )
 EXPECTED_PHASE59_OWNER = "Local package graph, attribution, provenance, and lineage"
+EXPECTED_PHASE60_STATE = (
+    "Phase 60 is active, Slice 1 is current, and Slice 2 is next / unstarted. The\n"
+    "published route has exactly 13 slices."
+)
+EXPECTED_PHASE60_OWNER = "Advanced Windows And Phase 51–60 Readiness Checkpoint"
 EXPECTED_PHASE58_ROUTE = (
     (
         "1",
@@ -176,8 +172,31 @@ EXPECTED_INTERLUDE_ROUTE = (
     ),
     ("6", "Completion Benchmark And Phase 60 Readiness Assurance"),
 )
+EXPECTED_PHASE60_ROUTE = (
+    ("1", "Scope / Semantic Laws / Route Lock"),
+    ("2", "Authored-To-Resolved Window And Frame Model"),
+    (
+        "3",
+        "Structural Legality, Function-Frame Policy, Empty-Frame Classification, And Stage/Nesting Rules",
+    ),
+    ("4", "ROWS Semantics And Lowering"),
+    (
+        "5",
+        "RANGE Semantics, Direction-Aware Bounds, Structural ORDER BY/Type Seam, And Lowering",
+    ),
+    ("6", "GROUPS And Peer-Group Semantics And Lowering"),
+    ("7", "EXCLUDE Semantics Across All Units"),
+    ("8", "Query-Local Named-Window Scope And DAG Inheritance"),
+    ("9", "Value/Navigation Modifiers"),
+    (
+        "10",
+        "Capability-Gated Lowering, Lineage, Determinism/Private Inspection, And Semantic-Equivalence Readiness",
+    ),
+    ("11", "Real Authored Advanced-Window E2E"),
+    ("12", "Differential Compatibility"),
+    ("13", "Phase 51–60 Completion/Readiness Audit And Phase 61 Handoff"),
+)
 EXPECTED_RETAINED_LATER_OWNERS = (
-    ("60", "Advanced windows and Phase 51–60 readiness checkpoint"),
     ("61", "Project IR and semantic composition"),
     ("62", "Relationship, JOIN, grain, and fanout-safe semantics"),
     ("63", "Multi-relation SQL, project emit-SQL, and QUALIFY lowering"),
@@ -197,6 +216,15 @@ EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-slice6-completion-benchmark-phase60-readiness-v1.md",
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
+)
+EXPECTED_PHASE60_SLICE1_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase60-advanced-windows-scope-semantic-laws-route-lock-v1.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase60_slice1_advanced_windows_scope_semantic_laws_route_lock.py",
+    "tests/test_validation_performance_interlude_slice3_repository_reader_acquisition_reuse.py",
+    "tests/test_workflow_lifecycle_validation_efficiency.py",
 )
 
 
@@ -236,24 +264,21 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     status = _read(STATUS)
     assert _table_rows(status)[1:] == EXPECTED_STATUS
     normalized = " ".join(status.split())
-    assert "Phase 59 is completed by live Git" in normalized
-    assert "Interlude Slices 1–5 are published complete" in normalized
-    assert "Slice 6 is the current completion candidate" in normalized
-    assert "natural exact-head CI on the single Slice 6 commit" in normalized
-    assert "completes the Validation/Test Performance Optimization Interlude" in (
-        normalized
+    assert (
+        "Phase 59 and the Validation/Test Performance Optimization Interlude are "
+        "completed by live Git and successful natural exact-head CI" in normalized
     )
-    assert "Phase 60 — Advanced Windows And Phase 51–60 Readiness Checkpoint" in (
-        normalized
-    )
-    assert "next but not implemented" in normalized
+    assert "Slice 1 is the current Phase 60 architecture owner" in normalized
+    assert "Live Git and natural exact-head CI own Slice 1 completion" in normalized
     assert "no post-CI status-flip commit is required" in normalized
+    assert "does not authorize Slice 2" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     roadmap = _read(ROADMAP)
     phase58 = _section(roadmap, "Phase 58 route").lstrip()
     phase59 = _section(roadmap, "Phase 59 route").lstrip()
+    phase60 = _section(roadmap, "Phase 60 route").lstrip()
     assert phase58.startswith(f"{EXPECTED_PHASE58_STATE}\n")
     assert phase58.count(EXPECTED_PHASE58_STATE) == 1
     assert _table_rows(phase58)[1:] == EXPECTED_PHASE58_ROUTE
@@ -261,6 +286,13 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     assert phase59.count(EXPECTED_PHASE59_STATE) == 1
     assert phase59.count(EXPECTED_PHASE59_OWNER) == 1
     assert _table_rows(phase59)[1:] == EXPECTED_PHASE59_ROUTE
+    assert phase60.startswith(f"{EXPECTED_PHASE60_STATE}\n")
+    assert phase60.count(EXPECTED_PHASE60_STATE) == 1
+    assert phase60.count(EXPECTED_PHASE60_OWNER) == 1
+    assert _table_rows(phase60)[1:] == EXPECTED_PHASE60_ROUTE
+    assert "phase60-advanced-windows-scope-semantic-laws-route-lock-v1.md" in phase60
+    assert "Current public language and SQL behavior remain frame free" in phase60
+    assert "Slice 2 remains unimplemented and unauthorized" in phase60
 
     retained = _section(roadmap, "Retained later ownership")
     assert _table_rows(retained)[1:] == EXPECTED_RETAINED_LATER_OWNERS
@@ -292,10 +324,13 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     assert "a like-for-like 44.8% reduction" in interlude_normalized
     assert "Interlude self-owned-open = 0" in interlude_normalized
     assert (
-        "Successful natural exact-head CI on the single Slice 6 completion commit"
-        in interlude_normalized
+        "Successful natural exact-head CI on the single Slice 6 completion commit "
+        "completed the Interlude and handed off authority" in interlude_normalized
     )
-    assert "Phase 60 is `NEXT / NOT YET IMPLEMENTED`" in interlude_normalized
+    assert "Phase 60 is now `ACTIVE`" in interlude_normalized
+    assert "Slice 1 is current, and Slice 2 is next / unstarted" in (
+        interlude_normalized
+    )
     assert len(EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS) == 4
     assert all(
         (REPO_ROOT / path).is_file() for path in EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS
@@ -312,6 +347,17 @@ def test_published_interlude_chain_matches_git_and_completion_evidence() -> None
         for value in (commit, tree, run_id, subject):
             assert value in document
 
+    phase60 = PHASE60_SLICE1_SPEC.read_text(encoding="utf-8")
+    (
+        completion_commit,
+        completion_tree,
+        completion_parent,
+        completion_run,
+        completion_subject,
+    ) = INTERLUDE_COMPLETION
+    for value in (completion_commit, completion_run, completion_subject):
+        assert value in phase60
+
     if _git("rev-parse", "--is-shallow-repository") == "true":
         return
 
@@ -319,6 +365,9 @@ def test_published_interlude_chain_matches_git_and_completion_evidence() -> None
         assert _git("show", "-s", "--format=%T", commit) == tree
         assert _git("show", "-s", "--format=%P", commit) == parent
         assert _git("show", "-s", "--format=%s", commit) == subject
+    assert _git("show", "-s", "--format=%T", completion_commit) == completion_tree
+    assert _git("show", "-s", "--format=%P", completion_commit) == completion_parent
+    assert _git("show", "-s", "--format=%s", completion_commit) == completion_subject
 
 
 def test_interlude_scorecard_self_owned_open_and_phase60_handoff_are_exact() -> None:
@@ -355,7 +404,21 @@ def test_interlude_scorecard_self_owned_open_and_phase60_handoff_are_exact() -> 
         for path in interlude_specs
         for marker in forbidden_markers
     )
+    assert EXPECTED_PHASE60_OWNER == (
+        "Advanced Windows And Phase 51–60 Readiness Checkpoint"
+    )
     assert EXPECTED_RETAINED_LATER_OWNERS[0] == (
-        "60",
-        "Advanced windows and Phase 51–60 readiness checkpoint",
+        "61",
+        "Project IR and semantic composition",
+    )
+
+
+def test_phase60_slice1_changed_paths_are_exact() -> None:
+    assert len(EXPECTED_PHASE60_SLICE1_CHANGED_PATHS) == 7
+    assert all(
+        (REPO_ROOT / path).is_file() for path in EXPECTED_PHASE60_SLICE1_CHANGED_PATHS
+    )
+    assert not any(
+        path.startswith((".github/", "src/", "scripts/", "grammar/"))
+        for path in EXPECTED_PHASE60_SLICE1_CHANGED_PATHS
     )

@@ -11,31 +11,14 @@ documentation does not supersede that evidence.
 | Phase 57 | `COMPLETED` |
 | Phase 58 | `COMPLETED` |
 | Phase 59 | `COMPLETED` |
-| Slice 1 | `COMPLETED` |
-| Slice 2 | `COMPLETED` |
-| Slice 3 | `COMPLETED` |
-| Slice 4 | `COMPLETED` |
-| Slice 5 | `COMPLETED` |
-| Slice 6 | `COMPLETED` |
-| Slice 7 | `COMPLETED` |
-| Slice 8 | `COMPLETED` |
-| Slice 9 | `COMPLETED` |
-| Slice 10 | `COMPLETED` |
-| Slice 11 | `COMPLETED` |
-| Slice 12 | `COMPLETED` |
-| Validation/Test Performance Optimization Interlude | `COMPLETION CANDIDATE` |
-| Interlude Slice 1 | `COMPLETED` |
-| Interlude Slice 2 | `COMPLETED` |
-| Interlude Slice 3 | `COMPLETED` |
-| Interlude Slice 4 | `COMPLETED` |
-| Interlude Slice 5 | `COMPLETED` |
-| Interlude Slice 6 | `CURRENT / COMPLETION CANDIDATE` |
-| Phase 60 | `NEXT / NOT YET IMPLEMENTED` |
-| Next | `PHASE60_ADVANCED_WINDOWS_PHASE51_60_READINESS_CHECKPOINT` |
+| Validation/Test Performance Optimization Interlude | `COMPLETED` |
+| Phase 60 | `ACTIVE` |
+| Slice 1 | `CURRENT` |
+| Slice 2 | `NEXT / UNSTARTED` |
+| Next | `PHASE60_SLICE2_AUTHORED_TO_RESOLVED_WINDOW_AND_FRAME_MODEL_END_TO_END` |
 
-Phase 59 is completed by live Git and successful natural exact-head CI on its
-single Slice 12 commit. Interlude Slices 1–5 are published complete, and Slice 6
-is the current completion candidate. Successful natural exact-head CI on the
-single Slice 6 commit completes the Validation/Test Performance Optimization
-Interlude and leaves Phase 60 — Advanced Windows And Phase 51–60 Readiness
-Checkpoint next but not implemented; no post-CI status-flip commit is required.
+Phase 59 and the Validation/Test Performance Optimization Interlude are
+completed by live Git and successful natural exact-head CI. Slice 1 is the
+current Phase 60 architecture owner. Live Git and natural exact-head CI own
+Slice 1 completion; no post-CI status-flip commit is required. This status does
+not authorize Slice 2.

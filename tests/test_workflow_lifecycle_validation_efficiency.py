@@ -42,6 +42,7 @@ def _product_tests() -> tuple[Path, ...]:
                 *TESTS_ROOT.glob("test_phase57_*.py"),
                 *TESTS_ROOT.glob("test_phase58_slice*.py"),
                 *TESTS_ROOT.glob("test_phase59_slice*.py"),
+                *TESTS_ROOT.glob("test_phase60_slice*.py"),
             }
         )
     )
@@ -77,7 +78,7 @@ def test_product_tests_have_no_mutable_lifecycle_or_roadmap_dependency() -> None
         assert path not in status_readers
         assert path not in roadmap_readers
         assert _MUTABLE_LIFECYCLE.search(source) is None, path
-        if path.name.startswith("test_phase59_"):
+        if path.name.startswith(("test_phase59_", "test_phase60_")):
             assert ACTIVE_READER.stem not in facts.imported_modules, path
 
     phase58_sources = "\n".join(

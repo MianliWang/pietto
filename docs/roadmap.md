@@ -6,14 +6,15 @@ Every substantive slice begins by identifying its authority roots, current
 invariants, compatibility boundary, and the smallest behavior that is actually
 needed.
 
-The active product direction is a private typed local-package graph integrating
-existing package, module, requirement, capability, catalog, provenance, and
-lineage authorities. Project Explain v1 remains unchanged. Pietto remains
-compiler-only: no package or catalog registry, dependency solver, remote
-loading, database execution, runtime evaluation, installation discovery, or
-implicit project discovery is authorized. Future work must preserve established
-identity, complete collection, provenance, ordering, trust, and diagnostic
-boundaries unless a new explicit product decision changes them.
+The active product direction is a typed, target-independent advanced-window
+semantic model built on the existing Phase 53 window, Phase 56 capability, and
+Phase 59 occurrence/lineage authorities. Project Explain v1 remains unchanged.
+Pietto remains compiler-only: no package or catalog registry, dependency
+solver, remote loading, database execution, runtime evaluation, installation
+discovery, or implicit project discovery is authorized. Future work must
+preserve established identity, complete collection, provenance, ordering,
+trust, and diagnostic boundaries unless a new explicit product decision
+changes them.
 
 ## Phase 55 route
 
@@ -446,10 +447,9 @@ release operation, or route expansion. The controlling closure is
 
 ## Phase 59 route
 
-Phase 59 is completed, all 12 Phase 59 Slices are completed, and Validation/Test
-Performance Optimization Interlude Slices 1–5 are published complete. Slice 6
-is the current Interlude completion candidate. Successful publication completes
-the Interlude and leaves Phase 60 next / not yet implemented. The published
+Phase 59 and all 12 Phase 59 Slices are completed. The Validation/Test
+Performance Optimization Interlude is also completed by successful natural
+exact-head CI on its Slice 6 commit, which activates Phase 60. The published
 Phase 59 route has exactly 12 slices.
 
 The exact owner is **Local package graph, attribution, provenance, and lineage**.
@@ -582,12 +582,12 @@ interlude without beginning it or Phase 60. The controlling closure is
 Project Explain v1, existing CLI behavior, package loading, semantic lineage,
 and all public schemas remain exact zero-delta. Successful natural exact-head
 CI on the single Slice 12 commit established Phase 59 completion without a
-status-only follow-up commit, activated the performance interlude as the next
-owner, and left Phase 60 not activated.
+status-only follow-up commit. The performance interlude then completed on its
+own exact-head natural CI and activated Phase 60 without changing Phase 59.
 
 ## Validation/Test Performance Optimization Interlude
 
-This mandatory owner is `ACTIVE` after Phase 59 completion:
+This mandatory owner is `COMPLETED` after Phase 59 completion:
 
 ```text
 Phase 59 completion
@@ -660,12 +660,11 @@ counts and safe RAM pressure. The same automatic policy runs inside both
 existing GitHub Python jobs. The controlling evidence is
 [Interlude Slice 5 resource-aware xdist and CI parallelism decision](spec/validation-performance-interlude-slice5-resource-aware-xdist-and-ci-parallelism-decision-v1.md).
 
-Slice 6 is the current completion candidate. Fresh collection is 2.99s for
-10,352 tests. Two current serial runs have a 135.21s median, while two
-resource-aware parallel runs have a 74.60s median, a like-for-like 44.8%
-reduction. The six-Slice scorecard closes adopted, structural, no-gain, and
-later-owned decisions with `Interlude self-owned-open = 0`. The controlling
-evidence is
+Slice 6 completed the Interlude. Fresh collection is 2.99s for 10,352 tests.
+Two current serial runs have a 135.21s median, while two resource-aware parallel
+runs have a 74.60s median, a like-for-like 44.8% reduction. The six-Slice
+scorecard closes adopted, structural, no-gain, and later-owned decisions with
+`Interlude self-owned-open = 0`. The controlling evidence is
 [Interlude Slice 6 completion benchmark and Phase 60 readiness](spec/validation-performance-interlude-slice6-completion-benchmark-phase60-readiness-v1.md).
 
 Python 3.12/3.13, generated, golden, package-smoke, reader-closure, and failure
@@ -675,15 +674,51 @@ Slices 1–6 change no production or validation semantics. Natural CI retains
 both Python jobs and uses the same resource-aware pytest policy as local
 validation.
 
-Phase 60 is `NEXT / NOT YET IMPLEMENTED`. Successful natural exact-head CI on
-the single Slice 6 completion commit completes the Interlude and hands off
-authority; this Slice does not implement Phase 60.
+Successful natural exact-head CI on the single Slice 6 completion commit
+completed the Interlude and handed off authority. Phase 60 is now `ACTIVE`,
+Slice 1 is current, and Slice 2 is next / unstarted.
+
+## Phase 60 route
+
+Phase 60 is active, Slice 1 is current, and Slice 2 is next / unstarted. The
+published route has exactly 13 slices.
+
+The exact owner is **Advanced Windows And Phase 51–60 Readiness Checkpoint**.
+
+| Slice | Owner |
+| ---: | --- |
+| 1 | Scope / Semantic Laws / Route Lock |
+| 2 | Authored-To-Resolved Window And Frame Model |
+| 3 | Structural Legality, Function-Frame Policy, Empty-Frame Classification, And Stage/Nesting Rules |
+| 4 | ROWS Semantics And Lowering |
+| 5 | RANGE Semantics, Direction-Aware Bounds, Structural ORDER BY/Type Seam, And Lowering |
+| 6 | GROUPS And Peer-Group Semantics And Lowering |
+| 7 | EXCLUDE Semantics Across All Units |
+| 8 | Query-Local Named-Window Scope And DAG Inheritance |
+| 9 | Value/Navigation Modifiers |
+| 10 | Capability-Gated Lowering, Lineage, Determinism/Private Inspection, And Semantic-Equivalence Readiness |
+| 11 | Real Authored Advanced-Window E2E |
+| 12 | Differential Compatibility |
+| 13 | Phase 51–60 Completion/Readiness Audit And Phase 61 Handoff |
+
+Slice 1 freezes distinct authored/resolved/validated/target-lowerable stages,
+typed lazy frame semantics, exact authorship/default provenance, unit-sensitive
+`CURRENT ROW`, direction-aware RANGE bounds, post-clipping `EXCLUDE`, typed
+function/frame/modifier policy, query-local monotonic named-window DAGs,
+semantic equivalence without occurrence merging, capability-gated lowering,
+Phase 59 lineage attachment, the later-owner ledger, the optimized future-test
+contract, and the exact route without production implementation. The
+controlling contract is
+[Phase 60 Slice 1 advanced-window semantic laws and route lock](spec/phase60-advanced-windows-scope-semantic-laws-route-lock-v1.md).
+
+Current public language and SQL behavior remain frame free. Live Git and
+natural exact-head CI own Slice 1 completion without a status-only follow-up
+commit. Slice 2 remains unimplemented and unauthorized by Slice 1.
 
 ## Retained later ownership
 
 | Phase | Owner |
 | ---: | --- |
-| 60 | Advanced windows and Phase 51–60 readiness checkpoint |
 | 61 | Project IR and semantic composition |
 | 62 | Relationship, JOIN, grain, and fanout-safe semantics |
 | 63 | Multi-relation SQL, project emit-SQL, and QUALIFY lowering |
