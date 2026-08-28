@@ -448,9 +448,10 @@ release operation, or route expansion. The controlling closure is
 
 Phase 59 is completed, all 12 Phase 59 Slices are completed, the Validation/
 Test Performance Optimization Interlude is active with Slice 1 published
-complete, Slice 2 published complete, Slice 3 published complete, Slice 4 as
-its current publication candidate, Slice 5 next / unstarted, and Phase 60
-blocked / not activated. The published Phase 59 route has exactly 12 slices.
+complete, Slice 2 published complete, Slice 3 published complete, Slice 4
+published complete, Slice 5 as its current publication candidate, Slice 6
+next / unstarted, and Phase 60 blocked / not activated. The published Phase 59
+route has exactly 12 slices.
 
 The exact owner is **Local package graph, attribution, provenance, and lineage**.
 
@@ -642,7 +643,7 @@ within observed noise, so no wall-time gain is claimed and no material
 regression is established. The controlling evidence is
 [Interlude Slice 3 repository reader acquisition reuse](spec/validation-performance-interlude-slice3-repository-reader-acquisition-reuse-v1.md).
 
-Slice 4 is the current publication candidate. It preserves the exact 137-file
+Slice 4 preserves the exact 137-file
 production and 358-file test typing authorities while retaining the published
 two-stage Pyright validator. The investigated one-process candidate preserved
 representative diagnostics, but its 52.94s median versus the legacy 53.13s
@@ -651,20 +652,24 @@ is not adopted; Slice 4 closes with `NO MATERIAL GAIN — CURRENT TWO-STAGE
 AUTHORITY RETAINED`. The controlling evidence is
 [Interlude Slice 4 validator static-analysis stage optimization](spec/validation-performance-interlude-slice4-validator-static-analysis-stage-optimization-v1.md).
 
-Slice 5 is next / unstarted and must audit the current suite's mutable state,
-filesystem isolation, caches, cwd/environment changes, build paths, CPU and
-available RAM, worker memory, subprocess amplification, adaptive worker counts,
-GitHub CI runner compatibility, and local-versus-CI policy equivalence before
-any controlled xdist scheduling or CI parallelism decision. Slice 6 owns
-same-method completion measurement and readiness assurance; it does not activate
-Phase 60.
+Slice 5 is the current publication candidate. Its isolation audit found no
+shared-state blocker, and resource measurements select four `loadfile` workers
+from usable CPU and effective available memory with a serial fallback. Two
+full serial runs have a 130.30s median; two equivalent four-worker runs have a
+61.00s median, a 53.2% reduction, with unchanged 10,348-test and subprocess
+counts and safe RAM pressure. The same automatic policy runs inside both
+existing GitHub Python jobs. The controlling evidence is
+[Interlude Slice 5 resource-aware xdist and CI parallelism decision](spec/validation-performance-interlude-slice5-resource-aware-xdist-and-ci-parallelism-decision-v1.md).
+
+Slice 6 is next / unstarted and owns same-method completion measurement and
+Phase 60 readiness assurance; it does not activate Phase 60.
 
 Python 3.12/3.13, generated, golden, package-smoke, reader-closure, and failure
 semantics remain mandatory. The Python suite is not rewritten in Rust merely
 for speed, and the first Rust-kernel decision remains later-owned. Interlude
-Slices 1–4 change no production or validation semantics. Natural CI and the
-authoritative local validator remain serial through Slice 4; installed xdist
-tooling grants no current-suite safety or performance authority.
+Slices 1–5 change no production or validation semantics. Natural CI retains
+both Python jobs and uses the same resource-aware pytest policy as local
+validation through Slice 5.
 
 Phase 60 is `BLOCKED / NOT ACTIVATED` until this interlude is completed by its
 own later live authority.

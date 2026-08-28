@@ -33,21 +33,23 @@ EXPECTED_STATUS = (
     ("Interlude Slice 1", "`COMPLETED`"),
     ("Interlude Slice 2", "`COMPLETED`"),
     ("Interlude Slice 3", "`COMPLETED`"),
-    ("Interlude Slice 4", "`CURRENT / PUBLICATION CANDIDATE`"),
-    ("Interlude Slice 5", "`NEXT / UNSTARTED`"),
+    ("Interlude Slice 4", "`COMPLETED`"),
+    ("Interlude Slice 5", "`CURRENT / PUBLICATION CANDIDATE`"),
+    ("Interlude Slice 6", "`NEXT / UNSTARTED`"),
     ("Phase 60", "`BLOCKED / NOT ACTIVATED`"),
     (
         "Next",
-        "`VALIDATION_PERFORMANCE_INTERLUDE_SLICE5_CURRENT_SUITE_ISOLATION_RESOURCE_AWARE_XDIST_SCHEDULING_CI_PARALLELISM_DECISION`",
+        "`VALIDATION_PERFORMANCE_INTERLUDE_SLICE6_COMPLETION_BENCHMARK_PHASE60_READINESS_ASSURANCE`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
     "Phase 59 is completed, all 12 Phase 59 Slices are completed, the Validation/\n"
     "Test Performance Optimization Interlude is active with Slice 1 published\n"
-    "complete, Slice 2 published complete, Slice 3 published complete, Slice 4 as\n"
-    "its current publication candidate, Slice 5 next / unstarted, and Phase 60\n"
-    "blocked / not activated. The published Phase 59 route has exactly 12 slices."
+    "complete, Slice 2 published complete, Slice 3 published complete, Slice 4\n"
+    "published complete, Slice 5 as its current publication candidate, Slice 6\n"
+    "next / unstarted, and Phase 60 blocked / not activated. The published Phase 59\n"
+    "route has exactly 12 slices."
 )
 EXPECTED_PHASE59_OWNER = "Local package graph, attribution, provenance, and lineage"
 EXPECTED_PHASE58_ROUTE = (
@@ -149,16 +151,13 @@ EXPECTED_RETAINED_LATER_OWNERS = (
     ),
     ("70", "Public schema/lineage expansion and v0.2 release-readiness decision"),
 )
-EXPECTED_INTERLUDE_SLICE4_CHANGED_PATHS = (
+EXPECTED_INTERLUDE_SLICE5_CHANGED_PATHS = (
     "docs/roadmap.md",
-    "docs/spec/validation-performance-interlude-slice4-validator-static-analysis-stage-optimization-v1.md",
+    "docs/spec/validation-performance-interlude-slice5-resource-aware-xdist-and-ci-parallelism-decision-v1.md",
     "docs/status.md",
     "scripts/validate.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
     "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
 
 
@@ -187,13 +186,10 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert _table_rows(status)[1:] == EXPECTED_STATUS
     normalized = " ".join(status.split())
     assert "Phase 59 is completed by live Git" in normalized
-    assert "Interlude Slices 1–3 are published complete" in normalized
-    assert "Slice 4 is the current publication candidate" in normalized
-    assert "natural exact-head CI on the single Slice 4 closure commit" in normalized
-    assert (
-        "Current-Suite Isolation, Resource-Aware Xdist Scheduling, And CI "
-        "Parallelism Decision next" in normalized
-    )
+    assert "Interlude Slices 1–4 are published complete" in normalized
+    assert "Slice 5 is the current publication candidate" in normalized
+    assert "natural exact-head CI on the single Slice 5 commit" in normalized
+    assert "Completion Benchmark And Phase 60 Readiness Assurance next" in normalized
     assert "no post-CI status-flip commit is required" in normalized
     assert "performance interlude is active" in normalized
     assert "Phase 60 remains blocked and not activated" in normalized
@@ -235,21 +231,21 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     )
     assert "All 18 outer variants, 116 semantic CLI calls" in interlude_normalized
     assert "materially beyond observed noise" in interlude_normalized
-    assert "52.94s median versus the legacy 53.13s median" in interlude_normalized
-    assert "0.19s / 0.36%, within observed noise" in interlude_normalized
-    assert "optimization is not adopted" in interlude_normalized
-    assert "CURRENT TWO-STAGE AUTHORITY RETAINED" in interlude_normalized
-    assert "Slice 5 is next / unstarted" in interlude_normalized
+    assert "Two full serial runs have a 130.30s median" in interlude_normalized
+    assert "four-worker runs have a 61.00s median" in interlude_normalized
+    assert "a 53.2% reduction" in interlude_normalized
+    assert "unchanged 10,348-test and subprocess counts" in interlude_normalized
+    assert "Slice 6 is next / unstarted" in interlude_normalized
     assert (
-        "Natural CI and the authoritative local validator remain serial"
-        in interlude_normalized
+        "Natural CI retains both Python jobs and uses the same resource-aware "
+        "pytest policy" in interlude_normalized
     )
     assert "Phase 60 is `BLOCKED / NOT ACTIVATED`" in interlude_normalized
-    assert len(EXPECTED_INTERLUDE_SLICE4_CHANGED_PATHS) == 9
+    assert len(EXPECTED_INTERLUDE_SLICE5_CHANGED_PATHS) == 6
     assert all(
-        (REPO_ROOT / path).is_file() for path in EXPECTED_INTERLUDE_SLICE4_CHANGED_PATHS
+        (REPO_ROOT / path).is_file() for path in EXPECTED_INTERLUDE_SLICE5_CHANGED_PATHS
     )
     assert not any(
         path.startswith((".github/", "src/", "grammar/"))
-        for path in EXPECTED_INTERLUDE_SLICE4_CHANGED_PATHS
+        for path in EXPECTED_INTERLUDE_SLICE5_CHANGED_PATHS
     )

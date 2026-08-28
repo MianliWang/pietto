@@ -28,6 +28,94 @@ GATES: tuple[tuple[str, tuple[str, ...]], ...] = (
 PYTEST_GATE_NAME = "tests"
 PYTEST_COMMAND = ("uv", "run", "pytest")
 PYTEST_DIST_CHOICES = ("loadfile", "loadscope")
+PYTEST_WORKER_MEMORY_BYTES = 512 * 1024 * 1024
+PYTEST_MIN_MEMORY_RESERVE_BYTES = 1024 * 1024 * 1024
+
+
+def _read_text(path: str) -> str | None:
+    try:
+        return Path(path).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+
+def _cgroup_cpu_count() -> int | None:
+    cpu_max = _read_text("/sys/fs/cgroup/cpu.max")
+    if cpu_max is not None:
+        quota, period = cpu_max.split()
+        if quota != "max":
+            return max(int(quota) // int(period), 1)
+
+    quota = _read_text("/sys/fs/cgroup/cpu/cpu.cfs_quota_us")
+    period = _read_text("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
+    if quota is not None and period is not None and int(quota) > 0:
+        return max(int(quota) // int(period), 1)
+    return None
+
+
+def _usable_cpu_count() -> int:
+    candidates = [os.cpu_count() or 1]
+    process_cpu_count = getattr(os, "process_cpu_count", None)
+    if process_cpu_count is not None:
+        candidates.append(process_cpu_count() or 1)
+    if hasattr(os, "sched_getaffinity"):
+        candidates.append(len(os.sched_getaffinity(0)))
+    cgroup_count = _cgroup_cpu_count()
+    if cgroup_count is not None:
+        candidates.append(cgroup_count)
+    return max(min(candidates), 1)
+
+
+def _memory_snapshot() -> tuple[int, int] | None:
+    meminfo = _read_text("/proc/meminfo")
+    if meminfo is None:
+        return None
+    values = {
+        line.split(":", 1)[0]: int(line.split()[1]) * 1024
+        for line in meminfo.splitlines()
+        if ":" in line and line.split()[1].isdigit()
+    }
+    total = values.get("MemTotal")
+    available = values.get("MemAvailable")
+    if total is None or available is None:
+        return None
+
+    for limit_path, current_path in (
+        ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.current"),
+        (
+            "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+            "/sys/fs/cgroup/memory/memory.usage_in_bytes",
+        ),
+    ):
+        limit_text = _read_text(limit_path)
+        current_text = _read_text(current_path)
+        if limit_text is None or not limit_text.isdigit():
+            continue
+        limit = int(limit_text)
+        if limit >= 1 << 60:
+            continue
+        total = min(total, limit)
+        if current_text is not None and current_text.isdigit():
+            available = min(available, max(limit - int(current_text), 0))
+        else:
+            available = min(available, limit)
+    return total, available
+
+
+def _resource_worker_count(maximum: int | None = None) -> int:
+    memory = _memory_snapshot()
+    if memory is None:
+        return 1
+    total, available = memory
+    reserve = max(PYTEST_MIN_MEMORY_RESERVE_BYTES, total // 5)
+    memory_capacity = max(
+        (available - reserve) // PYTEST_WORKER_MEMORY_BYTES,
+        1,
+    )
+    workers = min(_usable_cpu_count(), memory_capacity)
+    if maximum is not None:
+        workers = min(workers, maximum)
+    return max(workers, 1)
 
 
 def _positive_int(value: str) -> int:
@@ -51,10 +139,10 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--pytest-workers",
-        metavar="{off,auto,logical,N}",
+        metavar="{resource,off,auto,logical,N}",
         help=(
-            "opt into pytest-xdist workers: off, auto, logical CPU count, "
-            "or a positive integer"
+            "pytest worker mode (default: resource): resource-aware, off, auto, "
+            "logical CPU count, or a positive integer"
         ),
     )
     parser.add_argument(
@@ -74,13 +162,13 @@ def _parse_worker_mode(
     parser: argparse.ArgumentParser,
     worker_value: str,
 ) -> str | int:
-    if worker_value in {"off", "auto", "logical"}:
+    if worker_value in {"resource", "off", "auto", "logical"}:
         return worker_value
     try:
         return _positive_int(worker_value)
     except argparse.ArgumentTypeError:
         parser.error(
-            "--pytest-workers must be off, auto, logical, or a positive integer"
+            "--pytest-workers must be resource, off, auto, logical, or a positive integer"
         )
 
 
@@ -89,18 +177,25 @@ def _pytest_command(
     parser: argparse.ArgumentParser,
 ) -> tuple[str, ...]:
     worker_value = args.pytest_workers
-    if worker_value is None or worker_value == "off":
+    if worker_value == "off":
         if args.pytest_dist is not None:
             parser.error("--pytest-dist requires enabled pytest workers")
         if args.pytest_maxprocesses is not None:
             parser.error("--pytest-maxprocesses requires enabled pytest workers")
         return PYTEST_COMMAND
 
-    worker_mode = _parse_worker_mode(parser, worker_value)
+    worker_mode = (
+        "resource" if worker_value is None else _parse_worker_mode(parser, worker_value)
+    )
     dist_mode = args.pytest_dist or "loadfile"
     command = [*PYTEST_COMMAND]
 
-    if worker_mode == "auto":
+    if worker_mode == "resource":
+        worker_count = _resource_worker_count(args.pytest_maxprocesses)
+        if worker_count == 1:
+            return PYTEST_COMMAND
+        command.extend(("-n", str(worker_count)))
+    elif worker_mode == "auto":
         command.extend(("-n", "auto"))
         if args.pytest_maxprocesses is not None:
             command.extend(("--maxprocesses", str(args.pytest_maxprocesses)))

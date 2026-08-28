@@ -11,6 +11,11 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VALIDATE_PATH = REPO_ROOT / "scripts" / "validate.py"
+WORKFLOW_PATH = REPO_ROOT / ".github/workflows/ci.yml"
+SLICE5_SPEC = (
+    REPO_ROOT
+    / "docs/spec/validation-performance-interlude-slice5-resource-aware-xdist-and-ci-parallelism-decision-v1.md"
+)
 EXPECTED_GATES = (
     ("lockfile", ("uv", "lock", "--check")),
     ("format", ("uv", "run", "ruff", "format", "--check", ".")),
@@ -21,6 +26,10 @@ EXPECTED_GATES = (
         ("uv", "run", "pyright", "--project", "pyrightconfig.tests.json"),
     ),
     ("tests", ("uv", "run", "pytest")),
+)
+DEFAULT_GATES = (
+    *EXPECTED_GATES[:-1],
+    ("tests", ("uv", "run", "pytest", "-n", "4", "--dist=loadfile")),
 )
 
 
@@ -34,6 +43,16 @@ def _load_validate_module() -> ModuleType:
 
 
 validate = cast(Any, _load_validate_module())
+resource_worker_count = validate._resource_worker_count
+
+
+@pytest.fixture(autouse=True)
+def _stable_resource_worker_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        validate,
+        "_resource_worker_count",
+        lambda maximum=None: min(4, maximum) if maximum is not None else 4,
+    )
 
 
 def test_validation_script_exists_and_uses_only_standard_library_imports() -> None:
@@ -108,11 +127,11 @@ def test_validation_runs_from_repo_root_and_keeps_child_output_attached(
     monkeypatch.setattr(validate.subprocess, "run", fake_run)
 
     assert validate.main(()) == 0
-    assert calls == [(command, REPO_ROOT, False) for _, command in EXPECTED_GATES]
+    assert calls == [(command, REPO_ROOT, False) for _, command in DEFAULT_GATES]
 
     output = capsys.readouterr().out
     assert output.splitlines() == [
-        f"[validate] {name}: {' '.join(command)}" for name, command in EXPECTED_GATES
+        f"[validate] {name}: {' '.join(command)}" for name, command in DEFAULT_GATES
     ]
     assert " completed in " not in output
     assert "[validate] total completed in " not in output
@@ -305,6 +324,32 @@ def test_validation_fails_fast_and_returns_the_failing_exit_code(
     assert calls == [command for _, command in EXPECTED_GATES[:3]]
 
 
+def test_resource_aware_pytest_failure_is_returned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+    failing_command = DEFAULT_GATES[-1][1]
+
+    def fake_run(
+        command: tuple[str, ...],
+        *,
+        cwd: Path,
+        check: bool,
+    ) -> subprocess.CompletedProcess[str]:
+        assert cwd == REPO_ROOT
+        assert check is False
+        calls.append(command)
+        return subprocess.CompletedProcess(
+            command,
+            23 if command == failing_command else 0,
+        )
+
+    monkeypatch.setattr(validate.subprocess, "run", fake_run)
+
+    assert validate.main(()) == 23
+    assert calls == [command for _, command in DEFAULT_GATES]
+
+
 def test_validation_timings_success_path_reports_each_gate_and_total(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -342,11 +387,11 @@ def test_validation_timings_success_path_reports_each_gate_and_total(
     monkeypatch.setattr(validate.time, "perf_counter", lambda: next(timer_values))
 
     assert validate.main(("--timings",)) == 0
-    assert calls == [(command, REPO_ROOT, False) for _, command in EXPECTED_GATES]
+    assert calls == [(command, REPO_ROOT, False) for _, command in DEFAULT_GATES]
 
     expected_lines: list[str] = []
     for (name, command), elapsed in zip(
-        EXPECTED_GATES,
+        DEFAULT_GATES,
         ("0.125", "0.250", "0.375", "0.500", "0.625", "0.750"),
         strict=True,
     ):
@@ -481,8 +526,6 @@ def test_validation_argparse_errors_do_not_invoke_gates(
         ("--pytest-workers", "-1"),
         ("--pytest-workers", "many"),
         ("--pytest-workers", ""),
-        ("--pytest-maxprocesses", "4"),
-        ("--pytest-dist", "loadfile"),
         ("--pytest-workers", "off", "--pytest-maxprocesses", "4"),
         ("--pytest-workers", "off", "--pytest-dist", "loadfile"),
         ("--pytest-workers", "2", "--pytest-maxprocesses", "0"),
@@ -540,3 +583,111 @@ def test_validation_does_not_use_global_pytest_addopts() -> None:
 
     assert "addopts" not in pyproject
     assert "PYTEST_ADDOPTS" not in validate_source
+
+
+def test_resource_worker_formula_respects_cpu_memory_and_optional_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gib = 1024**3
+    monkeypatch.setattr(validate, "_usable_cpu_count", lambda: 20)
+    monkeypatch.setattr(validate, "_memory_snapshot", lambda: (8 * gib, 4 * gib))
+    assert resource_worker_count() == 4
+    assert resource_worker_count(2) == 2
+
+    monkeypatch.setattr(validate, "_memory_snapshot", lambda: (8 * gib, gib))
+    assert resource_worker_count() == 1
+    monkeypatch.setattr(validate, "_memory_snapshot", lambda: None)
+    assert resource_worker_count() == 1
+
+
+def test_cpu_and_memory_detection_use_effective_limits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(validate.os, "cpu_count", lambda: 20)
+    monkeypatch.setattr(validate.os, "process_cpu_count", lambda: 8, raising=False)
+    monkeypatch.setattr(validate.os, "sched_getaffinity", lambda _pid: set(range(6)))
+    monkeypatch.setattr(validate, "_cgroup_cpu_count", lambda: 4)
+    assert validate._usable_cpu_count() == 4
+
+    gib = 1024**3
+    meminfo = f"MemTotal: {8 * gib // 1024} kB\nMemAvailable: {6 * gib // 1024} kB"
+    values = {
+        "/proc/meminfo": meminfo,
+        "/sys/fs/cgroup/memory.max": str(4 * gib),
+        "/sys/fs/cgroup/memory.current": str(gib),
+    }
+    monkeypatch.setattr(validate, "_read_text", lambda path: values.get(path))
+    assert validate._memory_snapshot() == (4 * gib, 3 * gib)
+
+
+def test_default_validator_is_resource_aware_with_serial_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parser = validate._build_parser()
+    monkeypatch.setattr(validate, "_resource_worker_count", lambda maximum=None: 4)
+    assert validate._pytest_command(parser.parse_args(()), parser) == (
+        "uv",
+        "run",
+        "pytest",
+        "-n",
+        "4",
+        "--dist=loadfile",
+    )
+
+    capped = parser.parse_args(("--pytest-maxprocesses", "2"))
+    monkeypatch.setattr(
+        validate,
+        "_resource_worker_count",
+        lambda maximum=None: min(4, maximum) if maximum is not None else 4,
+    )
+    assert validate._pytest_command(capped, parser) == (
+        "uv",
+        "run",
+        "pytest",
+        "-n",
+        "2",
+        "--dist=loadfile",
+    )
+    loadscope = parser.parse_args(("--pytest-dist", "loadscope"))
+    assert validate._pytest_command(loadscope, parser)[-1] == "--dist=loadscope"
+
+    monkeypatch.setattr(validate, "_resource_worker_count", lambda maximum=None: 1)
+    assert validate._pytest_command(parser.parse_args(()), parser) == (
+        "uv",
+        "run",
+        "pytest",
+    )
+
+
+def test_ci_keeps_two_jobs_and_uses_the_same_default_resource_policy() -> None:
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    assert workflow.count('          - "3.12"') == 1
+    assert workflow.count('          - "3.13"') == 1
+    assert workflow.count("uv run python scripts/validate.py --timings") == 1
+    assert "--pytest-workers" not in workflow
+    assert "--pytest-maxprocesses" not in workflow
+
+
+def test_slice5_resource_evidence_and_handoff_are_exact() -> None:
+    document = " ".join(SLICE5_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "`XDIST = ADOPTED`",
+        "20 affinity CPUs",
+        "8.32 GB total RAM",
+        "512 MiB per worker",
+        "1 GiB or 20%",
+        "68.72s",
+        "44.85s",
+        "41.24s",
+        "129.85s",
+        "130.74s",
+        "61.28s",
+        "60.72s",
+        "69.30s, or 53.2%",
+        "10348 passed twice",
+        "plain serial pytest command",
+        "No `xdist_group` marker",
+        "Phase 60 = NOT ACTIVATED",
+        "VALIDATION_PERFORMANCE_INTERLUDE_SLICE6_COMPLETION_BENCHMARK_PHASE60_READINESS_ASSURANCE",
+    ):
+        assert evidence in document
