@@ -1049,37 +1049,236 @@ class RangeOffsetOrderingFailure:
             )
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class RangePeerBoundaryEvidence:
-    """Explicit Slice 6-owned peer positions consumed without peer computation."""
+class PeerComparisonOutcome(StrEnum):
+    """Typed Phase 64 comparison evidence consumed by peer semantics."""
 
-    partition_size: int
-    current_position: int
-    first_peer_position: int
-    last_peer_position: int
+    EQUAL = "equal"
+    NOT_EQUAL = "not_equal"
+    UNRESOLVED = "unresolved"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PeerComparisonEvidence:
+    """One adjacent-row comparison for one exact window ordering key."""
+
+    left_row_position: int
+    right_row_position: int
+    order_key_position: int
+    ordering: OrderItem
+    outcome: PeerComparisonOutcome
 
     def __post_init__(self) -> None:
-        if type(self.partition_size) is not int:
-            raise TypeError("RANGE peer partition size must be exact")
-        if self.partition_size <= 0:
-            raise ValueError("RANGE peer partition size must be positive")
         if any(
             type(value) is not int
             for value in (
-                self.current_position,
-                self.first_peer_position,
-                self.last_peer_position,
+                self.left_row_position,
+                self.right_row_position,
+                self.order_key_position,
             )
         ):
-            raise TypeError("RANGE peer positions must be exact integers")
-        if not (
-            0
-            <= self.first_peer_position
-            <= self.current_position
-            <= self.last_peer_position
-            < self.partition_size
+            raise TypeError("peer comparison positions must be exact integers")
+        if self.left_row_position < 0 or self.order_key_position < 0:
+            raise ValueError("peer comparison positions must be nonnegative")
+        if self.right_row_position != self.left_row_position + 1:
+            raise ValueError("peer comparison rows must be adjacent")
+        if type(self.ordering) is not OrderItem:
+            raise TypeError("peer comparison ordering must be exact")
+        if type(self.outcome) is not PeerComparisonOutcome:
+            raise TypeError("peer comparison outcome must be exact")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PeerGroupInterval:
+    """One maximal nonempty half-open peer-group span."""
+
+    group_index: int
+    start: int
+    stop: int
+
+    def __post_init__(self) -> None:
+        if any(
+            type(value) is not int
+            for value in (self.group_index, self.start, self.stop)
         ):
-            raise ValueError("RANGE peer evidence must contain the current position")
+            raise TypeError("peer-group positions must be exact integers")
+        if self.group_index < 0 or self.start < 0 or self.stop <= self.start:
+            raise ValueError("peer groups require nonnegative index and nonempty span")
+
+    @property
+    def positions(self) -> range:
+        """Return the lazy row-position view preserving multiplicity."""
+
+        return range(self.start, self.stop)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PeerGroupPartition:
+    """Canonical ordered peer groups derived only from typed comparisons."""
+
+    partition_size: int
+    order_by: tuple[OrderItem, ...]
+    comparisons: tuple[PeerComparisonEvidence, ...]
+    groups: tuple[PeerGroupInterval, ...]
+
+    def __post_init__(self) -> None:
+        _validate_peer_inputs(self.partition_size, self.order_by, self.comparisons)
+        if type(self.groups) is not tuple or any(
+            type(group) is not PeerGroupInterval for group in self.groups
+        ):
+            raise TypeError("peer groups must be an exact typed tuple")
+        if _blocking_unresolved_peer_comparisons(self.order_by, self.comparisons):
+            raise ValueError(
+                "resolved peer groups forbid blocking unresolved comparisons"
+            )
+        expected = _peer_groups_from_comparisons(
+            self.partition_size,
+            self.order_by,
+            self.comparisons,
+        )
+        if self.groups != expected:
+            raise ValueError("peer groups must be complete, maximal, and ordered")
+
+    def group_for_position(self, position: int) -> PeerGroupInterval:
+        """Return the sole canonical group containing one current row."""
+
+        if type(position) is not int:
+            raise TypeError("peer lookup position must be an exact integer")
+        if not 0 <= position < self.partition_size:
+            raise ValueError("peer lookup position must belong to the partition")
+        return next(group for group in self.groups if position in group.positions)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PeerGroupConstructionFailure:
+    """Complete unresolved comparison evidence with no partial peer groups."""
+
+    partition_size: int
+    order_by: tuple[OrderItem, ...]
+    comparisons: tuple[PeerComparisonEvidence, ...]
+    unresolved: tuple[PeerComparisonEvidence, ...]
+
+    def __post_init__(self) -> None:
+        _validate_peer_inputs(self.partition_size, self.order_by, self.comparisons)
+        if type(self.unresolved) is not tuple or any(
+            type(item) is not PeerComparisonEvidence for item in self.unresolved
+        ):
+            raise TypeError("unresolved peer evidence must be an exact typed tuple")
+        expected = _blocking_unresolved_peer_comparisons(
+            self.order_by,
+            self.comparisons,
+        )
+        if not expected or self.unresolved != expected:
+            raise ValueError("unresolved peer evidence must be complete and ordered")
+
+
+def build_peer_group_partition(
+    *,
+    partition_size: int,
+    order_by: tuple[OrderItem, ...],
+    comparisons: tuple[PeerComparisonEvidence, ...],
+) -> PeerGroupPartition | PeerGroupConstructionFailure:
+    """Build maximal contiguous groups without evaluating ordering values."""
+
+    _validate_peer_inputs(partition_size, order_by, comparisons)
+    unresolved = _blocking_unresolved_peer_comparisons(order_by, comparisons)
+    if unresolved:
+        return PeerGroupConstructionFailure(
+            partition_size=partition_size,
+            order_by=order_by,
+            comparisons=comparisons,
+            unresolved=unresolved,
+        )
+    return PeerGroupPartition(
+        partition_size=partition_size,
+        order_by=order_by,
+        comparisons=comparisons,
+        groups=_peer_groups_from_comparisons(partition_size, order_by, comparisons),
+    )
+
+
+def _validate_peer_inputs(
+    partition_size: int,
+    order_by: tuple[OrderItem, ...],
+    comparisons: tuple[PeerComparisonEvidence, ...],
+) -> None:
+    if type(partition_size) is not int:
+        raise TypeError("peer partition size must be an exact integer")
+    if partition_size <= 0:
+        raise ValueError("peer partition size must be positive")
+    if type(order_by) is not tuple or any(
+        type(item) is not OrderItem for item in order_by
+    ):
+        raise TypeError("peer ordering must be an exact OrderItem tuple")
+    if type(comparisons) is not tuple or any(
+        type(item) is not PeerComparisonEvidence for item in comparisons
+    ):
+        raise TypeError("peer comparisons must be an exact typed tuple")
+    expected_count = (partition_size - 1) * len(order_by)
+    if len(comparisons) != expected_count:
+        raise ValueError("peer comparisons must cover every adjacent row and key")
+    for left_position in range(partition_size - 1):
+        for key_position, ordering in enumerate(order_by):
+            comparison = comparisons[left_position * len(order_by) + key_position]
+            if (
+                comparison.left_row_position != left_position
+                or comparison.right_row_position != left_position + 1
+                or comparison.order_key_position != key_position
+                or comparison.ordering is not ordering
+            ):
+                raise ValueError(
+                    "peer comparisons must preserve adjacent-row and complete-key order"
+                )
+
+
+def _blocking_unresolved_peer_comparisons(
+    order_by: tuple[OrderItem, ...],
+    comparisons: tuple[PeerComparisonEvidence, ...],
+) -> tuple[PeerComparisonEvidence, ...]:
+    if not order_by:
+        return ()
+    blocking: list[PeerComparisonEvidence] = []
+    for left_position in range(len(comparisons) // len(order_by)):
+        pair = comparisons[
+            left_position * len(order_by) : (left_position + 1) * len(order_by)
+        ]
+        if any(
+            comparison.outcome is PeerComparisonOutcome.NOT_EQUAL for comparison in pair
+        ):
+            continue
+        blocking.extend(
+            comparison
+            for comparison in pair
+            if comparison.outcome is PeerComparisonOutcome.UNRESOLVED
+        )
+    return tuple(blocking)
+
+
+def _peer_groups_from_comparisons(
+    partition_size: int,
+    order_by: tuple[OrderItem, ...],
+    comparisons: tuple[PeerComparisonEvidence, ...],
+) -> tuple[PeerGroupInterval, ...]:
+    boundaries = [0]
+    if order_by:
+        for left_position in range(partition_size - 1):
+            pair = comparisons[
+                left_position * len(order_by) : (left_position + 1) * len(order_by)
+            ]
+            if any(
+                comparison.outcome is PeerComparisonOutcome.NOT_EQUAL
+                for comparison in pair
+            ):
+                boundaries.append(left_position + 1)
+            elif any(
+                comparison.outcome is PeerComparisonOutcome.UNRESOLVED
+                for comparison in pair
+            ):
+                raise ValueError("resolved peer groups require complete comparisons")
+    boundaries.append(partition_size)
+    return tuple(
+        PeerGroupInterval(group_index=index, start=start, stop=stop)
+        for index, (start, stop) in enumerate(zip(boundaries, boundaries[1:]))
+    )
 
 
 def range_frame_logical_view(
@@ -1104,16 +1303,19 @@ def resolve_range_current_row_boundary(
     view: RangeFrameLogicalView,
     *,
     role: RangeFrameBoundRole,
-    evidence: RangePeerBoundaryEvidence,
+    peers: PeerGroupPartition,
+    current_position: int,
 ) -> int:
-    """Consume explicit peer evidence for one RANGE CURRENT ROW boundary."""
+    """Resolve RANGE CURRENT ROW through the canonical peer-group authority."""
 
     if type(view) is not RangeFrameLogicalView:
         raise TypeError("RANGE peer resolution requires an exact logical view")
     if type(role) is not RangeFrameBoundRole:
         raise TypeError("RANGE peer resolution role must be exact")
-    if type(evidence) is not RangePeerBoundaryEvidence:
-        raise TypeError("RANGE peer resolution evidence must be exact")
+    if type(peers) is not PeerGroupPartition:
+        raise TypeError("RANGE peer resolution requires exact peer groups")
+    if peers.order_by is not view.order_by:
+        raise ValueError("RANGE and peer groups must share exact ordering evidence")
     bound = (
         view.frame.resolved.start
         if role is RangeFrameBoundRole.START
@@ -1122,16 +1324,12 @@ def resolve_range_current_row_boundary(
     assert bound is not None
     if bound.kind is not WindowFrameBoundKind.CURRENT_ROW:
         raise ValueError("RANGE peer resolution requires a CURRENT ROW bound")
+    group = peers.group_for_position(current_position)
     if view.requires_whole_partition_peer_evidence and (
-        evidence.first_peer_position != 0
-        or evidence.last_peer_position != evidence.partition_size - 1
+        len(peers.groups) != 1 or group.start != 0 or group.stop != peers.partition_size
     ):
-        raise ValueError("unordered RANGE requires whole-partition peer evidence")
-    return (
-        evidence.first_peer_position
-        if role is RangeFrameBoundRole.START
-        else evidence.last_peer_position
-    )
+        raise ValueError("unordered RANGE requires one whole-partition peer group")
+    return group.start if role is RangeFrameBoundRole.START else group.stop - 1
 
 
 def _require_range_specification(
@@ -1218,6 +1416,167 @@ def _range_offset_orientation(
     }:
         return RangeOffsetOrientation.HIGHER_ORDERING_VALUES
     raise ValueError("RANGE orientation requires an offset bound")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GroupsFrameLogicalView:
+    """One validated GROUPS frame bound to canonical peer groups."""
+
+    specification: ValidatedWindowSpecification
+    peers: PeerGroupPartition
+
+    def __post_init__(self) -> None:
+        if type(self.specification) is not ValidatedWindowSpecification:
+            raise TypeError("GROUPS semantics require an exact validated specification")
+        frame = self.specification.frame
+        if type(frame) is not ValidatedFrame:
+            raise ValueError("GROUPS semantics require an applicable validated frame")
+        if frame.resolved.unit is not WindowFrameUnit.GROUPS:
+            raise ValueError("GROUPS semantics require a GROUPS frame")
+        if frame.resolved.exclusion is not WindowFrameExclusion.NO_OTHERS:
+            raise ValueError("GROUPS base semantics require EXCLUDE NO OTHERS")
+        if type(self.peers) is not PeerGroupPartition:
+            raise TypeError("GROUPS semantics require exact peer groups")
+        if self.peers.order_by is not self.specification.resolved.order_by:
+            raise ValueError(
+                "GROUPS and peer groups must share exact ordering evidence"
+            )
+
+    @property
+    def frame(self) -> ValidatedFrame:
+        """Return the exact validated GROUPS frame."""
+
+        frame = self.specification.frame
+        assert type(frame) is ValidatedFrame
+        return frame
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GroupsFrameInterval:
+    """Lazy intersected GROUPS and contributed-row boundary view."""
+
+    peers: PeerGroupPartition
+    start_group: int
+    stop_group: int
+
+    def __post_init__(self) -> None:
+        if type(self.peers) is not PeerGroupPartition:
+            raise TypeError("GROUPS interval requires exact peer groups")
+        if type(self.start_group) is not int or type(self.stop_group) is not int:
+            raise TypeError("GROUPS interval bounds must be exact integers")
+        if not 0 <= self.start_group <= self.group_count:
+            raise ValueError("GROUPS interval start must be a group boundary")
+        if not 0 <= self.stop_group <= self.group_count:
+            raise ValueError("GROUPS interval stop must be a group boundary")
+
+    @property
+    def partition_size(self) -> int:
+        """Return the exact canonical partition size."""
+
+        return self.peers.partition_size
+
+    @property
+    def group_count(self) -> int:
+        """Return the exact canonical peer-group count."""
+
+        return len(self.peers.groups)
+
+    @property
+    def row_start(self) -> int:
+        """Return the selected half-open row-start boundary."""
+
+        return _peer_group_boundary_position(self.peers, self.start_group)
+
+    @property
+    def row_stop(self) -> int:
+        """Return the selected half-open row-stop boundary."""
+
+        return _peer_group_boundary_position(self.peers, self.stop_group)
+
+    @property
+    def group_indices(self) -> range:
+        """Return selected group positions without materializing groups."""
+
+        return range(self.start_group, self.stop_group)
+
+    @property
+    def row_positions(self) -> range:
+        """Return every contributed row position without duplicating rows."""
+
+        return range(self.row_start, self.row_stop)
+
+    @property
+    def empty(self) -> bool:
+        """Whether the intersected group interval contains no groups."""
+
+        return self.start_group >= self.stop_group
+
+
+def groups_frame_interval(
+    view: GroupsFrameLogicalView,
+    *,
+    current_position: int,
+) -> GroupsFrameInterval:
+    """Intersect one GROUPS request with canonical peer-group positions."""
+
+    if type(view) is not GroupsFrameLogicalView:
+        raise TypeError("GROUPS interval evaluation requires an exact logical view")
+    current_group = view.peers.group_for_position(current_position)
+    assert view.frame.resolved.start is not None
+    assert view.frame.resolved.end is not None
+    raw_start = _groups_frame_bound_index(
+        view.frame.resolved.start,
+        group_count=len(view.peers.groups),
+        current_group_index=current_group.group_index,
+    )
+    raw_end = _groups_frame_bound_index(
+        view.frame.resolved.end,
+        group_count=len(view.peers.groups),
+        current_group_index=current_group.group_index,
+    )
+    group_count = len(view.peers.groups)
+    start_group = min(max(raw_start, 0), group_count)
+    stop_group = min(max(raw_end + 1, 0), group_count)
+    return GroupsFrameInterval(
+        peers=view.peers,
+        start_group=start_group,
+        stop_group=stop_group,
+    )
+
+
+def _groups_frame_bound_index(
+    bound: WindowFrameBound,
+    *,
+    group_count: int,
+    current_group_index: int,
+) -> int:
+    if bound.kind is WindowFrameBoundKind.UNBOUNDED_PRECEDING:
+        return 0
+    if bound.kind is WindowFrameBoundKind.CURRENT_ROW:
+        return current_group_index
+    if bound.kind is WindowFrameBoundKind.UNBOUNDED_FOLLOWING:
+        return group_count - 1
+    offset = bound.offset
+    if (
+        type(offset) is not LiteralExpr
+        or type(offset.value) is not int
+        or offset.value < 0
+    ):
+        raise ValueError("GROUPS offsets require nonnegative integer literal evidence")
+    if bound.kind is WindowFrameBoundKind.OFFSET_PRECEDING:
+        return current_group_index - offset.value
+    if bound.kind is WindowFrameBoundKind.OFFSET_FOLLOWING:
+        return current_group_index + offset.value
+    raise AssertionError("validated GROUPS bound kind must be complete")
+
+
+def _peer_group_boundary_position(
+    peers: PeerGroupPartition,
+    boundary: int,
+) -> int:
+    if boundary == len(peers.groups):
+        return peers.partition_size
+    return peers.groups[boundary].start
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

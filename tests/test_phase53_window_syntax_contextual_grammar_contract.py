@@ -520,6 +520,7 @@ def test_candidate_b_global_window_and_contextual_keyword_policy_is_locked() -> 
     for token in (
         "ROWS",
         "RANGE",
+        "GROUPS",
         "CURRENT",
         "ROW",
         "UNBOUNDED",
@@ -538,6 +539,7 @@ def test_candidate_b_global_window_and_contextual_keyword_policy_is_locked() -> 
         for token in (
             "ROWS",
             "RANGE",
+            "GROUPS",
             "CURRENT",
             "ROW",
             "UNBOUNDED",
@@ -563,7 +565,7 @@ def test_combined_grammar_rules_and_token_order_are_exact() -> None:
         "partitionByClause : PARTITION BY COLON NEWLINE NEWLINE* INDENT windowPartitionBody DEDENT ;",
         "windowPartitionBody : NEWLINE* windowPartitionItem (windowPartitionItem | NEWLINE)* ;",
         "windowPartitionItem : expression NEWLINE ;",
-        "windowFrameClause : (ROWS | RANGE) (BETWEEN frameBound AND frameBound | frameBound) NEWLINE ;",
+        "windowFrameClause : (ROWS | RANGE | GROUPS) (BETWEEN frameBound AND frameBound | frameBound) NEWLINE ;",
         "frameBound : UNBOUNDED (PRECEDING | FOLLOWING) | CURRENT ROW | expression (PRECEDING | FOLLOWING) ;",
     ):
         assert rule in normalized, rule

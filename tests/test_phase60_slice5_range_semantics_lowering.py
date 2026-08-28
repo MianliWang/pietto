@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import fields, replace
+from dataclasses import fields
 from pathlib import Path
 from typing import cast
 
@@ -15,6 +15,7 @@ from pietto.ast_nodes import (
     AuthoredWindowFrameKind,
     BinaryExpr,
     LiteralExpr,
+    OrderItem,
     QueryDef,
     WindowExpr,
     WindowFrameBoundKind,
@@ -23,13 +24,15 @@ from pietto.ast_nodes import (
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic.window_semantics import (
+    PeerComparisonEvidence,
+    PeerComparisonOutcome,
+    PeerGroupPartition,
     RangeFrameBoundRole,
     RangeFrameLogicalView,
     RangeOffsetArithmeticRequirement,
     RangeOffsetOrderingFailure,
     RangeOffsetOrientation,
     RangeOrderDirection,
-    RangePeerBoundaryEvidence,
     RangePeerBoundaryKind,
     RowsFramePositionInterval,
     ValidatedFrame,
@@ -41,6 +44,7 @@ from pietto.semantic.window_semantics import (
     WindowSpecificationValidationFailure,
     WindowValidationIssueKind,
     authored_window_specification_from_ast,
+    build_peer_group_partition,
     range_frame_logical_view,
     resolve_authored_window_specification,
     resolve_range_current_row_boundary,
@@ -144,6 +148,34 @@ def _validated_frame(
     )
     assert type(result) is ValidatedWindowSpecification
     assert type(result.frame) is ValidatedFrame
+    return result
+
+
+def _peer_partition(
+    order_by: tuple[OrderItem, ...],
+    outcomes: tuple[tuple[PeerComparisonOutcome, ...], ...],
+    *,
+    partition_size: int = 5,
+) -> PeerGroupPartition:
+    comparisons = tuple(
+        PeerComparisonEvidence(
+            left_row_position=left,
+            right_row_position=left + 1,
+            order_key_position=key,
+            ordering=ordering,
+            outcome=outcome,
+        )
+        for left, row_outcomes in enumerate(outcomes)
+        for key, (ordering, outcome) in enumerate(
+            zip(order_by, row_outcomes, strict=True)
+        )
+    )
+    result = build_peer_group_partition(
+        partition_size=partition_size,
+        order_by=order_by,
+        comparisons=comparisons,
+    )
+    assert type(result) is PeerGroupPartition
     return result
 
 
@@ -307,17 +339,21 @@ def test_range_current_row_uses_explicit_peer_boundaries_without_comparison() ->
     assert type(view) is RangeFrameLogicalView
     assert view.start_peer_boundary is RangePeerBoundaryKind.FIRST_PEER
     assert view.end_peer_boundary is RangePeerBoundaryKind.LAST_PEER
-    evidence = RangePeerBoundaryEvidence(
-        partition_size=5,
-        current_position=2,
-        first_peer_position=1,
-        last_peer_position=3,
+    peers = _peer_partition(
+        view.order_by,
+        (
+            (PeerComparisonOutcome.NOT_EQUAL,),
+            (PeerComparisonOutcome.EQUAL,),
+            (PeerComparisonOutcome.EQUAL,),
+            (PeerComparisonOutcome.NOT_EQUAL,),
+        ),
     )
     assert (
         resolve_range_current_row_boundary(
             view,
             role=RangeFrameBoundRole.START,
-            evidence=evidence,
+            peers=peers,
+            current_position=2,
         )
         == 1
     )
@@ -325,15 +361,15 @@ def test_range_current_row_uses_explicit_peer_boundaries_without_comparison() ->
         resolve_range_current_row_boundary(
             view,
             role=RangeFrameBoundRole.END,
-            evidence=evidence,
+            peers=peers,
+            current_position=2,
         )
         == 3
     )
-    assert tuple(field.name for field in fields(RangePeerBoundaryEvidence)) == (
-        "partition_size",
-        "current_position",
-        "first_peer_position",
-        "last_peer_position",
+    assert tuple((group.start, group.stop) for group in peers.groups) == (
+        (0, 1),
+        (1, 4),
+        (4, 5),
     )
 
 
@@ -342,24 +378,13 @@ def test_unordered_range_requires_whole_partition_peer_evidence() -> None:
     view = range_frame_logical_view(validated)
     assert type(view) is RangeFrameLogicalView
     assert view.requires_whole_partition_peer_evidence
-    partial = RangePeerBoundaryEvidence(
-        partition_size=5,
-        current_position=2,
-        first_peer_position=1,
-        last_peer_position=3,
-    )
-    with pytest.raises(ValueError, match="whole-partition peer evidence"):
-        resolve_range_current_row_boundary(
-            view,
-            role=RangeFrameBoundRole.START,
-            evidence=partial,
-        )
-    whole = replace(partial, first_peer_position=0, last_peer_position=4)
+    peers = _peer_partition(view.order_by, ())
     assert (
         resolve_range_current_row_boundary(
             view,
             role=RangeFrameBoundRole.START,
-            evidence=whole,
+            peers=peers,
+            current_position=2,
         )
         == 0
     )
@@ -367,7 +392,8 @@ def test_unordered_range_requires_whole_partition_peer_evidence() -> None:
         resolve_range_current_row_boundary(
             view,
             role=RangeFrameBoundRole.END,
-            evidence=whole,
+            peers=peers,
+            current_position=2,
         )
         == 4
     )
@@ -429,11 +455,10 @@ def test_rows_semantics_remain_exact_after_range_addition() -> None:
     assert tuple(interval.positions) == (1, 2, 3)
 
 
-def test_group_exclude_and_later_function_ownership_remain_unreachable() -> None:
-    for frame in ("groups current row", "range current row exclude ties"):
-        parsed = parse_source(_source(frame))
-        assert parsed.ast is None
-        assert parsed.diagnostics
+def test_exclude_and_later_function_ownership_remain_unreachable() -> None:
+    parsed = parse_source(_source("range current row exclude ties"))
+    assert parsed.ast is None
+    assert parsed.diagnostics
     current = {
         identity.name for identity, _policy in window_analysis._RANKING_POLICIES
     } | {definition[0].name for definition in window_analysis._DISTRIBUTION_FUNCTIONS}

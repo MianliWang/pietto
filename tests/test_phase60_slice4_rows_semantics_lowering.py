@@ -485,10 +485,7 @@ def test_new_frame_words_remain_contextual_identifiers_outside_frame_clause() ->
 
 @pytest.mark.parametrize(
     "frame",
-    (
-        "groups current row",
-        "rows current row exclude ties",
-    ),
+    ("rows current row exclude ties",),
 )
 def test_later_frame_surfaces_remain_unreachable(frame: str) -> None:
     parsed = parse_source(_source(frame))

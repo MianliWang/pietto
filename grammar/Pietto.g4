@@ -333,7 +333,7 @@ windowPartitionItem
     ;
 
 windowFrameClause
-    : (ROWS | RANGE) (BETWEEN frameBound AND frameBound | frameBound) NEWLINE
+    : (ROWS | RANGE | GROUPS) (BETWEEN frameBound AND frameBound | frameBound) NEWLINE
     ;
 
 frameBound
@@ -453,6 +453,7 @@ identifier
     | PARTITION
     | ROWS
     | RANGE
+    | GROUPS
     | CURRENT
     | ROW
     | UNBOUNDED
@@ -517,6 +518,7 @@ WINDOW: 'window';
 PARTITION: 'partition';
 ROWS: 'rows';
 RANGE: 'range';
+GROUPS: 'groups';
 CURRENT: 'current';
 ROW: 'row';
 UNBOUNDED: 'unbounded';

@@ -676,12 +676,12 @@ validation.
 
 Successful natural exact-head CI on the single Slice 6 completion commit
 completed the Interlude and handed off authority. Phase 60 is `ACTIVE`, Slice 1
-through Slice 4 are completed, Slice 5 is current, and Slice 6 is next /
+through Slice 5 are completed, Slice 6 is current, and Slice 7 is next /
 unstarted.
 
 ## Phase 60 route
 
-Phase 60 is active, Slices 1-4 are completed, Slice 5 is current, and Slice 6
+Phase 60 is active, Slices 1-5 are completed, Slice 6 is current, and Slice 7
 is next / unstarted. The published route has exactly 13 slices.
 
 The exact owner is **Advanced Windows And Phase 51–60 Readiness Checkpoint**.
@@ -752,10 +752,21 @@ frame-sensitive identity, capability, lineage, or public schema is added. The
 controlling contract is
 [Phase 60 Slice 5 RANGE semantics and lowering](spec/phase60-slice5-range-semantics-lowering-v1.md).
 
-Public syntax now recognizes ROWS and RANGE while current function-policy
-rejection and all existing successful SQL remain deterministic. Live Git and
-natural exact-head CI own Slice 5 completion without a status-only follow-up
-commit. Slice 6 remains unimplemented and unauthorized by Slice 5.
+Slice 6 adds authored GROUPS and one canonical peer authority driven only by a
+complete typed adjacent-row/composite-order comparison matrix. It builds
+maximal contiguous lazy peer groups, implements group-index offsets/clipping,
+and replaces Slice 5's temporary RANGE CURRENT ROW evidence with the same
+group authority. Unresolved Phase 64 comparisons produce no partial groups;
+no Python equality, EXCLUDE, frame IR, SQL renderer, legal frame-sensitive
+identity, capability, lineage, or public schema is added. The controlling
+contract is
+[Phase 60 Slice 6 GROUPS and peer semantics](spec/phase60-slice6-groups-peer-semantics-v1.md).
+
+Public syntax now recognizes ROWS, RANGE, and GROUPS while current
+function-policy rejection and all existing successful SQL remain
+deterministic. Live Git and natural exact-head CI own Slice 6 completion
+without a status-only follow-up commit. Slice 7 remains unimplemented and
+unauthorized by Slice 6.
 
 ## Retained later ownership
 

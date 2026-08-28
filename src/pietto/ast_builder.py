@@ -611,7 +611,12 @@ class AstBuilder(PiettoVisitor):
         """Preserve frame unit and shorthand versus BETWEEN authorship."""
 
         bounds = tuple(self.visit(bound) for bound in ctx.frameBound())
-        unit = WindowFrameUnit.ROWS if ctx.ROWS() is not None else WindowFrameUnit.RANGE
+        if ctx.ROWS() is not None:
+            unit = WindowFrameUnit.ROWS
+        elif ctx.RANGE() is not None:
+            unit = WindowFrameUnit.RANGE
+        else:
+            unit = WindowFrameUnit.GROUPS
         if ctx.BETWEEN() is None:
             assert len(bounds) == 1
             return AuthoredWindowFrame(
