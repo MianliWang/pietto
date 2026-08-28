@@ -1,11 +1,53 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ROADMAP = REPO_ROOT / "docs/roadmap.md"
 STATUS = REPO_ROOT / "docs/status.md"
+SLICE6_SPEC = (
+    REPO_ROOT
+    / "docs/spec/validation-performance-interlude-slice6-completion-benchmark-phase60-readiness-v1.md"
+)
+PUBLISHED_INTERLUDE = (
+    (
+        "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
+        "ec0d5086f45ef72c49403a718ed45c45a8c44c30",
+        "6a3d5d54ce728b60985718ed7b867721a1680f13",
+        "33070069266",
+        "Establish validation performance baseline",
+    ),
+    (
+        "b6191d790040233a5ad62de7549c36bc0a555d9c",
+        "874511592c4eee2b6ef024146b0017c335cd4ab4",
+        "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
+        "33121173872",
+        "Optimize differential probe execution",
+    ),
+    (
+        "3f35fd31a1799bb12b8b74108ade64438c85b435",
+        "a1a96e1d9a1b2f1ff2692661e773573711475091",
+        "b6191d790040233a5ad62de7549c36bc0a555d9c",
+        "33139945770",
+        "Reuse repository fact acquisition",
+    ),
+    (
+        "333f5ec5b8ef4e2cc1b5f79b108ee1857b1fe842",
+        "e7bbd107151db075d63fe1742650eb1fd37dcbd7",
+        "3f35fd31a1799bb12b8b74108ade64438c85b435",
+        "33146266899",
+        "Record static analysis no-gain closure",
+    ),
+    (
+        "df7fe30381aa0c690b132b829627a11e971c0c59",
+        "6f9aff8ddcf6e51fc28161ba18b5e1da55816de6",
+        "333f5ec5b8ef4e2cc1b5f79b108ee1857b1fe842",
+        "33151724681",
+        "Adopt resource-aware xdist scheduling",
+    ),
+)
 
 EXPECTED_STATUS = (
     ("Package and CLI", "`0.1.0`"),
@@ -28,28 +70,27 @@ EXPECTED_STATUS = (
     ("Slice 12", "`COMPLETED`"),
     (
         "Validation/Test Performance Optimization Interlude",
-        "`ACTIVE`",
+        "`COMPLETION CANDIDATE`",
     ),
     ("Interlude Slice 1", "`COMPLETED`"),
     ("Interlude Slice 2", "`COMPLETED`"),
     ("Interlude Slice 3", "`COMPLETED`"),
     ("Interlude Slice 4", "`COMPLETED`"),
-    ("Interlude Slice 5", "`CURRENT / PUBLICATION CANDIDATE`"),
-    ("Interlude Slice 6", "`NEXT / UNSTARTED`"),
-    ("Phase 60", "`BLOCKED / NOT ACTIVATED`"),
+    ("Interlude Slice 5", "`COMPLETED`"),
+    ("Interlude Slice 6", "`CURRENT / COMPLETION CANDIDATE`"),
+    ("Phase 60", "`NEXT / NOT YET IMPLEMENTED`"),
     (
         "Next",
-        "`VALIDATION_PERFORMANCE_INTERLUDE_SLICE6_COMPLETION_BENCHMARK_PHASE60_READINESS_ASSURANCE`",
+        "`PHASE60_ADVANCED_WINDOWS_PHASE51_60_READINESS_CHECKPOINT`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
-    "Phase 59 is completed, all 12 Phase 59 Slices are completed, the Validation/\n"
-    "Test Performance Optimization Interlude is active with Slice 1 published\n"
-    "complete, Slice 2 published complete, Slice 3 published complete, Slice 4\n"
-    "published complete, Slice 5 as its current publication candidate, Slice 6\n"
-    "next / unstarted, and Phase 60 blocked / not activated. The published Phase 59\n"
-    "route has exactly 12 slices."
+    "Phase 59 is completed, all 12 Phase 59 Slices are completed, and Validation/Test\n"
+    "Performance Optimization Interlude Slices 1–5 are published complete. Slice 6\n"
+    "is the current Interlude completion candidate. Successful publication completes\n"
+    "the Interlude and leaves Phase 60 next / not yet implemented. The published\n"
+    "Phase 59 route has exactly 12 slices."
 )
 EXPECTED_PHASE59_OWNER = "Local package graph, attribution, provenance, and lineage"
 EXPECTED_PHASE58_ROUTE = (
@@ -151,18 +192,28 @@ EXPECTED_RETAINED_LATER_OWNERS = (
     ),
     ("70", "Public schema/lineage expansion and v0.2 release-readiness decision"),
 )
-EXPECTED_INTERLUDE_SLICE5_CHANGED_PATHS = (
+EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS = (
     "docs/roadmap.md",
-    "docs/spec/validation-performance-interlude-slice5-resource-aware-xdist-and-ci-parallelism-decision-v1.md",
+    "docs/spec/validation-performance-interlude-slice6-completion-benchmark-phase60-readiness-v1.md",
     "docs/status.md",
-    "scripts/validate.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase11_validation_entrypoint.py",
 )
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _git(*arguments: str) -> str:
+    result = subprocess.run(
+        ("git", *arguments),
+        cwd=REPO_ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    assert result.stderr == ""
+    return result.stdout.strip()
 
 
 def _section(document: str, heading: str) -> str:
@@ -186,13 +237,17 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert _table_rows(status)[1:] == EXPECTED_STATUS
     normalized = " ".join(status.split())
     assert "Phase 59 is completed by live Git" in normalized
-    assert "Interlude Slices 1–4 are published complete" in normalized
-    assert "Slice 5 is the current publication candidate" in normalized
-    assert "natural exact-head CI on the single Slice 5 commit" in normalized
-    assert "Completion Benchmark And Phase 60 Readiness Assurance next" in normalized
+    assert "Interlude Slices 1–5 are published complete" in normalized
+    assert "Slice 6 is the current completion candidate" in normalized
+    assert "natural exact-head CI on the single Slice 6 commit" in normalized
+    assert "completes the Validation/Test Performance Optimization Interlude" in (
+        normalized
+    )
+    assert "Phase 60 — Advanced Windows And Phase 51–60 Readiness Checkpoint" in (
+        normalized
+    )
+    assert "next but not implemented" in normalized
     assert "no post-CI status-flip commit is required" in normalized
-    assert "performance interlude is active" in normalized
-    assert "Phase 60 remains blocked and not activated" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
@@ -231,21 +286,76 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     )
     assert "All 18 outer variants, 116 semantic CLI calls" in interlude_normalized
     assert "materially beyond observed noise" in interlude_normalized
-    assert "Two full serial runs have a 130.30s median" in interlude_normalized
-    assert "four-worker runs have a 61.00s median" in interlude_normalized
-    assert "a 53.2% reduction" in interlude_normalized
-    assert "unchanged 10,348-test and subprocess counts" in interlude_normalized
-    assert "Slice 6 is next / unstarted" in interlude_normalized
+    assert "Fresh collection is 2.99s for 10,352 tests" in interlude_normalized
+    assert "serial runs have a 135.21s median" in interlude_normalized
+    assert "parallel runs have a 74.60s median" in interlude_normalized
+    assert "a like-for-like 44.8% reduction" in interlude_normalized
+    assert "Interlude self-owned-open = 0" in interlude_normalized
     assert (
-        "Natural CI retains both Python jobs and uses the same resource-aware "
-        "pytest policy" in interlude_normalized
+        "Successful natural exact-head CI on the single Slice 6 completion commit"
+        in interlude_normalized
     )
-    assert "Phase 60 is `BLOCKED / NOT ACTIVATED`" in interlude_normalized
-    assert len(EXPECTED_INTERLUDE_SLICE5_CHANGED_PATHS) == 6
+    assert "Phase 60 is `NEXT / NOT YET IMPLEMENTED`" in interlude_normalized
+    assert len(EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS) == 4
     assert all(
-        (REPO_ROOT / path).is_file() for path in EXPECTED_INTERLUDE_SLICE5_CHANGED_PATHS
+        (REPO_ROOT / path).is_file() for path in EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS
     )
     assert not any(
-        path.startswith((".github/", "src/", "grammar/"))
-        for path in EXPECTED_INTERLUDE_SLICE5_CHANGED_PATHS
+        path.startswith((".github/", "src/", "scripts/", "grammar/"))
+        for path in EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS
+    )
+
+
+def test_published_interlude_chain_matches_git_and_completion_evidence() -> None:
+    document = SLICE6_SPEC.read_text(encoding="utf-8")
+    for commit, tree, _parent, run_id, subject in PUBLISHED_INTERLUDE:
+        for value in (commit, tree, run_id, subject):
+            assert value in document
+
+    if _git("rev-parse", "--is-shallow-repository") == "true":
+        return
+
+    for commit, tree, parent, _run_id, subject in PUBLISHED_INTERLUDE:
+        assert _git("show", "-s", "--format=%T", commit) == tree
+        assert _git("show", "-s", "--format=%P", commit) == parent
+        assert _git("show", "-s", "--format=%s", commit) == subject
+
+
+def test_interlude_scorecard_self_owned_open_and_phase60_handoff_are_exact() -> None:
+    document = " ".join(SLICE6_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "Interlude self-owned-open = 0",
+        "2.99s",
+        "132.55s",
+        "137.86s",
+        "135.21s",
+        "79.39s",
+        "69.80s",
+        "74.60s",
+        "60.61s, or 44.8%",
+        "116 -> 58",
+        "2412 -> 483",
+        "1661 -> 484",
+        "53.13s -> 52.94s / 0.36%",
+        "not owned; not adopted",
+        "Phase 60 — Advanced Windows And Phase 51–60 Readiness Checkpoint",
+        "Phase 60 implementation = NOT STARTED",
+    ):
+        assert evidence in document
+
+    forbidden_markers = ("TO" + "DO", "FIX" + "ME")
+    interlude_specs = tuple(
+        sorted(
+            (REPO_ROOT / "docs/spec").glob("validation-performance-interlude-slice*.md")
+        )
+    )
+    assert len(interlude_specs) == 6
+    assert not any(
+        marker in path.read_text(encoding="utf-8")
+        for path in interlude_specs
+        for marker in forbidden_markers
+    )
+    assert EXPECTED_RETAINED_LATER_OWNERS[0] == (
+        "60",
+        "Advanced windows and Phase 51–60 readiness checkpoint",
     )

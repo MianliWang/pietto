@@ -23,20 +23,19 @@ documentation does not supersede that evidence.
 | Slice 10 | `COMPLETED` |
 | Slice 11 | `COMPLETED` |
 | Slice 12 | `COMPLETED` |
-| Validation/Test Performance Optimization Interlude | `ACTIVE` |
+| Validation/Test Performance Optimization Interlude | `COMPLETION CANDIDATE` |
 | Interlude Slice 1 | `COMPLETED` |
 | Interlude Slice 2 | `COMPLETED` |
 | Interlude Slice 3 | `COMPLETED` |
 | Interlude Slice 4 | `COMPLETED` |
-| Interlude Slice 5 | `CURRENT / PUBLICATION CANDIDATE` |
-| Interlude Slice 6 | `NEXT / UNSTARTED` |
-| Phase 60 | `BLOCKED / NOT ACTIVATED` |
-| Next | `VALIDATION_PERFORMANCE_INTERLUDE_SLICE6_COMPLETION_BENCHMARK_PHASE60_READINESS_ASSURANCE` |
+| Interlude Slice 5 | `COMPLETED` |
+| Interlude Slice 6 | `CURRENT / COMPLETION CANDIDATE` |
+| Phase 60 | `NEXT / NOT YET IMPLEMENTED` |
+| Next | `PHASE60_ADVANCED_WINDOWS_PHASE51_60_READINESS_CHECKPOINT` |
 
 Phase 59 is completed by live Git and successful natural exact-head CI on its
-single Slice 12 commit. Interlude Slices 1–4 are published complete, and Slice 5
-is the current publication candidate. Successful natural exact-head CI on the
-single Slice 5 commit completes resource-aware xdist and CI parallelism
-adoption and leaves Completion Benchmark And Phase 60 Readiness Assurance next;
-no post-CI status-flip commit is required. The performance interlude is active,
-while Phase 60 remains blocked and not activated.
+single Slice 12 commit. Interlude Slices 1–5 are published complete, and Slice 6
+is the current completion candidate. Successful natural exact-head CI on the
+single Slice 6 commit completes the Validation/Test Performance Optimization
+Interlude and leaves Phase 60 — Advanced Windows And Phase 51–60 Readiness
+Checkpoint next but not implemented; no post-CI status-flip commit is required.
