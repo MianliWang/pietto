@@ -44,6 +44,8 @@ from pietto.ast_nodes import (
     LiteralExpr,
     NameExpr,
     ModuleDeclarationKind,
+    NamedWindowDeclaration,
+    NamedWindowReference,
     Nullability,
     OrderByClause,
     OrderItem,
@@ -70,6 +72,7 @@ from pietto.ast_nodes import (
     WindowFrameBoundKind,
     WindowFrameUnit,
     WindowSpec,
+    WindowUseKind,
 )
 from pietto.errors import AstBuildError, source_path
 from pietto.generated.PiettoParser import PiettoParser
@@ -450,6 +453,7 @@ class AstBuilder(PiettoVisitor):
             where_clause,
             group_by_clause,
             select_items,
+            named_windows,
             satisfying_clause,
             order_by_clause,
             limit_clause,
@@ -465,6 +469,7 @@ class AstBuilder(PiettoVisitor):
             limit_clause=limit_clause,
             satisfying_clause=satisfying_clause,
             let_clause=let_clause,
+            named_windows=named_windows,
         )
 
     def visitQueryDefinition(self, ctx: _AntlrContext) -> QueryDef:
@@ -476,6 +481,7 @@ class AstBuilder(PiettoVisitor):
             where_clause,
             group_by_clause,
             select_items,
+            named_windows,
             satisfying_clause,
             order_by_clause,
             limit_clause,
@@ -491,6 +497,7 @@ class AstBuilder(PiettoVisitor):
             limit_clause=limit_clause,
             satisfying_clause=satisfying_clause,
             let_clause=let_clause,
+            named_windows=named_windows,
         )
 
     def visitFromClause(self, ctx: _AntlrContext) -> FromClause:
@@ -556,26 +563,87 @@ class AstBuilder(PiettoVisitor):
         )
 
     def visitWindowExpression(self, ctx: _AntlrContext) -> WindowExpr:
-        """Preserve one direct call and its inline window specification."""
+        """Preserve one direct call and its exact inline or named use."""
 
         call = self._call_expr(ctx.dottedName(), ctx.callSuffix())
         callee = call.callee
         parts = (callee.name,) if isinstance(callee, NameExpr) else callee.parts
+        use = ctx.windowSpec()
+        identifier = use.identifier()
+        base = (
+            None
+            if identifier is None
+            else NamedWindowReference(
+                span=self._span(identifier),
+                name=identifier.getText(),
+            )
+        )
+        if base is None:
+            use_kind = WindowUseKind.INLINE
+        elif use.windowSpecBody() is None:
+            use_kind = WindowUseKind.NAMED_DIRECT
+        else:
+            use_kind = WindowUseKind.NAMED_EXTENDED
         return WindowExpr(
             span=self._span(ctx),
             call=call,
-            spec=self.visit(ctx.windowSpec()),
+            spec=self.visit(use),
             identity=_window_identity.WindowFunctionIdentity(
                 namespace=parts[:-1],
                 name=parts[-1],
                 role=_window_identity.WindowFunctionRole.WINDOW_FUNCTION,
             ),
+            use_kind=use_kind,
+            base=base,
         )
 
     def visitWindowSpec(self, ctx: _AntlrContext) -> WindowSpec:
-        """Build a non-empty inline window specification in source order."""
+        """Build one local component bundle in source order."""
 
         body = ctx.windowSpecBody()
+        if body is None:
+            return WindowSpec(
+                span=self._span(ctx),
+                partition_by=(),
+                order_by=(),
+            )
+        return self._window_spec_from_body(body, span=self._span(ctx))
+
+    def visitNamedWindowDeclaration(
+        self,
+        ctx: _AntlrContext,
+    ) -> NamedWindowDeclaration:
+        """Preserve one exact root, alias, or based declaration occurrence."""
+
+        identifiers = ctx.identifier()
+        base = (
+            None
+            if len(identifiers) == 1
+            else NamedWindowReference(
+                span=self._span(identifiers[1]),
+                name=identifiers[1].getText(),
+            )
+        )
+        body = ctx.windowSpecBody()
+        return NamedWindowDeclaration(
+            span=self._span(ctx),
+            name=identifiers[0].getText(),
+            base=base,
+            spec=(
+                None
+                if body is None
+                else self._window_spec_from_body(body, span=self._span(body))
+            ),
+        )
+
+    def _window_spec_from_body(
+        self,
+        body: _AntlrContext,
+        *,
+        span: Span,
+    ) -> WindowSpec:
+        """Build one grammar-proven nonempty local component bundle."""
+
         partition_clause = body.partitionByClause()
         order_clause = body.orderByClause()
         partition_by: tuple[Expression, ...] = ()
@@ -597,7 +665,7 @@ class AstBuilder(PiettoVisitor):
             else self.visit(frame_clause)
         )
         return WindowSpec(
-            span=self._span(ctx),
+            span=span,
             partition_by=partition_by,
             order_by=order_by,
             frame=frame,
@@ -732,6 +800,7 @@ class AstBuilder(PiettoVisitor):
         WhereClause | None,
         GroupByClause | None,
         tuple[SelectItem, ...],
+        tuple[NamedWindowDeclaration, ...],
         SatisfyingClause | None,
         OrderByClause | None,
         LimitClause | None,
@@ -751,6 +820,7 @@ class AstBuilder(PiettoVisitor):
                 self.visit(item)
                 for item in ctx.selectClause().selectBody().selectItem()
             ),
+            tuple(self.visit(item) for item in ctx.namedWindowDeclaration()),
             (
                 self.visit(ctx.satisfyingClause())
                 if ctx.satisfyingClause() is not None

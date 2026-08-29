@@ -275,6 +275,8 @@ def test_window_spec_constructor_invariants_and_hash_are_exact() -> None:
     assert hash(spec) == hash(
         WindowSpec(span=span, partition_by=(expression,), order_by=(item,))
     )
+    empty = WindowSpec(span=span, partition_by=(), order_by=())
+    assert not empty.has_components
     invalid = (
         (([], (item,)), TypeError, "partition_by must be an exact tuple"),
         (((expression,), []), TypeError, "order_by must be an exact tuple"),
@@ -288,7 +290,6 @@ def test_window_spec_constructor_invariants_and_hash_are_exact() -> None:
             TypeError,
             "order_by items must be OrderItem instances",
         ),
-        (((), ()), ValueError, "window spec requires partition_by or order_by"),
     )
     for arguments, error_type, message in invalid:
         with pytest.raises(error_type, match=re.escape(message)):

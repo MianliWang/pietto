@@ -336,27 +336,6 @@ RAW_NEGATIVE_CASES = (
         """),
     ),
     (
-        "named_window_reference",
-        (
-            "query ranked:\n"
-            "    from rows\n"
-            "    select:\n"
-            "        rn = row_number() window recent\n"
-        ),
-    ),
-    (
-        "named_window_declaration",
-        (
-            "query ranked:\n"
-            "    from rows\n"
-            "    select:\n"
-            "        id\n"
-            "    window recent:\n"
-            "        order by:\n"
-            "            observed_at\n"
-        ),
-    ),
-    (
         "nulls_first",
         _window_query("""
             order by:
@@ -568,7 +547,8 @@ def test_combined_grammar_rules_and_token_order_are_exact() -> None:
     for rule in (
         "selectItem : identifier ASSIGN windowExpression | identifier ASSIGN expression NEWLINE | expression NEWLINE ;",
         "windowExpression : dottedName callSuffix windowSpec ;",
-        "windowSpec : WINDOW COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT ;",
+        "windowSpec : WINDOW COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT | WINDOW identifier NEWLINE | WINDOW identifier COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT ;",
+        "namedWindowDeclaration : WINDOW identifier (ASSIGN identifier)? NEWLINE | WINDOW identifier (ASSIGN identifier)? COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT ;",
         "windowSpecBody : NEWLINE* partitionByClause NEWLINE* orderByClause? NEWLINE* windowFrameClause? NEWLINE* | NEWLINE* orderByClause NEWLINE* windowFrameClause? NEWLINE* | NEWLINE* windowFrameClause NEWLINE* ;",
         "partitionByClause : PARTITION BY COLON NEWLINE NEWLINE* INDENT windowPartitionBody DEDENT ;",
         "windowPartitionBody : NEWLINE* windowPartitionItem (windowPartitionItem | NEWLINE)* ;",
@@ -579,6 +559,7 @@ def test_combined_grammar_rules_and_token_order_are_exact() -> None:
         assert rule in normalized, rule
     assert normalized.count("windowExpression :") == 1
     assert normalized.count("windowSpec :") == 1
+    assert normalized.count("namedWindowDeclaration :") == 1
     assert normalized.count("partitionByClause :") == 1
     assert normalized.count("windowFrameClause :") == 1
     assert normalized.count("frameBound :") == 1

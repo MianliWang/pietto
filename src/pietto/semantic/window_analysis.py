@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 
 from pietto._window_identity import WindowFunctionIdentity, WindowFunctionRole
 from pietto.ast_nodes import (
@@ -16,6 +17,7 @@ from pietto.ast_nodes import (
     SelectItem,
     TableDef,
     WindowExpr,
+    WindowUseKind,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import child_expressions, contains_semantic_aggregate
@@ -42,11 +44,18 @@ from pietto.semantic.nullability_formulas import (
     evaluate_signature_result_nullability,
 )
 from pietto.semantic.window_semantics import (
+    ComposedNamedWindowUse,
     DistributionWindowPolicy,
     DistributionWindowSemanticFact,
+    NamedWindowResolutionFailure,
+    NamedWindowResolutionIssue,
+    NamedWindowResolutionIssueKind,
+    NamedWindowUseResolutionFailure,
     NavigationWindowSemanticFact,
     RankingAdvancePolicy,
     RankingWindowSemanticFact,
+    ResolvedNamedWindowNamespace,
+    ResolvedNamedWindowUse,
     ValidatedWindowSpecification,
     WindowExpressionAnalysis,
     WindowExpressionSemanticFact,
@@ -60,8 +69,12 @@ from pietto.semantic.window_semantics import (
     WindowResultAvailabilityKind,
     WindowSpecificationValidationFailure,
     WindowValidationIssueKind,
+    _effective_named_window_expression,
     authored_window_specification_from_ast,
+    compose_named_window_use,
     resolve_authored_window_specification,
+    resolve_composed_named_window_use,
+    resolve_named_window_namespace,
     validate_resolved_window_specification,
 )
 from pietto.semantic.window_navigation_analysis import (
@@ -227,17 +240,22 @@ def builtin_window_function_frame_policy(
 
 def _validate_recognized_window_specification(
     expression: WindowExpr,
+    *,
+    named_use: ResolvedNamedWindowUse | None = None,
 ) -> ValidatedWindowSpecification | WindowSpecificationValidationFailure:
     """Run the published authored, resolved, and validated frame stages."""
 
     policy = builtin_window_function_frame_policy(expression.identity)
     if policy is None:
         raise AssertionError("recognized window identity requires frame policy")
-    authored = authored_window_specification_from_ast(expression.spec)
-    resolved = resolve_authored_window_specification(
-        authored,
-        frame_applicability=policy.required_frame_applicability,
-    )
+    if named_use is None:
+        authored = authored_window_specification_from_ast(expression.spec)
+        resolved = resolve_authored_window_specification(
+            authored,
+            frame_applicability=policy.required_frame_applicability,
+        )
+    else:
+        resolved = named_use.resolved
     return validate_resolved_window_specification(
         resolved,
         function_identity=expression.identity,
@@ -444,13 +462,42 @@ def _analyze_recognized_window_expression(
     if type(diagnostics) is not list:
         raise TypeError("diagnostics must be an exact list")
 
-    expression = item.expression
+    source_expression = item.expression
     occurrence = WindowOccurrenceIdentity(
         source_id=source_id,
         relation_name=definition.name,
         selected_output_ordinal=selected_output_ordinal,
-        span=expression.span,
+        span=source_expression.span,
     )
+
+    named_composition = None
+    if source_expression.use_kind is not WindowUseKind.INLINE:
+        namespace = resolve_named_window_namespace(definition)
+        if type(namespace) is NamedWindowResolutionFailure:
+            diagnostics.extend(named_window_resolution_diagnostics(namespace))
+            return WindowExpressionUnsupported(
+                occurrence=occurrence,
+                expression=source_expression,
+                identity=source_expression.identity,
+                reason="named-window declaration namespace resolution failed",
+            )
+        assert type(namespace) is ResolvedNamedWindowNamespace
+        named_composition = compose_named_window_use(
+            namespace,
+            source_expression,
+            selected_output_ordinal=selected_output_ordinal,
+        )
+        if type(named_composition) is NamedWindowUseResolutionFailure:
+            diagnostics.extend(named_window_resolution_diagnostics(named_composition))
+            return WindowExpressionUnsupported(
+                occurrence=occurrence,
+                expression=source_expression,
+                identity=source_expression.identity,
+                reason="named-window use resolution failed",
+            )
+        assert type(named_composition) is ComposedNamedWindowUse
+
+    expression = source_expression
 
     advance_policy = (
         _ranking_policy(expression) if family in {None, "ranking"} else None
@@ -487,6 +534,29 @@ def _analyze_recognized_window_expression(
     else:
         assert distribution_definition is not None
         _, distribution_policy, signature, result_formula = distribution_definition
+
+    resolved_named_use: ResolvedNamedWindowUse | None = None
+    if named_composition is not None:
+        policy = builtin_window_function_frame_policy(expression.identity)
+        assert policy is not None
+        resolved_named_use = resolve_composed_named_window_use(
+            named_composition,
+            function_identity=expression.identity,
+            function_policy=policy,
+        )
+        if not (
+            named_composition.partition_by
+            or named_composition.order_by
+            or named_composition.frame is not None
+        ):
+            return _unsupported(
+                occurrence=occurrence,
+                expression=source_expression,
+                reason=f"{function_name} requires at least one window order field",
+                diagnostics=diagnostics,
+            )
+        expression = _effective_named_window_expression(resolved_named_use)
+        item = replace(item, expression=expression)
 
     actual_arity = len(expression.call.arguments)
     if navigation is not None and actual_arity not in {1, 2, 3}:
@@ -701,7 +771,10 @@ def _analyze_recognized_window_expression(
             ),
         )
 
-    frame_validation = _validate_recognized_window_specification(expression)
+    frame_validation = _validate_recognized_window_specification(
+        expression,
+        named_use=resolved_named_use,
+    )
     if type(frame_validation) is WindowSpecificationValidationFailure:
         issue_kinds = tuple(issue.kind for issue in frame_validation.issues)
         unit = expression.spec.frame.unit
@@ -964,4 +1037,66 @@ def _append_call_diagnostic(
                 end_column=span.end_column,
             ),
         )
+    )
+
+
+def named_window_resolution_diagnostics(
+    failure: NamedWindowResolutionFailure | NamedWindowUseResolutionFailure,
+) -> tuple[Diagnostic, ...]:
+    """Translate typed named-window failures without downstream policy noise."""
+
+    if type(failure) not in {
+        NamedWindowResolutionFailure,
+        NamedWindowUseResolutionFailure,
+    }:
+        raise TypeError("named-window diagnostics require an exact failure")
+    if type(failure) is NamedWindowResolutionFailure:
+        query_name = failure.query_block.relation_name
+    else:
+        assert type(failure) is NamedWindowUseResolutionFailure
+        query_name = failure.namespace.query_block.relation_name
+    return tuple(
+        _named_window_issue_diagnostic(issue, query_name=query_name)
+        for issue in failure.issues
+    )
+
+
+def _named_window_issue_diagnostic(
+    issue: NamedWindowResolutionIssue,
+    *,
+    query_name: str,
+) -> Diagnostic:
+    if issue.kind is NamedWindowResolutionIssueKind.DUPLICATE_NAME:
+        code = "PIE-S2110"
+        message = f"Duplicate named window in query {query_name}: {issue.name}"
+        span = issue.occurrences[0].span
+    elif issue.kind is NamedWindowResolutionIssueKind.DANGLING_REFERENCE:
+        code = "PIE-S2111"
+        message = f"Unknown named window in query {query_name}: {issue.name}"
+        assert issue.reference is not None
+        span = issue.reference.span
+    elif issue.kind is NamedWindowResolutionIssueKind.CYCLE:
+        code = "PIE-S2112"
+        message = f"Named window cycle in query {query_name}: {issue.name}"
+        span = issue.cycle[0].span
+    else:
+        code = "PIE-S2113"
+        assert issue.component is not None
+        message = (
+            f"Named window {issue.name} repeats inherited "
+            f"{issue.component.value.upper()} component"
+        )
+        assert issue.owner is not None
+        span = issue.owner.span
+    return Diagnostic(
+        code=code,
+        severity=Severity.ERROR,
+        message=message,
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
     )

@@ -181,9 +181,37 @@ Slice 9 introduces a legal frame-sensitive caller. RANGE offsets require one
 ordering key and retain direction-aware ordering/type evidence without
 evaluating it. GROUPS uses canonical peer groups supplied by typed comparison
 evidence. EXCLUDE supports `no others`, `current row`, `group`, and `ties` as
-a removal-only membership filter after base-frame clipping. Named windows,
-`QUALIFY`, arbitrary nesting, and window expressions in unsupported clauses
-remain rejected.
+a removal-only membership filter after base-frame clipping.
+
+Each table or query body may declare query-local named-window templates after
+`select:`:
+
+```pietto
+window ordered:
+    order by:
+        id
+
+window per_account = ordered:
+    partition by:
+        account_id
+```
+
+Calls use a template directly or add missing local components monotonically:
+
+```pietto
+result = row_number() window ordered
+result = row_number() window ordered:
+    partition by:
+        account_id
+```
+
+Empty roots and pure aliases use `window name` and `window alias = base`.
+References are query-block-local, forward/backward capable, and single-base;
+duplicates, dangling references, cycles, and repeated inherited components
+fail closed. Named-window source is semantic-only in Slice 8 and has no IR/SQL
+lowering authority. Named windows do not cross relation blocks. `QUALIFY`,
+arbitrary nesting, and window expressions in unsupported clauses remain
+rejected.
 
 ## Modules and relationships
 

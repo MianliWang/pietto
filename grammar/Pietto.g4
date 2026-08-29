@@ -256,7 +256,7 @@ queryDefinition
     ;
 
 tableBody
-    : NEWLINE* fromClause NEWLINE* letClause? NEWLINE* whereClause? NEWLINE* groupByClause? NEWLINE* selectClause NEWLINE* satisfyingClause? NEWLINE* orderByClause? NEWLINE* limitClause? NEWLINE*
+    : NEWLINE* fromClause NEWLINE* letClause? NEWLINE* whereClause? NEWLINE* groupByClause? NEWLINE* selectClause NEWLINE* (namedWindowDeclaration NEWLINE*)* satisfyingClause? NEWLINE* orderByClause? NEWLINE* limitClause? NEWLINE*
     ;
 
 fromClause
@@ -312,6 +312,13 @@ windowExpression
 
 windowSpec
     : WINDOW COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT
+    | WINDOW identifier NEWLINE
+    | WINDOW identifier COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT
+    ;
+
+namedWindowDeclaration
+    : WINDOW identifier (ASSIGN identifier)? NEWLINE
+    | WINDOW identifier (ASSIGN identifier)? COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT
     ;
 
 windowSpecBody

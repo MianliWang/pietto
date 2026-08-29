@@ -676,12 +676,12 @@ validation.
 
 Successful natural exact-head CI on the single Slice 6 completion commit
 completed the Interlude and handed off authority. Phase 60 is `ACTIVE`, Slice 1
-through Slice 6 are completed, Slice 7 is current, and Slice 8 is next /
+through Slice 7 are completed, Slice 8 is current, and Slice 9 is next /
 unstarted.
 
 ## Phase 60 route
 
-Phase 60 is active, Slices 1-6 are completed, Slice 7 is current, and Slice 8
+Phase 60 is active, Slices 1-7 are completed, Slice 8 is current, and Slice 9
 is next / unstarted. The published route has exactly 13 slices.
 
 The exact owner is **Advanced Windows And Phase 51–60 Readiness Checkpoint**.
@@ -771,11 +771,21 @@ frame IR, SQL renderer, legal frame-sensitive identity, capability, lineage,
 or public schema is added. The controlling contract is
 [Phase 60 Slice 7 EXCLUDE semantics](spec/phase60-slice7-exclude-semantics-v1.md).
 
-Public syntax now recognizes ROWS, RANGE, GROUPS, and their EXCLUDE modes while
-current function-policy rejection and all existing successful SQL remain
-deterministic. Live Git and natural exact-head CI own Slice 7 completion
-without a status-only follow-up commit. Slice 8 remains unimplemented and
-unauthorized by Slice 7.
+Slice 8 adds six exact query-local named-window forms, block-scoped occurrence
+identity, collection-first exact namespaces, forward/backward single-base DAG
+resolution, deterministic cycle/dangling/duplicate failure, and monotonic
+PARTITION/ORDER/FRAME template and use composition. Defaults and function
+frame applicability occur only after concrete use composition; inherited
+explicit frames remain visible to existing function policy. The Slice is
+semantic-only: no named IR, SQL, capability, inlining, lineage, inspection,
+or public schema is added. The controlling contract is
+[Phase 60 Slice 8 query-local named windows](spec/phase60-slice8-query-local-named-windows-v1.md).
+
+Public syntax now recognizes ROWS, RANGE, GROUPS, EXCLUDE, and query-local
+named-window declarations and uses. Previously legal SQL remains deterministic;
+named-window source fails closed before IR until its Slice 10 capability owner.
+Live Git and natural exact-head CI own Slice 8 completion without a status-only
+follow-up commit. Slice 9 remains unimplemented and unauthorized by Slice 8.
 
 ## Retained later ownership
 

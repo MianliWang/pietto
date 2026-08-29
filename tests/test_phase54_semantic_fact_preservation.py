@@ -36,6 +36,7 @@ from pietto.ast_nodes import (
     SelectItem,
     SourceDef,
     WindowExpr,
+    WindowUseKind,
 )
 from pietto.semantic.capability_facts import (
     CapabilityDomain,
@@ -3082,6 +3083,139 @@ def test_all_eight_window_families_preserve_complete_composite_analysis(
             relation,
             foreign_relation,
         )
+
+
+def test_named_windows_defer_project_facts_after_semantic_resolution(
+    tmp_path: Path,
+) -> None:
+    _, semantic = _semantic_project(
+        tmp_path,
+        {
+            "main.pietto": _query(
+                "    select:\n"
+                "        inline = row_number() window:\n"
+                "            order by:\n"
+                "                id\n"
+                "        direct = row_number() window ordered\n"
+                "        extended = row_number() window root:\n"
+                "            order by:\n"
+                "                id\n"
+                "        alias = row_number() window alias_window\n"
+                "        inherited_frame = row_number() window framed\n"
+                "    window root\n"
+                "    window ordered:\n"
+                "        partition by:\n"
+                "            category\n"
+                "        order by:\n"
+                "            id\n"
+                "    window alias_window = ordered\n"
+                "    window framed = ordered:\n"
+                "        rows current row\n"
+            )
+        },
+    )
+    relation = _relation(semantic, "main.pietto", "result")
+    outputs = {output.output_name: output for output in relation.window_outputs}
+    assert set(outputs) == {
+        "inline",
+        "direct",
+        "extended",
+        "alias",
+        "inherited_frame",
+    }
+
+    inline = outputs["inline"]
+    assert type(inline.analysis) is WindowExpressionAnalysis
+    assert inline.project_fact is not None
+    assert inline.retained_project_fact is inline.project_fact
+    assert inline.analysis.semantic_fact.expression is inline.item.expression
+    assert tuple(
+        occurrence.role for occurrence in inline.project_fact.dependency_occurrences
+    ) == (
+        WindowDependencyRole.RELATION_INPUT,
+        WindowDependencyRole.WINDOW_ORDER,
+    )
+
+    for name in ("direct", "extended", "alias"):
+        output = outputs[name]
+        assert type(output.analysis) is WindowExpressionUnsupported
+        assert output.analysis.reason == "project named-window integration deferred"
+        assert output.analysis.expression is output.item.expression
+        assert output.analysis.expression.use_kind is not WindowUseKind.INLINE
+        assert output.diagnostics == ()
+        assert output.project_fact is None
+        assert output.retained_project_fact is None
+        assert output.status is preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
+        assert output.reason == output.analysis.reason
+
+    inherited_frame = outputs["inherited_frame"]
+    assert type(inherited_frame.analysis) is WindowExpressionUnsupported
+    assert inherited_frame.analysis.expression is inherited_frame.item.expression
+    assert inherited_frame.analysis.reason == (
+        "explicit ROWS frame forbidden by function policy"
+    )
+    assert tuple(item.code for item in inherited_frame.diagnostics) == ("PIE-S2104",)
+    assert inherited_frame.project_fact is None
+    assert inherited_frame.retained_project_fact is None
+    assert all(
+        output.project_fact is None
+        for name, output in outputs.items()
+        if name != "inline"
+    )
+
+
+@pytest.mark.parametrize(
+    ("reference", "declarations", "code"),
+    (
+        (
+            "duplicate",
+            "    window duplicate:\n"
+            "        order by:\n"
+            "            id\n"
+            "    window duplicate:\n"
+            "        order by:\n"
+            "            id\n",
+            "PIE-S2110",
+        ),
+        ("missing", "", "PIE-S2111"),
+        (
+            "a",
+            "    window a = b\n    window b = a\n",
+            "PIE-S2112",
+        ),
+        (
+            "child",
+            "    window base:\n"
+            "        order by:\n"
+            "            id\n"
+            "    window child = base:\n"
+            "        order by:\n"
+            "            id\n",
+            "PIE-S2113",
+        ),
+    ),
+)
+def test_named_window_resolution_diagnostics_remain_project_failures(
+    tmp_path: Path,
+    reference: str,
+    declarations: str,
+    code: str,
+) -> None:
+    _, semantic = _semantic_project(
+        tmp_path,
+        {
+            "main.pietto": _query(
+                "    select:\n"
+                f"        result = row_number() window {reference}\n" + declarations
+            )
+        },
+    )
+    output = _relation(semantic, "main.pietto", "result").window_outputs[0]
+    assert type(output.analysis) is WindowExpressionUnsupported
+    assert output.analysis.expression is output.item.expression
+    assert tuple(item.code for item in output.diagnostics) == (code,)
+    assert output.project_fact is None
+    assert output.retained_project_fact is None
 
 
 def test_navigation_offset_default_generic_and_nullability_formula_evidence_is_exact(

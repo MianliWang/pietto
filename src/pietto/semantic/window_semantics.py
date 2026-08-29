@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from heapq import heappop, heappush
 from itertools import chain
 
 from pietto._window_identity import WindowFunctionIdentity
@@ -16,13 +17,18 @@ from pietto.ast_nodes import (
     Expression,
     LiteralExpr,
     NameExpr,
+    NamedWindowDeclaration,
+    NamedWindowReference,
     OrderItem,
+    QueryDef,
     Span,
+    TableDef,
     WindowExpr,
     WindowFrameBound,
     WindowFrameBoundKind,
     WindowFrameUnit,
     WindowSpec,
+    WindowUseKind,
 )
 from pietto.semantic.aggregates import child_expressions
 from pietto.semantic.generic_compatibility import SignatureMatch
@@ -173,6 +179,669 @@ class ResolvedWindowFrame:
             raise ValueError("resolved frame components must match authored evidence")
 
 
+class QueryBlockKind(StrEnum):
+    """Existing relation-body kinds that independently own named windows."""
+
+    TABLE = "table"
+    QUERY = "query"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class QueryBlockOccurrence:
+    """One exact top-level relation body, independent of its display name."""
+
+    source_id: str
+    relation_name: str
+    kind: QueryBlockKind
+    span: Span
+
+    def __post_init__(self) -> None:
+        if type(self.source_id) is not str or not self.source_id:
+            raise ValueError("query-block source identity must be nonempty text")
+        if type(self.relation_name) is not str or not self.relation_name:
+            raise ValueError("query-block relation name must be nonempty text")
+        if type(self.kind) is not QueryBlockKind:
+            raise TypeError("query-block kind must be exact")
+        if type(self.span) is not Span:
+            raise TypeError("query-block span must be exact")
+        if self.source_id != (self.span.path or self.relation_name):
+            raise ValueError(
+                "query-block source identity must match its span path or relation name"
+            )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NamedWindowOccurrence:
+    """One declaration occurrence scoped by its exact owning query block."""
+
+    query_block: QueryBlockOccurrence
+    declaration_position: int
+    span: Span
+
+    def __post_init__(self) -> None:
+        if type(self.query_block) is not QueryBlockOccurrence:
+            raise TypeError("named-window query block must be exact")
+        if type(self.declaration_position) is not int:
+            raise TypeError("named-window declaration position must be exact")
+        if self.declaration_position < 0:
+            raise ValueError("named-window declaration position must be nonnegative")
+        if type(self.span) is not Span:
+            raise TypeError("named-window declaration span must be exact")
+        if self.span.path != self.query_block.span.path:
+            raise ValueError("named-window span path must match its query block")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WindowUseOccurrence:
+    """One distinct direct or extended named-window use occurrence."""
+
+    query_block: QueryBlockOccurrence
+    selected_output_ordinal: int
+    kind: WindowUseKind
+    span: Span
+
+    def __post_init__(self) -> None:
+        if type(self.query_block) is not QueryBlockOccurrence:
+            raise TypeError("window-use query block must be exact")
+        if type(self.selected_output_ordinal) is not int:
+            raise TypeError("window-use output ordinal must be exact")
+        if self.selected_output_ordinal < 0:
+            raise ValueError("window-use output ordinal must be nonnegative")
+        if type(self.kind) is not WindowUseKind:
+            raise TypeError("window-use kind must be exact")
+        if self.kind not in {
+            WindowUseKind.NAMED_DIRECT,
+            WindowUseKind.NAMED_EXTENDED,
+        }:
+            raise ValueError("named-window use occurrence requires a named use kind")
+        if type(self.span) is not Span:
+            raise TypeError("window-use span must be exact")
+        if self.span.path != self.query_block.span.path:
+            raise ValueError("window-use span path must match its query block")
+
+
+class NamedWindowComponentKind(StrEnum):
+    """The exact monotonic named-window composition dimensions."""
+
+    PARTITION = "partition"
+    ORDER = "order"
+    FRAME = "frame"
+
+
+NamedWindowComponentSource = NamedWindowOccurrence | WindowUseOccurrence
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NamedWindowComponentProvenance:
+    """Direct local/inherited evidence or use-time absence resolution."""
+
+    component: NamedWindowComponentKind
+    origin: WindowComponentOrigin
+    source: NamedWindowComponentSource | None
+
+    def __post_init__(self) -> None:
+        if type(self.component) is not NamedWindowComponentKind:
+            raise TypeError("named-window provenance component must be exact")
+        if type(self.origin) is not WindowComponentOrigin:
+            raise TypeError("named-window component origin must be exact")
+        if (
+            self.origin is WindowComponentOrigin.NOT_APPLICABLE
+            and self.component is not NamedWindowComponentKind.FRAME
+        ):
+            raise ValueError("not-applicable provenance requires a frame component")
+        if self.source is not None and type(self.source) not in {
+            NamedWindowOccurrence,
+            WindowUseOccurrence,
+        }:
+            raise TypeError("named-window component source must be exact or absent")
+        if self.origin in {
+            WindowComponentOrigin.LOCALLY_AUTHORED,
+            WindowComponentOrigin.INHERITED,
+        }:
+            if self.source is None:
+                raise ValueError("local and inherited components require a source")
+        elif self.source is not None:
+            raise ValueError("default and not-applicable components forbid a source")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NamedWindowBaseResolution:
+    """One exact authored reference bound to one local declaration occurrence."""
+
+    owner: NamedWindowOccurrence | WindowUseOccurrence
+    reference: NamedWindowReference
+    target_declaration: NamedWindowDeclaration
+    target: NamedWindowOccurrence
+
+    def __post_init__(self) -> None:
+        if type(self.owner) not in {NamedWindowOccurrence, WindowUseOccurrence}:
+            raise TypeError("named-window base owner must be exact")
+        if type(self.reference) is not NamedWindowReference:
+            raise TypeError("named-window base reference must be exact")
+        if type(self.target_declaration) is not NamedWindowDeclaration:
+            raise TypeError("named-window base declaration must be exact")
+        if type(self.target) is not NamedWindowOccurrence:
+            raise TypeError("named-window base target must be exact")
+        if self.owner.query_block != self.target.query_block:
+            raise ValueError("named-window reference and target owners must match")
+        if self.reference.name != self.target_declaration.name:
+            raise ValueError("named-window reference spelling must match its target")
+        if self.target.span != self.target_declaration.span:
+            raise ValueError("named-window target must retain its exact declaration")
+        _require_named_window_reference_owner(
+            self.reference,
+            self.owner.query_block,
+        )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ResolvedNamedWindowTemplate:
+    """One function-independent composed declaration without effective defaults."""
+
+    declaration: NamedWindowDeclaration
+    occurrence: NamedWindowOccurrence
+    base: NamedWindowBaseResolution | None
+    base_template: ResolvedNamedWindowTemplate | None
+    partition_by: tuple[Expression, ...]
+    order_by: tuple[OrderItem, ...]
+    frame: AuthoredWindowFrame | None
+    partition_provenance: NamedWindowComponentProvenance | None
+    ordering_provenance: NamedWindowComponentProvenance | None
+    frame_provenance: NamedWindowComponentProvenance | None
+
+    def __post_init__(self) -> None:
+        if type(self.declaration) is not NamedWindowDeclaration:
+            raise TypeError("resolved named-window declaration must be exact")
+        if type(self.occurrence) is not NamedWindowOccurrence:
+            raise TypeError("resolved named-window occurrence must be exact")
+        if self.occurrence.span != self.declaration.span:
+            raise ValueError("named-window occurrence must retain declaration span")
+        if self.base is not None and type(self.base) is not NamedWindowBaseResolution:
+            raise TypeError("resolved named-window base must be exact or absent")
+        if (
+            self.base_template is not None
+            and type(self.base_template) is not ResolvedNamedWindowTemplate
+        ):
+            raise TypeError(
+                "resolved named-window base template must be exact or absent"
+            )
+        if self.declaration.base is None:
+            if self.base is not None or self.base_template is not None:
+                raise ValueError("root named-window templates forbid a resolved base")
+        elif (
+            self.base is None
+            or self.base_template is None
+            or self.base.owner != self.occurrence
+            or self.base.reference is not self.declaration.base
+            or self.base.target_declaration is not self.base_template.declaration
+            or self.base.target != self.base_template.occurrence
+            or self.base.target.query_block != self.occurrence.query_block
+        ):
+            raise ValueError(
+                "based named-window templates require the exact local base"
+            )
+        if type(self.partition_by) is not tuple or any(
+            not isinstance(item, Expression) for item in self.partition_by
+        ):
+            raise TypeError("resolved named-window partition must be an exact tuple")
+        if type(self.order_by) is not tuple or any(
+            type(item) is not OrderItem for item in self.order_by
+        ):
+            raise TypeError("resolved named-window ordering must be an exact tuple")
+        if self.frame is not None:
+            if type(self.frame) is not AuthoredWindowFrame:
+                raise TypeError("resolved named-window frame must be exact or absent")
+            if self.frame.kind is AuthoredWindowFrameKind.OMITTED:
+                raise ValueError(
+                    "resolved named-window templates retain explicit frames"
+                )
+        local_partition, local_ordering, local_frame = _local_components(
+            self.declaration.spec
+        )
+        expected_partition = (
+            local_partition
+            if local_partition
+            else ()
+            if self.base_template is None
+            else self.base_template.partition_by
+        )
+        expected_ordering = (
+            local_ordering
+            if local_ordering
+            else ()
+            if self.base_template is None
+            else self.base_template.order_by
+        )
+        expected_frame = (
+            local_frame
+            if local_frame is not None
+            else None
+            if self.base_template is None
+            else self.base_template.frame
+        )
+        if (
+            self.partition_by is not expected_partition
+            or self.order_by is not expected_ordering
+            or self.frame is not expected_frame
+        ):
+            raise ValueError("named-window template components must be exact")
+        _require_template_component_provenance(
+            bool(local_partition),
+            self.base_template is not None and bool(self.base_template.partition_by),
+            NamedWindowComponentKind.PARTITION,
+            self.partition_provenance,
+            self.occurrence,
+            self.base,
+            "partition",
+        )
+        _require_template_component_provenance(
+            bool(local_ordering),
+            self.base_template is not None and bool(self.base_template.order_by),
+            NamedWindowComponentKind.ORDER,
+            self.ordering_provenance,
+            self.occurrence,
+            self.base,
+            "ordering",
+        )
+        _require_template_component_provenance(
+            local_frame is not None,
+            self.base_template is not None and self.base_template.frame is not None,
+            NamedWindowComponentKind.FRAME,
+            self.frame_provenance,
+            self.occurrence,
+            self.base,
+            "frame",
+        )
+
+    @property
+    def component_kinds(self) -> frozenset[NamedWindowComponentKind]:
+        """Return explicit composed component presence without defaults."""
+
+        return _component_kinds(self.partition_by, self.order_by, self.frame)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ResolvedNamedWindowNamespace:
+    """One complete query-local namespace with source and resolution orders."""
+
+    query_block: QueryBlockOccurrence
+    definition: TableDef | QueryDef
+    declarations: tuple[NamedWindowDeclaration, ...]
+    templates: tuple[ResolvedNamedWindowTemplate, ...]
+    resolution_order: tuple[NamedWindowOccurrence, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.query_block) is not QueryBlockOccurrence:
+            raise TypeError("named-window namespace query block must be exact")
+        if type(self.definition) not in {TableDef, QueryDef}:
+            raise TypeError("named-window namespace definition must be exact")
+        if (
+            self.definition.span != self.query_block.span
+            or self.definition.name != self.query_block.relation_name
+            or self.definition.named_windows is not self.declarations
+            or (
+                type(self.definition) is TableDef
+                and self.query_block.kind is not QueryBlockKind.TABLE
+            )
+            or (
+                type(self.definition) is QueryDef
+                and self.query_block.kind is not QueryBlockKind.QUERY
+            )
+        ):
+            raise ValueError(
+                "named-window namespace must retain its exact relation block"
+            )
+        if type(self.declarations) is not tuple or any(
+            type(item) is not NamedWindowDeclaration for item in self.declarations
+        ):
+            raise TypeError("named-window declarations must be an exact tuple")
+        if type(self.templates) is not tuple or any(
+            type(item) is not ResolvedNamedWindowTemplate for item in self.templates
+        ):
+            raise TypeError("named-window templates must be an exact tuple")
+        if len(self.templates) != len(self.declarations) or any(
+            template.declaration is not declaration
+            for template, declaration in zip(
+                self.templates,
+                self.declarations,
+                strict=True,
+            )
+        ):
+            raise ValueError("named-window templates must retain declaration order")
+        if len({item.name for item in self.declarations}) != len(self.declarations):
+            raise ValueError("resolved named-window namespaces require unique names")
+        for position, (declaration, template) in enumerate(
+            zip(self.declarations, self.templates, strict=True)
+        ):
+            if (
+                template.occurrence.query_block != self.query_block
+                or template.occurrence.declaration_position != position
+                or template.occurrence.span != declaration.span
+            ):
+                raise ValueError(
+                    "named-window template occurrence identity must be exact"
+                )
+        if type(self.resolution_order) is not tuple or any(
+            type(item) is not NamedWindowOccurrence for item in self.resolution_order
+        ):
+            raise TypeError("named-window resolution order must be exact")
+        if len(self.resolution_order) != len(self.templates) or {
+            item.occurrence for item in self.templates
+        } != set(self.resolution_order):
+            raise ValueError("named-window resolution order must cover every template")
+        resolution_positions = {
+            occurrence: position
+            for position, occurrence in enumerate(self.resolution_order)
+        }
+        templates_by_occurrence = {
+            template.occurrence: template for template in self.templates
+        }
+        templates_by_name = {
+            template.declaration.name: template for template in self.templates
+        }
+        for template in self.templates:
+            declaration_base = template.declaration.base
+            if declaration_base is None:
+                expected_base_template = None
+            else:
+                expected_base_template = templates_by_name[declaration_base.name]
+            if template.base_template is not expected_base_template:
+                raise ValueError(
+                    "named-window reference spelling must select the exact template"
+                )
+            if template.base is None:
+                base_template = None
+            else:
+                base_template = templates_by_occurrence.get(template.base.target)
+                if (
+                    base_template is None
+                    or base_template is not expected_base_template
+                    or resolution_positions[base_template.occurrence]
+                    >= resolution_positions[template.occurrence]
+                ):
+                    raise ValueError(
+                        "named-window resolution order must place every base first"
+                    )
+            _require_exact_template_components(template, base_template=base_template)
+
+    def template_for_name(self, name: str) -> ResolvedNamedWindowTemplate | None:
+        """Resolve one exact local spelling without fallback or winner selection."""
+
+        if type(name) is not str:
+            raise TypeError("named-window lookup name must be an exact string")
+        return next(
+            (
+                template
+                for declaration, template in zip(
+                    self.declarations,
+                    self.templates,
+                    strict=True,
+                )
+                if declaration.name == name
+            ),
+            None,
+        )
+
+
+class NamedWindowResolutionIssueKind(StrEnum):
+    """Closed query-local namespace and monotonic composition failures."""
+
+    DUPLICATE_NAME = "duplicate_name"
+    DANGLING_REFERENCE = "dangling_reference"
+    CYCLE = "cycle"
+    COMPONENT_CONFLICT = "component_conflict"
+
+
+NamedWindowIssueOwner = NamedWindowOccurrence | WindowUseOccurrence
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NamedWindowResolutionIssue:
+    """One typed failure with complete occurrence or witness evidence."""
+
+    kind: NamedWindowResolutionIssueKind
+    name: str
+    owner: NamedWindowIssueOwner | None = None
+    reference: NamedWindowReference | None = None
+    occurrences: tuple[NamedWindowOccurrence, ...] = ()
+    cycle: tuple[NamedWindowOccurrence, ...] = ()
+    component: NamedWindowComponentKind | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not NamedWindowResolutionIssueKind:
+            raise TypeError("named-window issue kind must be exact")
+        if type(self.name) is not str or not self.name:
+            raise ValueError("named-window issue name must be nonempty text")
+        if self.owner is not None and type(self.owner) not in {
+            NamedWindowOccurrence,
+            WindowUseOccurrence,
+        }:
+            raise TypeError("named-window issue owner must be exact or absent")
+        if (
+            self.reference is not None
+            and type(self.reference) is not NamedWindowReference
+        ):
+            raise TypeError("named-window issue reference must be exact or absent")
+        if type(self.occurrences) is not tuple or any(
+            type(item) is not NamedWindowOccurrence for item in self.occurrences
+        ):
+            raise TypeError("named-window issue occurrences must be exact")
+        if type(self.cycle) is not tuple or any(
+            type(item) is not NamedWindowOccurrence for item in self.cycle
+        ):
+            raise TypeError("named-window cycle witness must be exact")
+        if (
+            self.component is not None
+            and type(self.component) is not NamedWindowComponentKind
+        ):
+            raise TypeError("named-window conflict component must be exact or absent")
+        if self.kind is NamedWindowResolutionIssueKind.DUPLICATE_NAME:
+            if (
+                len(self.occurrences) < 2
+                or any(
+                    value is not None
+                    for value in (self.owner, self.reference, self.component)
+                )
+                or self.cycle
+            ):
+                raise ValueError(
+                    "duplicate issues require only all duplicate occurrences"
+                )
+        elif self.kind is NamedWindowResolutionIssueKind.DANGLING_REFERENCE:
+            if (
+                self.owner is None
+                or self.reference is None
+                or any((self.occurrences, self.cycle, self.component is not None))
+            ):
+                raise ValueError("dangling issues require only owner and reference")
+        elif self.kind is NamedWindowResolutionIssueKind.CYCLE:
+            if (
+                len(self.cycle) < 2
+                or self.cycle[0] != self.cycle[-1]
+                or any(
+                    value is not None
+                    for value in (self.owner, self.reference, self.component)
+                )
+                or self.occurrences
+            ):
+                raise ValueError("cycle issues require only a closed witness")
+        elif (
+            self.owner is None
+            or self.component is None
+            or len(self.occurrences) != 1
+            or self.reference is not None
+            or self.cycle
+        ):
+            raise ValueError("component conflicts require owner, base, and component")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NamedWindowResolutionFailure:
+    """Complete query-block failure with no published partial namespace."""
+
+    query_block: QueryBlockOccurrence
+    declarations: tuple[NamedWindowDeclaration, ...]
+    issues: tuple[NamedWindowResolutionIssue, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.query_block) is not QueryBlockOccurrence:
+            raise TypeError("named-window failure query block must be exact")
+        if type(self.declarations) is not tuple or any(
+            type(item) is not NamedWindowDeclaration for item in self.declarations
+        ):
+            raise TypeError("named-window failure declarations must be exact")
+        if (
+            type(self.issues) is not tuple
+            or not self.issues
+            or any(type(item) is not NamedWindowResolutionIssue for item in self.issues)
+        ):
+            raise ValueError("named-window failure requires ordered typed issues")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ComposedNamedWindowUse:
+    """One function-independent use after exact monotonic local composition."""
+
+    expression: WindowExpr
+    occurrence: WindowUseOccurrence
+    namespace: ResolvedNamedWindowNamespace
+    base: NamedWindowBaseResolution
+    target_template: ResolvedNamedWindowTemplate
+    partition_by: tuple[Expression, ...]
+    order_by: tuple[OrderItem, ...]
+    frame: AuthoredWindowFrame | None
+    partition_provenance: NamedWindowComponentProvenance | None
+    ordering_provenance: NamedWindowComponentProvenance | None
+    frame_provenance: NamedWindowComponentProvenance | None
+
+    def __post_init__(self) -> None:
+        if type(self.expression) is not WindowExpr:
+            raise TypeError("composed named-window use expression must be exact")
+        if self.expression.use_kind is WindowUseKind.INLINE:
+            raise ValueError("composed named-window uses require named authorship")
+        if type(self.occurrence) is not WindowUseOccurrence:
+            raise TypeError("composed named-window use occurrence must be exact")
+        if type(self.namespace) is not ResolvedNamedWindowNamespace:
+            raise TypeError("composed named-window namespace must be exact")
+        if type(self.base) is not NamedWindowBaseResolution:
+            raise TypeError("composed named-window base must be exact")
+        if type(self.target_template) is not ResolvedNamedWindowTemplate:
+            raise TypeError("composed named-window target template must be exact")
+        reference = self.expression.base
+        assert reference is not None
+        if (
+            self.occurrence.query_block != self.namespace.query_block
+            or self.occurrence.span != self.expression.span
+            or self.occurrence.kind is not self.expression.use_kind
+            or self.base.owner != self.occurrence
+            or reference is not self.base.reference
+            or self.base.target_declaration is not self.target_template.declaration
+            or self.base.target != self.target_template.occurrence
+            or self.occurrence.selected_output_ordinal
+            >= len(self.namespace.definition.select_items)
+            or self.namespace.definition.select_items[
+                self.occurrence.selected_output_ordinal
+            ].expression
+            is not self.expression
+        ):
+            raise ValueError(
+                "named-window use occurrence and base evidence must be exact"
+            )
+        exact_target = next(
+            (
+                template
+                for template in self.namespace.templates
+                if template.declaration.name == reference.name
+            ),
+            None,
+        )
+        if exact_target is None or exact_target is not self.target_template:
+            raise ValueError("named-window use base must target its exact namespace")
+        if type(self.partition_by) is not tuple or any(
+            not isinstance(item, Expression) for item in self.partition_by
+        ):
+            raise TypeError("composed named-window partition must be exact")
+        if type(self.order_by) is not tuple or any(
+            type(item) is not OrderItem for item in self.order_by
+        ):
+            raise TypeError("composed named-window ordering must be exact")
+        if self.frame is not None and (
+            type(self.frame) is not AuthoredWindowFrame
+            or self.frame.kind is AuthoredWindowFrameKind.OMITTED
+        ):
+            raise ValueError("composed named-window frame must be explicit or absent")
+        local_partition, local_ordering, local_frame = _local_components(
+            self.expression.spec
+        )
+        if (
+            self.partition_by
+            is not (
+                local_partition
+                if local_partition
+                else self.target_template.partition_by
+            )
+            or self.order_by
+            is not (local_ordering if local_ordering else self.target_template.order_by)
+            or self.frame
+            is not (
+                local_frame if local_frame is not None else self.target_template.frame
+            )
+        ):
+            raise ValueError("named-window use components must match exact composition")
+        _require_use_component_provenance(
+            bool(local_partition),
+            bool(self.target_template.partition_by),
+            NamedWindowComponentKind.PARTITION,
+            self.partition_provenance,
+            self.occurrence,
+            self.base,
+            "partition",
+        )
+        _require_use_component_provenance(
+            bool(local_ordering),
+            bool(self.target_template.order_by),
+            NamedWindowComponentKind.ORDER,
+            self.ordering_provenance,
+            self.occurrence,
+            self.base,
+            "ordering",
+        )
+        _require_use_component_provenance(
+            local_frame is not None,
+            self.target_template.frame is not None,
+            NamedWindowComponentKind.FRAME,
+            self.frame_provenance,
+            self.occurrence,
+            self.base,
+            "frame",
+        )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NamedWindowUseResolutionFailure:
+    """One dangling or conflicting use with no resolved specification."""
+
+    namespace: ResolvedNamedWindowNamespace
+    occurrence: WindowUseOccurrence
+    issues: tuple[NamedWindowResolutionIssue, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.namespace) is not ResolvedNamedWindowNamespace:
+            raise TypeError("named-window use failure namespace must be exact")
+        if type(self.occurrence) is not WindowUseOccurrence:
+            raise TypeError("named-window use failure occurrence must be exact")
+        if self.occurrence.query_block != self.namespace.query_block:
+            raise ValueError(
+                "named-window use failure must retain its exact query block"
+            )
+        if (
+            type(self.issues) is not tuple
+            or not self.issues
+            or any(type(item) is not NamedWindowResolutionIssue for item in self.issues)
+        ):
+            raise ValueError("named-window use failure requires ordered issues")
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AuthoredWindowSpecification:
     """One source-located authored window specification before resolution."""
@@ -270,6 +939,118 @@ def _require_resolved_component_origin(
         raise ValueError(f"inherited {label} requires local omission and values")
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ResolvedNamedWindowUse:
+    """One concrete named use resolved under its actual frame applicability."""
+
+    composed: ComposedNamedWindowUse
+    function_identity: WindowFunctionIdentity
+    function_policy: WindowFunctionFramePolicy
+    resolved: ResolvedWindowSpecification
+    partition_provenance: NamedWindowComponentProvenance
+    ordering_provenance: NamedWindowComponentProvenance
+    frame_provenance: NamedWindowComponentProvenance
+
+    def __post_init__(self) -> None:
+        if type(self.composed) is not ComposedNamedWindowUse:
+            raise TypeError("resolved named-window composition must be exact")
+        if type(self.function_identity) is not WindowFunctionIdentity:
+            raise TypeError("resolved named-window function identity must be exact")
+        if type(self.function_policy) is not WindowFunctionFramePolicy:
+            raise TypeError("resolved named-window function policy must be exact")
+        if (
+            self.function_identity != self.composed.expression.identity
+            or self.function_policy.identity != self.function_identity
+        ):
+            raise ValueError("named-window use and function policy identity must match")
+        if type(self.resolved) is not ResolvedWindowSpecification:
+            raise TypeError("resolved named-window specification must be exact")
+        local_specification = self.composed.expression.spec
+        authored = self.resolved.authored
+        if (
+            authored.span != self.composed.expression.span
+            or authored.partition_by is not local_specification.partition_by
+            or authored.order_by is not local_specification.order_by
+            or authored.frame is not local_specification.frame
+        ):
+            raise ValueError(
+                "resolved named-window use must retain exact local authored components"
+            )
+        for value in (
+            self.partition_provenance,
+            self.ordering_provenance,
+            self.frame_provenance,
+        ):
+            if type(value) is not NamedWindowComponentProvenance:
+                raise TypeError("resolved named-window provenance must be exact")
+        if self.resolved.partition_by is not self.composed.partition_by:
+            raise ValueError("resolved named-window partition must match composition")
+        if self.resolved.order_by is not self.composed.order_by:
+            raise ValueError("resolved named-window ordering must match composition")
+        if self.resolved.frame.applicability is not (
+            self.function_policy.required_frame_applicability
+        ):
+            raise ValueError("resolved named-window frame must match actual policy")
+        if self.resolved.partition_origin is not self.partition_provenance.origin:
+            raise ValueError("resolved named-window partition origin must match")
+        if self.resolved.ordering_origin is not self.ordering_provenance.origin:
+            raise ValueError("resolved named-window ordering origin must match")
+        if self.composed.partition_provenance is None:
+            if self.partition_provenance.origin is not (
+                WindowComponentOrigin.EFFECTIVE_DEFAULT
+            ):
+                raise ValueError("absent named-window partition must default at use")
+        elif self.partition_provenance != self.composed.partition_provenance:
+            raise ValueError("explicit named-window partition provenance must survive")
+        if self.composed.ordering_provenance is None:
+            if self.ordering_provenance.origin is not (
+                WindowComponentOrigin.EFFECTIVE_DEFAULT
+            ):
+                raise ValueError("absent named-window ordering must default at use")
+        elif self.ordering_provenance != self.composed.ordering_provenance:
+            raise ValueError("explicit named-window ordering provenance must survive")
+        explicit_frame_provenance = self.composed.frame_provenance
+        if explicit_frame_provenance is None:
+            if (
+                self.frame_provenance.source is not None
+                or self.resolved.frame.origin is not self.frame_provenance.origin
+            ):
+                raise ValueError("resolved named-window frame origin must match")
+        else:
+            if self.frame_provenance != explicit_frame_provenance:
+                raise ValueError("explicit named-window frame provenance must survive")
+            expected_origin = (
+                WindowComponentOrigin.NOT_APPLICABLE
+                if self.resolved.frame.applicability
+                is WindowFrameApplicability.NOT_APPLICABLE
+                else explicit_frame_provenance.origin
+            )
+            if self.resolved.frame.origin is not expected_origin:
+                raise ValueError(
+                    "explicit named-window frame origin must match provenance and policy"
+                )
+        _require_provenance_component(
+            self.partition_provenance,
+            NamedWindowComponentKind.PARTITION,
+            "resolved named-window partition",
+        )
+        _require_provenance_component(
+            self.ordering_provenance,
+            NamedWindowComponentKind.ORDER,
+            "resolved named-window ordering",
+        )
+        _require_provenance_component(
+            self.frame_provenance,
+            NamedWindowComponentKind.FRAME,
+            "resolved named-window frame",
+        )
+        expected_frame_authorship = (
+            self.composed.frame or self.composed.expression.spec.frame
+        )
+        if self.resolved.frame.authored is not expected_frame_authorship:
+            raise ValueError("resolved named-window frame authorship must be exact")
+
+
 def resolve_authored_window_specification(
     authored: AuthoredWindowSpecification,
     *,
@@ -343,6 +1124,724 @@ def _resolve_authored_window_frame(
         end=end,
         exclusion=_effective_window_frame_exclusion(authored.exclusion),
     )
+
+
+def resolve_named_window_namespace(
+    definition: TableDef | QueryDef,
+) -> ResolvedNamedWindowNamespace | NamedWindowResolutionFailure:
+    """Resolve one complete query-local declaration namespace or fail closed."""
+
+    if type(definition) not in {TableDef, QueryDef}:
+        raise TypeError("named-window resolution requires an exact relation block")
+    query_block = _query_block_occurrence(definition)
+    declarations = definition.named_windows
+    for declaration in declarations:
+        if declaration.base is not None:
+            _require_named_window_reference_owner(declaration.base, query_block)
+    occurrences = tuple(
+        NamedWindowOccurrence(
+            query_block=query_block,
+            declaration_position=position,
+            span=declaration.span,
+        )
+        for position, declaration in enumerate(declarations)
+    )
+    occurrences_by_name: dict[str, list[NamedWindowOccurrence]] = {}
+    for declaration, occurrence in zip(declarations, occurrences, strict=True):
+        occurrences_by_name.setdefault(declaration.name, []).append(occurrence)
+    duplicate_issues = tuple(
+        NamedWindowResolutionIssue(
+            kind=NamedWindowResolutionIssueKind.DUPLICATE_NAME,
+            name=name,
+            occurrences=tuple(matches),
+        )
+        for name, matches in occurrences_by_name.items()
+        if len(matches) > 1
+    )
+    if duplicate_issues:
+        return NamedWindowResolutionFailure(
+            query_block=query_block,
+            declarations=declarations,
+            issues=duplicate_issues,
+        )
+
+    declaration_by_name = {
+        declaration.name: declaration for declaration in declarations
+    }
+    occurrence_by_name = {
+        declaration.name: occurrence
+        for declaration, occurrence in zip(declarations, occurrences, strict=True)
+    }
+    dangling_issues = tuple(
+        NamedWindowResolutionIssue(
+            kind=NamedWindowResolutionIssueKind.DANGLING_REFERENCE,
+            name=declaration.base.name,
+            owner=occurrence,
+            reference=declaration.base,
+        )
+        for declaration, occurrence in zip(declarations, occurrences, strict=True)
+        if declaration.base is not None
+        and declaration.base.name not in declaration_by_name
+    )
+    if dangling_issues:
+        return NamedWindowResolutionFailure(
+            query_block=query_block,
+            declarations=declarations,
+            issues=dangling_issues,
+        )
+
+    resolution_names = _named_window_resolution_order(
+        declaration_by_name,
+    )
+    if len(resolution_names) != len(declarations):
+        return NamedWindowResolutionFailure(
+            query_block=query_block,
+            declarations=declarations,
+            issues=_named_window_cycle_issues(
+                declaration_by_name,
+                occurrence_by_name,
+                resolved_names=frozenset(resolution_names),
+            ),
+        )
+
+    explicit_components: dict[str, frozenset[NamedWindowComponentKind]] = {}
+    conflict_issues: list[NamedWindowResolutionIssue] = []
+    for name in resolution_names:
+        declaration = declaration_by_name[name]
+        local = _local_component_kinds(declaration.spec)
+        base_components: frozenset[NamedWindowComponentKind] = frozenset()
+        base_occurrence: NamedWindowOccurrence | None = None
+        if declaration.base is not None:
+            base_components = explicit_components[declaration.base.name]
+            base_occurrence = occurrence_by_name[declaration.base.name]
+        for component in NamedWindowComponentKind:
+            if component in local and component in base_components:
+                assert base_occurrence is not None
+                conflict_issues.append(
+                    NamedWindowResolutionIssue(
+                        kind=NamedWindowResolutionIssueKind.COMPONENT_CONFLICT,
+                        name=name,
+                        owner=occurrence_by_name[name],
+                        occurrences=(base_occurrence,),
+                        component=component,
+                    )
+                )
+        explicit_components[name] = local | base_components
+    if conflict_issues:
+        return NamedWindowResolutionFailure(
+            query_block=query_block,
+            declarations=declarations,
+            issues=tuple(conflict_issues),
+        )
+
+    template_by_name: dict[str, ResolvedNamedWindowTemplate] = {}
+    for name in resolution_names:
+        declaration = declaration_by_name[name]
+        base_template = (
+            None
+            if declaration.base is None
+            else template_by_name[declaration.base.name]
+        )
+        template_by_name[name] = _compose_named_window_template(
+            declaration,
+            occurrence=occurrence_by_name[name],
+            base_template=base_template,
+        )
+    return ResolvedNamedWindowNamespace(
+        query_block=query_block,
+        definition=definition,
+        declarations=declarations,
+        templates=tuple(
+            template_by_name[declaration.name] for declaration in declarations
+        ),
+        resolution_order=tuple(occurrence_by_name[name] for name in resolution_names),
+    )
+
+
+def compose_named_window_use(
+    namespace: ResolvedNamedWindowNamespace,
+    expression: WindowExpr,
+    *,
+    selected_output_ordinal: int,
+) -> ComposedNamedWindowUse | NamedWindowUseResolutionFailure:
+    """Bind and monotonically compose one direct or extended named use."""
+
+    if type(namespace) is not ResolvedNamedWindowNamespace:
+        raise TypeError("named-window use requires an exact namespace")
+    if type(expression) is not WindowExpr:
+        raise TypeError("named-window use requires an exact WindowExpr")
+    if expression.use_kind is WindowUseKind.INLINE or expression.base is None:
+        raise ValueError("named-window composition requires named authorship")
+    _require_named_window_reference_owner(expression.base, namespace.query_block)
+    if (
+        not 0 <= selected_output_ordinal < len(namespace.definition.select_items)
+        or namespace.definition.select_items[selected_output_ordinal].expression
+        is not expression
+    ):
+        raise ValueError("named-window use ordinal must select its exact expression")
+    occurrence = WindowUseOccurrence(
+        query_block=namespace.query_block,
+        selected_output_ordinal=selected_output_ordinal,
+        kind=expression.use_kind,
+        span=expression.span,
+    )
+    target = namespace.template_for_name(expression.base.name)
+    if target is None:
+        return NamedWindowUseResolutionFailure(
+            namespace=namespace,
+            occurrence=occurrence,
+            issues=(
+                NamedWindowResolutionIssue(
+                    kind=NamedWindowResolutionIssueKind.DANGLING_REFERENCE,
+                    name=expression.base.name,
+                    owner=occurrence,
+                    reference=expression.base,
+                ),
+            ),
+        )
+
+    local_components = _local_component_kinds(expression.spec)
+    conflicts = tuple(
+        NamedWindowResolutionIssue(
+            kind=NamedWindowResolutionIssueKind.COMPONENT_CONFLICT,
+            name=expression.base.name,
+            owner=occurrence,
+            occurrences=(target.occurrence,),
+            component=component,
+        )
+        for component in NamedWindowComponentKind
+        if component in local_components and component in target.component_kinds
+    )
+    if conflicts:
+        return NamedWindowUseResolutionFailure(
+            namespace=namespace,
+            occurrence=occurrence,
+            issues=conflicts,
+        )
+
+    local_partition, local_ordering, local_frame = _local_components(expression.spec)
+    base = NamedWindowBaseResolution(
+        owner=occurrence,
+        reference=expression.base,
+        target_declaration=target.declaration,
+        target=target.occurrence,
+    )
+    return ComposedNamedWindowUse(
+        expression=expression,
+        occurrence=occurrence,
+        namespace=namespace,
+        base=base,
+        target_template=target,
+        partition_by=local_partition or target.partition_by,
+        order_by=local_ordering or target.order_by,
+        frame=local_frame or target.frame,
+        partition_provenance=_use_component_provenance(
+            bool(local_partition),
+            not local_partition and bool(target.partition_by),
+            occurrence,
+            target.occurrence,
+            NamedWindowComponentKind.PARTITION,
+        ),
+        ordering_provenance=_use_component_provenance(
+            bool(local_ordering),
+            not local_ordering and bool(target.order_by),
+            occurrence,
+            target.occurrence,
+            NamedWindowComponentKind.ORDER,
+        ),
+        frame_provenance=_use_component_provenance(
+            local_frame is not None,
+            local_frame is None and target.frame is not None,
+            occurrence,
+            target.occurrence,
+            NamedWindowComponentKind.FRAME,
+        ),
+    )
+
+
+def resolve_composed_named_window_use(
+    composed: ComposedNamedWindowUse,
+    *,
+    function_identity: WindowFunctionIdentity,
+    function_policy: WindowFunctionFramePolicy,
+) -> ResolvedNamedWindowUse:
+    """Apply use-specific defaults only after complete named composition."""
+
+    if type(composed) is not ComposedNamedWindowUse:
+        raise TypeError("named-window use resolution requires exact composition")
+    if type(function_identity) is not WindowFunctionIdentity:
+        raise TypeError("named-window use function identity must be exact")
+    if type(function_policy) is not WindowFunctionFramePolicy:
+        raise TypeError("named-window use function policy must be exact")
+    if (
+        function_identity != composed.expression.identity
+        or function_policy.identity != function_identity
+    ):
+        raise ValueError("named-window use requires its actual function policy")
+    frame_applicability = function_policy.required_frame_applicability
+    local_specification = composed.expression.spec
+    authored = AuthoredWindowSpecification(
+        span=composed.expression.span,
+        partition_by=local_specification.partition_by,
+        order_by=local_specification.order_by,
+        frame=local_specification.frame,
+    )
+    partition_provenance = composed.partition_provenance or (
+        NamedWindowComponentProvenance(
+            component=NamedWindowComponentKind.PARTITION,
+            origin=WindowComponentOrigin.EFFECTIVE_DEFAULT,
+            source=None,
+        )
+    )
+    ordering_provenance = composed.ordering_provenance or (
+        NamedWindowComponentProvenance(
+            component=NamedWindowComponentKind.ORDER,
+            origin=WindowComponentOrigin.EFFECTIVE_DEFAULT,
+            source=None,
+        )
+    )
+    if frame_applicability is WindowFrameApplicability.NOT_APPLICABLE:
+        frame_authored = composed.frame or authored.frame
+        resolved_frame = ResolvedWindowFrame(
+            applicability=frame_applicability,
+            origin=WindowComponentOrigin.NOT_APPLICABLE,
+            authored=frame_authored,
+        )
+        frame_provenance = composed.frame_provenance or (
+            NamedWindowComponentProvenance(
+                component=NamedWindowComponentKind.FRAME,
+                origin=WindowComponentOrigin.NOT_APPLICABLE,
+                source=None,
+            )
+        )
+    elif composed.frame is None:
+        resolved_frame = _resolve_authored_window_frame(
+            authored.frame,
+            frame_applicability=frame_applicability,
+        )
+        frame_provenance = NamedWindowComponentProvenance(
+            component=NamedWindowComponentKind.FRAME,
+            origin=WindowComponentOrigin.EFFECTIVE_DEFAULT,
+            source=None,
+        )
+    else:
+        resolved_frame = _resolve_authored_window_frame(
+            composed.frame,
+            frame_applicability=frame_applicability,
+        )
+        assert composed.frame_provenance is not None
+        if composed.frame_provenance.origin is WindowComponentOrigin.INHERITED:
+            resolved_frame = replace(
+                resolved_frame,
+                origin=WindowComponentOrigin.INHERITED,
+            )
+        frame_provenance = composed.frame_provenance
+
+    resolved = ResolvedWindowSpecification(
+        authored=authored,
+        partition_by=composed.partition_by,
+        order_by=composed.order_by,
+        partition_origin=partition_provenance.origin,
+        ordering_origin=ordering_provenance.origin,
+        frame=resolved_frame,
+    )
+    return ResolvedNamedWindowUse(
+        composed=composed,
+        function_identity=function_identity,
+        function_policy=function_policy,
+        resolved=resolved,
+        partition_provenance=partition_provenance,
+        ordering_provenance=ordering_provenance,
+        frame_provenance=frame_provenance,
+    )
+
+
+def _effective_named_window_expression(
+    resolved_use: ResolvedNamedWindowUse,
+) -> WindowExpr:
+    """Create one transient effective expression for existing semantic readers."""
+
+    if type(resolved_use) is not ResolvedNamedWindowUse:
+        raise TypeError("effective named-window expression requires a resolved use")
+    composed = resolved_use.composed
+    return WindowExpr(
+        span=composed.expression.span,
+        call=composed.expression.call,
+        spec=WindowSpec(
+            span=composed.expression.spec.span,
+            partition_by=composed.partition_by,
+            order_by=composed.order_by,
+            frame=(
+                composed.frame
+                if composed.frame is not None
+                else AuthoredWindowFrame(kind=AuthoredWindowFrameKind.OMITTED)
+            ),
+        ),
+        identity=composed.expression.identity,
+    )
+
+
+def _query_block_occurrence(
+    definition: TableDef | QueryDef,
+) -> QueryBlockOccurrence:
+    return QueryBlockOccurrence(
+        source_id=definition.span.path or definition.name,
+        relation_name=definition.name,
+        kind=(
+            QueryBlockKind.TABLE
+            if type(definition) is TableDef
+            else QueryBlockKind.QUERY
+        ),
+        span=definition.span,
+    )
+
+
+def _require_named_window_reference_owner(
+    reference: NamedWindowReference,
+    query_block: QueryBlockOccurrence,
+) -> None:
+    if reference.span.path != query_block.span.path:
+        raise ValueError("named-window reference must belong to its owner block")
+
+
+def _named_window_resolution_order(
+    declarations: dict[str, NamedWindowDeclaration],
+) -> tuple[str, ...]:
+    children = {name: [] for name in declarations}
+    dependency_counts: dict[str, int] = {}
+    for name, declaration in declarations.items():
+        dependency_counts[name] = 0 if declaration.base is None else 1
+        if declaration.base is not None:
+            children[declaration.base.name].append(name)
+    ready = [name for name, count in dependency_counts.items() if count == 0]
+    ready.sort()
+    order: list[str] = []
+    while ready:
+        name = heappop(ready)
+        order.append(name)
+        for child in sorted(children[name]):
+            dependency_counts[child] -= 1
+            if dependency_counts[child] == 0:
+                heappush(ready, child)
+    return tuple(order)
+
+
+def _named_window_cycle_issues(
+    declarations: dict[str, NamedWindowDeclaration],
+    occurrences: dict[str, NamedWindowOccurrence],
+    *,
+    resolved_names: frozenset[str],
+) -> tuple[NamedWindowResolutionIssue, ...]:
+    unresolved = frozenset(declarations) - resolved_names
+    completed: set[str] = set()
+    witnesses: list[tuple[str, ...]] = []
+    for start in sorted(unresolved):
+        if start in completed:
+            continue
+        path: list[str] = []
+        positions: dict[str, int] = {}
+        current = start
+        while current in unresolved and current not in positions:
+            if current in completed:
+                break
+            positions[current] = len(path)
+            path.append(current)
+            base = declarations[current].base
+            assert base is not None
+            current = base.name
+        if current in positions:
+            cycle = path[positions[current] :]
+            first = min(range(len(cycle)), key=lambda index: cycle[index])
+            canonical = tuple(cycle[first:] + cycle[:first])
+            witnesses.append((*canonical, canonical[0]))
+        completed.update(path)
+    return tuple(
+        NamedWindowResolutionIssue(
+            kind=NamedWindowResolutionIssueKind.CYCLE,
+            name=" -> ".join(witness),
+            cycle=tuple(occurrences[name] for name in witness),
+        )
+        for witness in witnesses
+    )
+
+
+def _compose_named_window_template(
+    declaration: NamedWindowDeclaration,
+    *,
+    occurrence: NamedWindowOccurrence,
+    base_template: ResolvedNamedWindowTemplate | None,
+) -> ResolvedNamedWindowTemplate:
+    local_partition, local_ordering, local_frame = _local_components(declaration.spec)
+    if base_template is None:
+        base = None
+    else:
+        reference = declaration.base
+        assert reference is not None
+        base = NamedWindowBaseResolution(
+            owner=occurrence,
+            reference=reference,
+            target_declaration=base_template.declaration,
+            target=base_template.occurrence,
+        )
+    return ResolvedNamedWindowTemplate(
+        declaration=declaration,
+        occurrence=occurrence,
+        base=base,
+        base_template=base_template,
+        partition_by=(
+            local_partition
+            if local_partition
+            else ()
+            if base_template is None
+            else base_template.partition_by
+        ),
+        order_by=(
+            local_ordering
+            if local_ordering
+            else ()
+            if base_template is None
+            else base_template.order_by
+        ),
+        frame=(
+            local_frame
+            if local_frame is not None
+            else None
+            if base_template is None
+            else base_template.frame
+        ),
+        partition_provenance=_template_component_provenance(
+            bool(local_partition),
+            not local_partition
+            and base_template is not None
+            and bool(base_template.partition_by),
+            occurrence,
+            None if base_template is None else base_template.occurrence,
+            NamedWindowComponentKind.PARTITION,
+        ),
+        ordering_provenance=_template_component_provenance(
+            bool(local_ordering),
+            not local_ordering
+            and base_template is not None
+            and bool(base_template.order_by),
+            occurrence,
+            None if base_template is None else base_template.occurrence,
+            NamedWindowComponentKind.ORDER,
+        ),
+        frame_provenance=_template_component_provenance(
+            local_frame is not None,
+            local_frame is None
+            and base_template is not None
+            and base_template.frame is not None,
+            occurrence,
+            None if base_template is None else base_template.occurrence,
+            NamedWindowComponentKind.FRAME,
+        ),
+    )
+
+
+def _local_components(
+    specification: WindowSpec | None,
+) -> tuple[
+    tuple[Expression, ...],
+    tuple[OrderItem, ...],
+    AuthoredWindowFrame | None,
+]:
+    if specification is None:
+        return (), (), None
+    return (
+        specification.partition_by,
+        specification.order_by,
+        (
+            None
+            if specification.frame.kind is AuthoredWindowFrameKind.OMITTED
+            else specification.frame
+        ),
+    )
+
+
+def _local_component_kinds(
+    specification: WindowSpec | None,
+) -> frozenset[NamedWindowComponentKind]:
+    return _component_kinds(*_local_components(specification))
+
+
+def _component_kinds(
+    partition_by: tuple[Expression, ...],
+    order_by: tuple[OrderItem, ...],
+    frame: AuthoredWindowFrame | None,
+) -> frozenset[NamedWindowComponentKind]:
+    return frozenset(
+        component
+        for component, present in (
+            (NamedWindowComponentKind.PARTITION, bool(partition_by)),
+            (NamedWindowComponentKind.ORDER, bool(order_by)),
+            (NamedWindowComponentKind.FRAME, frame is not None),
+        )
+        if present
+    )
+
+
+def _template_component_provenance(
+    local: bool,
+    inherited: bool,
+    occurrence: NamedWindowOccurrence,
+    base_occurrence: NamedWindowOccurrence | None,
+    component: NamedWindowComponentKind,
+) -> NamedWindowComponentProvenance | None:
+    if local:
+        return NamedWindowComponentProvenance(
+            component=component,
+            origin=WindowComponentOrigin.LOCALLY_AUTHORED,
+            source=occurrence,
+        )
+    if inherited:
+        assert base_occurrence is not None
+        return NamedWindowComponentProvenance(
+            component=component,
+            origin=WindowComponentOrigin.INHERITED,
+            source=base_occurrence,
+        )
+    return None
+
+
+def _use_component_provenance(
+    local: bool,
+    inherited: bool,
+    occurrence: WindowUseOccurrence,
+    base_occurrence: NamedWindowOccurrence,
+    component: NamedWindowComponentKind,
+) -> NamedWindowComponentProvenance | None:
+    if local:
+        return NamedWindowComponentProvenance(
+            component=component,
+            origin=WindowComponentOrigin.LOCALLY_AUTHORED,
+            source=occurrence,
+        )
+    if inherited:
+        return NamedWindowComponentProvenance(
+            component=component,
+            origin=WindowComponentOrigin.INHERITED,
+            source=base_occurrence,
+        )
+    return None
+
+
+def _require_exact_template_components(
+    template: ResolvedNamedWindowTemplate,
+    *,
+    base_template: ResolvedNamedWindowTemplate | None,
+) -> None:
+    local_partition, local_ordering, local_frame = _local_components(
+        template.declaration.spec
+    )
+    expected_partition = (
+        local_partition
+        if local_partition
+        else ()
+        if base_template is None
+        else base_template.partition_by
+    )
+    expected_ordering = (
+        local_ordering
+        if local_ordering
+        else ()
+        if base_template is None
+        else base_template.order_by
+    )
+    expected_frame = (
+        local_frame
+        if local_frame is not None
+        else None
+        if base_template is None
+        else base_template.frame
+    )
+    if (
+        template.partition_by is not expected_partition
+        or template.order_by is not expected_ordering
+        or template.frame is not expected_frame
+    ):
+        raise ValueError("named-window template components must be exact")
+    if base_template is not None and (
+        template.base is None or template.base.target != base_template.occurrence
+    ):
+        raise ValueError("named-window template must retain its exact direct base")
+
+
+def _require_template_component_provenance(
+    local: bool,
+    inherited: bool,
+    component: NamedWindowComponentKind,
+    provenance: NamedWindowComponentProvenance | None,
+    occurrence: NamedWindowOccurrence,
+    base: NamedWindowBaseResolution | None,
+    label: str,
+) -> None:
+    if local and inherited:
+        raise ValueError(f"template {label} cannot be local and inherited")
+    if not local and not inherited:
+        if provenance is not None:
+            raise ValueError(f"absent template {label} forbids provenance")
+        return
+    if type(provenance) is not NamedWindowComponentProvenance:
+        raise TypeError(f"present template {label} requires exact provenance")
+    _require_provenance_component(provenance, component, f"template {label}")
+    if local:
+        if (
+            provenance.origin is not WindowComponentOrigin.LOCALLY_AUTHORED
+            or provenance.source != occurrence
+        ):
+            raise ValueError(f"local template {label} must name its occurrence")
+    elif (
+        not inherited
+        or provenance.origin is not WindowComponentOrigin.INHERITED
+        or base is None
+        or provenance.source != base.target
+    ):
+        raise ValueError(f"inherited template {label} must name its direct base")
+
+
+def _require_use_component_provenance(
+    local: bool,
+    inherited: bool,
+    component: NamedWindowComponentKind,
+    provenance: NamedWindowComponentProvenance | None,
+    occurrence: WindowUseOccurrence,
+    base: NamedWindowBaseResolution,
+    label: str,
+) -> None:
+    if local and inherited:
+        raise ValueError(f"use {label} cannot be local and inherited")
+    if not local and not inherited:
+        if provenance is not None:
+            raise ValueError(f"absent use {label} forbids provenance")
+        return
+    if type(provenance) is not NamedWindowComponentProvenance:
+        raise TypeError(f"present use {label} requires exact provenance")
+    _require_provenance_component(provenance, component, f"use {label}")
+    if local:
+        if (
+            provenance.origin is not WindowComponentOrigin.LOCALLY_AUTHORED
+            or provenance.source != occurrence
+        ):
+            raise ValueError(f"local use {label} must name its occurrence")
+    elif (
+        not inherited
+        or provenance.origin is not WindowComponentOrigin.INHERITED
+        or provenance.source != base.target
+    ):
+        raise ValueError(f"inherited use {label} must name its direct base")
+
+
+def _require_provenance_component(
+    provenance: NamedWindowComponentProvenance,
+    component: NamedWindowComponentKind,
+    label: str,
+) -> None:
+    if provenance.component is not component:
+        raise ValueError(
+            f"{label} provenance must name its component; "
+            "component kind must match its slot"
+        )
 
 
 class WindowFrameEmptinessClassification(StrEnum):

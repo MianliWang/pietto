@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from pietto._project.model import (
@@ -25,6 +25,8 @@ from pietto.ast_nodes import (
     SelectItem,
     Span,
     TableDef,
+    WindowExpr,
+    WindowUseKind,
 )
 from pietto.errors import Diagnostic, SourceLocation
 from pietto.semantic.window_semantics import (
@@ -41,6 +43,8 @@ from pietto.semantic.window_input_analysis import (
 )
 
 __all__: tuple[str, ...] = ()
+
+_PROJECT_NAMED_WINDOW_INTEGRATION_DEFERRED = "project named-window integration deferred"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -355,6 +359,7 @@ def build_window_result_project_fact(
         let_value_types=let_value_types,
         let_expressions=let_expressions,
     )
+    semantic_result = _project_window_analysis_boundary(item, semantic_result)
     if isinstance(semantic_result, WindowExpressionUnsupported):
         return semantic_result
     if type(semantic_result) is not WindowExpressionAnalysis:
@@ -414,7 +419,7 @@ def build_ranking_window_result_project_fact(
         let_expressions=let_expressions,
     )
     if isinstance(semantic_result, WindowExpressionUnsupported):
-        return semantic_result
+        return _retain_project_window_unsupported_authorship(item, semantic_result)
     input_scope = build_window_input_scope(
         definition=definition,
         input_schema=semantic_input_schema,
@@ -470,7 +475,7 @@ def build_navigation_window_result_project_fact(
         let_expressions=let_expressions,
     )
     if isinstance(semantic_result, WindowExpressionUnsupported):
-        return semantic_result
+        return _retain_project_window_unsupported_authorship(item, semantic_result)
     input_scope = build_window_input_scope(
         definition=definition,
         input_schema=semantic_input_schema,
@@ -520,8 +525,12 @@ def _build_window_result_project_fact(
     item: SelectItem,
     upstream_symbol: ProjectSymbol,
     input_scope: WindowInputScope,
-) -> WindowResultProjectFact:
-    """Convert one successful core semantic fact to project-local evidence."""
+) -> WindowResultProjectFact | WindowExpressionUnsupported:
+    """Convert eligible inline semantics or defer named Project integration."""
+
+    deferred = _project_named_window_deferral(item, semantic_fact)
+    if deferred is not None:
+        return deferred
 
     if item.alias is None:
         raise AssertionError("successful window project fact requires an alias")
@@ -682,6 +691,45 @@ def _build_window_result_project_fact(
             symbol=upstream_symbol,
             location=_source_location(expression.span),
         ),
+    )
+
+
+def _project_window_analysis_boundary(
+    item: SelectItem,
+    analysis: WindowExpressionAnalysis | WindowExpressionUnsupported,
+) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
+    if isinstance(analysis, WindowExpressionUnsupported):
+        return _retain_project_window_unsupported_authorship(item, analysis)
+    deferred = _project_named_window_deferral(item, analysis.semantic_fact)
+    return analysis if deferred is None else deferred
+
+
+def _retain_project_window_unsupported_authorship(
+    item: SelectItem,
+    unsupported: WindowExpressionUnsupported,
+) -> WindowExpressionUnsupported:
+    expression = item.expression
+    if type(expression) is not WindowExpr:
+        raise TypeError("project window boundary requires an exact window item")
+    if expression.use_kind is WindowUseKind.INLINE:
+        return unsupported
+    return replace(unsupported, expression=expression)
+
+
+def _project_named_window_deferral(
+    item: SelectItem,
+    semantic_fact: WindowExpressionSemanticFact,
+) -> WindowExpressionUnsupported | None:
+    expression = item.expression
+    if type(expression) is not WindowExpr:
+        raise TypeError("project window boundary requires an exact window item")
+    if expression.use_kind is WindowUseKind.INLINE:
+        return None
+    return WindowExpressionUnsupported(
+        occurrence=semantic_fact.occurrence,
+        expression=expression,
+        identity=semantic_fact.identity,
+        reason=_PROJECT_NAMED_WINDOW_INTEGRATION_DEFERRED,
     )
 
 

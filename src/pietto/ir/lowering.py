@@ -21,6 +21,7 @@ from pietto.ast_nodes import (
     TypeExpr,
     UnaryExpr,
     WindowExpr,
+    WindowUseKind,
 )
 from pietto.ir.diagnostics import missing_semantic_fact_diagnostic
 from pietto.ir.model import (
@@ -263,6 +264,11 @@ def _lower_window_expr(
         raise _WindowExpressionLoweringError(
             expression,
             "supported window function arity",
+        )
+    if expression.use_kind is not WindowUseKind.INLINE:
+        raise _WindowExpressionLoweringError(
+            expression,
+            "named window lowering authority",
         )
     if expression.spec.frame.kind is not AuthoredWindowFrameKind.OMITTED:
         raise _WindowExpressionLoweringError(

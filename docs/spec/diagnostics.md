@@ -44,6 +44,10 @@ stored separately and is never encoded in the code.
 | `PIE-S2103` | Unknown function |
 | `PIE-S2104` | Invalid built-in function arguments |
 | `PIE-S2105` | Invalid operator operands |
+| `PIE-S2110` | Duplicate query-local named-window declaration |
+| `PIE-S2111` | Dangling query-local named-window declaration or use reference |
+| `PIE-S2112` | Query-local named-window dependency cycle |
+| `PIE-S2113` | Named-window monotonic component conflict |
 | `PIE-S2202` | Known non-Bool expression in a predicate context |
 | `PIE-S2301` | Unknown local or explicit-module relation |
 | `PIE-S2302` | Local relation dependency cycle, including within one acyclic schema-v2 module |

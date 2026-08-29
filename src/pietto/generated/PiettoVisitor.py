@@ -339,6 +339,11 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#namedWindowDeclaration.
+    def visitNamedWindowDeclaration(self, ctx:PiettoParser.NamedWindowDeclarationContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#windowSpecBody.
     def visitWindowSpecBody(self, ctx:PiettoParser.WindowSpecBodyContext):
         return self.visitChildren(ctx)

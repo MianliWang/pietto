@@ -74,7 +74,9 @@ from pietto._project.window_persistence import (
 from pietto._project.window_semantics import (
     WindowDependencyRole,
     WindowResultProjectFact,
+    _PROJECT_NAMED_WINDOW_INTEGRATION_DEFERRED,
     _build_window_result_project_fact,
+    _project_window_analysis_boundary,
 )
 from pietto._window_identity import WindowFunctionIdentity
 from pietto.ast_nodes import (
@@ -156,6 +158,9 @@ __all__: tuple[str, ...] = ()
 _DerivedRelation = TableDef | QueryDef
 _RelationDefinition = SourceDef | TableDef | QueryDef
 _WindowAnalysis = WindowExpressionAnalysis | WindowExpressionUnsupported
+_NAMED_WINDOW_DIAGNOSTIC_CODES = frozenset(
+    {"PIE-S2110", "PIE-S2111", "PIE-S2112", "PIE-S2113"}
+)
 
 
 class ProjectModuleFactOccurrenceRole(StrEnum):
@@ -688,8 +693,21 @@ def _diagnostic_location_is_within_span(
     )
 
 
+def _window_diagnostic_location_is_owned(
+    diagnostic: Diagnostic,
+    item: SelectItem,
+    definition: TableDef | QueryDef,
+) -> bool:
+    if _diagnostic_location_is_within_span(diagnostic.location, item.expression.span):
+        return True
+    return diagnostic.code in _NAMED_WINDOW_DIAGNOSTIC_CODES and any(
+        _diagnostic_location_is_within_span(diagnostic.location, declaration.span)
+        for declaration in definition.named_windows
+    )
+
+
 def _unsupported_window_has_external_diagnostic_owner(reason: str) -> bool:
-    return reason.startswith(
+    return reason == _PROJECT_NAMED_WINDOW_INTEGRATION_DEFERRED or reason.startswith(
         (
             "no-group aggregate context does not admit ",
             "grouped context does not admit ",
@@ -961,10 +979,17 @@ class ProjectModuleWindowOutputFact:
                 )
             if any(
                 diagnostic.severity is not Severity.ERROR
-                or diagnostic.code not in {"PIE-S2102", "PIE-S2103", "PIE-S2104"}
-                or not _diagnostic_location_is_within_span(
-                    diagnostic.location,
-                    self.item.expression.span,
+                or diagnostic.code
+                not in _NAMED_WINDOW_DIAGNOSTIC_CODES
+                | {
+                    "PIE-S2102",
+                    "PIE-S2103",
+                    "PIE-S2104",
+                }
+                or not _window_diagnostic_location_is_owned(
+                    diagnostic,
+                    self.item,
+                    derived,
                 )
                 for diagnostic in self.diagnostics
             ):
@@ -3474,6 +3499,7 @@ def _window_output_facts(
             let_value_types=let_values,
             let_expressions=let_expressions,
         )
+        analysis = _project_window_analysis_boundary(item, analysis)
         signature = _find_window_signature(capabilities, expression.identity)
         project_fact: WindowResultProjectFact | None = None
         if isinstance(analysis, WindowExpressionUnsupported):
@@ -3488,13 +3514,16 @@ def _window_output_facts(
                 let_value_types=let_values or {},
                 let_expressions=let_expressions or {},
             )
-            project_fact = _build_window_result_project_fact(
+            project_result = _build_window_result_project_fact(
                 semantic_fact=analysis.semantic_fact,
                 definition=definition,
                 item=item,
                 upstream_symbol=upstream_symbol,
                 input_scope=input_scope,
             )
+            if type(project_result) is not WindowResultProjectFact:
+                raise AssertionError("eligible inline window project fact was deferred")
+            project_fact = project_result
             availability = analysis.semantic_fact.result
             status = {
                 WindowResultAvailabilityKind.CONCRETE: (
@@ -3610,6 +3639,7 @@ def _unavailable_window_outputs(
             let_value_types=let_values,
             let_expressions=let_expressions,
         )
+        analysis = _project_window_analysis_boundary(item, analysis)
         outputs.append(
             ProjectModuleWindowOutputFact(
                 owner=owner,

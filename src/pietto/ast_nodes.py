@@ -221,6 +221,27 @@ class AuthoredWindowFrame:
             raise ValueError("BETWEEN frames require an explicit end bound")
 
 
+class WindowUseKind(StrEnum):
+    """Closed authored inline, direct-name, and extended-name use forms."""
+
+    INLINE = "inline"
+    NAMED_DIRECT = "named_direct"
+    NAMED_EXTENDED = "named_extended"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NamedWindowReference(Node):
+    """One exact source occurrence of a query-local named-window lookup."""
+
+    name: str
+
+    def __post_init__(self) -> None:
+        if type(self.name) is not str:
+            raise TypeError("named-window reference name must be an exact string")
+        if not self.name:
+            raise ValueError("named-window reference name must be nonempty")
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TypeArgument(Node):
     """A positional or named argument in a type expression."""
@@ -521,7 +542,7 @@ class OrderItem(Node):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class WindowSpec(Node):
-    """A source-located inline window specification."""
+    """A source-located authored window-component bundle."""
 
     partition_by: tuple[Expression, ...]
     order_by: tuple[OrderItem, ...]
@@ -532,7 +553,7 @@ class WindowSpec(Node):
     )
 
     def __post_init__(self) -> None:
-        """Enforce the immutable, non-empty window-spec shape."""
+        """Enforce the immutable component tuple and frame shapes."""
 
         if type(self.partition_by) is not tuple:
             raise TypeError("partition_by must be an exact tuple")
@@ -544,21 +565,48 @@ class WindowSpec(Node):
             raise TypeError("order_by items must be OrderItem instances")
         if type(self.frame) is not AuthoredWindowFrame:
             raise TypeError("window frame must be an exact AuthoredWindowFrame")
-        if (
-            not self.partition_by
-            and not self.order_by
-            and self.frame.kind is AuthoredWindowFrameKind.OMITTED
-        ):
-            raise ValueError("window spec requires partition_by or order_by")
+
+    @property
+    def has_components(self) -> bool:
+        """Whether this bundle explicitly authors any component."""
+
+        return bool(
+            self.partition_by
+            or self.order_by
+            or self.frame.kind is not AuthoredWindowFrameKind.OMITTED
+        )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NamedWindowDeclaration(Node):
+    """One query-local named-window declaration in exact source order."""
+
+    name: str
+    base: NamedWindowReference | None
+    spec: WindowSpec | None
+
+    def __post_init__(self) -> None:
+        if type(self.name) is not str:
+            raise TypeError("named-window declaration name must be an exact string")
+        if not self.name:
+            raise ValueError("named-window declaration name must be nonempty")
+        if self.base is not None and type(self.base) is not NamedWindowReference:
+            raise TypeError("named-window declaration base must be exact or absent")
+        if self.spec is not None and type(self.spec) is not WindowSpec:
+            raise TypeError("named-window declaration spec must be exact or absent")
+        if self.spec is not None and not self.spec.has_components:
+            raise ValueError("named-window declaration colon blocks must be nonempty")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class WindowExpr(Expression):
-    """A direct call paired with its inline window specification."""
+    """A direct call paired with one authored inline or named window use."""
 
     call: CallExpr
     spec: WindowSpec
     identity: _window_identity.WindowFunctionIdentity
+    use_kind: WindowUseKind = WindowUseKind.INLINE
+    base: NamedWindowReference | None = None
 
     def __post_init__(self) -> None:
         """Enforce the indivisible parsed window-expression shape."""
@@ -569,6 +617,20 @@ class WindowExpr(Expression):
             raise TypeError("spec must be a WindowSpec")
         if type(self.identity) is not _window_identity.WindowFunctionIdentity:
             raise TypeError("identity must be a WindowFunctionIdentity")
+        if type(self.use_kind) is not WindowUseKind:
+            raise TypeError("window use kind must be an exact WindowUseKind")
+        if self.base is not None and type(self.base) is not NamedWindowReference:
+            raise TypeError("window use base must be exact or absent")
+        if self.use_kind is WindowUseKind.INLINE:
+            if self.base is not None or not self.spec.has_components:
+                raise ValueError("inline window uses require only local components")
+        elif self.base is None:
+            raise ValueError("named window uses require one exact base reference")
+        elif self.use_kind is WindowUseKind.NAMED_DIRECT:
+            if self.spec.has_components:
+                raise ValueError("direct named-window uses forbid local components")
+        elif not self.spec.has_components:
+            raise ValueError("extended named-window uses require local components")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -598,6 +660,13 @@ class TableDef(Node):
     limit_clause: LimitClause | None = None
     satisfying_clause: SatisfyingClause | None = None
     let_clause: LetClause | None = None
+    named_windows: tuple[NamedWindowDeclaration, ...] = ()
+
+    def __post_init__(self) -> None:
+        if type(self.named_windows) is not tuple or any(
+            type(item) is not NamedWindowDeclaration for item in self.named_windows
+        ):
+            raise TypeError("table named windows must be an exact declaration tuple")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -613,6 +682,13 @@ class QueryDef(Node):
     limit_clause: LimitClause | None = None
     satisfying_clause: SatisfyingClause | None = None
     let_clause: LetClause | None = None
+    named_windows: tuple[NamedWindowDeclaration, ...] = ()
+
+    def __post_init__(self) -> None:
+        if type(self.named_windows) is not tuple or any(
+            type(item) is not NamedWindowDeclaration for item in self.named_windows
+        ):
+            raise TypeError("query named windows must be an exact declaration tuple")
 
 
 Definition = (

@@ -248,6 +248,22 @@ def type_relation_expressions(
         )
         let_value_types = relation_let_value_types.get(definition)
         let_expressions = relation_let_expressions.get(definition)
+        named_window_namespace_failed = False
+        if definition.named_windows:
+            from pietto.semantic.window_analysis import (
+                named_window_resolution_diagnostics,
+            )
+            from pietto.semantic.window_semantics import (
+                NamedWindowResolutionFailure,
+                resolve_named_window_namespace,
+            )
+
+            named_window_namespace = resolve_named_window_namespace(definition)
+            if type(named_window_namespace) is NamedWindowResolutionFailure:
+                diagnostics.extend(
+                    named_window_resolution_diagnostics(named_window_namespace)
+                )
+                named_window_namespace_failed = True
         selected_output_names = tuple(
             _relation_projection_output_name(item) for item in definition.select_items
         )
@@ -279,6 +295,8 @@ def type_relation_expressions(
             )
         for selected_output_ordinal, item in enumerate(definition.select_items):
             if type(item.expression) is WindowExpr:
+                if named_window_namespace_failed:
+                    continue
                 from pietto.semantic.window_analysis import (
                     analyze_window_expression,
                 )
