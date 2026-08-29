@@ -14,6 +14,7 @@ from pietto import _window_identity
 from pietto.ast_nodes import (
     Annotation,
     AuthoredWindowFrame,
+    AuthoredWindowFrameExclusion,
     AuthoredWindowFrameKind,
     BetweenExpr,
     BinaryExpr,
@@ -617,12 +618,23 @@ class AstBuilder(PiettoVisitor):
             unit = WindowFrameUnit.RANGE
         else:
             unit = WindowFrameUnit.GROUPS
+        exclusion = AuthoredWindowFrameExclusion.OMITTED
+        if ctx.EXCLUDE() is not None:
+            if ctx.NO() is not None:
+                exclusion = AuthoredWindowFrameExclusion.NO_OTHERS
+            elif ctx.CURRENT() is not None:
+                exclusion = AuthoredWindowFrameExclusion.CURRENT_ROW
+            elif ctx.GROUP() is not None:
+                exclusion = AuthoredWindowFrameExclusion.GROUP
+            else:
+                exclusion = AuthoredWindowFrameExclusion.TIES
         if ctx.BETWEEN() is None:
             assert len(bounds) == 1
             return AuthoredWindowFrame(
                 kind=AuthoredWindowFrameKind.SHORTHAND,
                 unit=unit,
                 start=bounds[0],
+                exclusion=exclusion,
             )
         assert len(bounds) == 2
         return AuthoredWindowFrame(
@@ -630,6 +642,7 @@ class AstBuilder(PiettoVisitor):
             unit=unit,
             start=bounds[0],
             end=bounds[1],
+            exclusion=exclusion,
         )
 
     def visitFrameBound(self, ctx: _AntlrContext) -> WindowFrameBound:

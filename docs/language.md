@@ -158,7 +158,8 @@ query ranked:
 The current bounded window identities are `row_number`, `rank`, `dense_rank`,
 `percent_rank`, `cume_dist`, `ntile`, `lag`, and `lead`. Partition and local
 order items preserve source order, duplicates, qualification, and direction.
-Window specifications recognize authored ROWS, RANGE, and GROUPS forms:
+Window specifications recognize authored ROWS, RANGE, and GROUPS forms with
+optional EXCLUDE:
 
 ```pietto
 rows 2 preceding
@@ -167,17 +168,22 @@ range 2 preceding
 range between 2 preceding and current row
 groups 2 preceding
 groups between 2 preceding and current row
+rows between 2 preceding and 2 following exclude current row
+range current row exclude ties
+groups current row exclude group
 ```
 
 Bounds may use `unbounded preceding`, an expression plus `preceding`, `current
 row`, an expression plus `following`, or `unbounded following`. The current
-eight window identities are frame-insensitive, so any explicit ROWS, RANGE, or GROUPS frame is
-rejected by function/frame policy until Slice 9 introduces a legal
-frame-sensitive caller. RANGE offsets require one ordering key and retain
-direction-aware ordering/type evidence without evaluating it. GROUPS uses
-canonical peer groups supplied by typed comparison evidence. EXCLUDE, named windows, `QUALIFY`,
-arbitrary nesting, and window expressions in unsupported clauses remain
-rejected.
+eight window identities are frame-insensitive, so any explicit ROWS, RANGE, or
+GROUPS frame, including EXCLUDE, is rejected by function/frame policy until
+Slice 9 introduces a legal frame-sensitive caller. RANGE offsets require one
+ordering key and retain direction-aware ordering/type evidence without
+evaluating it. GROUPS uses canonical peer groups supplied by typed comparison
+evidence. EXCLUDE supports `no others`, `current row`, `group`, and `ties` as
+a removal-only membership filter after base-frame clipping. Named windows,
+`QUALIFY`, arbitrary nesting, and window expressions in unsupported clauses
+remain rejected.
 
 ## Modules and relationships
 

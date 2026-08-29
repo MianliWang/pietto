@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
+from itertools import chain
 
 from pietto._window_identity import WindowFunctionIdentity
 from pietto.ast_nodes import (
@@ -842,8 +844,6 @@ def rows_frame_position_interval(
     resolved = frame.resolved
     if resolved.unit is not WindowFrameUnit.ROWS:
         raise ValueError("ROWS interval evaluation requires ROWS frame semantics")
-    if resolved.exclusion is not WindowFrameExclusion.NO_OTHERS:
-        raise ValueError("ROWS base-frame evaluation requires EXCLUDE NO OTHERS")
     assert resolved.start is not None
     assert resolved.end is not None
     raw_start = _rows_frame_bound_position(
@@ -1281,6 +1281,232 @@ def _peer_groups_from_comparisons(
     )
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ExcludedFrameMembershipView:
+    """Lazy post-clipping frame membership after one exact exclusion."""
+
+    specification: ValidatedWindowSpecification
+    partition_size: int
+    base_positions: range
+    current_position: int
+    peers: PeerGroupPartition | None
+    spans: tuple[range, ...]
+
+    def __post_init__(self) -> None:
+        _validate_frame_exclusion_base(
+            self.specification,
+            partition_size=self.partition_size,
+            base_positions=self.base_positions,
+            current_position=self.current_position,
+        )
+        exclusion = _validated_frame_exclusion(self.specification)
+        if exclusion in {WindowFrameExclusion.GROUP, WindowFrameExclusion.TIES}:
+            if type(self.peers) is not PeerGroupPartition:
+                raise TypeError("GROUP and TIES require canonical peer authority")
+            _require_matching_peer_authority(
+                self.specification,
+                partition_size=self.partition_size,
+                authority=self.peers,
+            )
+        elif self.peers is not None:
+            raise ValueError("NO OTHERS and CURRENT ROW forbid unused peer authority")
+        if type(self.spans) is not tuple or any(
+            type(span) is not range or span.step != 1 for span in self.spans
+        ):
+            raise TypeError("excluded frame spans must be an exact unit-range tuple")
+        expected = _excluded_frame_spans(
+            self.base_positions,
+            current_position=self.current_position,
+            exclusion=exclusion,
+            peers=self.peers,
+        )
+        if self.spans != expected:
+            raise ValueError(
+                "excluded frame spans must be complete, ordered, and exact"
+            )
+
+    @property
+    def frame(self) -> ValidatedFrame:
+        """Return the unchanged validated frame evidence."""
+
+        frame = self.specification.frame
+        assert type(frame) is ValidatedFrame
+        return frame
+
+    @property
+    def current_peer_group(self) -> PeerGroupInterval | None:
+        """Return the canonical current group only when exclusion needs peers."""
+
+        if self.peers is None:
+            return None
+        return self.peers.group_for_position(self.current_position)
+
+    @property
+    def positions(self) -> Iterator[int]:
+        """Iterate retained physical positions without materializing rows."""
+
+        return chain.from_iterable(self.spans)
+
+    @property
+    def empty(self) -> bool:
+        """Whether exclusion removed every clipped base-frame position."""
+
+        return not self.spans
+
+
+def exclude_frame_membership(
+    specification: ValidatedWindowSpecification,
+    *,
+    partition_size: int,
+    base_positions: range,
+    current_position: int,
+    peer_authority: PeerGroupPartition | PeerGroupConstructionFailure | None = None,
+) -> ExcludedFrameMembershipView | PeerGroupConstructionFailure:
+    """Apply exclusion to one already clipped contiguous base-frame span."""
+
+    _validate_frame_exclusion_base(
+        specification,
+        partition_size=partition_size,
+        base_positions=base_positions,
+        current_position=current_position,
+    )
+    if peer_authority is not None and type(peer_authority) not in {
+        PeerGroupPartition,
+        PeerGroupConstructionFailure,
+    }:
+        raise TypeError("frame exclusion peer authority must be exact or absent")
+
+    exclusion = _validated_frame_exclusion(specification)
+    peers: PeerGroupPartition | None = None
+    if exclusion in {WindowFrameExclusion.GROUP, WindowFrameExclusion.TIES}:
+        if peer_authority is None:
+            raise TypeError("GROUP and TIES require canonical peer authority")
+        _require_matching_peer_authority(
+            specification,
+            partition_size=partition_size,
+            authority=peer_authority,
+        )
+        if type(peer_authority) is PeerGroupConstructionFailure:
+            return peer_authority
+        assert type(peer_authority) is PeerGroupPartition
+        peers = peer_authority
+
+    return ExcludedFrameMembershipView(
+        specification=specification,
+        partition_size=partition_size,
+        base_positions=base_positions,
+        current_position=current_position,
+        peers=peers,
+        spans=_excluded_frame_spans(
+            base_positions,
+            current_position=current_position,
+            exclusion=exclusion,
+            peers=peers,
+        ),
+    )
+
+
+def _validate_frame_exclusion_base(
+    specification: ValidatedWindowSpecification,
+    *,
+    partition_size: int,
+    base_positions: range,
+    current_position: int,
+) -> None:
+    if type(specification) is not ValidatedWindowSpecification:
+        raise TypeError("frame exclusion requires an exact validated specification")
+    if type(specification.frame) is not ValidatedFrame:
+        raise ValueError("frame exclusion requires applicable frame semantics")
+    if type(partition_size) is not int:
+        raise TypeError("frame exclusion partition size must be an exact integer")
+    if partition_size <= 0:
+        raise ValueError("frame exclusion partition size must be positive")
+    if type(base_positions) is not range or base_positions.step != 1:
+        raise TypeError("frame exclusion base positions must be one exact unit range")
+    if not 0 <= base_positions.start <= partition_size or not (
+        0 <= base_positions.stop <= partition_size
+    ):
+        raise ValueError("frame exclusion base span must use partition boundaries")
+    if type(current_position) is not int:
+        raise TypeError("frame exclusion current position must be an exact integer")
+    if not 0 <= current_position < partition_size:
+        raise ValueError(
+            "frame exclusion current position must belong to the partition"
+        )
+
+
+def _validated_frame_exclusion(
+    specification: ValidatedWindowSpecification,
+) -> WindowFrameExclusion:
+    frame = specification.frame
+    assert type(frame) is ValidatedFrame
+    exclusion = frame.resolved.exclusion
+    assert type(exclusion) is WindowFrameExclusion
+    return exclusion
+
+
+def _require_matching_peer_authority(
+    specification: ValidatedWindowSpecification,
+    *,
+    partition_size: int,
+    authority: PeerGroupPartition | PeerGroupConstructionFailure,
+) -> None:
+    if authority.partition_size != partition_size:
+        raise ValueError("frame exclusion and peers must use the same partition size")
+    if authority.order_by is not specification.resolved.order_by:
+        raise ValueError("frame exclusion and peers must share exact ordering evidence")
+
+
+def _excluded_frame_spans(
+    base_positions: range,
+    *,
+    current_position: int,
+    exclusion: WindowFrameExclusion,
+    peers: PeerGroupPartition | None,
+) -> tuple[range, ...]:
+    if exclusion is WindowFrameExclusion.NO_OTHERS:
+        return (base_positions,) if base_positions else ()
+    if exclusion is WindowFrameExclusion.CURRENT_ROW:
+        return _subtract_position_span(
+            base_positions,
+            current_position,
+            current_position + 1,
+        )
+
+    assert peers is not None
+    group = peers.group_for_position(current_position)
+    if exclusion is WindowFrameExclusion.GROUP:
+        return _subtract_position_span(base_positions, group.start, group.stop)
+
+    spans = _subtract_position_span(base_positions, group.start, current_position)
+    return tuple(
+        retained
+        for span in spans
+        for retained in _subtract_position_span(span, current_position + 1, group.stop)
+    )
+
+
+def _subtract_position_span(
+    base_positions: range,
+    removed_start: int,
+    removed_stop: int,
+) -> tuple[range, ...]:
+    if not base_positions:
+        return ()
+    cut_start = max(base_positions.start, removed_start)
+    cut_stop = min(base_positions.stop, removed_stop)
+    if cut_start >= cut_stop:
+        return (base_positions,)
+    return tuple(
+        span
+        for span in (
+            range(base_positions.start, cut_start),
+            range(cut_stop, base_positions.stop),
+        )
+        if span
+    )
+
+
 def range_frame_logical_view(
     specification: ValidatedWindowSpecification,
 ) -> RangeFrameLogicalView | RangeOffsetOrderingFailure:
@@ -1342,8 +1568,6 @@ def _require_range_specification(
         raise ValueError("RANGE semantics require an applicable validated frame")
     if frame.resolved.unit is not WindowFrameUnit.RANGE:
         raise ValueError("RANGE semantics require a RANGE frame")
-    if frame.resolved.exclusion is not WindowFrameExclusion.NO_OTHERS:
-        raise ValueError("RANGE base semantics require EXCLUDE NO OTHERS")
 
 
 def _range_offset_bounds(
@@ -1433,8 +1657,6 @@ class GroupsFrameLogicalView:
             raise ValueError("GROUPS semantics require an applicable validated frame")
         if frame.resolved.unit is not WindowFrameUnit.GROUPS:
             raise ValueError("GROUPS semantics require a GROUPS frame")
-        if frame.resolved.exclusion is not WindowFrameExclusion.NO_OTHERS:
-            raise ValueError("GROUPS base semantics require EXCLUDE NO OTHERS")
         if type(self.peers) is not PeerGroupPartition:
             raise TypeError("GROUPS semantics require exact peer groups")
         if self.peers.order_by is not self.specification.resolved.order_by:

@@ -455,10 +455,7 @@ def test_rows_semantics_remain_exact_after_range_addition() -> None:
     assert tuple(interval.positions) == (1, 2, 3)
 
 
-def test_exclude_and_later_function_ownership_remain_unreachable() -> None:
-    parsed = parse_source(_source("range current row exclude ties"))
-    assert parsed.ast is None
-    assert parsed.diagnostics
+def test_later_function_ownership_remains_unreachable() -> None:
     current = {
         identity.name for identity, _policy in window_analysis._RANKING_POLICIES
     } | {definition[0].name for definition in window_analysis._DISTRIBUTION_FUNCTIONS}

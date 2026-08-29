@@ -18,12 +18,13 @@ documentation does not supersede that evidence.
 | Slice 3 | `COMPLETED` |
 | Slice 4 | `COMPLETED` |
 | Slice 5 | `COMPLETED` |
-| Slice 6 | `CURRENT` |
-| Slice 7 | `NEXT / UNSTARTED` |
-| Next | `PHASE60_SLICE7_EXCLUDE_SEMANTICS` |
+| Slice 6 | `COMPLETED` |
+| Slice 7 | `CURRENT` |
+| Slice 8 | `NEXT / UNSTARTED` |
+| Next | `PHASE60_SLICE8_QUERY_LOCAL_NAMED_WINDOWS` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
-completed by live Git and successful natural exact-head CI. Slices 1-5 are
-completed, and Slice 6 is the current Phase 60 peer/GROUPS infrastructure
-owner. Live Git and natural exact-head CI own Slice 6 completion; no post-CI
-status-flip commit is required. This status does not authorize Slice 7.
+completed by live Git and successful natural exact-head CI. Slices 1-6 are
+completed, and Slice 7 is the current Phase 60 EXCLUDE infrastructure owner.
+Live Git and natural exact-head CI own Slice 7 completion; no post-CI
+status-flip commit is required. This status does not authorize Slice 8.

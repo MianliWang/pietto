@@ -526,6 +526,10 @@ def test_candidate_b_global_window_and_contextual_keyword_policy_is_locked() -> 
         "UNBOUNDED",
         "PRECEDING",
         "FOLLOWING",
+        "EXCLUDE",
+        "NO",
+        "OTHERS",
+        "TIES",
     ):
         assert grammar.index(f"{token}: '{token.lower()}';") < identifier_token
     identifier_start = grammar.index("\nidentifier\n") + 1
@@ -545,6 +549,10 @@ def test_candidate_b_global_window_and_contextual_keyword_policy_is_locked() -> 
             "UNBOUNDED",
             "PRECEDING",
             "FOLLOWING",
+            "EXCLUDE",
+            "NO",
+            "OTHERS",
+            "TIES",
         )
     )
     assert "WINDOW" not in identifier_rule
@@ -565,7 +573,7 @@ def test_combined_grammar_rules_and_token_order_are_exact() -> None:
         "partitionByClause : PARTITION BY COLON NEWLINE NEWLINE* INDENT windowPartitionBody DEDENT ;",
         "windowPartitionBody : NEWLINE* windowPartitionItem (windowPartitionItem | NEWLINE)* ;",
         "windowPartitionItem : expression NEWLINE ;",
-        "windowFrameClause : (ROWS | RANGE | GROUPS) (BETWEEN frameBound AND frameBound | frameBound) NEWLINE ;",
+        "windowFrameClause : (ROWS | RANGE | GROUPS) (BETWEEN frameBound AND frameBound | frameBound) (EXCLUDE (NO OTHERS | CURRENT ROW | GROUP | TIES))? NEWLINE ;",
         "frameBound : UNBOUNDED (PRECEDING | FOLLOWING) | CURRENT ROW | expression (PRECEDING | FOLLOWING) ;",
     ):
         assert rule in normalized, rule

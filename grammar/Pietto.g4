@@ -333,7 +333,8 @@ windowPartitionItem
     ;
 
 windowFrameClause
-    : (ROWS | RANGE | GROUPS) (BETWEEN frameBound AND frameBound | frameBound) NEWLINE
+    : (ROWS | RANGE | GROUPS) (BETWEEN frameBound AND frameBound | frameBound)
+      (EXCLUDE (NO OTHERS | CURRENT ROW | GROUP | TIES))? NEWLINE
     ;
 
 frameBound
@@ -459,6 +460,10 @@ identifier
     | UNBOUNDED
     | PRECEDING
     | FOLLOWING
+    | EXCLUDE
+    | NO
+    | OTHERS
+    | TIES
     | GROUP
     | LET
     | SATISFYING
@@ -524,6 +529,10 @@ ROW: 'row';
 UNBOUNDED: 'unbounded';
 PRECEDING: 'preceding';
 FOLLOWING: 'following';
+EXCLUDE: 'exclude';
+NO: 'no';
+OTHERS: 'others';
+TIES: 'ties';
 ENSURE: 'ensure';
 NULLABLE: 'nullable';
 AND: 'and';

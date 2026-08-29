@@ -334,7 +334,7 @@ def test_rows_nonnegative_integer_literal_distances_have_no_artificial_ceiling(
     assert (interval.start, interval.stop) == (2, expected_stop)
 
 
-def test_rows_base_frame_fails_closed_for_non_rows_and_owned_later_exclusion() -> None:
+def test_rows_base_frame_fails_closed_for_non_rows() -> None:
     expression = _window("rows current row")
     frame = expression.spec.frame
     range_authored = AuthoredWindowSpecification(
@@ -343,34 +343,23 @@ def test_rows_base_frame_fails_closed_for_non_rows_and_owned_later_exclusion() -
         order_by=expression.spec.order_by,
         frame=replace(frame, unit=WindowFrameUnit.RANGE),
     )
-    ties_authored = replace(
+    resolved = resolve_authored_window_specification(
         range_authored,
-        frame=replace(
-            frame,
-            exclusion=AuthoredWindowFrameExclusion.TIES,
-        ),
+        frame_applicability=window_semantics.WindowFrameApplicability.APPLICABLE,
     )
-    for authored, message in (
-        (range_authored, "requires ROWS frame semantics"),
-        (ties_authored, "requires EXCLUDE NO OTHERS"),
-    ):
-        resolved = resolve_authored_window_specification(
-            authored,
-            frame_applicability=window_semantics.WindowFrameApplicability.APPLICABLE,
+    result = validate_resolved_window_specification(
+        resolved,
+        function_identity=FRAME_IDENTITY,
+        function_policy=FRAME_POLICY,
+    )
+    assert type(result) is ValidatedWindowSpecification
+    assert type(result.frame) is ValidatedFrame
+    with pytest.raises(ValueError, match="requires ROWS frame semantics"):
+        rows_frame_position_interval(
+            result.frame,
+            partition_size=5,
+            current_position=2,
         )
-        result = validate_resolved_window_specification(
-            resolved,
-            function_identity=FRAME_IDENTITY,
-            function_policy=FRAME_POLICY,
-        )
-        assert type(result) is ValidatedWindowSpecification
-        assert type(result.frame) is ValidatedFrame
-        with pytest.raises(ValueError, match=message):
-            rows_frame_position_interval(
-                result.frame,
-                partition_size=5,
-                current_position=2,
-            )
 
 
 def test_rows_interval_is_frozen_lazy_range_state_without_member_list() -> None:
@@ -485,9 +474,9 @@ def test_new_frame_words_remain_contextual_identifiers_outside_frame_clause() ->
 
 @pytest.mark.parametrize(
     "frame",
-    ("rows current row exclude ties",),
+    ("exclude ties",),
 )
-def test_later_frame_surfaces_remain_unreachable(frame: str) -> None:
+def test_standalone_exclude_remains_unreachable(frame: str) -> None:
     parsed = parse_source(_source(frame))
     assert parsed.ast is None
     assert parsed.diagnostics
