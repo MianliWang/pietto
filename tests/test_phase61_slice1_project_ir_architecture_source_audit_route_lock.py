@@ -270,6 +270,8 @@ def test_live_pietto_authority_is_classified_and_relation_ir_is_unchanged() -> N
         "owner",
         "base_row_fact",
         "resolution",
+        "input_state",
+        "base_result_state",
         "state",
         "let_scope_facts",
         "let_bindings",

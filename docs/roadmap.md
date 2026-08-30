@@ -677,8 +677,9 @@ validation.
 Successful natural exact-head CI on the single Slice 6 completion commit
 completed the Interlude and handed off authority. Phase 60 subsequently
 completed all 13 Slices on successful natural exact-head CI. Phase 61 is now
-`ACTIVE`; Slices 1–4 are completed, the unnumbered Slice 5 output-identity
-readiness continuation is current, and Slice 5 remains next / unstarted.
+`ACTIVE`; Slices 1–4 and the unnumbered Slice 5 output-identity prerequisite
+are completed, the unnumbered intra-relation dataflow readiness continuation
+is current, and Slice 5 remains next / unstarted.
 
 ## Phase 60 route
 
@@ -855,9 +856,10 @@ historical authority.
 
 ## Phase 61 route
 
-Phase 61 is active. Slices 1–4 are completed, the unnumbered Slice 5
-output-identity readiness continuation is current, and Slice 5 remains next /
-unstarted. The frozen Phase 61 route still has exactly 12 slices.
+Phase 61 is active. Slices 1–4 and the unnumbered Slice 5 output-identity
+prerequisite are completed, the unnumbered intra-relation dataflow readiness
+continuation is current, and Slice 5 remains next / unstarted. The frozen Phase
+61 route still has exactly 12 slices.
 
 The exact owner is **Private target-independent Project Logical IR, exact
 semantic composition, and verifiable analysis boundary**.
@@ -949,9 +951,25 @@ new identity domain, fake lineage hop, route slice, SQL, or public behavior. The
 controlling contract is [Phase 61 Slice 5 output-identity authority readiness
 continuation](spec/phase61-slice5-output-identity-authority-readiness-continuation-v1.md).
 
-Successful natural exact-head CI on the continuation publication completes
-only that prerequisite without a status-only follow-up commit. Slice 5 remains
-next / unstarted and resumes as the sole next owner.
+Successful natural exact-head CI on that continuation publication completed
+the output-identity prerequisite without a status-only follow-up commit.
+
+The unnumbered intra-relation dataflow readiness continuation retains exact
+semantic `INPUT`, `BASE_RESULT`, and `FINAL` row checkpoints; separates
+plan-local stage fields/scalars from final module-semantic field identities;
+and adds exact operator-flow uses over the existing output/use/input-slot ref
+domains. Logical-stage formation now proves that operator tuple order agrees
+with one exact row-stream flow edge per adjacent operator pair, and preserved
+property transfers consume the exact predecessor reached through that flow.
+Semantic uses retain their separate provenance and source-order authority. It
+adds no allocator, canonical builder, upstream Project IR, cross-relation DAG,
+new module-semantic identity, route Slice, SQL, or public behavior. The
+controlling contract is [Phase 61 Slice 5 intra-relation dataflow readiness
+continuation](spec/phase61-slice5-intra-relation-dataflow-readiness-continuation-v1.md).
+
+Successful natural exact-head CI on this continuation publication completes
+only the second prerequisite without a status-only follow-up commit. Slice 5
+remains next / unstarted and resumes as the sole next owner.
 
 ## Retained later ownership
 

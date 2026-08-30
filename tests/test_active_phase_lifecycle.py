@@ -35,6 +35,10 @@ PHASE61_SLICE5_IDENTITY_CONTINUATION_SPEC = (
     REPO_ROOT
     / "docs/spec/phase61-slice5-output-identity-authority-readiness-continuation-v1.md"
 )
+PHASE61_SLICE5_DATAFLOW_CONTINUATION_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase61-slice5-intra-relation-dataflow-readiness-continuation-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -94,7 +98,8 @@ EXPECTED_STATUS = (
     ("Slice 2", "`COMPLETED`"),
     ("Slice 3", "`COMPLETED`"),
     ("Slice 4", "`COMPLETED`"),
-    ("Output-identity continuation", "`CURRENT`"),
+    ("Output-identity continuation", "`COMPLETED`"),
+    ("Intra-relation dataflow continuation", "`CURRENT`"),
     ("Slice 5", "`NEXT / UNSTARTED`"),
     (
         "Next",
@@ -117,9 +122,10 @@ EXPECTED_PHASE60_STATE = (
 )
 EXPECTED_PHASE60_OWNER = "Advanced Windows And Phase 51–60 Readiness Checkpoint"
 EXPECTED_PHASE61_STATE = (
-    "Phase 61 is active. Slices 1–4 are completed, the unnumbered Slice 5\n"
-    "output-identity readiness continuation is current, and Slice 5 remains next /\n"
-    "unstarted. The frozen Phase 61 route still has exactly 12 slices."
+    "Phase 61 is active. Slices 1–4 and the unnumbered Slice 5 output-identity\n"
+    "prerequisite are completed, the unnumbered intra-relation dataflow readiness\n"
+    "continuation is current, and Slice 5 remains next / unstarted. The frozen Phase\n"
+    "61 route still has exactly 12 slices."
 )
 EXPECTED_PHASE61_OWNER = (
     "Private target-independent Project Logical IR, exact semantic composition, "
@@ -617,6 +623,21 @@ EXPECTED_PHASE61_SLICE5_IDENTITY_CONTINUATION_CHANGED_PATHS = (
     "tests/test_phase61_slice5_output_identity_authority_readiness_continuation.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE61_SLICE5_DATAFLOW_CONTINUATION_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase61-slice5-intra-relation-dataflow-readiness-continuation-v1.md",
+    "docs/status.md",
+    "src/pietto/_project/module_semantic_fact_preservation.py",
+    "src/pietto/_project/project_ir.py",
+    "src/pietto/_project/project_ir_operators.py",
+    "src/pietto/_project/project_ir_properties.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase61_slice1_project_ir_architecture_source_audit_route_lock.py",
+    "tests/test_phase61_slice3_project_ir_row_output_properties_effects_estimate_boundary.py",
+    "tests/test_phase61_slice4_project_ir_current_logical_operator_algebra_exact_property_transfer.py",
+    "tests/test_phase61_slice5_intra_relation_dataflow_readiness_continuation.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -667,9 +688,12 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "Slice 2 is completed by live Git" in normalized
     assert "Slice 3 is completed by live Git" in normalized
     assert "Slice 4 is completed by live Git" in normalized
-    assert "output-identity readiness continuation is current" in normalized
+    assert "output-identity readiness continuation is completed" in normalized
+    assert "intra-relation dataflow readiness continuation is current" in normalized
     assert "Slice 5 remains next / unstarted" in normalized
-    assert "continuation publication completes only that prerequisite" in normalized
+    assert (
+        "continuation publication completes only the second prerequisite" in normalized
+    )
     assert "does not authorize the Slice 5 builder" in normalized
 
 
@@ -754,6 +778,12 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "complete semantic relation-output attribution",
         "grouped/aggregate/window lineage to remain deferred",
         "adds no Project IR builder, new identity domain",
+        "phase61-slice5-intra-relation-dataflow-readiness-continuation-v1.md",
+        "semantic `INPUT`, `BASE_RESULT`, and `FINAL` row checkpoints",
+        "plan-local stage fields/scalars",
+        "exact operator-flow uses",
+        "operator tuple order agrees",
+        "adds no allocator, canonical builder",
         "Slice 5 remains next / unstarted",
         "resumes as the sole next owner",
     ):
@@ -797,8 +827,12 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     )
     assert "Phase 60 subsequently completed all 13 Slices" in interlude_normalized
     assert "Phase 61 is now `ACTIVE`" in interlude_normalized
-    assert "Slices 1–4 are completed" in interlude_normalized
-    assert "output-identity readiness continuation is current" in interlude_normalized
+    assert "Slices 1–4 and the unnumbered Slice 5" in interlude_normalized
+    assert "output-identity prerequisite are completed" in interlude_normalized
+    assert (
+        "intra-relation dataflow readiness continuation is current"
+        in interlude_normalized
+    )
     assert "Slice 5 remains next / unstarted" in interlude_normalized
     assert len(EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS) == 4
     assert all(
@@ -954,6 +988,23 @@ def test_phase61_slice5_identity_continuation_rebinds_slice4_authority() -> None
         "Slices 1-4 = COMPLETED",
         "Slice 5 = NEXT / UNSTARTED",
         "This publication is an unnumbered prerequisite",
+    ):
+        assert evidence in document
+
+
+def test_phase61_slice5_dataflow_continuation_rebinds_identity_authority() -> None:
+    document = " ".join(
+        PHASE61_SLICE5_DATAFLOW_CONTINUATION_SPEC.read_text(encoding="utf-8").split()
+    )
+    for evidence in (
+        "cce7709f143de4eb5f9989cbbbd804fe08e71d74",
+        "e8bb0c2c2150d21692ac1da346d88b610eefa4fa",
+        "6359867c7e9c51d9b59bd23642d7bd2492b24862",
+        "Add complete Project relation output identities",
+        "33321099987",
+        "output-identity prerequisite = COMPLETED",
+        "intra-relation dataflow prerequisite = COMPLETED",
+        "Slice 5 remains next / unstarted",
     ):
         assert evidence in document
 
@@ -1376,6 +1427,35 @@ def test_phase61_slice5_identity_continuation_changed_paths_are_exact() -> None:
         "src/pietto/_project/module_attribution.py",
         "src/pietto/_project/module_inspection.py",
         "src/pietto/_project/module_package_neutral_identity.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+                "src/pietto/_project_explain/",
+                "src/pietto/ir/",
+                "src/pietto/sql/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase61_slice5_dataflow_continuation_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE61_SLICE5_DATAFLOW_CONTINUATION_CHANGED_PATHS
+    assert len(paths) == 13
+    assert len(set(paths)) == 13
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    production = tuple(path for path in paths if path.startswith("src/"))
+    assert production == (
+        "src/pietto/_project/module_semantic_fact_preservation.py",
+        "src/pietto/_project/project_ir.py",
+        "src/pietto/_project/project_ir_operators.py",
+        "src/pietto/_project/project_ir_properties.py",
     )
     assert not any(
         path.startswith(

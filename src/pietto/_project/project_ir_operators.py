@@ -17,6 +17,7 @@ from pietto._project.module_semantic_fact_preservation import (
 )
 from pietto._project.project_ir import (
     ProjectIRConcreteRelationSubject,
+    ProjectIROperatorFlowUseOccurrence,
     ProjectIRPlanNodeOccurrence,
     ProjectIRStructuralStage,
     _declaration_identity,
@@ -38,7 +39,11 @@ from pietto._project.project_ir_properties import (
     ProjectIRProvidedRelationOrdering,
     ProjectIRRelationRowOutput,
     ProjectIRRequiredRowShape,
+    ProjectIRRowShape,
     ProjectIRScalarFieldOutput,
+    ProjectIRStageRowCheckpointKind,
+    ProjectIRStageRowShape,
+    ProjectIRStageScalarFieldOutput,
     ProjectIRUnavailableProvidedProperty,
     _PROVIDED_PROPERTY_TYPES,
 )
@@ -315,6 +320,10 @@ def _same_property_semantics(
         scalar_output = cast(ProjectIRScalarFieldOutput, output_output)
         if input_output.field != scalar_output.field:
             return False
+    if type(input_output) is ProjectIRStageScalarFieldOutput:
+        scalar_output = cast(ProjectIRStageScalarFieldOutput, output_output)
+        if input_output.field != scalar_output.field:
+            return False
     if type(input_property) is ProjectIRProvidedOutputShape:
         return (
             type(output_property) is ProjectIRProvidedOutputShape
@@ -463,8 +472,116 @@ class ProjectIRLogicalOperatorStage:
                 raise ValueError(
                     "Concrete subject root must be the final logical stage."
                 )
+        self._validate_dataflow(evidences)
         self._validate_transfers()
         self._validate_compatibilities()
+
+    def _row_output(
+        self,
+        operator: ProjectIRLogicalOperatorOccurrence,
+    ) -> ProjectIRRelationRowOutput:
+        matches = tuple(
+            output
+            for output in self.property_stage.outputs
+            if type(output) is ProjectIRRelationRowOutput
+            and output.occurrence.producer is operator.node
+        )
+        if len(matches) != 1:
+            raise ValueError(
+                "Every logical operator requires one exact relation-row output."
+            )
+        return matches[0]
+
+    def _validate_operator_row_shape(
+        self,
+        operator: ProjectIRLogicalOperatorOccurrence,
+        output: ProjectIRRelationRowOutput,
+    ) -> None:
+        definition = operator.evidence.owner.definition
+        shape = output.row_shape
+        if type(definition) is SourceDef:
+            if type(shape) is not ProjectIRRowShape:
+                raise ValueError("Source input requires its final semantic row shape.")
+            return
+        if type(definition) not in {TableDef, QueryDef}:
+            raise TypeError("Operator row shape requires a current relation.")
+        expected = {
+            ProjectIRLogicalOperatorKind.RELATION_INPUT: (
+                ProjectIRStageRowCheckpointKind.INPUT
+            ),
+            ProjectIRLogicalOperatorKind.ROW_FILTER: (
+                ProjectIRStageRowCheckpointKind.INPUT
+            ),
+            ProjectIRLogicalOperatorKind.GROUP_AGGREGATE: (
+                ProjectIRStageRowCheckpointKind.BASE_RESULT
+            ),
+            ProjectIRLogicalOperatorKind.RESULT_FILTER: (
+                ProjectIRStageRowCheckpointKind.BASE_RESULT
+            ),
+            ProjectIRLogicalOperatorKind.WINDOW_EVALUATION: (
+                ProjectIRStageRowCheckpointKind.FINAL
+            ),
+        }.get(operator.kind)
+        if expected is None:
+            if type(shape) is not ProjectIRRowShape:
+                raise ValueError(
+                    "Final relation stages require the final semantic row shape."
+                )
+            return
+        if (
+            type(shape) is not ProjectIRStageRowShape
+            or shape.checkpoint.kind is not expected
+        ):
+            raise ValueError(
+                "Intermediate operator row shape must match its semantic checkpoint."
+            )
+
+    def _validate_dataflow(
+        self,
+        evidences: list[ProjectModuleRelationSemanticFacts],
+    ) -> None:
+        flow_uses = tuple(
+            use
+            for use in self.structural.uses
+            if type(use) is ProjectIROperatorFlowUseOccurrence
+        )
+        retained: list[ProjectIROperatorFlowUseOccurrence] = []
+        for evidence in evidences:
+            pipeline = tuple(
+                item for item in self.operators if item.evidence is evidence
+            )
+            row_outputs = tuple(self._row_output(item) for item in pipeline)
+            for operator, output in zip(pipeline, row_outputs, strict=True):
+                self._validate_operator_row_shape(operator, output)
+            first_incoming = tuple(
+                use for use in flow_uses if use.slot.consumer is pipeline[0].node
+            )
+            if first_incoming:
+                raise ValueError(
+                    "First logical operator cannot have a flow predecessor."
+                )
+            for previous, current, previous_output in zip(
+                pipeline,
+                pipeline[1:],
+                row_outputs,
+                strict=False,
+            ):
+                incoming = tuple(
+                    use for use in flow_uses if use.slot.consumer is current.node
+                )
+                if (
+                    len(incoming) != 1
+                    or incoming[0].output is not previous_output.occurrence
+                    or incoming[0].output.producer is not previous.node
+                ):
+                    raise ValueError(
+                        "Logical tuple order and operator-flow topology must agree."
+                    )
+                retained.append(incoming[0])
+        if len(retained) != len(flow_uses) or any(
+            not any(use is expected for expected in retained) for use in flow_uses
+        ):
+            raise ValueError("Operator-flow uses must connect exact adjacent stages.")
 
     def _validate_transfers(self) -> None:
         provided = self.property_stage.provided
@@ -483,14 +600,13 @@ class ProjectIRLogicalOperatorStage:
                     raise ValueError(
                         "Preserved input must be retained by the property stage."
                     )
-                previous = self._previous_operator(transfer.operator)
+                input_output = self._flow_predecessor_output(transfer.operator)
                 if (
-                    previous is None
-                    or transfer.input_property.output.occurrence.producer
-                    is not previous.node
+                    input_output is None
+                    or transfer.input_property.output is not input_output
                 ):
                     raise ValueError(
-                        "Preserved input must come from the preceding logical stage."
+                        "Preserved input must come from the exact flow predecessor."
                     )
             keys.append(
                 (
@@ -512,17 +628,29 @@ class ProjectIRLogicalOperatorStage:
                 "Every provided property requires one exact transfer proof."
             )
 
-    def _previous_operator(
+    def _flow_predecessor_output(
         self,
         operator: ProjectIRLogicalOperatorOccurrence,
-    ) -> ProjectIRLogicalOperatorOccurrence | None:
-        previous = None
-        for item in self.operators:
-            if item is operator:
-                return previous
-            if item.evidence is operator.evidence:
-                previous = item
-        raise ValueError("Transfer operator is not retained by the logical stage.")
+    ) -> ProjectIRRelationRowOutput | None:
+        incoming = tuple(
+            use
+            for use in self.structural.uses
+            if type(use) is ProjectIROperatorFlowUseOccurrence
+            and use.slot.consumer is operator.node
+        )
+        if not incoming:
+            return None
+        if len(incoming) != 1:
+            raise ValueError("Operator requires one exact flow predecessor.")
+        matches = tuple(
+            output
+            for output in self.property_stage.outputs
+            if type(output) is ProjectIRRelationRowOutput
+            and output.occurrence is incoming[0].output
+        )
+        if len(matches) != 1:
+            raise ValueError("Flow predecessor requires one exact row output model.")
+        return matches[0]
 
     def _validate_compatibilities(self) -> None:
         provided = self.property_stage.provided

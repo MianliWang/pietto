@@ -18,7 +18,8 @@ documentation does not supersede that evidence.
 | Slice 2 | `COMPLETED` |
 | Slice 3 | `COMPLETED` |
 | Slice 4 | `COMPLETED` |
-| Output-identity continuation | `CURRENT` |
+| Output-identity continuation | `COMPLETED` |
+| Intra-relation dataflow continuation | `CURRENT` |
 | Slice 5 | `NEXT / UNSTARTED` |
 | Next | `Phase 61 Slice 5 — Canonical Single-Relation Construction From Existing Project Semantic Facts` |
 
@@ -32,7 +33,9 @@ Git and successful natural exact-head CI on its single publication commit.
 Slice 3 is completed by live Git and successful natural exact-head CI on its
 single publication commit. Slice 4 is completed by live Git and successful
 natural exact-head CI on its single publication commit. The unnumbered Slice 5
-output-identity readiness continuation is current; Slice 5 remains next /
-unstarted. Successful natural exact-head CI on the continuation publication
-completes only that prerequisite without a status-only follow-up commit. This
-status does not authorize the Slice 5 builder.
+output-identity readiness continuation is completed by live Git and successful
+natural exact-head CI. The unnumbered intra-relation dataflow readiness
+continuation is current; Slice 5 remains next / unstarted. Successful natural
+exact-head CI on this continuation publication completes only the second
+prerequisite without a status-only follow-up commit. This status does not
+authorize the Slice 5 builder.

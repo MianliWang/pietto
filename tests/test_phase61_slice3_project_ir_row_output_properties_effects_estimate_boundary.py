@@ -371,6 +371,7 @@ def test_exact_ordered_row_shape_retains_field_identity_type_and_occurrences(
 ) -> None:
     case = _property_case(tmp_path)
     shape = case.relation_output.row_shape
+    assert type(shape) is properties.ProjectIRRowShape
     assert tuple(item.anchor.identity.field_position for item in shape.fields) == (0, 1)
     assert tuple(item.anchor.identity.name for item in shape.fields) == (
         "label",
@@ -458,9 +459,11 @@ def test_provided_and_required_domains_remain_separate_and_consumer_owned(
 ) -> None:
     case = _property_case(tmp_path)
     provided = properties.ProjectIRProvidedOutputShape(output=case.relation_output)
+    row_shape = case.relation_output.row_shape
+    assert type(row_shape) is properties.ProjectIRRowShape
     required = properties.ProjectIRRequiredRowShape(
         input_slot=case.input_slot,
-        row_shape=case.relation_output.row_shape,
+        row_shape=row_shape,
         authority=case.required_authority,
     )
     stage = properties.ProjectIRPropertyStage(

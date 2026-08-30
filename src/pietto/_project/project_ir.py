@@ -215,7 +215,6 @@ class ProjectIRResolvedFieldAnchor:
         object.__setattr__(self, "target", self.dependency.target_row_field)
 
 
-type ProjectIROutputAnchor = ProjectIRRelationAnchor | ProjectIRFieldAnchor
 type ProjectIRUseAnchor = ProjectIRResolvedRelationAnchor | ProjectIRResolvedFieldAnchor
 
 
@@ -231,6 +230,27 @@ class ProjectIRPlanNodeOccurrence:
             raise TypeError("Plan-node occurrence requires a plan-node ref.")
         if type(self.anchor) is not ProjectIRRelationAnchor:
             raise TypeError("Plan-node occurrence requires a relation anchor.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectIRStageFieldAnchor:
+    """Plan-local stage field seam without module-semantic field identity."""
+
+    producer: ProjectIRPlanNodeOccurrence
+    field_position: int
+
+    def __post_init__(self) -> None:
+        if type(self.producer) is not ProjectIRPlanNodeOccurrence:
+            raise TypeError("Stage field anchor requires an exact producer node.")
+        if type(self.field_position) is not int or self.field_position < 0:
+            raise TypeError(
+                "Stage field anchor position must be a non-negative integer."
+            )
+
+
+type ProjectIROutputAnchor = (
+    ProjectIRRelationAnchor | ProjectIRFieldAnchor | ProjectIRStageFieldAnchor
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -254,6 +274,9 @@ class ProjectIROutputValueOccurrence:
         elif type(self.anchor) is ProjectIRFieldAnchor:
             if self.anchor.identity.owner != self.producer.anchor.identity:
                 raise ValueError("Field output must belong to its producer relation.")
+        elif type(self.anchor) is ProjectIRStageFieldAnchor:
+            if self.anchor.producer is not self.producer:
+                raise ValueError("Stage field output must retain its exact producer.")
         else:
             raise TypeError("Output occurrence requires a typed output anchor.")
 
@@ -279,7 +302,7 @@ class ProjectIRInputSlotOccurrence:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectIRUseOccurrence:
-    """Exact producer-output to consumer-slot use occurrence."""
+    """Exact semantic producer-output to consumer-slot use occurrence."""
 
     ref: ProjectIRUseRef
     output: ProjectIROutputValueOccurrence
@@ -329,6 +352,39 @@ class ProjectIRUseOccurrence:
         """Expose the ordinal owned exactly once by the consumer slot."""
 
         return self.slot.input_ordinal
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectIROperatorFlowUseOccurrence:
+    """Exact intra-relation row-stream flow without semantic provenance."""
+
+    ref: ProjectIRUseRef
+    output: ProjectIROutputValueOccurrence
+    slot: ProjectIRInputSlotOccurrence
+
+    def __post_init__(self) -> None:
+        if type(self.ref) is not ProjectIRUseRef:
+            raise TypeError("Operator-flow use requires a use ref.")
+        if type(self.output) is not ProjectIROutputValueOccurrence:
+            raise TypeError("Operator-flow use requires an output occurrence.")
+        if type(self.slot) is not ProjectIRInputSlotOccurrence:
+            raise TypeError("Operator-flow use requires an input-slot occurrence.")
+        if not (self.ref.scope is self.output.ref.scope is self.slot.ref.scope):
+            raise ValueError("Operator-flow composition requires one snapshot scope.")
+        if type(self.output.anchor) is not ProjectIRRelationAnchor:
+            raise ValueError("Operator flow requires a relation-row output.")
+        if (
+            self.output.producer.anchor != self.slot.consumer.anchor
+            or self.output.producer is self.slot.consumer
+        ):
+            raise ValueError("Operator flow must remain within one relation.")
+        if self.slot.input_ordinal != 0:
+            raise ValueError("Operator-flow input ordinal must be zero.")
+
+
+type ProjectIRStructuralUseOccurrence = (
+    ProjectIRUseOccurrence | ProjectIROperatorFlowUseOccurrence
+)
 
 
 class ProjectIRRelationConstructionState(StrEnum):
@@ -479,6 +535,7 @@ type _ProjectIRStructuralOccurrence = (
     | ProjectIROutputValueOccurrence
     | ProjectIRInputSlotOccurrence
     | ProjectIRUseOccurrence
+    | ProjectIROperatorFlowUseOccurrence
 )
 
 
@@ -516,7 +573,7 @@ class ProjectIRStructuralStage:
     nodes: tuple[ProjectIRPlanNodeOccurrence, ...] = ()
     outputs: tuple[ProjectIROutputValueOccurrence, ...] = ()
     input_slots: tuple[ProjectIRInputSlotOccurrence, ...] = ()
-    uses: tuple[ProjectIRUseOccurrence, ...] = ()
+    uses: tuple[ProjectIRStructuralUseOccurrence, ...] = ()
     subjects: tuple[ProjectIRRelationSubject, ...] = ()
 
     def __post_init__(self) -> None:
@@ -537,7 +594,11 @@ class ProjectIRStructuralStage:
             ProjectIRInputSlotOccurrence,
             label="Input slots",
         )
-        _require_exact_tuple(self.uses, ProjectIRUseOccurrence, label="Uses")
+        _require_exact_tuple(
+            self.uses,
+            (ProjectIRUseOccurrence, ProjectIROperatorFlowUseOccurrence),
+            label="Uses",
+        )
         _require_exact_tuple(
             self.subjects,
             (
@@ -550,10 +611,13 @@ class ProjectIRStructuralStage:
         _validate_occurrence_order(self.outputs, self.scope, label="Output-value")
         _validate_occurrence_order(self.input_slots, self.scope, label="Input-slot")
         _validate_occurrence_order(self.uses, self.scope, label="Use")
-        if tuple(item.source_order for item in self.uses) != tuple(
-            range(len(self.uses))
+        semantic_uses = tuple(
+            item for item in self.uses if type(item) is ProjectIRUseOccurrence
+        )
+        if tuple(item.source_order for item in semantic_uses) != tuple(
+            range(len(semantic_uses))
         ):
-            raise ValueError("Use source order must be unique and ordered.")
+            raise ValueError("Semantic use source order must be unique and ordered.")
         if any(
             not any(output.producer is node for node in self.nodes)
             for output in self.outputs

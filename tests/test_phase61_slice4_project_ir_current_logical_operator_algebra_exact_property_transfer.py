@@ -18,13 +18,12 @@ from pietto._project import check as project_check
 from pietto._project.model import (
     ProjectRelationRowSchemaStatus,
     ProjectSemanticResult,
+    ProjectSymbolKind,
     build_empty_project_semantic_result,
 )
 from pietto._project.module_attribution import (
     ProjectDeclarationOccurrenceIdentity,
     ProjectModuleDependencyKind,
-    ProjectModuleRowFieldIdentity,
-    ProjectModuleRowFieldKind,
 )
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleFactOccurrenceRole,
@@ -181,18 +180,19 @@ def _row_shape(
     relation = _anchor(fact)
     attribution = semantic.module_attribution_facts
     assert attribution is not None
-    lineages = attribution.find_row_lineage(relation.identity)
-    assert len(lineages) == 1
     evidence = tuple(schema.fields.values())
-    identities = tuple(item.field for item in lineages[0].fields) or tuple(
-        ProjectModuleRowFieldIdentity(
-            owner=relation.identity,
-            kind=ProjectModuleRowFieldKind.RELATION_OUTPUT,
-            field_position=position,
-            name=field.name,
+    if fact.owner.identity.declaration_kind is ProjectSymbolKind.SOURCE:
+        identities = tuple(
+            item.source_field
+            for item in attribution.source_field_origins
+            if item.source_field.owner == relation.identity
         )
-        for position, field in enumerate(evidence)
-    )
+    else:
+        identities = tuple(
+            item.identity
+            for item in attribution.find_relation_output_fields(relation.identity)
+        )
+    assert len(identities) == len(evidence)
     return properties.ProjectIRRowShape(
         relation=relation,
         evidence=fact,
@@ -221,7 +221,7 @@ def _relation_output(
     scope: project_ir.ProjectIRSnapshotScope,
     position: int,
     node: project_ir.ProjectIRPlanNodeOccurrence,
-    shape: properties.ProjectIRRowShape,
+    shape: properties.ProjectIRCurrentRowShape,
 ) -> tuple[
     project_ir.ProjectIROutputValueOccurrence,
     properties.ProjectIRRelationRowOutput,
@@ -237,6 +237,126 @@ def _relation_output(
     )
 
 
+def _stage_shape(
+    fact: ProjectModuleRelationSemanticFacts,
+    kind: properties.ProjectIRStageRowCheckpointKind,
+) -> properties.ProjectIRStageRowShape:
+    checkpoint = properties.ProjectIRStageRowCheckpoint(
+        relation=_anchor(fact),
+        evidence=fact,
+        kind=kind,
+    )
+    schema = checkpoint.state.schema
+    assert schema is not None
+    return properties.ProjectIRStageRowShape(
+        checkpoint=checkpoint,
+        fields=tuple(
+            properties.ProjectIRStageRowField(
+                checkpoint=checkpoint,
+                field_position=position,
+                evidence=field,
+            )
+            for position, field in enumerate(schema.fields.values())
+        ),
+    )
+
+
+def _operator_shape(
+    fact: ProjectModuleRelationSemanticFacts,
+    final_shape: properties.ProjectIRRowShape,
+    kind: operators.ProjectIRLogicalOperatorKind,
+) -> properties.ProjectIRCurrentRowShape:
+    if fact.owner.identity.declaration_kind is ProjectSymbolKind.SOURCE:
+        return final_shape
+    checkpoint = {
+        operators.ProjectIRLogicalOperatorKind.RELATION_INPUT: (
+            properties.ProjectIRStageRowCheckpointKind.INPUT
+        ),
+        operators.ProjectIRLogicalOperatorKind.ROW_FILTER: (
+            properties.ProjectIRStageRowCheckpointKind.INPUT
+        ),
+        operators.ProjectIRLogicalOperatorKind.GROUP_AGGREGATE: (
+            properties.ProjectIRStageRowCheckpointKind.BASE_RESULT
+        ),
+        operators.ProjectIRLogicalOperatorKind.RESULT_FILTER: (
+            properties.ProjectIRStageRowCheckpointKind.BASE_RESULT
+        ),
+        operators.ProjectIRLogicalOperatorKind.WINDOW_EVALUATION: (
+            properties.ProjectIRStageRowCheckpointKind.FINAL
+        ),
+    }.get(kind)
+    return final_shape if checkpoint is None else _stage_shape(fact, checkpoint)
+
+
+@dataclass(frozen=True, slots=True)
+class _RowPipeline:
+    nodes: tuple[project_ir.ProjectIRPlanNodeOccurrence, ...]
+    output_occurrences: tuple[project_ir.ProjectIROutputValueOccurrence, ...]
+    row_outputs: tuple[properties.ProjectIRRelationRowOutput, ...]
+    input_slots: tuple[project_ir.ProjectIRInputSlotOccurrence, ...]
+    flow_uses: tuple[project_ir.ProjectIROperatorFlowUseOccurrence, ...]
+
+
+def _row_pipeline(
+    semantic: ProjectSemanticResult,
+    fact: ProjectModuleRelationSemanticFacts,
+    kinds: tuple[operators.ProjectIRLogicalOperatorKind, ...],
+    scope: project_ir.ProjectIRSnapshotScope,
+    *,
+    node_offset: int = 0,
+    output_offset: int = 0,
+    slot_offset: int = 0,
+    use_offset: int = 0,
+) -> _RowPipeline:
+    anchor = _anchor(fact)
+    nodes = tuple(
+        _node(scope, node_offset + position, anchor) for position in range(len(kinds))
+    )
+    final_shape = _row_shape(semantic, fact)
+    pairs = tuple(
+        _relation_output(
+            scope,
+            output_offset + position,
+            node,
+            _operator_shape(fact, final_shape, kind),
+        )
+        for position, (node, kind) in enumerate(zip(nodes, kinds, strict=True))
+    )
+    output_occurrences = tuple(item[0] for item in pairs)
+    row_outputs = tuple(item[1] for item in pairs)
+    input_slots = tuple(
+        project_ir.ProjectIRInputSlotOccurrence(
+            ref=project_ir.ProjectIRInputSlotRef(
+                scope=scope,
+                position=slot_offset + position,
+            ),
+            consumer=node,
+            input_ordinal=0,
+        )
+        for position, node in enumerate(nodes[1:])
+    )
+    flow_uses = tuple(
+        project_ir.ProjectIROperatorFlowUseOccurrence(
+            ref=project_ir.ProjectIRUseRef(
+                scope=scope,
+                position=use_offset + position,
+            ),
+            output=output,
+            slot=slot,
+        )
+        for position, (output, slot) in enumerate(
+            zip(output_occurrences, input_slots, strict=False)
+        )
+    )
+    return _RowPipeline(
+        nodes=nodes,
+        output_occurrences=output_occurrences,
+        row_outputs=row_outputs,
+        input_slots=input_slots,
+        flow_uses=flow_uses,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _Pipeline:
     structural: project_ir.ProjectIRStructuralStage
@@ -246,26 +366,31 @@ class _Pipeline:
 
 
 def _empty_pipeline(
+    semantic: ProjectSemanticResult,
     fact: ProjectModuleRelationSemanticFacts,
     kinds: tuple[operators.ProjectIRLogicalOperatorKind, ...],
 ) -> _Pipeline:
     scope = project_ir.ProjectIRSnapshotScope()
+    rows = _row_pipeline(semantic, fact, kinds, scope)
     anchor = _anchor(fact)
-    nodes = tuple(_node(scope, position, anchor) for position in range(len(kinds)))
     structural = project_ir.ProjectIRStructuralStage(
         scope=scope,
-        nodes=nodes,
+        nodes=rows.nodes,
+        outputs=rows.output_occurrences,
+        input_slots=rows.input_slots,
+        uses=rows.flow_uses,
         subjects=(
             project_ir.ProjectIRConcreteRelationSubject(
                 anchor=anchor,
                 evidence=fact,
-                root=nodes[-1],
+                root=rows.nodes[-1],
             ),
         ),
     )
     property_stage = properties.ProjectIRPropertyStage(
         structural=structural,
         estimates=properties.ProjectIREstimateBoundary(scope=scope),
+        outputs=rows.row_outputs,
     )
     operator_occurrences = tuple(
         operators.ProjectIRLogicalOperatorOccurrence(
@@ -273,7 +398,7 @@ def _empty_pipeline(
             kind=kind,
             evidence=fact,
         )
-        for node, kind in zip(nodes, kinds, strict=True)
+        for node, kind in zip(rows.nodes, kinds, strict=True)
     )
     logical_stage = operators.ProjectIRLogicalOperatorStage(
         property_stage=property_stage,
@@ -358,7 +483,11 @@ def test_exact_eight_stage_algebra_retains_order_without_let_or_named_operators(
     definition = full.owner.definition
     assert definition.let_clause is not None  # type: ignore[union-attr]
     assert definition.named_windows  # type: ignore[union-attr]
-    pipeline = _empty_pipeline(full, tuple(operators.ProjectIRLogicalOperatorKind))
+    pipeline = _empty_pipeline(
+        semantic,
+        full,
+        tuple(operators.ProjectIRLogicalOperatorKind),
+    )
     assert tuple(item.kind for item in pipeline.logical_stage.operators) == tuple(
         operators.ProjectIRLogicalOperatorKind
     )
@@ -382,6 +511,7 @@ def test_absent_clauses_omit_nodes_and_source_input_is_one_logical_leaf(
 ) -> None:
     semantic = _semantic_project(tmp_path)
     consumer = _empty_pipeline(
+        semantic,
         _fact(semantic, "consumer"),
         (
             operators.ProjectIRLogicalOperatorKind.RELATION_INPUT,
@@ -390,6 +520,7 @@ def test_absent_clauses_omit_nodes_and_source_input_is_one_logical_leaf(
     )
     assert len(consumer.logical_stage.operators) == 2
     source = _empty_pipeline(
+        semantic,
         _fact(semantic, "rows"),
         (operators.ProjectIRLogicalOperatorKind.RELATION_INPUT,),
     )
@@ -401,8 +532,10 @@ def test_absent_clauses_omit_nodes_and_source_input_is_one_logical_leaf(
 def test_where_satisfying_and_combined_group_operator_are_nominally_distinct(
     tmp_path: Path,
 ) -> None:
+    semantic = _semantic_project(tmp_path)
     pipeline = _empty_pipeline(
-        _fact(_semantic_project(tmp_path), "full"),
+        semantic,
+        _fact(semantic, "full"),
         tuple(operators.ProjectIRLogicalOperatorKind),
     )
     kinds = tuple(item.kind for item in pipeline.operator_occurrences)
@@ -428,6 +561,7 @@ def test_empty_satisfying_dependency_ledger_is_exact_not_missing(
         if item.role is ProjectModuleFactOccurrenceRole.SATISFYING
     )
     pipeline = _empty_pipeline(
+        semantic,
         fact,
         (
             operators.ProjectIRLogicalOperatorKind.RELATION_INPUT,
@@ -449,13 +583,20 @@ def test_row_filter_preserves_only_exact_caller_supplied_properties(
     shape = _row_shape(semantic, fact)
     scope = project_ir.ProjectIRSnapshotScope()
     anchor = shape.relation
-    nodes = tuple(_node(scope, position, anchor) for position in range(3))
-    first_occurrence, first_output = _relation_output(scope, 0, nodes[0], shape)
-    second_occurrence, second_output = _relation_output(scope, 1, nodes[1], shape)
+    kinds = (
+        operators.ProjectIRLogicalOperatorKind.RELATION_INPUT,
+        operators.ProjectIRLogicalOperatorKind.ROW_FILTER,
+        operators.ProjectIRLogicalOperatorKind.FINAL_PROJECTION,
+    )
+    rows = _row_pipeline(semantic, fact, kinds, scope)
+    nodes = rows.nodes
+    first_output, second_output = rows.row_outputs[:2]
     structural = project_ir.ProjectIRStructuralStage(
         scope=scope,
         nodes=nodes,
-        outputs=(first_occurrence, second_occurrence),
+        outputs=rows.output_occurrences,
+        input_slots=rows.input_slots,
+        uses=rows.flow_uses,
         subjects=(
             project_ir.ProjectIRConcreteRelationSubject(
                 anchor=anchor,
@@ -477,13 +618,8 @@ def test_row_filter_preserves_only_exact_caller_supplied_properties(
     property_stage = properties.ProjectIRPropertyStage(
         structural=structural,
         estimates=properties.ProjectIREstimateBoundary(scope=scope),
-        outputs=(first_output, second_output),
+        outputs=rows.row_outputs,
         provided=(*first_properties, *second_properties),
-    )
-    kinds = (
-        operators.ProjectIRLogicalOperatorKind.RELATION_INPUT,
-        operators.ProjectIRLogicalOperatorKind.ROW_FILTER,
-        operators.ProjectIRLogicalOperatorKind.FINAL_PROJECTION,
     )
     operator_occurrences = tuple(
         operators.ProjectIRLogicalOperatorOccurrence(
@@ -589,11 +725,20 @@ def test_one_operator_retains_distinct_relation_and_scalar_output_transfers(
     fact = _fact(semantic, "filtered")
     shape = _row_shape(semantic, fact)
     scope = project_ir.ProjectIRSnapshotScope()
-    nodes = tuple(_node(scope, position, shape.relation) for position in range(3))
-    input_occurrence, input_output = _relation_output(scope, 0, nodes[0], shape)
-    relation_occurrence, relation_output = _relation_output(scope, 1, nodes[2], shape)
+    kinds = (
+        operators.ProjectIRLogicalOperatorKind.RELATION_INPUT,
+        operators.ProjectIRLogicalOperatorKind.ROW_FILTER,
+        operators.ProjectIRLogicalOperatorKind.FINAL_PROJECTION,
+    )
+    rows = _row_pipeline(semantic, fact, kinds, scope)
+    nodes = rows.nodes
+    input_output = rows.row_outputs[0]
+    relation_output = rows.row_outputs[-1]
     scalar_occurrence = project_ir.ProjectIROutputValueOccurrence(
-        ref=project_ir.ProjectIROutputValueRef(scope=scope, position=2),
+        ref=project_ir.ProjectIROutputValueRef(
+            scope=scope,
+            position=len(rows.output_occurrences),
+        ),
         producer=nodes[2],
         anchor=shape.fields[0].anchor,
     )
@@ -605,7 +750,9 @@ def test_one_operator_retains_distinct_relation_and_scalar_output_transfers(
     structural = project_ir.ProjectIRStructuralStage(
         scope=scope,
         nodes=nodes,
-        outputs=(input_occurrence, relation_occurrence, scalar_occurrence),
+        outputs=(*rows.output_occurrences, scalar_occurrence),
+        input_slots=rows.input_slots,
+        uses=rows.flow_uses,
         subjects=(
             project_ir.ProjectIRConcreteRelationSubject(
                 anchor=shape.relation,
@@ -620,13 +767,8 @@ def test_one_operator_retains_distinct_relation_and_scalar_output_transfers(
     property_stage = properties.ProjectIRPropertyStage(
         structural=structural,
         estimates=properties.ProjectIREstimateBoundary(scope=scope),
-        outputs=(input_output, relation_output, scalar_output),
+        outputs=(*rows.row_outputs, scalar_output),
         provided=(input_shape, relation_shape, scalar_shape),
-    )
-    kinds = (
-        operators.ProjectIRLogicalOperatorKind.RELATION_INPUT,
-        operators.ProjectIRLogicalOperatorKind.ROW_FILTER,
-        operators.ProjectIRLogicalOperatorKind.FINAL_PROJECTION,
     )
     operator_occurrences = tuple(
         operators.ProjectIRLogicalOperatorOccurrence(
@@ -672,13 +814,22 @@ def test_relation_ordering_and_limit_establish_exact_ungrouped_properties(
     shape = _row_shape(semantic, fact)
     scope = project_ir.ProjectIRSnapshotScope()
     anchor = shape.relation
-    nodes = tuple(_node(scope, position, anchor) for position in range(4))
-    order_occurrence, order_output = _relation_output(scope, 0, nodes[2], shape)
-    limit_occurrence, limit_output = _relation_output(scope, 1, nodes[3], shape)
+    kinds = (
+        operators.ProjectIRLogicalOperatorKind.RELATION_INPUT,
+        operators.ProjectIRLogicalOperatorKind.FINAL_PROJECTION,
+        operators.ProjectIRLogicalOperatorKind.RELATION_ORDERING,
+        operators.ProjectIRLogicalOperatorKind.LIMIT,
+    )
+    rows = _row_pipeline(semantic, fact, kinds, scope)
+    nodes = rows.nodes
+    order_output = rows.row_outputs[2]
+    limit_output = rows.row_outputs[3]
     structural = project_ir.ProjectIRStructuralStage(
         scope=scope,
         nodes=nodes,
-        outputs=(order_occurrence, limit_occurrence),
+        outputs=rows.output_occurrences,
+        input_slots=rows.input_slots,
+        uses=rows.flow_uses,
         subjects=(
             project_ir.ProjectIRConcreteRelationSubject(
                 anchor=anchor,
@@ -709,15 +860,9 @@ def test_relation_ordering_and_limit_establish_exact_ungrouped_properties(
     property_stage = properties.ProjectIRPropertyStage(
         structural=structural,
         estimates=properties.ProjectIREstimateBoundary(scope=scope),
-        outputs=(order_output, limit_output),
+        outputs=rows.row_outputs,
         provided=(order_property, cardinality, retained_order),
         effects=(effect,),
-    )
-    kinds = (
-        operators.ProjectIRLogicalOperatorKind.RELATION_INPUT,
-        operators.ProjectIRLogicalOperatorKind.FINAL_PROJECTION,
-        operators.ProjectIRLogicalOperatorKind.RELATION_ORDERING,
-        operators.ProjectIRLogicalOperatorKind.LIMIT,
     )
     operator_occurrences = tuple(
         operators.ProjectIRLogicalOperatorOccurrence(
@@ -767,27 +912,40 @@ def _compatibility_stage(
     consumer_shape = _row_shape(semantic, consumer)
     consumer_anchor = consumer_shape.relation
     scope = project_ir.ProjectIRSnapshotScope()
-    filtered_nodes = tuple(
-        _node(scope, position, filtered_shape.relation) for position in range(3)
+    filtered_kinds = (
+        operators.ProjectIRLogicalOperatorKind.RELATION_INPUT,
+        operators.ProjectIRLogicalOperatorKind.ROW_FILTER,
+        operators.ProjectIRLogicalOperatorKind.FINAL_PROJECTION,
     )
-    consumer_nodes = tuple(
-        _node(scope, position + 3, consumer_anchor) for position in range(2)
+    consumer_kinds = (
+        operators.ProjectIRLogicalOperatorKind.RELATION_INPUT,
+        operators.ProjectIRLogicalOperatorKind.FINAL_PROJECTION,
     )
+    filtered_rows = _row_pipeline(
+        semantic,
+        filtered,
+        filtered_kinds,
+        scope,
+    )
+    consumer_rows = _row_pipeline(
+        semantic,
+        consumer,
+        consumer_kinds,
+        scope,
+        node_offset=len(filtered_rows.nodes),
+        output_offset=len(filtered_rows.output_occurrences),
+        slot_offset=len(filtered_rows.input_slots),
+        use_offset=len(filtered_rows.flow_uses),
+    )
+    filtered_nodes = filtered_rows.nodes
+    consumer_nodes = consumer_rows.nodes
     nodes = (*filtered_nodes, *consumer_nodes)
-    filtered_occurrence, filtered_output = _relation_output(
-        scope,
-        0,
-        filtered_nodes[-1],
-        filtered_shape,
-    )
-    consumer_occurrence, consumer_output = _relation_output(
-        scope,
-        1,
-        consumer_nodes[-1],
-        consumer_shape,
-    )
+    filtered_output = filtered_rows.row_outputs[-1]
     input_slot = project_ir.ProjectIRInputSlotOccurrence(
-        ref=project_ir.ProjectIRInputSlotRef(scope=scope, position=0),
+        ref=project_ir.ProjectIRInputSlotRef(
+            scope=scope,
+            position=len(filtered_rows.input_slots) + len(consumer_rows.input_slots),
+        ),
         consumer=consumer_nodes[0],
         input_ordinal=0,
     )
@@ -806,8 +964,11 @@ def _compatibility_stage(
         dependency=dependency,
     )
     use = project_ir.ProjectIRUseOccurrence(
-        ref=project_ir.ProjectIRUseRef(scope=scope, position=0),
-        output=filtered_occurrence,
+        ref=project_ir.ProjectIRUseRef(
+            scope=scope,
+            position=len(filtered_rows.flow_uses) + len(consumer_rows.flow_uses),
+        ),
+        output=filtered_rows.output_occurrences[-1],
         slot=input_slot,
         role=ProjectModuleFactOccurrenceRole.RELATION_INPUT,
         source_order=0,
@@ -816,9 +977,16 @@ def _compatibility_stage(
     structural = project_ir.ProjectIRStructuralStage(
         scope=scope,
         nodes=nodes,
-        outputs=(filtered_occurrence, consumer_occurrence),
-        input_slots=(input_slot,),
-        uses=(use,),
+        outputs=(
+            *filtered_rows.output_occurrences,
+            *consumer_rows.output_occurrences,
+        ),
+        input_slots=(
+            *filtered_rows.input_slots,
+            *consumer_rows.input_slots,
+            input_slot,
+        ),
+        uses=(*filtered_rows.flow_uses, *consumer_rows.flow_uses, use),
         subjects=(
             project_ir.ProjectIRConcreteRelationSubject(
                 anchor=filtered_shape.relation,
@@ -841,17 +1009,11 @@ def _compatibility_stage(
     property_stage = properties.ProjectIRPropertyStage(
         structural=structural,
         estimates=properties.ProjectIREstimateBoundary(scope=scope),
-        outputs=(filtered_output, consumer_output),
+        outputs=(*filtered_rows.row_outputs, *consumer_rows.row_outputs),
         provided=(provided,),
         required=(required,),
     )
-    kinds = (
-        operators.ProjectIRLogicalOperatorKind.RELATION_INPUT,
-        operators.ProjectIRLogicalOperatorKind.ROW_FILTER,
-        operators.ProjectIRLogicalOperatorKind.FINAL_PROJECTION,
-        operators.ProjectIRLogicalOperatorKind.RELATION_INPUT,
-        operators.ProjectIRLogicalOperatorKind.FINAL_PROJECTION,
-    )
+    kinds = (*filtered_kinds, *consumer_kinds)
     evidences = (filtered, filtered, filtered, consumer, consumer)
     operator_occurrences = tuple(
         operators.ProjectIRLogicalOperatorOccurrence(
@@ -914,8 +1076,13 @@ def test_row_shape_compatibility_is_exact_consumer_side_and_fail_closed(
 def test_operator_stage_rejects_foreign_duplicate_missing_and_wrong_order(
     tmp_path: Path,
 ) -> None:
-    fact = _fact(_semantic_project(tmp_path), "full")
-    pipeline = _empty_pipeline(fact, tuple(operators.ProjectIRLogicalOperatorKind))
+    semantic = _semantic_project(tmp_path)
+    fact = _fact(semantic, "full")
+    pipeline = _empty_pipeline(
+        semantic,
+        fact,
+        tuple(operators.ProjectIRLogicalOperatorKind),
+    )
     original = pipeline.operator_occurrences
     duplicate = replace(original[1], node=original[0].node)
     with pytest.raises(ValueError, match="cannot select an operator winner"):

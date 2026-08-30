@@ -1112,6 +1112,8 @@ class ProjectModuleRelationSemanticFacts:
     owner: ProjectDeclarationOccurrence
     base_row_fact: ProjectModuleRelationRowFact
     resolution: ProjectResolvedModuleRelationReference | None
+    input_state: ProjectRelationRowSchemaState | None
+    base_result_state: ProjectRelationRowSchemaState | None
     state: ProjectRelationRowSchemaState
     let_scope_facts: ProjectRelationLetScopeFacts | None
     let_bindings: tuple[ProjectModuleLetBindingFact, ...] = ()
@@ -1140,6 +1142,14 @@ class ProjectModuleRelationSemanticFacts:
             and type(self.resolution) is not ProjectResolvedModuleRelationReference
         ):
             raise TypeError("Relation semantic resolution must be exact.")
+        if self.input_state is not None and (
+            type(self.input_state) is not ProjectRelationRowSchemaState
+        ):
+            raise TypeError("Relation semantic input state must be exact.")
+        if self.base_result_state is not None and (
+            type(self.base_result_state) is not ProjectRelationRowSchemaState
+        ):
+            raise TypeError("Relation semantic base-result state must be exact.")
         if type(self.state) is not ProjectRelationRowSchemaState:
             raise TypeError("Relation semantic facts require an exact state.")
         if (
@@ -1208,6 +1218,8 @@ class ProjectModuleRelationSemanticFacts:
             if any(
                 (
                     self.resolution is not None,
+                    self.input_state is not None,
+                    self.base_result_state is not None,
                     self.let_scope_facts is not None,
                     bool(self.let_bindings),
                     bool(self.select_facts),
@@ -1224,6 +1236,17 @@ class ProjectModuleRelationSemanticFacts:
             return
         if type(definition) not in {TableDef, QueryDef}:
             raise ValueError("Relation semantic facts require a relation definition.")
+        if self.base_result_state is None:
+            raise ValueError("Derived semantic facts require a base-result state.")
+        if self.state.status is ProjectRelationRowSchemaStatus.CONCRETE and (
+            self.input_state is None
+            or self.input_state.status is not ProjectRelationRowSchemaStatus.CONCRETE
+            or self.base_result_state.status
+            is not ProjectRelationRowSchemaStatus.CONCRETE
+        ):
+            raise ValueError(
+                "Concrete derived semantic facts require concrete row checkpoints."
+            )
 
         derived = cast(_DerivedRelation, definition)
         if derived.named_windows:
@@ -2003,11 +2026,23 @@ def _validate_relation_window_fact_set_closure(
     if type(definition) is SourceDef:
         if relation.window_outputs:
             raise ValueError("Source relation cannot retain window outputs.")
+        if relation.input_state is not None or relation.base_result_state is not None:
+            raise ValueError("Source relation cannot retain derived row checkpoints.")
         if relation.state is not pre_window_state:
             raise ValueError("Source relation must retain its exact base state.")
         return
     if type(definition) not in {TableDef, QueryDef}:
         raise ValueError("Window closure requires an exact relation definition.")
+    expected_input_state = None if upstream is None else upstream.state
+    if relation.input_state is not expected_input_state and not (
+        relation.input_state is None
+        and relation.state.status is not ProjectRelationRowSchemaStatus.CONCRETE
+    ):
+        raise ValueError("Derived relation must retain its exact input row checkpoint.")
+    if relation.base_result_state is not pre_window_state:
+        raise ValueError(
+            "Derived relation must retain its exact base-result row checkpoint."
+        )
     derived = cast(_DerivedRelation, definition)
     window_state = (
         pre_window_state
@@ -2345,6 +2380,8 @@ def _build_project_module_semantic_fact_set(
                         owner=owner,
                         base_row_fact=base_row_fact,
                         resolution=None,
+                        input_state=None,
+                        base_result_state=None,
                         state=base_row_fact.state,
                         let_scope_facts=None,
                     )
@@ -2611,6 +2648,7 @@ def _build_derived_relation_facts(
                 owner=owner,
                 base_row_fact=base_row_fact,
                 resolution=resolution,
+                input_state=None,
                 state=state,
                 let_scope=let_scope,
                 group_key_occurrences=group_key_occurrences,
@@ -2635,6 +2673,7 @@ def _build_derived_relation_facts(
                 owner=owner,
                 base_row_fact=base_row_fact,
                 resolution=resolution,
+                input_state=upstream.state,
                 state=state,
                 let_scope=let_scope,
                 group_key_occurrences=group_key_occurrences,
@@ -2756,6 +2795,8 @@ def _build_derived_relation_facts(
             owner=owner,
             base_row_fact=base_row_fact,
             resolution=resolution,
+            input_state=upstream.state,
+            base_result_state=base_state,
             state=state,
             let_scope_facts=let_scope,
             let_bindings=let_bindings,
@@ -2777,6 +2818,7 @@ def _nonconcrete_relation_facts(
     owner: ProjectDeclarationOccurrence,
     base_row_fact: ProjectModuleRelationRowFact,
     resolution: ProjectResolvedModuleRelationReference | None,
+    input_state: ProjectRelationRowSchemaState | None,
     state: ProjectRelationRowSchemaState,
     let_scope: ProjectRelationLetScopeFacts,
     group_key_occurrences: tuple[GroupByItem, ...],
@@ -2822,6 +2864,8 @@ def _nonconcrete_relation_facts(
         owner=owner,
         base_row_fact=base_row_fact,
         resolution=resolution,
+        input_state=input_state,
+        base_result_state=state,
         state=state,
         let_scope_facts=let_scope,
         let_bindings=let_bindings,

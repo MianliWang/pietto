@@ -8,6 +8,7 @@ from typing import Never, cast
 
 from pietto._project.model import (
     ProjectRelationRowSchemaStatus,
+    ProjectRelationRowSchemaState,
     ProjectRowField,
 )
 from pietto._project.module_semantic_fact_preservation import (
@@ -25,7 +26,9 @@ from pietto._project.project_ir import (
     ProjectIRRelationAnchor,
     ProjectIRResolvedRelationAnchor,
     ProjectIRSnapshotScope,
+    ProjectIRStageFieldAnchor,
     ProjectIRStructuralStage,
+    ProjectIRUseOccurrence,
     _declaration_identity,
     _require_exact_tuple,
 )
@@ -97,6 +100,119 @@ class ProjectIRRowShape:
             )
 
 
+class ProjectIRStageRowCheckpointKind(StrEnum):
+    """Exact semantic checkpoints used by current intermediate row stages."""
+
+    INPUT = "input"
+    BASE_RESULT = "base_result"
+    FINAL = "final"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectIRStageRowCheckpoint:
+    """One exact semantic row checkpoint for a plan-local stage row."""
+
+    relation: ProjectIRRelationAnchor
+    evidence: ProjectModuleRelationSemanticFacts = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    kind: ProjectIRStageRowCheckpointKind
+    state: ProjectRelationRowSchemaState = field(init=False)
+
+    def __post_init__(self) -> None:
+        if type(self.relation) is not ProjectIRRelationAnchor:
+            raise TypeError("Stage row checkpoint requires a relation anchor.")
+        if type(self.evidence) is not ProjectModuleRelationSemanticFacts:
+            raise TypeError("Stage row checkpoint requires exact semantic evidence.")
+        if type(self.kind) is not ProjectIRStageRowCheckpointKind:
+            raise TypeError("Stage row checkpoint requires an exact kind.")
+        if _declaration_identity(self.evidence.owner) != self.relation.identity:
+            raise ValueError("Stage row checkpoint must match its relation owner.")
+        state = {
+            ProjectIRStageRowCheckpointKind.INPUT: self.evidence.input_state,
+            ProjectIRStageRowCheckpointKind.BASE_RESULT: (
+                self.evidence.base_result_state
+            ),
+            ProjectIRStageRowCheckpointKind.FINAL: self.evidence.state,
+        }[self.kind]
+        if state is None:
+            raise ValueError("Stage row checkpoint is unavailable for this relation.")
+        object.__setattr__(self, "state", state)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectIRStageRowField:
+    """One positional stage field with exact checkpoint/type evidence."""
+
+    checkpoint: ProjectIRStageRowCheckpoint
+    field_position: int
+    evidence: ProjectRowField = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if type(self.checkpoint) is not ProjectIRStageRowCheckpoint:
+            raise TypeError("Stage row field requires an exact checkpoint.")
+        if type(self.field_position) is not int or self.field_position < 0:
+            raise TypeError("Stage row field position must be non-negative.")
+        if type(self.evidence) is not ProjectRowField:
+            raise TypeError("Stage row field requires exact field evidence.")
+        schema = self.checkpoint.state.schema
+        if (
+            self.checkpoint.state.status is not ProjectRelationRowSchemaStatus.CONCRETE
+            or schema is None
+        ):
+            raise ValueError("Stage row field requires a concrete checkpoint.")
+        fields = tuple(schema.fields.values())
+        if (
+            self.field_position >= len(fields)
+            or fields[self.field_position] is not self.evidence
+        ):
+            raise ValueError("Stage row field must retain exact checkpoint order.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectIRStageRowShape:
+    """Complete plan-local row shape at one exact semantic checkpoint."""
+
+    checkpoint: ProjectIRStageRowCheckpoint
+    fields: tuple[ProjectIRStageRowField, ...] = ()
+
+    def __post_init__(self) -> None:
+        if type(self.checkpoint) is not ProjectIRStageRowCheckpoint:
+            raise TypeError("Stage row shape requires an exact checkpoint.")
+        _require_exact_tuple(self.fields, ProjectIRStageRowField, label="Stage fields")
+        if any(item.checkpoint is not self.checkpoint for item in self.fields):
+            raise ValueError("Stage row fields must retain the exact checkpoint.")
+        if tuple(item.field_position for item in self.fields) != tuple(
+            range(len(self.fields))
+        ):
+            raise ValueError("Stage row fields must retain exact position order.")
+        schema = self.checkpoint.state.schema
+        if (
+            self.checkpoint.state.status is not ProjectRelationRowSchemaStatus.CONCRETE
+            or schema is None
+        ):
+            raise ValueError("Stage row shape requires a concrete checkpoint.")
+        schema_fields = tuple(schema.fields.values())
+        if len(self.fields) != len(schema_fields) or any(
+            item.evidence is not expected
+            for item, expected in zip(self.fields, schema_fields, strict=True)
+        ):
+            raise ValueError("Stage row shape must retain complete field evidence.")
+
+    @property
+    def relation(self) -> ProjectIRRelationAnchor:
+        return self.checkpoint.relation
+
+    @property
+    def evidence(self) -> ProjectModuleRelationSemanticFacts:
+        return self.checkpoint.evidence
+
+
+type ProjectIRCurrentRowShape = ProjectIRRowShape | ProjectIRStageRowShape
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectIRScalarFieldOutput:
     """Current scalar field output without a permanent ExpressionIR equation."""
@@ -122,17 +238,43 @@ class ProjectIRScalarFieldOutput:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectIRStageScalarFieldOutput:
+    """Plan-local scalar value distinct from a final semantic field export."""
+
+    occurrence: ProjectIROutputValueOccurrence
+    row_shape: ProjectIRStageRowShape
+    field: ProjectIRStageRowField
+
+    def __post_init__(self) -> None:
+        if type(self.occurrence) is not ProjectIROutputValueOccurrence:
+            raise TypeError("Stage scalar output requires an output occurrence.")
+        if type(self.row_shape) is not ProjectIRStageRowShape:
+            raise TypeError("Stage scalar output requires a stage row shape.")
+        if type(self.field) is not ProjectIRStageRowField:
+            raise TypeError("Stage scalar output requires a stage row field.")
+        anchor = self.occurrence.anchor
+        if (
+            type(anchor) is not ProjectIRStageFieldAnchor
+            or anchor.producer is not self.occurrence.producer
+            or anchor.field_position != self.field.field_position
+            or self.field.checkpoint is not self.row_shape.checkpoint
+            or self.occurrence.producer.anchor != self.row_shape.relation
+        ):
+            raise ValueError("Stage scalar output must retain its exact stage field.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectIRRelationRowOutput:
     """Current BAG relation output with one exact ordered row shape."""
 
     occurrence: ProjectIROutputValueOccurrence
-    row_shape: ProjectIRRowShape
+    row_shape: ProjectIRCurrentRowShape
 
     def __post_init__(self) -> None:
         if type(self.occurrence) is not ProjectIROutputValueOccurrence:
             raise TypeError("Relation output requires an output-value occurrence.")
-        if type(self.row_shape) is not ProjectIRRowShape:
-            raise TypeError("Relation output requires an exact row shape.")
+        if type(self.row_shape) not in {ProjectIRRowShape, ProjectIRStageRowShape}:
+            raise TypeError("Relation output requires a typed current row shape.")
         if (
             type(self.occurrence.anchor) is not ProjectIRRelationAnchor
             or self.occurrence.anchor != self.row_shape.relation
@@ -140,7 +282,11 @@ class ProjectIRRelationRowOutput:
             raise ValueError("Relation output must retain its exact relation anchor.")
 
 
-type ProjectIRCurrentOutput = ProjectIRScalarFieldOutput | ProjectIRRelationRowOutput
+type ProjectIRCurrentOutput = (
+    ProjectIRScalarFieldOutput
+    | ProjectIRStageScalarFieldOutput
+    | ProjectIRRelationRowOutput
+)
 
 
 class ProjectIRProvidedPropertySlot(StrEnum):
@@ -369,7 +515,7 @@ class ProjectIRProvidedCardinalityUpperBound:
 class ProjectIRProvidedEvaluationPolicy:
     """Exact existing window policy evidence, separate from effect evidence."""
 
-    output: ProjectIRScalarFieldOutput
+    output: ProjectIRScalarFieldOutput | ProjectIRStageScalarFieldOutput
     evidence: ProjectModuleWindowOutputFact = field(
         repr=False,
         compare=False,
@@ -378,12 +524,23 @@ class ProjectIRProvidedEvaluationPolicy:
     policy: WindowFunctionFramePolicy = field(init=False)
 
     def __post_init__(self) -> None:
-        if type(self.output) is not ProjectIRScalarFieldOutput:
+        if type(self.output) not in {
+            ProjectIRScalarFieldOutput,
+            ProjectIRStageScalarFieldOutput,
+        }:
             raise TypeError("Evaluation policy requires a scalar field output.")
         if type(self.evidence) is not ProjectModuleWindowOutputFact:
             raise TypeError("Evaluation policy requires exact window evidence.")
         project_fact = self.evidence.project_fact
-        field_identity = self.output.field.anchor.identity
+        if type(self.output) is ProjectIRScalarFieldOutput:
+            field_owner = self.output.field.anchor.identity.owner
+            field_position = self.output.field.anchor.identity.field_position
+            field_name = self.output.field.anchor.identity.name
+        else:
+            stage_output = cast(ProjectIRStageScalarFieldOutput, self.output)
+            field_owner = stage_output.row_shape.relation.identity
+            field_position = stage_output.field.field_position
+            field_name = stage_output.field.evidence.name
         if (
             self.evidence.status is not ProjectModuleCandidateBucketStatus.CONCRETE
             or project_fact is None
@@ -391,9 +548,9 @@ class ProjectIRProvidedEvaluationPolicy:
                 item is self.evidence
                 for item in self.output.row_shape.evidence.window_outputs
             )
-            or _declaration_identity(self.evidence.owner) != field_identity.owner
-            or self.evidence.selected_output_ordinal != field_identity.field_position
-            or self.evidence.output_name != field_identity.name
+            or _declaration_identity(self.evidence.owner) != field_owner
+            or self.evidence.selected_output_ordinal != field_position
+            or self.evidence.output_name != field_name
         ):
             raise ValueError(
                 "Evaluation policy must match exact concrete output evidence."
@@ -555,7 +712,11 @@ class ProjectIREstimateBoundary:
             raise ValueError("Current Project IR has no legitimate estimate producer.")
 
 
-_CURRENT_OUTPUT_TYPES = (ProjectIRScalarFieldOutput, ProjectIRRelationRowOutput)
+_CURRENT_OUTPUT_TYPES = (
+    ProjectIRScalarFieldOutput,
+    ProjectIRStageScalarFieldOutput,
+    ProjectIRRelationRowOutput,
+)
 _PROVIDED_PROPERTY_TYPES = (
     ProjectIRProvidedOutputShape,
     ProjectIRProvidedBagMultiplicity,
@@ -663,6 +824,7 @@ class ProjectIRPropertyStage:
         if any(
             not any(
                 use.slot is item.input_slot
+                and type(use) is ProjectIRUseOccurrence
                 and type(use.anchor) is ProjectIRResolvedRelationAnchor
                 and use.anchor is item.authority
                 for use in self.structural.uses
