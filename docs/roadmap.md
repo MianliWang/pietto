@@ -677,9 +677,9 @@ validation.
 Successful natural exact-head CI on the single Slice 6 completion commit
 completed the Interlude and handed off authority. Phase 60 subsequently
 completed all 13 Slices on successful natural exact-head CI. Phase 61 is now
-`ACTIVE`; Slices 1–4 and both unnumbered Slice 5 prerequisites are completed,
-Slice 5 canonical single-relation construction is current, and Slice 6 remains
-next / unstarted.
+`ACTIVE`; Slices 1–5 and both unnumbered Slice 5 prerequisites are completed,
+Slice 6 cross-module composition is current, and Slice 7 remains next /
+unstarted.
 
 ## Phase 60 route
 
@@ -856,10 +856,9 @@ historical authority.
 
 ## Phase 61 route
 
-Phase 61 is active. Slices 1–4 and both unnumbered Slice 5 prerequisites are
-completed, Slice 5 canonical single-relation construction is current, and
-Slice 6 remains next / unstarted. The frozen Phase 61 route still has exactly
-12 slices.
+Phase 61 is active. Slices 1–5 and both unnumbered Slice 5 prerequisites are
+completed, Slice 6 cross-module composition is current, and Slice 7 remains
+next / unstarted. The frozen Phase 61 route still has exactly 12 slices.
 
 The exact owner is **Private target-independent Project Logical IR, exact
 semantic composition, and verifiable analysis boundary**.
@@ -986,7 +985,26 @@ contract is [Phase 61 Slice 5 canonical single-relation Project IR
 construction](spec/phase61-slice5-canonical-single-relation-project-ir-construction-v1.md).
 
 Successful natural exact-head CI on the single Slice 5 publication commit
-completes Slice 5 without a status-only follow-up commit. Slice 6 remains next /
+completed Slice 5 without a status-only follow-up commit.
+
+Slice 6 composes every retained relation semantic fact into same-snapshot Slice
+5 fragments in exact dependency-environment/source order, then appends one
+exact resolved relation-row use for every concrete derived consumer. The new
+private `src/pietto/_project/project_ir_composition.py` retains exact
+resolution/dependency/provenance authority, producer root and consumer Relation
+Input endpoints, owner-local semantic source order, provided/required row
+shapes, and `SATISFIED` compatibility. Its complete Project result preserves
+all concrete and non-concrete fragments, shared-producer distinct uses,
+disconnected components, and the final allocation continuation. The project
+structural stage reuses fragment objects and derives acyclicity only from actual
+uses; allocation order is not topological authority. Slice 6 adds no
+field-level duplicate edges, JOIN/grain/fanout, recursion, optimizer, verifier
+framework, inspection, SQL, or public behavior. The controlling contract is
+[Phase 61 Slice 6 cross-module relation composition and acyclic Project plan
+DAG](spec/phase61-slice6-cross-module-relation-composition-acyclic-project-plan-dag-v1.md).
+
+Successful natural exact-head CI on the single Slice 6 publication commit
+completes Slice 6 without a status-only follow-up commit. Slice 7 remains next /
 unstarted and is the sole next owner.
 
 ## Retained later ownership

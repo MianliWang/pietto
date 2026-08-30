@@ -43,6 +43,10 @@ PHASE61_SLICE5_SPEC = (
     REPO_ROOT
     / "docs/spec/phase61-slice5-canonical-single-relation-project-ir-construction-v1.md"
 )
+PHASE61_SLICE6_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase61-slice6-cross-module-relation-composition-acyclic-project-plan-dag-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -104,11 +108,12 @@ EXPECTED_STATUS = (
     ("Slice 4", "`COMPLETED`"),
     ("Output-identity continuation", "`COMPLETED`"),
     ("Intra-relation dataflow continuation", "`COMPLETED`"),
-    ("Slice 5", "`CURRENT`"),
+    ("Slice 5", "`COMPLETED`"),
+    ("Slice 6", "`CURRENT`"),
     (
         "Next",
-        "`Phase 61 Slice 6 — Cross-Module Relation Composition And Acyclic "
-        "Project Plan DAG`",
+        "`Phase 61 Slice 7 — Aggregate/Window Evaluation Context, Policy/Effect "
+        "Preservation, And No-Ambient Authority`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -126,10 +131,9 @@ EXPECTED_PHASE60_STATE = (
 )
 EXPECTED_PHASE60_OWNER = "Advanced Windows And Phase 51–60 Readiness Checkpoint"
 EXPECTED_PHASE61_STATE = (
-    "Phase 61 is active. Slices 1–4 and both unnumbered Slice 5 prerequisites are\n"
-    "completed, Slice 5 canonical single-relation construction is current, and\n"
-    "Slice 6 remains next / unstarted. The frozen Phase 61 route still has exactly\n"
-    "12 slices."
+    "Phase 61 is active. Slices 1–5 and both unnumbered Slice 5 prerequisites are\n"
+    "completed, Slice 6 cross-module composition is current, and Slice 7 remains\n"
+    "next / unstarted. The frozen Phase 61 route still has exactly 12 slices."
 )
 EXPECTED_PHASE61_OWNER = (
     "Private target-independent Project Logical IR, exact semantic composition, "
@@ -652,6 +656,16 @@ EXPECTED_PHASE61_SLICE5_CHANGED_PATHS = (
     "tests/test_phase61_slice5_canonical_single_relation_project_ir_construction.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE61_SLICE6_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase61-slice6-cross-module-relation-composition-acyclic-project-plan-dag-v1.md",
+    "docs/status.md",
+    "src/pietto/_project/project_ir.py",
+    "src/pietto/_project/project_ir_composition.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase61_slice6_cross_module_relation_composition_acyclic_project_plan_dag.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -706,9 +720,10 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert (
         "intra-relation dataflow readiness continuation is also completed" in normalized
     )
-    assert "Slice 5 canonical single-relation construction is current" in normalized
-    assert "single publication commit completes Slice 5" in normalized
-    assert "does not authorize Slice 6 implementation" in normalized
+    assert "Slice 5 canonical single-relation construction is completed" in normalized
+    assert "Slice 6 cross-module relation composition" in normalized
+    assert "single publication commit completes Slice 6" in normalized
+    assert "does not authorize Slice 7 implementation" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
@@ -803,7 +818,13 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "explicit immutable snapshot allocation state",
         "one row output per operator",
         "Non-concrete relations retain typed zero-allocation terminals",
-        "Slice 6 remains next / unstarted",
+        "phase61-slice6-cross-module-relation-composition-acyclic-project-plan-dag-v1.md",
+        "`src/pietto/_project/project_ir_composition.py`",
+        "dependency-environment/source order",
+        "exact resolved relation-row use",
+        "owner-local semantic source order",
+        "derives acyclicity only from actual uses",
+        "Slice 7 remains next / unstarted",
         "sole next owner",
     ):
         assert evidence in phase61_normalized
@@ -847,13 +868,10 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     assert "Phase 60 subsequently completed all 13 Slices" in interlude_normalized
     assert "Phase 61 is now `ACTIVE`" in interlude_normalized
     assert (
-        "Slices 1–4 and both unnumbered Slice 5 prerequisites" in interlude_normalized
+        "Slices 1–5 and both unnumbered Slice 5 prerequisites" in interlude_normalized
     )
-    assert (
-        "Slice 5 canonical single-relation construction is current"
-        in interlude_normalized
-    )
-    assert "Slice 6 remains next / unstarted" in interlude_normalized
+    assert "Slice 6 cross-module composition is current" in interlude_normalized
+    assert "Slice 7 remains next / unstarted" in interlude_normalized
     assert len(EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS) == 4
     assert all(
         (REPO_ROOT / path).is_file() for path in EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS
@@ -1040,6 +1058,21 @@ def test_phase61_slice5_rebinds_both_prerequisite_authorities() -> None:
         "output-identity authority readiness = COMPLETED",
         "intra-relation dataflow readiness = COMPLETED",
         "Slice 5 = NEXT / UNSTARTED",
+    ):
+        assert evidence in document
+
+
+def test_phase61_slice6_rebinds_exact_slice5_publication_authority() -> None:
+    document = " ".join(PHASE61_SLICE6_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "b9c9e38f809f911eb429e7284d377c2c205e548b",
+        "4273b06c631db9e609d0915d3880bc6b4ea3aaa6",
+        "1ac00344554967ba30f2e3bdff553ec63c2a4c12",
+        "Add Phase 61 single-relation Project IR builder",
+        "33337635343",
+        "Slices 1-5 = COMPLETED",
+        "both Slice 5 prerequisites = COMPLETED",
+        "Slice 6 = NEXT / UNSTARTED",
     ):
         assert evidence in document
 
@@ -1518,6 +1551,33 @@ def test_phase61_slice5_changed_paths_are_exact() -> None:
     assert production == (
         "src/pietto/_project/project_ir.py",
         "src/pietto/_project/project_ir_construction.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+                "src/pietto/_project_explain/",
+                "src/pietto/ir/",
+                "src/pietto/sql/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase61_slice6_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE61_SLICE6_CHANGED_PATHS
+    assert len(paths) == 8
+    assert len(set(paths)) == 8
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    production = tuple(path for path in paths if path.startswith("src/"))
+    assert production == (
+        "src/pietto/_project/project_ir.py",
+        "src/pietto/_project/project_ir_composition.py",
     )
     assert not any(
         path.startswith(

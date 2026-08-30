@@ -617,8 +617,23 @@ class ProjectIRStructuralStage:
         semantic_uses = tuple(
             item for item in self.uses if type(item) is ProjectIRUseOccurrence
         )
-        if tuple(item.source_order for item in semantic_uses) != tuple(
-            range(len(semantic_uses))
+        relation_uses_by_owner: dict[
+            ProjectDeclarationOccurrenceIdentity,
+            list[ProjectIRUseOccurrence],
+        ] = {}
+        other_semantic_uses: list[ProjectIRUseOccurrence] = []
+        for use in semantic_uses:
+            if use.role is ProjectModuleFactOccurrenceRole.RELATION_INPUT:
+                relation_uses_by_owner.setdefault(
+                    use.anchor.reference.owner, []
+                ).append(use)
+            else:
+                other_semantic_uses.append(use)
+        if any(
+            tuple(use.source_order for use in uses) != tuple(range(len(uses)))
+            for uses in relation_uses_by_owner.values()
+        ) or tuple(use.source_order for use in other_semantic_uses) != tuple(
+            range(len(other_semantic_uses))
         ):
             raise ValueError("Semantic use source order must be unique and ordered.")
         if any(
@@ -645,14 +660,8 @@ class ProjectIRStructuralStage:
         if len({use.slot.ref for use in self.uses}) != len(self.uses):
             raise ValueError("One input slot cannot select a use winner.")
         subject_keys = tuple(subject.anchor.identity for subject in self.subjects)
-        subject_order = tuple(
-            (identity.module_position, identity.declaration_position)
-            for identity in subject_keys
-        )
-        if len(set(subject_keys)) != len(subject_keys) or subject_order != tuple(
-            sorted(subject_order)
-        ):
-            raise ValueError("Relation subjects must be unique and source ordered.")
+        if len(set(subject_keys)) != len(subject_keys):
+            raise ValueError("Relation subjects must be unique.")
         if any(
             type(subject) is ProjectIRConcreteRelationSubject
             and not any(subject.root is node for node in self.nodes)
