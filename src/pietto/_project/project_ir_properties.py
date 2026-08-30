@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Never
+from typing import Never, cast
 
-from pietto._project.aggregate_grouped_clause_facts import (
-    ProjectAggregateGroupedClauseReadinessStatus,
-)
 from pietto._project.model import (
     ProjectRelationRowSchemaStatus,
     ProjectRowField,
@@ -32,7 +29,7 @@ from pietto._project.project_ir import (
     _declaration_identity,
     _require_exact_tuple,
 )
-from pietto.ast_nodes import GroupByItem, LiteralExpr, OrderItem
+from pietto.ast_nodes import GroupByItem, LiteralExpr, OrderItem, QueryDef, TableDef
 from pietto.semantic.relation_limits import MAX_RELATION_LIMIT
 from pietto.semantic.window_semantics import WindowFunctionFramePolicy
 
@@ -262,15 +259,34 @@ class ProjectIRProvidedRelationOrdering:
     def __post_init__(self) -> None:
         if type(self.output) is not ProjectIRRelationRowOutput:
             raise TypeError("Relation ordering requires a relation-row output.")
-        facts = _validate_clause_evidence(
+        _validate_relation_evidence(
             self.output,
             self.evidence,
-            role=ProjectModuleFactOccurrenceRole.GROUPED_ORDER,
             label="Relation-result ordering",
         )
-        items = tuple(item.source_occurrence for item in facts)
-        if any(type(item) is not OrderItem for item in items):
-            raise TypeError("Relation-result ordering requires exact order items.")
+        definition = self.evidence.owner.definition
+        if type(definition) not in {TableDef, QueryDef}:
+            raise TypeError("Relation-result ordering requires a derived relation.")
+        definition = cast(TableDef | QueryDef, definition)
+        clause = definition.order_by_clause
+        if clause is None:
+            raise ValueError("Relation-result ordering requires an exact order clause.")
+        _require_exact_tuple(clause.items, OrderItem, label="Relation-result ordering")
+        items = clause.items
+        if definition.group_by_clause is not None:
+            facts = _validate_clause_evidence(
+                self.output,
+                self.evidence,
+                role=ProjectModuleFactOccurrenceRole.GROUPED_ORDER,
+                label="Relation-result ordering",
+            )
+            if len(facts) != len(items) or any(
+                fact.source_occurrence is not item
+                for fact, item in zip(facts, items, strict=True)
+            ):
+                raise ValueError(
+                    "Relation-result ordering requires complete grouped evidence."
+                )
         object.__setattr__(self, "items", items)
 
     @property
@@ -329,17 +345,11 @@ class ProjectIRProvidedCardinalityUpperBound:
             self.evidence,
             label="Cardinality bound",
         )
-        readiness = self.evidence.aggregate_grouped_clause_readiness
-        if (
-            readiness is None
-            or readiness.status
-            is not ProjectAggregateGroupedClauseReadinessStatus.CONCRETE
-            or not readiness.limit_present
-        ):
-            raise ValueError(
-                "Cardinality bound requires retained concrete LIMIT authority."
-            )
-        clause = readiness.definition.limit_clause
+        definition = self.evidence.owner.definition
+        if type(definition) not in {TableDef, QueryDef}:
+            raise TypeError("Cardinality bound requires a derived relation.")
+        definition = cast(TableDef | QueryDef, definition)
+        clause = definition.limit_clause
         expression = None if clause is None else clause.expression
         if type(expression) is not LiteralExpr:
             raise ValueError(
@@ -624,7 +634,6 @@ class ProjectIRPropertyStage:
             if (
                 len(matches) != 1
                 or matches[0].evidence is not output.row_shape.evidence
-                or matches[0].root is not output.occurrence.producer
             ):
                 raise ValueError(
                     "Property outputs require exact retained concrete subject authority."

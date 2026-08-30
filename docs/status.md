@@ -16,9 +16,10 @@ documentation does not supersede that evidence.
 | Phase 61 | `ACTIVE` |
 | Slice 1 | `COMPLETED` |
 | Slice 2 | `COMPLETED` |
-| Slice 3 | `CURRENT` |
-| Slice 4 | `NEXT / UNSTARTED` |
-| Next | `Phase 61 Slice 4 — Current Logical Operator Algebra And Exact Property Transfer` |
+| Slice 3 | `COMPLETED` |
+| Slice 4 | `CURRENT` |
+| Slice 5 | `NEXT / UNSTARTED` |
+| Next | `Phase 61 Slice 5 — Canonical Single-Relation Construction From Existing Project Semantic Facts` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -27,7 +28,8 @@ single Slice 13 publication commit, without a status-only follow-up commit.
 Phase 61 is active. Slice 1 is completed by live Git and successful natural
 exact-head CI on its single publication commit. Slice 2 is completed by live
 Git and successful natural exact-head CI on its single publication commit.
-Slice 3 is the current private property-model owner and Slice 4 is next /
-unstarted. Successful natural exact-head CI on the single Slice 3 publication
-commit completes Slice 3 without a status-only follow-up commit. This status
-does not authorize Slice 4.
+Slice 3 is completed by live Git and successful natural exact-head CI on its
+single publication commit. Slice 4 is the current private logical-operator
+owner and Slice 5 is next / unstarted. Successful natural exact-head CI on the
+single Slice 4 publication commit completes Slice 4 without a status-only
+follow-up commit. This status does not authorize Slice 5.

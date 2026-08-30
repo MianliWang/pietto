@@ -677,7 +677,7 @@ validation.
 Successful natural exact-head CI on the single Slice 6 completion commit
 completed the Interlude and handed off authority. Phase 60 subsequently
 completed all 13 Slices on successful natural exact-head CI. Phase 61 is now
-`ACTIVE`; Slices 1 and 2 are completed, Slice 3 is current, and Slice 4 is next /
+`ACTIVE`; Slices 1–3 are completed, Slice 4 is current, and Slice 5 is next /
 unstarted.
 
 ## Phase 60 route
@@ -855,9 +855,9 @@ historical authority.
 
 ## Phase 61 route
 
-Phase 61 is active. Slices 1 and 2 are completed, Slice 3 is the current private
-property-model owner, and Slice 4 is next / unstarted. The frozen Phase 61 route
-has exactly 12 slices.
+Phase 61 is active. Slices 1–3 are completed, Slice 4 is the current private
+logical-operator owner, and Slice 5 is next / unstarted. The frozen Phase 61
+route has exactly 12 slices.
 
 The exact owner is **Private target-independent Project Logical IR, exact
 semantic composition, and verifiable analysis boundary**.
@@ -921,8 +921,23 @@ optimizer, SQL, or public behavior. The controlling contract is [Phase 61
 Slice 3 Project IR property model](spec/phase61-slice3-project-ir-row-output-properties-effects-estimate-boundary-v1.md).
 
 Successful natural exact-head CI on the single Slice 3 publication commit
-completes Slice 3 without a status-only follow-up commit. Slice 4 remains next /
-unstarted and is not authorized by Slice 3.
+completed Slice 3 without a status-only follow-up commit.
+
+Slice 4 adds the exact eight-kind current logical operator algebra in
+`src/pietto/_project/project_ir_operators.py`, attaches each kind to an existing
+Slice 2 plan-node occurrence, validates complete caller-supplied stage order,
+and adds conservative exact preservation/establishment transfer proofs plus a
+narrow consumer-side row-shape compatibility result. It reuses the unchanged
+structural snapshot and the separate Slice 3 provided/required/effect/estimate
+domains. It adds no canonical builder, ref allocation, cross-module DAG,
+aggregate/window evaluation context, optimizer, verifier, estimator, JOIN,
+grain comparison/fanout, SQL, or public behavior. The controlling contract is
+[Phase 61 Slice 4 current operator algebra and exact property
+transfer](spec/phase61-slice4-project-ir-current-logical-operator-algebra-exact-property-transfer-v1.md).
+
+Successful natural exact-head CI on the single Slice 4 publication commit
+completes Slice 4 without a status-only follow-up commit. Slice 5 remains next /
+unstarted and is not authorized by Slice 4.
 
 ## Retained later ownership
 
