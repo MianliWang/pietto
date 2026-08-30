@@ -15,6 +15,10 @@ PHASE60_SLICE1_SPEC = (
     REPO_ROOT
     / "docs/spec/phase60-advanced-windows-scope-semantic-laws-route-lock-v1.md"
 )
+PHASE61_SLICE1_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase61-project-ir-architecture-source-audit-route-lock-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -68,22 +72,15 @@ EXPECTED_STATUS = (
     ("Phase 58", "`COMPLETED`"),
     ("Phase 59", "`COMPLETED`"),
     ("Validation/Test Performance Optimization Interlude", "`COMPLETED`"),
-    ("Phase 60", "`ACTIVE`"),
-    ("Slice 1", "`COMPLETED`"),
-    ("Slice 2", "`COMPLETED`"),
-    ("Slice 3", "`COMPLETED`"),
-    ("Slice 4", "`COMPLETED`"),
-    ("Slice 5", "`COMPLETED`"),
-    ("Slice 6", "`COMPLETED`"),
-    ("Slice 7", "`COMPLETED`"),
-    ("Slice 8", "`COMPLETED`"),
-    ("Slice 9", "`COMPLETED`"),
-    ("Slice 10", "`COMPLETED`"),
-    ("Slice 11", "`COMPLETED`"),
-    ("Slice 12", "`COMPLETED`"),
-    ("Slice 13", "`CURRENT`"),
-    ("Phase 61", "`NEXT / NOT IMPLEMENTED`"),
-    ("Next", "`Phase 61 — Project IR And Semantic Composition`"),
+    ("Phase 60", "`COMPLETED`"),
+    ("Phase 61", "`ACTIVE`"),
+    ("Slice 1", "`CURRENT`"),
+    ("Slice 2", "`NEXT / UNSTARTED`"),
+    (
+        "Next",
+        "`Phase 61 Slice 2 — Scope, Stages, Plan/Value/Use Occurrences, "
+        "Anchors, And Construction States`",
+    ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
@@ -94,11 +91,20 @@ EXPECTED_PHASE59_STATE = (
 )
 EXPECTED_PHASE59_OWNER = "Local package graph, attribution, provenance, and lineage"
 EXPECTED_PHASE60_STATE = (
-    "Phase 60 is active, Slices 1–12 are completed, and Slice 13 is the current\n"
-    "completion/readiness audit. Phase 61 is next / not implemented. The published\n"
-    "Phase 60 route has exactly 13 slices."
+    "Phase 60 and all 13 Slices are completed by live Git and successful natural\n"
+    "exact-head CI. Phase 61 is active. The published Phase 60 route has exactly 13\n"
+    "slices."
 )
 EXPECTED_PHASE60_OWNER = "Advanced Windows And Phase 51–60 Readiness Checkpoint"
+EXPECTED_PHASE61_STATE = (
+    "Phase 61 is active. Slice 1 is the current architecture/source-audit/route-lock\n"
+    "owner, and Slice 2 is next / unstarted. The frozen Phase 61 route has exactly 12\n"
+    "slices."
+)
+EXPECTED_PHASE61_OWNER = (
+    "Private target-independent Project Logical IR, exact semantic composition, "
+    "and verifiable analysis boundary"
+)
 EXPECTED_PHASE58_ROUTE = (
     (
         "1",
@@ -206,20 +212,66 @@ EXPECTED_PHASE60_ROUTE = (
     ("12", "Differential Compatibility"),
     ("13", "Phase 51–60 Completion/Readiness Audit And Phase 61 Handoff"),
 )
+EXPECTED_PHASE61_ROUTE = (
+    ("1", "Architecture, Mature-Source Audit, Semantic Laws, And Route Lock"),
+    (
+        "2",
+        "Scope, Stages, Plan/Value/Use Occurrences, Anchors, And Construction States",
+    ),
+    (
+        "3",
+        "Row/Output Model, Provided/Required Properties, Effects, And Estimate Boundary",
+    ),
+    ("4", "Current Logical Operator Algebra And Exact Property Transfer"),
+    (
+        "5",
+        "Canonical Single-Relation Construction From Existing Project Semantic Facts",
+    ),
+    ("6", "Cross-Module Relation Composition And Acyclic Project Plan DAG"),
+    (
+        "7",
+        "Aggregate/Window Evaluation Context, Policy/Effect Preservation, And No-Ambient Authority",
+    ),
+    (
+        "8",
+        "Integrity, Verifier, Analysis Invalidation, Semantic Equivalence, And Optimizer/Recursion Readiness",
+    ),
+    ("9", "Private Inspection, Query, Canonical Serialization, And Pure Boundary"),
+    ("10", "Real Authored Multi-Module Project IR E2E"),
+    ("11", "Differential Compatibility"),
+    ("12", "Completion Audit And Phase 62 Handoff"),
+)
 EXPECTED_RETAINED_LATER_OWNERS = (
-    ("61", "Project IR and semantic composition"),
-    ("62", "Relationship, JOIN, grain, and fanout-safe semantics"),
-    ("63", "Multi-relation SQL, project emit-SQL, and QUALIFY lowering"),
-    ("64", "Advanced types, coercion, temporal, Decimal, and native mapping"),
-    ("65", "Advanced aggregation and grouping"),
-    ("66", "Advanced module and semantic-package assets"),
+    (
+        "62",
+        "Relationships/JOIN, key/FD evidence, grain comparison, fanout/multiplicity, and multi-fact alignment",
+    ),
+    (
+        "63",
+        "Multi-relation SQL, project emit-SQL, correlated/nested-query syntax, open plans/outer bindings, Collect/Unnest, LATERAL/decorrelation, and QUALIFY",
+    ),
+    (
+        "64",
+        "Advanced types/coercion, recursive record/container typing, nullability refinement, temporal/Decimal/native mapping, and advanced RANGE typing",
+    ),
+    (
+        "65",
+        "Aggregate algebra/state, aggregate-as-window, multi-stage/reaggregation, advanced grouping, and first_value(aggregate_output_alias) admission",
+    ),
+    (
+        "66",
+        "Reusable relation/nested semantic assets and advanced module/semantic-package assets",
+    ),
     ("67", "Remote package manager and trust boundary"),
     ("68", "Dependency solver, canonical lockfile, and first Rust kernel decision"),
     (
         "69",
-        "Release-aware PostgreSQL core builtin signature catalog, backend-specific core catalog foundations, generated/multi-source extension catalog assembly, extension-specific lowering, and additional dialect foundations",
+        "Broad backend/catalog physical capabilities, including the release-aware PostgreSQL core builtin signature catalog, backend-specific core catalog foundations, generated/multi-source extension catalog assembly, extension-specific lowering, and additional dialect foundations",
     ),
-    ("70", "Public schema/lineage expansion and v0.2 release-readiness decision"),
+    (
+        "70",
+        "Public Project-IR/nested/lineage exposure and v0.2 release-readiness decision",
+    ),
 )
 EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS = (
     "docs/roadmap.md",
@@ -494,6 +546,16 @@ EXPECTED_PHASE60_SLICE13_CHANGED_PATHS = (
     "tests/test_phase60_slice13_completion_readiness_audit_phase61_handoff.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE61_SLICE1_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase61-project-ir-architecture-source-audit-route-lock-v1.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase61_slice1_project_ir_architecture_source_audit_route_lock.py",
+    "tests/test_validation_performance_interlude_slice3_repository_reader_acquisition_reuse.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_workflow_lifecycle_validation_efficiency.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -536,14 +598,16 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "Phase 59 and the Validation/Test Performance Optimization Interlude are "
         "completed by live Git and successful natural exact-head CI" in normalized
     )
-    assert "Slices 1–12 are completed" in normalized
-    assert (
-        "Slice 13 is the current Phase 51–60 completion/readiness audit" in normalized
+    assert "Phase 60 and all 13 Slices are completed" in normalized
+    assert "single Slice 13 publication commit" in normalized
+    assert "without a status-only follow-up commit" in normalized
+    assert "Phase 61 is active" in normalized
+    assert "Slice 1 is the current architecture/source-audit/route-lock owner" in (
+        normalized
     )
-    assert "Successful natural exact-head CI on the single Slice 13" in normalized
-    assert "completes Phase 60 without a status-only follow-up commit" in normalized
-    assert "Phase 61 remains next / not implemented" in normalized
-    assert "does not start it or freeze its route" in normalized
+    assert "Slice 2 is next / unstarted" in normalized
+    assert "single Slice 1 publication commit completes Slice 1" in normalized
+    assert "This status does not authorize Slice 2" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
@@ -551,6 +615,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     phase58 = _section(roadmap, "Phase 58 route").lstrip()
     phase59 = _section(roadmap, "Phase 59 route").lstrip()
     phase60 = _section(roadmap, "Phase 60 route").lstrip()
+    phase61 = _section(roadmap, "Phase 61 route").lstrip()
     phase60_normalized = " ".join(phase60.split())
     assert phase58.startswith(f"{EXPECTED_PHASE58_STATE}\n")
     assert phase58.count(EXPECTED_PHASE58_STATE) == 1
@@ -585,13 +650,31 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     assert "lazy post-clipping physical-membership view" in phase60
     assert "collection-first exact namespaces" in phase60
     assert "zero Phase-60 self-owned-open subjects" in phase60_normalized
-    assert "Phase 61 — Project IR And Semantic Composition" in phase60
-    assert "Phase 61 is `NEXT / NOT IMPLEMENTED`" in phase60
-    assert "Malloy, Cube, Apache Calcite, and Substrait" in phase60
-    assert "does not start Phase 61" in phase60
+    assert "Phase 61 — Project IR And Semantic Composition" in phase60_normalized
+    assert "fresh architecture/source audit" in phase60_normalized
+    assert "did not start Phase 61" in phase60
+
+    assert phase61.startswith(f"{EXPECTED_PHASE61_STATE}\n")
+    assert phase61.count(EXPECTED_PHASE61_STATE) == 1
+    phase61_normalized = " ".join(phase61.split())
+    assert phase61_normalized.count(EXPECTED_PHASE61_OWNER) == 1
+    assert _table_rows(phase61)[1:] == EXPECTED_PHASE61_ROUTE
+    for evidence in (
+        "phase61-project-ir-architecture-source-audit-route-lock-v1.md",
+        "existing script-level `RelationIR`",
+        "Project semantic facts",
+        "bag semantics",
+        "provided properties, required input properties, estimates, and effects",
+        "no Project IR production carrier",
+        "does not authorize Slice 2",
+    ):
+        assert evidence in phase61_normalized
 
     retained = _section(roadmap, "Retained later ownership")
     assert _table_rows(retained)[1:] == EXPECTED_RETAINED_LATER_OWNERS
+    retained_normalized = " ".join(retained.split())
+    assert "dedicated later owner with no phase number" in retained_normalized
+    assert "Persistent incremental-cache identity" in retained_normalized
     interlude = _section(
         roadmap,
         "Validation/Test Performance Optimization Interlude",
@@ -623,10 +706,10 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "Successful natural exact-head CI on the single Slice 6 completion commit "
         "completed the Interlude and handed off authority" in interlude_normalized
     )
-    assert "Phase 60 is `ACTIVE`" in interlude_normalized
-    assert "Slices 1–12 are completed" in interlude_normalized
-    assert "Slice 13 is the current completion candidate" in interlude_normalized
-    assert "Phase 61 is next / not implemented" in interlude_normalized
+    assert "Phase 60 subsequently completed all 13 Slices" in interlude_normalized
+    assert "Phase 61 is now `ACTIVE`" in interlude_normalized
+    assert "Slice 1 is current" in interlude_normalized
+    assert "Slice 2 is next / unstarted" in interlude_normalized
     assert len(EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS) == 4
     assert all(
         (REPO_ROOT / path).is_file() for path in EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS
@@ -704,9 +787,23 @@ def test_interlude_scorecard_self_owned_open_and_phase60_handoff_are_exact() -> 
         "Advanced Windows And Phase 51–60 Readiness Checkpoint"
     )
     assert EXPECTED_RETAINED_LATER_OWNERS[0] == (
-        "61",
-        "Project IR and semantic composition",
+        "62",
+        "Relationships/JOIN, key/FD evidence, grain comparison, fanout/multiplicity, and multi-fact alignment",
     )
+
+
+def test_phase61_activation_rebinds_exact_phase60_completion_authority() -> None:
+    document = " ".join(PHASE61_SLICE1_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "bf4eeb06507f84374b9d97070423face3e54d929",
+        "1ca3542b1f373cdce6b7035b33000eda474ae39d",
+        "0b87e603c783b203a70155238c6327e182c7e440",
+        "Complete Phase 60 advanced windows",
+        "33295132391",
+        "Phase 60 = COMPLETED",
+        "Phase 61 = NEXT / NOT IMPLEMENTED",
+    ):
+        assert evidence in document
 
 
 def test_phase60_slice1_changed_paths_are_exact() -> None:
@@ -1002,4 +1099,25 @@ def test_phase60_slice13_changed_paths_are_exact() -> None:
             )
         )
         for path in EXPECTED_PHASE60_SLICE13_CHANGED_PATHS
+    )
+
+
+def test_phase61_slice1_changed_paths_are_exact() -> None:
+    assert len(EXPECTED_PHASE61_SLICE1_CHANGED_PATHS) == 8
+    assert len(set(EXPECTED_PHASE61_SLICE1_CHANGED_PATHS)) == 8
+    assert all(
+        (REPO_ROOT / path).is_file() for path in EXPECTED_PHASE61_SLICE1_CHANGED_PATHS
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "src/",
+                "tests/fixtures/",
+                "tests/goldens/",
+            )
+        )
+        for path in EXPECTED_PHASE61_SLICE1_CHANGED_PATHS
     )

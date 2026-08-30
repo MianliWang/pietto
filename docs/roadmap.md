@@ -675,15 +675,15 @@ both Python jobs and uses the same resource-aware pytest policy as local
 validation.
 
 Successful natural exact-head CI on the single Slice 6 completion commit
-completed the Interlude and handed off authority. Phase 60 is `ACTIVE`, Slices
-1–12 are completed, Slice 13 is the current completion candidate, and Phase 61
-is next / not implemented.
+completed the Interlude and handed off authority. Phase 60 subsequently
+completed all 13 Slices on successful natural exact-head CI. Phase 61 is now
+`ACTIVE`; Slice 1 is current and Slice 2 is next / unstarted.
 
 ## Phase 60 route
 
-Phase 60 is active, Slices 1–12 are completed, and Slice 13 is the current
-completion/readiness audit. Phase 61 is next / not implemented. The published
-Phase 60 route has exactly 13 slices.
+Phase 60 and all 13 Slices are completed by live Git and successful natural
+exact-head CI. Phase 61 is active. The published Phase 60 route has exactly 13
+slices.
 
 The exact owner is **Advanced Windows And Phase 51–60 Readiness Checkpoint**.
 
@@ -842,32 +842,75 @@ readiness boundary. It adds documentation/static assurance only. The
 controlling contract is [Phase 60 completion/readiness audit and Phase 61
 handoff](spec/phase60-completion-readiness-audit-phase61-handoff-v1.md).
 
-Successful natural exact-head CI on the single Slice 13 commit completes Phase
-60 without a status-only follow-up commit. Slice 13 does not start Phase 61.
+Successful natural exact-head CI on the single Slice 13 commit completed Phase
+60 without a status-only follow-up commit. Slice 13 did not start Phase 61.
 
 ### Phase 61 readiness boundary
 
-The exact next owner is **Phase 61 — Project IR And Semantic Composition**.
-Phase 61 is `NEXT / NOT IMPLEMENTED`; its route and slice count are unfrozen.
-It must begin with a fresh architecture/source audit of current Pietto
-authorities plus Malloy, Cube, Apache Calcite, and Substrait. The Slice 13
-contract freezes Project-IR, grain, nested-result, correlation, planning,
-lowering, and policy readiness laws without adding Phase 61 production types.
+The exact handed-off owner was **Phase 61 — Project IR And Semantic
+Composition**. Slice 1 has now performed the required fresh architecture/source
+audit and frozen the current route without changing Phase 60 production or
+historical authority.
+
+## Phase 61 route
+
+Phase 61 is active. Slice 1 is the current architecture/source-audit/route-lock
+owner, and Slice 2 is next / unstarted. The frozen Phase 61 route has exactly 12
+slices.
+
+The exact owner is **Private target-independent Project Logical IR, exact
+semantic composition, and verifiable analysis boundary**.
+
+| Slice | Owner |
+| ---: | --- |
+| 1 | Architecture, Mature-Source Audit, Semantic Laws, And Route Lock |
+| 2 | Scope, Stages, Plan/Value/Use Occurrences, Anchors, And Construction States |
+| 3 | Row/Output Model, Provided/Required Properties, Effects, And Estimate Boundary |
+| 4 | Current Logical Operator Algebra And Exact Property Transfer |
+| 5 | Canonical Single-Relation Construction From Existing Project Semantic Facts |
+| 6 | Cross-Module Relation Composition And Acyclic Project Plan DAG |
+| 7 | Aggregate/Window Evaluation Context, Policy/Effect Preservation, And No-Ambient Authority |
+| 8 | Integrity, Verifier, Analysis Invalidation, Semantic Equivalence, And Optimizer/Recursion Readiness |
+| 9 | Private Inspection, Query, Canonical Serialization, And Pure Boundary |
+| 10 | Real Authored Multi-Module Project IR E2E |
+| 11 | Differential Compatibility |
+| 12 | Completion Audit And Phase 62 Handoff |
+
+Slice 1 preserves the existing script-level `RelationIR`, consumes current
+Project semantic facts without turning them into plan nodes, separates node,
+output, use, input-slot, occurrence, snapshot, and future cache identities,
+freezes bag semantics and the current logical stage order, and keeps exact
+provided properties, required input properties, estimates, and effects in
+separate domains. It adopts verifier and explicit-use lessons from mature
+compiler/query sources without importing their pass frameworks, memos, physical
+plans, wire formats, persistent IDs, or recursive runtime machinery. The
+controlling contract is [Phase 61 Slice 1 Project IR architecture and source
+audit route lock](spec/phase61-project-ir-architecture-source-audit-route-lock-v1.md).
+
+Slice 1 adds documentation/static assurance only. It creates no Project IR
+production carrier, grammar, public schema, optimizer, recursion, correlation,
+nested result, new SQL lowering, backend, or Rust implementation. Successful
+natural exact-head CI on its single publication commit completes Slice 1
+without a status-only follow-up commit and does not authorize Slice 2.
 
 ## Retained later ownership
 
 | Phase | Owner |
 | ---: | --- |
-| 61 | Project IR and semantic composition |
-| 62 | Relationship, JOIN, grain, and fanout-safe semantics |
-| 63 | Multi-relation SQL, project emit-SQL, and QUALIFY lowering |
-| 64 | Advanced types, coercion, temporal, Decimal, and native mapping |
-| 65 | Advanced aggregation and grouping |
-| 66 | Advanced module and semantic-package assets |
+| 62 | Relationships/JOIN, key/FD evidence, grain comparison, fanout/multiplicity, and multi-fact alignment |
+| 63 | Multi-relation SQL, project emit-SQL, correlated/nested-query syntax, open plans/outer bindings, Collect/Unnest, LATERAL/decorrelation, and QUALIFY |
+| 64 | Advanced types/coercion, recursive record/container typing, nullability refinement, temporal/Decimal/native mapping, and advanced RANGE typing |
+| 65 | Aggregate algebra/state, aggregate-as-window, multi-stage/reaggregation, advanced grouping, and first_value(aggregate_output_alias) admission |
+| 66 | Reusable relation/nested semantic assets and advanced module/semantic-package assets |
 | 67 | Remote package manager and trust boundary |
 | 68 | Dependency solver, canonical lockfile, and first Rust kernel decision |
-| 69 | Release-aware PostgreSQL core builtin signature catalog, backend-specific core catalog foundations, generated/multi-source extension catalog assembly, extension-specific lowering, and additional dialect foundations |
-| 70 | Public schema/lineage expansion and v0.2 release-readiness decision |
+| 69 | Broad backend/catalog physical capabilities, including the release-aware PostgreSQL core builtin signature catalog, backend-specific core catalog foundations, generated/multi-source extension catalog assembly, extension-specific lowering, and additional dialect foundations |
+| 70 | Public Project-IR/nested/lineage exposure and v0.2 release-readiness decision |
+
+Recursive relations, fixpoints, iterative planning, and bounded recursive
+provenance remain a dedicated later owner with no phase number assigned here.
+Persistent incremental-cache identity likewise remains separate from
+snapshot-local Project IR identity and has no Phase 61 implementation.
 
 Phase 57 begins from the complete private Phase 56 capability chain.
 `CapabilityKey` remains release-free, exact profile targets retain database and
