@@ -388,9 +388,10 @@ def _row_properties(
     }
     preserved = project_ir_preserved_property_slots(kind)
     grain = ProjectIRProvidedPropertySlot.LOCAL_GRAIN_EVIDENCE
-    if kind is ProjectIRLogicalOperatorKind.GROUP_AGGREGATE or (
-        grain in preserved and grain in previous
-    ):
+    if (
+        kind is ProjectIRLogicalOperatorKind.GROUP_AGGREGATE
+        and semantic.group_key_occurrences
+    ) or (grain in preserved and grain in previous):
         properties[grain] = ProjectIRProvidedLocalGrainEvidence(
             output=output,
             evidence=semantic,

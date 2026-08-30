@@ -856,9 +856,9 @@ historical authority.
 
 ## Phase 61 route
 
-Phase 61 is active. Slices 1–5 and both unnumbered Slice 5 prerequisites are
-completed, Slice 6 cross-module composition is current, and Slice 7 remains
-next / unstarted. The frozen Phase 61 route still has exactly 12 slices.
+Phase 61 is active. Slices 1–6 and both unnumbered Slice 5 prerequisites are
+completed, Slice 7 aggregate/window evaluation context is current, and Slice 8
+remains next / unstarted. The frozen Phase 61 route still has exactly 12 slices.
 
 The exact owner is **Private target-independent Project Logical IR, exact
 semantic composition, and verifiable analysis boundary**.
@@ -1004,7 +1004,31 @@ framework, inspection, SQL, or public behavior. The controlling contract is
 DAG](spec/phase61-slice6-cross-module-relation-composition-acyclic-project-plan-dag-v1.md).
 
 Successful natural exact-head CI on the single Slice 6 publication commit
-completes Slice 6 without a status-only follow-up commit. Slice 7 remains next /
+completed Slice 6 without a status-only follow-up commit.
+
+Slice 7 adds a private immutable evaluation-context projection in
+`src/pietto/_project/project_ir_evaluation_context.py` over the exact unchanged
+Slice 6 `ProjectIRProjectPlan`. One context per concrete
+`GROUP_AGGREGATE` retains its exact flow predecessor, `BASE_RESULT` row,
+aggregate/grouped readiness, group-key and aggregate-result facts, let scope,
+closed bindings, and effects. One context per `WINDOW_EVALUATION` separately
+retains the exact stream input and semantic `BASE_RESULT` checkpoint, plus let
+and named-window authority. One result context per exact window output reuses
+the existing stage-local scalar, window policy, and effect objects while keeping
+that stage value distinct from its final projection export.
+
+The authorized predecessor repair makes the Slice 5 builder publish positive
+`LOCAL_GRAIN_EVIDENCE` only for a non-empty exact semantic group-key tuple.
+Global aggregates remain valid evaluation contexts with `group_keys=()` and no
+positive local-grain property; grouped aggregates retain and preserve their
+exact positive evidence. The property carrier, operator matrix, Slice 6 plan,
+public/SQL behavior, and allocation remain unchanged. Slice 7 adds no evaluator,
+aggregate/window algebra, frame materialization, ambient scope, correlation,
+optimizer, or verifier. The controlling contract is [Phase 61 Slice 7 aggregate
+and window evaluation context](spec/phase61-slice7-aggregate-window-evaluation-context-policy-effect-no-ambient-authority-v1.md).
+
+Successful natural exact-head CI on the single Slice 7 publication commit
+completes Slice 7 without a status-only follow-up commit. Slice 8 remains next /
 unstarted and is the sole next owner.
 
 ## Retained later ownership

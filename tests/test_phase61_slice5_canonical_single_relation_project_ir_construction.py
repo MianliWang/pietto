@@ -16,7 +16,11 @@ import pietto._project.project_ir_construction as construction
 import pietto._project.project_ir_operators as operators
 import pietto._project.project_ir_properties as properties
 from pietto._project import check as project_check
+from pietto._project.aggregate_grouped_clause_facts import (
+    ProjectAggregateGroupedClauseReadinessStatus,
+)
 from pietto._project.model import (
+    ProjectRelationRowSchemaStatus,
     ProjectSemanticResult,
     build_empty_project_semantic_result,
 )
@@ -65,6 +69,10 @@ query filtered:
     select:
         id
         amount
+query aggregate_only:
+    from rows
+    select:
+        total = sum(amount)
 query grouped:
     from rows
     group by:
@@ -279,6 +287,10 @@ def test_allocation_and_result_carriers_are_private_frozen_and_source_is_one_lea
     (
         ("simple", ("relation_input", "final_projection")),
         ("filtered", ("relation_input", "row_filter", "final_projection")),
+        (
+            "aggregate_only",
+            ("relation_input", "group_aggregate", "final_projection"),
+        ),
         ("grouped", ("relation_input", "group_aggregate", "final_projection")),
         (
             "satisfying",
@@ -506,6 +518,81 @@ def test_full_properties_transfers_effects_and_estimates_are_complete(
             continue
         flow = flow_by_consumer[transfer.operator.node.ref]
         assert transfer.input_property.output.occurrence is flow.output
+
+
+def test_global_aggregate_omits_local_grain_without_inventing_it_downstream(
+    tmp_path: Path,
+) -> None:
+    semantic = _semantic_project(tmp_path)
+    fact = _fact(semantic, "aggregate_only")
+    assert fact.state.status is ProjectRelationRowSchemaStatus.CONCRETE
+    assert fact.aggregate_grouped_clause_readiness is not None
+    assert fact.aggregate_grouped_clause_readiness.status is (
+        ProjectAggregateGroupedClauseReadinessStatus.CONCRETE
+    )
+    assert fact.group_key_occurrences == ()
+    assert fact.aggregate_result_facts
+
+    fragment = _concrete(_build(semantic, "aggregate_only"))
+    group = next(
+        operator
+        for operator in fragment.logical_stage.operators
+        if operator.kind is operators.ProjectIRLogicalOperatorKind.GROUP_AGGREGATE
+    )
+    assert group.evidence.group_key_occurrences == ()
+    assert not any(
+        property_.property_slot
+        is properties.ProjectIRProvidedPropertySlot.LOCAL_GRAIN_EVIDENCE
+        for property_ in fragment.property_stage.provided
+    )
+    assert all(
+        sum(
+            transfer.output_property is property_
+            for transfer in fragment.logical_stage.transfers
+        )
+        == 1
+        for property_ in fragment.property_stage.provided
+    )
+
+
+def test_grouped_aggregate_retains_exact_positive_local_grain_downstream(
+    tmp_path: Path,
+) -> None:
+    semantic = _semantic_project(tmp_path)
+    fact = _fact(semantic, "full")
+    assert fact.group_key_occurrences
+    fragment = _concrete(_build(semantic, "full"))
+    grain_properties = tuple(
+        property_
+        for property_ in fragment.property_stage.provided
+        if type(property_) is properties.ProjectIRProvidedLocalGrainEvidence
+    )
+    assert len(grain_properties) == 3
+    assert all(
+        len(property_.occurrences) == len(fact.group_key_occurrences)
+        and all(
+            occurrence is exact
+            for occurrence, exact in zip(
+                property_.occurrences,
+                fact.group_key_occurrences,
+                strict=True,
+            )
+        )
+        for property_ in grain_properties
+    )
+    transfers = tuple(
+        next(
+            transfer
+            for transfer in fragment.logical_stage.transfers
+            if transfer.output_property is property_
+        )
+        for property_ in grain_properties
+    )
+    assert type(transfers[0]) is operators.ProjectIREstablishedPropertyTransfer
+    assert all(
+        type(transfer) is operators.ProjectIRPreservedPropertyTransfer
+        for transfer in transfers[1:]
+    )
 
 
 def test_allocation_is_deterministic_continuable_and_occurrence_distinct(

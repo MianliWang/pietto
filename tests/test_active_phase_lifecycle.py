@@ -47,6 +47,10 @@ PHASE61_SLICE6_SPEC = (
     REPO_ROOT
     / "docs/spec/phase61-slice6-cross-module-relation-composition-acyclic-project-plan-dag-v1.md"
 )
+PHASE61_SLICE7_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase61-slice7-aggregate-window-evaluation-context-policy-effect-no-ambient-authority-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -109,11 +113,12 @@ EXPECTED_STATUS = (
     ("Output-identity continuation", "`COMPLETED`"),
     ("Intra-relation dataflow continuation", "`COMPLETED`"),
     ("Slice 5", "`COMPLETED`"),
-    ("Slice 6", "`CURRENT`"),
+    ("Slice 6", "`COMPLETED`"),
+    ("Slice 7", "`CURRENT`"),
     (
         "Next",
-        "`Phase 61 Slice 7 — Aggregate/Window Evaluation Context, Policy/Effect "
-        "Preservation, And No-Ambient Authority`",
+        "`Phase 61 Slice 8 — Integrity, Verifier, Analysis Invalidation, Semantic "
+        "Equivalence, And Optimizer/Recursion Readiness`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -131,9 +136,9 @@ EXPECTED_PHASE60_STATE = (
 )
 EXPECTED_PHASE60_OWNER = "Advanced Windows And Phase 51–60 Readiness Checkpoint"
 EXPECTED_PHASE61_STATE = (
-    "Phase 61 is active. Slices 1–5 and both unnumbered Slice 5 prerequisites are\n"
-    "completed, Slice 6 cross-module composition is current, and Slice 7 remains\n"
-    "next / unstarted. The frozen Phase 61 route still has exactly 12 slices."
+    "Phase 61 is active. Slices 1–6 and both unnumbered Slice 5 prerequisites are\n"
+    "completed, Slice 7 aggregate/window evaluation context is current, and Slice 8\n"
+    "remains next / unstarted. The frozen Phase 61 route still has exactly 12 slices."
 )
 EXPECTED_PHASE61_OWNER = (
     "Private target-independent Project Logical IR, exact semantic composition, "
@@ -666,6 +671,17 @@ EXPECTED_PHASE61_SLICE6_CHANGED_PATHS = (
     "tests/test_phase61_slice6_cross_module_relation_composition_acyclic_project_plan_dag.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE61_SLICE7_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase61-slice7-aggregate-window-evaluation-context-policy-effect-no-ambient-authority-v1.md",
+    "docs/status.md",
+    "src/pietto/_project/project_ir_construction.py",
+    "src/pietto/_project/project_ir_evaluation_context.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase61_slice5_canonical_single_relation_project_ir_construction.py",
+    "tests/test_phase61_slice7_aggregate_window_evaluation_context_policy_effect_no_ambient_authority.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -722,8 +738,10 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     )
     assert "Slice 5 canonical single-relation construction is completed" in normalized
     assert "Slice 6 cross-module relation composition" in normalized
-    assert "single publication commit completes Slice 6" in normalized
-    assert "does not authorize Slice 7 implementation" in normalized
+    assert "DAG construction is completed" in normalized
+    assert "Slice 7 aggregate/window evaluation context" in normalized
+    assert "single publication commit completes Slice 7" in normalized
+    assert "does not authorize Slice 8 implementation" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
@@ -824,7 +842,13 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "exact resolved relation-row use",
         "owner-local semantic source order",
         "derives acyclicity only from actual uses",
-        "Slice 7 remains next / unstarted",
+        "phase61-slice7-aggregate-window-evaluation-context-policy-effect-no-ambient-authority-v1.md",
+        "`src/pietto/_project/project_ir_evaluation_context.py`",
+        "One context per concrete `GROUP_AGGREGATE`",
+        "exact stream input and semantic `BASE_RESULT` checkpoint",
+        "existing stage-local scalar, window policy, and effect objects",
+        "Global aggregates remain valid evaluation contexts",
+        "Slice 8 remains next / unstarted",
         "sole next owner",
     ):
         assert evidence in phase61_normalized
@@ -1073,6 +1097,22 @@ def test_phase61_slice6_rebinds_exact_slice5_publication_authority() -> None:
         "Slices 1-5 = COMPLETED",
         "both Slice 5 prerequisites = COMPLETED",
         "Slice 6 = NEXT / UNSTARTED",
+    ):
+        assert evidence in document
+
+
+def test_phase61_slice7_rebinds_exact_slice6_publication_and_repair_authority() -> None:
+    document = " ".join(PHASE61_SLICE7_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "21b478569029dbae43aa6cbddecfa0c3709abe5d",
+        "351a5ee5dfc709c9f46a7fecd4112f05a01c9c53",
+        "b9c9e38f809f911eb429e7284d377c2c205e548b",
+        "Add Phase 61 Project IR composition DAG",
+        "33340163436",
+        "GLOBAL_AGGREGATE_LOCAL_GRAIN_OVERPUBLICATION",
+        "A3/M6/D0",
+        "repair batches = 1",
+        "Slice 8 = NEXT / UNSTARTED",
     ):
         assert evidence in document
 
@@ -1578,6 +1618,33 @@ def test_phase61_slice6_changed_paths_are_exact() -> None:
     assert production == (
         "src/pietto/_project/project_ir.py",
         "src/pietto/_project/project_ir_composition.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+                "src/pietto/_project_explain/",
+                "src/pietto/ir/",
+                "src/pietto/sql/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase61_slice7_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE61_SLICE7_CHANGED_PATHS
+    assert len(paths) == 9
+    assert len(set(paths)) == 9
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    production = tuple(path for path in paths if path.startswith("src/"))
+    assert production == (
+        "src/pietto/_project/project_ir_construction.py",
+        "src/pietto/_project/project_ir_evaluation_context.py",
     )
     assert not any(
         path.startswith(
