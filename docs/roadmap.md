@@ -677,7 +677,8 @@ validation.
 Successful natural exact-head CI on the single Slice 6 completion commit
 completed the Interlude and handed off authority. Phase 60 subsequently
 completed all 13 Slices on successful natural exact-head CI. Phase 61 is now
-`ACTIVE`; Slice 1 is current and Slice 2 is next / unstarted.
+`ACTIVE`; Slice 1 is completed, Slice 2 is current, and Slice 3 is next /
+unstarted.
 
 ## Phase 60 route
 
@@ -854,9 +855,9 @@ historical authority.
 
 ## Phase 61 route
 
-Phase 61 is active. Slice 1 is the current architecture/source-audit/route-lock
-owner, and Slice 2 is next / unstarted. The frozen Phase 61 route has exactly 12
-slices.
+Phase 61 is active. Slice 1 is completed, Slice 2 is the current private
+structural-model owner, and Slice 3 is next / unstarted. The frozen Phase 61
+route has exactly 12 slices.
 
 The exact owner is **Private target-independent Project Logical IR, exact
 semantic composition, and verifiable analysis boundary**.
@@ -890,8 +891,23 @@ audit route lock](spec/phase61-project-ir-architecture-source-audit-route-lock-v
 Slice 1 adds documentation/static assurance only. It creates no Project IR
 production carrier, grammar, public schema, optimizer, recursion, correlation,
 nested result, new SQL lowering, backend, or Rust implementation. Successful
-natural exact-head CI on its single publication commit completes Slice 1
-without a status-only follow-up commit and does not authorize Slice 2.
+natural exact-head CI on its single publication commit completed Slice 1
+without a status-only follow-up commit.
+
+Slice 2 adds the first private Project IR structural model in
+`src/pietto/_project/project_ir.py`: one opaque snapshot scope, four nominally
+distinct local ref domains, exact existing declaration/resolution/field anchor
+seams, stage-specific plan/output/use/input-slot occurrence composition, and a
+constrained concrete/non-concrete relation-subject sum over all five published
+construction states. It adds no operator kind, semantic-facts builder,
+row/output property, cross-module plan DAG, verifier, inspection, correlation,
+recursion, optimizer, SQL/public behavior, or persistent identity. The
+controlling contract is [Phase 61 Slice 2 Project IR structural
+model](spec/phase61-slice2-project-ir-scope-stages-occurrences-anchors-construction-states-v1.md).
+
+Successful natural exact-head CI on the single Slice 2 publication commit
+completes Slice 2 without a status-only follow-up commit. Slice 3 remains next /
+unstarted and is not authorized by Slice 2.
 
 ## Retained later ownership
 

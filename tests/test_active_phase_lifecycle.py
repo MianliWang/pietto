@@ -19,6 +19,10 @@ PHASE61_SLICE1_SPEC = (
     REPO_ROOT
     / "docs/spec/phase61-project-ir-architecture-source-audit-route-lock-v1.md"
 )
+PHASE61_SLICE2_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase61-slice2-project-ir-scope-stages-occurrences-anchors-construction-states-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -74,12 +78,13 @@ EXPECTED_STATUS = (
     ("Validation/Test Performance Optimization Interlude", "`COMPLETED`"),
     ("Phase 60", "`COMPLETED`"),
     ("Phase 61", "`ACTIVE`"),
-    ("Slice 1", "`CURRENT`"),
-    ("Slice 2", "`NEXT / UNSTARTED`"),
+    ("Slice 1", "`COMPLETED`"),
+    ("Slice 2", "`CURRENT`"),
+    ("Slice 3", "`NEXT / UNSTARTED`"),
     (
         "Next",
-        "`Phase 61 Slice 2 — Scope, Stages, Plan/Value/Use Occurrences, "
-        "Anchors, And Construction States`",
+        "`Phase 61 Slice 3 — Row/Output Model, Provided/Required Properties, "
+        "Effects, And Estimate Boundary`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -97,9 +102,9 @@ EXPECTED_PHASE60_STATE = (
 )
 EXPECTED_PHASE60_OWNER = "Advanced Windows And Phase 51–60 Readiness Checkpoint"
 EXPECTED_PHASE61_STATE = (
-    "Phase 61 is active. Slice 1 is the current architecture/source-audit/route-lock\n"
-    "owner, and Slice 2 is next / unstarted. The frozen Phase 61 route has exactly 12\n"
-    "slices."
+    "Phase 61 is active. Slice 1 is completed, Slice 2 is the current private\n"
+    "structural-model owner, and Slice 3 is next / unstarted. The frozen Phase 61\n"
+    "route has exactly 12 slices."
 )
 EXPECTED_PHASE61_OWNER = (
     "Private target-independent Project Logical IR, exact semantic composition, "
@@ -556,6 +561,15 @@ EXPECTED_PHASE61_SLICE1_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
     "tests/test_workflow_lifecycle_validation_efficiency.py",
 )
+EXPECTED_PHASE61_SLICE2_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase61-slice2-project-ir-scope-stages-occurrences-anchors-construction-states-v1.md",
+    "docs/status.md",
+    "src/pietto/_project/project_ir.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase61_slice2_project_ir_scope_stages_occurrences_anchors_construction_states.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -602,12 +616,11 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "single Slice 13 publication commit" in normalized
     assert "without a status-only follow-up commit" in normalized
     assert "Phase 61 is active" in normalized
-    assert "Slice 1 is the current architecture/source-audit/route-lock owner" in (
-        normalized
-    )
-    assert "Slice 2 is next / unstarted" in normalized
-    assert "single Slice 1 publication commit completes Slice 1" in normalized
-    assert "This status does not authorize Slice 2" in normalized
+    assert "Slice 1 is completed by live Git" in normalized
+    assert "Slice 2 is the current private structural-model owner" in normalized
+    assert "Slice 3 is next / unstarted" in normalized
+    assert "single Slice 2 publication commit completes Slice 2" in normalized
+    assert "This status does not authorize Slice 3" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
@@ -661,12 +674,19 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     assert _table_rows(phase61)[1:] == EXPECTED_PHASE61_ROUTE
     for evidence in (
         "phase61-project-ir-architecture-source-audit-route-lock-v1.md",
+        "phase61-slice2-project-ir-scope-stages-occurrences-anchors-construction-states-v1.md",
         "existing script-level `RelationIR`",
         "Project semantic facts",
         "bag semantics",
         "provided properties, required input properties, estimates, and effects",
         "no Project IR production carrier",
-        "does not authorize Slice 2",
+        "`src/pietto/_project/project_ir.py`",
+        "opaque snapshot scope",
+        "four nominally distinct local ref domains",
+        "constrained concrete/non-concrete relation-subject sum",
+        "adds no operator kind",
+        "Slice 3 remains next / unstarted",
+        "is not authorized by Slice 2",
     ):
         assert evidence in phase61_normalized
 
@@ -708,8 +728,9 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     )
     assert "Phase 60 subsequently completed all 13 Slices" in interlude_normalized
     assert "Phase 61 is now `ACTIVE`" in interlude_normalized
-    assert "Slice 1 is current" in interlude_normalized
-    assert "Slice 2 is next / unstarted" in interlude_normalized
+    assert "Slice 1 is completed" in interlude_normalized
+    assert "Slice 2 is current" in interlude_normalized
+    assert "Slice 3 is next / unstarted" in interlude_normalized
     assert len(EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS) == 4
     assert all(
         (REPO_ROOT / path).is_file() for path in EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS
@@ -802,6 +823,21 @@ def test_phase61_activation_rebinds_exact_phase60_completion_authority() -> None
         "33295132391",
         "Phase 60 = COMPLETED",
         "Phase 61 = NEXT / NOT IMPLEMENTED",
+    ):
+        assert evidence in document
+
+
+def test_phase61_slice2_rebinds_exact_slice1_publication_authority() -> None:
+    document = " ".join(PHASE61_SLICE2_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "6445ac9e5a844f8ac5b71fb01ffc573f5bc35de2",
+        "c82cfb9e4c5ab7549619b6c1505be6d2fad6bd71",
+        "bf4eeb06507f84374b9d97070423face3e54d929",
+        "Add Phase 61 Project IR route lock",
+        "33303992201",
+        "Phase 61 = ACTIVE",
+        "Slice 1 = COMPLETED",
+        "Slice 2 = NEXT / NOT IMPLEMENTED",
     ):
         assert evidence in document
 
@@ -1120,4 +1156,33 @@ def test_phase61_slice1_changed_paths_are_exact() -> None:
             )
         )
         for path in EXPECTED_PHASE61_SLICE1_CHANGED_PATHS
+    )
+
+
+def test_phase61_slice2_changed_paths_are_exact() -> None:
+    assert len(EXPECTED_PHASE61_SLICE2_CHANGED_PATHS) == 7
+    assert len(set(EXPECTED_PHASE61_SLICE2_CHANGED_PATHS)) == 7
+    assert all(
+        (REPO_ROOT / path).is_file() for path in EXPECTED_PHASE61_SLICE2_CHANGED_PATHS
+    )
+    production = tuple(
+        path
+        for path in EXPECTED_PHASE61_SLICE2_CHANGED_PATHS
+        if path.startswith("src/")
+    )
+    assert production == ("src/pietto/_project/project_ir.py",)
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+                "src/pietto/_project_explain/",
+                "src/pietto/ir/",
+                "src/pietto/sql/",
+            )
+        )
+        for path in EXPECTED_PHASE61_SLICE2_CHANGED_PATHS
     )

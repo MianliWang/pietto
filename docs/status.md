@@ -14,15 +14,17 @@ documentation does not supersede that evidence.
 | Validation/Test Performance Optimization Interlude | `COMPLETED` |
 | Phase 60 | `COMPLETED` |
 | Phase 61 | `ACTIVE` |
-| Slice 1 | `CURRENT` |
-| Slice 2 | `NEXT / UNSTARTED` |
-| Next | `Phase 61 Slice 2 — Scope, Stages, Plan/Value/Use Occurrences, Anchors, And Construction States` |
+| Slice 1 | `COMPLETED` |
+| Slice 2 | `CURRENT` |
+| Slice 3 | `NEXT / UNSTARTED` |
+| Next | `Phase 61 Slice 3 — Row/Output Model, Provided/Required Properties, Effects, And Estimate Boundary` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
 Slices are completed by live Git and successful natural exact-head CI on its
 single Slice 13 publication commit, without a status-only follow-up commit.
-Phase 61 is active; Slice 1 is the current architecture/source-audit/route-lock
-owner and Slice 2 is next / unstarted. Successful natural exact-head CI on the
-single Slice 1 publication commit completes Slice 1 without a status-only
-follow-up commit. This status does not authorize Slice 2.
+Phase 61 is active. Slice 1 is completed by live Git and successful natural
+exact-head CI on its single publication commit. Slice 2 is the current private
+structural-model owner and Slice 3 is next / unstarted. Successful natural
+exact-head CI on the single Slice 2 publication commit completes Slice 2
+without a status-only follow-up commit. This status does not authorize Slice 3.
