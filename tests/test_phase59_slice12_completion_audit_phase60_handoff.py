@@ -348,6 +348,7 @@ def test_identity_domains_and_private_snapshot_boundary_remain_exact() -> None:
         graph.PackageGraphDeclarationRef: ("scope", "module", "position"),
         graph.PackageGraphFieldRef: ("scope", "declaration", "position"),
         graph.PackageGraphLetRef: ("scope", "declaration", "position"),
+        graph.PackageGraphNamedWindowRef: ("scope", "declaration", "position"),
     }
     assert all(
         tuple(field.name for field in fields(carrier)) == expected
@@ -389,6 +390,8 @@ def test_identity_domains_and_private_snapshot_boundary_remain_exact() -> None:
         "aggregate_lineage_states",
         "expression_lineage_states",
         "current_window_lineage_states",
+        "named_windows",
+        "window_semantic_provenance",
     )
     assert tuple(
         field.name for field in fields(graph_inspection.PackageGraphInspection)

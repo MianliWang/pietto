@@ -110,6 +110,105 @@ def test_equivalent_runtime_scopes_have_identical_private_canonical_data(
     )
 
 
+def test_named_window_semantic_links_are_canonical_and_fail_closed(
+    tmp_path: Path,
+) -> None:
+    snapshot = slice8._snapshot(
+        tmp_path,
+        (
+            "shape Row:\n"
+            "    id: Int not null\n"
+            'source rows: Row is postgres.table("rows")\n'
+            "query result:\n"
+            "    from rows\n"
+            "    select:\n"
+            "        result = row_number() window ordered\n"
+            "    window other:\n"
+            "        order by:\n"
+            "            id desc\n"
+            "    window ordered = base\n"
+            "    window base:\n"
+            "        order by:\n"
+            "            id\n"
+        ).encode(),
+    )
+    inspection = _inspect_package_graph(snapshot)
+    assert (
+        _evaluate_package_graph_inspection(inspection).status
+        is PackageGraphPureStatus.OK
+    )
+    target_link_position = next(
+        position
+        for position, link in enumerate(inspection.links)
+        if link.kind is PackageGraphInspectionLinkKind.WINDOW_NAMED_TARGET
+    )
+    target_link = inspection.links[target_link_position]
+    foreign_target = next(
+        record.ref
+        for record in inspection.records
+        if record.kind is PackageGraphInspectionRecordKind.NAMED_WINDOW
+        and record.ref != target_link.target
+    )
+    forged_links = (
+        *inspection.links[:target_link_position],
+        replace(target_link, target=foreign_target),
+        *inspection.links[target_link_position + 1 :],
+    )
+    assert (
+        _evaluate_package_graph_inspection(
+            replace(inspection, links=forged_links)
+        ).status
+        is PackageGraphPureStatus.OWNER_MISMATCH
+    )
+
+    base_link_position = next(
+        position
+        for position, link in enumerate(inspection.links)
+        if link.kind is PackageGraphInspectionLinkKind.NAMED_WINDOW_BASE
+    )
+    base_link = inspection.links[base_link_position]
+    other_target = next(
+        record.ref
+        for record in inspection.records
+        if record.kind is PackageGraphInspectionRecordKind.NAMED_WINDOW
+        and _value(record, "name") == "other"
+    )
+    source_record_position = next(
+        position
+        for position, record in enumerate(inspection.records)
+        if record.ref == base_link.source
+    )
+    source_record = inspection.records[source_record_position]
+    forged_source = replace(
+        source_record,
+        fields=tuple(
+            replace(field, value=other_target) if field.name == "base" else field
+            for field in source_record.fields
+        ),
+    )
+    forged_records = (
+        *inspection.records[:source_record_position],
+        forged_source,
+        *inspection.records[source_record_position + 1 :],
+    )
+    forged_base_links = (
+        *inspection.links[:base_link_position],
+        replace(base_link, target=other_target),
+        *inspection.links[base_link_position + 1 :],
+    )
+    provisional = replace(
+        inspection,
+        records=forged_records,
+        links=forged_base_links,
+        canonical_bytes=b"",
+    )
+    forged = replace(provisional, canonical_bytes=_encode_inspection(provisional))
+    assert (
+        _evaluate_package_graph_inspection(forged).status
+        is PackageGraphPureStatus.OWNER_MISMATCH
+    )
+
+
 def test_integrity_rejects_dangling_foreign_wrong_domain_and_cross_package_grafts(
     tmp_path: Path,
 ) -> None:

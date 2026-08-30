@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
 
+from pietto._window_identity import WindowFunctionIdentity
 from pietto._project.model import (
     ProjectRowSchema,
     ProjectRowFieldProvenance,
@@ -26,13 +27,22 @@ from pietto.ast_nodes import (
     Span,
     TableDef,
     WindowExpr,
+    WindowFrameBound,
+    WindowFrameUnit,
     WindowUseKind,
 )
 from pietto.errors import Diagnostic, SourceLocation
 from pietto.semantic.window_semantics import (
+    NamedWindowOccurrence,
+    ResolvedWindowFunctionModifiers,
+    WindowComponentOrigin,
     WindowExpressionAnalysis,
     WindowExpressionSemanticFact,
     WindowExpressionUnsupported,
+    WindowFrameApplicability,
+    WindowFrameExclusion,
+    WindowNthDirection,
+    WindowNullTreatment,
     WindowOccurrenceIdentity,
 )
 from pietto.semantic.model import ValueType
@@ -43,8 +53,6 @@ from pietto.semantic.window_input_analysis import (
 )
 
 __all__: tuple[str, ...] = ()
-
-_PROJECT_NAMED_WINDOW_INTEGRATION_DEFERRED = "project named-window integration deferred"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -200,10 +208,122 @@ def _validate_target_result_role(
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class WindowSemanticProvenance:
+    """Target-independent window semantics, separate from row dependencies."""
+
+    analysis: WindowExpressionAnalysis
+    function_identity: WindowFunctionIdentity
+    use_kind: WindowUseKind
+    named_target: NamedWindowOccurrence | None
+    partition_origin: WindowComponentOrigin
+    order_origin: WindowComponentOrigin
+    frame_origin: WindowComponentOrigin
+    frame_applicability: WindowFrameApplicability
+    frame_unit: WindowFrameUnit | None
+    frame_start: WindowFrameBound | None
+    frame_end: WindowFrameBound | None
+    frame_exclusion: WindowFrameExclusion | None
+    null_treatment: WindowNullTreatment | None
+    null_treatment_is_explicit: bool
+    nth_direction: WindowNthDirection | None
+    nth_direction_is_explicit: bool
+
+    def __post_init__(self) -> None:
+        if type(self.analysis) is not WindowExpressionAnalysis:
+            raise TypeError("window semantic provenance requires exact analysis")
+        if self.function_identity != self.analysis.semantic_fact.identity:
+            raise ValueError("window provenance function identity must be exact")
+        if self.use_kind is not self.analysis.authored_expression.use_kind:
+            raise ValueError("window provenance use kind must retain authorship")
+        named = self.analysis.resolved_named_use
+        expected_target = (
+            None if named is None else named.composed.target_template.occurrence
+        )
+        if self.named_target != expected_target:
+            raise ValueError("window provenance named target must be exact")
+        resolved = self.analysis.validated_specification.resolved
+        frame = resolved.frame
+        if (
+            self.partition_origin is not resolved.partition_origin
+            or self.order_origin is not resolved.ordering_origin
+            or self.frame_origin is not frame.origin
+            or self.frame_applicability is not frame.applicability
+            or self.frame_unit is not frame.unit
+            or self.frame_start is not frame.start
+            or self.frame_end is not frame.end
+            or self.frame_exclusion is not frame.exclusion
+        ):
+            raise ValueError("window provenance components must retain exact semantics")
+        modifiers = _analysis_modifiers(self.analysis)
+        if modifiers is None:
+            expected_null_treatment = None
+            expected_null_explicit = False
+            expected_nth_direction = None
+            expected_nth_explicit = False
+        else:
+            expected_null_treatment = modifiers.null_treatment
+            expected_null_explicit = modifiers.null_treatment_is_explicit
+            expected_nth_direction = modifiers.nth_direction
+            expected_nth_explicit = modifiers.nth_direction_is_explicit
+        if (
+            self.null_treatment is not expected_null_treatment
+            or self.null_treatment_is_explicit is not expected_null_explicit
+            or self.nth_direction is not expected_nth_direction
+            or self.nth_direction_is_explicit is not expected_nth_explicit
+        ):
+            raise ValueError("window provenance modifiers must retain exact semantics")
+
+
+def _analysis_modifiers(
+    analysis: WindowExpressionAnalysis,
+) -> ResolvedWindowFunctionModifiers | None:
+    if analysis.navigation_fact is not None:
+        return analysis.navigation_fact.modifiers
+    if analysis.frame_value_fact is not None:
+        return analysis.frame_value_fact.modifiers
+    return None
+
+
+def _window_semantic_provenance(
+    analysis: WindowExpressionAnalysis,
+) -> WindowSemanticProvenance:
+    resolved = analysis.validated_specification.resolved
+    frame = resolved.frame
+    modifiers = _analysis_modifiers(analysis)
+    named = analysis.resolved_named_use
+    return WindowSemanticProvenance(
+        analysis=analysis,
+        function_identity=analysis.semantic_fact.identity,
+        use_kind=analysis.authored_expression.use_kind,
+        named_target=(
+            None if named is None else named.composed.target_template.occurrence
+        ),
+        partition_origin=resolved.partition_origin,
+        order_origin=resolved.ordering_origin,
+        frame_origin=frame.origin,
+        frame_applicability=frame.applicability,
+        frame_unit=frame.unit,
+        frame_start=frame.start,
+        frame_end=frame.end,
+        frame_exclusion=frame.exclusion,
+        null_treatment=None if modifiers is None else modifiers.null_treatment,
+        null_treatment_is_explicit=(
+            False if modifiers is None else modifiers.null_treatment_is_explicit
+        ),
+        nth_direction=None if modifiers is None else modifiers.nth_direction,
+        nth_direction_is_explicit=(
+            False if modifiers is None else modifiers.nth_direction_is_explicit
+        ),
+    )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class WindowResultProjectFact:
     """Atomic private result, dependency, and immediate-provenance evidence."""
 
     semantic_fact: WindowExpressionSemanticFact
+    analysis: WindowExpressionAnalysis
+    semantic_provenance: WindowSemanticProvenance
     result_identity: WindowResultIdentity
     dependency_occurrences: tuple[WindowDependencyOccurrence, ...]
     dependency_edges: tuple[WindowDependencyEdge, ...]
@@ -212,6 +332,14 @@ class WindowResultProjectFact:
     def __post_init__(self) -> None:
         if type(self.semantic_fact) is not WindowExpressionSemanticFact:
             raise TypeError("semantic_fact must be exact WindowExpressionSemanticFact")
+        if type(self.analysis) is not WindowExpressionAnalysis:
+            raise TypeError("analysis must be an exact WindowExpressionAnalysis")
+        if self.analysis.semantic_fact is not self.semantic_fact:
+            raise ValueError("project window analysis must retain its semantic core")
+        if type(self.semantic_provenance) is not WindowSemanticProvenance:
+            raise TypeError("window semantic provenance must be exact")
+        if self.semantic_provenance.analysis is not self.analysis:
+            raise ValueError("window semantic provenance must retain exact analysis")
         if type(self.result_identity) is not WindowResultIdentity:
             raise TypeError("result_identity must be an exact WindowResultIdentity")
         if type(self.dependency_occurrences) is not tuple:
@@ -373,7 +501,7 @@ def build_window_result_project_fact(
         let_expressions=let_expressions,
     )
     return _build_window_result_project_fact(
-        semantic_fact=semantic_result.semantic_fact,
+        analysis=semantic_result,
         definition=definition,
         item=item,
         upstream_symbol=upstream_symbol,
@@ -394,46 +522,15 @@ def build_ranking_window_result_project_fact(
 ) -> WindowResultProjectFact | WindowExpressionUnsupported:
     """Build one transient project fact for an exact ranking semantic success."""
 
-    from pietto._project.row_expression_type_facts import (
-        project_row_schema_to_semantic_row_schema,
-    )
-    from pietto.semantic.window_analysis import (
-        analyze_ranking_window_expression,
-    )
-
-    diagnostics: list[Diagnostic] = []
-    let_value_types = let_value_types or {}
-    let_expressions = let_expressions or {}
-    semantic_input_schema = project_row_schema_to_semantic_row_schema(input_schema)
-    value_types: dict[Expression, ValueType] = {}
-    semantic_result = analyze_ranking_window_expression(
+    return build_window_result_project_fact(
         definition=definition,
         item=item,
         selected_output_ordinal=selected_output_ordinal,
         source_id=source_id,
-        input_schema=semantic_input_schema,
-        field_qualifier=definition.from_clause.source_name,
-        value_types=value_types,
-        diagnostics=diagnostics,
-        let_value_types=let_value_types,
-        let_expressions=let_expressions,
-    )
-    if isinstance(semantic_result, WindowExpressionUnsupported):
-        return _retain_project_window_unsupported_authorship(item, semantic_result)
-    input_scope = build_window_input_scope(
-        definition=definition,
-        input_schema=semantic_input_schema,
-        field_qualifier=definition.from_clause.source_name,
-        value_types=value_types,
-        let_value_types=let_value_types,
-        let_expressions=let_expressions,
-    )
-    return _build_window_result_project_fact(
-        semantic_fact=semantic_result.semantic_fact,
-        definition=definition,
-        item=item,
+        input_schema=input_schema,
         upstream_symbol=upstream_symbol,
-        input_scope=input_scope,
+        let_value_types=let_value_types,
+        let_expressions=let_expressions,
     )
 
 
@@ -450,46 +547,15 @@ def build_navigation_window_result_project_fact(
 ) -> WindowResultProjectFact | WindowExpressionUnsupported:
     """Build one transient project fact for an exact navigation success."""
 
-    from pietto._project.row_expression_type_facts import (
-        project_row_schema_to_semantic_row_schema,
-    )
-    from pietto.semantic.window_analysis import (
-        analyze_navigation_window_expression,
-    )
-
-    diagnostics: list[Diagnostic] = []
-    let_value_types = let_value_types or {}
-    let_expressions = let_expressions or {}
-    semantic_input_schema = project_row_schema_to_semantic_row_schema(input_schema)
-    value_types: dict[Expression, ValueType] = {}
-    semantic_result = analyze_navigation_window_expression(
+    return build_window_result_project_fact(
         definition=definition,
         item=item,
         selected_output_ordinal=selected_output_ordinal,
         source_id=source_id,
-        input_schema=semantic_input_schema,
-        field_qualifier=definition.from_clause.source_name,
-        value_types=value_types,
-        diagnostics=diagnostics,
-        let_value_types=let_value_types,
-        let_expressions=let_expressions,
-    )
-    if isinstance(semantic_result, WindowExpressionUnsupported):
-        return _retain_project_window_unsupported_authorship(item, semantic_result)
-    input_scope = build_window_input_scope(
-        definition=definition,
-        input_schema=semantic_input_schema,
-        field_qualifier=definition.from_clause.source_name,
-        value_types=value_types,
-        let_value_types=let_value_types,
-        let_expressions=let_expressions,
-    )
-    return _build_window_result_project_fact(
-        semantic_fact=semantic_result.semantic_fact,
-        definition=definition,
-        item=item,
+        input_schema=input_schema,
         upstream_symbol=upstream_symbol,
-        input_scope=input_scope,
+        let_value_types=let_value_types,
+        let_expressions=let_expressions,
     )
 
 
@@ -520,17 +586,17 @@ def build_row_number_window_result_project_fact(
 
 def _build_window_result_project_fact(
     *,
-    semantic_fact: WindowExpressionSemanticFact,
+    analysis: WindowExpressionAnalysis,
     definition: TableDef | QueryDef,
     item: SelectItem,
     upstream_symbol: ProjectSymbol,
     input_scope: WindowInputScope,
-) -> WindowResultProjectFact | WindowExpressionUnsupported:
-    """Convert eligible inline semantics or defer named Project integration."""
+) -> WindowResultProjectFact:
+    """Convert one exact validated window analysis into Project evidence."""
 
-    deferred = _project_named_window_deferral(item, semantic_fact)
-    if deferred is not None:
-        return deferred
+    if type(analysis) is not WindowExpressionAnalysis:
+        raise TypeError("project window fact requires an exact analysis")
+    semantic_fact = analysis.semantic_fact
 
     if item.alias is None:
         raise AssertionError("successful window project fact requires an alias")
@@ -685,6 +751,8 @@ def _build_window_result_project_fact(
     occurrences = tuple(occurrences_list)
     return WindowResultProjectFact(
         semantic_fact=semantic_fact,
+        analysis=analysis,
+        semantic_provenance=_window_semantic_provenance(analysis),
         result_identity=WindowResultIdentity(
             definition=definition,
             output_name=item.alias,
@@ -706,8 +774,7 @@ def _project_window_analysis_boundary(
 ) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
     if isinstance(analysis, WindowExpressionUnsupported):
         return _retain_project_window_unsupported_authorship(item, analysis)
-    deferred = _project_named_window_deferral(item, analysis.semantic_fact)
-    return analysis if deferred is None else deferred
+    return analysis
 
 
 def _retain_project_window_unsupported_authorship(
@@ -720,23 +787,6 @@ def _retain_project_window_unsupported_authorship(
     if expression.use_kind is WindowUseKind.INLINE:
         return unsupported
     return replace(unsupported, expression=expression)
-
-
-def _project_named_window_deferral(
-    item: SelectItem,
-    semantic_fact: WindowExpressionSemanticFact,
-) -> WindowExpressionUnsupported | None:
-    expression = item.expression
-    if type(expression) is not WindowExpr:
-        raise TypeError("project window boundary requires an exact window item")
-    if expression.use_kind is WindowUseKind.INLINE:
-        return None
-    return WindowExpressionUnsupported(
-        occurrence=semantic_fact.occurrence,
-        expression=expression,
-        identity=semantic_fact.identity,
-        reason=_PROJECT_NAMED_WINDOW_INTEGRATION_DEFERRED,
-    )
 
 
 def _window_input_dependency(

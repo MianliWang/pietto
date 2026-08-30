@@ -225,8 +225,12 @@ result = row_number() window ordered:
 Empty roots and pure aliases use `window name` and `window alias = base`.
 References are query-block-local, forward/backward capable, and single-base;
 duplicates, dangling references, cycles, and repeated inherited components
-fail closed. Named-window source is semantic-only in Slice 8 and has no IR/SQL
-lowering authority. Named windows do not cross relation blocks. `QUALIFY`,
+fail closed. Named declarations and uses preserve relation-local occurrence
+identity in private IR, Project semantic provenance, and package inspection.
+MySQL may preserve reachable source order; PostgreSQL uses stable base-first
+ordering; exact inline fallback is used when native inheritance is not
+representable. Unsupported target shapes fail closed without erasing semantic
+provenance. Named windows do not cross relation blocks. `QUALIFY`,
 arbitrary nesting, and window expressions in unsupported clauses remain
 rejected.
 

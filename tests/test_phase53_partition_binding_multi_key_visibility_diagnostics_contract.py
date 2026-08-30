@@ -629,6 +629,7 @@ def test_window_expression_analysis_shape_field_order_and_privacy_are_exact(
             "validated_specification",
             "navigation_fact",
             "frame_value_fact",
+            "resolved_named_use",
         ),
         all(field.kw_only for field in fields),
         getattr(WindowExpressionAnalysis, "__dataclass_params__").frozen,

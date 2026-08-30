@@ -26,6 +26,7 @@ from pietto._project.window_semantics import (
     WindowDependencyRole,
     WindowResultIdentity,
     WindowResultProjectFact,
+    WindowSemanticProvenance,
     deduplicate_window_dependency_edges,
 )
 from pietto._window_identity import WindowFunctionIdentity, WindowFunctionRole
@@ -38,6 +39,7 @@ from pietto.ast_nodes import (
     TableDef,
     WindowExpr,
     WindowSpec,
+    WindowUseKind,
 )
 from pietto.errors import SourceLocation
 from pietto.semantic.model import (
@@ -49,9 +51,12 @@ from pietto.semantic.model import (
 )
 from pietto.semantic.window_semantics import (
     NavigationWindowSemanticFact,
+    WindowComponentOrigin,
+    WindowExpressionAnalysis,
     WindowExpressionSemanticFact,
     WindowExpressionStage,
     WindowExpressionUnsupported,
+    WindowFrameApplicability,
     WindowOccurrenceIdentity,
     WindowResultAvailability,
     WindowResultAvailabilityKind,
@@ -274,6 +279,39 @@ def _project_fact(
     semantic_fact: WindowExpressionSemanticFact | None = None,
 ) -> WindowResultProjectFact:
     fact = semantic_fact or _semantic_fact(argument_count=argument_count)
+    analysis = object.__new__(WindowExpressionAnalysis)
+    for name, value in (
+        ("semantic_fact", fact),
+        ("ranking_fact", None),
+        ("distribution_fact", None),
+        ("partition_binding_fact", None),
+        ("order_binding_fact", None),
+        ("validated_specification", None),
+        ("navigation_fact", None),
+        ("frame_value_fact", None),
+        ("resolved_named_use", None),
+    ):
+        object.__setattr__(analysis, name, value)
+    semantic_provenance = object.__new__(WindowSemanticProvenance)
+    for name, value in (
+        ("analysis", analysis),
+        ("function_identity", fact.identity),
+        ("use_kind", WindowUseKind.INLINE),
+        ("named_target", None),
+        ("partition_origin", WindowComponentOrigin.LOCALLY_AUTHORED),
+        ("order_origin", WindowComponentOrigin.EFFECTIVE_DEFAULT),
+        ("frame_origin", WindowComponentOrigin.NOT_APPLICABLE),
+        ("frame_applicability", WindowFrameApplicability.NOT_APPLICABLE),
+        ("frame_unit", None),
+        ("frame_start", None),
+        ("frame_end", None),
+        ("frame_exclusion", None),
+        ("null_treatment", None),
+        ("null_treatment_is_explicit", False),
+        ("nth_direction", None),
+        ("nth_direction_is_explicit", False),
+    ):
+        object.__setattr__(semantic_provenance, name, value)
     result_identity = WindowResultIdentity(
         definition=_definition(name=fact.occurrence.relation_name),
         output_name="rn",
@@ -281,6 +319,8 @@ def _project_fact(
     )
     return WindowResultProjectFact(
         semantic_fact=fact,
+        analysis=analysis,
+        semantic_provenance=semantic_provenance,
         result_identity=result_identity,
         dependency_occurrences=occurrences,
         dependency_edges=deduplicate_window_dependency_edges(occurrences),
@@ -353,10 +393,30 @@ def test_project_private_module_enum_carrier_and_privacy_shapes_are_exact() -> N
         WindowDependencyEdge: ("role", "target", "target_result_role"),
         WindowResultProjectFact: (
             "semantic_fact",
+            "analysis",
+            "semantic_provenance",
             "result_identity",
             "dependency_occurrences",
             "dependency_edges",
             "provenance",
+        ),
+        WindowSemanticProvenance: (
+            "analysis",
+            "function_identity",
+            "use_kind",
+            "named_target",
+            "partition_origin",
+            "order_origin",
+            "frame_origin",
+            "frame_applicability",
+            "frame_unit",
+            "frame_start",
+            "frame_end",
+            "frame_exclusion",
+            "null_treatment",
+            "null_treatment_is_explicit",
+            "nth_direction",
+            "nth_direction_is_explicit",
         ),
     }
     for carrier, names in expected.items():
@@ -1327,7 +1387,9 @@ def test_current_analyzer_catalog_and_diagnostic_nonintegration_is_exact(
         assert "WindowExpressionUnsupported" in window_analysis
     elif relative == "src/pietto/semantic/analyzer.py":
         assert "if TYPE_CHECKING:" in source
-        assert "semantic.window_semantics import WindowExpressionAnalysis" in source
+        assert "semantic.window_semantics import (" in source
+        assert "WindowExpressionAnalysis" in source
+        assert "ResolvedNamedWindowNamespace" in source
         assert "WindowExpressionUnsupported" not in source
     else:
         assert "semantic.window_semantics" not in source

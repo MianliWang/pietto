@@ -33,6 +33,7 @@ from pietto._project.package_graph import (
     PackageGraphLetRef,
     PackageGraphModule,
     PackageGraphModuleRef,
+    PackageGraphNamedWindowRef,
     PackageGraphOutcome,
     PackageGraphPackage,
     PackageGraphPackageRef,
@@ -88,8 +89,11 @@ MODEL_TYPES = (
     "PackageGraphSemanticAuthority",
     "PackageGraphFieldRef",
     "PackageGraphLetRef",
+    "PackageGraphNamedWindowRef",
     "PackageGraphField",
     "PackageGraphLetBinding",
+    "PackageGraphNamedWindow",
+    "PackageGraphWindowSemanticProvenance",
     "PackageGraphSourceLineage",
     "PackageGraphProjectionLineage",
     "PackageGraphExpressionLineageKind",
@@ -472,6 +476,11 @@ def test_model_shape_is_private_typed_and_contains_no_deferred_products() -> Non
         "declaring_package",
         "declaration_position",
     )
+    assert tuple(field.name for field in fields(PackageGraphNamedWindowRef)) == (
+        "scope",
+        "declaration",
+        "position",
+    )
     assert tuple(field.name for field in fields(PackageGraphSnapshot)) == (
         "scope",
         "packages",
@@ -495,6 +504,8 @@ def test_model_shape_is_private_typed_and_contains_no_deferred_products() -> Non
         "aggregate_lineage_states",
         "expression_lineage_states",
         "current_window_lineage_states",
+        "named_windows",
+        "window_semantic_provenance",
     )
     assert tuple(field.name for field in fields(PackageGraphResult)) == (
         "outcome",

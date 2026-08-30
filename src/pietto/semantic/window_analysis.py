@@ -279,6 +279,7 @@ def analyze_window_expression(
     diagnostics: list[Diagnostic],
     let_value_types: Mapping[str, ValueType] | None = None,
     let_expressions: Mapping[str, Expression] | None = None,
+    named_window_namespace: ResolvedNamedWindowNamespace | None = None,
 ) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
     """Analyze one direct selected recognized window expression transiently."""
 
@@ -294,6 +295,7 @@ def analyze_window_expression(
         let_value_types=let_value_types,
         let_expressions=let_expressions,
         family=None,
+        named_window_namespace=named_window_namespace,
     )
 
 
@@ -447,6 +449,7 @@ def _analyze_recognized_window_expression(
     let_value_types: Mapping[str, ValueType] | None,
     let_expressions: Mapping[str, Expression] | None,
     family: str | None,
+    named_window_namespace: ResolvedNamedWindowNamespace | None = None,
 ) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
     """Own the single common validation and construction path."""
 
@@ -475,7 +478,16 @@ def _analyze_recognized_window_expression(
 
     named_composition = None
     if source_expression.use_kind is not WindowUseKind.INLINE:
-        namespace = resolve_named_window_namespace(definition)
+        namespace = (
+            resolve_named_window_namespace(definition)
+            if named_window_namespace is None
+            else named_window_namespace
+        )
+        if (
+            type(namespace) is ResolvedNamedWindowNamespace
+            and namespace.definition is not definition
+        ):
+            raise ValueError("named window namespace must retain its exact relation")
         if type(namespace) is NamedWindowResolutionFailure:
             diagnostics.extend(named_window_resolution_diagnostics(namespace))
             return WindowExpressionUnsupported(
@@ -848,6 +860,7 @@ def _analyze_recognized_window_expression(
             ),
             validated_specification=frame_validation,
             frame_value_fact=frame_value_result,
+            resolved_named_use=resolved_named_use,
         )
 
     if navigation is not None:
@@ -879,6 +892,7 @@ def _analyze_recognized_window_expression(
             ),
             validated_specification=frame_validation,
             navigation_fact=navigation_result,
+            resolved_named_use=resolved_named_use,
         )
 
     assert signature is not None
@@ -972,6 +986,7 @@ def _analyze_recognized_window_expression(
             bindings=order_bindings,
         ),
         validated_specification=frame_validation,
+        resolved_named_use=resolved_named_use,
     )
 
 

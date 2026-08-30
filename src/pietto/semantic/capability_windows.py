@@ -325,7 +325,7 @@ _WINDOW_LOWERING_FACTS: tuple[CapabilityFact, ...] = _freeze_windows(
                 subject,
                 dialect="postgresql",
                 source_path="src/pietto/sql/expressions.py",
-                source_reference="_render_window_call",
+                source_reference="render_window_call_sql",
                 backend="postgresql",
             )
             for subject in _WINDOW_IDENTITIES
@@ -335,7 +335,7 @@ _WINDOW_LOWERING_FACTS: tuple[CapabilityFact, ...] = _freeze_windows(
                 subject,
                 dialect="mysql",
                 source_path="src/pietto/sql/mysql_expressions.py",
-                source_reference="_render_mysql_window_call",
+                source_reference="render_mysql_window_call",
                 backend="private-mysql",
             )
             for subject in _WINDOW_IDENTITIES

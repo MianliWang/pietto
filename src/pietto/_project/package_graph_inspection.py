@@ -7,6 +7,7 @@ from enum import StrEnum
 
 import pietto._project.package_graph as graph
 from pietto._project.model import _classify_project_definition
+from pietto.ast_nodes import AuthoredWindowFrameKind, LiteralExpr
 
 __all__: tuple[str, ...] = ()
 
@@ -28,6 +29,8 @@ class PackageGraphInspectionDomain(StrEnum):
     SEMANTIC_AUTHORITY = "semantic_authority"
     FIELD = "field"
     LET_BINDING = "let_binding"
+    NAMED_WINDOW = "named_window"
+    WINDOW_SEMANTIC = "window_semantic"
 
 
 class PackageGraphInspectionRecordKind(StrEnum):
@@ -45,6 +48,8 @@ class PackageGraphInspectionRecordKind(StrEnum):
     SEMANTIC_AUTHORITY = "semantic_authority"
     FIELD = "field"
     LET_BINDING = "let_binding"
+    NAMED_WINDOW = "named_window"
+    WINDOW_SEMANTIC = "window_semantic"
 
 
 class PackageGraphInspectionLinkKind(StrEnum):
@@ -63,6 +68,8 @@ class PackageGraphInspectionLinkKind(StrEnum):
     PROJECTION_LINEAGE = "projection_lineage"
     EXPRESSION_LINEAGE = "expression_lineage"
     CURRENT_WINDOW_LINEAGE = "current_window_lineage"
+    NAMED_WINDOW_BASE = "named_window_base"
+    WINDOW_NAMED_TARGET = "window_named_target"
 
 
 class PackageGraphInspectionStateKind(StrEnum):
@@ -325,6 +332,8 @@ _DOMAIN_LENGTHS = {
     PackageGraphInspectionDomain.SEMANTIC_AUTHORITY: 1,
     PackageGraphInspectionDomain.FIELD: 4,
     PackageGraphInspectionDomain.LET_BINDING: 4,
+    PackageGraphInspectionDomain.NAMED_WINDOW: 4,
+    PackageGraphInspectionDomain.WINDOW_SEMANTIC: 4,
 }
 
 _RECORD_DOMAINS = {
@@ -428,6 +437,41 @@ _RECORD_FIELDS = {
         "scope_status",
         "scope_reason",
     ),
+    PackageGraphInspectionRecordKind.NAMED_WINDOW: (
+        "declaration",
+        "name",
+        "base",
+        "base_spelling",
+        "local_partition_count",
+        "local_order_count",
+        "local_frame",
+        "path",
+        "line",
+        "column",
+        "end_line",
+        "end_column",
+    ),
+    PackageGraphInspectionRecordKind.WINDOW_SEMANTIC: (
+        "declaration",
+        "output",
+        "function",
+        "use_kind",
+        "named_target",
+        "partition_origin",
+        "order_origin",
+        "frame_origin",
+        "frame_applicability",
+        "frame_unit",
+        "frame_start_kind",
+        "frame_start_offset",
+        "frame_end_kind",
+        "frame_end_offset",
+        "frame_exclusion",
+        "null_treatment",
+        "null_treatment_is_explicit",
+        "nth_direction",
+        "nth_direction_is_explicit",
+    ),
 }
 
 _LINK_FIELDS = {
@@ -461,6 +505,11 @@ _LINK_FIELDS = {
         "role",
         "global_position",
         "role_position",
+    ),
+    PackageGraphInspectionLinkKind.NAMED_WINDOW_BASE: ("base_spelling",),
+    PackageGraphInspectionLinkKind.WINDOW_NAMED_TARGET: (
+        "use_kind",
+        "reference_spelling",
     ),
 }
 
@@ -555,6 +604,16 @@ _LINK_DOMAINS = {
         },
         None,
     ),
+    PackageGraphInspectionLinkKind.NAMED_WINDOW_BASE: (
+        {PackageGraphInspectionDomain.NAMED_WINDOW},
+        {PackageGraphInspectionDomain.NAMED_WINDOW},
+        None,
+    ),
+    PackageGraphInspectionLinkKind.WINDOW_NAMED_TARGET: (
+        {PackageGraphInspectionDomain.FIELD},
+        {PackageGraphInspectionDomain.NAMED_WINDOW},
+        None,
+    ),
 }
 
 
@@ -625,6 +684,8 @@ def _parent_ref(ref: PackageGraphInspectionRef) -> PackageGraphInspectionRef | N
     if ref.domain in {
         PackageGraphInspectionDomain.FIELD,
         PackageGraphInspectionDomain.LET_BINDING,
+        PackageGraphInspectionDomain.NAMED_WINDOW,
+        PackageGraphInspectionDomain.WINDOW_SEMANTIC,
     }:
         return PackageGraphInspectionRef(
             PackageGraphInspectionDomain.DECLARATION,
@@ -649,15 +710,17 @@ def _record_owner_field(
         PackageGraphInspectionRecordKind.SEMANTIC_AUTHORITY: "package",
         PackageGraphInspectionRecordKind.FIELD: "declaration",
         PackageGraphInspectionRecordKind.LET_BINDING: "declaration",
+        PackageGraphInspectionRecordKind.NAMED_WINDOW: "declaration",
+        PackageGraphInspectionRecordKind.WINDOW_SEMANTIC: "declaration",
     }[record.kind]
 
 
 def _validate_record_relations(
     record: PackageGraphInspectionRecord,
-    refs: set[PackageGraphInspectionRef],
+    records: dict[PackageGraphInspectionRef, PackageGraphInspectionRecord],
 ) -> PackageGraphPureStatus | None:
     parent = _parent_ref(record.ref)
-    if parent is not None and parent not in refs:
+    if parent is not None and parent not in records:
         return PackageGraphPureStatus.DANGLING_REF
     owner_name = _record_owner_field(record)
     if owner_name is not None:
@@ -674,7 +737,7 @@ def _validate_record_relations(
             or target.domain is not PackageGraphInspectionDomain.PACKAGE
         ):
             return PackageGraphPureStatus.WRONG_DOMAIN
-        if target not in refs:
+        if target not in records:
             return PackageGraphPureStatus.DANGLING_REF
     elif record.kind is PackageGraphInspectionRecordKind.SELECTOR:
         requirement = _field_value(record.fields, "requirement")
@@ -684,7 +747,7 @@ def _validate_record_relations(
             or requirement.positions[0] != record.ref.positions[0]
         ):
             return PackageGraphPureStatus.OWNER_MISMATCH
-        if requirement not in refs:
+        if requirement not in records:
             return PackageGraphPureStatus.DANGLING_REF
     elif record.kind is PackageGraphInspectionRecordKind.CAPABILITY_EVALUATION:
         selector = _field_value(record.fields, "selector")
@@ -695,7 +758,7 @@ def _validate_record_relations(
                 or selector.positions[0] != record.ref.positions[0]
             ):
                 return PackageGraphPureStatus.WRONG_DOMAIN
-            if selector not in refs:
+            if selector not in records:
                 return PackageGraphPureStatus.DANGLING_REF
     elif record.kind is PackageGraphInspectionRecordKind.CATALOG_EVIDENCE:
         capability = _field_value(record.fields, "capability")
@@ -707,8 +770,43 @@ def _validate_record_relations(
             or capability.positions[2] != record.ref.positions[2]
         ):
             return PackageGraphPureStatus.OWNER_MISMATCH
-        if capability not in refs:
+        if capability not in records:
             return PackageGraphPureStatus.DANGLING_REF
+    elif record.kind is PackageGraphInspectionRecordKind.NAMED_WINDOW:
+        base = _field_value(record.fields, "base")
+        if base is not None:
+            if (
+                type(base) is not PackageGraphInspectionRef
+                or base.domain is not PackageGraphInspectionDomain.NAMED_WINDOW
+                or base.positions[:3] != record.ref.positions[:3]
+            ):
+                return PackageGraphPureStatus.OWNER_MISMATCH
+            if base not in records:
+                return PackageGraphPureStatus.DANGLING_REF
+            if base == record.ref or _field_value(
+                records[base].fields, "name"
+            ) != _field_value(record.fields, "base_spelling"):
+                return PackageGraphPureStatus.OWNER_MISMATCH
+    elif record.kind is PackageGraphInspectionRecordKind.WINDOW_SEMANTIC:
+        output = _field_value(record.fields, "output")
+        target = _field_value(record.fields, "named_target")
+        if (
+            type(output) is not PackageGraphInspectionRef
+            or output.domain is not PackageGraphInspectionDomain.FIELD
+            or output.positions != record.ref.positions
+        ):
+            return PackageGraphPureStatus.OWNER_MISMATCH
+        if output not in records:
+            return PackageGraphPureStatus.DANGLING_REF
+        if target is not None:
+            if (
+                type(target) is not PackageGraphInspectionRef
+                or target.domain is not PackageGraphInspectionDomain.NAMED_WINDOW
+                or target.positions[:3] != record.ref.positions[:3]
+            ):
+                return PackageGraphPureStatus.OWNER_MISMATCH
+            if target not in records:
+                return PackageGraphPureStatus.DANGLING_REF
     return None
 
 
@@ -740,8 +838,19 @@ def _validate_link_relations(
             PackageGraphInspectionLinkKind.PROJECTION_LINEAGE,
             PackageGraphInspectionLinkKind.EXPRESSION_LINEAGE,
             PackageGraphInspectionLinkKind.CURRENT_WINDOW_LINEAGE,
+            PackageGraphInspectionLinkKind.NAMED_WINDOW_BASE,
+            PackageGraphInspectionLinkKind.WINDOW_NAMED_TARGET,
         }
         and link.source.positions[0] != link.target.positions[0]
+    ):
+        return PackageGraphPureStatus.OWNER_MISMATCH
+    if (
+        link.kind
+        in {
+            PackageGraphInspectionLinkKind.NAMED_WINDOW_BASE,
+            PackageGraphInspectionLinkKind.WINDOW_NAMED_TARGET,
+        }
+        and link.source.positions[:3] != link.target.positions[:3]
     ):
         return PackageGraphPureStatus.OWNER_MISMATCH
 
@@ -783,6 +892,28 @@ def _validate_link_relations(
         ):
             return PackageGraphPureStatus.OWNER_MISMATCH
         if witness.ref != link.target:
+            return PackageGraphPureStatus.OWNER_MISMATCH
+    elif link.kind is PackageGraphInspectionLinkKind.NAMED_WINDOW_BASE:
+        source = records[link.source]
+        if _field_value(source.fields, "base") != link.target or _field_value(
+            source.fields, "base_spelling"
+        ) != _field_value(link.fields, "base_spelling"):
+            return PackageGraphPureStatus.OWNER_MISMATCH
+    elif link.kind is PackageGraphInspectionLinkKind.WINDOW_NAMED_TARGET:
+        semantic_ref = PackageGraphInspectionRef(
+            PackageGraphInspectionDomain.WINDOW_SEMANTIC,
+            link.source.positions,
+        )
+        semantic = records.get(semantic_ref)
+        target = records[link.target]
+        if (
+            semantic is None
+            or _field_value(semantic.fields, "named_target") != link.target
+            or _field_value(semantic.fields, "use_kind")
+            != _field_value(link.fields, "use_kind")
+            or _field_value(target.fields, "name")
+            != _field_value(link.fields, "reference_spelling")
+        ):
             return PackageGraphPureStatus.OWNER_MISMATCH
     return None
 
@@ -826,9 +957,8 @@ def _evaluate_package_graph_inspection(
             return _reject(PackageGraphPureStatus.DUPLICATE_REF, position)
         records[record.ref] = record
 
-    refs = set(records)
     for position, record in enumerate(inspection.records):
-        rejection = _validate_record_relations(record, refs)
+        rejection = _validate_record_relations(record, records)
         if rejection is not None:
             return _reject(rejection, position)
     for position, link in enumerate(inspection.links):
@@ -1076,7 +1206,36 @@ def _inspection_ref(ref: object) -> PackageGraphInspectionRef:
                 ref.position,
             ),
         )
+    if type(ref) is graph.PackageGraphNamedWindowRef:
+        declaration = ref.declaration
+        module = declaration.module
+        return PackageGraphInspectionRef(
+            PackageGraphInspectionDomain.NAMED_WINDOW,
+            (
+                module.package.position,
+                module.position,
+                declaration.position,
+                ref.position,
+            ),
+        )
     raise TypeError("Canonical inspection requires an exact supported graph ref.")
+
+
+def _window_semantic_ref(
+    provenance: graph.PackageGraphWindowSemanticProvenance,
+) -> PackageGraphInspectionRef:
+    output = provenance.output
+    declaration = output.declaration
+    module = declaration.module
+    return PackageGraphInspectionRef(
+        PackageGraphInspectionDomain.WINDOW_SEMANTIC,
+        (
+            module.package.position,
+            module.position,
+            declaration.position,
+            output.position,
+        ),
+    )
 
 
 def _inspection_field(
@@ -1317,7 +1476,112 @@ def _build_inspection_records(
             ("scope_status", scope.status.value),
             ("scope_reason", scope.reason.value),
         )
+    for named in snapshot.named_windows:
+        declaration = named.witness.declaration
+        specification = declaration.spec
+        span = declaration.span
+        _append_record(
+            records,
+            PackageGraphInspectionRecordKind.NAMED_WINDOW,
+            _inspection_ref(named.ref),
+            ("declaration", _inspection_ref(named.declaration)),
+            ("name", named.name),
+            ("base", None if named.base is None else _inspection_ref(named.base)),
+            (
+                "base_spelling",
+                None if declaration.base is None else declaration.base.name,
+            ),
+            (
+                "local_partition_count",
+                0 if specification is None else len(specification.partition_by),
+            ),
+            (
+                "local_order_count",
+                0 if specification is None else len(specification.order_by),
+            ),
+            (
+                "local_frame",
+                specification is not None
+                and specification.frame.kind is not AuthoredWindowFrameKind.OMITTED,
+            ),
+            ("path", span.path),
+            ("line", span.line),
+            ("column", span.column),
+            ("end_line", span.end_line),
+            ("end_column", span.end_column),
+        )
+    for projected in snapshot.window_semantic_provenance:
+        witness = projected.witness
+        _append_record(
+            records,
+            PackageGraphInspectionRecordKind.WINDOW_SEMANTIC,
+            _window_semantic_ref(projected),
+            ("declaration", _inspection_ref(projected.output.declaration)),
+            ("output", _inspection_ref(projected.output)),
+            ("function", witness.function_identity.name),
+            ("use_kind", witness.use_kind.value),
+            (
+                "named_target",
+                (
+                    None
+                    if projected.named_target is None
+                    else _inspection_ref(projected.named_target)
+                ),
+            ),
+            ("partition_origin", witness.partition_origin.value),
+            ("order_origin", witness.order_origin.value),
+            ("frame_origin", witness.frame_origin.value),
+            ("frame_applicability", witness.frame_applicability.value),
+            (
+                "frame_unit",
+                None if witness.frame_unit is None else witness.frame_unit.value,
+            ),
+            (
+                "frame_start_kind",
+                None if witness.frame_start is None else witness.frame_start.kind.value,
+            ),
+            ("frame_start_offset", _frame_bound_offset(witness.frame_start)),
+            (
+                "frame_end_kind",
+                None if witness.frame_end is None else witness.frame_end.kind.value,
+            ),
+            ("frame_end_offset", _frame_bound_offset(witness.frame_end)),
+            (
+                "frame_exclusion",
+                (
+                    None
+                    if witness.frame_exclusion is None
+                    else witness.frame_exclusion.value
+                ),
+            ),
+            (
+                "null_treatment",
+                (
+                    None
+                    if witness.null_treatment is None
+                    else witness.null_treatment.value
+                ),
+            ),
+            (
+                "null_treatment_is_explicit",
+                witness.null_treatment_is_explicit,
+            ),
+            (
+                "nth_direction",
+                None if witness.nth_direction is None else witness.nth_direction.value,
+            ),
+            ("nth_direction_is_explicit", witness.nth_direction_is_explicit),
+        )
     return tuple(records)
+
+
+def _frame_bound_offset(bound: object) -> int | None:
+    offset = getattr(bound, "offset", None)
+    if offset is None:
+        return None
+    if type(offset) is not LiteralExpr or type(offset.value) is not int:
+        raise ValueError("Inspected window frame offsets require exact Int literals.")
+    return offset.value
 
 
 def _link_kind(
@@ -1455,6 +1719,39 @@ def _build_inspection_links(
                 target=_inspection_ref(graph._direct_step_target(step)),
                 witness_ref=_link_witness_ref(witness),
                 fields=_link_fields(witness),
+            )
+        )
+    for named in snapshot.named_windows:
+        if named.base is None:
+            continue
+        base_reference = named.witness.declaration.base
+        assert base_reference is not None
+        links.append(
+            PackageGraphInspectionLink(
+                ordinal=len(links),
+                kind=PackageGraphInspectionLinkKind.NAMED_WINDOW_BASE,
+                source=_inspection_ref(named.ref),
+                target=_inspection_ref(named.base),
+                witness_ref=None,
+                fields=(_inspection_field("base_spelling", base_reference.name),),
+            )
+        )
+    for provenance in snapshot.window_semantic_provenance:
+        if provenance.named_target is None:
+            continue
+        authored = provenance.witness.analysis.authored_expression
+        assert authored.base is not None
+        links.append(
+            PackageGraphInspectionLink(
+                ordinal=len(links),
+                kind=PackageGraphInspectionLinkKind.WINDOW_NAMED_TARGET,
+                source=_inspection_ref(provenance.output),
+                target=_inspection_ref(provenance.named_target),
+                witness_ref=None,
+                fields=(
+                    _inspection_field("use_kind", provenance.witness.use_kind.value),
+                    _inspection_field("reference_spelling", authored.base.name),
+                ),
             )
         )
     return tuple(links)

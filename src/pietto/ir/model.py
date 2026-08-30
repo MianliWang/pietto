@@ -467,6 +467,11 @@ class WindowNthDirectionIR(StrEnum):
     FROM_LAST = "from_last"
 
 
+class WindowUseKindIR(StrEnum):
+    NAMED_DIRECT = "named_direct"
+    NAMED_EXTENDED = "named_extended"
+
+
 @dataclass(frozen=True, slots=True)
 class WindowFrameBoundIR:
     kind: WindowFrameBoundKindIR
@@ -538,6 +543,143 @@ class WindowFrameIR:
 
 
 @dataclass(frozen=True, slots=True)
+class WindowRelationOccurrenceIR:
+    symbol: SymbolId
+    span: SourceSpan
+
+    def __post_init__(self) -> None:
+        if type(self.symbol) is not SymbolId:
+            raise TypeError("window relation owner must be an exact symbol")
+        if self.symbol.namespace is not SymbolNamespace.RELATION:
+            raise ValueError("window relation owner must use the relation namespace")
+        if type(self.span) is not SourceSpan:
+            raise TypeError("window relation owner must retain an exact span")
+
+
+@dataclass(frozen=True, slots=True)
+class NamedWindowOccurrenceIR:
+    owner: WindowRelationOccurrenceIR
+    ordinal: int
+    span: SourceSpan
+
+    def __post_init__(self) -> None:
+        if type(self.owner) is not WindowRelationOccurrenceIR:
+            raise TypeError("named window occurrence must retain its exact owner")
+        if type(self.ordinal) is not int or self.ordinal < 0:
+            raise ValueError("named window occurrence ordinal must be nonnegative")
+        if type(self.span) is not SourceSpan:
+            raise TypeError("named window occurrence span must be exact")
+
+
+@dataclass(frozen=True, slots=True)
+class NamedWindowBaseIR:
+    spelling: str
+    target: NamedWindowOccurrenceIR
+
+    def __post_init__(self) -> None:
+        if type(self.spelling) is not str or not self.spelling:
+            raise ValueError("named window base spelling must be nonempty")
+        if type(self.target) is not NamedWindowOccurrenceIR:
+            raise TypeError("named window base target must be exact")
+
+
+@dataclass(frozen=True, slots=True)
+class NamedWindowLocalSpecIR:
+    partition_by: tuple[ExpressionIR, ...]
+    order_by: tuple[WindowOrderItemIR, ...]
+    frame: WindowFrameIR | None
+    span: SourceSpan
+
+    def __post_init__(self) -> None:
+        if type(self.partition_by) is not tuple or any(
+            not isinstance(expression, ExpressionIR) for expression in self.partition_by
+        ):
+            raise TypeError("named window local partition must be an exact tuple")
+        if type(self.order_by) is not tuple or any(
+            type(item) is not WindowOrderItemIR for item in self.order_by
+        ):
+            raise TypeError("named window local order must be an exact tuple")
+        if self.frame is not None and type(self.frame) is not WindowFrameIR:
+            raise TypeError("named window local frame must be exact or absent")
+        if self.frame is not None and not self.frame.frame_is_explicit:
+            raise ValueError("named window local frames require authored evidence")
+        if type(self.span) is not SourceSpan:
+            raise TypeError("named window local specification span must be exact")
+
+    @property
+    def has_components(self) -> bool:
+        return bool(self.partition_by or self.order_by or self.frame is not None)
+
+
+@dataclass(frozen=True, slots=True)
+class NamedWindowDeclarationIR:
+    occurrence: NamedWindowOccurrenceIR
+    name: str
+    base: NamedWindowBaseIR | None
+    local_spec: NamedWindowLocalSpecIR
+    span: SourceSpan
+
+    def __post_init__(self) -> None:
+        if type(self.occurrence) is not NamedWindowOccurrenceIR:
+            raise TypeError("named window declaration occurrence must be exact")
+        if type(self.name) is not str or not self.name:
+            raise ValueError("named window declaration name must be nonempty")
+        if self.base is not None and type(self.base) is not NamedWindowBaseIR:
+            raise TypeError("named window declaration base must be exact or absent")
+        if type(self.local_spec) is not NamedWindowLocalSpecIR:
+            raise TypeError("named window declaration local spec must be exact")
+        if type(self.span) is not SourceSpan or self.span != self.occurrence.span:
+            raise ValueError("named window declaration span must match its occurrence")
+        if self.base is not None and self.base.target.owner != self.occurrence.owner:
+            raise ValueError("named window declaration base must stay relation-local")
+
+
+@dataclass(frozen=True, slots=True)
+class WindowUseOccurrenceIR:
+    owner: WindowRelationOccurrenceIR
+    selected_output_ordinal: int
+    kind: WindowUseKindIR
+    span: SourceSpan
+
+    def __post_init__(self) -> None:
+        if type(self.owner) is not WindowRelationOccurrenceIR:
+            raise TypeError("named window use must retain its exact owner")
+        if (
+            type(self.selected_output_ordinal) is not int
+            or self.selected_output_ordinal < 0
+        ):
+            raise ValueError("named window use ordinal must be nonnegative")
+        if type(self.kind) is not WindowUseKindIR:
+            raise TypeError("named window use kind must be exact")
+        if type(self.span) is not SourceSpan:
+            raise TypeError("named window use span must be exact")
+
+
+@dataclass(frozen=True, slots=True)
+class NamedWindowUseIR:
+    occurrence: WindowUseOccurrenceIR
+    target: NamedWindowOccurrenceIR
+    reference_spelling: str
+    local_spec: NamedWindowLocalSpecIR
+
+    def __post_init__(self) -> None:
+        if type(self.occurrence) is not WindowUseOccurrenceIR:
+            raise TypeError("named window use occurrence must be exact")
+        if type(self.target) is not NamedWindowOccurrenceIR:
+            raise TypeError("named window use target must be exact")
+        if type(self.reference_spelling) is not str or not self.reference_spelling:
+            raise ValueError("named window reference spelling must be nonempty")
+        if type(self.local_spec) is not NamedWindowLocalSpecIR:
+            raise TypeError("named window use local spec must be exact")
+        if self.target.owner != self.occurrence.owner:
+            raise ValueError("named window use target must stay relation-local")
+        if (
+            self.occurrence.kind is WindowUseKindIR.NAMED_DIRECT
+        ) is self.local_spec.has_components:
+            raise ValueError("named window use kind must match local components")
+
+
+@dataclass(frozen=True, slots=True)
 class WindowSpecIR:
     """A source-ordered inline window specification with optional frame."""
 
@@ -593,6 +735,7 @@ class WindowCallIR(ExpressionIR):
     null_treatment_is_explicit: bool = False
     nth_direction: WindowNthDirectionIR | None = None
     nth_direction_is_explicit: bool = False
+    named_use: NamedWindowUseIR | None = None
 
     def __post_init__(self) -> None:
         """Fail closed for malformed or unsupported window-call IR."""
@@ -623,6 +766,8 @@ class WindowCallIR(ExpressionIR):
             raise TypeError("window nth direction IR must be exact or absent")
         if type(self.nth_direction_is_explicit) is not bool:
             raise TypeError("window nth direction explicitness must be exact")
+        if self.named_use is not None and type(self.named_use) is not NamedWindowUseIR:
+            raise TypeError("named window use IR must be exact or absent")
         if self.identity.namespace != ():
             raise ValueError("builtin window call identity namespace must be empty")
         arities = _WINDOW_ARGUMENT_ARITIES.get(self.identity.name)
@@ -729,6 +874,55 @@ class RelationIR(DefinitionIR):
     limit: LimitIR | None = None
     group_keys: tuple[FieldRefIR, ...] = ()
     result_predicate: ResultPredicateIR | None = None
+    named_windows: tuple[NamedWindowDeclarationIR, ...] = ()
+
+    def __post_init__(self) -> None:
+        if type(self.named_windows) is not tuple or any(
+            type(item) is not NamedWindowDeclarationIR for item in self.named_windows
+        ):
+            raise TypeError("relation named windows must be an exact tuple")
+        owner = WindowRelationOccurrenceIR(self.symbol, self.span)
+        if any(
+            declaration.occurrence.owner != owner
+            or declaration.occurrence.ordinal != ordinal
+            for ordinal, declaration in enumerate(self.named_windows)
+        ):
+            raise ValueError(
+                "relation named windows must retain source order and owner"
+            )
+        if len({item.name for item in self.named_windows}) != len(self.named_windows):
+            raise ValueError("relation named window names must be unique")
+        declarations = {
+            declaration.occurrence: declaration for declaration in self.named_windows
+        }
+        for declaration in self.named_windows:
+            if declaration.base is None:
+                continue
+            target = declarations.get(declaration.base.target)
+            if (
+                target is None
+                or target is declaration
+                or target.name != declaration.base.spelling
+            ):
+                raise ValueError("named window base must target its exact declaration")
+        for ordinal, projection in enumerate(self.projections):
+            expression = projection.expression
+            named_use = (
+                None
+                if not isinstance(expression, WindowCallIR)
+                else getattr(expression, "named_use", None)
+            )
+            if named_use is None:
+                continue
+            target = declarations.get(named_use.target)
+            if (
+                named_use.occurrence.owner != owner
+                or named_use.occurrence.selected_output_ordinal != ordinal
+                or named_use.occurrence.span != expression.span
+                or target is None
+                or target.name != named_use.reference_spelling
+            ):
+                raise ValueError("named window call must retain its exact relation use")
 
 
 @dataclass(frozen=True, slots=True)

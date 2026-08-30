@@ -39,6 +39,10 @@ from pietto.sql.mysql_render import (
     quote_qualified_identifier,
     render_literal,
 )
+from pietto.sql.window_strategy import (
+    WindowTargetDialect,
+    decide_inline_window_target,
+)
 
 _COMPARISON_OPERATORS = {
     "==": "=",
@@ -121,7 +125,7 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
             raise MySqlRenderError(
                 "MySQL window calls are supported only as direct projections"
             )
-        return _render_mysql_window_call(expression)
+        return render_mysql_window_call(expression)
     if isinstance(expression, CallIR):
         return _render_call(expression)
     if isinstance(expression, ComparisonIR):
@@ -168,7 +172,11 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
     return f"({sql})" if nested else sql
 
 
-def _render_mysql_window_call(expression: WindowCallIR) -> str:
+def render_mysql_window_call(
+    expression: WindowCallIR,
+    *,
+    over_sql: str | None = None,
+) -> str:
     """Render one independently validated private-MySQL window call."""
 
     if type(getattr(expression, "span", None)) is not SourceSpan:
@@ -226,26 +234,55 @@ def _render_mysql_window_call(expression: WindowCallIR) -> str:
     ):
         raise MySqlRenderError("MySQL window partition contains an invalid expression")
     _validate_mysql_window_order_items(order_by)
+    decision = decide_inline_window_target(expression, WindowTargetDialect.MYSQL)
+    if not decision.supported:
+        raise MySqlRenderError(decision.failure_reason)
     null_treatment = getattr(expression, "null_treatment", None)
     nth_direction = getattr(expression, "nth_direction", None)
     if name in {"lag", "lead", "first_value", "last_value", "nth_value"}:
         if type(null_treatment) is not WindowNullTreatmentIR:
             raise MySqlRenderError("MySQL value window requires NULL treatment")
-        if null_treatment is WindowNullTreatmentIR.IGNORE_NULLS:
-            raise MySqlRenderError("MySQL does not execute IGNORE NULLS")
     elif null_treatment is not None:
         raise MySqlRenderError("MySQL function forbids NULL treatment")
     if name == "nth_value":
         if type(nth_direction) is not WindowNthDirectionIR:
             raise MySqlRenderError("MySQL nth_value requires a direction")
-        if nth_direction is WindowNthDirectionIR.FROM_LAST:
-            raise MySqlRenderError("MySQL does not execute FROM LAST")
     elif nth_direction is not None:
         raise MySqlRenderError("MySQL non-nth function forbids FROM direction")
 
     argument_sql = ", ".join(
         _render_mysql_expression(argument, nested=True) for argument in arguments
     )
+    if over_sql is None:
+        components = render_mysql_window_components(
+            partition_by,
+            order_by,
+            getattr(spec, "frame", None),
+        )
+        over_sql = f"({' '.join(components)})"
+    if type(over_sql) is not str or not over_sql:
+        raise MySqlRenderError("MySQL window OVER SQL must be nonempty")
+    modifiers: list[str] = []
+    if name == "nth_value" and expression.nth_direction_is_explicit:
+        modifiers.append("FROM FIRST")
+    if null_treatment is not None and expression.null_treatment_is_explicit:
+        modifiers.append("RESPECT NULLS")
+    suffix = "" if not modifiers else " " + " ".join(modifiers)
+    return f"{_WINDOW_FUNCTION_NAMES[name]}({argument_sql}){suffix} OVER {over_sql}"
+
+
+def render_mysql_window_components(
+    partition_by: tuple[ExpressionIR, ...],
+    order_by: tuple[WindowOrderItemIR, ...],
+    frame: WindowFrameIR | None,
+) -> tuple[str, ...]:
+    if type(partition_by) is not tuple or any(
+        not isinstance(item, ExpressionIR) for item in partition_by
+    ):
+        raise MySqlRenderError("MySQL window partition requires exact expressions")
+    if type(order_by) is not tuple:
+        raise MySqlRenderError("MySQL window order requires an exact tuple")
+    _validate_mysql_window_order_items(order_by)
     clauses: list[str] = []
     if partition_by:
         clauses.append(
@@ -255,23 +292,14 @@ def _render_mysql_window_call(expression: WindowCallIR) -> str:
                 for partition in partition_by
             )
         )
-    clauses.append(
-        "ORDER BY "
-        + ", ".join(_render_mysql_window_order_item(item) for item in order_by)
-    )
-    frame = getattr(spec, "frame", None)
+    if order_by:
+        clauses.append(
+            "ORDER BY "
+            + ", ".join(_render_mysql_window_order_item(item) for item in order_by)
+        )
     if frame is not None:
         clauses.append(_render_mysql_window_frame(frame))
-    modifiers: list[str] = []
-    if name == "nth_value" and expression.nth_direction_is_explicit:
-        modifiers.append("FROM FIRST")
-    if null_treatment is not None and expression.null_treatment_is_explicit:
-        modifiers.append("RESPECT NULLS")
-    suffix = "" if not modifiers else " " + " ".join(modifiers)
-    return (
-        f"{_WINDOW_FUNCTION_NAMES[name]}({argument_sql}){suffix} "
-        f"OVER ({' '.join(clauses)})"
-    )
+    return tuple(clauses)
 
 
 def _render_mysql_window_frame(frame: WindowFrameIR) -> str:

@@ -37,6 +37,7 @@ SIGNATURE_REL = "src/pietto/semantic/capability_signatures.py"
 CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
 AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
 WINDOW_REL = "src/pietto/semantic/capability_windows.py"
+WINDOW_STRATEGY_REL = "src/pietto/sql/window_strategy.py"
 PROFILE_REL = "src/pietto/semantic/capability_profiles.py"
 SELECTOR_REL = "src/pietto/semantic/extension_signature_requirements.py"
 EXTENSION_PROVIDER_REL = "src/pietto/_project/extension_signature_provider.py"
@@ -278,9 +279,7 @@ def test_lookup_is_pure_deterministic_and_does_not_mutate_input() -> None:
     assert facts == before
 
 
-def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry() -> (
-    None
-):
+def test_lookup_inventory_and_window_strategy_are_only_private_fact_consumers() -> None:
     source_facts = REPOSITORY_FACTS.python(SOURCE_PATH)
     tree = ast.parse(source_facts.text, filename=SOURCE_REL)
     classes = {node.name for node in tree.body if isinstance(node, ast.ClassDef)}
@@ -301,6 +300,7 @@ def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry()
                 REPO_ROOT / CONTEXT_REL,
                 REPO_ROOT / AGGREGATE_REL,
                 REPO_ROOT / WINDOW_REL,
+                REPO_ROOT / WINDOW_STRATEGY_REL,
                 REPO_ROOT / PROFILE_REL,
                 REPO_ROOT / SELECTOR_REL,
                 REPO_ROOT / EXTENSION_PROVIDER_REL,
@@ -329,6 +329,11 @@ def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry()
         assert "semantic.capability_facts" not in source
         assert "CapabilityFact" not in source
         assert "CapabilityKey" not in facts.identifiers
+    strategy_source = REPOSITORY_FACTS.python(REPO_ROOT / WINDOW_STRATEGY_REL).text
+    assert "semantic.capability_facts" in strategy_source
+    assert "CapabilityFact" in strategy_source
+    assert "CapabilityKey" in strategy_source
+    assert "window_lookup_inputs" in strategy_source
     signature_source = REPOSITORY_FACTS.python(REPO_ROOT / SIGNATURE_REL).text
     assert "semantic.capability_facts" in signature_source
     assert "CapabilityFact" in signature_source

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from pietto._window_identity import WindowFunctionRole
 from pietto.ast_nodes import (
     AuthoredWindowFrameExclusion,
+    AuthoredWindowFrame,
     AuthoredWindowFrameKind,
     BetweenExpr,
     BinaryExpr,
@@ -17,13 +18,14 @@ from pietto.ast_nodes import (
     IsNullExpr,
     LiteralExpr,
     NameExpr,
+    OrderItem,
     Span,
     TypeDef,
     TypeExpr,
     UnaryExpr,
     WindowExpr,
     WindowFrameBoundKind,
-    WindowUseKind,
+    WindowSpec,
 )
 from pietto.ir.diagnostics import missing_semantic_fact_diagnostic
 from pietto.ir.model import (
@@ -38,6 +40,11 @@ from pietto.ir.model import (
     FieldRefIR,
     IsNullIR,
     LiteralIR,
+    NamedWindowBaseIR,
+    NamedWindowDeclarationIR,
+    NamedWindowLocalSpecIR,
+    NamedWindowOccurrenceIR,
+    NamedWindowUseIR,
     NullabilityIR,
     OrderDirectionIR,
     RowFieldIR,
@@ -59,7 +66,10 @@ from pietto.ir.model import (
     WindowOrderItemIR,
     WindowNthDirectionIR,
     WindowNullTreatmentIR,
+    WindowRelationOccurrenceIR,
     WindowSpecIR,
+    WindowUseKindIR,
+    WindowUseOccurrenceIR,
 )
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS
 from pietto.semantic.aggregates import (
@@ -82,6 +92,8 @@ from pietto.semantic.window_semantics import (
     NavigationWindowSemanticFact,
     ValidatedFrame,
     ValidatedFrameNotApplicable,
+    ResolvedNamedWindowNamespace,
+    ResolvedWindowFrame,
     WindowExpressionAnalysis,
 )
 
@@ -271,18 +283,14 @@ def _lower_window_expr(
             expression,
             "validated window semantic facts",
         )
-    if expression.use_kind is not WindowUseKind.INLINE:
+    if analysis.authored_expression is not expression:
         raise _WindowExpressionLoweringError(
             expression,
-            "named window lowering authority",
+            "exact authored window analysis",
         )
-    if analysis.semantic_fact.expression is not expression:
-        raise _WindowExpressionLoweringError(
-            expression,
-            "exact authored inline window analysis",
-        )
-    identity = expression.identity
-    callee = expression.call.callee
+    effective_expression = analysis.semantic_fact.expression
+    identity = effective_expression.identity
+    callee = effective_expression.call.callee
     arities = _WINDOW_ARGUMENT_ARITIES.get(identity.name)
     if (
         identity.namespace != ()
@@ -295,12 +303,12 @@ def _lower_window_expr(
             expression,
             "supported window function identity",
         )
-    if len(expression.call.arguments) not in arities:
+    if len(effective_expression.call.arguments) not in arities:
         raise _WindowExpressionLoweringError(
             expression,
             "supported window function arity",
         )
-    if not expression.spec.order_by:
+    if not effective_expression.spec.order_by:
         raise _WindowExpressionLoweringError(
             expression,
             "nonempty window order specification",
@@ -308,7 +316,7 @@ def _lower_window_expr(
     if any(
         item.direction is not None
         and (type(item.direction) is not str or item.direction not in ("asc", "desc"))
-        for item in expression.spec.order_by
+        for item in effective_expression.spec.order_by
     ):
         raise _WindowExpressionLoweringError(
             expression,
@@ -328,14 +336,6 @@ def _lower_window_expr(
             let_stack=frozenset(),
         )
 
-    def lower_bound(
-        kind: WindowFrameBoundKind, offset: Expression | None
-    ) -> WindowFrameBoundIR:
-        return WindowFrameBoundIR(
-            kind=WindowFrameBoundKindIR(kind.value.replace("_", " ").upper()),
-            offset=None if offset is None else lower_operand(offset),
-        )
-
     frame_ir: WindowFrameIR | None = None
     validated_frame = analysis.validated_specification.frame
     if type(validated_frame) is ValidatedFrame:
@@ -344,21 +344,7 @@ def _lower_window_expr(
         assert resolved.start is not None
         assert resolved.end is not None
         assert resolved.exclusion is not None
-        frame_ir = WindowFrameIR(
-            unit=WindowFrameUnitIR(resolved.unit.value.upper()),
-            start=lower_bound(resolved.start.kind, resolved.start.offset),
-            end=lower_bound(resolved.end.kind, resolved.end.offset),
-            exclusion=WindowFrameExclusionIR(
-                resolved.exclusion.value.replace("_", " ").upper()
-            ),
-            frame_is_explicit=(
-                resolved.authored.kind is not AuthoredWindowFrameKind.OMITTED
-            ),
-            end_is_explicit=(resolved.authored.kind is AuthoredWindowFrameKind.BETWEEN),
-            exclusion_is_explicit=(
-                resolved.authored.exclusion is not AuthoredWindowFrameExclusion.OMITTED
-            ),
-        )
+        frame_ir = _lower_effective_window_frame(resolved, lower_operand)
     elif type(validated_frame) is not ValidatedFrameNotApplicable:
         raise AssertionError("window lowering requires exact validated frame evidence")
 
@@ -377,6 +363,7 @@ def _lower_window_expr(
         if modifiers is None or modifiers.nth_direction is None
         else WindowNthDirectionIR(modifiers.nth_direction.value)
     )
+    named_use = _lower_named_window_use(analysis, lower_operand)
 
     return WindowCallIR(
         span=lower_span(expression.span),
@@ -390,24 +377,18 @@ def _lower_window_expr(
             role=WindowFunctionRoleIR(identity.role.value),
         ),
         arguments=tuple(
-            lower_operand(argument) for argument in expression.call.arguments
+            lower_operand(argument) for argument in effective_expression.call.arguments
         ),
         spec=WindowSpecIR(
             partition_by=tuple(
-                lower_operand(partition) for partition in expression.spec.partition_by
+                lower_operand(partition)
+                for partition in effective_expression.spec.partition_by
             ),
             order_by=tuple(
-                WindowOrderItemIR(
-                    expression=lower_operand(item.expression),
-                    direction=OrderDirectionIR(
-                        "ASC" if item.direction is None else item.direction.upper()
-                    ),
-                    direction_is_explicit=item.direction is not None,
-                    span=lower_span(item.span),
-                )
-                for item in expression.spec.order_by
+                _lower_window_order_item(item, lower_operand)
+                for item in effective_expression.spec.order_by
             ),
-            span=lower_span(expression.spec.span),
+            span=lower_span(effective_expression.spec.span),
             frame=frame_ir,
         ),
         null_treatment=null_treatment,
@@ -418,6 +399,226 @@ def _lower_window_expr(
         nth_direction_is_explicit=(
             False if modifiers is None else modifiers.nth_direction_is_explicit
         ),
+        named_use=named_use,
+    )
+
+
+def _lower_window_bound(
+    kind: WindowFrameBoundKind,
+    offset: Expression | None,
+    lower_operand: Callable[[Expression], ExpressionIR],
+) -> WindowFrameBoundIR:
+    return WindowFrameBoundIR(
+        kind=WindowFrameBoundKindIR(kind.value.replace("_", " ").upper()),
+        offset=None if offset is None else lower_operand(offset),
+    )
+
+
+def _lower_window_order_item(
+    item: OrderItem,
+    lower_operand: Callable[[Expression], ExpressionIR],
+) -> WindowOrderItemIR:
+    if type(item) is not OrderItem:
+        raise TypeError("window order item must be exact")
+    return WindowOrderItemIR(
+        expression=lower_operand(item.expression),
+        direction=OrderDirectionIR(
+            "ASC" if item.direction is None else item.direction.upper()
+        ),
+        direction_is_explicit=item.direction is not None,
+        span=lower_span(item.span),
+    )
+
+
+def _lower_effective_window_frame(
+    resolved: ResolvedWindowFrame,
+    lower_operand: Callable[[Expression], ExpressionIR],
+) -> WindowFrameIR:
+    if type(resolved) is not ResolvedWindowFrame:
+        raise TypeError("effective window frame must be exact")
+    assert resolved.unit is not None
+    assert resolved.start is not None
+    assert resolved.end is not None
+    assert resolved.exclusion is not None
+    return WindowFrameIR(
+        unit=WindowFrameUnitIR(resolved.unit.value.upper()),
+        start=_lower_window_bound(
+            resolved.start.kind,
+            resolved.start.offset,
+            lower_operand,
+        ),
+        end=_lower_window_bound(
+            resolved.end.kind,
+            resolved.end.offset,
+            lower_operand,
+        ),
+        exclusion=WindowFrameExclusionIR(
+            resolved.exclusion.value.replace("_", " ").upper()
+        ),
+        frame_is_explicit=(
+            resolved.authored.kind is not AuthoredWindowFrameKind.OMITTED
+        ),
+        end_is_explicit=resolved.authored.kind is AuthoredWindowFrameKind.BETWEEN,
+        exclusion_is_explicit=(
+            resolved.authored.exclusion is not AuthoredWindowFrameExclusion.OMITTED
+        ),
+    )
+
+
+def _lower_authored_window_frame(
+    frame: AuthoredWindowFrame,
+    lower_operand: Callable[[Expression], ExpressionIR],
+) -> WindowFrameIR | None:
+    if type(frame) is not AuthoredWindowFrame:
+        raise TypeError("authored window frame must be exact")
+    if frame.kind is AuthoredWindowFrameKind.OMITTED:
+        return None
+    assert frame.unit is not None
+    assert frame.start is not None
+    end = frame.end
+    if frame.kind is AuthoredWindowFrameKind.SHORTHAND:
+        end_ir = WindowFrameBoundIR(WindowFrameBoundKindIR.CURRENT_ROW)
+    else:
+        assert end is not None
+        end_ir = _lower_window_bound(end.kind, end.offset, lower_operand)
+    exclusion = (
+        WindowFrameExclusionIR.NO_OTHERS
+        if frame.exclusion is AuthoredWindowFrameExclusion.OMITTED
+        else WindowFrameExclusionIR(frame.exclusion.value.replace("_", " ").upper())
+    )
+    return WindowFrameIR(
+        unit=WindowFrameUnitIR(frame.unit.value.upper()),
+        start=_lower_window_bound(frame.start.kind, frame.start.offset, lower_operand),
+        end=end_ir,
+        exclusion=exclusion,
+        frame_is_explicit=True,
+        end_is_explicit=frame.kind is AuthoredWindowFrameKind.BETWEEN,
+        exclusion_is_explicit=(
+            frame.exclusion is not AuthoredWindowFrameExclusion.OMITTED
+        ),
+    )
+
+
+def _lower_named_local_spec(
+    specification: WindowSpec | None,
+    fallback_span: Span,
+    lower_operand: Callable[[Expression], ExpressionIR],
+) -> NamedWindowLocalSpecIR:
+    if specification is None:
+        return NamedWindowLocalSpecIR((), (), None, lower_span(fallback_span))
+    return NamedWindowLocalSpecIR(
+        partition_by=tuple(
+            lower_operand(expression) for expression in specification.partition_by
+        ),
+        order_by=tuple(
+            _lower_window_order_item(item, lower_operand)
+            for item in specification.order_by
+        ),
+        frame=_lower_authored_window_frame(specification.frame, lower_operand),
+        span=lower_span(specification.span),
+    )
+
+
+def _lower_named_window_use(
+    analysis: WindowExpressionAnalysis,
+    lower_operand: Callable[[Expression], ExpressionIR],
+) -> NamedWindowUseIR | None:
+    named = analysis.resolved_named_use
+    if named is None:
+        return None
+    authored = named.composed.expression
+    occurrence = named.composed.occurrence
+    query_block = occurrence.query_block
+    owner = WindowRelationOccurrenceIR(
+        SymbolId(SymbolNamespace.RELATION, query_block.relation_name),
+        lower_span(query_block.span),
+    )
+    target = named.composed.target_template.occurrence
+    target_ir = NamedWindowOccurrenceIR(
+        owner,
+        target.declaration_position,
+        lower_span(target.span),
+    )
+    assert authored.base is not None
+    return NamedWindowUseIR(
+        occurrence=WindowUseOccurrenceIR(
+            owner,
+            occurrence.selected_output_ordinal,
+            WindowUseKindIR(occurrence.kind.value),
+            lower_span(occurrence.span),
+        ),
+        target=target_ir,
+        reference_spelling=authored.base.name,
+        local_spec=_lower_named_local_spec(
+            authored.spec,
+            authored.spec.span,
+            lower_operand,
+        ),
+    )
+
+
+def lower_named_window_declarations(
+    namespace: ResolvedNamedWindowNamespace,
+    semantic_model: SemanticModel,
+    *,
+    fields: Mapping[str, RowField],
+    field_owner: SymbolId,
+    field_qualifier: str,
+    let_expansions: Mapping[str, Expression],
+    window_input_expressions: Mapping[str, ExpressionIR],
+) -> tuple[NamedWindowDeclarationIR, ...]:
+    """Lower every declaration occurrence without choosing a target strategy."""
+
+    if type(namespace) is not ResolvedNamedWindowNamespace:
+        raise TypeError("named window namespace must be exact")
+    owner = WindowRelationOccurrenceIR(
+        SymbolId(SymbolNamespace.RELATION, namespace.query_block.relation_name),
+        lower_span(namespace.query_block.span),
+    )
+
+    def lower_operand(expression: Expression) -> ExpressionIR:
+        if type(expression) is NameExpr and expression.name in (
+            window_input_expressions
+        ):
+            return window_input_expressions[expression.name]
+        return _lower_expr_node(
+            expression,
+            semantic_model,
+            fields=fields,
+            field_owner=field_owner,
+            field_qualifier=field_qualifier,
+            let_expansions=let_expansions,
+            let_stack=frozenset(),
+        )
+
+    occurrences = {
+        template.occurrence: NamedWindowOccurrenceIR(
+            owner,
+            template.occurrence.declaration_position,
+            lower_span(template.occurrence.span),
+        )
+        for template in namespace.templates
+    }
+    return tuple(
+        NamedWindowDeclarationIR(
+            occurrence=occurrences[template.occurrence],
+            name=template.declaration.name,
+            base=(
+                None
+                if template.base is None
+                else NamedWindowBaseIR(
+                    template.base.reference.name,
+                    occurrences[template.base.target],
+                )
+            ),
+            local_spec=_lower_named_local_spec(
+                template.declaration.spec,
+                template.declaration.span,
+                lower_operand,
+            ),
+            span=lower_span(template.declaration.span),
+        )
+        for template in namespace.templates
     )
 
 

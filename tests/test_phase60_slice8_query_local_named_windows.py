@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 from dataclasses import fields, replace
 from pathlib import Path
 from typing import cast
@@ -1095,7 +1094,7 @@ def test_named_resolution_failure_precedes_inherited_frame_policy() -> None:
     assert [item.code for item in analyze(script).diagnostics] == ["PIE-S2110"]
 
 
-def test_legal_named_source_reaches_semantics_but_fails_closed_before_ir() -> None:
+def test_legal_named_source_reaches_target_neutral_ir() -> None:
     script = _parse(
         "query legal:\n"
         "    from rows\n"
@@ -1111,16 +1110,15 @@ def test_legal_named_source_reaches_semantics_but_fails_closed_before_ir() -> No
     assert semantic.diagnostics == ()
     assert expression in semantic.model.expression_value_types
     lowered_expression = lower_expr(expression, semantic.model)
-    assert lowered_expression.expression is None
-    assert "named window lowering authority" in (
-        lowered_expression.diagnostics[0].message
-    )
+    assert type(lowered_expression.expression) is ir_model.WindowCallIR
+    assert lowered_expression.diagnostics == ()
+    assert lowered_expression.expression.named_use is not None
     lowered = build_ir(script, semantic.model)
-    assert lowered.ir is None
-    assert [item.code for item in lowered.diagnostics] == ["PIE-I1000"]
+    assert lowered.ir is not None
+    assert lowered.diagnostics == ()
 
 
-def test_named_window_ir_sql_capability_and_phase59_boundaries_stay_absent() -> None:
+def test_named_window_ir_stays_private_and_target_neutral() -> None:
     assert tuple(field.name for field in fields(ir_model.WindowSpecIR)) == (
         "partition_by",
         "order_by",
@@ -1140,21 +1138,13 @@ def test_named_window_ir_sql_capability_and_phase59_boundaries_stay_absent() -> 
         "limit",
         "group_keys",
         "result_predicate",
+        "named_windows",
     )
     assert not hasattr(ir_model, "NamedWindowIR")
-    for relative in (
-        "src/pietto/sql/expressions.py",
-        "src/pietto/sql/mysql_expressions.py",
-        "src/pietto/sql/relations.py",
-        "src/pietto/sql/mysql_relations.py",
-    ):
-        tree = ast.parse((REPO_ROOT / relative).read_text(encoding="utf-8"))
-        names = {
-            node.name
-            for node in tree.body
-            if isinstance(node, (ast.ClassDef, ast.FunctionDef))
-        }
-        assert not any("named_window" in name for name in names)
+    assert hasattr(ir_model, "NamedWindowDeclarationIR")
+    assert hasattr(ir_model, "NamedWindowUseIR")
+    assert "strategy" not in {field.name for field in fields(ir_model.RelationIR)}
+    assert "strategy" not in {field.name for field in fields(ir_model.WindowCallIR)}
 
 
 def test_reference_spelling_cannot_target_another_declaration() -> None:

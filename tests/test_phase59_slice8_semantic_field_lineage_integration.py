@@ -21,6 +21,7 @@ from pietto._project.package_graph import (
     PackageGraphOutcome,
     PackageGraphProjectionLineage,
     PackageGraphSnapshot,
+    PackageGraphWindowSemanticProvenance,
     _build_package_graph,
     _derive_package_graph_provenance_paths,
     _package_graph_direct_provenance_steps,
@@ -299,6 +300,12 @@ def test_current_window_lineage_retains_roles_order_multiplicity_without_frames(
     assert window[0].upstream == window[1].upstream
     assert window[0].witness is not window[1].witness
     assert all(type(item) is PackageGraphCurrentWindowLineage for item in window)
+    assert len(snapshot.window_semantic_provenance) == 1
+    semantic = snapshot.window_semantic_provenance[0]
+    assert type(semantic) is PackageGraphWindowSemanticProvenance
+    assert semantic.output == window[0].output
+    assert semantic.named_target is None
+    assert semantic.witness.frame_applicability.value == "not_applicable"
     assert not any(
         "frame" in item.name
         for carrier in (

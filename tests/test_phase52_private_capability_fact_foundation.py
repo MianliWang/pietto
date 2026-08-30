@@ -31,6 +31,7 @@ INVENTORY_REL = "src/pietto/semantic/capability_inventory.py"
 SIGNATURE_REL = "src/pietto/semantic/capability_signatures.py"
 CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
 AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
+WINDOW_STRATEGY_REL = "src/pietto/sql/window_strategy.py"
 PROFILE_REL = "src/pietto/semantic/capability_profiles.py"
 SELECTOR_REL = "src/pietto/semantic/extension_signature_requirements.py"
 EXTENSION_PROVIDER_REL = "src/pietto/_project/extension_signature_provider.py"
@@ -484,9 +485,7 @@ def test_slice2_has_no_lookup_result_carriers_registry_or_populated_facts() -> N
     )
 
 
-def test_private_module_has_no_public_compiler_project_or_serializer_consumers() -> (
-    None
-):
+def test_private_module_has_only_authorized_window_strategy_compiler_consumer() -> None:
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
         if (
             path
@@ -498,6 +497,7 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
                 REPO_ROOT / CONTEXT_REL,
                 REPO_ROOT / AGGREGATE_REL,
                 REPO_ROOT / "src/pietto/semantic/capability_windows.py",
+                REPO_ROOT / WINDOW_STRATEGY_REL,
                 REPO_ROOT / PROFILE_REL,
                 REPO_ROOT / SELECTOR_REL,
                 REPO_ROOT / EXTENSION_PROVIDER_REL,
@@ -526,6 +526,11 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
         assert "semantic.capability_facts" not in source
         assert "CapabilityFact" not in source
         assert "CapabilityKey" not in facts.identifiers
+    strategy_source = REPOSITORY_FACTS.python(REPO_ROOT / WINDOW_STRATEGY_REL).text
+    assert "semantic.capability_facts" in strategy_source
+    assert "CapabilityFact" in strategy_source
+    assert "CapabilityKey" in strategy_source
+    assert "window_lookup_inputs" in strategy_source
     assert (
         "capability_facts"
         not in REPOSITORY_FACTS.python(

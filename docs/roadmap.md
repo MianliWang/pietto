@@ -676,12 +676,12 @@ validation.
 
 Successful natural exact-head CI on the single Slice 6 completion commit
 completed the Interlude and handed off authority. Phase 60 is `ACTIVE`, Slice 1
-through Slice 8 are completed, Slice 9 is current, and Slice 10 is next /
+through Slice 9 are completed, Slice 10 is current, and Slice 11 is next /
 unstarted.
 
 ## Phase 60 route
 
-Phase 60 is active, Slices 1-8 are completed, Slice 9 is current, and Slice 10
+Phase 60 is active, Slices 1-9 are completed, Slice 10 is current, and Slice 11
 is next / unstarted. The published route has exactly 13 slices.
 
 The exact owner is **Advanced Windows And Phase 51–60 Readiness Checkpoint**.
@@ -782,8 +782,8 @@ or public schema is added. The controlling contract is
 [Phase 60 Slice 8 query-local named windows](spec/phase60-slice8-query-local-named-windows-v1.md).
 
 Public syntax now recognizes ROWS, RANGE, GROUPS, EXCLUDE, and query-local
-named-window declarations and uses. Previously legal SQL remains deterministic;
-named-window source fails closed before IR until its Slice 10 capability owner.
+named-window declarations and uses. Slice 8 intentionally stopped named source
+before IR pending the Slice 10 capability owner.
 Live Git and natural exact-head CI own Slice 8 completion without a status-only
 follow-up commit.
 
@@ -798,7 +798,18 @@ lineage integration remain deferred. The controlling contract is
 [Phase 60 Slice 9 value/navigation modifiers](spec/phase60-slice9-value-navigation-modifiers-v1.md).
 
 Live Git and natural exact-head CI own Slice 9 completion without a status-only
-follow-up commit. Slice 10 remains unimplemented and unauthorized by Slice 9.
+follow-up commit.
+
+Slice 10 integrates named-window target-neutral IR, exact four-state
+PostgreSQL/MySQL capability decisions, native reachable `WINDOW` emission,
+exact inline fallback, Project window-result facts, separate data lineage and
+window semantic provenance, and Phase 59 package-graph private inspection.
+Project Explain v1 and public schemas remain unchanged. The controlling
+contract is [Phase 60 Slice 10 capability, lineage, and inspection integration](spec/phase60-slice10-capability-lineage-inspection-integration-v1.md).
+
+Live Git and natural exact-head CI own Slice 10 completion without a
+status-only follow-up commit. Slice 11 remains unimplemented and unauthorized
+by Slice 10.
 
 ## Retained later ownership
 

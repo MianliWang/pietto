@@ -38,6 +38,10 @@ from pietto.sql.render import (
     quote_qualified_identifier,
     render_literal,
 )
+from pietto.sql.window_strategy import (
+    WindowTargetDialect,
+    decide_inline_window_target,
+)
 
 _COMPARISON_OPERATORS = {
     "==": "=",
@@ -186,7 +190,7 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
             raise ValueError(
                 "PostgreSQL window calls are supported only as direct projections"
             )
-        return _render_window_call(expression)
+        return render_window_call_sql(expression)
     if isinstance(expression, CallIR):
         sql = _render_call(expression)
         return f"({sql})" if nested and expression.callee == "matches" else sql
@@ -234,7 +238,11 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
     return f"({sql})" if nested else sql
 
 
-def _render_window_call(expression: WindowCallIR) -> str:
+def render_window_call_sql(
+    expression: WindowCallIR,
+    *,
+    over_sql: str | None = None,
+) -> str:
     """Render one independently validated PostgreSQL window call."""
 
     if type(getattr(expression, "span", None)) is not SourceSpan:
@@ -292,26 +300,54 @@ def _render_window_call(expression: WindowCallIR) -> str:
     ):
         raise ValueError("PostgreSQL window partition contains an invalid expression")
     _validate_window_order_items(order_by)
+    decision = decide_inline_window_target(
+        expression,
+        WindowTargetDialect.POSTGRESQL,
+    )
+    if not decision.supported:
+        raise ValueError(decision.failure_reason)
     null_treatment = getattr(expression, "null_treatment", None)
     nth_direction = getattr(expression, "nth_direction", None)
     if name in {"lag", "lead", "first_value", "last_value", "nth_value"}:
         if type(null_treatment) is not WindowNullTreatmentIR:
             raise ValueError("PostgreSQL value window requires NULL treatment")
-        if null_treatment is WindowNullTreatmentIR.IGNORE_NULLS:
-            raise ValueError("PostgreSQL does not support IGNORE NULLS")
     elif null_treatment is not None:
         raise ValueError("PostgreSQL function forbids NULL treatment")
     if name == "nth_value":
         if type(nth_direction) is not WindowNthDirectionIR:
             raise ValueError("PostgreSQL nth_value requires a direction")
-        if nth_direction is WindowNthDirectionIR.FROM_LAST:
-            raise ValueError("PostgreSQL does not support FROM LAST")
     elif nth_direction is not None:
         raise ValueError("PostgreSQL non-nth function forbids FROM direction")
 
     argument_sql = ", ".join(
         _render_expression_sql(argument, nested=True) for argument in arguments
     )
+    if over_sql is None:
+        components = render_window_components_sql(
+            partition_by,
+            order_by,
+            getattr(spec, "frame", None),
+        )
+        over_sql = f"({' '.join(components)})"
+    if type(over_sql) is not str or not over_sql:
+        raise ValueError("PostgreSQL window OVER SQL must be nonempty")
+    return f"{_WINDOW_FUNCTION_NAMES[name]}({argument_sql}) OVER {over_sql}"
+
+
+def render_window_components_sql(
+    partition_by: tuple[ExpressionIR, ...],
+    order_by: tuple[WindowOrderItemIR, ...],
+    frame: WindowFrameIR | None,
+) -> tuple[str, ...]:
+    """Render exact target-neutral window components without an OVER wrapper."""
+
+    if type(partition_by) is not tuple or any(
+        not isinstance(item, ExpressionIR) for item in partition_by
+    ):
+        raise ValueError("PostgreSQL window partition requires exact expressions")
+    if type(order_by) is not tuple:
+        raise ValueError("PostgreSQL window order requires an exact tuple")
+    _validate_window_order_items(order_by)
     clauses: list[str] = []
     if partition_by:
         clauses.append(
@@ -321,13 +357,14 @@ def _render_window_call(expression: WindowCallIR) -> str:
                 for partition in partition_by
             )
         )
-    clauses.append(
-        "ORDER BY " + ", ".join(_render_window_order_item(item) for item in order_by)
-    )
-    frame = getattr(spec, "frame", None)
+    if order_by:
+        clauses.append(
+            "ORDER BY "
+            + ", ".join(_render_window_order_item(item) for item in order_by)
+        )
     if frame is not None:
         clauses.append(_render_window_frame(frame))
-    return f"{_WINDOW_FUNCTION_NAMES[name]}({argument_sql}) OVER ({' '.join(clauses)})"
+    return tuple(clauses)
 
 
 def _render_window_frame(frame: WindowFrameIR) -> str:

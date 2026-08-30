@@ -74,7 +74,6 @@ from pietto._project.window_persistence import (
 from pietto._project.window_semantics import (
     WindowDependencyRole,
     WindowResultProjectFact,
-    _PROJECT_NAMED_WINDOW_INTEGRATION_DEFERRED,
     _build_window_result_project_fact,
     _project_window_analysis_boundary,
 )
@@ -153,9 +152,12 @@ from pietto.semantic.window_navigation_analysis import (
     _ZERO_RESULT_FORMULA,
 )
 from pietto.semantic.window_semantics import (
+    NamedWindowResolutionFailure,
+    ResolvedNamedWindowNamespace,
     WindowExpressionAnalysis,
     WindowExpressionUnsupported,
     WindowResultAvailabilityKind,
+    resolve_named_window_namespace,
 )
 
 __all__: tuple[str, ...] = ()
@@ -731,7 +733,7 @@ def _window_diagnostic_location_is_owned(
 
 
 def _unsupported_window_has_external_diagnostic_owner(reason: str) -> bool:
-    return reason == _PROJECT_NAMED_WINDOW_INTEGRATION_DEFERRED or reason.startswith(
+    return reason.startswith(
         (
             "no-group aggregate context does not admit ",
             "grouped context does not admit ",
@@ -922,7 +924,7 @@ class ProjectModuleWindowOutputFact:
         if type(analysis) is WindowExpressionAnalysis:
             semantic_fact = analysis.semantic_fact
             occurrence = semantic_fact.occurrence
-            analysis_expression = semantic_fact.expression
+            analysis_expression = analysis.authored_expression
         elif type(analysis) is WindowExpressionUnsupported:
             semantic_fact = None
             occurrence = analysis.occurrence
@@ -966,24 +968,25 @@ class ProjectModuleWindowOutputFact:
             )
             partition_bindings = analysis.partition_binding_fact.bindings
             order_bindings = analysis.order_binding_fact.bindings
+            effective_expression = analysis.semantic_fact.expression
             if len(partition_bindings) != len(
-                self.item.expression.spec.partition_by
+                effective_expression.spec.partition_by
             ) or any(
                 binding.expression is not expression
                 for binding, expression in zip(
                     partition_bindings,
-                    self.item.expression.spec.partition_by,
+                    effective_expression.spec.partition_by,
                     strict=True,
                 )
             ):
                 raise ValueError(
                     "Window partition analysis must retain exact source children."
                 )
-            if len(order_bindings) != len(self.item.expression.spec.order_by) or any(
+            if len(order_bindings) != len(effective_expression.spec.order_by) or any(
                 binding.order_item is not item
                 for binding, item in zip(
                     order_bindings,
-                    self.item.expression.spec.order_by,
+                    effective_expression.spec.order_by,
                     strict=True,
                 )
             ):
@@ -1051,6 +1054,7 @@ class ProjectModuleWindowOutputFact:
             result_identity = self.retained_project_fact.result_identity
             if (
                 self.retained_project_fact.semantic_fact is not semantic_fact
+                or self.retained_project_fact.analysis is not analysis
                 or result_identity.definition is not derived
                 or result_identity.output_name != self.output_name
                 or result_identity.occurrence is not semantic_fact.occurrence
@@ -1119,6 +1123,9 @@ class ProjectModuleRelationSemanticFacts:
     clause_dependencies: tuple[ProjectModuleClauseDependencyFact, ...] = ()
     aggregate_result_facts: tuple[ProjectAggregateResultFact, ...] = ()
     window_outputs: tuple[ProjectModuleWindowOutputFact, ...] = ()
+    named_window_namespace: (
+        ResolvedNamedWindowNamespace | NamedWindowResolutionFailure | None
+    ) = None
     helper_diagnostics: tuple[Diagnostic, ...] = ()
 
     def __post_init__(self) -> None:
@@ -1209,6 +1216,7 @@ class ProjectModuleRelationSemanticFacts:
                     bool(self.clause_dependencies),
                     bool(self.aggregate_result_facts),
                     bool(self.window_outputs),
+                    self.named_window_namespace is not None,
                     bool(self.helper_diagnostics),
                 )
             ):
@@ -1218,6 +1226,28 @@ class ProjectModuleRelationSemanticFacts:
             raise ValueError("Relation semantic facts require a relation definition.")
 
         derived = cast(_DerivedRelation, definition)
+        if derived.named_windows:
+            namespace = self.named_window_namespace
+            if type(namespace) is ResolvedNamedWindowNamespace:
+                if namespace.definition is not derived:
+                    raise ValueError(
+                        "Named window namespace must retain its exact relation."
+                    )
+            elif type(namespace) is NamedWindowResolutionFailure:
+                if (
+                    namespace.declarations is not derived.named_windows
+                    or namespace.query_block.relation_name != derived.name
+                    or namespace.query_block.span != derived.span
+                ):
+                    raise ValueError(
+                        "Named window failure must retain its exact relation."
+                    )
+            else:
+                raise TypeError(
+                    "Named window declarations require exact namespace evidence."
+                )
+        elif self.named_window_namespace is not None:
+            raise ValueError("Relations without named windows forbid namespace facts.")
         if self.let_scope_facts is None:
             raise ValueError("Derived semantic facts require exact let-scope facts.")
         if (
@@ -1924,7 +1954,7 @@ def _validate_window_dependency_source_ledger(
             "Window project provenance must retain exact resolution authority."
         )
     assert provenance_symbol is not None
-    expression = cast(WindowExpr, output.item.expression)
+    expression = project_fact.analysis.semantic_fact.expression
     ledger = _window_dependency_source_ledger(expression)
     occurrences = project_fact.dependency_occurrences
     if len(occurrences) != len(ledger):
@@ -2551,6 +2581,11 @@ def _build_derived_relation_facts(
     ProjectRelationRowSchemaState,
 ]:
     definition = cast(_DerivedRelation, owner.definition)
+    named_window_namespace = (
+        None
+        if not definition.named_windows
+        else resolve_named_window_namespace(definition)
+    )
     group_key_occurrences = (
         ()
         if definition.group_by_clause is None
@@ -2677,6 +2712,11 @@ def _build_derived_relation_facts(
         let_scope=let_scope,
         base_state=base_state,
         capabilities=capabilities,
+        named_window_namespace=(
+            named_window_namespace
+            if type(named_window_namespace) is ResolvedNamedWindowNamespace
+            else None
+        ),
     )
     clause_dependencies = _clause_dependency_facts(
         owner=owner,
@@ -2725,6 +2765,7 @@ def _build_derived_relation_facts(
             clause_dependencies=clause_dependencies,
             aggregate_result_facts=published_aggregate_result_facts,
             window_outputs=window_outputs,
+            named_window_namespace=named_window_namespace,
             helper_diagnostics=helper_diagnostics,
         ),
         base_state,
@@ -2742,6 +2783,11 @@ def _nonconcrete_relation_facts(
     capabilities: ProjectModuleCapabilityFactInventory,
 ) -> ProjectModuleRelationSemanticFacts:
     definition = cast(_DerivedRelation, owner.definition)
+    named_window_namespace = (
+        None
+        if not definition.named_windows
+        else resolve_named_window_namespace(definition)
+    )
     input_status = _candidate_status_from_row_state(state)
     let_bindings = _let_binding_facts(
         owner=owner,
@@ -2766,6 +2812,11 @@ def _nonconcrete_relation_facts(
         state=state,
         let_scope=let_scope,
         capabilities=capabilities,
+        named_window_namespace=(
+            named_window_namespace
+            if type(named_window_namespace) is ResolvedNamedWindowNamespace
+            else None
+        ),
     )
     return ProjectModuleRelationSemanticFacts(
         owner=owner,
@@ -2786,6 +2837,7 @@ def _nonconcrete_relation_facts(
             aggregate_result_facts=(),
         ),
         window_outputs=window_outputs,
+        named_window_namespace=named_window_namespace,
     )
 
 
@@ -3495,6 +3547,7 @@ def _window_output_facts(
     let_scope: ProjectRelationLetScopeFacts,
     base_state: ProjectRelationRowSchemaState,
     capabilities: ProjectModuleCapabilityFactInventory,
+    named_window_namespace: ResolvedNamedWindowNamespace | None = None,
 ) -> tuple[
     ProjectRelationRowSchemaState,
     tuple[ProjectModuleWindowOutputFact, ...],
@@ -3516,6 +3569,7 @@ def _window_output_facts(
                 state=base_state,
                 let_scope=let_scope,
                 capabilities=capabilities,
+                named_window_namespace=named_window_namespace,
             ),
         )
     base_schema = base_state.schema
@@ -3549,6 +3603,7 @@ def _window_output_facts(
             diagnostics=diagnostics,
             let_value_types=let_values,
             let_expressions=let_expressions,
+            named_window_namespace=named_window_namespace,
         )
         analysis = _project_window_analysis_boundary(item, analysis)
         signature = _find_window_signature(capabilities, expression.identity)
@@ -3566,7 +3621,7 @@ def _window_output_facts(
                 let_expressions=let_expressions or {},
             )
             project_result = _build_window_result_project_fact(
-                semantic_fact=analysis.semantic_fact,
+                analysis=analysis,
                 definition=definition,
                 item=item,
                 upstream_symbol=upstream_symbol,
@@ -3644,6 +3699,7 @@ def _unavailable_window_outputs(
     state: ProjectRelationRowSchemaState,
     let_scope: ProjectRelationLetScopeFacts,
     capabilities: ProjectModuleCapabilityFactInventory,
+    named_window_namespace: ResolvedNamedWindowNamespace | None = None,
 ) -> tuple[ProjectModuleWindowOutputFact, ...]:
     status = {
         ProjectRelationRowSchemaStatus.CONCRETE: (
@@ -3689,6 +3745,7 @@ def _unavailable_window_outputs(
             diagnostics=diagnostics,
             let_value_types=let_values,
             let_expressions=let_expressions,
+            named_window_namespace=named_window_namespace,
         )
         analysis = _project_window_analysis_boundary(item, analysis)
         outputs.append(

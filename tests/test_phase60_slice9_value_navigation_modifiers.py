@@ -546,7 +546,7 @@ def test_mysql_explicit_supported_modifiers_and_old_lag_omission_are_exact() -> 
     assert "RESPECT NULLS" not in postgres.artifacts[0].sql
 
 
-def test_named_frame_value_semantics_succeed_but_lowering_remains_deferred() -> None:
+def test_named_frame_value_reaches_ir_but_target_restriction_still_fails() -> None:
     source = (
         PREFIX + 'source rows: Row is postgres.table("rows")\n'
         "query result:\n"
@@ -563,8 +563,11 @@ def test_named_frame_value_semantics_succeed_but_lowering_remains_deferred() -> 
     semantic = analyze(parsed.ast)
     assert semantic.diagnostics == ()
     lowered = build_ir(parsed.ast, semantic.model)
-    assert lowered.ir is None
-    assert [item.code for item in lowered.diagnostics] == ["PIE-I1000"]
+    assert lowered.ir is not None
+    assert lowered.diagnostics == ()
+    emitted = emit_postgres_sql(lowered.ir)
+    assert not emitted.artifacts
+    assert [item.code for item in emitted.diagnostics] == ["PIE-B1000"]
 
 
 def test_ordinary_calls_do_not_gain_window_identity() -> None:

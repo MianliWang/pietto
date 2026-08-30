@@ -459,6 +459,7 @@ def test_window_ir_carrier_fields_frozen_slots_equality_and_hashing_are_exact(
             "null_treatment_is_explicit",
             "nth_direction",
             "nth_direction_is_explicit",
+            "named_use",
         ),
     )
     instances = (
@@ -1258,7 +1259,7 @@ def test_window_capability_fact_inventory_keys_evidence_and_privacy_are_exact(
             else "src/pietto/sql/mysql_expressions.py"
         )
         source_reference = (
-            "_render_window_call" if postgres else "_render_mysql_window_call"
+            "render_window_call_sql" if postgres else "render_mysql_window_call"
         )
         assert fact.key.operation == "lowering"
         assert fact.key.context == "window_lowering"

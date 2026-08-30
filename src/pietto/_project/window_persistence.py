@@ -363,7 +363,9 @@ def _window_fact_matches_source(
         or identity.definition is not definition
         or identity.output_name != item.alias
         or identity.role is not ProjectRowResultRole.WINDOW_RESULT
-        or semantic_fact.expression is not item.expression
+        or fact.analysis.authored_expression is not item.expression
+        or fact.analysis.semantic_fact is not semantic_fact
+        or fact.semantic_provenance.analysis is not fact.analysis
         or semantic_fact.occurrence != occurrence
         or occurrence.source_id != source_id
         or occurrence.relation_name != definition.name

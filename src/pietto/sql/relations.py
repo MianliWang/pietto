@@ -11,6 +11,7 @@ from pietto.ir.model import (
     FieldRefIR,
     OrderDirectionIR,
     OrderItemIR,
+    NamedWindowDeclarationIR,
     RelationIR,
     SourceIR,
     SymbolId,
@@ -19,8 +20,16 @@ from pietto.ir.model import (
 from pietto.sql.expressions import (
     expression_uses_qualified_field,
     render_expression_sql,
+    render_window_call_sql,
+    render_window_components_sql,
 )
 from pietto.sql.render import quote_identifier
+from pietto.sql.window_strategy import (
+    NamedWindowLoweringDecision,
+    NamedWindowLoweringStrategy,
+    WindowTargetDialect,
+    decide_named_window_lowering,
+)
 
 
 def render_relation_sql(
@@ -44,8 +53,17 @@ def render_relation_sql(
     if relation.group_keys:
         _validate_grouped_relation(relation)
 
+    named_decision = decide_named_window_lowering(
+        relation,
+        WindowTargetDialect.POSTGRESQL,
+    )
+    if named_decision is not None and named_decision.strategy is (
+        NamedWindowLoweringStrategy.NOT_LOWERABLE
+    ):
+        raise ValueError(named_decision.reason)
+
     projection_sql = ",\n".join(
-        f"    {_render_projection(projection.expression, projection.name)}"
+        f"    {_render_projection(projection.expression, projection.name, named_decision)}"
         for projection in relation.projections
     )
     lines = [
@@ -69,6 +87,19 @@ def render_relation_sql(
             (
                 "HAVING",
                 f"    {render_expression_sql(relation.result_predicate.expression)}",
+            )
+        )
+    if named_decision is not None and named_decision.strategy in {
+        NamedWindowLoweringStrategy.NATIVE_PRESERVE,
+        NamedWindowLoweringStrategy.NATIVE_REORDER,
+    }:
+        lines.extend(
+            (
+                "WINDOW",
+                ",\n".join(
+                    f"    {_render_named_declaration(declaration)}"
+                    for declaration in named_decision.emission_declarations
+                ),
             )
         )
     if relation.order_by:
@@ -140,15 +171,76 @@ def _postgres_table_name(source: SourceIR) -> str:
     return connector.arguments[0]
 
 
-def _render_projection(expression: ExpressionIR, name: str | None) -> str:
+def _render_projection(
+    expression: ExpressionIR,
+    name: str | None,
+    named_decision: NamedWindowLoweringDecision | None,
+) -> str:
     """Render one expression with a stable explicit output alias when present."""
 
     if isinstance(expression, WindowCallIR) and name is None:
         raise ValueError("PostgreSQL window projections require an explicit alias")
-    sql = render_expression_sql(expression)
+    if (
+        isinstance(expression, WindowCallIR)
+        and getattr(expression, "named_use", None) is not None
+    ):
+        if named_decision is None:
+            raise ValueError("named window call requires one relation strategy")
+        over_sql = (
+            _render_named_over(expression)
+            if named_decision.strategy
+            in {
+                NamedWindowLoweringStrategy.NATIVE_PRESERVE,
+                NamedWindowLoweringStrategy.NATIVE_REORDER,
+            }
+            else None
+        )
+        sql = render_window_call_sql(expression, over_sql=over_sql)
+    else:
+        sql = render_expression_sql(expression)
     if name is None:
         return sql
     return f"{sql} AS {quote_identifier(name)}"
+
+
+def _render_named_over(expression: WindowCallIR) -> str:
+    named = expression.named_use
+    if named is None:
+        raise ValueError("native named OVER requires named use evidence")
+    local = named.local_spec
+    frame = local.frame
+    effective_frame = expression.spec.frame
+    if (
+        frame is None
+        and effective_frame is not None
+        and not effective_frame.frame_is_explicit
+    ):
+        frame = effective_frame
+    components = render_window_components_sql(
+        local.partition_by,
+        local.order_by,
+        frame,
+    )
+    reference = quote_identifier(named.reference_spelling)
+    if not components:
+        return reference
+    return f"({reference} {' '.join(components)})"
+
+
+def _render_named_declaration(declaration: NamedWindowDeclarationIR) -> str:
+    if type(declaration) is not NamedWindowDeclarationIR:
+        raise TypeError("PostgreSQL named declaration must be exact")
+    components = render_window_components_sql(
+        declaration.local_spec.partition_by,
+        declaration.local_spec.order_by,
+        declaration.local_spec.frame,
+    )
+    parts = (
+        ()
+        if declaration.base is None
+        else (quote_identifier(declaration.base.spelling),)
+    ) + components
+    return f"{quote_identifier(declaration.name)} AS ({' '.join(parts)})"
 
 
 def _validate_grouped_relation(relation: RelationIR) -> None:

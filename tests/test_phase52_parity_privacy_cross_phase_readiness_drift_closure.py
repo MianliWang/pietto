@@ -834,9 +834,7 @@ def test_private_import_ast_dynamic_export_and_package_boundary_is_exact(
     assert "capability_" not in _read(REPO_ROOT / "src/pietto/__init__.py")
 
 
-def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists() -> (
-    None
-):
+def test_only_private_window_strategy_is_new_compiler_capability_consumer() -> None:
     forbidden_names = {
         "inventory_lookup_inputs",
         "signature_lookup_inputs",
@@ -862,6 +860,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
     )
     project_environment_rel = "src/pietto/_project/project_capability_environment.py"
     runtime_builder_rel = "src/pietto/_project_explain/runtime_builder.py"
+    window_strategy_rel = "src/pietto/sql/window_strategy.py"
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
         relative = path.relative_to(REPO_ROOT).as_posix()
         if (
@@ -884,6 +883,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                 EXTENSION_PROVIDER_REL,
                 EXTENSION_INSPECTION_REL,
                 EXTENSION_INSPECTION_PURE_REL,
+                window_strategy_rel,
                 "src/pietto/_project_explain/package_requirement_projection.py",
                 "src/pietto/_project_explain/compatibility_matrix_projection.py",
                 runtime_builder_rel,
@@ -920,8 +920,27 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
                     EXTENSION_PROVIDER_REL,
                     EXTENSION_INSPECTION_REL,
                     EXTENSION_INSPECTION_PURE_REL,
+                    window_strategy_rel,
                 }
             )
+    window_strategy_source = REPOSITORY_FACTS.python(
+        REPO_ROOT / window_strategy_rel
+    ).text
+    assert "window_lookup_inputs" in window_strategy_source
+    assert all(
+        name not in window_strategy_source
+        for name in forbidden_names - {"window_lookup_inputs"}
+    )
+    window_strategy_stems = {
+        "capability_facts",
+        "capability_lookup",
+        "capability_windows",
+    }
+    assert all(
+        (f"semantic.{stem}" in window_strategy_source)
+        is (stem in window_strategy_stems)
+        for stem in module_stems
+    )
     provider_source = REPOSITORY_FACTS.python(REPO_ROOT / PROVIDER_REL).text
     assert all(name in provider_source for name in forbidden_names)
     availability_source = REPOSITORY_FACTS.python(REPO_ROOT / availability_rel).text

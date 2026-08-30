@@ -98,6 +98,7 @@ from pietto._project.row_dependency_graph import ProjectRowDependencyNodeKind
 from pietto._project.window_semantics import (
     WindowDependencyOccurrence,
     WindowDependencyRole,
+    WindowSemanticProvenance,
 )
 from pietto.errors import Diagnostic, Severity
 from pietto.ast_nodes import Definition
@@ -105,6 +106,10 @@ from pietto.semantic.capability_profiles import CapabilityRequirementOccurrence
 from pietto.semantic.extension_signature_requirements import (
     ExtensionSignatureRequirementSelectorOccurrence,
     ExtensionSignatureRequirementSelectors,
+)
+from pietto.semantic.window_semantics import (
+    ResolvedNamedWindowNamespace,
+    ResolvedNamedWindowTemplate,
 )
 
 __all__: tuple[str, ...] = ()
@@ -527,6 +532,25 @@ class PackageGraphLetRef:
             raise ValueError("Package graph let position must be non-negative.")
 
 
+@dataclass(frozen=True, slots=True)
+class PackageGraphNamedWindowRef:
+    """One relation-owned named-window declaration occurrence."""
+
+    scope: PackageGraphScope
+    declaration: PackageGraphDeclarationRef
+    position: int
+
+    def __post_init__(self) -> None:
+        if type(self.scope) is not PackageGraphScope:
+            raise TypeError("Named window refs require an exact scope.")
+        if type(self.declaration) is not PackageGraphDeclarationRef:
+            raise TypeError("Named window refs require a relation declaration.")
+        if self.declaration.scope is not self.scope:
+            raise ValueError("Named window refs require the declaration scope.")
+        if type(self.position) is not int or self.position < 0:
+            raise ValueError("Named window positions must be non-negative.")
+
+
 type PackageGraphFieldWitness = ProjectModuleRowFieldIdentity | ProjectModuleSelectFact
 
 
@@ -607,6 +631,87 @@ class PackageGraphLetBinding:
             raise TypeError("Graph let bindings require exact semantic evidence.")
         if self.witness.binding_ordinal != self.ref.position:
             raise ValueError("Graph let binding must retain source order.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphNamedWindow:
+    """One source-ordered named-window fact, distinct from its spelling."""
+
+    ref: PackageGraphNamedWindowRef
+    declaration: PackageGraphDeclarationRef
+    name: str
+    base: PackageGraphNamedWindowRef | None
+    witness: ResolvedNamedWindowTemplate = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.ref) is not PackageGraphNamedWindowRef:
+            raise TypeError("Graph named windows require an exact ref.")
+        if type(self.declaration) is not PackageGraphDeclarationRef:
+            raise TypeError("Graph named windows require a declaration ref.")
+        if self.ref.declaration != self.declaration:
+            raise ValueError("Named window ref must name its relation declaration.")
+        if type(self.name) is not str or not self.name:
+            raise ValueError("Graph named windows require a non-empty spelling.")
+        if self.base is not None and type(self.base) is not PackageGraphNamedWindowRef:
+            raise TypeError("Graph named window bases must be exact or absent.")
+        if self.base is not None and self.base.declaration != self.declaration:
+            raise ValueError("Graph named window bases must stay relation-local.")
+        if type(self.witness) is not ResolvedNamedWindowTemplate:
+            raise TypeError("Graph named windows require exact semantic evidence.")
+        expected_base_position = (
+            None
+            if self.witness.base is None
+            else self.witness.base.target.declaration_position
+        )
+        if (
+            self.witness.occurrence.declaration_position != self.ref.position
+            or self.witness.declaration.name != self.name
+            or (None if self.base is None else self.base.position)
+            != expected_base_position
+        ):
+            raise ValueError("Graph named window evidence must retain exact identity.")
+
+
+@dataclass(frozen=True, slots=True)
+class PackageGraphWindowSemanticProvenance:
+    """One output's semantic window provenance, never a data dependency edge."""
+
+    output: PackageGraphFieldRef
+    named_target: PackageGraphNamedWindowRef | None
+    witness: WindowSemanticProvenance = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.output) is not PackageGraphFieldRef:
+            raise TypeError("Window semantic provenance requires an output ref.")
+        if self.named_target is not None and (
+            type(self.named_target) is not PackageGraphNamedWindowRef
+        ):
+            raise TypeError("Window semantic named target must be exact or absent.")
+        if self.named_target is not None and (
+            self.named_target.scope is not self.output.scope
+            or self.named_target.declaration != self.output.declaration
+        ):
+            raise ValueError("Window semantic target must stay relation-local.")
+        if type(self.witness) is not WindowSemanticProvenance:
+            raise TypeError("Window semantic provenance requires exact evidence.")
+        expected_target = self.witness.named_target
+        if (None if self.named_target is None else self.named_target.position) != (
+            None if expected_target is None else expected_target.declaration_position
+        ):
+            raise ValueError("Window semantic target must retain exact occurrence.")
+        if (
+            self.witness.analysis.semantic_fact.occurrence.selected_output_ordinal
+            != self.output.position
+        ):
+            raise ValueError("Window semantic provenance must retain output order.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1169,6 +1274,11 @@ class PackageGraphSnapshot:
         PackageGraphCurrentWindowLineageState,
         ...,
     ] = ()
+    named_windows: tuple[PackageGraphNamedWindow, ...] = ()
+    window_semantic_provenance: tuple[
+        PackageGraphWindowSemanticProvenance,
+        ...,
+    ] = ()
 
     def __post_init__(self) -> None:
         if type(self.scope) is not PackageGraphScope:
@@ -1277,6 +1387,16 @@ class PackageGraphSnapshot:
             self.current_window_lineage_states,
             PackageGraphCurrentWindowLineageState,
             "Package graph current-window lineage states",
+        )
+        _require_exact_tuple(
+            self.named_windows,
+            PackageGraphNamedWindow,
+            "Package graph named windows",
+        )
+        _require_exact_tuple(
+            self.window_semantic_provenance,
+            PackageGraphWindowSemanticProvenance,
+            "Package graph window semantic provenance",
         )
         if not self.packages:
             raise ValueError(
@@ -2293,6 +2413,8 @@ type _PackageGraphSemanticProjection = tuple[
     tuple[PackageGraphAggregateLineageState, ...],
     tuple[PackageGraphExpressionLineageState, ...],
     tuple[PackageGraphCurrentWindowLineageState, ...],
+    tuple[PackageGraphNamedWindow, ...],
+    tuple[PackageGraphWindowSemanticProvenance, ...],
 ]
 
 
@@ -2476,10 +2598,46 @@ def _build_semantic_lineage_projection(
         for binding in relation.let_bindings
     )
 
+    named_windows: list[PackageGraphNamedWindow] = []
+    named_refs: dict[
+        tuple[PackageGraphDeclarationRef, object],
+        PackageGraphNamedWindowRef,
+    ] = {}
+    for declaration in declarations:
+        relation = relations.get(declaration.ref)
+        if relation is None or type(relation.named_window_namespace) is not (
+            ResolvedNamedWindowNamespace
+        ):
+            continue
+        namespace = relation.named_window_namespace
+        for template in namespace.templates:
+            named_refs[(declaration.ref, template.occurrence)] = (
+                PackageGraphNamedWindowRef(
+                    scope,
+                    declaration.ref,
+                    template.occurrence.declaration_position,
+                )
+            )
+        for template in namespace.templates:
+            named_windows.append(
+                PackageGraphNamedWindow(
+                    ref=named_refs[(declaration.ref, template.occurrence)],
+                    declaration=declaration.ref,
+                    name=template.declaration.name,
+                    base=(
+                        None
+                        if template.base is None
+                        else named_refs[(declaration.ref, template.base.target)]
+                    ),
+                    witness=template,
+                )
+            )
+
     source_lineage: list[PackageGraphSourceLineage] = []
     projection_lineage: list[PackageGraphProjectionLineage] = []
     expression_lineage: list[PackageGraphExpressionLineage] = []
     current_window_lineage: list[PackageGraphCurrentWindowLineage] = []
+    window_semantic_provenance: list[PackageGraphWindowSemanticProvenance] = []
     relation_states: list[PackageGraphRelationLineageState] = []
     let_states: list[PackageGraphLetLineageState] = []
     aggregate_states: list[PackageGraphAggregateLineageState] = []
@@ -2703,6 +2861,19 @@ def _build_semantic_lineage_projection(
                 window.selected_output_ordinal,
             )
             _field_from_ref(fields, output)
+            provenance = window.project_fact.semantic_provenance
+            named_target = provenance.named_target
+            window_semantic_provenance.append(
+                PackageGraphWindowSemanticProvenance(
+                    output=output,
+                    named_target=(
+                        None
+                        if named_target is None
+                        else named_refs[(declaration.ref, named_target)]
+                    ),
+                    witness=provenance,
+                )
+            )
             for occurrence in window.project_fact.dependency_occurrences:
                 current_window_lineage.append(
                     PackageGraphCurrentWindowLineage(
@@ -2736,6 +2907,8 @@ def _build_semantic_lineage_projection(
         tuple(aggregate_states),
         tuple(expression_states),
         tuple(window_states),
+        tuple(named_windows),
+        tuple(window_semantic_provenance),
     )
 
 
@@ -2911,6 +3084,8 @@ def _validate_semantic_lineage_attribution(snapshot: PackageGraphSnapshot) -> No
         snapshot.aggregate_lineage_states,
         snapshot.expression_lineage_states,
         snapshot.current_window_lineage_states,
+        snapshot.named_windows,
+        snapshot.window_semantic_provenance,
     )
     if not snapshot.semantic_authorities:
         if any(semantic_collections):
@@ -2987,6 +3162,12 @@ def _same_semantic_projection_item(actual: object, expected: object) -> bool:
             actual.output_witness is expected.output_witness
             and actual.witness is expected.witness
         )
+    if type(actual) is PackageGraphNamedWindow:
+        assert type(expected) is PackageGraphNamedWindow
+        return actual.witness is expected.witness
+    if type(actual) is PackageGraphWindowSemanticProvenance:
+        assert type(expected) is PackageGraphWindowSemanticProvenance
+        return actual.witness is expected.witness
     if type(actual) in {
         PackageGraphRelationLineageState,
         PackageGraphLetLineageState,
@@ -3502,6 +3683,8 @@ def _build_package_graph(
                 (),
                 (),
                 (),
+                (),
+                (),
             )
             if module_identity_facts is not None:
                 semantic_projection = _build_semantic_lineage_projection(
@@ -3524,6 +3707,8 @@ def _build_package_graph(
                 aggregate_lineage_states,
                 expression_lineage_states,
                 current_window_lineage_states,
+                named_windows,
+                window_semantic_provenance,
             ) = semantic_projection
             snapshot = PackageGraphSnapshot(
                 scope=scope,
@@ -3548,6 +3733,8 @@ def _build_package_graph(
                 aggregate_lineage_states=aggregate_lineage_states,
                 expression_lineage_states=expression_lineage_states,
                 current_window_lineage_states=current_window_lineage_states,
+                named_windows=named_windows,
+                window_semantic_provenance=window_semantic_provenance,
             )
             return PackageGraphResult(
                 PackageGraphOutcome.SUCCESS,

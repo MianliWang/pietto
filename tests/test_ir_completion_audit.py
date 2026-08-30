@@ -81,6 +81,11 @@ ALL_DEFINITIONS_SOURCE = (
 def test_all_public_ir_model_types_are_exported_without_internal_helpers() -> None:
     internal_types = (
         "LimitIR",
+        "NamedWindowBaseIR",
+        "NamedWindowDeclarationIR",
+        "NamedWindowLocalSpecIR",
+        "NamedWindowOccurrenceIR",
+        "NamedWindowUseIR",
         "OrderDirectionIR",
         "OrderItemIR",
         "WindowCallIR",
@@ -95,6 +100,9 @@ def test_all_public_ir_model_types_are_exported_without_internal_helpers() -> No
         "WindowNullTreatmentIR",
         "WindowOrderItemIR",
         "WindowSpecIR",
+        "WindowRelationOccurrenceIR",
+        "WindowUseKindIR",
+        "WindowUseOccurrenceIR",
     )
     model_types = {
         name

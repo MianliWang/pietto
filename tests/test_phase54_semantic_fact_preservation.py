@@ -51,6 +51,7 @@ from pietto.semantic.capability_lookup import (
 )
 from pietto.semantic.window_semantics import (
     RankingAdvancePolicy,
+    ResolvedNamedWindowNamespace,
     WindowExpressionAnalysis,
     WindowExpressionUnsupported,
 )
@@ -3096,7 +3097,7 @@ def test_all_window_families_preserve_complete_composite_analysis(
         )
 
 
-def test_named_windows_defer_project_facts_after_semantic_resolution(
+def test_named_windows_publish_project_facts_after_semantic_resolution(
     tmp_path: Path,
 ) -> None:
     _, semantic = _semantic_project(
@@ -3159,15 +3160,16 @@ def test_named_windows_defer_project_facts_after_semantic_resolution(
         "frame_value_inherited",
     ):
         output = outputs[name]
-        assert type(output.analysis) is WindowExpressionUnsupported
-        assert output.analysis.reason == "project named-window integration deferred"
-        assert output.analysis.expression is output.item.expression
-        assert output.analysis.expression.use_kind is not WindowUseKind.INLINE
+        assert type(output.analysis) is WindowExpressionAnalysis
+        assert output.analysis.authored_expression is output.item.expression
+        assert output.analysis.authored_expression.use_kind is not WindowUseKind.INLINE
         assert output.diagnostics == ()
-        assert output.project_fact is None
-        assert output.retained_project_fact is None
-        assert output.status is preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
-        assert output.reason == output.analysis.reason
+        assert output.project_fact is not None
+        assert output.retained_project_fact is output.project_fact
+        assert output.project_fact.analysis is output.analysis
+        assert output.project_fact.semantic_provenance.named_target is not None
+        assert output.status is preservation.ProjectModuleCandidateBucketStatus.CONCRETE
+        assert output.reason is None
 
     inherited_frame = outputs["inherited_frame"]
     assert type(inherited_frame.analysis) is WindowExpressionUnsupported
@@ -3178,11 +3180,11 @@ def test_named_windows_defer_project_facts_after_semantic_resolution(
     assert tuple(item.code for item in inherited_frame.diagnostics) == ("PIE-S2104",)
     assert inherited_frame.project_fact is None
     assert inherited_frame.retained_project_fact is None
-    assert all(
-        output.project_fact is None
-        for name, output in outputs.items()
-        if name != "inline"
-    )
+    assert type(relation.named_window_namespace) is ResolvedNamedWindowNamespace
+    assert tuple(
+        template.declaration.name
+        for template in relation.named_window_namespace.templates
+    ) == ("root", "ordered", "alias_window", "framed")
 
 
 @pytest.mark.parametrize(

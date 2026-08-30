@@ -73,7 +73,10 @@ from pietto.semantic.predicate_checks import check_predicates
 from pietto.semantic.type_aliases import expand_type_aliases
 
 if TYPE_CHECKING:
-    from pietto.semantic.window_semantics import WindowExpressionAnalysis
+    from pietto.semantic.window_semantics import (
+        ResolvedNamedWindowNamespace,
+        WindowExpressionAnalysis,
+    )
 
 _DECIMAL_PRECISION_MAX = 38
 
@@ -201,6 +204,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
         relation_expression_diagnostics,
         let_scopes,
         window_expression_analyses,
+        named_window_namespaces,
     ) = _analyze_relation_schema_expressions(
         script,
         mode=mode,
@@ -288,6 +292,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
             relation_row_schemas=relation_row_schemas,
             expression_value_types=expression_value_types,
             window_expression_analyses=window_expression_analyses,
+            named_window_namespaces=named_window_namespaces,
             result_predicates=result_predicates,
             let_scopes=let_scopes,
             relationships=relationships,
@@ -494,6 +499,7 @@ def _analyze_relation_schema_expressions(
     list[Diagnostic],
     dict[DerivedRelation, LetScopeSemanticInfo],
     dict[WindowExpr, WindowExpressionAnalysis],
+    dict[DerivedRelation, ResolvedNamedWindowNamespace],
 ]:
     """Refine relation schemas from computed projection expression types."""
 
@@ -520,7 +526,7 @@ def _analyze_relation_schema_expressions(
                 relation_row_schemas=relation_row_schemas,
             )
         )
-        temporary_value_types, _, _ = type_relation_expressions(
+        temporary_value_types, _, _, _ = type_relation_expressions(
             script,
             from_resolutions=from_resolutions,
             source_row_schemas=source_row_schemas,
@@ -557,6 +563,7 @@ def _analyze_relation_schema_expressions(
         relation_value_types,
         relation_expression_diagnostics,
         window_expression_analyses,
+        named_window_namespaces,
     ) = type_relation_expressions(
         script,
         from_resolutions=from_resolutions,
@@ -586,6 +593,7 @@ def _analyze_relation_schema_expressions(
         relation_expression_diagnostics,
         let_scopes,
         window_expression_analyses,
+        named_window_namespaces,
     )
 
 

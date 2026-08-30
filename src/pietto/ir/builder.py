@@ -38,6 +38,7 @@ from pietto.ir.lowering import (
     lower_canonical_type_ref,
     lower_expr,
     lower_group_key_ref,
+    lower_named_window_declarations,
     lower_value_type,
     lower_row_schema,
     lower_span,
@@ -476,6 +477,37 @@ def _lower_relation(
         target_symbol=target_symbol,
         let_expansions=let_expansions,
     )
+    namespace = semantic_model.named_window_namespaces.get(definition)
+    if definition.named_windows and namespace is None:
+        raise _MissingSemanticFact(definition, "resolved named window namespace")
+    window_input_expressions = (
+        {}
+        if namespace is None or definition.group_by_clause is None
+        else _grouped_window_input_expressions(
+            tuple(
+                projection
+                for projection in projections
+                if not isinstance(projection.expression, WindowCallIR)
+            ),
+            group_keys=group_keys,
+            input_schema=input_schema,
+            field_qualifier=target.name,
+            let_expansions=let_expansions,
+        )
+    )
+    named_windows = (
+        ()
+        if namespace is None
+        else lower_named_window_declarations(
+            namespace,
+            semantic_model,
+            fields=input_schema.fields,
+            field_owner=target_symbol,
+            field_qualifier=target.name,
+            let_expansions=let_expansions,
+            window_input_expressions=window_input_expressions,
+        )
+    )
     return RelationIR(
         symbol=_symbol(SymbolNamespace.RELATION, definition.name),
         name=definition.name,
@@ -497,6 +529,7 @@ def _lower_relation(
         limit=limit,
         group_keys=group_keys,
         result_predicate=result_predicate,
+        named_windows=named_windows,
     )
 
 

@@ -54,7 +54,10 @@ from pietto.semantic.model import (
 )
 
 if TYPE_CHECKING:
-    from pietto.semantic.window_semantics import WindowExpressionAnalysis
+    from pietto.semantic.window_semantics import (
+        ResolvedNamedWindowNamespace,
+        WindowExpressionAnalysis,
+    )
 
 RelationDefinition = SourceDef | TableDef | QueryDef
 DerivedRelation = TableDef | QueryDef
@@ -233,12 +236,17 @@ def type_relation_expressions(
     dict[Expression, ValueType],
     list[Diagnostic],
     dict[WindowExpr, WindowExpressionAnalysis],
+    dict[DerivedRelation, ResolvedNamedWindowNamespace],
 ]:
     """Type supported table/query expressions without validating consumers."""
 
     value_types: dict[Expression, ValueType] = {}
     diagnostics: list[Diagnostic] = []
     window_analyses: dict[WindowExpr, WindowExpressionAnalysis] = {}
+    named_window_namespaces: dict[
+        DerivedRelation,
+        ResolvedNamedWindowNamespace,
+    ] = {}
     relation_let_value_types = relation_let_value_types or {}
     relation_let_expressions = (
         relation_let_expressions
@@ -258,12 +266,14 @@ def type_relation_expressions(
         let_value_types = relation_let_value_types.get(definition)
         let_expressions = relation_let_expressions.get(definition)
         named_window_namespace_failed = False
+        named_window_namespace = None
         if definition.named_windows:
             from pietto.semantic.window_analysis import (
                 named_window_resolution_diagnostics,
             )
             from pietto.semantic.window_semantics import (
                 NamedWindowResolutionFailure,
+                ResolvedNamedWindowNamespace,
                 resolve_named_window_namespace,
             )
 
@@ -273,6 +283,10 @@ def type_relation_expressions(
                     named_window_resolution_diagnostics(named_window_namespace)
                 )
                 named_window_namespace_failed = True
+                named_window_namespace = None
+            else:
+                assert type(named_window_namespace) is ResolvedNamedWindowNamespace
+                named_window_namespaces[definition] = named_window_namespace
         selected_output_names = tuple(
             _relation_projection_output_name(item) for item in definition.select_items
         )
@@ -321,6 +335,7 @@ def type_relation_expressions(
                     diagnostics=diagnostics,
                     let_value_types=let_value_types or {},
                     let_expressions=let_expressions or {},
+                    named_window_namespace=named_window_namespace,
                 )
                 from pietto.semantic.window_semantics import (
                     WindowExpressionAnalysis,
@@ -398,7 +413,7 @@ def type_relation_expressions(
                     bare_value_expressions=let_expressions,
                 )
 
-    return value_types, diagnostics, window_analyses
+    return value_types, diagnostics, window_analyses, named_window_namespaces
 
 
 def infer_row_expression(

@@ -77,11 +77,12 @@ EXPECTED_STATUS = (
     ("Slice 6", "`COMPLETED`"),
     ("Slice 7", "`COMPLETED`"),
     ("Slice 8", "`COMPLETED`"),
-    ("Slice 9", "`CURRENT`"),
-    ("Slice 10", "`NEXT / UNSTARTED`"),
+    ("Slice 9", "`COMPLETED`"),
+    ("Slice 10", "`CURRENT`"),
+    ("Slice 11", "`NEXT / UNSTARTED`"),
     (
         "Next",
-        "`PHASE60_SLICE10_CAPABILITY_LINEAGE_INSPECTION_INTEGRATION`",
+        "`PHASE60_SLICE11_REAL_AUTHORED_ADVANCED_WINDOW_E2E`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -93,7 +94,7 @@ EXPECTED_PHASE59_STATE = (
 )
 EXPECTED_PHASE59_OWNER = "Local package graph, attribution, provenance, and lineage"
 EXPECTED_PHASE60_STATE = (
-    "Phase 60 is active, Slices 1-8 are completed, Slice 9 is current, and Slice 10\n"
+    "Phase 60 is active, Slices 1-9 are completed, Slice 10 is current, and Slice 11\n"
     "is next / unstarted. The published route has exactly 13 slices."
 )
 EXPECTED_PHASE60_OWNER = "Advanced Windows And Phase 51–60 Readiness Checkpoint"
@@ -421,6 +422,51 @@ EXPECTED_PHASE60_SLICE9_CHANGED_PATHS = (
     "tests/test_phase60_slice7_exclude_semantics.py",
     "tests/test_phase60_slice8_query_local_named_windows.py",
 )
+EXPECTED_PHASE60_SLICE10_CHANGED_PATHS = (
+    "docs/language.md",
+    "docs/roadmap.md",
+    "docs/spec/phase60-slice10-capability-lineage-inspection-integration-v1.md",
+    "docs/status.md",
+    "src/pietto/semantic/capability_windows.py",
+    "src/pietto/semantic/model.py",
+    "src/pietto/semantic/analyzer.py",
+    "src/pietto/semantic/expressions.py",
+    "src/pietto/semantic/window_analysis.py",
+    "src/pietto/semantic/window_semantics.py",
+    "src/pietto/ir/model.py",
+    "src/pietto/ir/lowering.py",
+    "src/pietto/ir/builder.py",
+    "src/pietto/sql/window_strategy.py",
+    "src/pietto/sql/expressions.py",
+    "src/pietto/sql/mysql_expressions.py",
+    "src/pietto/sql/relations.py",
+    "src/pietto/sql/mysql_relations.py",
+    "src/pietto/_project/window_semantics.py",
+    "src/pietto/_project/window_persistence.py",
+    "src/pietto/_project/module_semantic_fact_preservation.py",
+    "src/pietto/_project/package_graph.py",
+    "src/pietto/_project/package_graph_inspection.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_phase17_relation_schema_hardening_completion_audit.py",
+    "tests/test_phase51_private_result_role_output_identity.py",
+    "tests/test_phase52_fail_closed_capability_lookup.py",
+    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+    "tests/test_phase52_private_capability_fact_foundation.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+    "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
+    "tests/test_phase54_semantic_fact_preservation.py",
+    "tests/test_phase60_slice8_query_local_named_windows.py",
+    "tests/test_phase60_slice9_value_navigation_modifiers.py",
+    "tests/test_ir_completion_audit.py",
+    "tests/test_phase59_slice2_private_package_graph_model_snapshot_identity.py",
+    "tests/test_phase59_slice8_semantic_field_lineage_integration.py",
+    "tests/test_phase59_slice9_private_graph_integrity_inspection_query_canonical_pure_boundary.py",
+    "tests/test_phase59_slice11_differential_compatibility_assurance.py",
+    "tests/test_phase59_slice12_completion_audit_phase60_handoff.py",
+    "tests/test_phase60_slice10_capability_lineage_inspection_integration.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -463,13 +509,11 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "Phase 59 and the Validation/Test Performance Optimization Interlude are "
         "completed by live Git and successful natural exact-head CI" in normalized
     )
-    assert "Slices 1-8 are completed" in normalized
-    assert (
-        "Slice 9 is the current Phase 60 value/navigation modifier owner" in normalized
-    )
-    assert "Live Git and natural exact-head CI own Slice 9 completion" in normalized
+    assert "Slices 1-9 are completed" in normalized
+    assert "Slice 10 is the current capability/lineage/inspection owner" in normalized
+    assert "Live Git and natural exact-head CI own Slice 10 completion" in normalized
     assert "no post-CI status-flip commit is required" in normalized
-    assert "does not authorize Slice 10" in normalized
+    assert "does not authorize Slice 11" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
@@ -497,6 +541,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     assert "phase60-slice7-exclude-semantics-v1.md" in phase60
     assert "phase60-slice8-query-local-named-windows-v1.md" in phase60
     assert "phase60-slice9-value-navigation-modifiers-v1.md" in phase60
+    assert "phase60-slice10-capability-lineage-inspection-integration-v1.md" in phase60
     assert "private frozen authored/resolved window-frame model" in phase60
     assert "private validated semantic stage" in phase60
     assert "authored ROWS grammar/AST path" in phase60
@@ -505,7 +550,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     assert "canonical peer authority" in phase60
     assert "lazy post-clipping physical-membership view" in phase60
     assert "collection-first exact namespaces" in phase60
-    assert "Slice 10 remains unimplemented" in phase60
+    assert "Slice 11 remains unimplemented" in phase60
 
     retained = _section(roadmap, "Retained later ownership")
     assert _table_rows(retained)[1:] == EXPECTED_RETAINED_LATER_OWNERS
@@ -541,10 +586,10 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "completed the Interlude and handed off authority" in interlude_normalized
     )
     assert "Phase 60 is `ACTIVE`" in interlude_normalized
-    assert "Slice 1 through Slice 8 are completed, Slice 9 is current" in (
+    assert "Slice 1 through Slice 9 are completed, Slice 10 is current" in (
         interlude_normalized
     )
-    assert "Slice 10 is next / unstarted" in interlude_normalized
+    assert "Slice 11 is next / unstarted" in interlude_normalized
     assert len(EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS) == 4
     assert all(
         (REPO_ROOT / path).is_file() for path in EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS
@@ -822,4 +867,39 @@ def test_phase60_slice9_changed_paths_are_exact() -> None:
             )
         )
         for path in EXPECTED_PHASE60_SLICE9_CHANGED_PATHS
+    )
+
+
+def test_phase60_slice10_changed_paths_are_exact() -> None:
+    assert len(EXPECTED_PHASE60_SLICE10_CHANGED_PATHS) == 43
+    assert len(set(EXPECTED_PHASE60_SLICE10_CHANGED_PATHS)) == 43
+    assert all(
+        (REPO_ROOT / path).is_file() for path in EXPECTED_PHASE60_SLICE10_CHANGED_PATHS
+    )
+    assert not any(
+        path.startswith(("grammar/", "src/pietto/generated/", ".github/"))
+        for path in EXPECTED_PHASE60_SLICE10_CHANGED_PATHS
+    )
+    project = tuple(
+        path
+        for path in EXPECTED_PHASE60_SLICE10_CHANGED_PATHS
+        if path.startswith("src/pietto/_project/")
+    )
+    assert project == (
+        "src/pietto/_project/window_semantics.py",
+        "src/pietto/_project/window_persistence.py",
+        "src/pietto/_project/module_semantic_fact_preservation.py",
+        "src/pietto/_project/package_graph.py",
+        "src/pietto/_project/package_graph_inspection.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                "src/pietto/_project/model.py",
+                "src/pietto/_project/row_lineage.py",
+                "src/pietto/_project/row_dependency_graph.py",
+                "src/pietto/_project_explain/",
+            )
+        )
+        for path in EXPECTED_PHASE60_SLICE10_CHANGED_PATHS
     )

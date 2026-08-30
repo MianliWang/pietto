@@ -4370,6 +4370,7 @@ class WindowExpressionAnalysis:
     validated_specification: ValidatedWindowSpecification
     navigation_fact: NavigationWindowSemanticFact | None = None
     frame_value_fact: FrameValueWindowSemanticFact | None = None
+    resolved_named_use: ResolvedNamedWindowUse | None = None
 
     def __post_init__(self) -> None:
         if type(self.semantic_fact) is not WindowExpressionSemanticFact:
@@ -4460,6 +4461,29 @@ class WindowExpressionAnalysis:
         ):
             raise ValueError("frame-value fact must share the semantic core")
         if (
+            self.resolved_named_use is not None
+            and type(self.resolved_named_use) is not ResolvedNamedWindowUse
+        ):
+            raise TypeError("resolved named use must be exact or absent")
+        if self.resolved_named_use is None:
+            if expression.use_kind is not WindowUseKind.INLINE:
+                raise ValueError("inline analysis requires inline effective authorship")
+        else:
+            named = self.resolved_named_use
+            authored_expression = named.composed.expression
+            if (
+                authored_expression.use_kind is WindowUseKind.INLINE
+                or named.function_identity != self.semantic_fact.identity
+                or named.resolved is not self.validated_specification.resolved
+                or expression.call is not authored_expression.call
+                or expression.nth_direction is not authored_expression.nth_direction
+                or expression.null_treatment is not authored_expression.null_treatment
+                or self.semantic_fact.occurrence.span != authored_expression.span
+            ):
+                raise ValueError(
+                    "named analysis must retain exact authored and resolved authority"
+                )
+        if (
             self.ranking_fact is None
             and self.distribution_fact is None
             and self.navigation_fact is None
@@ -4543,3 +4567,11 @@ class WindowExpressionAnalysis:
                 raise ValueError("frame-value identity requires only its family fact")
             return
         raise ValueError("window analysis identity must be one completed identity")
+
+    @property
+    def authored_expression(self) -> WindowExpr:
+        """Return the exact parsed use, never the transient effective expression."""
+
+        if self.resolved_named_use is None:
+            return self.semantic_fact.expression
+        return self.resolved_named_use.composed.expression

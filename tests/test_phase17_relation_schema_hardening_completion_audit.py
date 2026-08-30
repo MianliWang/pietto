@@ -347,7 +347,7 @@ def test_slice3_refinement_loop_contract_stays_bounded_and_final_only() -> None:
     )
     assert len(temporary_assignment.targets) == 1
     assert ast.unparse(temporary_assignment.targets[0]) == (
-        "(temporary_value_types, _, _)"
+        "(temporary_value_types, _, _, _)"
     )
     final_assignment = next(
         node
@@ -360,7 +360,7 @@ def test_slice3_refinement_loop_contract_stays_bounded_and_final_only() -> None:
     assert len(final_assignment.targets) == 1
     assert ast.unparse(final_assignment.targets[0]) == (
         "(relation_value_types, relation_expression_diagnostics, "
-        "window_expression_analyses)"
+        "window_expression_analyses, named_window_namespaces)"
     )
     return_statement = next(
         node for node in function.body if isinstance(node, ast.Return)
@@ -368,7 +368,8 @@ def test_slice3_refinement_loop_contract_stays_bounded_and_final_only() -> None:
     assert return_statement.value is not None
     assert ast.unparse(return_statement.value) == (
         "(relation_row_schemas, schema_diagnostics, relation_value_types, "
-        "relation_expression_diagnostics, let_scopes, window_expression_analyses)"
+        "relation_expression_diagnostics, let_scopes, window_expression_analyses, "
+        "named_window_namespaces)"
     )
     fingerprint_start = analyzer.index("def _relation_schema_fingerprint")
     fingerprint_body = analyzer[fingerprint_start:]

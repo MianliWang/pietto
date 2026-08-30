@@ -26,7 +26,10 @@ from pietto.ast_nodes import (
 from pietto.errors import Diagnostic
 
 if TYPE_CHECKING:
-    from pietto.semantic.window_semantics import WindowExpressionAnalysis
+    from pietto.semantic.window_semantics import (
+        ResolvedNamedWindowNamespace,
+        WindowExpressionAnalysis,
+    )
 
 _Key = TypeVar("_Key")
 _Value = TypeVar("_Value")
@@ -227,6 +230,10 @@ class SemanticModel:
         WindowExpr,
         WindowExpressionAnalysis,
     ] = field(default_factory=lambda: _readonly_mapping())
+    named_window_namespaces: Mapping[
+        TableDef | QueryDef,
+        ResolvedNamedWindowNamespace,
+    ] = field(default_factory=lambda: _readonly_mapping())
     result_predicates: Mapping[
         TableDef | QueryDef,
         SatisfyingResultPredicateInfo,
@@ -296,7 +303,10 @@ class SemanticModel:
             "expression_value_types",
             _readonly_mapping(self.expression_value_types),
         )
-        from pietto.semantic.window_semantics import WindowExpressionAnalysis
+        from pietto.semantic.window_semantics import (
+            ResolvedNamedWindowNamespace,
+            WindowExpressionAnalysis,
+        )
 
         window_analysis_items = tuple(self.window_expression_analyses.items())
         if any(
@@ -317,6 +327,10 @@ class SemanticModel:
             ):
                 raise ValueError(
                     "window analysis mapping must retain its exact source use"
+                )
+            if analysis.authored_expression is not expression:
+                raise ValueError(
+                    "window analysis mapping must retain its exact authored key"
                 )
             if expression.use_kind is WindowUseKind.INLINE:
                 if semantic_expression is not expression:
@@ -345,6 +359,29 @@ class SemanticModel:
             self,
             "window_expression_analyses",
             _readonly_mapping(self.window_expression_analyses),
+        )
+        named_window_namespace_items = tuple(self.named_window_namespaces.items())
+        if any(
+            type(definition) not in {TableDef, QueryDef}
+            or type(namespace) is not ResolvedNamedWindowNamespace
+            or namespace.definition is not definition
+            or not definition.named_windows
+            for definition, namespace in named_window_namespace_items
+        ):
+            raise TypeError("named window namespaces must retain exact relation owners")
+        for expression, analysis in window_analysis_items:
+            named = analysis.resolved_named_use
+            if named is not None and (
+                self.named_window_namespaces.get(named.composed.namespace.definition)
+                is not named.composed.namespace
+            ):
+                raise ValueError(
+                    "named window analysis must share its exact persisted namespace"
+                )
+        object.__setattr__(
+            self,
+            "named_window_namespaces",
+            _readonly_mapping(self.named_window_namespaces),
         )
         object.__setattr__(
             self,

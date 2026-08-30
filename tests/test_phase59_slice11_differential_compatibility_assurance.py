@@ -36,11 +36,11 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
     "integrity": "ok",
     "pure_status": "ok",
     "canonical_sha256": (
-        "e02f33fe75b2414b34811e77460c8e318d26b9f968f480cd62be884ddd522ea5"
+        "e5b510011b04b92939631ff34bab844a86bb2b25e2b2b7574dd8d6be02cea876"
     ),
-    "canonical_size": 587185,
+    "canonical_size": 589019,
     "inspection_sha256": (
-        "a95591695920d50cd615c99e36d7986e8b987fb80ff056ad2b00edb27f6b8a7a"
+        "b1bd359cae7312b5a51c9636c2b588f13a98f6e656bc883ce8cb5f8d59a6dbd4"
     ),
     "counts": {
         "records": [
@@ -56,6 +56,7 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
             ["semantic_authority", 2],
             ["field", 30],
             ["let_binding", 2],
+            ["window_semantic", 2],
         ],
         "links": [
             ["dependency", 1],
