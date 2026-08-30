@@ -561,8 +561,11 @@ def _validate_occurrence_order(
     if any(item.ref.scope is not scope for item in values):
         raise ValueError(f"{label} must use the stage snapshot scope.")
     positions = tuple(item.ref.position for item in values)
-    if positions != tuple(range(len(values))):
-        raise ValueError(f"{label} coordinates must be unique and ordered.")
+    expected = (
+        () if not positions else tuple(range(positions[0], positions[0] + len(values)))
+    )
+    if positions != expected:
+        raise ValueError(f"{label} coordinates must be dense and ordered.")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

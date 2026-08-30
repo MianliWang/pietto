@@ -19,9 +19,9 @@ documentation does not supersede that evidence.
 | Slice 3 | `COMPLETED` |
 | Slice 4 | `COMPLETED` |
 | Output-identity continuation | `COMPLETED` |
-| Intra-relation dataflow continuation | `CURRENT` |
-| Slice 5 | `NEXT / UNSTARTED` |
-| Next | `Phase 61 Slice 5 — Canonical Single-Relation Construction From Existing Project Semantic Facts` |
+| Intra-relation dataflow continuation | `COMPLETED` |
+| Slice 5 | `CURRENT` |
+| Next | `Phase 61 Slice 6 — Cross-Module Relation Composition And Acyclic Project Plan DAG` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -35,7 +35,8 @@ single publication commit. Slice 4 is completed by live Git and successful
 natural exact-head CI on its single publication commit. The unnumbered Slice 5
 output-identity readiness continuation is completed by live Git and successful
 natural exact-head CI. The unnumbered intra-relation dataflow readiness
-continuation is current; Slice 5 remains next / unstarted. Successful natural
-exact-head CI on this continuation publication completes only the second
-prerequisite without a status-only follow-up commit. This status does not
-authorize the Slice 5 builder.
+continuation is also completed by live Git and successful natural exact-head
+CI. Slice 5 canonical single-relation construction is current. Successful
+natural exact-head CI on its single publication commit completes Slice 5
+without a status-only follow-up commit and hands off only to Slice 6. This
+status does not authorize Slice 6 implementation.

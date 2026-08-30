@@ -677,9 +677,9 @@ validation.
 Successful natural exact-head CI on the single Slice 6 completion commit
 completed the Interlude and handed off authority. Phase 60 subsequently
 completed all 13 Slices on successful natural exact-head CI. Phase 61 is now
-`ACTIVE`; Slices 1–4 and the unnumbered Slice 5 output-identity prerequisite
-are completed, the unnumbered intra-relation dataflow readiness continuation
-is current, and Slice 5 remains next / unstarted.
+`ACTIVE`; Slices 1–4 and both unnumbered Slice 5 prerequisites are completed,
+Slice 5 canonical single-relation construction is current, and Slice 6 remains
+next / unstarted.
 
 ## Phase 60 route
 
@@ -856,10 +856,10 @@ historical authority.
 
 ## Phase 61 route
 
-Phase 61 is active. Slices 1–4 and the unnumbered Slice 5 output-identity
-prerequisite are completed, the unnumbered intra-relation dataflow readiness
-continuation is current, and Slice 5 remains next / unstarted. The frozen Phase
-61 route still has exactly 12 slices.
+Phase 61 is active. Slices 1–4 and both unnumbered Slice 5 prerequisites are
+completed, Slice 5 canonical single-relation construction is current, and
+Slice 6 remains next / unstarted. The frozen Phase 61 route still has exactly
+12 slices.
 
 The exact owner is **Private target-independent Project Logical IR, exact
 semantic composition, and verifiable analysis boundary**.
@@ -967,9 +967,27 @@ new module-semantic identity, route Slice, SQL, or public behavior. The
 controlling contract is [Phase 61 Slice 5 intra-relation dataflow readiness
 continuation](spec/phase61-slice5-intra-relation-dataflow-readiness-continuation-v1.md).
 
-Successful natural exact-head CI on this continuation publication completes
-only the second prerequisite without a status-only follow-up commit. Slice 5
-remains next / unstarted and resumes as the sole next owner.
+Successful natural exact-head CI on that continuation publication completed
+the second prerequisite without a status-only follow-up commit.
+
+Slice 5 adds canonical construction of one exact Project semantic relation
+subject in `src/pietto/_project/project_ir_construction.py`. It consumes exact
+semantic and attribution roots plus an explicit immutable snapshot allocation
+state, derives the frozen current operator sequence, maps exact
+`INPUT`/`BASE_RESULT`/`FINAL` checkpoints to one row output per operator,
+allocates stage-local window scalars and exact final semantic exports, and
+constructs every adjacent operator-flow edge, exact provided property and
+transfer, unknown effect, and empty estimate boundary. Non-concrete relations
+retain typed zero-allocation terminals. The returned allocation can continue
+another fragment in the same scope without remapping prior refs. It builds no
+upstream relation, semantic cross-relation edge, Project-wide DAG, JOIN,
+optimizer, verifier framework, SQL, or public behavior. The controlling
+contract is [Phase 61 Slice 5 canonical single-relation Project IR
+construction](spec/phase61-slice5-canonical-single-relation-project-ir-construction-v1.md).
+
+Successful natural exact-head CI on the single Slice 5 publication commit
+completes Slice 5 without a status-only follow-up commit. Slice 6 remains next /
+unstarted and is the sole next owner.
 
 ## Retained later ownership
 
