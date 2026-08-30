@@ -21,9 +21,16 @@ from pietto.ir.model import (
     TypeRefIR,
     UnaryIR,
     WindowCallIR,
+    WindowFrameBoundIR,
+    WindowFrameBoundKindIR,
+    WindowFrameExclusionIR,
+    WindowFrameIR,
+    WindowFrameUnitIR,
     WindowFunctionIdentityIR,
     WindowFunctionRoleIR,
     WindowOrderItemIR,
+    WindowNthDirectionIR,
+    WindowNullTreatmentIR,
     WindowSpecIR,
 )
 from pietto.sql.render import (
@@ -90,6 +97,9 @@ _WINDOW_FUNCTION_NAMES = {
     "ntile": "NTILE",
     "lag": "LAG",
     "lead": "LEAD",
+    "first_value": "FIRST_VALUE",
+    "last_value": "LAST_VALUE",
+    "nth_value": "NTH_VALUE",
 }
 _ZERO_ARGUMENT_WINDOW_FUNCTIONS = frozenset(
     {"row_number", "rank", "dense_rank", "percent_rank", "cume_dist"}
@@ -251,6 +261,10 @@ def _render_window_call(expression: WindowCallIR) -> str:
         valid_arity = len(arguments) == 0
     elif name == "ntile":
         valid_arity = len(arguments) == 1
+    elif name in {"first_value", "last_value"}:
+        valid_arity = len(arguments) == 1
+    elif name == "nth_value":
+        valid_arity = len(arguments) == 2
     else:
         valid_arity = len(arguments) in {1, 2, 3}
     if not valid_arity:
@@ -278,6 +292,22 @@ def _render_window_call(expression: WindowCallIR) -> str:
     ):
         raise ValueError("PostgreSQL window partition contains an invalid expression")
     _validate_window_order_items(order_by)
+    null_treatment = getattr(expression, "null_treatment", None)
+    nth_direction = getattr(expression, "nth_direction", None)
+    if name in {"lag", "lead", "first_value", "last_value", "nth_value"}:
+        if type(null_treatment) is not WindowNullTreatmentIR:
+            raise ValueError("PostgreSQL value window requires NULL treatment")
+        if null_treatment is WindowNullTreatmentIR.IGNORE_NULLS:
+            raise ValueError("PostgreSQL does not support IGNORE NULLS")
+    elif null_treatment is not None:
+        raise ValueError("PostgreSQL function forbids NULL treatment")
+    if name == "nth_value":
+        if type(nth_direction) is not WindowNthDirectionIR:
+            raise ValueError("PostgreSQL nth_value requires a direction")
+        if nth_direction is WindowNthDirectionIR.FROM_LAST:
+            raise ValueError("PostgreSQL does not support FROM LAST")
+    elif nth_direction is not None:
+        raise ValueError("PostgreSQL non-nth function forbids FROM direction")
 
     argument_sql = ", ".join(
         _render_expression_sql(argument, nested=True) for argument in arguments
@@ -294,7 +324,56 @@ def _render_window_call(expression: WindowCallIR) -> str:
     clauses.append(
         "ORDER BY " + ", ".join(_render_window_order_item(item) for item in order_by)
     )
+    frame = getattr(spec, "frame", None)
+    if frame is not None:
+        clauses.append(_render_window_frame(frame))
     return f"{_WINDOW_FUNCTION_NAMES[name]}({argument_sql}) OVER ({' '.join(clauses)})"
+
+
+def _render_window_frame(frame: WindowFrameIR) -> str:
+    if type(frame) is not WindowFrameIR:
+        raise ValueError("PostgreSQL window frame must be exact")
+    if type(frame.unit) is not WindowFrameUnitIR:
+        raise ValueError("PostgreSQL window frame unit must be exact")
+    offset_bounds = tuple(
+        bound
+        for bound in (frame.start, frame.end)
+        if bound.kind
+        in {
+            WindowFrameBoundKindIR.OFFSET_PRECEDING,
+            WindowFrameBoundKindIR.OFFSET_FOLLOWING,
+        }
+    )
+    if frame.unit is WindowFrameUnitIR.RANGE and offset_bounds:
+        raise ValueError("PostgreSQL RANGE offsets require Phase 64 evidence")
+    if any(
+        type(bound.offset) is not LiteralIR
+        or type(bound.offset.value) is not int
+        or bound.offset.value < 0
+        for bound in offset_bounds
+    ):
+        raise ValueError("PostgreSQL frame offsets require nonnegative Int literals")
+    start = _render_window_frame_bound(frame.start)
+    end = _render_window_frame_bound(frame.end)
+    if frame.frame_is_explicit and not frame.end_is_explicit:
+        result = f"{frame.unit.value} {start}"
+    else:
+        result = f"{frame.unit.value} BETWEEN {start} AND {end}"
+    if type(frame.exclusion) is not WindowFrameExclusionIR:
+        raise ValueError("PostgreSQL window exclusion must be exact")
+    return f"{result} EXCLUDE {frame.exclusion.value}"
+
+
+def _render_window_frame_bound(bound: WindowFrameBoundIR) -> str:
+    if type(bound) is not WindowFrameBoundIR:
+        raise ValueError("PostgreSQL window frame bound must be exact")
+    if bound.kind is WindowFrameBoundKindIR.OFFSET_PRECEDING:
+        assert bound.offset is not None
+        return f"{_render_expression_sql(bound.offset, nested=True)} PRECEDING"
+    if bound.kind is WindowFrameBoundKindIR.OFFSET_FOLLOWING:
+        assert bound.offset is not None
+        return f"{_render_expression_sql(bound.offset, nested=True)} FOLLOWING"
+    return bound.kind.value
 
 
 def _validate_window_order_items(order_by: tuple[WindowOrderItemIR, ...]) -> None:

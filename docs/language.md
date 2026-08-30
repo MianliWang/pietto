@@ -155,9 +155,10 @@ query ranked:
                     id asc
 ```
 
-The current bounded window identities are `row_number`, `rank`, `dense_rank`,
-`percent_rank`, `cume_dist`, `ntile`, `lag`, and `lead`. Partition and local
-order items preserve source order, duplicates, qualification, and direction.
+The bounded window identities are `row_number`, `rank`, `dense_rank`,
+`percent_rank`, `cume_dist`, `ntile`, `lag`, `lead`, `first_value`,
+`last_value`, and `nth_value`. Partition and resolved order items preserve
+source order, duplicates, qualification, and direction.
 Window specifications recognize authored ROWS, RANGE, and GROUPS forms with
 optional EXCLUDE:
 
@@ -174,14 +175,30 @@ groups current row exclude group
 ```
 
 Bounds may use `unbounded preceding`, an expression plus `preceding`, `current
-row`, an expression plus `following`, or `unbounded following`. The current
-eight window identities are frame-insensitive, so any explicit ROWS, RANGE, or
-GROUPS frame, including EXCLUDE, is rejected by function/frame policy until
-Slice 9 introduces a legal frame-sensitive caller. RANGE offsets require one
-ordering key and retain direction-aware ordering/type evidence without
-evaluating it. GROUPS uses canonical peer groups supplied by typed comparison
-evidence. EXCLUDE supports `no others`, `current row`, `group`, and `ties` as
-a removal-only membership filter after base-frame clipping.
+row`, an expression plus `following`, or `unbounded following`. Ranking,
+distribution, `lag`, and `lead` remain frame-insensitive. `first_value`,
+`last_value`, and `nth_value` are frame-sensitive and use a concrete Pietto
+effective frame even when source omits one. RANGE offsets retain unresolved
+Phase 64 type/arithmetic requirements. GROUPS uses canonical peer groups;
+EXCLUDE is a removal-only membership filter after base-frame clipping.
+
+Value/navigation modifiers occur between the call and `window`:
+
+```pietto
+previous = lag(value) ignore nulls window ordered
+first = first_value(value) respect nulls window:
+    order by:
+        id
+nth = nth_value(value, 2) from last ignore nulls window:
+    order by:
+        id
+```
+
+Omitted NULL treatment means `RESPECT NULLS`; omitted `nth_value` direction
+means `FROM FIRST`. Modifiers belong only to the concrete function use and are
+never inherited from a named-window template. Unsupported backend combinations
+such as PostgreSQL/MySQL `IGNORE NULLS`, `FROM LAST`, or MySQL GROUPS/EXCLUDE
+fail closed.
 
 Each table or query body may declare query-local named-window templates after
 `select:`:

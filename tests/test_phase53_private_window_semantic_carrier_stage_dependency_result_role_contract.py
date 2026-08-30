@@ -1325,6 +1325,10 @@ def test_current_analyzer_catalog_and_diagnostic_nonintegration_is_exact(
         assert "def analyze_row_number_window_expression(" in window_analysis
         assert "WindowExpressionSemanticFact" in window_analysis
         assert "WindowExpressionUnsupported" in window_analysis
+    elif relative == "src/pietto/semantic/analyzer.py":
+        assert "if TYPE_CHECKING:" in source
+        assert "semantic.window_semantics import WindowExpressionAnalysis" in source
+        assert "WindowExpressionUnsupported" not in source
     else:
         assert "semantic.window_semantics" not in source
         assert "WindowExpressionSemanticFact" not in source

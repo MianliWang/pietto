@@ -542,7 +542,13 @@ def _build_window_result_project_fact(
     )
     navigation_arguments: tuple[Expression, ...] = ()
     navigation_defaults: tuple[Expression, ...] = ()
-    if semantic_fact.identity.name in {"lag", "lead"}:
+    if semantic_fact.identity.name in {
+        "lag",
+        "lead",
+        "first_value",
+        "last_value",
+        "nth_value",
+    }:
         value_expression = expression.call.arguments[0]
         if type(value_expression) in {NameExpr, DottedNameExpr}:
             navigation_arguments = (value_expression,)

@@ -345,6 +345,10 @@ def _window_call(identity: str) -> str:
         return "ntile(4)"
     if identity == "lag":
         return "lag(amount, 2, amount)"
+    if identity in {"first_value", "last_value"}:
+        return f"{identity}(amount)"
+    if identity == "nth_value":
+        return "nth_value(amount, 2)"
     return "lead(amount, 0, amount)"
 
 
@@ -462,7 +466,7 @@ def test_capability_family_inventory_counts_order_and_exact_raw_facts_are_preser
             capabilities.window_facts,
             capabilities.context_facts,
         )
-    ) == (41, 39, 69, 24, 18)
+    ) == (41, 39, 69, 33, 18)
     assert len({fact.key for fact in capabilities.aggregate_facts}) == 68
     assert (
         sum(
@@ -475,7 +479,7 @@ def test_capability_family_inventory_counts_order_and_exact_raw_facts_are_preser
                 capabilities.context_facts,
             )
         )
-        == 191
+        == 200
     )
     for field_name in (
         "inventory_facts",
@@ -550,9 +554,7 @@ def test_capability_lookup_preserves_found_absent_unknown_conflict_and_duplicate
         )
 
 
-def test_window_signature_formula_inventory_preserves_all_eight_identities_exactly() -> (
-    None
-):
+def test_window_signature_formula_inventory_preserves_all_identities_exactly() -> None:
     signatures = preservation._capability_inventory().window_signatures
     assert tuple(fact.identity.name for fact in signatures) == (
         "row_number",
@@ -563,6 +565,9 @@ def test_window_signature_formula_inventory_preserves_all_eight_identities_exact
         "ntile",
         "lag",
         "lead",
+        "first_value",
+        "last_value",
+        "nth_value",
     )
     assert tuple(len(fact.result_formulas) for fact in signatures) == (
         1,
@@ -573,6 +578,9 @@ def test_window_signature_formula_inventory_preserves_all_eight_identities_exact
         1,
         3,
         3,
+        1,
+        1,
+        1,
     )
     assert all(
         formula.signature is fact.signature
@@ -3013,7 +3021,7 @@ def test_aggregate_grouped_concrete_unknown_deferred_and_blocked_states_are_atom
     }
 
 
-def test_all_eight_window_families_preserve_complete_composite_analysis(
+def test_all_window_families_preserve_complete_composite_analysis(
     tmp_path: Path,
 ) -> None:
     identities = (
@@ -3025,6 +3033,9 @@ def test_all_eight_window_families_preserve_complete_composite_analysis(
         "ntile",
         "lag",
         "lead",
+        "first_value",
+        "last_value",
+        "nth_value",
     )
     _, semantic = _semantic_project(
         tmp_path,
@@ -3101,6 +3112,8 @@ def test_named_windows_defer_project_facts_after_semantic_resolution(
                 "            order by:\n"
                 "                id\n"
                 "        alias = row_number() window alias_window\n"
+                "        frame_value = first_value(amount) ignore nulls window ordered\n"
+                "        frame_value_inherited = first_value(amount) window framed\n"
                 "        inherited_frame = row_number() window framed\n"
                 "    window root\n"
                 "    window ordered:\n"
@@ -3121,6 +3134,8 @@ def test_named_windows_defer_project_facts_after_semantic_resolution(
         "direct",
         "extended",
         "alias",
+        "frame_value",
+        "frame_value_inherited",
         "inherited_frame",
     }
 
@@ -3136,7 +3151,13 @@ def test_named_windows_defer_project_facts_after_semantic_resolution(
         WindowDependencyRole.WINDOW_ORDER,
     )
 
-    for name in ("direct", "extended", "alias"):
+    for name in (
+        "direct",
+        "extended",
+        "alias",
+        "frame_value",
+        "frame_value_inherited",
+    ):
         output = outputs[name]
         assert type(output.analysis) is WindowExpressionUnsupported
         assert output.analysis.reason == "project named-window integration deferred"

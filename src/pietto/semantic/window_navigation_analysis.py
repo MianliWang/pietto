@@ -47,10 +47,16 @@ from pietto.semantic.nullability_formulas import (
     evaluate_signature_result_nullability,
 )
 from pietto.semantic.window_semantics import (
+    FrameValueFunctionKind,
+    FrameValueWindowSemanticFact,
     NavigationDefaultFact,
     NavigationDirection,
     NavigationOffsetFact,
     NavigationWindowSemanticFact,
+    NthValuePositionFact,
+    ResolvedWindowFunctionModifiers,
+    WindowNthDirection,
+    WindowNullTreatment,
     WindowFunctionFramePolicy,
     WindowFunctionFramePolicyKind,
     WindowExpressionSemanticFact,
@@ -101,6 +107,30 @@ _ZERO_ALWAYS_NULL_RESULT_FORMULA = SignatureResultFormula(
     signature=_NAVIGATION_SIGNATURE,
     nullability=AlwaysNullableFormula(),
 )
+_FRAME_VALUE_SIGNATURE = GenericSignature(
+    type_variables=(_TYPE_VARIABLE,),
+    parameters=(SignatureParameter(position=0, type_expression=_TYPE_REFERENCE),),
+    result=_TYPE_REFERENCE,
+)
+_NTH_VALUE_SIGNATURE = GenericSignature(
+    type_variables=(_TYPE_VARIABLE,),
+    parameters=(
+        SignatureParameter(position=0, type_expression=_TYPE_REFERENCE),
+        SignatureParameter(
+            position=1,
+            type_expression=ConcreteTypeExpression(logical_type=_INT_IDENTITY),
+        ),
+    ),
+    result=_TYPE_REFERENCE,
+)
+_FRAME_VALUE_RESULT_FORMULA = SignatureResultFormula(
+    signature=_FRAME_VALUE_SIGNATURE,
+    nullability=AlwaysNullableFormula(),
+)
+_NTH_VALUE_RESULT_FORMULA = SignatureResultFormula(
+    signature=_NTH_VALUE_SIGNATURE,
+    nullability=AlwaysNullableFormula(),
+)
 
 _NAVIGATION_IDENTITIES = (
     (
@@ -120,6 +150,32 @@ _NAVIGATION_IDENTITIES = (
         NavigationDirection.LEAD,
     ),
 )
+_FRAME_VALUE_IDENTITIES = (
+    (
+        WindowFunctionIdentity(
+            namespace=(),
+            name="first_value",
+            role=WindowFunctionRole.WINDOW_FUNCTION,
+        ),
+        FrameValueFunctionKind.FIRST_VALUE,
+    ),
+    (
+        WindowFunctionIdentity(
+            namespace=(),
+            name="last_value",
+            role=WindowFunctionRole.WINDOW_FUNCTION,
+        ),
+        FrameValueFunctionKind.LAST_VALUE,
+    ),
+    (
+        WindowFunctionIdentity(
+            namespace=(),
+            name="nth_value",
+            role=WindowFunctionRole.WINDOW_FUNCTION,
+        ),
+        FrameValueFunctionKind.NTH_VALUE,
+    ),
+)
 type BoundedNavigationExpression = NameExpr | DottedNameExpr | LiteralExpr
 
 
@@ -133,9 +189,16 @@ def navigation_window_function_frame_policy(
     matches = tuple(
         WindowFunctionFramePolicy(
             identity=registered_identity,
-            kind=WindowFunctionFramePolicyKind.FRAME_INSENSITIVE_EXPLICIT_FORBIDDEN,
+            kind=(
+                WindowFunctionFramePolicyKind.FRAME_SENSITIVE
+                if type(function_kind) is FrameValueFunctionKind
+                else WindowFunctionFramePolicyKind.FRAME_INSENSITIVE_EXPLICIT_FORBIDDEN
+            ),
         )
-        for registered_identity, _direction in _NAVIGATION_IDENTITIES
+        for registered_identity, function_kind in (
+            *_NAVIGATION_IDENTITIES,
+            *_FRAME_VALUE_IDENTITIES,
+        )
         if registered_identity == identity
     )
     if len(matches) > 1:
@@ -157,6 +220,64 @@ def navigation_direction(expression: WindowExpr) -> NavigationDirection | None:
     return None
 
 
+def frame_value_function(expression: WindowExpr) -> FrameValueFunctionKind | None:
+    """Return the exact recognized lowercase frame-value identity."""
+
+    if type(expression) is not WindowExpr:
+        raise TypeError("expression must be an exact WindowExpr")
+    callee = expression.call.callee
+    if type(callee) is not NameExpr:
+        return None
+    for identity, function in _FRAME_VALUE_IDENTITIES:
+        if expression.identity == identity and callee.name == identity.name:
+            return function
+    return None
+
+
+def resolve_window_function_modifiers(
+    expression: WindowExpr,
+) -> ResolvedWindowFunctionModifiers:
+    """Resolve exact use-local modifiers or reject inapplicable authorship."""
+
+    if type(expression) is not WindowExpr:
+        raise TypeError("window modifier resolution requires an exact expression")
+    name = expression.identity.name
+    null_treatment_applies = name in {
+        "lag",
+        "lead",
+        "first_value",
+        "last_value",
+        "nth_value",
+    }
+    if expression.null_treatment is not None and not null_treatment_applies:
+        raise ValueError(f"{name} forbids NULL treatment")
+    if expression.nth_direction is not None and name != "nth_value":
+        raise ValueError(f"{name} forbids FROM direction")
+    null_treatment = (
+        None
+        if not null_treatment_applies
+        else WindowNullTreatment.RESPECT_NULLS
+        if expression.null_treatment is None
+        or expression.null_treatment.kind.value == "respect"
+        else WindowNullTreatment.IGNORE_NULLS
+    )
+    nth_direction = (
+        None
+        if name != "nth_value"
+        else WindowNthDirection.FROM_FIRST
+        if expression.nth_direction is None
+        or expression.nth_direction.kind.value == "first"
+        else WindowNthDirection.FROM_LAST
+    )
+    return ResolvedWindowFunctionModifiers(
+        identity=expression.identity,
+        authored_null_treatment=expression.null_treatment,
+        null_treatment=null_treatment,
+        authored_nth_direction=expression.nth_direction,
+        nth_direction=nth_direction,
+    )
+
+
 def analyze_navigation_arguments(
     *,
     occurrence: WindowOccurrenceIdentity,
@@ -165,6 +286,7 @@ def analyze_navigation_arguments(
     field_qualifier: str,
     value_types: dict[Expression, ValueType],
     diagnostics: list[Diagnostic],
+    modifiers: ResolvedWindowFunctionModifiers,
     bare_value_types: Mapping[str, ValueType] | None = None,
     allow_qualified_fields: bool = True,
 ) -> NavigationWindowSemanticFact | WindowExpressionUnsupported:
@@ -182,6 +304,8 @@ def analyze_navigation_arguments(
         raise TypeError("value_types must be an exact dict")
     if type(diagnostics) is not list:
         raise TypeError("diagnostics must be an exact list")
+    if type(modifiers) is not ResolvedWindowFunctionModifiers:
+        raise TypeError("navigation modifiers must be exact")
 
     direction = navigation_direction(expression)
     if direction is None:
@@ -410,10 +534,158 @@ def analyze_navigation_arguments(
         value_expression=value_expression,
         value_type=value_type,
         value_always_null=value_always_null,
+        modifiers=modifiers,
         offset_fact=offset_fact,
         default_fact=default_fact,
         signature_match=signature_result,
         nullability_match=nullability_result,
+    )
+
+
+def analyze_frame_value_arguments(
+    *,
+    occurrence: WindowOccurrenceIdentity,
+    expression: WindowExpr,
+    input_schema: RowSchema,
+    field_qualifier: str,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    modifiers: ResolvedWindowFunctionModifiers,
+    bare_value_types: Mapping[str, ValueType] | None = None,
+    allow_qualified_fields: bool = True,
+) -> FrameValueWindowSemanticFact | WindowExpressionUnsupported:
+    """Analyze bounded frame-value input, nth position, type, and nullability."""
+
+    if type(occurrence) is not WindowOccurrenceIdentity:
+        raise TypeError("occurrence must be an exact WindowOccurrenceIdentity")
+    if type(expression) is not WindowExpr:
+        raise TypeError("expression must be an exact WindowExpr")
+    if type(modifiers) is not ResolvedWindowFunctionModifiers:
+        raise TypeError("frame-value modifiers must be exact")
+    function = frame_value_function(expression)
+    if function is None:
+        raise ValueError("frame-value argument analysis requires an exact identity")
+    arguments = expression.call.arguments
+    expected_arity = 2 if function is FrameValueFunctionKind.NTH_VALUE else 1
+    if len(arguments) != expected_arity:
+        raise ValueError("frame-value arity must be validated before arguments")
+
+    value_expression = arguments[0]
+    if not _is_bounded_value_expression(
+        value_expression,
+        field_qualifier,
+        allow_qualified_fields=allow_qualified_fields,
+    ):
+        return _unsupported(
+            occurrence=occurrence,
+            expression=expression,
+            reason="frame-value input must be a direct field or scalar literal",
+            diagnostics=diagnostics,
+            message=(
+                f"Invalid arguments for function {function.value}: value must be "
+                "a direct field or Bool, Text, Int, Float, or NULL literal"
+            ),
+        )
+    value_before = len(diagnostics)
+    value_type = infer_row_expression(
+        value_expression,
+        input_schema,
+        value_types,
+        diagnostics,
+        report_unknown_name=True,
+        field_qualifier=field_qualifier if allow_qualified_fields else "",
+        bare_value_types=bare_value_types,
+    )
+    if _is_null_literal(value_expression) or not _is_concrete_value_type(value_type):
+        return _unsupported_after_inference(
+            occurrence=occurrence,
+            expression=expression,
+            reason="frame-value input type must be concrete",
+            diagnostics=diagnostics,
+            diagnostics_before=value_before,
+            message=(
+                f"Invalid arguments for function {function.value}: value type must "
+                "be concrete"
+            ),
+        )
+
+    position_fact: NthValuePositionFact | None = None
+    signature = _FRAME_VALUE_SIGNATURE
+    signature_arguments = (_logical_type_identity(value_type),)
+    result_formula = _FRAME_VALUE_RESULT_FORMULA
+    if function is FrameValueFunctionKind.NTH_VALUE:
+        position = arguments[1]
+        if (
+            type(position) is not LiteralExpr
+            or type(position.value) is not int
+            or position.value < 1
+        ):
+            return _unsupported(
+                occurrence=occurrence,
+                expression=expression,
+                reason="nth_value position must be a positive integer literal",
+                diagnostics=diagnostics,
+                message=(
+                    "Invalid arguments for function nth_value: position must be a "
+                    "positive integer literal"
+                ),
+            )
+        position_fact = NthValuePositionFact(
+            expression=position,
+            effective_value=position.value,
+        )
+        position_type = infer_row_expression(
+            position,
+            input_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=True,
+            field_qualifier=field_qualifier if allow_qualified_fields else "",
+            bare_value_types=bare_value_types,
+        )
+        if (
+            _logical_type_identity(position_type) != _INT_IDENTITY
+            or position_type.nullability is not EffectiveNullability.NON_NULL
+        ):
+            raise AssertionError("nth_value position must retain exact Int typing")
+        signature = _NTH_VALUE_SIGNATURE
+        signature_arguments = (*signature_arguments, _INT_IDENTITY)
+        result_formula = _NTH_VALUE_RESULT_FORMULA
+
+    signature_result = bind_signature(signature, signature_arguments)
+    if type(signature_result) is not SignatureMatch:
+        raise AssertionError("frame-value signature must bind")
+    nullability_result = evaluate_signature_result_nullability(
+        result_formula,
+        NullabilityEvaluationContext(
+            argument_nullabilities=(value_type.nullability,)
+            + ((EffectiveNullability.NON_NULL,) if position_fact is not None else ()),
+            omitted_positions=(),
+        ),
+    )
+    if type(nullability_result) is not NullabilityEvaluationMatch:
+        raise AssertionError("frame-value nullability formula must evaluate")
+    result_type = ValueType(
+        resolved_type=value_type.resolved_type,
+        nullability=nullability_result.value,
+    )
+    semantic_fact = WindowExpressionSemanticFact(
+        occurrence=occurrence,
+        expression=expression,
+        identity=expression.identity,
+        result=WindowResultAvailability(
+            kind=WindowResultAvailabilityKind.CONCRETE,
+            value_type=result_type,
+        ),
+    )
+    return FrameValueWindowSemanticFact(
+        semantic_fact=semantic_fact,
+        function=function,
+        value_expression=value_expression,
+        value_type=value_type,
+        position_fact=position_fact,
+        modifiers=modifiers,
+        signature_match=signature_result,
     )
 
 

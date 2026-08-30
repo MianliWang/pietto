@@ -6,6 +6,7 @@ from collections.abc import Mapping
 
 from pietto._window_identity import WindowFunctionRole
 from pietto.ast_nodes import (
+    AuthoredWindowFrameExclusion,
     AuthoredWindowFrameKind,
     BetweenExpr,
     BinaryExpr,
@@ -21,6 +22,7 @@ from pietto.ast_nodes import (
     TypeExpr,
     UnaryExpr,
     WindowExpr,
+    WindowFrameBoundKind,
     WindowUseKind,
 )
 from pietto.ir.diagnostics import missing_semantic_fact_diagnostic
@@ -47,9 +49,16 @@ from pietto.ir.model import (
     TypeRefIR,
     UnaryIR,
     WindowCallIR,
+    WindowFrameBoundIR,
+    WindowFrameBoundKindIR,
+    WindowFrameExclusionIR,
+    WindowFrameIR,
+    WindowFrameUnitIR,
     WindowFunctionIdentityIR,
     WindowFunctionRoleIR,
     WindowOrderItemIR,
+    WindowNthDirectionIR,
+    WindowNullTreatmentIR,
     WindowSpecIR,
 )
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS
@@ -68,6 +77,13 @@ from pietto.semantic import (
     ValueType,
     ValueTypeKind,
 )
+from pietto.semantic.window_semantics import (
+    FrameValueWindowSemanticFact,
+    NavigationWindowSemanticFact,
+    ValidatedFrame,
+    ValidatedFrameNotApplicable,
+    WindowExpressionAnalysis,
+)
 
 _UNKNOWN_VALUE_TYPE = ValueType(
     resolved_type=ResolvedType(name="<unknown>", kind=TypeKind.UNKNOWN),
@@ -83,6 +99,9 @@ _WINDOW_ARGUMENT_ARITIES = {
     "ntile": frozenset({1}),
     "lag": frozenset({1, 2, 3}),
     "lead": frozenset({1, 2, 3}),
+    "first_value": frozenset({1}),
+    "last_value": frozenset({1}),
+    "nth_value": frozenset({2}),
 }
 
 
@@ -246,6 +265,22 @@ def _lower_window_expr(
 ) -> WindowCallIR:
     """Lower one semantically admitted window without re-running analysis."""
 
+    analysis = semantic_model.window_expression_analyses.get(expression)
+    if type(analysis) is not WindowExpressionAnalysis:
+        raise _WindowExpressionLoweringError(
+            expression,
+            "validated window semantic facts",
+        )
+    if expression.use_kind is not WindowUseKind.INLINE:
+        raise _WindowExpressionLoweringError(
+            expression,
+            "named window lowering authority",
+        )
+    if analysis.semantic_fact.expression is not expression:
+        raise _WindowExpressionLoweringError(
+            expression,
+            "exact authored inline window analysis",
+        )
     identity = expression.identity
     callee = expression.call.callee
     arities = _WINDOW_ARGUMENT_ARITIES.get(identity.name)
@@ -264,16 +299,6 @@ def _lower_window_expr(
         raise _WindowExpressionLoweringError(
             expression,
             "supported window function arity",
-        )
-    if expression.use_kind is not WindowUseKind.INLINE:
-        raise _WindowExpressionLoweringError(
-            expression,
-            "named window lowering authority",
-        )
-    if expression.spec.frame.kind is not AuthoredWindowFrameKind.OMITTED:
-        raise _WindowExpressionLoweringError(
-            expression,
-            "validated explicit window frame lowering authority",
         )
     if not expression.spec.order_by:
         raise _WindowExpressionLoweringError(
@@ -302,6 +327,56 @@ def _lower_window_expr(
             let_expansions=let_expansions,
             let_stack=frozenset(),
         )
+
+    def lower_bound(
+        kind: WindowFrameBoundKind, offset: Expression | None
+    ) -> WindowFrameBoundIR:
+        return WindowFrameBoundIR(
+            kind=WindowFrameBoundKindIR(kind.value.replace("_", " ").upper()),
+            offset=None if offset is None else lower_operand(offset),
+        )
+
+    frame_ir: WindowFrameIR | None = None
+    validated_frame = analysis.validated_specification.frame
+    if type(validated_frame) is ValidatedFrame:
+        resolved = validated_frame.resolved
+        assert resolved.unit is not None
+        assert resolved.start is not None
+        assert resolved.end is not None
+        assert resolved.exclusion is not None
+        frame_ir = WindowFrameIR(
+            unit=WindowFrameUnitIR(resolved.unit.value.upper()),
+            start=lower_bound(resolved.start.kind, resolved.start.offset),
+            end=lower_bound(resolved.end.kind, resolved.end.offset),
+            exclusion=WindowFrameExclusionIR(
+                resolved.exclusion.value.replace("_", " ").upper()
+            ),
+            frame_is_explicit=(
+                resolved.authored.kind is not AuthoredWindowFrameKind.OMITTED
+            ),
+            end_is_explicit=(resolved.authored.kind is AuthoredWindowFrameKind.BETWEEN),
+            exclusion_is_explicit=(
+                resolved.authored.exclusion is not AuthoredWindowFrameExclusion.OMITTED
+            ),
+        )
+    elif type(validated_frame) is not ValidatedFrameNotApplicable:
+        raise AssertionError("window lowering requires exact validated frame evidence")
+
+    modifiers = None
+    if type(analysis.navigation_fact) is NavigationWindowSemanticFact:
+        modifiers = analysis.navigation_fact.modifiers
+    elif type(analysis.frame_value_fact) is FrameValueWindowSemanticFact:
+        modifiers = analysis.frame_value_fact.modifiers
+    null_treatment = (
+        None
+        if modifiers is None or modifiers.null_treatment is None
+        else WindowNullTreatmentIR(modifiers.null_treatment.value)
+    )
+    nth_direction = (
+        None
+        if modifiers is None or modifiers.nth_direction is None
+        else WindowNthDirectionIR(modifiers.nth_direction.value)
+    )
 
     return WindowCallIR(
         span=lower_span(expression.span),
@@ -333,6 +408,15 @@ def _lower_window_expr(
                 for item in expression.spec.order_by
             ),
             span=lower_span(expression.spec.span),
+            frame=frame_ir,
+        ),
+        null_treatment=null_treatment,
+        null_treatment_is_explicit=(
+            False if modifiers is None else modifiers.null_treatment_is_explicit
+        ),
+        nth_direction=nth_direction,
+        nth_direction_is_explicit=(
+            False if modifiers is None else modifiers.nth_direction_is_explicit
         ),
     )
 

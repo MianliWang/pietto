@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
+from typing import TYPE_CHECKING
 
 from pietto.ast_nodes import (
     BetweenExpr,
@@ -28,6 +29,7 @@ from pietto.ast_nodes import (
     TypeDef,
     TypeExpr,
     UnaryExpr,
+    WindowExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.callables import (
@@ -69,6 +71,9 @@ from pietto.semantic.satisfying import check_satisfying_clauses
 from pietto.semantic.sources import check_sources
 from pietto.semantic.predicate_checks import check_predicates
 from pietto.semantic.type_aliases import expand_type_aliases
+
+if TYPE_CHECKING:
+    from pietto.semantic.window_semantics import WindowExpressionAnalysis
 
 _DECIMAL_PRECISION_MAX = 38
 
@@ -195,6 +200,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
         relation_value_types,
         relation_expression_diagnostics,
         let_scopes,
+        window_expression_analyses,
     ) = _analyze_relation_schema_expressions(
         script,
         mode=mode,
@@ -281,6 +287,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
             from_resolutions=from_resolutions,
             relation_row_schemas=relation_row_schemas,
             expression_value_types=expression_value_types,
+            window_expression_analyses=window_expression_analyses,
             result_predicates=result_predicates,
             let_scopes=let_scopes,
             relationships=relationships,
@@ -486,6 +493,7 @@ def _analyze_relation_schema_expressions(
     dict[Expression, ValueType],
     list[Diagnostic],
     dict[DerivedRelation, LetScopeSemanticInfo],
+    dict[WindowExpr, WindowExpressionAnalysis],
 ]:
     """Refine relation schemas from computed projection expression types."""
 
@@ -512,7 +520,7 @@ def _analyze_relation_schema_expressions(
                 relation_row_schemas=relation_row_schemas,
             )
         )
-        temporary_value_types, _ = type_relation_expressions(
+        temporary_value_types, _, _ = type_relation_expressions(
             script,
             from_resolutions=from_resolutions,
             source_row_schemas=source_row_schemas,
@@ -545,7 +553,11 @@ def _analyze_relation_schema_expressions(
         source_row_schemas=source_row_schemas,
         relation_row_schemas=relation_row_schemas,
     )
-    relation_value_types, relation_expression_diagnostics = type_relation_expressions(
+    (
+        relation_value_types,
+        relation_expression_diagnostics,
+        window_expression_analyses,
+    ) = type_relation_expressions(
         script,
         from_resolutions=from_resolutions,
         source_row_schemas=source_row_schemas,
@@ -573,6 +585,7 @@ def _analyze_relation_schema_expressions(
         relation_value_types,
         relation_expression_diagnostics,
         let_scopes,
+        window_expression_analyses,
     )
 
 

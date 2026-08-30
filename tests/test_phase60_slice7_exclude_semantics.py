@@ -653,8 +653,9 @@ def test_lowering_filter_later_owner_and_public_boundaries_remain_exact() -> Non
         "partition_by",
         "order_by",
         "span",
+        "frame",
     )
-    assert not hasattr(ir_model, "WindowFrameIR")
+    assert hasattr(ir_model, "WindowFrameIR")
     assert not hasattr(ir_model, "ExcludedFrameIR")
     assert not hasattr(ir_model, "AggregateWindowCallIR")
     for relative in (

@@ -78,9 +78,12 @@ from pietto.semantic.window_semantics import (
     validate_resolved_window_specification,
 )
 from pietto.semantic.window_navigation_analysis import (
+    analyze_frame_value_arguments,
     analyze_navigation_arguments,
+    frame_value_function,
     navigation_window_function_frame_policy,
     navigation_direction,
+    resolve_window_function_modifiers,
 )
 from pietto.semantic.window_order_analysis import bind_window_order_fields
 from pietto.semantic.window_partition_analysis import bind_window_partition_fields
@@ -510,10 +513,14 @@ def _analyze_recognized_window_expression(
     navigation = (
         navigation_direction(expression) if family in {None, "navigation"} else None
     )
+    frame_value = (
+        frame_value_function(expression) if family in {None, "frame_value"} else None
+    )
     if (
         advance_policy is None
         and distribution_definition is None
         and navigation is None
+        and frame_value is None
     ):
         return _unsupported(
             occurrence=occurrence,
@@ -523,7 +530,19 @@ def _analyze_recognized_window_expression(
         )
 
     function_name = expression.identity.name
-    if navigation is not None:
+    try:
+        modifiers = resolve_window_function_modifiers(expression)
+    except ValueError as error:
+        return _unsupported(
+            occurrence=occurrence,
+            expression=expression,
+            reason=str(error),
+            diagnostics=diagnostics,
+            code="PIE-S2104",
+            message=f"Invalid modifiers for function {function_name}: {error}",
+        )
+
+    if navigation is not None or frame_value is not None:
         signature = None
         result_formula = None
         distribution_policy = None
@@ -571,7 +590,9 @@ def _analyze_recognized_window_expression(
                 f"3, got {actual_arity}"
             ),
         )
-    if navigation is None:
+    if frame_value is not None:
+        expected_arity = 2 if function_name == "nth_value" else 1
+    elif navigation is None:
         assert signature is not None
         expected_arity = len(signature.parameters)
     else:
@@ -796,6 +817,38 @@ def _analyze_recognized_window_expression(
             code="PIE-S2104",
             message=message,
         )
+    assert type(frame_validation) is ValidatedWindowSpecification
+
+    if frame_value is not None:
+        frame_value_result = analyze_frame_value_arguments(
+            occurrence=occurrence,
+            expression=expression,
+            input_schema=input_scope.row_schema,
+            field_qualifier=field_qualifier,
+            value_types=value_types,
+            diagnostics=diagnostics,
+            modifiers=modifiers,
+            bare_value_types=input_scope.bare_value_types,
+            allow_qualified_fields=input_scope.allows_qualified_fields,
+        )
+        if isinstance(frame_value_result, WindowExpressionUnsupported):
+            return frame_value_result
+        semantic_fact = frame_value_result.semantic_fact
+        return WindowExpressionAnalysis(
+            semantic_fact=semantic_fact,
+            ranking_fact=None,
+            distribution_fact=None,
+            partition_binding_fact=WindowPartitionBindingFact(
+                semantic_fact=semantic_fact,
+                bindings=partition_bindings,
+            ),
+            order_binding_fact=WindowOrderBindingFact(
+                semantic_fact=semantic_fact,
+                bindings=order_bindings,
+            ),
+            validated_specification=frame_validation,
+            frame_value_fact=frame_value_result,
+        )
 
     if navigation is not None:
         navigation_result = analyze_navigation_arguments(
@@ -805,6 +858,7 @@ def _analyze_recognized_window_expression(
             field_qualifier=field_qualifier,
             value_types=value_types,
             diagnostics=diagnostics,
+            modifiers=modifiers,
             bare_value_types=input_scope.bare_value_types,
             allow_qualified_fields=input_scope.allows_qualified_fields,
         )
@@ -823,6 +877,7 @@ def _analyze_recognized_window_expression(
                 semantic_fact=semantic_fact,
                 bindings=order_bindings,
             ),
+            validated_specification=frame_validation,
             navigation_fact=navigation_result,
         )
 
@@ -916,6 +971,7 @@ def _analyze_recognized_window_expression(
             semantic_fact=semantic_fact,
             bindings=order_bindings,
         ),
+        validated_specification=frame_validation,
     )
 
 

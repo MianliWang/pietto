@@ -126,7 +126,9 @@ def test_result_role_and_fact_carriers_are_exact_frozen_and_slots() -> None:
         "distribution_fact",
         "partition_binding_fact",
         "order_binding_fact",
+        "validated_specification",
         "navigation_fact",
+        "frame_value_fact",
     )
 
     row_field = _row_field("id")

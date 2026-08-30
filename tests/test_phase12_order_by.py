@@ -109,6 +109,20 @@ def test_parser_preserves_multiple_order_items_in_source_order() -> None:
             "    order by:\n"
             "        id sideways\n"
         ),
+        (
+            "    from users\n"
+            "    select:\n"
+            "        id\n"
+            "    order by:\n"
+            "        id nulls first\n"
+        ),
+        (
+            "    from users\n"
+            "    select:\n"
+            "        id\n"
+            "    order by:\n"
+            "        id nulls last\n"
+        ),
         ("    from users\n    select:\n        id\n    order by:\n        1\n"),
     ],
 )
@@ -120,7 +134,7 @@ def test_invalid_order_by_shapes_are_parser_errors(body: str) -> None:
     assert all(diagnostic.code == "PIE-P1000" for diagnostic in result.diagnostics)
 
 
-def test_grammar_contains_only_the_approved_order_keywords() -> None:
+def test_grammar_keeps_relation_order_surface_narrow() -> None:
     grammar = (REPO_ROOT / "grammar/Pietto.g4").read_text(encoding="utf-8")
 
     for token in (
@@ -130,8 +144,24 @@ def test_grammar_contains_only_the_approved_order_keywords() -> None:
         "DESC: 'desc';",
     ):
         assert grammar.count(token) == 1
-    for token in ("NULLS:", "COLLATE:", "OFFSET:", "FETCH:"):
-        assert token not in grammar
+    assert grammar.count("NULLS: 'nulls';") == 1
+
+    order_item = re.search(
+        r"^orderItem\s*\n\s*:\s*(?P<body>.*?)\n\s*;$",
+        grammar,
+        re.MULTILINE | re.DOTALL,
+    )
+    identifier = re.search(
+        r"^identifier\s*\n\s*:\s*(?P<body>.*?)\n\s*;$",
+        grammar,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert order_item is not None
+    assert identifier is not None
+    assert " ".join(order_item.group("body").split()) == (
+        "expression (ASC | DESC)? NEWLINE"
+    )
+    assert "| NULLS" in identifier.group("body")
 
 
 def test_new_order_keywords_remain_valid_in_identifier_positions() -> None:

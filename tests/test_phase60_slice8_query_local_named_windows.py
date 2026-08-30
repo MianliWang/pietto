@@ -1125,6 +1125,7 @@ def test_named_window_ir_sql_capability_and_phase59_boundaries_stay_absent() -> 
         "partition_by",
         "order_by",
         "span",
+        "frame",
     )
     assert tuple(field.name for field in fields(ir_model.RelationIR)) == (
         "symbol",

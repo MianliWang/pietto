@@ -160,8 +160,37 @@ def test_foundation_provider_counts_and_no_winner_semantics_are_exact() -> None:
     facts = tuple(fact for family in families for fact in family)
     counts = Counter(fact.key for fact in facts)
 
-    assert tuple(map(len, families)) == (41, 39, 18, 69, 24)
-    assert (len(facts), len(counts), len(set(facts))) == (191, 190, 191)
+    assert tuple(map(len, families)) == (41, 39, 18, 69, 33)
+    assert (len(facts), len(counts), len(set(facts))) == (200, 199, 200)
+    window_identities = (
+        "row_number",
+        "rank",
+        "dense_rank",
+        "percent_rank",
+        "cume_dist",
+        "ntile",
+        "lag",
+        "lead",
+        "first_value",
+        "last_value",
+        "nth_value",
+    )
+    expected_window_inventory = tuple(
+        (CapabilityDomain.WINDOW_FUNCTION, identity, operation, dialect)
+        for operation, dialect in (
+            ("signature", None),
+            ("lowering", "postgresql"),
+            ("lowering", "mysql"),
+        )
+        for identity in window_identities
+    )
+    assert (
+        tuple(
+            (fact.key.domain, fact.key.subject, fact.key.operation, fact.key.dialect)
+            for fact in families[-1]
+        )
+        == expected_window_inventory
+    )
     assert tuple(CapabilitySupport) == (
         CapabilitySupport.SUPPORTED,
         CapabilitySupport.EXPLICITLY_UNSUPPORTED,

@@ -21,9 +21,16 @@ from pietto.ir.model import (
     TypeRefIR,
     UnaryIR,
     WindowCallIR,
+    WindowFrameBoundIR,
+    WindowFrameBoundKindIR,
+    WindowFrameExclusionIR,
+    WindowFrameIR,
+    WindowFrameUnitIR,
     WindowFunctionIdentityIR,
     WindowFunctionRoleIR,
     WindowOrderItemIR,
+    WindowNthDirectionIR,
+    WindowNullTreatmentIR,
     WindowSpecIR,
 )
 from pietto.sql.mysql_render import (
@@ -85,6 +92,9 @@ _WINDOW_FUNCTION_NAMES = {
     "ntile": "NTILE",
     "lag": "LAG",
     "lead": "LEAD",
+    "first_value": "FIRST_VALUE",
+    "last_value": "LAST_VALUE",
+    "nth_value": "NTH_VALUE",
 }
 _ZERO_ARGUMENT_WINDOW_FUNCTIONS = frozenset(
     {"row_number", "rank", "dense_rank", "percent_rank", "cume_dist"}
@@ -185,6 +195,10 @@ def _render_mysql_window_call(expression: WindowCallIR) -> str:
         valid_arity = len(arguments) == 0
     elif name == "ntile":
         valid_arity = len(arguments) == 1
+    elif name in {"first_value", "last_value"}:
+        valid_arity = len(arguments) == 1
+    elif name == "nth_value":
+        valid_arity = len(arguments) == 2
     else:
         valid_arity = len(arguments) in {1, 2, 3}
     if not valid_arity:
@@ -212,6 +226,22 @@ def _render_mysql_window_call(expression: WindowCallIR) -> str:
     ):
         raise MySqlRenderError("MySQL window partition contains an invalid expression")
     _validate_mysql_window_order_items(order_by)
+    null_treatment = getattr(expression, "null_treatment", None)
+    nth_direction = getattr(expression, "nth_direction", None)
+    if name in {"lag", "lead", "first_value", "last_value", "nth_value"}:
+        if type(null_treatment) is not WindowNullTreatmentIR:
+            raise MySqlRenderError("MySQL value window requires NULL treatment")
+        if null_treatment is WindowNullTreatmentIR.IGNORE_NULLS:
+            raise MySqlRenderError("MySQL does not execute IGNORE NULLS")
+    elif null_treatment is not None:
+        raise MySqlRenderError("MySQL function forbids NULL treatment")
+    if name == "nth_value":
+        if type(nth_direction) is not WindowNthDirectionIR:
+            raise MySqlRenderError("MySQL nth_value requires a direction")
+        if nth_direction is WindowNthDirectionIR.FROM_LAST:
+            raise MySqlRenderError("MySQL does not execute FROM LAST")
+    elif nth_direction is not None:
+        raise MySqlRenderError("MySQL non-nth function forbids FROM direction")
 
     argument_sql = ", ".join(
         _render_mysql_expression(argument, nested=True) for argument in arguments
@@ -229,7 +259,68 @@ def _render_mysql_window_call(expression: WindowCallIR) -> str:
         "ORDER BY "
         + ", ".join(_render_mysql_window_order_item(item) for item in order_by)
     )
-    return f"{_WINDOW_FUNCTION_NAMES[name]}({argument_sql}) OVER ({' '.join(clauses)})"
+    frame = getattr(spec, "frame", None)
+    if frame is not None:
+        clauses.append(_render_mysql_window_frame(frame))
+    modifiers: list[str] = []
+    if name == "nth_value" and expression.nth_direction_is_explicit:
+        modifiers.append("FROM FIRST")
+    if null_treatment is not None and expression.null_treatment_is_explicit:
+        modifiers.append("RESPECT NULLS")
+    suffix = "" if not modifiers else " " + " ".join(modifiers)
+    return (
+        f"{_WINDOW_FUNCTION_NAMES[name]}({argument_sql}){suffix} "
+        f"OVER ({' '.join(clauses)})"
+    )
+
+
+def _render_mysql_window_frame(frame: WindowFrameIR) -> str:
+    if type(frame) is not WindowFrameIR:
+        raise MySqlRenderError("MySQL window frame must be exact")
+    if type(frame.unit) is not WindowFrameUnitIR:
+        raise MySqlRenderError("MySQL window frame unit must be exact")
+    if frame.unit is WindowFrameUnitIR.GROUPS:
+        raise MySqlRenderError("MySQL does not support GROUPS frames")
+    offset_bounds = tuple(
+        bound
+        for bound in (frame.start, frame.end)
+        if bound.kind
+        in {
+            WindowFrameBoundKindIR.OFFSET_PRECEDING,
+            WindowFrameBoundKindIR.OFFSET_FOLLOWING,
+        }
+    )
+    if frame.unit is WindowFrameUnitIR.RANGE and offset_bounds:
+        raise MySqlRenderError("MySQL RANGE offsets require Phase 64 evidence")
+    if any(
+        type(bound.offset) is not LiteralIR
+        or type(bound.offset.value) is not int
+        or bound.offset.value < 0
+        for bound in offset_bounds
+    ):
+        raise MySqlRenderError("MySQL frame offsets require nonnegative Int literals")
+    if (
+        frame.exclusion is not WindowFrameExclusionIR.NO_OTHERS
+        or frame.exclusion_is_explicit
+    ):
+        raise MySqlRenderError("MySQL does not support authored EXCLUDE frames")
+    start = _render_mysql_window_frame_bound(frame.start)
+    end = _render_mysql_window_frame_bound(frame.end)
+    if frame.frame_is_explicit and not frame.end_is_explicit:
+        return f"{frame.unit.value} {start}"
+    return f"{frame.unit.value} BETWEEN {start} AND {end}"
+
+
+def _render_mysql_window_frame_bound(bound: WindowFrameBoundIR) -> str:
+    if type(bound) is not WindowFrameBoundIR:
+        raise MySqlRenderError("MySQL window frame bound must be exact")
+    if bound.kind is WindowFrameBoundKindIR.OFFSET_PRECEDING:
+        assert bound.offset is not None
+        return f"{_render_mysql_expression(bound.offset, nested=True)} PRECEDING"
+    if bound.kind is WindowFrameBoundKindIR.OFFSET_FOLLOWING:
+        assert bound.offset is not None
+        return f"{_render_mysql_expression(bound.offset, nested=True)} FOLLOWING"
+    return bound.kind.value
 
 
 def _validate_mysql_window_order_items(

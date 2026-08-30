@@ -68,11 +68,11 @@ MODULE_RELS = (
 )
 EVIDENCE_SOURCE_COUNTS = {
     CapabilityEvidenceSource.GRAMMAR_AST: 267,
-    CapabilityEvidenceSource.SEMANTIC_CATALOG: 87,
-    CapabilityEvidenceSource.SEMANTIC_PROCEDURE: 397,
+    CapabilityEvidenceSource.SEMANTIC_CATALOG: 90,
+    CapabilityEvidenceSource.SEMANTIC_PROCEDURE: 400,
     CapabilityEvidenceSource.SEMANTIC_MODEL: 130,
-    CapabilityEvidenceSource.IR: 247,
-    CapabilityEvidenceSource.BACKEND: 236,
+    CapabilityEvidenceSource.IR: 250,
+    CapabilityEvidenceSource.BACKEND: 242,
     CapabilityEvidenceSource.PROJECT: 129,
     CapabilityEvidenceSource.PUBLIC: 18,
     CapabilityEvidenceSource.ROADMAP: 90,
@@ -153,7 +153,7 @@ def _dual_backend_facts(
         (CapabilityDomain.EXPRESSION_STAGE, 7, "slice6"),
         (CapabilityDomain.CLAUSE, 11, "slice6"),
         (CapabilityDomain.AGGREGATE, 69, "slice7"),
-        (CapabilityDomain.WINDOW_FUNCTION, 24, "phase53_slice15"),
+        (CapabilityDomain.WINDOW_FUNCTION, 33, "phase60_slice9"),
         (CapabilityDomain.CONVERSION, 0, "post60_reserved"),
         (CapabilityDomain.EXTENSION_SIGNATURE, 0, "phase57_reserved"),
     ),
@@ -177,7 +177,7 @@ def test_capability_domain_population_and_reservation_matrix_is_exact(
         CapabilityDomain.EXPRESSION_STAGE: "slice6",
         CapabilityDomain.CLAUSE: "slice6",
         CapabilityDomain.AGGREGATE: "slice7",
-        CapabilityDomain.WINDOW_FUNCTION: "phase53_slice15",
+        CapabilityDomain.WINDOW_FUNCTION: "phase60_slice9",
         CapabilityDomain.CONVERSION: "post60_reserved",
         CapabilityDomain.EXTENSION_SIGNATURE: "phase57_reserved",
     }
@@ -197,11 +197,11 @@ def test_slice4_7_fact_key_totals_duplicates_and_collisions_are_exact() -> None:
         (39, 39),
         (18, 18),
         (69, 68),
-        (24, 24),
+        (33, 33),
     )
     facts = _all_facts()
-    assert (len(facts), len({fact.key for fact in facts})) == (191, 190)
-    assert len(set(facts)) == 191
+    assert (len(facts), len({fact.key for fact in facts})) == (200, 199)
+    assert len(set(facts)) == 200
     repeated = tuple(
         key for key, count in Counter(fact.key for fact in facts).items() if count > 1
     )
@@ -636,7 +636,7 @@ def test_conflict_evidence_order_and_count_shape_real_conflict_are_exact(
 
 def test_canonical_evidence_source_order_paths_references_and_scope_are_exact() -> None:
     evidence = tuple(item for fact in _all_facts() for item in fact.evidence)
-    assert len(evidence) == 2373
+    assert len(evidence) == 2388
     assert Counter(item.source for item in evidence) == EVIDENCE_SOURCE_COUNTS
     source_order = {
         source: index for index, source in enumerate(CapabilityEvidenceSource)
@@ -751,16 +751,16 @@ def test_postgresql_private_mysql_support_lowering_matrix_is_exact(
 def test_support_disposition_owner_reason_and_affirmative_evidence_are_exact() -> None:
     facts = _all_facts()
     assert Counter(fact.support for fact in facts) == {
-        CapabilitySupport.SUPPORTED: 162,
+        CapabilitySupport.SUPPORTED: 171,
         CapabilitySupport.EXPLICITLY_UNSUPPORTED: 29,
     }
     assert Counter(fact.disposition.kind for fact in facts) == {
-        CapabilityDispositionKind.NONE: 176,
+        CapabilityDispositionKind.NONE: 185,
         CapabilityDispositionKind.DEFERRED: 14,
         CapabilityDispositionKind.OUT_OF_SCOPE: 1,
     }
     assert Counter(fact.disposition.owner for fact in facts) == {
-        None: 176,
+        None: 185,
         "POST60_ADVANCED_TYPE_NATIVE_MAPPING": 7,
         "POST60_ADVANCED_AGGREGATION_GROUPING": 7,
         "Pietto charter": 1,

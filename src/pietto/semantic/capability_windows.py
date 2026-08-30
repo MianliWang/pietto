@@ -27,6 +27,9 @@ _WINDOW_IDENTITIES = (
     "ntile",
     "lag",
     "lead",
+    "first_value",
+    "last_value",
+    "nth_value",
 )
 
 _SIGNATURE_OPERANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -126,12 +129,49 @@ _SIGNATURE_OPERANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "mandatory_local_order",
         ),
     ),
+    (
+        "first_value",
+        (
+            "1",
+            "bounded_value",
+            "T",
+            "nullable",
+            "WINDOW",
+            "window_result",
+            "mandatory_resolved_order",
+        ),
+    ),
+    (
+        "last_value",
+        (
+            "1",
+            "bounded_value",
+            "T",
+            "nullable",
+            "WINDOW",
+            "window_result",
+            "mandatory_resolved_order",
+        ),
+    ),
+    (
+        "nth_value",
+        (
+            "2",
+            "bounded_value_positive_int_literal",
+            "T",
+            "nullable",
+            "WINDOW",
+            "window_result",
+            "mandatory_resolved_order",
+        ),
+    ),
 )
 
 _LOWERING_OPERANDS = ("WindowCallIR", "OVER", "partition_by", "order_by")
+_NAVIGATION_LOWERING_OPERANDS = (*_LOWERING_OPERANDS, "respect_nulls")
 _SIGNATURE_RESULT_TYPES = frozenset({"Int", "Float", "T"})
 _SIGNATURE_NULLABILITIES = frozenset(
-    {"non_null", "any_nullable_0_2_or_default_omitted_2"}
+    {"non_null", "nullable", "any_nullable_0_2_or_default_omitted_2"}
 )
 
 
@@ -173,11 +213,19 @@ def _freeze_windows(facts: Iterable[CapabilityFact]) -> tuple[CapabilityFact, ..
 
 
 def _signature_evidence(subject: str) -> tuple[CapabilityEvidence, ...]:
-    if subject in {"lag", "lead"}:
+    if subject in {"lag", "lead", "first_value", "last_value", "nth_value"}:
         catalog_path = "src/pietto/semantic/window_navigation_analysis.py"
-        catalog_reference = "_NAVIGATION_IDENTITIES"
+        catalog_reference = (
+            "_NAVIGATION_IDENTITIES"
+            if subject in {"lag", "lead"}
+            else "_FRAME_VALUE_IDENTITIES"
+        )
         procedure_path = catalog_path
-        procedure_reference = "analyze_navigation_arguments"
+        procedure_reference = (
+            "analyze_navigation_arguments"
+            if subject in {"lag", "lead"}
+            else "analyze_frame_value_arguments"
+        )
     else:
         catalog_path = "src/pietto/semantic/window_analysis.py"
         catalog_reference = (
@@ -221,6 +269,20 @@ def _signature_fact(subject: str, operands: tuple[str, ...]) -> CapabilityFact:
     )
 
 
+def _lowering_operands(subject: str, dialect: str) -> tuple[str, ...]:
+    if subject in {"lag", "lead"}:
+        return _NAVIGATION_LOWERING_OPERANDS
+    if subject in {"first_value", "last_value", "nth_value"}:
+        frame_shape = (
+            "rows_groups_offset_free_range_all_exclude"
+            if dialect == "postgresql"
+            else "rows_offset_free_range_omitted_exclude"
+        )
+        from_policy = "from_first" if subject == "nth_value" else "from_forbidden"
+        return (*_LOWERING_OPERANDS, frame_shape, "respect_nulls", from_policy)
+    return _LOWERING_OPERANDS
+
+
 def _lowering_fact(
     subject: str,
     *,
@@ -234,7 +296,7 @@ def _lowering_fact(
             CapabilityDomain.WINDOW_FUNCTION,
             subject=subject,
             operation="lowering",
-            operands=_LOWERING_OPERANDS,
+            operands=_lowering_operands(subject, dialect),
             context="window_lowering",
             dialect=dialect,
         ),
@@ -309,7 +371,8 @@ def _signature_schema_is_complete(key: CapabilityKey) -> bool:
         or result_nullability not in _SIGNATURE_NULLABILITIES
         or stage != "WINDOW"
         or result_role != "window_result"
-        or local_order_policy != "mandatory_local_order"
+        or local_order_policy
+        not in {"mandatory_local_order", "mandatory_resolved_order"}
     ):
         return False
     return any(
@@ -325,7 +388,7 @@ def _lowering_schema_is_complete(key: CapabilityKey) -> bool:
         and key.extension is None
         and key.subject in _WINDOW_IDENTITIES
         and key.dialect in {"postgresql", "mysql"}
-        and key.operands == _LOWERING_OPERANDS
+        and key.operands == _lowering_operands(key.subject, key.dialect)
     )
 
 

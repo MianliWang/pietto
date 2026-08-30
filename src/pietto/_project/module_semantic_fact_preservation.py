@@ -142,8 +142,13 @@ from pietto.semantic.window_analysis import (
 from pietto.semantic.window_input_analysis import build_window_input_scope
 from pietto.semantic.window_navigation_analysis import (
     _BOUNDARY_RESULT_FORMULA,
+    _FRAME_VALUE_IDENTITIES,
+    _FRAME_VALUE_RESULT_FORMULA,
+    _FRAME_VALUE_SIGNATURE,
     _NAVIGATION_IDENTITIES,
     _NAVIGATION_SIGNATURE,
+    _NTH_VALUE_RESULT_FORMULA,
+    _NTH_VALUE_SIGNATURE,
     _ZERO_ALWAYS_NULL_RESULT_FORMULA,
     _ZERO_RESULT_FORMULA,
 )
@@ -340,7 +345,23 @@ def _build_canonical_window_signature_facts() -> tuple[
         )
         for identity, _direction in _NAVIGATION_IDENTITIES
     )
-    return (*ranking, *distribution, *navigation)
+    frame_value = tuple(
+        ProjectModuleWindowSignatureFact(
+            identity=identity,
+            signature=(
+                _NTH_VALUE_SIGNATURE
+                if identity.name == "nth_value"
+                else _FRAME_VALUE_SIGNATURE
+            ),
+            result_formulas=(
+                _NTH_VALUE_RESULT_FORMULA
+                if identity.name == "nth_value"
+                else _FRAME_VALUE_RESULT_FORMULA,
+            ),
+        )
+        for identity, _function in _FRAME_VALUE_IDENTITIES
+    )
+    return (*ranking, *distribution, *navigation, *frame_value)
 
 
 _CANONICAL_WINDOW_SIGNATURE_FACTS = _build_canonical_window_signature_facts()
@@ -419,9 +440,12 @@ class ProjectModuleCapabilityFactInventory:
             "ntile",
             "lag",
             "lead",
+            "first_value",
+            "last_value",
+            "nth_value",
         ):
             raise ValueError(
-                "Window signature inventory must retain all eight identities."
+                "Window signature inventory must retain all eleven identities."
             )
         if self.result_roles != tuple(ProjectRowResultRole):
             raise ValueError("Result-role inventory must retain exact enum order.")
@@ -734,6 +758,11 @@ def _validate_supported_window_analysis_family(
         for identity, direction in _NAVIGATION_IDENTITIES
         if identity == expression.identity
     )
+    frame_value_matches = tuple(
+        function
+        for identity, function in _FRAME_VALUE_IDENTITIES
+        if identity == expression.identity
+    )
     if (
         sum(
             bool(matches)
@@ -741,6 +770,7 @@ def _validate_supported_window_analysis_family(
                 ranking_matches,
                 distribution_matches,
                 navigation_matches,
+                frame_value_matches,
             )
         )
         != 1
@@ -755,6 +785,7 @@ def _validate_supported_window_analysis_family(
             or analysis.ranking_fact.advance_policy is not ranking_matches[0]
             or analysis.distribution_fact is not None
             or analysis.navigation_fact is not None
+            or analysis.frame_value_fact is not None
         ):
             raise ValueError(
                 "Ranking analysis must retain its exact existing family payload."
@@ -775,21 +806,34 @@ def _validate_supported_window_analysis_family(
             analysis.distribution_fact.distribution_policy is not expected_policy
             or analysis.distribution_fact.bucket_count != expected_bucket_count
             or analysis.navigation_fact is not None
+            or analysis.frame_value_fact is not None
         ):
             raise ValueError(
                 "Distribution analysis must retain its exact existing family payload."
             )
         return
+    if navigation_matches:
+        if (
+            len(navigation_matches) != 1
+            or analysis.navigation_fact is None
+            or analysis.navigation_fact.direction is not navigation_matches[0]
+            or analysis.ranking_fact is not None
+            or analysis.distribution_fact is not None
+            or analysis.frame_value_fact is not None
+        ):
+            raise ValueError(
+                "Navigation analysis must retain its exact existing family payload."
+            )
+        return
     if (
-        len(navigation_matches) != 1
-        or analysis.navigation_fact is None
-        or analysis.navigation_fact.direction is not navigation_matches[0]
+        len(frame_value_matches) != 1
+        or analysis.frame_value_fact is None
+        or analysis.frame_value_fact.function is not frame_value_matches[0]
         or analysis.ranking_fact is not None
         or analysis.distribution_fact is not None
+        or analysis.navigation_fact is not None
     ):
-        raise ValueError(
-            "Navigation analysis must retain its exact existing family payload."
-        )
+        raise ValueError("Frame-value analysis must retain its exact family payload.")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -1654,15 +1698,22 @@ def _window_dependency_source_ledger(
     expression: WindowExpr,
 ) -> tuple[tuple[WindowDependencyRole, Expression], ...]:
     arguments = expression.call.arguments
-    navigation = expression.identity.name in {"lag", "lead"}
+    value_dependent = expression.identity.name in {
+        "lag",
+        "lead",
+        "first_value",
+        "last_value",
+        "nth_value",
+    }
+    offset_navigation = expression.identity.name in {"lag", "lead"}
     argument_sources = (
         (arguments[0],)
-        if navigation and type(arguments[0]) in {NameExpr, DottedNameExpr}
+        if value_dependent and type(arguments[0]) in {NameExpr, DottedNameExpr}
         else ()
     )
     default_sources = (
         (arguments[2],)
-        if navigation
+        if offset_navigation
         and len(arguments) == 3
         and type(arguments[2]) in {NameExpr, DottedNameExpr}
         else ()

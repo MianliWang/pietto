@@ -16,6 +16,8 @@ from pietto.ast_nodes import (
     AuthoredWindowFrame,
     AuthoredWindowFrameExclusion,
     AuthoredWindowFrameKind,
+    AuthoredWindowNthDirection,
+    AuthoredWindowNullTreatment,
     BetweenExpr,
     BinaryExpr,
     CallExpr,
@@ -71,6 +73,8 @@ from pietto.ast_nodes import (
     WindowFrameBound,
     WindowFrameBoundKind,
     WindowFrameUnit,
+    WindowNthDirectionKind,
+    WindowNullTreatmentKind,
     WindowSpec,
     WindowUseKind,
 )
@@ -584,6 +588,30 @@ class AstBuilder(PiettoVisitor):
             use_kind = WindowUseKind.NAMED_DIRECT
         else:
             use_kind = WindowUseKind.NAMED_EXTENDED
+        nth_direction = (
+            None
+            if ctx.nthValueDirection() is None
+            else AuthoredWindowNthDirection(
+                span=self._span(ctx.nthValueDirection()),
+                kind=(
+                    WindowNthDirectionKind.FIRST
+                    if ctx.nthValueDirection().FIRST() is not None
+                    else WindowNthDirectionKind.LAST
+                ),
+            )
+        )
+        null_treatment = (
+            None
+            if ctx.nullTreatment() is None
+            else AuthoredWindowNullTreatment(
+                span=self._span(ctx.nullTreatment()),
+                kind=(
+                    WindowNullTreatmentKind.RESPECT
+                    if ctx.nullTreatment().RESPECT() is not None
+                    else WindowNullTreatmentKind.IGNORE
+                ),
+            )
+        )
         return WindowExpr(
             span=self._span(ctx),
             call=call,
@@ -595,6 +623,8 @@ class AstBuilder(PiettoVisitor):
             ),
             use_kind=use_kind,
             base=base,
+            nth_direction=nth_direction,
+            null_treatment=null_treatment,
         )
 
     def visitWindowSpec(self, ctx: _AntlrContext) -> WindowSpec:

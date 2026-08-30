@@ -546,7 +546,9 @@ def test_combined_grammar_rules_and_token_order_are_exact() -> None:
     normalized = " ".join(grammar.split())
     for rule in (
         "selectItem : identifier ASSIGN windowExpression | identifier ASSIGN expression NEWLINE | expression NEWLINE ;",
-        "windowExpression : dottedName callSuffix windowSpec ;",
+        "windowExpression : dottedName callSuffix nthValueDirection? nullTreatment? windowSpec ;",
+        "nthValueDirection : FROM (FIRST | LAST) ;",
+        "nullTreatment : (RESPECT | IGNORE) NULLS ;",
         "windowSpec : WINDOW COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT | WINDOW identifier NEWLINE | WINDOW identifier COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT ;",
         "namedWindowDeclaration : WINDOW identifier (ASSIGN identifier)? NEWLINE | WINDOW identifier (ASSIGN identifier)? COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT ;",
         "windowSpecBody : NEWLINE* partitionByClause NEWLINE* orderByClause? NEWLINE* windowFrameClause? NEWLINE* | NEWLINE* orderByClause NEWLINE* windowFrameClause? NEWLINE* | NEWLINE* windowFrameClause NEWLINE* ;",
@@ -558,6 +560,8 @@ def test_combined_grammar_rules_and_token_order_are_exact() -> None:
     ):
         assert rule in normalized, rule
     assert normalized.count("windowExpression :") == 1
+    assert normalized.count("nthValueDirection :") == 1
+    assert normalized.count("nullTreatment :") == 1
     assert normalized.count("windowSpec :") == 1
     assert normalized.count("namedWindowDeclaration :") == 1
     assert normalized.count("partitionByClause :") == 1

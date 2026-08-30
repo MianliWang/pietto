@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from pietto.ast_nodes import (
     BetweenExpr,
@@ -51,6 +52,9 @@ from pietto.semantic.model import (
     ValueType,
     ValueTypeKind,
 )
+
+if TYPE_CHECKING:
+    from pietto.semantic.window_semantics import WindowExpressionAnalysis
 
 RelationDefinition = SourceDef | TableDef | QueryDef
 DerivedRelation = TableDef | QueryDef
@@ -225,11 +229,16 @@ def type_relation_expressions(
     | None = None,
     relation_let_expressions: Mapping[DerivedRelation, Mapping[str, Expression]]
     | None = None,
-) -> tuple[dict[Expression, ValueType], list[Diagnostic]]:
+) -> tuple[
+    dict[Expression, ValueType],
+    list[Diagnostic],
+    dict[WindowExpr, WindowExpressionAnalysis],
+]:
     """Type supported table/query expressions without validating consumers."""
 
     value_types: dict[Expression, ValueType] = {}
     diagnostics: list[Diagnostic] = []
+    window_analyses: dict[WindowExpr, WindowExpressionAnalysis] = {}
     relation_let_value_types = relation_let_value_types or {}
     relation_let_expressions = (
         relation_let_expressions
@@ -319,6 +328,7 @@ def type_relation_expressions(
                 )
 
                 if type(analysis) is WindowExpressionAnalysis:
+                    window_analyses[item.expression] = analysis
                     result = analysis.semantic_fact.result
                     if (
                         result.kind is WindowResultAvailabilityKind.CONCRETE
@@ -388,7 +398,7 @@ def type_relation_expressions(
                     bare_value_expressions=let_expressions,
                 )
 
-    return value_types, diagnostics
+    return value_types, diagnostics, window_analyses
 
 
 def infer_row_expression(

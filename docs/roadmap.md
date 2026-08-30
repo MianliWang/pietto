@@ -676,12 +676,12 @@ validation.
 
 Successful natural exact-head CI on the single Slice 6 completion commit
 completed the Interlude and handed off authority. Phase 60 is `ACTIVE`, Slice 1
-through Slice 7 are completed, Slice 8 is current, and Slice 9 is next /
+through Slice 8 are completed, Slice 9 is current, and Slice 10 is next /
 unstarted.
 
 ## Phase 60 route
 
-Phase 60 is active, Slices 1-7 are completed, Slice 8 is current, and Slice 9
+Phase 60 is active, Slices 1-8 are completed, Slice 9 is current, and Slice 10
 is next / unstarted. The published route has exactly 13 slices.
 
 The exact owner is **Advanced Windows And Phase 51–60 Readiness Checkpoint**.
@@ -785,7 +785,20 @@ Public syntax now recognizes ROWS, RANGE, GROUPS, EXCLUDE, and query-local
 named-window declarations and uses. Previously legal SQL remains deterministic;
 named-window source fails closed before IR until its Slice 10 capability owner.
 Live Git and natural exact-head CI own Slice 8 completion without a status-only
-follow-up commit. Slice 9 remains unimplemented and unauthorized by Slice 8.
+follow-up commit.
+
+Slice 9 adds exact use-local NULL treatment and `nth_value` direction
+authorship, frame-sensitive `first_value`/`last_value`/`nth_value` semantics,
+post-EXCLUDE candidate selection, lag/lead IGNORE NULLS navigation, persisted
+validated window analysis, target-neutral concrete frame IR, and the first
+narrow inline advanced-window SQL activation. PostgreSQL and MySQL fixed
+RESPECT/FROM FIRST behavior is used only for exact supported combinations;
+unsupported target shapes fail closed. Named-window SQL and named Project/
+lineage integration remain deferred. The controlling contract is
+[Phase 60 Slice 9 value/navigation modifiers](spec/phase60-slice9-value-navigation-modifiers-v1.md).
+
+Live Git and natural exact-head CI own Slice 9 completion without a status-only
+follow-up commit. Slice 10 remains unimplemented and unauthorized by Slice 9.
 
 ## Retained later ownership
 

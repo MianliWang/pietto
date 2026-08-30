@@ -104,7 +104,7 @@ def test_fact_counts_order_found_and_conflict_results_are_unchanged() -> None:
     facts = _all_facts()
     counts = Counter(fact.key for fact in facts)
 
-    assert (len(facts), len(counts), len(set(facts))) == (191, 190, 191)
+    assert (len(facts), len(counts), len(set(facts))) == (200, 199, 200)
     for key in counts:
         expected = tuple(fact for fact in facts if fact.key == key)
         result = _lookup(key)

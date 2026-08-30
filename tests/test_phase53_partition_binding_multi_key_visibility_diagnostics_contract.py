@@ -626,7 +626,9 @@ def test_window_expression_analysis_shape_field_order_and_privacy_are_exact(
             "distribution_fact",
             "partition_binding_fact",
             "order_binding_fact",
+            "validated_specification",
             "navigation_fact",
+            "frame_value_fact",
         ),
         all(field.kw_only for field in fields),
         getattr(WindowExpressionAnalysis, "__dataclass_params__").frozen,
@@ -721,6 +723,7 @@ def test_window_expression_analysis_family_invariant_matrix_fails_closed(
             "order_binding_fact": cume.order_binding_fact,
         }
         error = ValueError
+    kwargs.setdefault("validated_specification", rank.validated_specification)
     with pytest.raises(error):
         WindowExpressionAnalysis(**cast(Any, kwargs))
 
@@ -1475,7 +1478,11 @@ def test_partition_semantic_analysis_and_project_facts_are_transient(case: int) 
         "window_dependencies",
         "window_provenance",
     )
-    assert forbidden[case] not in semantic_fields | project_fields
+    if forbidden[case] == "window_expression_analyses":
+        assert forbidden[case] in semantic_fields
+        assert forbidden[case] not in project_fields
+    else:
+        assert forbidden[case] not in semantic_fields | project_fields
 
 
 @pytest.mark.parametrize("case", range(12))

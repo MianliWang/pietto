@@ -461,17 +461,21 @@ def test_later_function_ownership_remains_unreachable() -> None:
     } | {definition[0].name for definition in window_analysis._DISTRIBUTION_FUNCTIONS}
     current |= {
         identity.name
-        for identity, _direction in navigation_analysis._NAVIGATION_IDENTITIES
+        for identity, _direction in (
+            *navigation_analysis._NAVIGATION_IDENTITIES,
+            *navigation_analysis._FRAME_VALUE_IDENTITIES,
+        )
     }
-    assert {"first_value", "last_value", "nth_value"}.isdisjoint(current)
+    assert {"first_value", "last_value", "nth_value"}.issubset(current)
     assert not hasattr(ir_model, "RangeFrameIR")
 
 
-def test_no_range_ir_or_production_sql_renderer_is_added() -> None:
+def test_slice9_uses_shared_frame_ir_without_range_specific_ir() -> None:
     assert tuple(field.name for field in fields(ir_model.WindowSpecIR)) == (
         "partition_by",
         "order_by",
         "span",
+        "frame",
     )
     for relative in (
         "src/pietto/sql/expressions.py",

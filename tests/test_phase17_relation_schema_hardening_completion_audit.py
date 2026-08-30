@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 from typing import cast
 
@@ -321,16 +322,58 @@ def test_slice3_refinement_loop_contract_stays_bounded_and_final_only() -> None:
     analyzer = (REPO_ROOT / "src/pietto/semantic/analyzer.py").read_text(
         encoding="utf-8",
     )
-    loop_start = analyzer.index("for _ in range(iteration_limit):")
-    loop_end = analyzer.index(
-        "relation_value_types, relation_expression_diagnostics",
+    tree = ast.parse(analyzer)
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_analyze_relation_schema_expressions"
     )
-    loop_body = analyzer[loop_start:loop_end]
+    loop = next(
+        node
+        for node in function.body
+        if isinstance(node, ast.For)
+        and ast.unparse(node.iter) == "range(iteration_limit)"
+    )
+    loop_body = ast.get_source_segment(analyzer, loop)
+    assert loop_body is not None
+    temporary_assignment = next(
+        node
+        for node in ast.walk(loop)
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "type_relation_expressions"
+    )
+    assert len(temporary_assignment.targets) == 1
+    assert ast.unparse(temporary_assignment.targets[0]) == (
+        "(temporary_value_types, _, _)"
+    )
+    final_assignment = next(
+        node
+        for node in function.body
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "type_relation_expressions"
+    )
+    assert len(final_assignment.targets) == 1
+    assert ast.unparse(final_assignment.targets[0]) == (
+        "(relation_value_types, relation_expression_diagnostics, "
+        "window_expression_analyses)"
+    )
+    return_statement = next(
+        node for node in function.body if isinstance(node, ast.Return)
+    )
+    assert return_statement.value is not None
+    assert ast.unparse(return_statement.value) == (
+        "(relation_row_schemas, schema_diagnostics, relation_value_types, "
+        "relation_expression_diagnostics, let_scopes, window_expression_analyses)"
+    )
     fingerprint_start = analyzer.index("def _relation_schema_fingerprint")
     fingerprint_body = analyzer[fingerprint_start:]
 
     assert "iteration_limit = derived_relation_count + 1" in analyzer
-    assert "temporary_value_types, _ = type_relation_expressions" in loop_body
     assert "refined_schemas, _ = propagate_relation_schemas" in loop_body
     assert "diagnostics.extend" not in loop_body
     assert "_relation_schema_fingerprint(refined_schemas)" in loop_body

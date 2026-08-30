@@ -417,7 +417,8 @@ def test_builtin_policies_derive_from_exact_live_identity_metadata() -> None:
         *(
             identity
             for identity, _direction in (
-                window_navigation_analysis._NAVIGATION_IDENTITIES
+                *window_navigation_analysis._NAVIGATION_IDENTITIES,
+                *window_navigation_analysis._FRAME_VALUE_IDENTITIES,
             )
         ),
     )
@@ -434,6 +435,9 @@ def test_builtin_policies_derive_from_exact_live_identity_metadata() -> None:
         "ntile",
         "lag",
         "lead",
+        "first_value",
+        "last_value",
+        "nth_value",
     )
     assert all(type(policy) is WindowFunctionFramePolicy for policy in policies)
     assert all(
@@ -443,7 +447,12 @@ def test_builtin_policies_derive_from_exact_live_identity_metadata() -> None:
     assert all(
         cast(WindowFunctionFramePolicy, policy).kind
         is WindowFunctionFramePolicyKind.FRAME_INSENSITIVE_EXPLICIT_FORBIDDEN
-        for policy in policies
+        for policy in policies[:8]
+    )
+    assert all(
+        cast(WindowFunctionFramePolicy, policy).kind
+        is WindowFunctionFramePolicyKind.FRAME_SENSITIVE
+        for policy in policies[8:]
     )
 
 

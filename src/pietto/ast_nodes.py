@@ -229,6 +229,42 @@ class WindowUseKind(StrEnum):
     NAMED_EXTENDED = "named_extended"
 
 
+class WindowNullTreatmentKind(StrEnum):
+    """Closed explicit NULL-treatment spellings on one function use."""
+
+    RESPECT = "respect"
+    IGNORE = "ignore"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AuthoredWindowNullTreatment(Node):
+    """One explicit source-located NULL-treatment modifier."""
+
+    kind: WindowNullTreatmentKind
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not WindowNullTreatmentKind:
+            raise TypeError("window NULL treatment kind must be exact")
+
+
+class WindowNthDirectionKind(StrEnum):
+    """Closed explicit nth-value traversal-direction spellings."""
+
+    FIRST = "first"
+    LAST = "last"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AuthoredWindowNthDirection(Node):
+    """One explicit source-located nth-value traversal modifier."""
+
+    kind: WindowNthDirectionKind
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not WindowNthDirectionKind:
+            raise TypeError("window nth direction kind must be exact")
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class NamedWindowReference(Node):
     """One exact source occurrence of a query-local named-window lookup."""
@@ -607,6 +643,8 @@ class WindowExpr(Expression):
     identity: _window_identity.WindowFunctionIdentity
     use_kind: WindowUseKind = WindowUseKind.INLINE
     base: NamedWindowReference | None = None
+    nth_direction: AuthoredWindowNthDirection | None = None
+    null_treatment: AuthoredWindowNullTreatment | None = None
 
     def __post_init__(self) -> None:
         """Enforce the indivisible parsed window-expression shape."""
@@ -621,6 +659,16 @@ class WindowExpr(Expression):
             raise TypeError("window use kind must be an exact WindowUseKind")
         if self.base is not None and type(self.base) is not NamedWindowReference:
             raise TypeError("window use base must be exact or absent")
+        if (
+            self.nth_direction is not None
+            and type(self.nth_direction) is not AuthoredWindowNthDirection
+        ):
+            raise TypeError("window nth direction must be exact or absent")
+        if (
+            self.null_treatment is not None
+            and type(self.null_treatment) is not AuthoredWindowNullTreatment
+        ):
+            raise TypeError("window NULL treatment must be exact or absent")
         if self.use_kind is WindowUseKind.INLINE:
             if self.base is not None or not self.spec.has_components:
                 raise ValueError("inline window uses require only local components")

@@ -334,6 +334,16 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#nthValueDirection.
+    def visitNthValueDirection(self, ctx:PiettoParser.NthValueDirectionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#nullTreatment.
+    def visitNullTreatment(self, ctx:PiettoParser.NullTreatmentContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#windowSpec.
     def visitWindowSpec(self, ctx:PiettoParser.WindowSpecContext):
         return self.visitChildren(ctx)

@@ -790,7 +790,11 @@ def _exercise_contract_case(group: int, case: int) -> None:
             "window_directions",
             "window_order_occurrences",
         )
-        assert forbidden[case] not in semantic_fields | project_fields
+        if forbidden[case] == "window_expression_analyses":
+            assert forbidden[case] in semantic_fields
+            assert forbidden[case] not in project_fields
+        else:
+            assert forbidden[case] not in semantic_fields | project_fields
         return
     if group == 68:
         result, relation, _ = _canonical_analysis(IDENTITIES[case % 6])

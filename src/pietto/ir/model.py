@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from pietto.errors import Diagnostic
@@ -436,13 +436,115 @@ class WindowOrderItemIR:
             raise ValueError("an omitted direction must have effective ASC direction")
 
 
+class WindowFrameUnitIR(StrEnum):
+    ROWS = "ROWS"
+    RANGE = "RANGE"
+    GROUPS = "GROUPS"
+
+
+class WindowFrameBoundKindIR(StrEnum):
+    UNBOUNDED_PRECEDING = "UNBOUNDED PRECEDING"
+    OFFSET_PRECEDING = "OFFSET PRECEDING"
+    CURRENT_ROW = "CURRENT ROW"
+    OFFSET_FOLLOWING = "OFFSET FOLLOWING"
+    UNBOUNDED_FOLLOWING = "UNBOUNDED FOLLOWING"
+
+
+class WindowFrameExclusionIR(StrEnum):
+    NO_OTHERS = "NO OTHERS"
+    CURRENT_ROW = "CURRENT ROW"
+    GROUP = "GROUP"
+    TIES = "TIES"
+
+
+class WindowNullTreatmentIR(StrEnum):
+    RESPECT_NULLS = "respect_nulls"
+    IGNORE_NULLS = "ignore_nulls"
+
+
+class WindowNthDirectionIR(StrEnum):
+    FROM_FIRST = "from_first"
+    FROM_LAST = "from_last"
+
+
+@dataclass(frozen=True, slots=True)
+class WindowFrameBoundIR:
+    kind: WindowFrameBoundKindIR
+    offset: ExpressionIR | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not WindowFrameBoundKindIR:
+            raise TypeError("window frame bound kind must be exact")
+        offset_kind = self.kind in {
+            WindowFrameBoundKindIR.OFFSET_PRECEDING,
+            WindowFrameBoundKindIR.OFFSET_FOLLOWING,
+        }
+        if offset_kind and not isinstance(self.offset, ExpressionIR):
+            raise TypeError("offset frame bounds require expression IR")
+        if not offset_kind and self.offset is not None:
+            raise ValueError("non-offset frame bounds forbid offset IR")
+
+
+@dataclass(frozen=True, slots=True)
+class WindowFrameIR:
+    unit: WindowFrameUnitIR
+    start: WindowFrameBoundIR
+    end: WindowFrameBoundIR
+    exclusion: WindowFrameExclusionIR
+    frame_is_explicit: bool
+    end_is_explicit: bool
+    exclusion_is_explicit: bool
+
+    def __post_init__(self) -> None:
+        if type(self.unit) is not WindowFrameUnitIR:
+            raise TypeError("window frame unit must be exact")
+        if type(self.start) is not WindowFrameBoundIR:
+            raise TypeError("window frame start must be exact")
+        if type(self.end) is not WindowFrameBoundIR:
+            raise TypeError("window frame end must be exact")
+        if type(self.exclusion) is not WindowFrameExclusionIR:
+            raise TypeError("window frame exclusion must be exact")
+        if any(
+            type(value) is not bool
+            for value in (
+                self.frame_is_explicit,
+                self.end_is_explicit,
+                self.exclusion_is_explicit,
+            )
+        ):
+            raise TypeError("window frame explicitness flags must be exact bools")
+        if not self.frame_is_explicit and (
+            self.end_is_explicit or self.exclusion_is_explicit
+        ):
+            raise ValueError("default frames forbid authored subcomponent flags")
+        if not self.frame_is_explicit and (
+            self.unit is not WindowFrameUnitIR.RANGE
+            or self.start.kind is not WindowFrameBoundKindIR.UNBOUNDED_PRECEDING
+            or self.end.kind is not WindowFrameBoundKindIR.CURRENT_ROW
+            or self.exclusion is not WindowFrameExclusionIR.NO_OTHERS
+        ):
+            raise ValueError("default frame IR must retain Pietto effective defaults")
+        if (
+            self.frame_is_explicit
+            and not self.end_is_explicit
+            and self.end.kind is not WindowFrameBoundKindIR.CURRENT_ROW
+        ):
+            raise ValueError("shorthand frame IR requires an effective CURRENT ROW end")
+        if (
+            not self.exclusion_is_explicit
+            and self.exclusion is not WindowFrameExclusionIR.NO_OTHERS
+        ):
+            raise ValueError("omitted frame exclusion must mean NO OTHERS")
+
+
 @dataclass(frozen=True, slots=True)
 class WindowSpecIR:
-    """A source-ordered frame-free inline window specification."""
+    """A source-ordered inline window specification with optional frame."""
 
     partition_by: tuple[ExpressionIR, ...]
     order_by: tuple[WindowOrderItemIR, ...]
     span: SourceSpan
+    frame: WindowFrameIR | None = None
 
     def __post_init__(self) -> None:
         """Require exact ordered tuples and mandatory local ordering."""
@@ -461,6 +563,8 @@ class WindowSpecIR:
             raise ValueError("window IR requires at least one order item")
         if type(self.span) is not SourceSpan:
             raise TypeError("span must be an exact SourceSpan")
+        if self.frame is not None and type(self.frame) is not WindowFrameIR:
+            raise TypeError("window frame IR must be exact or absent")
 
 
 _WINDOW_ARGUMENT_ARITIES = {
@@ -472,6 +576,9 @@ _WINDOW_ARGUMENT_ARITIES = {
     "ntile": frozenset({1}),
     "lag": frozenset({1, 2, 3}),
     "lead": frozenset({1, 2, 3}),
+    "first_value": frozenset({1}),
+    "last_value": frozenset({1}),
+    "nth_value": frozenset({2}),
 }
 
 
@@ -482,6 +589,10 @@ class WindowCallIR(ExpressionIR):
     identity: WindowFunctionIdentityIR
     arguments: tuple[ExpressionIR, ...]
     spec: WindowSpecIR
+    null_treatment: WindowNullTreatmentIR | None = None
+    null_treatment_is_explicit: bool = False
+    nth_direction: WindowNthDirectionIR | None = None
+    nth_direction_is_explicit: bool = False
 
     def __post_init__(self) -> None:
         """Fail closed for malformed or unsupported window-call IR."""
@@ -498,6 +609,20 @@ class WindowCallIR(ExpressionIR):
             raise TypeError("arguments must be ExpressionIR instances")
         if type(self.spec) is not WindowSpecIR:
             raise TypeError("spec must be an exact WindowSpecIR")
+        if (
+            self.null_treatment is not None
+            and type(self.null_treatment) is not WindowNullTreatmentIR
+        ):
+            raise TypeError("window NULL treatment IR must be exact or absent")
+        if type(self.null_treatment_is_explicit) is not bool:
+            raise TypeError("window NULL treatment explicitness must be exact")
+        if (
+            self.nth_direction is not None
+            and type(self.nth_direction) is not WindowNthDirectionIR
+        ):
+            raise TypeError("window nth direction IR must be exact or absent")
+        if type(self.nth_direction_is_explicit) is not bool:
+            raise TypeError("window nth direction explicitness must be exact")
         if self.identity.namespace != ():
             raise ValueError("builtin window call identity namespace must be empty")
         arities = _WINDOW_ARGUMENT_ARITIES.get(self.identity.name)
@@ -505,6 +630,70 @@ class WindowCallIR(ExpressionIR):
             raise ValueError("window call identity is unsupported")
         if len(self.arguments) not in arities:
             raise ValueError("window call argument arity is invalid")
+        name = self.identity.name
+        null_applies = name in {
+            "lag",
+            "lead",
+            "first_value",
+            "last_value",
+            "nth_value",
+        }
+        if null_applies is (self.null_treatment is None):
+            raise ValueError("window NULL treatment must match function policy")
+        if not null_applies and self.null_treatment_is_explicit:
+            raise ValueError("inapplicable NULL treatment cannot be explicit")
+        if (
+            self.null_treatment is WindowNullTreatmentIR.IGNORE_NULLS
+            and not self.null_treatment_is_explicit
+        ):
+            raise ValueError("IGNORE NULLS cannot have omitted authorship")
+        if name == "nth_value":
+            if self.nth_direction is None:
+                raise ValueError("nth_value IR requires a direction")
+            if (
+                self.nth_direction is WindowNthDirectionIR.FROM_LAST
+                and not self.nth_direction_is_explicit
+            ):
+                raise ValueError("FROM LAST cannot have omitted authorship")
+        elif self.nth_direction is not None or self.nth_direction_is_explicit:
+            raise ValueError("non-nth window IR forbids nth direction")
+        frame_sensitive = name in {"first_value", "last_value", "nth_value"}
+        if frame_sensitive is (self.spec.frame is None):
+            raise ValueError("window frame IR must match function policy")
+        if frame_sensitive:
+            if self.value_type.nullability is not NullabilityIR.NULLABLE:
+                raise ValueError("frame-value IR requires a nullable result")
+            if type(self.arguments[0]) not in {FieldRefIR, LiteralIR}:
+                raise ValueError("frame-value IR requires one bounded value input")
+            value_type = self.arguments[0].value_type
+            if type(value_type) is not TypeRefIR:
+                raise TypeError("frame-value input requires an exact value type")
+            if (
+                replace(value_type, nullability=self.value_type.nullability)
+                != self.value_type
+            ):
+                raise ValueError("frame-value input and result must share exact T")
+        if name == "nth_value":
+            position = self.arguments[1]
+            if (
+                type(position) is not LiteralIR
+                or type(position.value) is not int
+                or position.value < 1
+            ):
+                raise ValueError("nth_value IR requires a positive integer literal")
+            position_type = position.value_type
+            int_symbol = SymbolId(SymbolNamespace.TYPE, "Int")
+            if (
+                type(position_type) is not TypeRefIR
+                or position_type.symbol != int_symbol
+                or position_type.canonical_symbol != int_symbol
+                or position_type.declared_name != "Int"
+                or position_type.canonical_name != "Int"
+                or position_type.kind is not TypeKindIR.BUILTIN
+                or position_type.canonical_kind is not TypeKindIR.BUILTIN
+                or position_type.nullability is not NullabilityIR.NON_NULL
+            ):
+                raise ValueError("nth_value IR requires exact non-null Int typing")
 
 
 @dataclass(frozen=True, slots=True)

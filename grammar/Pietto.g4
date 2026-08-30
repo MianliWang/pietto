@@ -307,7 +307,15 @@ selectItem
     ;
 
 windowExpression
-    : dottedName callSuffix windowSpec
+    : dottedName callSuffix nthValueDirection? nullTreatment? windowSpec
+    ;
+
+nthValueDirection
+    : FROM (FIRST | LAST)
+    ;
+
+nullTreatment
+    : (RESPECT | IGNORE) NULLS
     ;
 
 windowSpec
@@ -471,6 +479,11 @@ identifier
     | NO
     | OTHERS
     | TIES
+    | FIRST
+    | LAST
+    | RESPECT
+    | IGNORE
+    | NULLS
     | GROUP
     | LET
     | SATISFYING
@@ -540,6 +553,11 @@ EXCLUDE: 'exclude';
 NO: 'no';
 OTHERS: 'others';
 TIES: 'ties';
+FIRST: 'first';
+LAST: 'last';
+RESPECT: 'respect';
+IGNORE: 'ignore';
+NULLS: 'nulls';
 ENSURE: 'ensure';
 NULLABLE: 'nullable';
 AND: 'and';

@@ -9,6 +9,7 @@ import pytest
 
 import pietto
 import pietto.ir as public_ir
+import pietto.ir.model as ir_model
 import pietto.semantic as public_semantic
 import pietto.sql as public_sql
 from pietto.ast_nodes import QueryDef, Script, TableDef
@@ -32,6 +33,7 @@ from pietto.ir.model import (
     WindowFunctionIdentityIR,
     WindowFunctionRoleIR,
     WindowOrderItemIR,
+    WindowNullTreatmentIR,
     WindowSpecIR,
 )
 from pietto.parser_api import parse_source
@@ -255,6 +257,9 @@ def _manual_window(
         identity=_identity(name),
         arguments=arguments,
         spec=_spec() if spec is None else spec,
+        null_treatment=(
+            WindowNullTreatmentIR.RESPECT_NULLS if name in {"lag", "lead"} else None
+        ),
     )
 
 
@@ -443,8 +448,18 @@ def test_window_ir_carrier_fields_frozen_slots_equality_and_hashing_are_exact(
     expected_fields = (
         ("namespace", "name", "role"),
         ("expression", "direction", "direction_is_explicit", "span"),
-        ("partition_by", "order_by", "span"),
-        ("span", "value_type", "identity", "arguments", "spec"),
+        ("partition_by", "order_by", "span", "frame"),
+        (
+            "span",
+            "value_type",
+            "identity",
+            "arguments",
+            "spec",
+            "null_treatment",
+            "null_treatment_is_explicit",
+            "nth_direction",
+            "nth_direction_is_explicit",
+        ),
     )
     instances = (
         _identity(),
@@ -1155,26 +1170,73 @@ SIGNATURE_OPERANDS = (
         "window_result",
         "mandatory_local_order",
     ),
+    (
+        "1",
+        "bounded_value",
+        "T",
+        "nullable",
+        "WINDOW",
+        "window_result",
+        "mandatory_resolved_order",
+    ),
+    (
+        "1",
+        "bounded_value",
+        "T",
+        "nullable",
+        "WINDOW",
+        "window_result",
+        "mandatory_resolved_order",
+    ),
+    (
+        "2",
+        "bounded_value_positive_int_literal",
+        "T",
+        "nullable",
+        "WINDOW",
+        "window_result",
+        "mandatory_resolved_order",
+    ),
 )
 LOWERING_OPERANDS = ("WindowCallIR", "OVER", "partition_by", "order_by")
+NAVIGATION_LOWERING_OPERANDS = (*LOWERING_OPERANDS, "respect_nulls")
+POSTGRESQL_FRAME_VALUE_LOWERING_OPERANDS = (
+    "WindowCallIR",
+    "OVER",
+    "partition_by",
+    "order_by",
+    "rows_groups_offset_free_range_all_exclude",
+    "respect_nulls",
+    "from_first",
+)
+MYSQL_FRAME_VALUE_LOWERING_OPERANDS = (
+    "WindowCallIR",
+    "OVER",
+    "partition_by",
+    "order_by",
+    "rows_offset_free_range_omitted_exclude",
+    "respect_nulls",
+    "from_first",
+)
+CAPABILITY_IDENTITIES = (*IDENTITIES, "first_value", "last_value", "nth_value")
 
 
-@pytest.mark.parametrize("_case", range(24))
+@pytest.mark.parametrize("_case", range(33))
 def test_window_capability_fact_inventory_keys_evidence_and_privacy_are_exact(
     _case: int,
 ) -> None:
     facts = capability_windows._WINDOW_CAPABILITY_FACTS
     assert capability_windows.__all__ == ()
-    assert type(facts) is tuple and len(facts) == 24 and len(set(facts)) == 24
+    assert type(facts) is tuple and len(facts) == 33 and len(set(facts)) == 33
     fact = facts[_case]
     assert type(fact) is CapabilityFact
     assert fact.key.domain is CapabilityDomain.WINDOW_FUNCTION
     assert fact.support is CapabilitySupport.SUPPORTED
     assert fact.disposition.kind is CapabilityDispositionKind.NONE
     assert fact.key.extension is None
-    identity_index = _case % 8
-    assert fact.key.subject == IDENTITIES[identity_index]
-    if _case < 8:
+    identity_index = _case % 11
+    assert fact.key.subject == CAPABILITY_IDENTITIES[identity_index]
+    if _case < 11:
         assert fact.key.operation == "signature"
         assert fact.key.context == "window_signature"
         assert fact.key.dialect is None
@@ -1187,7 +1249,7 @@ def test_window_capability_fact_inventory_keys_evidence_and_privacy_are_exact(
         assert fact.evidence[-1].source_path == "src/pietto/ir/lowering.py"
         assert fact.evidence[-1].source_reference == "_lower_window_expr"
     else:
-        postgres = _case < 16
+        postgres = _case < 22
         dialect = "postgresql" if postgres else "mysql"
         backend = "postgresql" if postgres else "private-mysql"
         source_path = (
@@ -1201,7 +1263,24 @@ def test_window_capability_fact_inventory_keys_evidence_and_privacy_are_exact(
         assert fact.key.operation == "lowering"
         assert fact.key.context == "window_lowering"
         assert fact.key.dialect == dialect
-        assert fact.key.operands == LOWERING_OPERANDS
+        assert fact.key.operands == (
+            (
+                POSTGRESQL_FRAME_VALUE_LOWERING_OPERANDS
+                if fact.key.subject == "nth_value"
+                else (*POSTGRESQL_FRAME_VALUE_LOWERING_OPERANDS[:-1], "from_forbidden")
+            )
+            if fact.key.subject in {"first_value", "last_value", "nth_value"}
+            and dialect == "postgresql"
+            else (
+                MYSQL_FRAME_VALUE_LOWERING_OPERANDS
+                if fact.key.subject == "nth_value"
+                else (*MYSQL_FRAME_VALUE_LOWERING_OPERANDS[:-1], "from_forbidden")
+            )
+            if fact.key.subject in {"first_value", "last_value", "nth_value"}
+            else NAVIGATION_LOWERING_OPERANDS
+            if fact.key.subject in {"lag", "lead"}
+            else LOWERING_OPERANDS
+        )
         assert len(fact.evidence) == 1
         evidence = fact.evidence[0]
         assert evidence.source is CapabilityEvidenceSource.BACKEND
@@ -1228,7 +1307,7 @@ def test_window_capability_lookup_found_absent_unknown_and_conflict_are_exact(
     _case: int,
 ) -> None:
     if _case < 3:
-        fact = capability_windows._WINDOW_CAPABILITY_FACTS[(0, 8, 16)[_case]]
+        fact = capability_windows._WINDOW_CAPABILITY_FACTS[(0, 11, 22)[_case]]
         result = _lookup(fact.key)
         assert isinstance(result, Found)
         assert result.fact is fact
@@ -1368,16 +1447,19 @@ def test_frames_named_windows_qualify_extension_and_later_identity_boundaries_ar
             "partition_by",
             "order_by",
             "span",
+            "frame",
         )
     elif 1 <= _case <= 5:
         assert all(
             token not in {field.name for field in dataclasses.fields(WindowSpecIR)}
-            for token in ("frame", "rows", "range", "groups", "name", "inherits")
+            for token in ("rows", "range", "groups", "name", "inherits")
         )
     elif _case == 6:
         assert "QUALIFY" not in _read("grammar/Pietto.g4")
     elif 7 <= _case <= 9:
-        assert ("first_value", "last_value", "nth_value")[_case - 7] not in IDENTITIES
+        identity = ("first_value", "last_value", "nth_value")[_case - 7]
+        assert identity in capability_windows._WINDOW_IDENTITIES
+        assert identity in ir_model._WINDOW_ARGUMENT_ARITIES
     else:
         key = CapabilityKey(
             CapabilityDomain.WINDOW_FUNCTION,

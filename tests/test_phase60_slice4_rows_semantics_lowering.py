@@ -420,19 +420,18 @@ def test_ir_lowering_cannot_silently_drop_a_forged_explicit_frame() -> None:
     assert lowered.expression is None
     assert len(lowered.diagnostics) == 1
     assert lowered.diagnostics[0].code == "PIE-I1000"
-    assert "validated explicit window frame lowering authority" in (
-        lowered.diagnostics[0].message
-    )
+    assert "validated window semantic facts" in lowered.diagnostics[0].message
 
 
-def test_no_unreachable_frame_ir_or_production_sql_renderer_is_introduced() -> None:
+def test_slice9_activates_shared_frame_ir_without_unit_specific_ir() -> None:
     assert tuple(field.name for field in fields(WindowSpecIR)) == (
         "partition_by",
         "order_by",
         "span",
+        "frame",
     )
     assert not hasattr(ir_model, "RowsFrameIR")
-    assert not hasattr(ir_model, "WindowFrameIR")
+    assert hasattr(ir_model, "WindowFrameIR")
     for relative in (
         "src/pietto/sql/expressions.py",
         "src/pietto/sql/mysql_expressions.py",
@@ -444,7 +443,7 @@ def test_no_unreachable_frame_ir_or_production_sql_renderer_is_introduced() -> N
             if isinstance(node, (ast.ClassDef, ast.FunctionDef))
         }
         assert not any("rows_frame" in name.lower() for name in names)
-    assert "validated explicit window frame lowering authority" in (
+    assert "validated window semantic facts" in (
         REPO_ROOT / "src/pietto/ir/lowering.py"
     ).read_text(encoding="utf-8")
 
@@ -482,13 +481,16 @@ def test_standalone_exclude_remains_unreachable(frame: str) -> None:
     assert parsed.diagnostics
 
 
-def test_slice9_and_phase65_function_ownership_is_not_pulled_forward() -> None:
+def test_slice9_function_ownership_is_active_without_phase65() -> None:
     current = {
         identity.name for identity, _policy in window_analysis._RANKING_POLICIES
     } | {definition[0].name for definition in window_analysis._DISTRIBUTION_FUNCTIONS}
     current |= {
         identity.name
-        for identity, _direction in (navigation_analysis._NAVIGATION_IDENTITIES)
+        for identity, _direction in (
+            *navigation_analysis._NAVIGATION_IDENTITIES,
+            *navigation_analysis._FRAME_VALUE_IDENTITIES,
+        )
     }
     assert current == {
         "row_number",
@@ -499,9 +501,11 @@ def test_slice9_and_phase65_function_ownership_is_not_pulled_forward() -> None:
         "ntile",
         "lag",
         "lead",
+        "first_value",
+        "last_value",
+        "nth_value",
     }
-    assert {"first_value", "last_value", "nth_value"}.isdisjoint(current)
-    assert {"first_value", "last_value", "nth_value"}.isdisjoint(
+    assert {"first_value", "last_value", "nth_value"}.issubset(
         ir_model._WINDOW_ARGUMENT_ARITIES
     )
     assert not hasattr(ir_model, "AggregateWindowCallIR")

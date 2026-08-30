@@ -476,15 +476,27 @@ def test_exact_ranking_identity_legality_case_namespace_and_later_functions(
     if call in {"row_number()", "rank()", "dense_rank()"}:
         assert matching == []
         assert expression in semantic.model.expression_value_types
-    elif call in {"lag()", "lead()"}:
+    elif call in {
+        "lag()",
+        "lead()",
+        "first_value()",
+        "last_value()",
+        "nth_value()",
+    }:
         argument_errors = [
             item for item in semantic.diagnostics if item.code == "PIE-S2104"
         ]
         assert matching == []
         assert len(argument_errors) == 1
+        name = call.removesuffix("()")
+        expected = 2 if name == "nth_value" else 1
         assert argument_errors[0].message == (
-            f"Invalid arguments for function {call.removesuffix('()')}: "
-            "expected 1 through 3, got 0"
+            f"Invalid arguments for function {name}: "
+            + (
+                "expected 1 through 3, got 0"
+                if name in {"lag", "lead"}
+                else f"expected {expected}, got 0"
+            )
         )
     else:
         assert len(matching) == 1
@@ -1312,18 +1324,20 @@ def test_ranking_postgres_and_private_mysql_fail_before_sql_lowering(
     "name",
     ("lag", "lead", "first_value", "last_value", "nth_value"),
 )
-def test_slice9_and_slice12_window_identities_remain_unsupported(name: str) -> None:
+def test_value_navigation_identities_reject_zero_arity(name: str) -> None:
     script, _ = _parsed_relation(_program(call=f"{name}()"))
     semantic = analyze(script)
-    expected_code = "PIE-S2104" if name in {"lag", "lead"} else "PIE-S2103"
-    matching = [item for item in semantic.diagnostics if item.code == expected_code]
+    matching = [item for item in semantic.diagnostics if item.code == "PIE-S2104"]
     assert len(matching) == 1
     if name in {"lag", "lead"}:
         assert matching[0].message == (
             f"Invalid arguments for function {name}: expected 1 through 3, got 0"
         )
     else:
-        assert matching[0].message == f"Unknown function: {name}"
+        expected = 2 if name == "nth_value" else 1
+        assert matching[0].message == (
+            f"Invalid arguments for function {name}: expected {expected}, got 0"
+        )
 
 
 @pytest.mark.parametrize(

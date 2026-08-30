@@ -346,6 +346,21 @@ def test_parser_preserves_function_candidate_identity(function_name: str) -> Non
     )
 
 
+def test_value_modifier_authorship_is_source_located_and_use_local() -> None:
+    expression = _window_expression(
+        _window_query(
+            "order by:\n    observed_at",
+            projection=("value = nth_value(value, 2) from last ignore nulls"),
+        )
+    )
+    assert expression.nth_direction is not None
+    assert expression.nth_direction.kind is ast_nodes.WindowNthDirectionKind.LAST
+    assert expression.null_treatment is not None
+    assert expression.null_treatment.kind is ast_nodes.WindowNullTreatmentKind.IGNORE
+    assert expression.nth_direction.span.path == "window-slice3.pietto"
+    assert expression.null_treatment.span.path == "window-slice3.pietto"
+
+
 @pytest.mark.parametrize(("call", "namespace", "name"), QUALIFIED_IDENTITY_CASES)
 def test_parser_preserves_qualified_identity_namespace_and_case(
     call: str,

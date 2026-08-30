@@ -8,8 +8,10 @@ from enum import StrEnum
 from heapq import heappop, heappush
 from itertools import chain
 
-from pietto._window_identity import WindowFunctionIdentity
+from pietto._window_identity import WindowFunctionIdentity, WindowFunctionRole
 from pietto.ast_nodes import (
+    AuthoredWindowNthDirection,
+    AuthoredWindowNullTreatment,
     AuthoredWindowFrame,
     AuthoredWindowFrameExclusion,
     AuthoredWindowFrameKind,
@@ -27,6 +29,8 @@ from pietto.ast_nodes import (
     WindowFrameBound,
     WindowFrameBoundKind,
     WindowFrameUnit,
+    WindowNthDirectionKind,
+    WindowNullTreatmentKind,
     WindowSpec,
     WindowUseKind,
 )
@@ -1478,6 +1482,8 @@ def _effective_named_window_expression(
             ),
         ),
         identity=composed.expression.identity,
+        nth_direction=composed.expression.nth_direction,
+        null_treatment=composed.expression.null_treatment,
     )
 
 
@@ -1842,6 +1848,116 @@ def _require_provenance_component(
             f"{label} provenance must name its component; "
             "component kind must match its slot"
         )
+
+
+class WindowNullTreatment(StrEnum):
+    """Effective NULL treatment for applicable value/navigation functions."""
+
+    RESPECT_NULLS = "respect_nulls"
+    IGNORE_NULLS = "ignore_nulls"
+
+
+class WindowNthDirection(StrEnum):
+    """Effective nth-value candidate traversal direction."""
+
+    FROM_FIRST = "from_first"
+    FROM_LAST = "from_last"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ResolvedWindowFunctionModifiers:
+    """Exact authored and effective use-local modifier evidence."""
+
+    identity: WindowFunctionIdentity
+    authored_null_treatment: AuthoredWindowNullTreatment | None
+    null_treatment: WindowNullTreatment | None
+    authored_nth_direction: AuthoredWindowNthDirection | None
+    nth_direction: WindowNthDirection | None
+
+    def __post_init__(self) -> None:
+        if type(self.identity) is not WindowFunctionIdentity:
+            raise TypeError("window modifier identity must be exact")
+        if (
+            self.identity.namespace != ()
+            or self.identity.role is not WindowFunctionRole.WINDOW_FUNCTION
+            or self.identity.name
+            not in {
+                "row_number",
+                "rank",
+                "dense_rank",
+                "percent_rank",
+                "cume_dist",
+                "ntile",
+                "lag",
+                "lead",
+                "first_value",
+                "last_value",
+                "nth_value",
+            }
+        ):
+            raise ValueError("window modifier identity must be one exact builtin")
+        if (
+            self.authored_null_treatment is not None
+            and type(self.authored_null_treatment) is not AuthoredWindowNullTreatment
+        ):
+            raise TypeError("authored NULL treatment must be exact or absent")
+        if (
+            self.null_treatment is not None
+            and type(self.null_treatment) is not WindowNullTreatment
+        ):
+            raise TypeError("effective NULL treatment must be exact or absent")
+        if (
+            self.authored_nth_direction is not None
+            and type(self.authored_nth_direction) is not AuthoredWindowNthDirection
+        ):
+            raise TypeError("authored nth direction must be exact or absent")
+        if (
+            self.nth_direction is not None
+            and type(self.nth_direction) is not WindowNthDirection
+        ):
+            raise TypeError("effective nth direction must be exact or absent")
+
+        name = self.identity.name
+        null_treatment_applies = name in {
+            "lag",
+            "lead",
+            "first_value",
+            "last_value",
+            "nth_value",
+        }
+        if null_treatment_applies:
+            expected_null_treatment = (
+                WindowNullTreatment.RESPECT_NULLS
+                if self.authored_null_treatment is None
+                or self.authored_null_treatment.kind is WindowNullTreatmentKind.RESPECT
+                else WindowNullTreatment.IGNORE_NULLS
+            )
+            if self.null_treatment is not expected_null_treatment:
+                raise ValueError("effective NULL treatment must match authorship")
+        elif (
+            self.authored_null_treatment is not None or self.null_treatment is not None
+        ):
+            raise ValueError("function identity forbids NULL treatment")
+
+        if name == "nth_value":
+            expected_nth_direction = (
+                WindowNthDirection.FROM_FIRST
+                if self.authored_nth_direction is None
+                or self.authored_nth_direction.kind is WindowNthDirectionKind.FIRST
+                else WindowNthDirection.FROM_LAST
+            )
+            if self.nth_direction is not expected_nth_direction:
+                raise ValueError("effective nth direction must match authorship")
+        elif self.authored_nth_direction is not None or self.nth_direction is not None:
+            raise ValueError("function identity forbids nth direction")
+
+    @property
+    def null_treatment_is_explicit(self) -> bool:
+        return self.authored_null_treatment is not None
+
+    @property
+    def nth_direction_is_explicit(self) -> bool:
+        return self.authored_nth_direction is not None
 
 
 class WindowFrameEmptinessClassification(StrEnum):
@@ -3749,11 +3865,241 @@ class DistributionWindowSemanticFact:
         return self.structural_order_key
 
 
+class FrameValueFunctionKind(StrEnum):
+    """Closed frame-relative value selection functions."""
+
+    FIRST_VALUE = "first_value"
+    LAST_VALUE = "last_value"
+    NTH_VALUE = "nth_value"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NthValuePositionFact:
+    """One exact positive integer literal position for nth_value."""
+
+    expression: LiteralExpr
+    effective_value: int
+
+    def __post_init__(self) -> None:
+        if type(self.expression) is not LiteralExpr:
+            raise TypeError("nth_value position must be an exact literal")
+        if (
+            type(self.effective_value) is not int
+            or self.effective_value < 1
+            or type(self.expression.value) is not int
+            or self.expression.value != self.effective_value
+        ):
+            raise ValueError("nth_value position must be its positive integer literal")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class FrameValueWindowSemanticFact:
+    """One frame-sensitive value-function semantic result."""
+
+    semantic_fact: WindowExpressionSemanticFact
+    function: FrameValueFunctionKind
+    value_expression: NameExpr | DottedNameExpr | LiteralExpr
+    value_type: ValueType
+    position_fact: NthValuePositionFact | None
+    modifiers: ResolvedWindowFunctionModifiers
+    signature_match: SignatureMatch
+
+    def __post_init__(self) -> None:
+        if type(self.semantic_fact) is not WindowExpressionSemanticFact:
+            raise TypeError("frame-value semantic fact must retain an exact core")
+        if type(self.function) is not FrameValueFunctionKind:
+            raise TypeError("frame-value function kind must be exact")
+        if type(self.value_expression) not in {
+            NameExpr,
+            DottedNameExpr,
+            LiteralExpr,
+        }:
+            raise TypeError("frame-value input must be an exact bounded expression")
+        if type(self.value_type) is not ValueType:
+            raise TypeError("frame-value input type must be exact")
+        if (
+            self.position_fact is not None
+            and type(self.position_fact) is not NthValuePositionFact
+        ):
+            raise TypeError("frame-value position fact must be exact or absent")
+        if type(self.modifiers) is not ResolvedWindowFunctionModifiers:
+            raise TypeError("frame-value modifiers must be exact")
+        if type(self.signature_match) is not SignatureMatch:
+            raise TypeError("frame-value signature match must be exact")
+
+        expression = self.semantic_fact.expression
+        arguments = expression.call.arguments
+        if self.semantic_fact.identity.name != self.function.value:
+            raise ValueError("frame-value function must match its identity")
+        if self.modifiers.identity != self.semantic_fact.identity:
+            raise ValueError("frame-value modifiers must match its identity")
+        if (
+            self.modifiers.authored_null_treatment is not expression.null_treatment
+            or self.modifiers.authored_nth_direction is not expression.nth_direction
+        ):
+            raise ValueError("frame-value modifiers must retain exact authorship")
+        if self.value_expression is not arguments[0]:
+            raise ValueError("frame-value input must retain argument zero")
+        if not expression.spec.order_by:
+            raise ValueError("frame-value functions require resolved ordering")
+        if self.function is FrameValueFunctionKind.NTH_VALUE:
+            if (
+                len(arguments) != 2
+                or self.position_fact is None
+                or self.position_fact.expression is not arguments[1]
+            ):
+                raise ValueError("nth_value requires its exact position fact")
+        elif len(arguments) != 1 or self.position_fact is not None:
+            raise ValueError("first_value and last_value forbid a position fact")
+        result = self.semantic_fact.result
+        if (
+            result.kind is not WindowResultAvailabilityKind.CONCRETE
+            or result.value_type is None
+            or result.value_type.resolved_type is not self.value_type.resolved_type
+            or result.value_type.resolved_type.name
+            != self.signature_match.result_type.name
+            or result.value_type.resolved_type.kind
+            is not self.signature_match.result_type.kind
+            or result.value_type.nullability is not EffectiveNullability.NULLABLE
+        ):
+            raise ValueError("frame-value result must be the nullable signature type")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class FrameValueCandidateView:
+    """Post-EXCLUDE candidate positions under one effective NULL treatment."""
+
+    membership: ExcludedFrameMembershipView
+    values: tuple[object, ...]
+    null_treatment: WindowNullTreatment
+    positions: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.membership) is not ExcludedFrameMembershipView:
+            raise TypeError("frame-value candidates require exact membership")
+        if type(self.values) is not tuple:
+            raise TypeError("frame-value candidate values must be an exact tuple")
+        if len(self.values) != self.membership.partition_size:
+            raise ValueError("frame-value values must cover the exact partition")
+        if type(self.null_treatment) is not WindowNullTreatment:
+            raise TypeError("frame-value NULL treatment must be exact")
+        if type(self.positions) is not tuple or any(
+            type(position) is not int for position in self.positions
+        ):
+            raise TypeError("frame-value positions must be an exact integer tuple")
+        expected = tuple(
+            position
+            for position in self.membership.positions
+            if self.null_treatment is WindowNullTreatment.RESPECT_NULLS
+            or self.values[position] is not None
+        )
+        if self.positions != expected:
+            raise ValueError("frame-value positions must be the exact filtered view")
+
+
+def frame_value_candidate_view(
+    membership: ExcludedFrameMembershipView,
+    values: tuple[object, ...],
+    null_treatment: WindowNullTreatment,
+) -> FrameValueCandidateView:
+    """Filter only post-EXCLUDE value candidates, never frame membership."""
+
+    if type(membership) is not ExcludedFrameMembershipView:
+        raise TypeError("frame-value candidates require exact membership")
+    if type(values) is not tuple or len(values) != membership.partition_size:
+        raise ValueError("frame-value values must cover the exact partition")
+    if type(null_treatment) is not WindowNullTreatment:
+        raise TypeError("frame-value NULL treatment must be exact")
+    return FrameValueCandidateView(
+        membership=membership,
+        values=values,
+        null_treatment=null_treatment,
+        positions=tuple(
+            position
+            for position in membership.positions
+            if null_treatment is WindowNullTreatment.RESPECT_NULLS
+            or values[position] is not None
+        ),
+    )
+
+
+def select_frame_value_candidate(
+    view: FrameValueCandidateView,
+    function: FrameValueFunctionKind,
+    *,
+    nth_position: int | None = None,
+    nth_direction: WindowNthDirection | None = None,
+) -> int | None:
+    """Select one physical candidate position or return no candidate."""
+
+    if type(view) is not FrameValueCandidateView:
+        raise TypeError("frame-value selection requires an exact candidate view")
+    if type(function) is not FrameValueFunctionKind:
+        raise TypeError("frame-value selection function must be exact")
+    if function is FrameValueFunctionKind.FIRST_VALUE:
+        if nth_position is not None or nth_direction is not None:
+            raise ValueError("first_value forbids nth selection evidence")
+        return view.positions[0] if view.positions else None
+    if function is FrameValueFunctionKind.LAST_VALUE:
+        if nth_position is not None or nth_direction is not None:
+            raise ValueError("last_value forbids nth selection evidence")
+        return view.positions[-1] if view.positions else None
+    if type(nth_position) is not int or nth_position < 1:
+        raise ValueError("nth_value selection requires a positive position")
+    if type(nth_direction) is not WindowNthDirection:
+        raise TypeError("nth_value selection requires an exact direction")
+    if nth_position > len(view.positions):
+        return None
+    return (
+        view.positions[nth_position - 1]
+        if nth_direction is WindowNthDirection.FROM_FIRST
+        else view.positions[-nth_position]
+    )
+
+
 class NavigationDirection(StrEnum):
     """Private source directions for offset-based navigation windows."""
 
     LAG = "lag"
     LEAD = "lead"
+
+
+def navigation_candidate_position(
+    values: tuple[object, ...],
+    *,
+    current_position: int,
+    direction: NavigationDirection,
+    offset: int,
+    null_treatment: WindowNullTreatment,
+) -> int | None:
+    """Resolve one lag/lead physical candidate without changing its anchor."""
+
+    if type(values) is not tuple:
+        raise TypeError("navigation values must be an exact tuple")
+    if type(current_position) is not int or not 0 <= current_position < len(values):
+        raise ValueError("navigation current position must be inside the partition")
+    if type(direction) is not NavigationDirection:
+        raise TypeError("navigation direction must be exact")
+    if type(offset) is not int or offset < 0:
+        raise ValueError("navigation offset must be nonnegative")
+    if type(null_treatment) is not WindowNullTreatment:
+        raise TypeError("navigation NULL treatment must be exact")
+    if offset == 0:
+        return current_position
+
+    step = -1 if direction is NavigationDirection.LAG else 1
+    seen = 0
+    position = current_position + step
+    while 0 <= position < len(values):
+        if (
+            null_treatment is WindowNullTreatment.RESPECT_NULLS
+            or values[position] is not None
+        ):
+            seen += 1
+            if seen == offset:
+                return position
+        position += step
+    return None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -3872,6 +4218,7 @@ class NavigationWindowSemanticFact:
     value_expression: NameExpr | DottedNameExpr | LiteralExpr
     value_type: ValueType
     value_always_null: bool
+    modifiers: ResolvedWindowFunctionModifiers
     offset_fact: NavigationOffsetFact
     default_fact: NavigationDefaultFact
     signature_match: SignatureMatch
@@ -3899,6 +4246,8 @@ class NavigationWindowSemanticFact:
             raise TypeError("value_type must be an exact ValueType")
         if type(self.value_always_null) is not bool:
             raise TypeError("value_always_null must be an exact bool")
+        if type(self.modifiers) is not ResolvedWindowFunctionModifiers:
+            raise TypeError("navigation modifiers must be exact")
         if type(self.offset_fact) is not NavigationOffsetFact:
             raise TypeError("offset_fact must be an exact NavigationOffsetFact")
         if type(self.default_fact) is not NavigationDefaultFact:
@@ -3913,6 +4262,17 @@ class NavigationWindowSemanticFact:
         expression = self.semantic_fact.expression
         if self.semantic_fact.identity.name != self.direction.value:
             raise ValueError("navigation direction must equal the window identity")
+        if (
+            self.modifiers.identity != self.semantic_fact.identity
+            or self.modifiers.null_treatment is None
+            or self.modifiers.nth_direction is not None
+        ):
+            raise ValueError("navigation modifiers must match lag/lead policy")
+        if (
+            self.modifiers.authored_null_treatment is not expression.null_treatment
+            or self.modifiers.authored_nth_direction is not expression.nth_direction
+        ):
+            raise ValueError("navigation modifiers must retain exact authorship")
         if not expression.spec.order_by:
             raise ValueError("navigation fact requires nonempty local order")
         arguments = expression.call.arguments
@@ -4007,7 +4367,9 @@ class WindowExpressionAnalysis:
     distribution_fact: DistributionWindowSemanticFact | None
     partition_binding_fact: WindowPartitionBindingFact
     order_binding_fact: WindowOrderBindingFact
+    validated_specification: ValidatedWindowSpecification
     navigation_fact: NavigationWindowSemanticFact | None = None
+    frame_value_fact: FrameValueWindowSemanticFact | None = None
 
     def __post_init__(self) -> None:
         if type(self.semantic_fact) is not WindowExpressionSemanticFact:
@@ -4041,6 +4403,28 @@ class WindowExpressionAnalysis:
             )
         if self.order_binding_fact.semantic_fact is not self.semantic_fact:
             raise ValueError("order fact must share the semantic core")
+        if type(self.validated_specification) is not ValidatedWindowSpecification:
+            raise TypeError("validated window specification must be exact")
+        if (
+            self.validated_specification.function_identity
+            != self.semantic_fact.identity
+        ):
+            raise ValueError("validated window specification must match the identity")
+        expression = self.semantic_fact.expression
+        if self.validated_specification.argument_expressions is not (
+            expression.call.arguments
+        ):
+            raise ValueError("validated arguments must retain the exact window use")
+        authored = self.validated_specification.resolved.authored
+        if authored.span == expression.spec.span:
+            if (
+                authored.partition_by is not expression.spec.partition_by
+                or authored.order_by is not expression.spec.order_by
+                or authored.frame is not expression.spec.frame
+            ):
+                raise ValueError(
+                    "validated inline specification must retain exact authorship"
+                )
         if (
             self.ranking_fact is not None
             and self.ranking_fact.semantic_fact is not self.semantic_fact
@@ -4064,18 +4448,54 @@ class WindowExpressionAnalysis:
         ):
             raise ValueError("navigation fact must share the semantic core")
         if (
+            self.frame_value_fact is not None
+            and type(self.frame_value_fact) is not FrameValueWindowSemanticFact
+        ):
+            raise TypeError(
+                "frame_value_fact must be an exact FrameValueWindowSemanticFact or None"
+            )
+        if (
+            self.frame_value_fact is not None
+            and self.frame_value_fact.semantic_fact is not self.semantic_fact
+        ):
+            raise ValueError("frame-value fact must share the semantic core")
+        if (
             self.ranking_fact is None
             and self.distribution_fact is None
             and self.navigation_fact is None
+            and self.frame_value_fact is None
         ):
             raise ValueError("window analysis requires a family fact")
 
         identity_name = self.semantic_fact.identity.name
+        frame_sensitive = identity_name in {
+            "first_value",
+            "last_value",
+            "nth_value",
+        }
+        if frame_sensitive:
+            if (
+                type(self.validated_specification.frame) is not ValidatedFrame
+                or self.validated_specification.function_policy.kind
+                is not WindowFunctionFramePolicyKind.FRAME_SENSITIVE
+            ):
+                raise ValueError(
+                    "frame-value identity requires applicable frame policy"
+                )
+        elif (
+            type(self.validated_specification.frame) is not ValidatedFrameNotApplicable
+            or self.validated_specification.function_policy.kind
+            is not WindowFunctionFramePolicyKind.FRAME_INSENSITIVE_EXPLICIT_FORBIDDEN
+        ):
+            raise ValueError(
+                "frame-insensitive identity requires absent frame semantics"
+            )
         if identity_name in {"row_number", "rank", "dense_rank"}:
             if (
                 self.ranking_fact is None
                 or self.distribution_fact is not None
                 or self.navigation_fact is not None
+                or self.frame_value_fact is not None
             ):
                 raise ValueError("ranking identity requires only a ranking fact")
             return
@@ -4084,6 +4504,7 @@ class WindowExpressionAnalysis:
                 self.ranking_fact is None
                 or self.distribution_fact is None
                 or self.navigation_fact is not None
+                or self.frame_value_fact is not None
             ):
                 raise ValueError("percent_rank requires both family facts")
             if self.distribution_fact.ranking_fact is not self.ranking_fact:
@@ -4096,6 +4517,7 @@ class WindowExpressionAnalysis:
                 self.ranking_fact is not None
                 or self.distribution_fact is None
                 or self.navigation_fact is not None
+                or self.frame_value_fact is not None
             ):
                 raise ValueError(
                     "non-ranking distribution identity requires only a "
@@ -4107,7 +4529,17 @@ class WindowExpressionAnalysis:
                 self.ranking_fact is not None
                 or self.distribution_fact is not None
                 or self.navigation_fact is None
+                or self.frame_value_fact is not None
             ):
                 raise ValueError("navigation identity requires only a navigation fact")
+            return
+        if identity_name in {"first_value", "last_value", "nth_value"}:
+            if (
+                self.ranking_fact is not None
+                or self.distribution_fact is not None
+                or self.navigation_fact is not None
+                or self.frame_value_fact is None
+            ):
+                raise ValueError("frame-value identity requires only its family fact")
             return
         raise ValueError("window analysis identity must be one completed identity")

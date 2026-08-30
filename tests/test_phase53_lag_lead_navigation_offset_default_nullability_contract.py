@@ -1128,13 +1128,20 @@ def test_project_result_identity_provenance_and_row_schema_boundaries_hold(
     assert fact.result_identity.output_name == "navigation_value"
 
 
-def test_semantic_and_project_models_do_not_persist_navigation_facts() -> None:
-    script, _ = _parsed_relation(_program("lag(id)"))
+def test_semantic_model_persists_validated_analysis_but_project_model_does_not() -> (
+    None
+):
+    script, relation = _parsed_relation(_program("lag(id)"))
     semantic = analyze(script)
     assert semantic.diagnostics == ()
-    assert "navigation" not in {
+    expression = cast(WindowExpr, relation.select_items[-1].expression)
+    assert "window_expression_analyses" in {
         field.name for field in dataclasses.fields(SemanticModel)
     }
+    assert (
+        semantic.model.window_expression_analyses[expression].navigation_fact
+        is not None
+    )
     assert "navigation" not in _read("src/pietto/_project/model.py")
 
 

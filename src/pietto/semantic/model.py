@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Mapping, TypeVar
+from typing import TYPE_CHECKING, Mapping, TypeVar
 
 from pietto.ast_nodes import (
     Definition,
@@ -20,8 +20,13 @@ from pietto.ast_nodes import (
     SourceDef,
     TableDef,
     TypeExpr,
+    WindowExpr,
+    WindowUseKind,
 )
 from pietto.errors import Diagnostic
+
+if TYPE_CHECKING:
+    from pietto.semantic.window_semantics import WindowExpressionAnalysis
 
 _Key = TypeVar("_Key")
 _Value = TypeVar("_Value")
@@ -218,6 +223,10 @@ class SemanticModel:
     expression_value_types: Mapping[Expression, ValueType] = field(
         default_factory=lambda: _readonly_mapping()
     )
+    window_expression_analyses: Mapping[
+        WindowExpr,
+        WindowExpressionAnalysis,
+    ] = field(default_factory=lambda: _readonly_mapping())
     result_predicates: Mapping[
         TableDef | QueryDef,
         SatisfyingResultPredicateInfo,
@@ -286,6 +295,56 @@ class SemanticModel:
             self,
             "expression_value_types",
             _readonly_mapping(self.expression_value_types),
+        )
+        from pietto.semantic.window_semantics import WindowExpressionAnalysis
+
+        window_analysis_items = tuple(self.window_expression_analyses.items())
+        if any(
+            type(expression) is not WindowExpr
+            or type(analysis) is not WindowExpressionAnalysis
+            for expression, analysis in window_analysis_items
+        ):
+            raise TypeError("window expression analyses must be exact")
+        for expression, analysis in window_analysis_items:
+            semantic_fact = analysis.semantic_fact
+            semantic_expression = semantic_fact.expression
+            if (
+                semantic_fact.identity != expression.identity
+                or semantic_fact.occurrence.span != expression.span
+                or semantic_expression.call is not expression.call
+                or semantic_expression.nth_direction is not expression.nth_direction
+                or semantic_expression.null_treatment is not expression.null_treatment
+            ):
+                raise ValueError(
+                    "window analysis mapping must retain its exact source use"
+                )
+            if expression.use_kind is WindowUseKind.INLINE:
+                if semantic_expression is not expression:
+                    raise ValueError(
+                        "inline window analysis mapping must retain its exact key"
+                    )
+            else:
+                authored = analysis.validated_specification.resolved.authored
+                if (
+                    authored.span != expression.span
+                    or authored.partition_by is not expression.spec.partition_by
+                    or authored.order_by is not expression.spec.order_by
+                    or authored.frame is not expression.spec.frame
+                ):
+                    raise ValueError(
+                        "named window analysis mapping must retain local authorship"
+                    )
+            if (
+                self.expression_value_types.get(expression)
+                is not semantic_fact.result.value_type
+            ):
+                raise ValueError(
+                    "window analysis mapping must retain its exact result type"
+                )
+        object.__setattr__(
+            self,
+            "window_expression_analyses",
+            _readonly_mapping(self.window_expression_analyses),
         )
         object.__setattr__(
             self,
