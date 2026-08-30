@@ -676,12 +676,12 @@ validation.
 
 Successful natural exact-head CI on the single Slice 6 completion commit
 completed the Interlude and handed off authority. Phase 60 is `ACTIVE`, Slice 1
-through Slice 9 are completed, Slice 10 is current, and Slice 11 is next /
+through Slice 10 are completed, Slice 11 is current, and Slice 12 is next /
 unstarted.
 
 ## Phase 60 route
 
-Phase 60 is active, Slices 1-9 are completed, Slice 10 is current, and Slice 11
+Phase 60 is active, Slices 1-10 are completed, Slice 11 is current, and Slice 12
 is next / unstarted. The published route has exactly 13 slices.
 
 The exact owner is **Advanced Windows And Phase 51–60 Readiness Checkpoint**.
@@ -808,8 +808,20 @@ Project Explain v1 and public schemas remain unchanged. The controlling
 contract is [Phase 60 Slice 10 capability, lineage, and inspection integration](spec/phase60-slice10-capability-lineage-inspection-integration-v1.md).
 
 Live Git and natural exact-head CI own Slice 10 completion without a
-status-only follow-up commit. Slice 11 remains unimplemented and unauthorized
-by Slice 10.
+status-only follow-up commit.
+
+Slice 11 proves the complete published advanced-window chain from a bounded
+real authored corpus through parser, semantic analysis, IR, exact PostgreSQL
+and MySQL SQL, the paired CLI path, Project semantic provenance/data lineage,
+and Phase 59 package-graph private inspection. It covers native reorder,
+native preserve, exact inline fallback, ROWS/RANGE/GROUPS, all four EXCLUDE
+states, effective defaults, RESPECT NULLS, and FROM FIRST without constructing
+final authority carriers or changing production/public behavior. The
+controlling contract is [Phase 60 Slice 11 real authored advanced-window E2E](spec/phase60-slice11-real-authored-advanced-window-e2e-v1.md).
+
+Live Git and natural exact-head CI own Slice 11 completion without a
+status-only follow-up commit. Slice 12 remains unimplemented and unauthorized
+by Slice 11.
 
 ## Retained later ownership
 
