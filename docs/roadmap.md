@@ -676,12 +676,12 @@ validation.
 
 Successful natural exact-head CI on the single Slice 6 completion commit
 completed the Interlude and handed off authority. Phase 60 is `ACTIVE`, Slice 1
-through Slice 10 are completed, Slice 11 is current, and Slice 12 is next /
+through Slice 11 are completed, Slice 12 is current, and Slice 13 is next /
 unstarted.
 
 ## Phase 60 route
 
-Phase 60 is active, Slices 1-10 are completed, Slice 11 is current, and Slice 12
+Phase 60 is active, Slices 1-11 are completed, Slice 12 is current, and Slice 13
 is next / unstarted. The published route has exactly 13 slices.
 
 The exact owner is **Advanced Windows And Phase 51–60 Readiness Checkpoint**.
@@ -820,8 +820,20 @@ final authority carriers or changing production/public behavior. The
 controlling contract is [Phase 60 Slice 11 real authored advanced-window E2E](spec/phase60-slice11-real-authored-advanced-window-e2e-v1.md).
 
 Live Git and natural exact-head CI own Slice 11 completion without a
-status-only follow-up commit. Slice 12 remains unimplemented and unauthorized
-by Slice 11.
+status-only follow-up commit.
+
+Slice 12 proves one reviewed advanced-window observation across four fixed
+hash seeds, all available Python 3.12/3.13 interpreters, independent project
+roots, source relocation, unrelated CWD/ambient state, command-order reversal,
+and an isolated installed wheel. It preserves native reorder, native preserve,
+exact inline fallback, frame/modifier semantics, Project provenance/data
+lineage, and private inspection while requiring exact fail-closed PostgreSQL
+and MySQL backend-negative terminals. It adds no production, public schema,
+backend support, or semantic law. The controlling contract is [Phase 60 Slice 12 differential compatibility](spec/phase60-slice12-differential-compatibility-v1.md).
+
+Live Git and natural exact-head CI own Slice 12 completion without a
+status-only follow-up commit. Slice 13 remains unimplemented and unauthorized
+by Slice 12.
 
 ## Retained later ownership
 

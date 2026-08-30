@@ -5,10 +5,12 @@ from pathlib import Path
 import subprocess
 
 import _pietto_phase59_graph_differential_probe as phase59_probe
+import _pietto_phase60_window_differential_probe as phase60_probe
 import _pietto_project_explain_differential_probe as phase58_probe
 import _pietto_project_explain_scenarios as scenarios
 import test_phase58_slice16_pure_differential_compatibility_assurance as phase58
 import test_phase59_slice11_differential_compatibility_assurance as phase59
+import test_phase60_slice12_differential_compatibility as phase60
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -85,10 +87,21 @@ def test_project_cli_pair_is_order_independent_for_the_same_variant(
 
 
 def test_all_differential_dimensions_and_independent_builds_remain_exact() -> None:
-    assert phase58.SEEDS == phase59.SEEDS == ("0", "1", "7", "4294967295")
+    assert (
+        phase58.SEEDS
+        == phase59.SEEDS
+        == phase60.SEEDS
+        == (
+            "0",
+            "1",
+            "7",
+            "4294967295",
+        )
+    )
     assert (
         phase58.SUPPORTED_INTERPRETERS
         == phase59.SUPPORTED_INTERPRETERS
+        == phase60.SUPPORTED_INTERPRETERS
         == (
             (3, 12),
             (3, 13),
@@ -126,6 +139,22 @@ def test_all_differential_dimensions_and_independent_builds_remain_exact() -> No
     assert "first_inspection == second_inspection" in graph_observation
     assert "_runtime_refs_are_distinct(first, second)" in graph_observation
 
+    phase60_fixture = inspect.getsource(phase60.differential_matrix)
+    for dimension in (
+        'observations[f"seed:{seed}"]',
+        'observations["project-relocated"]',
+        'observations["source-relocated"]',
+        'observations["installed-wheel"]',
+        'key = f"combined:python{version[0]}.{version[1]}:seed{seed}:relocated"',
+    ):
+        assert dimension in phase60_fixture
+    window_observation = inspect.getsource(phase60_probe.observation)
+    assert window_observation.count("_construction(") == 2
+    assert "first == second" in window_observation
+    assert "first_call.named_use.occurrence != second_call.named_use.occurrence" in (
+        window_observation
+    )
+
 
 def test_process_reduction_preserves_variants_cli_calls_and_graph_builds() -> None:
     phase58_variants = 8
@@ -146,10 +175,13 @@ def test_process_reduction_preserves_variants_cli_calls_and_graph_builds() -> No
 
     phase58_source = inspect.getsource(phase58_probe)
     phase59_source = inspect.getsource(phase59_probe)
+    phase60_source = inspect.getsource(phase60_probe)
     assert phase58_source.count("_run_cli_pair(") == 2
     assert phase59_source.count("_run_cli_pair(") == 1
     assert "subprocess.run(" not in phase58_source
     assert "subprocess.run(" not in phase59_source
+    assert phase60_source.count("_run_cli_pair(") == 1
+    assert "subprocess.run(" not in phase60_source
 
 
 def test_slice2_evidence_scope_and_handoff_are_exact() -> None:

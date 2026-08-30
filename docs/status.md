@@ -23,12 +23,13 @@ documentation does not supersede that evidence.
 | Slice 8 | `COMPLETED` |
 | Slice 9 | `COMPLETED` |
 | Slice 10 | `COMPLETED` |
-| Slice 11 | `CURRENT` |
-| Slice 12 | `NEXT / UNSTARTED` |
-| Next | `PHASE60_SLICE12_DIFFERENTIAL_COMPATIBILITY` |
+| Slice 11 | `COMPLETED` |
+| Slice 12 | `CURRENT` |
+| Slice 13 | `NEXT / UNSTARTED` |
+| Next | `PHASE60_SLICE13_PHASE51_60_COMPLETION_READINESS_AUDIT_PHASE61_HANDOFF` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
-completed by live Git and successful natural exact-head CI. Slices 1-10 are
-completed, and Slice 11 is the current real-authored advanced-window E2E owner.
-Live Git and natural exact-head CI own Slice 11 completion; no post-CI
-status-flip commit is required. This status does not authorize Slice 12.
+completed by live Git and successful natural exact-head CI. Slices 1-11 are
+completed, and Slice 12 is the current differential-compatibility owner.
+Live Git and natural exact-head CI own Slice 12 completion; no post-CI
+status-flip commit is required. This status does not authorize Slice 13.
