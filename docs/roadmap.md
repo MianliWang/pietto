@@ -675,14 +675,15 @@ both Python jobs and uses the same resource-aware pytest policy as local
 validation.
 
 Successful natural exact-head CI on the single Slice 6 completion commit
-completed the Interlude and handed off authority. Phase 60 is `ACTIVE`, Slice 1
-through Slice 11 are completed, Slice 12 is current, and Slice 13 is next /
-unstarted.
+completed the Interlude and handed off authority. Phase 60 is `ACTIVE`, Slices
+1–12 are completed, Slice 13 is the current completion candidate, and Phase 61
+is next / not implemented.
 
 ## Phase 60 route
 
-Phase 60 is active, Slices 1-11 are completed, Slice 12 is current, and Slice 13
-is next / unstarted. The published route has exactly 13 slices.
+Phase 60 is active, Slices 1–12 are completed, and Slice 13 is the current
+completion/readiness audit. Phase 61 is next / not implemented. The published
+Phase 60 route has exactly 13 slices.
 
 The exact owner is **Advanced Windows And Phase 51–60 Readiness Checkpoint**.
 
@@ -832,8 +833,26 @@ and MySQL backend-negative terminals. It adds no production, public schema,
 backend support, or semantic law. The controlling contract is [Phase 60 Slice 12 differential compatibility](spec/phase60-slice12-differential-compatibility-v1.md).
 
 Live Git and natural exact-head CI own Slice 12 completion without a
-status-only follow-up commit. Slice 13 remains unimplemented and unauthorized
-by Slice 12.
+status-only follow-up commit.
+
+Slice 13 binds all 13 owners, the exact Slice 1–12 first-parent publication
+chain, the complete advanced-window exit ledger, zero Phase-60 self-owned-open
+subjects, the Phase 51–60 checkpoint, exact deferred ownership, and the Phase 61
+readiness boundary. It adds documentation/static assurance only. The
+controlling contract is [Phase 60 completion/readiness audit and Phase 61
+handoff](spec/phase60-completion-readiness-audit-phase61-handoff-v1.md).
+
+Successful natural exact-head CI on the single Slice 13 commit completes Phase
+60 without a status-only follow-up commit. Slice 13 does not start Phase 61.
+
+### Phase 61 readiness boundary
+
+The exact next owner is **Phase 61 — Project IR And Semantic Composition**.
+Phase 61 is `NEXT / NOT IMPLEMENTED`; its route and slice count are unfrozen.
+It must begin with a fresh architecture/source audit of current Pietto
+authorities plus Malloy, Cube, Apache Calcite, and Substrait. The Slice 13
+contract freezes Project-IR, grain, nested-result, correlation, planning,
+lowering, and policy readiness laws without adding Phase 61 production types.
 
 ## Retained later ownership
 

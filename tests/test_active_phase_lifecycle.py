@@ -80,12 +80,10 @@ EXPECTED_STATUS = (
     ("Slice 9", "`COMPLETED`"),
     ("Slice 10", "`COMPLETED`"),
     ("Slice 11", "`COMPLETED`"),
-    ("Slice 12", "`CURRENT`"),
-    ("Slice 13", "`NEXT / UNSTARTED`"),
-    (
-        "Next",
-        "`PHASE60_SLICE13_PHASE51_60_COMPLETION_READINESS_AUDIT_PHASE61_HANDOFF`",
-    ),
+    ("Slice 12", "`COMPLETED`"),
+    ("Slice 13", "`CURRENT`"),
+    ("Phase 61", "`NEXT / NOT IMPLEMENTED`"),
+    ("Next", "`Phase 61 — Project IR And Semantic Composition`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
@@ -96,8 +94,9 @@ EXPECTED_PHASE59_STATE = (
 )
 EXPECTED_PHASE59_OWNER = "Local package graph, attribution, provenance, and lineage"
 EXPECTED_PHASE60_STATE = (
-    "Phase 60 is active, Slices 1-11 are completed, Slice 12 is current, and Slice 13\n"
-    "is next / unstarted. The published route has exactly 13 slices."
+    "Phase 60 is active, Slices 1–12 are completed, and Slice 13 is the current\n"
+    "completion/readiness audit. Phase 61 is next / not implemented. The published\n"
+    "Phase 60 route has exactly 13 slices."
 )
 EXPECTED_PHASE60_OWNER = "Advanced Windows And Phase 51–60 Readiness Checkpoint"
 EXPECTED_PHASE58_ROUTE = (
@@ -487,6 +486,14 @@ EXPECTED_PHASE60_SLICE12_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice2_differential_probe_runtime_decomposition_optimization.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE60_SLICE13_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase60-completion-readiness-audit-phase61-handoff-v1.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase60_slice13_completion_readiness_audit_phase61_handoff.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -529,11 +536,14 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "Phase 59 and the Validation/Test Performance Optimization Interlude are "
         "completed by live Git and successful natural exact-head CI" in normalized
     )
-    assert "Slices 1-11 are completed" in normalized
-    assert "Slice 12 is the current differential-compatibility owner" in normalized
-    assert "Live Git and natural exact-head CI own Slice 12 completion" in normalized
-    assert "no post-CI status-flip commit is required" in normalized
-    assert "does not authorize Slice 13" in normalized
+    assert "Slices 1–12 are completed" in normalized
+    assert (
+        "Slice 13 is the current Phase 51–60 completion/readiness audit" in normalized
+    )
+    assert "Successful natural exact-head CI on the single Slice 13" in normalized
+    assert "completes Phase 60 without a status-only follow-up commit" in normalized
+    assert "Phase 61 remains next / not implemented" in normalized
+    assert "does not start it or freeze its route" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
@@ -541,6 +551,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     phase58 = _section(roadmap, "Phase 58 route").lstrip()
     phase59 = _section(roadmap, "Phase 59 route").lstrip()
     phase60 = _section(roadmap, "Phase 60 route").lstrip()
+    phase60_normalized = " ".join(phase60.split())
     assert phase58.startswith(f"{EXPECTED_PHASE58_STATE}\n")
     assert phase58.count(EXPECTED_PHASE58_STATE) == 1
     assert _table_rows(phase58)[1:] == EXPECTED_PHASE58_ROUTE
@@ -564,6 +575,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     assert "phase60-slice10-capability-lineage-inspection-integration-v1.md" in phase60
     assert "phase60-slice11-real-authored-advanced-window-e2e-v1.md" in phase60
     assert "phase60-slice12-differential-compatibility-v1.md" in phase60
+    assert "phase60-completion-readiness-audit-phase61-handoff-v1.md" in phase60
     assert "private frozen authored/resolved window-frame model" in phase60
     assert "private validated semantic stage" in phase60
     assert "authored ROWS grammar/AST path" in phase60
@@ -572,7 +584,11 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     assert "canonical peer authority" in phase60
     assert "lazy post-clipping physical-membership view" in phase60
     assert "collection-first exact namespaces" in phase60
-    assert "Slice 13 remains unimplemented" in phase60
+    assert "zero Phase-60 self-owned-open subjects" in phase60_normalized
+    assert "Phase 61 — Project IR And Semantic Composition" in phase60
+    assert "Phase 61 is `NEXT / NOT IMPLEMENTED`" in phase60
+    assert "Malloy, Cube, Apache Calcite, and Substrait" in phase60
+    assert "does not start Phase 61" in phase60
 
     retained = _section(roadmap, "Retained later ownership")
     assert _table_rows(retained)[1:] == EXPECTED_RETAINED_LATER_OWNERS
@@ -608,10 +624,9 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "completed the Interlude and handed off authority" in interlude_normalized
     )
     assert "Phase 60 is `ACTIVE`" in interlude_normalized
-    assert "Slice 1 through Slice 11 are completed, Slice 12 is current" in (
-        interlude_normalized
-    )
-    assert "Slice 13 is next / unstarted" in interlude_normalized
+    assert "Slices 1–12 are completed" in interlude_normalized
+    assert "Slice 13 is the current completion candidate" in interlude_normalized
+    assert "Phase 61 is next / not implemented" in interlude_normalized
     assert len(EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS) == 4
     assert all(
         (REPO_ROOT / path).is_file() for path in EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS
@@ -966,4 +981,25 @@ def test_phase60_slice12_changed_paths_are_exact() -> None:
             )
         )
         for path in EXPECTED_PHASE60_SLICE12_CHANGED_PATHS
+    )
+
+
+def test_phase60_slice13_changed_paths_are_exact() -> None:
+    assert len(EXPECTED_PHASE60_SLICE13_CHANGED_PATHS) == 6
+    assert len(set(EXPECTED_PHASE60_SLICE13_CHANGED_PATHS)) == 6
+    assert all(
+        (REPO_ROOT / path).is_file() for path in EXPECTED_PHASE60_SLICE13_CHANGED_PATHS
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "src/",
+                "tests/fixtures/",
+                "tests/goldens/",
+            )
+        )
+        for path in EXPECTED_PHASE60_SLICE13_CHANGED_PATHS
     )

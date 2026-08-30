@@ -24,12 +24,15 @@ documentation does not supersede that evidence.
 | Slice 9 | `COMPLETED` |
 | Slice 10 | `COMPLETED` |
 | Slice 11 | `COMPLETED` |
-| Slice 12 | `CURRENT` |
-| Slice 13 | `NEXT / UNSTARTED` |
-| Next | `PHASE60_SLICE13_PHASE51_60_COMPLETION_READINESS_AUDIT_PHASE61_HANDOFF` |
+| Slice 12 | `COMPLETED` |
+| Slice 13 | `CURRENT` |
+| Phase 61 | `NEXT / NOT IMPLEMENTED` |
+| Next | `Phase 61 — Project IR And Semantic Composition` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
-completed by live Git and successful natural exact-head CI. Slices 1-11 are
-completed, and Slice 12 is the current differential-compatibility owner.
-Live Git and natural exact-head CI own Slice 12 completion; no post-CI
-status-flip commit is required. This status does not authorize Slice 13.
+completed by live Git and successful natural exact-head CI. Slices 1–12 are
+completed, and Slice 13 is the current Phase 51–60 completion/readiness audit
+and Phase 61 handoff candidate. Successful natural exact-head CI on the single
+Slice 13 publication commit completes Phase 60 without a status-only follow-up
+commit. Phase 61 remains next / not implemented; this status does not start it
+or freeze its route.
