@@ -677,8 +677,8 @@ validation.
 Successful natural exact-head CI on the single Slice 6 completion commit
 completed the Interlude and handed off authority. Phase 60 subsequently
 completed all 13 Slices on successful natural exact-head CI. Phase 61 is now
-`ACTIVE`; Slices 1–3 are completed, Slice 4 is current, and Slice 5 is next /
-unstarted.
+`ACTIVE`; Slices 1–4 are completed, the unnumbered Slice 5 output-identity
+readiness continuation is current, and Slice 5 remains next / unstarted.
 
 ## Phase 60 route
 
@@ -855,9 +855,9 @@ historical authority.
 
 ## Phase 61 route
 
-Phase 61 is active. Slices 1–3 are completed, Slice 4 is the current private
-logical-operator owner, and Slice 5 is next / unstarted. The frozen Phase 61
-route has exactly 12 slices.
+Phase 61 is active. Slices 1–4 are completed, the unnumbered Slice 5
+output-identity readiness continuation is current, and Slice 5 remains next /
+unstarted. The frozen Phase 61 route still has exactly 12 slices.
 
 The exact owner is **Private target-independent Project Logical IR, exact
 semantic composition, and verifiable analysis boundary**.
@@ -936,8 +936,22 @@ grain comparison/fanout, SQL, or public behavior. The controlling contract is
 transfer](spec/phase61-slice4-project-ir-current-logical-operator-algebra-exact-property-transfer-v1.md).
 
 Successful natural exact-head CI on the single Slice 4 publication commit
-completes Slice 4 without a status-only follow-up commit. Slice 5 remains next /
-unstarted and is not authorized by Slice 4.
+completed Slice 4 without a status-only follow-up commit.
+
+The unnumbered Slice 5 output-identity readiness continuation decouples exact
+relation-output field occurrence identity from legacy row-lineage availability.
+It keeps `ProjectModuleRowFieldIdentity` as the sole row-field identity domain,
+adds complete semantic relation-output attribution to the existing module
+attribution fact set, reuses existing direct/renamed lineage identity objects,
+and permits grouped/aggregate/window lineage to remain deferred while their
+final semantic output identities are complete. It adds no Project IR builder,
+new identity domain, fake lineage hop, route slice, SQL, or public behavior. The
+controlling contract is [Phase 61 Slice 5 output-identity authority readiness
+continuation](spec/phase61-slice5-output-identity-authority-readiness-continuation-v1.md).
+
+Successful natural exact-head CI on the continuation publication completes
+only that prerequisite without a status-only follow-up commit. Slice 5 remains
+next / unstarted and resumes as the sole next owner.
 
 ## Retained later ownership
 

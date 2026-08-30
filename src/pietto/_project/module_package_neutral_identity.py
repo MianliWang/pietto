@@ -764,6 +764,10 @@ def _validate_layered_authority_roots(
         raise ValueError(
             "Layered authority requires the exact shared Slice 10 environments."
         )
+    if attribution_authority.semantic_facts is not semantic:
+        raise ValueError(
+            "Layered authority requires exact coupled attribution/semantic roots."
+        )
 
     if len(trusted_source_snapshots) != len(modules) or len(
         selected_input_index.entries

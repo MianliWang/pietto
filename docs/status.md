@@ -17,7 +17,8 @@ documentation does not supersede that evidence.
 | Slice 1 | `COMPLETED` |
 | Slice 2 | `COMPLETED` |
 | Slice 3 | `COMPLETED` |
-| Slice 4 | `CURRENT` |
+| Slice 4 | `COMPLETED` |
+| Output-identity continuation | `CURRENT` |
 | Slice 5 | `NEXT / UNSTARTED` |
 | Next | `Phase 61 Slice 5 — Canonical Single-Relation Construction From Existing Project Semantic Facts` |
 
@@ -29,7 +30,9 @@ Phase 61 is active. Slice 1 is completed by live Git and successful natural
 exact-head CI on its single publication commit. Slice 2 is completed by live
 Git and successful natural exact-head CI on its single publication commit.
 Slice 3 is completed by live Git and successful natural exact-head CI on its
-single publication commit. Slice 4 is the current private logical-operator
-owner and Slice 5 is next / unstarted. Successful natural exact-head CI on the
-single Slice 4 publication commit completes Slice 4 without a status-only
-follow-up commit. This status does not authorize Slice 5.
+single publication commit. Slice 4 is completed by live Git and successful
+natural exact-head CI on its single publication commit. The unnumbered Slice 5
+output-identity readiness continuation is current; Slice 5 remains next /
+unstarted. Successful natural exact-head CI on the continuation publication
+completes only that prerequisite without a status-only follow-up commit. This
+status does not authorize the Slice 5 builder.

@@ -31,6 +31,10 @@ PHASE61_SLICE4_SPEC = (
     REPO_ROOT
     / "docs/spec/phase61-slice4-project-ir-current-logical-operator-algebra-exact-property-transfer-v1.md"
 )
+PHASE61_SLICE5_IDENTITY_CONTINUATION_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase61-slice5-output-identity-authority-readiness-continuation-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -89,7 +93,8 @@ EXPECTED_STATUS = (
     ("Slice 1", "`COMPLETED`"),
     ("Slice 2", "`COMPLETED`"),
     ("Slice 3", "`COMPLETED`"),
-    ("Slice 4", "`CURRENT`"),
+    ("Slice 4", "`COMPLETED`"),
+    ("Output-identity continuation", "`CURRENT`"),
     ("Slice 5", "`NEXT / UNSTARTED`"),
     (
         "Next",
@@ -112,9 +117,9 @@ EXPECTED_PHASE60_STATE = (
 )
 EXPECTED_PHASE60_OWNER = "Advanced Windows And Phase 51–60 Readiness Checkpoint"
 EXPECTED_PHASE61_STATE = (
-    "Phase 61 is active. Slices 1–3 are completed, Slice 4 is the current private\n"
-    "logical-operator owner, and Slice 5 is next / unstarted. The frozen Phase 61\n"
-    "route has exactly 12 slices."
+    "Phase 61 is active. Slices 1–4 are completed, the unnumbered Slice 5\n"
+    "output-identity readiness continuation is current, and Slice 5 remains next /\n"
+    "unstarted. The frozen Phase 61 route still has exactly 12 slices."
 )
 EXPECTED_PHASE61_OWNER = (
     "Private target-independent Project Logical IR, exact semantic composition, "
@@ -599,6 +604,19 @@ EXPECTED_PHASE61_SLICE4_CHANGED_PATHS = (
     "tests/test_phase61_slice4_project_ir_current_logical_operator_algebra_exact_property_transfer.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE61_SLICE5_IDENTITY_CONTINUATION_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase61-slice5-output-identity-authority-readiness-continuation-v1.md",
+    "docs/status.md",
+    "src/pietto/_project/model.py",
+    "src/pietto/_project/module_attribution.py",
+    "src/pietto/_project/module_inspection.py",
+    "src/pietto/_project/module_package_neutral_identity.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase54_module_attribution_dependency_origin_provenance_lineage.py",
+    "tests/test_phase61_slice5_output_identity_authority_readiness_continuation.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -648,10 +666,11 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "Slice 1 is completed by live Git" in normalized
     assert "Slice 2 is completed by live Git" in normalized
     assert "Slice 3 is completed by live Git" in normalized
-    assert "Slice 4 is the current private logical-operator owner" in normalized
-    assert "Slice 5 is next / unstarted" in normalized
-    assert "single Slice 4 publication commit completes Slice 4" in normalized
-    assert "This status does not authorize Slice 5" in normalized
+    assert "Slice 4 is completed by live Git" in normalized
+    assert "output-identity readiness continuation is current" in normalized
+    assert "Slice 5 remains next / unstarted" in normalized
+    assert "continuation publication completes only that prerequisite" in normalized
+    assert "does not authorize the Slice 5 builder" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
@@ -729,8 +748,14 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "conservative exact preservation/establishment transfer proofs",
         "narrow consumer-side row-shape compatibility result",
         "adds no canonical builder, ref allocation",
+        "phase61-slice5-output-identity-authority-readiness-continuation-v1.md",
+        "decouples exact relation-output field occurrence identity",
+        "`ProjectModuleRowFieldIdentity` as the sole row-field identity domain",
+        "complete semantic relation-output attribution",
+        "grouped/aggregate/window lineage to remain deferred",
+        "adds no Project IR builder, new identity domain",
         "Slice 5 remains next / unstarted",
-        "is not authorized by Slice 4",
+        "resumes as the sole next owner",
     ):
         assert evidence in phase61_normalized
 
@@ -772,9 +797,9 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     )
     assert "Phase 60 subsequently completed all 13 Slices" in interlude_normalized
     assert "Phase 61 is now `ACTIVE`" in interlude_normalized
-    assert "Slices 1–3 are completed" in interlude_normalized
-    assert "Slice 4 is current" in interlude_normalized
-    assert "Slice 5 is next / unstarted" in interlude_normalized
+    assert "Slices 1–4 are completed" in interlude_normalized
+    assert "output-identity readiness continuation is current" in interlude_normalized
+    assert "Slice 5 remains next / unstarted" in interlude_normalized
     assert len(EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS) == 4
     assert all(
         (REPO_ROOT / path).is_file() for path in EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS
@@ -912,6 +937,23 @@ def test_phase61_slice4_rebinds_exact_slice3_publication_authority() -> None:
         "Phase 61 = ACTIVE",
         "Slices 1-3 = COMPLETED",
         "Slice 4 = NEXT / NOT IMPLEMENTED",
+    ):
+        assert evidence in document
+
+
+def test_phase61_slice5_identity_continuation_rebinds_slice4_authority() -> None:
+    document = " ".join(
+        PHASE61_SLICE5_IDENTITY_CONTINUATION_SPEC.read_text(encoding="utf-8").split()
+    )
+    for evidence in (
+        "6359867c7e9c51d9b59bd23642d7bd2492b24862",
+        "ba3d57d0b7217cbf4ec47c2ec6b4fae40c8a3d02",
+        "be984f7ae9c0821cfa14229da99bf9c8da97a048",
+        "Add Phase 61 Project IR operator algebra",
+        "33317947197",
+        "Slices 1-4 = COMPLETED",
+        "Slice 5 = NEXT / UNSTARTED",
+        "This publication is an unnumbered prerequisite",
     ):
         assert evidence in document
 
@@ -1320,4 +1362,33 @@ def test_phase61_slice4_changed_paths_are_exact() -> None:
             )
         )
         for path in EXPECTED_PHASE61_SLICE4_CHANGED_PATHS
+    )
+
+
+def test_phase61_slice5_identity_continuation_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE61_SLICE5_IDENTITY_CONTINUATION_CHANGED_PATHS
+    assert len(paths) == 11
+    assert len(set(paths)) == 11
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    production = tuple(path for path in paths if path.startswith("src/"))
+    assert production == (
+        "src/pietto/_project/model.py",
+        "src/pietto/_project/module_attribution.py",
+        "src/pietto/_project/module_inspection.py",
+        "src/pietto/_project/module_package_neutral_identity.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+                "src/pietto/_project_explain/",
+                "src/pietto/ir/",
+                "src/pietto/sql/",
+            )
+        )
+        for path in paths
     )

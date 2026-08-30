@@ -1205,6 +1205,10 @@ class ProjectSemanticResult:
             raise TypeError(
                 "Project module semantic facts require an exact preservation set."
             )
+        if authority.semantic_facts is not semantic_facts:
+            raise ValueError(
+                "Project module attribution requires exact semantic-fact authority."
+            )
         semantic_authority = semantic_facts.authority
         if (
             semantic_authority.modules is not self.modules
@@ -1460,6 +1464,7 @@ def build_empty_project_semantic_result(
             module_diagnostic_facts,
             module_type_source_resolutions,
             module_relation_resolutions,
+            module_semantic_facts,
         )
         module_package_identity_facts = (
             _build_project_module_package_neutral_identity_fact_set(

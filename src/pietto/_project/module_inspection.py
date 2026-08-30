@@ -1337,6 +1337,10 @@ def _validate_inspection_authority_roots(
         or semantic_authority.relation_resolutions is not relation_resolutions
     ):
         raise ValueError("Inspection authority requires the exact Slice 12 roots.")
+    if attribution_authority.semantic_facts is not semantic:
+        raise ValueError(
+            "Inspection authority requires exact coupled attribution/semantic roots."
+        )
 
     if graph.binding_authority is not bindings:
         raise ValueError("Inspection authority requires the exact Slice 8 root.")

@@ -230,6 +230,11 @@ def test_private_carrier_enums_fields_and_sidecar_are_exact() -> None:
             "field_position",
             "name",
         ),
+        module_attribution.ProjectModuleRelationOutputFieldAttribution: (
+            "identity",
+            "relation",
+            "semantic_field",
+        ),
         module_attribution.ProjectModuleOriginPath: (
             "owning_module_path",
             "namespace",
@@ -252,11 +257,14 @@ def test_private_carrier_enums_fields_and_sidecar_are_exact() -> None:
             "module_dependencies",
             "dependencies",
             "source_field_origins",
+            "relation_output_fields",
             "row_lineages",
             "_origins_by_target",
             "_provenance_by_reference",
             "_dependencies_by_reference",
             "_source_origins_by_field",
+            "_relation_output_fields_by_owner",
+            "_relation_output_fields_by_identity",
             "_row_lineages_by_owner",
         ),
         module_attribution._ProjectModuleAttributionAuthority: (
@@ -271,6 +279,7 @@ def test_private_carrier_enums_fields_and_sidecar_are_exact() -> None:
             "module_diagnostic_facts",
             "type_source_resolutions",
             "relation_resolutions",
+            "semantic_facts",
             "declarations",
             "imports",
             "facades",
@@ -280,6 +289,7 @@ def test_private_carrier_enums_fields_and_sidecar_are_exact() -> None:
             "module_dependencies",
             "dependencies",
             "source_field_origins",
+            "relation_output_fields",
             "row_lineages",
         ),
     }
@@ -310,6 +320,7 @@ def test_private_carrier_enums_fields_and_sidecar_are_exact() -> None:
         "module_diagnostic_facts",
         "type_source_resolutions",
         "relation_resolutions",
+        "semantic_facts",
     }
     authority_products = {
         "declarations",
@@ -321,6 +332,7 @@ def test_private_carrier_enums_fields_and_sidecar_are_exact() -> None:
         "module_dependencies",
         "dependencies",
         "source_field_origins",
+        "relation_output_fields",
         "row_lineages",
     }
     assert {
@@ -1623,6 +1635,7 @@ def test_unknown_ambiguous_and_blocked_references_have_raw_attribution_but_no_pr
     assert causal_semantic.module_graph is not None
     assert causal_semantic.module_diagnostic_facts is not None
     assert causal_semantic.module_type_source_resolutions is not None
+    assert causal_semantic.module_semantic_facts is not None
     with pytest.raises(ValueError, match="exact current roots"):
         module_attribution._build_project_module_attribution_fact_set(
             causal_parse_result,
@@ -1636,6 +1649,7 @@ def test_unknown_ambiguous_and_blocked_references_have_raw_attribution_but_no_pr
             causal_semantic.module_diagnostic_facts,
             causal_semantic.module_type_source_resolutions,
             foreign_relation_set,
+            causal_semantic.module_semantic_facts,
         )
 
 
@@ -1765,6 +1779,8 @@ def test_fact_set_lookups_are_complete_tuple_backed_immutable_and_no_winner(
     assert isinstance(facts._provenance_by_reference, MappingProxyType)
     assert isinstance(facts._dependencies_by_reference, MappingProxyType)
     assert isinstance(facts._source_origins_by_field, MappingProxyType)
+    assert isinstance(facts._relation_output_fields_by_owner, MappingProxyType)
+    assert isinstance(facts._relation_output_fields_by_identity, MappingProxyType)
     assert isinstance(facts._row_lineages_by_owner, MappingProxyType)
     with pytest.raises(TypeError):
         facts._origins_by_target[target] = ()  # type: ignore[index]
@@ -1806,6 +1822,7 @@ def test_fact_set_lookups_are_complete_tuple_backed_immutable_and_no_winner(
         "module_dependencies",
         "dependencies",
         "source_field_origins",
+        "relation_output_fields",
         "row_lineages",
     )
     for field_name in canonical_fields:
@@ -2083,6 +2100,7 @@ def test_builder_rejects_incomplete_or_misaligned_retained_inputs(
     assert semantic.module_diagnostic_facts is not None
     assert semantic.module_type_source_resolutions is not None
     assert semantic.module_relation_resolutions is not None
+    assert semantic.module_semantic_facts is not None
     assert semantic.selected_input_index is not None
     _, foreign_semantic = _semantic_project(
         tmp_path / "foreign-sidecar",
@@ -2095,6 +2113,7 @@ def test_builder_rejects_incomplete_or_misaligned_retained_inputs(
     assert foreign_semantic.module_diagnostic_facts is not None
     assert foreign_semantic.module_type_source_resolutions is not None
     assert foreign_semantic.module_relation_resolutions is not None
+    assert foreign_semantic.module_semantic_facts is not None
     with pytest.raises(ValueError, match="exact canonical authority roots"):
         module_attribution._validate_resolution_identity_closure(
             parse_result.modules,
@@ -2209,6 +2228,7 @@ def test_builder_rejects_incomplete_or_misaligned_retained_inputs(
         semantic.module_diagnostic_facts,
         semantic.module_type_source_resolutions,
         semantic.module_relation_resolutions,
+        semantic.module_semantic_facts,
     )
     with pytest.raises(ValueError, match="exact parse result roots"):
         build(parse_result, (parse_result.modules[0],), *arguments[2:])
@@ -2296,7 +2316,12 @@ def test_builder_rejects_incomplete_or_misaligned_retained_inputs(
         environments=tuple(reversed(relation_set.environments)),
     )
     with pytest.raises(ValueError, match="exact graph dependency order"):
-        build(*arguments[:-2], reversed_type, reversed_relation)
+        build(
+            *arguments[:-3],
+            reversed_type,
+            reversed_relation,
+            semantic.module_semantic_facts,
+        )
 
     first_environment = type_set.environments[0]
     incomplete_environment = replace(first_environment, type_resolutions=())
@@ -2305,7 +2330,12 @@ def test_builder_rejects_incomplete_or_misaligned_retained_inputs(
         environments=(incomplete_environment, *type_set.environments[1:]),
     )
     with pytest.raises(ValueError, match="cover exact catalog references"):
-        build(*arguments[:-2], incomplete_type_set, relation_set)
+        build(
+            *arguments[:-3],
+            incomplete_type_set,
+            relation_set,
+            semantic.module_semantic_facts,
+        )
 
     _, diagnostic_semantic = _semantic_project(
         tmp_path / "diagnostic-root",
@@ -2433,9 +2463,10 @@ def test_builder_rejects_incomplete_or_misaligned_retained_inputs(
         replace(semantic, **foreign_module_roots)
     with pytest.raises(ValueError, match="exact current roots"):
         build(
-            *arguments[:-2],
+            *arguments[:-3],
             foreign_semantic.module_type_source_resolutions,
             foreign_semantic.module_relation_resolutions,
+            foreign_semantic.module_semantic_facts,
         )
     module_by_path = {module.path: module for module in parse_result.modules}
     current_occurrences = tuple(
@@ -2487,9 +2518,19 @@ def test_builder_rejects_incomplete_or_misaligned_retained_inputs(
         ),
     )
     with pytest.raises(ValueError, match="exact current roots"):
-        build(*arguments[:-2], partial_type, relation_set)
+        build(
+            *arguments[:-3],
+            partial_type,
+            relation_set,
+            semantic.module_semantic_facts,
+        )
     with pytest.raises(ValueError, match="exact current roots"):
-        build(*arguments[:-2], type_set, partial_relation)
+        build(
+            *arguments[:-3],
+            type_set,
+            partial_relation,
+            semantic.module_semantic_facts,
+        )
     for field_name in (
         "modules",
         "module_catalogs",
@@ -2541,6 +2582,7 @@ def test_builder_is_pure_over_preloaded_inputs_and_performs_no_io(
     assert semantic.module_diagnostic_facts is not None
     assert semantic.module_type_source_resolutions is not None
     assert semantic.module_relation_resolutions is not None
+    assert semantic.module_semantic_facts is not None
     assert semantic.selected_input_index is not None
 
     def unexpected_io(*args: object, **kwargs: object) -> object:
@@ -2562,6 +2604,7 @@ def test_builder_is_pure_over_preloaded_inputs_and_performs_no_io(
         semantic.module_diagnostic_facts,
         semantic.module_type_source_resolutions,
         semantic.module_relation_resolutions,
+        semantic.module_semantic_facts,
     )
     assert rebuilt == _facts(semantic)
 

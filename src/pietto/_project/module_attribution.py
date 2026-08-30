@@ -65,6 +65,10 @@ from pietto._project.module_resolution import (
     ProjectTypeSourceResolutionSet,
     _build_project_type_source_resolution_set,
 )
+from pietto._project.module_semantic_fact_preservation import (
+    ProjectModuleRelationSemanticFacts,
+    ProjectModuleSemanticFactSet,
+)
 from pietto._project.selected_input_index import ProjectSelectedInputIndex
 from pietto._project.trusted_source import ProjectTrustedSourceSnapshot
 from pietto.ast_nodes import (
@@ -102,6 +106,7 @@ _ProjectModuleAttributionFactCollections = tuple[
     tuple["ProjectModuleImportDependencyFact", ...],
     tuple["ProjectModuleDependencyFact", ...],
     tuple["ProjectModuleSourceFieldOrigin", ...],
+    tuple["ProjectModuleRelationOutputFieldAttribution", ...],
     tuple["ProjectModuleRelationLineage", ...],
 ]
 _ATTRIBUTION_FACT_COLLECTION_FIELD_NAMES = (
@@ -114,6 +119,7 @@ _ATTRIBUTION_FACT_COLLECTION_FIELD_NAMES = (
     "module_dependencies",
     "dependencies",
     "source_field_origins",
+    "relation_output_fields",
     "row_lineages",
 )
 
@@ -257,6 +263,56 @@ class ProjectModuleRowFieldIdentity:
         }[self.kind]
         if owner_kind not in expected:
             raise ValueError("Row field kind does not match its owner declaration.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectModuleRelationOutputFieldAttribution:
+    """One canonical relation-output identity with exact semantic evidence."""
+
+    identity: ProjectModuleRowFieldIdentity
+    relation: ProjectModuleRelationSemanticFacts = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    semantic_field: ProjectRowField
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.identity) is not ProjectModuleRowFieldIdentity
+            or self.identity.kind is not ProjectModuleRowFieldKind.RELATION_OUTPUT
+        ):
+            raise TypeError(
+                "Relation output attribution requires an exact output identity."
+            )
+        if type(self.relation) is not ProjectModuleRelationSemanticFacts:
+            raise TypeError(
+                "Relation output attribution requires exact semantic facts."
+            )
+        if type(self.semantic_field) is not ProjectRowField:
+            raise TypeError(
+                "Relation output attribution requires exact semantic field evidence."
+            )
+        definition = self.relation.owner.definition
+        schema = self.relation.state.schema
+        if (
+            type(definition) not in {TableDef, QueryDef}
+            or self.relation.state.status is not ProjectRelationRowSchemaStatus.CONCRETE
+            or schema is None
+            or _declaration_identity(self.relation.owner) != self.identity.owner
+        ):
+            raise ValueError(
+                "Relation output attribution requires one concrete relation owner."
+            )
+        fields = tuple(schema.fields.values())
+        if (
+            self.identity.field_position >= len(fields)
+            or fields[self.identity.field_position] is not self.semantic_field
+            or self.identity.name != self.semantic_field.name
+        ):
+            raise ValueError(
+                "Relation output identity must retain exact semantic field order."
+            )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -834,6 +890,11 @@ class _ProjectModuleAttributionAuthority:
         compare=False,
         hash=False,
     )
+    semantic_facts: ProjectModuleSemanticFactSet = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
     declarations: tuple[ProjectModuleDeclarationAttribution, ...] = field(
         init=False,
         repr=False,
@@ -888,6 +949,10 @@ class _ProjectModuleAttributionAuthority:
         compare=False,
         hash=False,
     )
+    relation_output_fields: tuple[
+        ProjectModuleRelationOutputFieldAttribution,
+        ...,
+    ] = field(init=False, repr=False, compare=False, hash=False)
     row_lineages: tuple[ProjectModuleRelationLineage, ...] = field(
         init=False,
         repr=False,
@@ -910,6 +975,7 @@ class _ProjectModuleAttributionAuthority:
             self.module_diagnostic_facts,
             self.type_source_resolutions,
             self.relation_resolutions,
+            self.semantic_facts,
         )
         for field_name, values in zip(
             _ATTRIBUTION_FACT_COLLECTION_FIELD_NAMES,
@@ -942,6 +1008,10 @@ class ProjectModuleAttributionFactSet:
     module_dependencies: tuple[ProjectModuleImportDependencyFact, ...] = ()
     dependencies: tuple[ProjectModuleDependencyFact, ...] = ()
     source_field_origins: tuple[ProjectModuleSourceFieldOrigin, ...] = ()
+    relation_output_fields: tuple[
+        ProjectModuleRelationOutputFieldAttribution,
+        ...,
+    ] = ()
     row_lineages: tuple[ProjectModuleRelationLineage, ...] = ()
     _origins_by_target: Mapping[
         ProjectNominalDeclarationIdentity,
@@ -958,6 +1028,14 @@ class ProjectModuleAttributionFactSet:
     _source_origins_by_field: Mapping[
         ProjectModuleRowFieldIdentity,
         tuple[ProjectModuleSourceFieldOrigin, ...],
+    ] = field(init=False, repr=False, compare=False, hash=False)
+    _relation_output_fields_by_owner: Mapping[
+        ProjectDeclarationOccurrenceIdentity,
+        tuple[ProjectModuleRelationOutputFieldAttribution, ...],
+    ] = field(init=False, repr=False, compare=False, hash=False)
+    _relation_output_fields_by_identity: Mapping[
+        ProjectModuleRowFieldIdentity,
+        tuple[ProjectModuleRelationOutputFieldAttribution, ...],
     ] = field(init=False, repr=False, compare=False, hash=False)
     _row_lineages_by_owner: Mapping[
         ProjectDeclarationOccurrenceIdentity,
@@ -998,6 +1076,11 @@ class ProjectModuleAttributionFactSet:
                 ProjectModuleSourceFieldOrigin,
                 "source field origins",
             ),
+            (
+                self.relation_output_fields,
+                ProjectModuleRelationOutputFieldAttribution,
+                "relation output fields",
+            ),
             (self.row_lineages, ProjectModuleRelationLineage, "row lineages"),
         )
         for values, item_type, label in collections:
@@ -1018,6 +1101,11 @@ class ProjectModuleAttributionFactSet:
             lambda item: item.source_field,
             "source field origins",
         )
+        _require_unique(
+            self.relation_output_fields,
+            lambda item: item.identity,
+            "relation output fields",
+        )
         _require_unique(self.row_lineages, lambda item: item.owner, "row lineages")
         declaration_ids = {item.identity for item in self.declarations}
         import_ids = {item.identity for item in self.imports}
@@ -1032,6 +1120,13 @@ class ProjectModuleAttributionFactSet:
         source_origins_by_field = {
             item.source_field: item for item in self.source_field_origins
         }
+        if any(
+            item.identity.owner not in declaration_ids
+            for item in self.relation_output_fields
+        ):
+            raise ValueError(
+                "Relation output field owner must be a declaration attribution."
+            )
         if any(item.target_occurrence not in declaration_ids for item in self.facades):
             raise ValueError("Facade attribution target must be a declaration.")
         for origin in self.origins:
@@ -1253,6 +1348,20 @@ class ProjectModuleAttributionFactSet:
         )
         object.__setattr__(
             self,
+            "_relation_output_fields_by_owner",
+            _tuple_mapping(
+                _bucket(self.relation_output_fields, lambda item: item.identity.owner)
+            ),
+        )
+        object.__setattr__(
+            self,
+            "_relation_output_fields_by_identity",
+            _tuple_mapping(
+                _bucket(self.relation_output_fields, lambda item: item.identity)
+            ),
+        )
+        object.__setattr__(
+            self,
             "_row_lineages_by_owner",
             _tuple_mapping(_bucket(self.row_lineages, lambda item: item.owner)),
         )
@@ -1307,6 +1416,26 @@ class ProjectModuleAttributionFactSet:
             raise TypeError("Row lineage lookup requires an owner occurrence.")
         return self._row_lineages_by_owner.get(owner, ())
 
+    def find_relation_output_fields(
+        self,
+        owner: ProjectDeclarationOccurrenceIdentity,
+    ) -> tuple[ProjectModuleRelationOutputFieldAttribution, ...]:
+        """Return the complete ordered semantic output-field attribution."""
+
+        if type(owner) is not ProjectDeclarationOccurrenceIdentity:
+            raise TypeError("Relation output lookup requires an owner occurrence.")
+        return self._relation_output_fields_by_owner.get(owner, ())
+
+    def find_relation_output_field(
+        self,
+        identity: ProjectModuleRowFieldIdentity,
+    ) -> tuple[ProjectModuleRelationOutputFieldAttribution, ...]:
+        """Return one exact output-field attribution, or an empty tuple."""
+
+        if type(identity) is not ProjectModuleRowFieldIdentity:
+            raise TypeError("Relation output lookup requires a row-field identity.")
+        return self._relation_output_fields_by_identity.get(identity, ())
+
 
 def _derive_project_module_attribution_fact_collections(
     parse_result: ProjectParseCheckResult,
@@ -1320,8 +1449,9 @@ def _derive_project_module_attribution_fact_collections(
     module_diagnostic_facts: ProjectModuleDiagnosticSet,
     type_source_resolutions: ProjectTypeSourceResolutionSet,
     relation_resolutions: ProjectModuleRelationResolutionSet,
+    semantic_facts: ProjectModuleSemanticFactSet,
 ) -> _ProjectModuleAttributionFactCollections:
-    """Derive complete pure facts from the exact Slice 5--10 roots."""
+    """Derive complete pure facts from exact preloaded semantic roots."""
 
     _validate_builder_inputs(
         parse_result,
@@ -1335,6 +1465,7 @@ def _derive_project_module_attribution_fact_collections(
         module_diagnostic_facts,
         type_source_resolutions,
         relation_resolutions,
+        semantic_facts,
     )
     declarations = tuple(
         ProjectModuleDeclarationAttribution(
@@ -1515,6 +1646,10 @@ def _derive_project_module_attribution_fact_collections(
     )
     for dependency in row_dependencies:
         _append_exact_unique(dependencies, dependency_seen, dependency)
+    relation_output_fields = _build_relation_output_field_attributions(
+        semantic_facts,
+        row_lineages,
+    )
 
     reference_ids = {attribution.identity for attribution in references}
     if any(item.reference not in reference_ids for item in reference_provenance):
@@ -1537,8 +1672,75 @@ def _derive_project_module_attribution_fact_collections(
         module_dependencies,
         tuple(dependencies),
         source_field_origins,
+        relation_output_fields,
         row_lineages,
     )
+
+
+def _build_relation_output_field_attributions(
+    semantic_facts: ProjectModuleSemanticFactSet,
+    row_lineages: tuple[ProjectModuleRelationLineage, ...],
+) -> tuple[ProjectModuleRelationOutputFieldAttribution, ...]:
+    """Build complete final output identities independently of lineage status."""
+
+    if type(semantic_facts) is not ProjectModuleSemanticFactSet:
+        raise TypeError("Relation output fields require exact semantic facts.")
+    _require_tuple(row_lineages, ProjectModuleRelationLineage, "Row lineages")
+    lineage_by_owner = {item.owner: item for item in row_lineages}
+    if len(lineage_by_owner) != len(row_lineages):
+        raise ValueError("Relation output fields require unique lineage owners.")
+
+    attributions: list[ProjectModuleRelationOutputFieldAttribution] = []
+    for environment in semantic_facts.environments:
+        for relation in environment.relation_facts:
+            definition = relation.owner.definition
+            if type(definition) not in {TableDef, QueryDef}:
+                continue
+            owner = _declaration_identity(relation.owner)
+            lineage = lineage_by_owner.get(owner)
+            if lineage is None:
+                raise ValueError(
+                    "Relation output fields require one retained lineage state."
+                )
+            if relation.state.status is not ProjectRelationRowSchemaStatus.CONCRETE:
+                continue
+            schema = relation.state.schema
+            if schema is None or schema.is_unknown:
+                raise ValueError(
+                    "Concrete relation output fields require a concrete schema."
+                )
+            semantic_fields = tuple(schema.fields.values())
+            identities = (
+                tuple(item.field for item in lineage.fields)
+                if lineage.status is ProjectRelationRowSchemaStatus.CONCRETE
+                else tuple(
+                    ProjectModuleRowFieldIdentity(
+                        owner=owner,
+                        kind=ProjectModuleRowFieldKind.RELATION_OUTPUT,
+                        field_position=position,
+                        name=semantic_field.name,
+                    )
+                    for position, semantic_field in enumerate(semantic_fields)
+                )
+            )
+            if len(identities) != len(semantic_fields):
+                raise ValueError(
+                    "Concrete lineage must reconcile complete output identities."
+                )
+            relation_attributions = tuple(
+                ProjectModuleRelationOutputFieldAttribution(
+                    identity=identity,
+                    relation=relation,
+                    semantic_field=semantic_field,
+                )
+                for identity, semantic_field in zip(
+                    identities,
+                    semantic_fields,
+                    strict=True,
+                )
+            )
+            attributions.extend(relation_attributions)
+    return tuple(attributions)
 
 
 def _build_project_module_attribution_fact_set(
@@ -1553,6 +1755,7 @@ def _build_project_module_attribution_fact_set(
     module_diagnostic_facts: ProjectModuleDiagnosticSet,
     type_source_resolutions: ProjectTypeSourceResolutionSet,
     relation_resolutions: ProjectModuleRelationResolutionSet,
+    semantic_facts: ProjectModuleSemanticFactSet,
 ) -> ProjectModuleAttributionFactSet:
     """Build one private fact set with one self-verifying authority root."""
 
@@ -1568,6 +1771,7 @@ def _build_project_module_attribution_fact_set(
         module_diagnostic_facts=module_diagnostic_facts,
         type_source_resolutions=type_source_resolutions,
         relation_resolutions=relation_resolutions,
+        semantic_facts=semantic_facts,
     )
     return ProjectModuleAttributionFactSet(
         binding_authority=bindings,
@@ -1581,6 +1785,7 @@ def _build_project_module_attribution_fact_set(
         module_dependencies=authority.module_dependencies,
         dependencies=authority.dependencies,
         source_field_origins=authority.source_field_origins,
+        relation_output_fields=authority.relation_output_fields,
         row_lineages=authority.row_lineages,
     )
 
@@ -1600,6 +1805,7 @@ def _attribution_fact_collections(
         source.module_dependencies,
         source.dependencies,
         source.source_field_origins,
+        source.relation_output_fields,
         source.row_lineages,
     )
 
@@ -2245,6 +2451,7 @@ def _validate_builder_inputs(
     module_diagnostic_facts: ProjectModuleDiagnosticSet,
     type_source_resolutions: ProjectTypeSourceResolutionSet,
     relation_resolutions: ProjectModuleRelationResolutionSet,
+    semantic_facts: ProjectModuleSemanticFactSet,
 ) -> None:
     if type(parse_result) is not ProjectParseCheckResult:
         raise TypeError("Attribution builder requires an exact parse result root.")
@@ -2267,6 +2474,7 @@ def _validate_builder_inputs(
         (module_diagnostic_facts, ProjectModuleDiagnosticSet),
         (type_source_resolutions, ProjectTypeSourceResolutionSet),
         (relation_resolutions, ProjectModuleRelationResolutionSet),
+        (semantic_facts, ProjectModuleSemanticFactSet),
     )
     for value, expected_type in expected_types:
         if type(value) is not expected_type:
@@ -2468,6 +2676,14 @@ def _validate_builder_inputs(
         type_source_resolutions,
         relation_resolutions,
     )
+    if (
+        semantic_facts.authority.modules is not modules
+        or semantic_facts.authority.catalogs is not catalogs
+        or semantic_facts.authority.relation_resolutions is not relation_resolutions
+    ):
+        raise ValueError(
+            "Attribution builder requires exact semantic-fact authority roots."
+        )
 
 
 def _validate_resolution_identity_closure(
