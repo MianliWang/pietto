@@ -677,7 +677,7 @@ validation.
 Successful natural exact-head CI on the single Slice 6 completion commit
 completed the Interlude and handed off authority. Phase 60 subsequently
 completed all 13 Slices on successful natural exact-head CI. Phase 61 is now
-`ACTIVE`; Slice 1 is completed, Slice 2 is current, and Slice 3 is next /
+`ACTIVE`; Slices 1 and 2 are completed, Slice 3 is current, and Slice 4 is next /
 unstarted.
 
 ## Phase 60 route
@@ -855,9 +855,9 @@ historical authority.
 
 ## Phase 61 route
 
-Phase 61 is active. Slice 1 is completed, Slice 2 is the current private
-structural-model owner, and Slice 3 is next / unstarted. The frozen Phase 61
-route has exactly 12 slices.
+Phase 61 is active. Slices 1 and 2 are completed, Slice 3 is the current private
+property-model owner, and Slice 4 is next / unstarted. The frozen Phase 61 route
+has exactly 12 slices.
 
 The exact owner is **Private target-independent Project Logical IR, exact
 semantic composition, and verifiable analysis boundary**.
@@ -906,8 +906,23 @@ controlling contract is [Phase 61 Slice 2 Project IR structural
 model](spec/phase61-slice2-project-ir-scope-stages-occurrences-anchors-construction-states-v1.md).
 
 Successful natural exact-head CI on the single Slice 2 publication commit
-completes Slice 2 without a status-only follow-up commit. Slice 3 remains next /
-unstarted and is not authorized by Slice 2.
+completed Slice 2 without a status-only follow-up commit.
+
+Slice 3 adds a separate private semantic-property layer in
+`src/pietto/_project/project_ir_properties.py`. It composes with exactly one
+unchanged Slice 2 structural stage and adds exact ordered row/field evidence,
+current scalar and BAG relation-row outputs, separate provided and consumer-side
+required properties, exact current grouped-order/local-grain/static-limit and
+window-policy evidence, conservative unknown effects, and an empty estimate
+boundary.
+It adds no operator, property transfer, semantic-facts builder, graph
+construction, function-effect catalog, grain comparison/fanout, estimator,
+optimizer, SQL, or public behavior. The controlling contract is [Phase 61
+Slice 3 Project IR property model](spec/phase61-slice3-project-ir-row-output-properties-effects-estimate-boundary-v1.md).
+
+Successful natural exact-head CI on the single Slice 3 publication commit
+completes Slice 3 without a status-only follow-up commit. Slice 4 remains next /
+unstarted and is not authorized by Slice 3.
 
 ## Retained later ownership
 

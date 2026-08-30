@@ -15,16 +15,19 @@ documentation does not supersede that evidence.
 | Phase 60 | `COMPLETED` |
 | Phase 61 | `ACTIVE` |
 | Slice 1 | `COMPLETED` |
-| Slice 2 | `CURRENT` |
-| Slice 3 | `NEXT / UNSTARTED` |
-| Next | `Phase 61 Slice 3 — Row/Output Model, Provided/Required Properties, Effects, And Estimate Boundary` |
+| Slice 2 | `COMPLETED` |
+| Slice 3 | `CURRENT` |
+| Slice 4 | `NEXT / UNSTARTED` |
+| Next | `Phase 61 Slice 4 — Current Logical Operator Algebra And Exact Property Transfer` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
 Slices are completed by live Git and successful natural exact-head CI on its
 single Slice 13 publication commit, without a status-only follow-up commit.
 Phase 61 is active. Slice 1 is completed by live Git and successful natural
-exact-head CI on its single publication commit. Slice 2 is the current private
-structural-model owner and Slice 3 is next / unstarted. Successful natural
-exact-head CI on the single Slice 2 publication commit completes Slice 2
-without a status-only follow-up commit. This status does not authorize Slice 3.
+exact-head CI on its single publication commit. Slice 2 is completed by live
+Git and successful natural exact-head CI on its single publication commit.
+Slice 3 is the current private property-model owner and Slice 4 is next /
+unstarted. Successful natural exact-head CI on the single Slice 3 publication
+commit completes Slice 3 without a status-only follow-up commit. This status
+does not authorize Slice 4.
