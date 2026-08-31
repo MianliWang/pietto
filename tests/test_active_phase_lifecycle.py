@@ -63,6 +63,9 @@ PHASE61_SLICE10_SPEC = (
     REPO_ROOT
     / "docs/spec/phase61-slice10-real-authored-multi-module-project-ir-e2e-v1.md"
 )
+PHASE61_SLICE11_SPEC = (
+    REPO_ROOT / "docs/spec/phase61-slice11-differential-compatibility-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -129,10 +132,11 @@ EXPECTED_STATUS = (
     ("Slice 7", "`COMPLETED`"),
     ("Slice 8", "`COMPLETED`"),
     ("Slice 9", "`COMPLETED`"),
-    ("Slice 10", "`CURRENT`"),
+    ("Slice 10", "`COMPLETED`"),
+    ("Slice 11", "`CURRENT`"),
     (
         "Next",
-        "`Phase 61 Slice 11 — Differential Compatibility`",
+        "`Phase 61 Slice 12 — Completion Audit And Phase 62 Handoff`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -150,10 +154,9 @@ EXPECTED_PHASE60_STATE = (
 )
 EXPECTED_PHASE60_OWNER = "Advanced Windows And Phase 51–60 Readiness Checkpoint"
 EXPECTED_PHASE61_STATE = (
-    "Phase 61 is active. Slices 1–9 and both unnumbered Slice 5 prerequisites are\n"
-    "completed, Slice 10 real-authored multi-module Project IR E2E is current, and\n"
-    "Slice 11 remains next / unstarted. The frozen Phase 61 route still has exactly\n"
-    "12 slices."
+    "Phase 61 is active. Slices 1–10 and both unnumbered Slice 5 prerequisites are\n"
+    "completed, Slice 11 differential compatibility is current, and Slice 12 remains\n"
+    "next / unstarted. The frozen Phase 61 route still has exactly 12 slices."
 )
 EXPECTED_PHASE61_OWNER = (
     "Private target-independent Project Logical IR, exact semantic composition, "
@@ -725,6 +728,16 @@ EXPECTED_PHASE61_SLICE10_CHANGED_PATHS = (
     "tests/test_phase61_slice10_real_authored_multi_module_project_ir_e2e.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE61_SLICE11_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase61-slice11-differential-compatibility-v1.md",
+    "docs/status.md",
+    "tests/_pietto_phase61_project_ir_differential_probe.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase61_slice11_differential_compatibility.py",
+    "tests/test_validation_performance_interlude_slice2_differential_probe_runtime_decomposition_optimization.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -789,8 +802,10 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "Slice 9 private inspection" in normalized
     assert "pure portable boundary is completed" in normalized
     assert "Slice 10 real authored multi-module Project IR" in normalized
-    assert "single publication commit completes Slice 10" in normalized
-    assert "does not authorize Slice 11 implementation" in normalized
+    assert "orchestration and E2E assurance is completed" in normalized
+    assert "Slice 11 differential compatibility assurance is current" in normalized
+    assert "single publication commit completes Slice 11" in normalized
+    assert "does not authorize Slice 12 implementation" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
@@ -919,7 +934,15 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "`INVALID` stops before analysis",
         "two-hop re-export route",
         "full current eight-stage relation path",
-        "Slice 11 remains next / unstarted",
+        "phase61-slice11-differential-compatibility-v1.md",
+        "`tests/_pietto_phase61_project_ir_differential_probe.py`",
+        "One reviewed common manifest",
+        "Python 3.12/3.13",
+        "four fixed hash seeds",
+        "normal/reverse file creation",
+        "isolated installed wheel",
+        "controlled verifier corruption",
+        "Slice 12 remains next / unstarted",
         "sole next owner",
     ):
         assert evidence in phase61_normalized
@@ -1232,6 +1255,22 @@ def test_phase61_slice10_rebinds_exact_slice9_publication_authority() -> None:
         "A3/M4/D0",
         "build_project_ir_pipeline",
         "Slice 11 = NEXT / UNSTARTED",
+    ):
+        assert evidence in document
+
+
+def test_phase61_slice11_rebinds_exact_slice10_publication_authority() -> None:
+    document = " ".join(PHASE61_SLICE11_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "6607e7a7b127562e5f24490a0135bd7e14134744",
+        "700df2d796a30852e2076c75af5b60411e8feeea",
+        "edf68678b2a766302e654202f3fe0798c3386ffd",
+        "Add Phase 61 Project IR end-to-end pipeline",
+        "33355551275",
+        "Slices 1-10",
+        "A3/M5/D0",
+        "production delta = 0",
+        "Slice 12 = NEXT / UNSTARTED",
     ):
         assert evidence in document
 
@@ -1851,6 +1890,26 @@ def test_phase61_slice10_changed_paths_are_exact() -> None:
                 "src/pietto/_project_explain/",
                 "src/pietto/ir/",
                 "src/pietto/sql/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase61_slice11_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE61_SLICE11_CHANGED_PATHS
+    assert len(paths) == 8
+    assert len(set(paths)) == 8
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert not any(path.startswith("src/") for path in paths)
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
             )
         )
         for path in paths

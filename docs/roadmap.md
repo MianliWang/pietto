@@ -856,10 +856,9 @@ historical authority.
 
 ## Phase 61 route
 
-Phase 61 is active. Slices 1–9 and both unnumbered Slice 5 prerequisites are
-completed, Slice 10 real-authored multi-module Project IR E2E is current, and
-Slice 11 remains next / unstarted. The frozen Phase 61 route still has exactly
-12 slices.
+Phase 61 is active. Slices 1–10 and both unnumbered Slice 5 prerequisites are
+completed, Slice 11 differential compatibility is current, and Slice 12 remains
+next / unstarted. The frozen Phase 61 route still has exactly 12 slices.
 
 The exact owner is **Private target-independent Project Logical IR, exact
 semantic composition, and verifiable analysis boundary**.
@@ -1100,7 +1099,31 @@ Project IR fragment manually and changes no public, SQL, CLI, JSON, script
 [Phase 61 Slice 10 real-authored multi-module Project IR E2E](spec/phase61-slice10-real-authored-multi-module-project-ir-e2e-v1.md).
 
 Successful natural exact-head CI on the single Slice 10 publication commit
-completes Slice 10 without a status-only follow-up commit. Slice 11 remains next
+completed Slice 10 without a status-only follow-up commit.
+
+Slice 11 adds no production behavior. Its private
+`tests/_pietto_phase61_project_ir_differential_probe.py` probe reuses the exact
+Slice 10 authored Project IR entry and the established Phase 58–60 interpreter,
+relocation, fresh-cache wheel, and batched differential harnesses. One reviewed
+common manifest binds exact semantic relation/field identities and states,
+typed Project IR coordinates, operators, direct cross edges and compatibility,
+aggregate/window contexts, verification, topology/reachability,
+equivalence/rewrite readiness, winner-free queries, package version, and exact
+`pietto.project-ir-inspection.v1` bytes.
+
+The matrix covers Python 3.12/3.13, four fixed hash seeds, unrelated Project and
+source roots, normal/reverse file creation, opposite construction/query order,
+unrelated cwd/ambient values, and an isolated installed wheel. Runtime scopes
+remain distinct from portable equality, shifted starting coordinates remain
+observable, and real missing-field plus cycle-blocked semantic terminals remain
+stable beside concrete components. One controlled verifier corruption and six
+high-value pure-boundary malformed documents retain typed normalized negative
+outcomes. The probe batches each environment without sorting, persistent cache,
+or nested subprocess harness. The controlling contract is [Phase 61 Slice 11
+differential compatibility](spec/phase61-slice11-differential-compatibility-v1.md).
+
+Successful natural exact-head CI on the single Slice 11 publication commit
+completes Slice 11 without a status-only follow-up commit. Slice 12 remains next
 / unstarted and is the sole next owner.
 
 ## Retained later ownership

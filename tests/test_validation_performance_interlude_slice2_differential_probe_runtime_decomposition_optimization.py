@@ -6,11 +6,13 @@ import subprocess
 
 import _pietto_phase59_graph_differential_probe as phase59_probe
 import _pietto_phase60_window_differential_probe as phase60_probe
+import _pietto_phase61_project_ir_differential_probe as phase61_probe
 import _pietto_project_explain_differential_probe as phase58_probe
 import _pietto_project_explain_scenarios as scenarios
 import test_phase58_slice16_pure_differential_compatibility_assurance as phase58
 import test_phase59_slice11_differential_compatibility_assurance as phase59
 import test_phase60_slice12_differential_compatibility as phase60
+import test_phase61_slice11_differential_compatibility as phase61
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -91,6 +93,7 @@ def test_all_differential_dimensions_and_independent_builds_remain_exact() -> No
         phase58.SEEDS
         == phase59.SEEDS
         == phase60.SEEDS
+        == phase61.SEEDS
         == (
             "0",
             "1",
@@ -102,6 +105,7 @@ def test_all_differential_dimensions_and_independent_builds_remain_exact() -> No
         phase58.SUPPORTED_INTERPRETERS
         == phase59.SUPPORTED_INTERPRETERS
         == phase60.SUPPORTED_INTERPRETERS
+        == phase61.SUPPORTED_INTERPRETERS
         == (
             (3, 12),
             (3, 13),
@@ -155,6 +159,22 @@ def test_all_differential_dimensions_and_independent_builds_remain_exact() -> No
         window_observation
     )
 
+    phase61_fixture = inspect.getsource(phase61.differential_matrix)
+    for dimension in (
+        'observations[f"seed:{seed}"]',
+        'observations["project-relocated"]',
+        'observations["source-relocated"]',
+        'observations["installed-wheel"]',
+        'f"seed{seed}:relocated"',
+    ):
+        assert dimension in phase61_fixture
+    project_ir_observation = inspect.getsource(phase61_probe.observation)
+    assert project_ir_observation.count("_construction(") == 2
+    assert "first_value == second_value" in project_ir_observation
+    assert "shifted.canonical_bytes != first.canonical_bytes" in (
+        project_ir_observation
+    )
+
 
 def test_process_reduction_preserves_variants_cli_calls_and_graph_builds() -> None:
     phase58_variants = 8
@@ -176,12 +196,24 @@ def test_process_reduction_preserves_variants_cli_calls_and_graph_builds() -> No
     phase58_source = inspect.getsource(phase58_probe)
     phase59_source = inspect.getsource(phase59_probe)
     phase60_source = inspect.getsource(phase60_probe)
+    phase61_source = inspect.getsource(phase61_probe)
     assert phase58_source.count("_run_cli_pair(") == 2
     assert phase59_source.count("_run_cli_pair(") == 1
     assert "subprocess.run(" not in phase58_source
     assert "subprocess.run(" not in phase59_source
     assert phase60_source.count("_run_cli_pair(") == 1
     assert "subprocess.run(" not in phase60_source
+    assert "subprocess.run(" not in phase61_source
+    assert phase61_source.count("build_project_ir_pipeline(") == 2
+    for forbidden in (
+        "sort_keys=True",
+        ".sort(",
+        "lru_cache",
+        "functools.cache",
+        "shelve",
+        "pickle",
+    ):
+        assert forbidden not in phase61_source
 
 
 def test_slice2_evidence_scope_and_handoff_are_exact() -> None:
