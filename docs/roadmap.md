@@ -856,9 +856,9 @@ historical authority.
 
 ## Phase 61 route
 
-Phase 61 is active. Slices 1–8 and both unnumbered Slice 5 prerequisites are
-completed, Slice 9 private inspection and pure serialization is current, and
-Slice 10 remains next / unstarted. The frozen Phase 61 route still has exactly
+Phase 61 is active. Slices 1–9 and both unnumbered Slice 5 prerequisites are
+completed, Slice 10 real-authored multi-module Project IR E2E is current, and
+Slice 11 remains next / unstarted. The frozen Phase 61 route still has exactly
 12 slices.
 
 The exact owner is **Private target-independent Project Logical IR, exact
@@ -1077,8 +1077,31 @@ optimizer, recursion, SQL, or backend behavior. The controlling contract is
 [Phase 61 Slice 9 private Project IR inspection](spec/phase61-slice9-private-inspection-query-canonical-serialization-pure-boundary-v1.md).
 
 Successful natural exact-head CI on the single Slice 9 publication commit
-completes Slice 9 without a status-only follow-up commit. Slice 10 remains next /
-unstarted and is the sole next owner.
+completed Slice 9 without a status-only follow-up commit.
+
+Slice 10 adds one private `src/pietto/_project/project_ir_pipeline.py`
+orchestration boundary. It consumes the exact existing `ProjectSemanticResult`
+and one explicit `ProjectIRAllocationState`, reuses the semantic and attribution
+roots object-for-object, and calls the published Slice 6 Project plan, Slice 7
+evaluation context, Slice 8 independent verifier and fresh analysis, and Slice
+9 inspection and canonical serializer in one direction. `INVALID` stops before
+analysis or observation; the immutable result retains every stage plus exact
+starting/ending allocation and canonical private bytes.
+
+Positive assurance begins with real pytest-owned multi-module authored files
+through existing discovery, trust, parsing, module resolution, semantics, and
+attribution. It covers a two-hop re-export route, shared producer uses, a
+multi-hop consumer, the full current eight-stage relation path, exact
+aggregate/window contexts, a genuine non-concrete terminal beside an
+independent concrete component, and fresh-scope runtime-ref distinction with
+byte-equal canonical observation. It constructs no semantic fact root or
+Project IR fragment manually and changes no public, SQL, CLI, JSON, script
+`RelationIR`, optimizer, or recursion behavior. The controlling contract is
+[Phase 61 Slice 10 real-authored multi-module Project IR E2E](spec/phase61-slice10-real-authored-multi-module-project-ir-e2e-v1.md).
+
+Successful natural exact-head CI on the single Slice 10 publication commit
+completes Slice 10 without a status-only follow-up commit. Slice 11 remains next
+/ unstarted and is the sole next owner.
 
 ## Retained later ownership
 

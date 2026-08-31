@@ -24,8 +24,9 @@ documentation does not supersede that evidence.
 | Slice 6 | `COMPLETED` |
 | Slice 7 | `COMPLETED` |
 | Slice 8 | `COMPLETED` |
-| Slice 9 | `CURRENT` |
-| Next | `Phase 61 Slice 10 — Real Authored Multi-Module Project IR E2E` |
+| Slice 9 | `COMPLETED` |
+| Slice 10 | `CURRENT` |
+| Next | `Phase 61 Slice 11 — Differential Compatibility` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -49,6 +50,8 @@ exact-head CI. Slice 8 independent integrity verification, fresh analyses,
 explicit invalidation, and semantic-equivalence/rewrite-readiness assessment is
 completed by live Git and successful natural exact-head CI. Slice 9 private
 inspection, typed query, canonical serialization, and pure portable boundary is
-current. Successful natural exact-head CI on its single publication commit
-completes Slice 9 without a status-only follow-up commit and hands off only to
-Slice 10. This status does not authorize Slice 10 implementation.
+completed by live Git and successful natural exact-head CI. Slice 10 real
+authored multi-module Project IR orchestration and E2E assurance is current.
+Successful natural exact-head CI on its single publication commit completes
+Slice 10 without a status-only follow-up commit and hands off only to Slice 11.
+This status does not authorize Slice 11 implementation.
