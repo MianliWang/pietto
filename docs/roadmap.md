@@ -856,9 +856,10 @@ historical authority.
 
 ## Phase 61 route
 
-Phase 61 is active. Slices 1–6 and both unnumbered Slice 5 prerequisites are
-completed, Slice 7 aggregate/window evaluation context is current, and Slice 8
-remains next / unstarted. The frozen Phase 61 route still has exactly 12 slices.
+Phase 61 is active. Slices 1–7 and both unnumbered Slice 5 prerequisites are
+completed, Slice 8 integrity verification and derived analysis is current, and
+Slice 9 remains next / unstarted. The frozen Phase 61 route still has exactly
+12 slices.
 
 The exact owner is **Private target-independent Project Logical IR, exact
 semantic composition, and verifiable analysis boundary**.
@@ -1028,7 +1029,32 @@ optimizer, or verifier. The controlling contract is [Phase 61 Slice 7 aggregate
 and window evaluation context](spec/phase61-slice7-aggregate-window-evaluation-context-policy-effect-no-ambient-authority-v1.md).
 
 Successful natural exact-head CI on the single Slice 7 publication commit
-completes Slice 7 without a status-only follow-up commit. Slice 8 remains next /
+completed Slice 7 without a status-only follow-up commit.
+
+Slice 8 adds an independent private verifier and detachable analysis boundary
+in `src/pietto/_project/project_ir_verification.py` over the exact Slice 7
+stage. It rederives snapshot/ref integrity, structural endpoints, fragment and
+operator/flow composition, cross-relation resolution/provenance and row
+compatibility, properties/transfers/effects, non-concrete zero-IR terminals,
+evaluation contexts, and actual-use acyclicity into one typed `VERIFIED` or
+`INVALID` result. Constructor validity and previous analysis are not accepted
+as verification authority.
+
+Only a verified stage produces fresh complete reverse-use, deterministic
+topological-order, transitive-reachability, and semantic-equivalence candidate
+analyses. Explicit topology, operator/output/property/effect/evaluation-context,
+provenance, and estimate change domains derive preserved/invalidated analysis
+tuples; verification always requires rerun. Equivalence assesses schema/types,
+values, BAG multiplicity, null/empty behavior, cardinality, ordering,
+effects/errors, evaluation count, policy, capabilities, and provenance without
+merging occurrences. Unknown current evidence blocks rewrite readiness.
+Ordinary cycles remain invalid and do not become recursion. Slice 8 adds no
+optimizer, memo, transform, rewrite, cost/physical plan, fixpoint, inspection,
+serialization, SQL, or public behavior. The controlling contract is [Phase 61
+Slice 8 integrity verifier and analysis readiness](spec/phase61-slice8-integrity-verifier-analysis-invalidation-semantic-equivalence-optimizer-recursion-readiness-v1.md).
+
+Successful natural exact-head CI on the single Slice 8 publication commit
+completes Slice 8 without a status-only follow-up commit. Slice 9 remains next /
 unstarted and is the sole next owner.
 
 ## Retained later ownership
