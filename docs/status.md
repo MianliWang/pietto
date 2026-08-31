@@ -13,7 +13,7 @@ documentation does not supersede that evidence.
 | Phase 59 | `COMPLETED` |
 | Validation/Test Performance Optimization Interlude | `COMPLETED` |
 | Phase 60 | `COMPLETED` |
-| Phase 61 | `ACTIVE` |
+| Phase 61 | `COMPLETION CANDIDATE` |
 | Slice 1 | `COMPLETED` |
 | Slice 2 | `COMPLETED` |
 | Slice 3 | `COMPLETED` |
@@ -26,8 +26,10 @@ documentation does not supersede that evidence.
 | Slice 8 | `COMPLETED` |
 | Slice 9 | `COMPLETED` |
 | Slice 10 | `COMPLETED` |
-| Slice 11 | `CURRENT` |
-| Next | `Phase 61 Slice 12 — Completion Audit And Phase 62 Handoff` |
+| Slice 11 | `COMPLETED` |
+| Slice 12 | `CURRENT` |
+| Phase 62 | `NEXT / NOT IMPLEMENTED` |
+| Next | `Phase 62 — Relationships/JOIN, key/FD evidence, grain comparison, fanout/multiplicity, and multi-fact alignment` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -54,7 +56,10 @@ inspection, typed query, canonical serialization, and pure portable boundary is
 completed by live Git and successful natural exact-head CI. Slice 10 real
 authored multi-module Project IR orchestration and E2E assurance is completed
 by live Git and successful natural exact-head CI. Slice 11 differential
-compatibility assurance is current. Successful natural exact-head CI on its
-single publication commit completes Slice 11 without a status-only follow-up
-commit and hands off only to Slice 12. This status does not authorize Slice 12
-implementation.
+compatibility assurance is completed by live Git and successful natural
+exact-head CI. Slice 12 completion audit and Phase 62 handoff is current, with
+all 13 predecessor publications audited, all 13 exit criteria satisfied, both
+Slice 5 prerequisites complete, and `Phase61 self-owned-open = 0`. Successful
+natural exact-head CI on its single publication commit completes Phase 61 and
+all 12 numbered Slices without a status-only follow-up commit. Phase 62 remains
+next / not implemented. This status does not authorize Phase 62 implementation.

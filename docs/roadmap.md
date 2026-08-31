@@ -856,9 +856,10 @@ historical authority.
 
 ## Phase 61 route
 
-Phase 61 is active. Slices 1–10 and both unnumbered Slice 5 prerequisites are
-completed, Slice 11 differential compatibility is current, and Slice 12 remains
-next / unstarted. The frozen Phase 61 route still has exactly 12 slices.
+Phase 61 is an active completion candidate. Slices 1–11 and both unnumbered
+Slice 5 prerequisites are completed, Slice 12 completion audit is current, and
+Phase 62 remains next / not implemented. The frozen Phase 61 route still has
+exactly 12 numbered slices.
 
 The exact owner is **Private target-independent Project Logical IR, exact
 semantic composition, and verifiable analysis boundary**.
@@ -1123,8 +1124,23 @@ or nested subprocess harness. The controlling contract is [Phase 61 Slice 11
 differential compatibility](spec/phase61-slice11-differential-compatibility-v1.md).
 
 Successful natural exact-head CI on the single Slice 11 publication commit
-completes Slice 11 without a status-only follow-up commit. Slice 12 remains next
-/ unstarted and is the sole next owner.
+completed Slice 11 without a status-only follow-up commit.
+
+Slice 12 is documentation/static assurance only. It audits the 13 already
+published Phase 61 units as one exact first-parent chain with unique natural
+push CI and successful Python 3.12/3.13 jobs; reconciles the Slice 1 architecture
+laws, complete private product inventory, real E2E/differential evidence,
+public zero-delta boundary, 13/13 exit ledger, all later-owner subjects, and
+`Phase61 self-owned-open = 0`; and records Phase 62 readiness without beginning
+its route or implementation. The controlling contract is [Phase 61 completion
+audit and Phase 62 handoff](spec/phase61-completion-audit-phase62-handoff-v1.md).
+
+Successful natural exact-head CI on the single Slice 12 publication commit
+completes Phase 61 and all 12 numbered Slices without a status-only follow-up
+commit. The exact next owner remains **Phase 62 — Relationships/JOIN, key/FD
+evidence, grain comparison, fanout/multiplicity, and multi-fact alignment**,
+with state `NEXT / NOT IMPLEMENTED`. Phase 62 must begin with a fresh
+architecture/source audit and route lock; no Phase 62 route is frozen here.
 
 ## Retained later ownership
 
