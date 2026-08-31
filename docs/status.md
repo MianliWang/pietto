@@ -23,8 +23,9 @@ documentation does not supersede that evidence.
 | Slice 5 | `COMPLETED` |
 | Slice 6 | `COMPLETED` |
 | Slice 7 | `COMPLETED` |
-| Slice 8 | `CURRENT` |
-| Next | `Phase 61 Slice 9 — Private Inspection, Query, Canonical Serialization, And Pure Boundary` |
+| Slice 8 | `COMPLETED` |
+| Slice 9 | `CURRENT` |
+| Next | `Phase 61 Slice 10 — Real Authored Multi-Module Project IR E2E` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -46,6 +47,8 @@ natural exact-head CI. Slice 7 aggregate/window evaluation context and exact
 policy/effect preservation is completed by live Git and successful natural
 exact-head CI. Slice 8 independent integrity verification, fresh analyses,
 explicit invalidation, and semantic-equivalence/rewrite-readiness assessment is
+completed by live Git and successful natural exact-head CI. Slice 9 private
+inspection, typed query, canonical serialization, and pure portable boundary is
 current. Successful natural exact-head CI on its single publication commit
-completes Slice 8 without a status-only follow-up commit and hands off only to
-Slice 9. This status does not authorize Slice 9 implementation.
+completes Slice 9 without a status-only follow-up commit and hands off only to
+Slice 10. This status does not authorize Slice 10 implementation.

@@ -55,6 +55,10 @@ PHASE61_SLICE8_SPEC = (
     REPO_ROOT
     / "docs/spec/phase61-slice8-integrity-verifier-analysis-invalidation-semantic-equivalence-optimizer-recursion-readiness-v1.md"
 )
+PHASE61_SLICE9_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase61-slice9-private-inspection-query-canonical-serialization-pure-boundary-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -119,11 +123,11 @@ EXPECTED_STATUS = (
     ("Slice 5", "`COMPLETED`"),
     ("Slice 6", "`COMPLETED`"),
     ("Slice 7", "`COMPLETED`"),
-    ("Slice 8", "`CURRENT`"),
+    ("Slice 8", "`COMPLETED`"),
+    ("Slice 9", "`CURRENT`"),
     (
         "Next",
-        "`Phase 61 Slice 9 — Private Inspection, Query, Canonical Serialization, "
-        "And Pure Boundary`",
+        "`Phase 61 Slice 10 — Real Authored Multi-Module Project IR E2E`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -141,9 +145,9 @@ EXPECTED_PHASE60_STATE = (
 )
 EXPECTED_PHASE60_OWNER = "Advanced Windows And Phase 51–60 Readiness Checkpoint"
 EXPECTED_PHASE61_STATE = (
-    "Phase 61 is active. Slices 1–7 and both unnumbered Slice 5 prerequisites are\n"
-    "completed, Slice 8 integrity verification and derived analysis is current, and\n"
-    "Slice 9 remains next / unstarted. The frozen Phase 61 route still has exactly\n"
+    "Phase 61 is active. Slices 1–8 and both unnumbered Slice 5 prerequisites are\n"
+    "completed, Slice 9 private inspection and pure serialization is current, and\n"
+    "Slice 10 remains next / unstarted. The frozen Phase 61 route still has exactly\n"
     "12 slices."
 )
 EXPECTED_PHASE61_OWNER = (
@@ -697,6 +701,16 @@ EXPECTED_PHASE61_SLICE8_CHANGED_PATHS = (
     "tests/test_phase61_slice8_integrity_verifier_analysis_invalidation_semantic_equivalence_optimizer_recursion_readiness.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE61_SLICE9_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase61-slice9-private-inspection-query-canonical-serialization-pure-boundary-v1.md",
+    "docs/status.md",
+    "src/pietto/_project/project_ir_inspection.py",
+    "src/pietto/_project/project_ir_pure_boundary.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase61_slice9_private_inspection_query_canonical_serialization_pure_boundary.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -757,8 +771,10 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "Slice 7 aggregate/window evaluation context" in normalized
     assert "policy/effect preservation is completed" in normalized
     assert "Slice 8 independent integrity verification" in normalized
-    assert "single publication commit completes Slice 8" in normalized
-    assert "does not authorize Slice 9 implementation" in normalized
+    assert "rewrite-readiness assessment is completed" in normalized
+    assert "Slice 9 private inspection" in normalized
+    assert "single publication commit completes Slice 9" in normalized
+    assert "does not authorize Slice 10 implementation" in normalized
 
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
@@ -873,7 +889,14 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "verification always requires rerun",
         "Unknown current evidence blocks rewrite readiness",
         "Ordinary cycles remain invalid",
-        "Slice 9 remains next / unstarted",
+        "phase61-slice9-private-inspection-query-canonical-serialization-pure-boundary-v1.md",
+        "`src/pietto/_project/project_ir_inspection.py`",
+        "`src/pietto/_project/project_ir_pure_boundary.py`",
+        "verified-only private inspection",
+        "Queries accept typed runtime refs",
+        "sole canonical encoder",
+        "Equal bytes remain distinct",
+        "Slice 10 remains next / unstarted",
         "sole next owner",
     ):
         assert evidence in phase61_normalized
@@ -1154,6 +1177,22 @@ def test_phase61_slice8_rebinds_exact_slice7_publication_authority() -> None:
         "A3/M4/D0",
         "verification itself is never preservable",
         "Slice 9 = NEXT / UNSTARTED",
+    ):
+        assert evidence in document
+
+
+def test_phase61_slice9_rebinds_exact_slice8_publication_authority() -> None:
+    document = " ".join(PHASE61_SLICE9_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "577511b9dd6dbf14dbd5dc3710bee0a3d86b92be",
+        "c4bc106f54d31939c4681d4d1dd6bb10d519f78c",
+        "455629a9edc93622180788ff4cba8b76776c4e9f",
+        "Add Phase 61 Project IR verifier",
+        "33349469530",
+        "Slices 1-8",
+        "A4/M4/D0",
+        "pietto.project-ir-inspection.v1",
+        "Slice 10 = NEXT / UNSTARTED",
     ):
         assert evidence in document
 
@@ -1711,6 +1750,33 @@ def test_phase61_slice8_changed_paths_are_exact() -> None:
     assert all((REPO_ROOT / path).is_file() for path in paths)
     production = tuple(path for path in paths if path.startswith("src/"))
     assert production == ("src/pietto/_project/project_ir_verification.py",)
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+                "src/pietto/_project_explain/",
+                "src/pietto/ir/",
+                "src/pietto/sql/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase61_slice9_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE61_SLICE9_CHANGED_PATHS
+    assert len(paths) == 8
+    assert len(set(paths)) == 8
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    production = tuple(path for path in paths if path.startswith("src/"))
+    assert production == (
+        "src/pietto/_project/project_ir_inspection.py",
+        "src/pietto/_project/project_ir_pure_boundary.py",
+    )
     assert not any(
         path.startswith(
             (

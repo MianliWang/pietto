@@ -856,9 +856,9 @@ historical authority.
 
 ## Phase 61 route
 
-Phase 61 is active. Slices 1–7 and both unnumbered Slice 5 prerequisites are
-completed, Slice 8 integrity verification and derived analysis is current, and
-Slice 9 remains next / unstarted. The frozen Phase 61 route still has exactly
+Phase 61 is active. Slices 1–8 and both unnumbered Slice 5 prerequisites are
+completed, Slice 9 private inspection and pure serialization is current, and
+Slice 10 remains next / unstarted. The frozen Phase 61 route still has exactly
 12 slices.
 
 The exact owner is **Private target-independent Project Logical IR, exact
@@ -1054,7 +1054,30 @@ serialization, SQL, or public behavior. The controlling contract is [Phase 61
 Slice 8 integrity verifier and analysis readiness](spec/phase61-slice8-integrity-verifier-analysis-invalidation-semantic-equivalence-optimizer-recursion-readiness-v1.md).
 
 Successful natural exact-head CI on the single Slice 8 publication commit
-completes Slice 8 without a status-only follow-up commit. Slice 9 remains next /
+completed Slice 8 without a status-only follow-up commit.
+
+Slice 9 adds a verified-only private inspection and typed query owner in
+`src/pietto/_project/project_ir_inspection.py` plus a portable total evaluator
+and sole canonical encoder in
+`src/pietto/_project/project_ir_pure_boundary.py`. Inspection retains the exact
+Slice 8 bundle, complete direct Project sections, evaluation contexts, and
+derived analyses without sorting, deduplication, mutation, or ref allocation.
+Queries accept typed runtime refs or declaration occurrence identities and
+return complete ordered buckets without a name resolver or winner.
+
+Portable records use four nominal ref domains plus explicit semantic identity
+components, preserve direct and derived section order separately, and carry no
+runtime scope, object representation, or digest. The pure evaluator validates
+the closed header/fragment/topology/property/effect/context/analysis document
+and returns normalized rejection coordinates or the one canonical payload.
+Equal bytes remain distinct from occurrence identity, semantic equivalence,
+rewrite readiness, persistent identity, and content identity. Slice 9 adds no
+public schema, JSON/CLI/API, deserializer, expression serializer, cache,
+optimizer, recursion, SQL, or backend behavior. The controlling contract is
+[Phase 61 Slice 9 private Project IR inspection](spec/phase61-slice9-private-inspection-query-canonical-serialization-pure-boundary-v1.md).
+
+Successful natural exact-head CI on the single Slice 9 publication commit
+completes Slice 9 without a status-only follow-up commit. Slice 10 remains next /
 unstarted and is the sole next owner.
 
 ## Retained later ownership
