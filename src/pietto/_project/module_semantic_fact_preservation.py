@@ -1238,6 +1238,31 @@ class ProjectModuleRelationSemanticFacts:
             raise ValueError("Relation semantic facts require a relation definition.")
         if self.base_result_state is None:
             raise ValueError("Derived semantic facts require a base-result state.")
+        derived = cast(_DerivedRelation, definition)
+        if derived.join_clauses:
+            if self.state.status is ProjectRelationRowSchemaStatus.CONCRETE:
+                raise ValueError(
+                    "Authored JOIN semantic facts cannot publish a concrete state."
+                )
+            if (
+                self.state.reason
+                is ProjectRelationRowSchemaReason.AUTHORED_JOIN_DEFERRED
+                and any(
+                    checkpoint is not None
+                    and (
+                        checkpoint.status is ProjectRelationRowSchemaStatus.CONCRETE
+                        or checkpoint.schema is not None
+                    )
+                    for checkpoint in (
+                        self.input_state,
+                        self.base_result_state,
+                        self.state,
+                    )
+                )
+            ):
+                raise ValueError(
+                    "Authored JOIN deferral forbids concrete row checkpoints."
+                )
         if self.state.status is ProjectRelationRowSchemaStatus.CONCRETE and (
             self.input_state is None
             or self.input_state.status is not ProjectRelationRowSchemaStatus.CONCRETE
@@ -1248,7 +1273,6 @@ class ProjectModuleRelationSemanticFacts:
                 "Concrete derived semantic facts require concrete row checkpoints."
             )
 
-        derived = cast(_DerivedRelation, definition)
         if derived.named_windows:
             namespace = self.named_window_namespace
             if type(namespace) is ResolvedNamedWindowNamespace:
@@ -2628,6 +2652,30 @@ def _build_derived_relation_facts(
         if definition.group_by_clause is None
         else tuple(definition.group_by_clause.items)
     )
+    if definition.join_clauses and resolution is not None and upstream is not None:
+        state = base_row_fact.state
+        let_scope = build_project_relation_let_scope_facts(
+            definition=definition,
+            input_schema=None,
+            upstream_definition=cast(
+                _RelationDefinition,
+                resolution.target_symbol.target_occurrence.definition,
+            ),
+            upstream_state=state,
+        )
+        return (
+            _nonconcrete_relation_facts(
+                owner=owner,
+                base_row_fact=base_row_fact,
+                resolution=resolution,
+                input_state=None,
+                state=state,
+                let_scope=let_scope,
+                group_key_occurrences=group_key_occurrences,
+                capabilities=capabilities,
+            ),
+            state,
+        )
     if resolution is None or upstream is None:
         state = base_row_fact.state
         let_scope = build_project_relation_let_scope_facts(

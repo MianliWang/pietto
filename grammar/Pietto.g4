@@ -260,11 +260,23 @@ queryDefinition
     ;
 
 tableBody
-    : NEWLINE* fromClause NEWLINE* letClause? NEWLINE* whereClause? NEWLINE* groupByClause? NEWLINE* selectClause NEWLINE* (namedWindowDeclaration NEWLINE*)* satisfyingClause? NEWLINE* orderByClause? NEWLINE* limitClause? NEWLINE*
+    : NEWLINE* fromClause NEWLINE* (joinClause NEWLINE*)* letClause? NEWLINE* whereClause? NEWLINE* groupByClause? NEWLINE* selectClause NEWLINE* (namedWindowDeclaration NEWLINE*)* satisfyingClause? NEWLINE* orderByClause? NEWLINE* limitClause? NEWLINE*
     ;
 
 fromClause
     : FROM identifier NEWLINE
+    ;
+
+joinClause
+    : (INNER | LEFT) JOIN identifier AS identifier COLON NEWLINE NEWLINE* INDENT joinBody DEDENT
+    ;
+
+joinBody
+    : NEWLINE* FROM identifier NEWLINE NEWLINE* (joinTraversalStep NEWLINE*)*
+    ;
+
+joinTraversalStep
+    : VIA identifier COLON identifier ARROW identifier NEWLINE
     ;
 
 letClause
@@ -458,6 +470,10 @@ namePart
     | SATISFYING
     | RELATIONSHIP
     | ENDPOINT
+    | INNER
+    | LEFT
+    | JOIN
+    | VIA
     ;
 
 // New language keywords remain valid in identifier positions for compatibility.
@@ -493,6 +509,10 @@ identifier
     | SATISFYING
     | RELATIONSHIP
     | ENDPOINT
+    | INNER
+    | LEFT
+    | JOIN
+    | VIA
     ;
 
 callSuffix
@@ -543,6 +563,10 @@ ENDPOINT: 'endpoint';
 IMPORT: 'import';
 EXPORT: 'export';
 AS: 'as';
+INNER: 'inner';
+LEFT: 'left';
+JOIN: 'join';
+VIA: 'via';
 WINDOW: 'window';
 PARTITION: 'partition';
 ROWS: 'rows';

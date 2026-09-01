@@ -13,6 +13,7 @@ from antlr4.tree.Tree import TerminalNode
 from pietto import _window_identity
 from pietto.ast_nodes import (
     Annotation,
+    AuthoredJoinKind,
     AuthoredWindowFrame,
     AuthoredWindowFrameExclusion,
     AuthoredWindowFrameKind,
@@ -40,6 +41,8 @@ from pietto.ast_nodes import (
     ImportItem,
     ImportStatement,
     IsNullExpr,
+    JoinClause,
+    JoinTraversalStep,
     LetBinding,
     LetClause,
     LimitClause,
@@ -466,6 +469,7 @@ class AstBuilder(PiettoVisitor):
 
         (
             from_clause,
+            join_clauses,
             let_clause,
             where_clause,
             group_by_clause,
@@ -479,6 +483,7 @@ class AstBuilder(PiettoVisitor):
             span=self._span(ctx),
             name=ctx.identifier().getText(),
             from_clause=from_clause,
+            join_clauses=join_clauses,
             where_clause=where_clause,
             group_by_clause=group_by_clause,
             select_items=select_items,
@@ -494,6 +499,7 @@ class AstBuilder(PiettoVisitor):
 
         (
             from_clause,
+            join_clauses,
             let_clause,
             where_clause,
             group_by_clause,
@@ -507,6 +513,7 @@ class AstBuilder(PiettoVisitor):
             span=self._span(ctx),
             name=ctx.identifier().getText(),
             from_clause=from_clause,
+            join_clauses=join_clauses,
             where_clause=where_clause,
             group_by_clause=group_by_clause,
             select_items=select_items,
@@ -523,6 +530,37 @@ class AstBuilder(PiettoVisitor):
         return FromClause(
             span=self._span(ctx),
             source_name=ctx.identifier().getText(),
+        )
+
+    def visitJoinClause(self, ctx: _AntlrContext) -> JoinClause:
+        """Retain one exact authored JOIN without lowering it."""
+
+        identifiers = ctx.identifier()
+        body = ctx.joinBody()
+        return JoinClause(
+            span=self._span(ctx),
+            kind=(
+                AuthoredJoinKind.INNER
+                if ctx.INNER() is not None
+                else AuthoredJoinKind.LEFT
+            ),
+            target_relation_name=identifiers[0].getText(),
+            target_binding_name=identifiers[1].getText(),
+            source_binding_name=body.identifier().getText(),
+            traversal_steps=tuple(
+                self.visit(step) for step in body.joinTraversalStep()
+            ),
+        )
+
+    def visitJoinTraversalStep(self, ctx: _AntlrContext) -> JoinTraversalStep:
+        """Retain one source-ordered VIA step with exact endpoint roles."""
+
+        identifiers = ctx.identifier()
+        return JoinTraversalStep(
+            span=self._span(ctx),
+            relationship_name=identifiers[0].getText(),
+            source_endpoint_role=identifiers[1].getText(),
+            target_endpoint_role=identifiers[2].getText(),
         )
 
     def visitWhereClause(self, ctx: _AntlrContext) -> WhereClause:
@@ -839,6 +877,7 @@ class AstBuilder(PiettoVisitor):
         self, ctx: _AntlrContext
     ) -> tuple[
         FromClause,
+        tuple[JoinClause, ...],
         LetClause | None,
         WhereClause | None,
         GroupByClause | None,
@@ -852,6 +891,7 @@ class AstBuilder(PiettoVisitor):
 
         return (
             self.visit(ctx.fromClause()),
+            tuple(self.visit(item) for item in ctx.joinClause()),
             self.visit(ctx.letClause()) if ctx.letClause() is not None else None,
             self.visit(ctx.whereClause()) if ctx.whereClause() is not None else None,
             (

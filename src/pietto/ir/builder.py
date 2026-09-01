@@ -415,6 +415,12 @@ def _lower_relation(
 ) -> RelationIR:
     """Lower one minimal table or query from existing semantic facts."""
 
+    if definition.join_clauses:
+        raise _MissingSemanticFact(
+            definition,
+            "binary JOIN lowering for an authored relationship traversal",
+        )
+
     target = semantic_model.from_resolutions.get(definition.from_clause)
     if target is None:
         raise _MissingSemanticFact(definition.from_clause, "resolved relation input")

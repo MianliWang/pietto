@@ -23,15 +23,15 @@ documentation does not supersede that evidence.
 | Slice 6 | `COMPLETED` |
 | Slice 7 | `COMPLETED` |
 | Slice 8 | `COMPLETED` |
-| Slice 9 | `CURRENT / PUBLICATION CANDIDATE` |
-| Slice 10 | `NOT STARTED` |
+| Slice 9 | `COMPLETED` |
+| Slice 10 | `CURRENT / PUBLICATION CANDIDATE` |
 | Slice 11 | `NOT STARTED` |
 | Slice 12 | `NOT STARTED` |
 | Slice 13 | `NOT STARTED` |
 | Slice 14 | `NOT STARTED` |
 | Slice 15 | `NOT STARTED` |
 | Slice 16 | `NOT STARTED` |
-| Next | `Phase 62 Slice 10 — Authored JOIN/Traversal Syntax And Semantic Uses` |
+| Next | `Phase 62 Slice 11 — Project IR Binary JOIN Region, Multi-Input Topology, Null Extension, And Property Transfer` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -48,9 +48,10 @@ is completed by successful natural exact-head CI on its single publication
 commit. Slice 3 authored base-match/private exact-field correspondence is
 completed by successful natural exact-head CI on its single publication
 commit, without a status-only follow-up commit.
-Slices 4–8 key/FD/grain/match-guarantee authorities are completed by natural
-CI. Slice 9 is the current private explicit relationship-path and
-fanout/survival/null-potential publication candidate. It adds no grammar,
-public schema, JOIN IR/SQL, multi-fact, package, workflow, or version behavior.
-Successful natural exact-head CI completes Slice 9 without a status-only
-follow-up commit. Slices 10–16 are not started; Slice 10 is the sole next owner.
+Slices 4–9 key/FD/grain/match-guarantee/path authorities are completed by
+natural CI. Slice 10 is the current authored INNER/LEFT relationship-use and
+JOIN-deferred Project semantic/IR publication candidate. It adds no binary
+JOIN IR, combined row schema, SQL JOIN lowering, public schema, multi-fact,
+package, workflow, or version behavior. Successful natural exact-head CI
+completes Slice 10 without a status-only follow-up commit. Slices 11–16 are not
+started; Slice 11 is the sole next owner.

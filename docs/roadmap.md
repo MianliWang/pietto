@@ -1144,9 +1144,9 @@ frozen its route without changing Phase-61 production behavior.
 
 ## Phase 62 route
 
-Phase 62 is active. Slices 1–8 are completed by successful natural exact-head
-CI, Slice 9 is the current publication candidate, Slices 10–16 are not started,
-and the frozen route has exactly 16 numbered slices.
+Phase 62 is active. Slices 1–9 are completed by successful natural exact-head
+CI, Slice 10 is the current publication candidate, Slices 11–16 are not
+started, and the frozen route has exactly 16 numbered slices.
 
 The exact owner is **Private occurrence-safe relationships and INNER/LEFT
 logical JOIN, typed key/FD/coverage evidence, factorized intrinsic grain,
@@ -1316,6 +1316,25 @@ SQL/public or multi-fact behavior. Successful natural exact-head CI completes
 it without a status-only commit. The only next owner is **Phase 62 Slice 10 —
 Authored JOIN/Traversal Syntax And Semantic Uses**; Slice 10 is not implemented
 here.
+
+Slice 10 adds authored INNER/LEFT JOIN clauses with optional explicit VIA
+paths, immutable source-located AST occurrences, occurrence-safe query-local
+bindings, and one complete private relationship-use ledger. Exact authored
+JOIN presence installs `AUTHORED_JOIN_DEFERRED` before module semantic
+finalization, so legacy base-only row facts cannot become a joined output.
+Direct single-relation/project-plan/pipeline entry paths retain a zero-allocation
+non-concrete Project IR terminal while unrelated relations remain concrete.
+Direct shorthand and explicit traversal reuse the exact Slice-9 index,
+constructor, and analyzer. The controlling contract is [Phase 62 Slice 10
+authored JOIN/traversal syntax and semantic
+uses](spec/phase62-slice10-authored-join-traversal-syntax-semantic-uses-v1.md).
+
+Slice 10 adds no joined scalar namespace, binary Project IR JOIN, actual null
+extension, optional grain factor, SQL JOIN lowering, public schema, or
+multi-fact behavior. Successful natural exact-head CI completes it without a
+status-only commit. The only next owner is **Phase 62 Slice 11 — Project IR
+Binary JOIN Region, Multi-Input Topology, Null Extension, And Property
+Transfer**; Slice 11 is not implemented here.
 
 ## Retained later ownership
 

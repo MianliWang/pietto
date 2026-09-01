@@ -105,6 +105,10 @@ PHASE62_SLICE9_SPEC = (
     REPO_ROOT
     / "docs/spec/phase62-slice9-explicit-relationship-paths-fanout-survival-null-effects-join-shape-analysis-v1.md"
 )
+PHASE62_SLICE10_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase62-slice10-authored-join-traversal-syntax-semantic-uses-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -169,8 +173,8 @@ EXPECTED_STATUS = (
     ("Slice 6", "`COMPLETED`"),
     ("Slice 7", "`COMPLETED`"),
     ("Slice 8", "`COMPLETED`"),
-    ("Slice 9", "`CURRENT / PUBLICATION CANDIDATE`"),
-    ("Slice 10", "`NOT STARTED`"),
+    ("Slice 9", "`COMPLETED`"),
+    ("Slice 10", "`CURRENT / PUBLICATION CANDIDATE`"),
     ("Slice 11", "`NOT STARTED`"),
     ("Slice 12", "`NOT STARTED`"),
     ("Slice 13", "`NOT STARTED`"),
@@ -179,7 +183,7 @@ EXPECTED_STATUS = (
     ("Slice 16", "`NOT STARTED`"),
     (
         "Next",
-        "`Phase 62 Slice 10 — Authored JOIN/Traversal Syntax And Semantic Uses`",
+        "`Phase 62 Slice 11 — Project IR Binary JOIN Region, Multi-Input Topology, Null Extension, And Property Transfer`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -207,9 +211,9 @@ EXPECTED_PHASE61_OWNER = (
     "and verifiable analysis boundary"
 )
 EXPECTED_PHASE62_STATE = (
-    "Phase 62 is active. Slices 1–8 are completed by successful natural exact-head\n"
-    "CI, Slice 9 is the current publication candidate, Slices 10–16 are not started,\n"
-    "and the frozen route has exactly 16 numbered slices."
+    "Phase 62 is active. Slices 1–9 are completed by successful natural exact-head\n"
+    "CI, Slice 10 is the current publication candidate, Slices 11–16 are not\n"
+    "started, and the frozen route has exactly 16 numbered slices."
 )
 EXPECTED_PHASE62_OWNER = (
     "Private occurrence-safe relationships and INNER/LEFT logical JOIN, typed "
@@ -950,6 +954,37 @@ EXPECTED_PHASE62_SLICE9_CHANGED_PATHS = (
     "tests/test_phase62_slice9_explicit_relationship_paths_fanout_survival_null_effects_join_shape_analysis.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE62_SLICE10_CHANGED_PATHS = (
+    "docs/language.md",
+    "docs/roadmap.md",
+    "docs/spec/phase62-slice10-authored-join-traversal-syntax-semantic-uses-v1.md",
+    "docs/status.md",
+    "grammar/Pietto.g4",
+    "src/pietto/ast_nodes.py",
+    "src/pietto/ast_builder.py",
+    "src/pietto/ir/builder.py",
+    "src/pietto/_project/model.py",
+    "src/pietto/_project/module_relation_resolution.py",
+    "src/pietto/_project/module_semantic_fact_preservation.py",
+    "src/pietto/_project/row_dependency_graph.py",
+    "src/pietto/_project/row_lineage.py",
+    "src/pietto/_project/module_pure_boundary.py",
+    "src/pietto/_project/project_ir_construction.py",
+    "src/pietto/_project/project_relationship_uses.py",
+    "src/pietto/generated/Pietto.interp",
+    "src/pietto/generated/Pietto.tokens",
+    "src/pietto/generated/PiettoLexer.interp",
+    "src/pietto/generated/PiettoLexer.py",
+    "src/pietto/generated/PiettoLexer.tokens",
+    "src/pietto/generated/PiettoParser.py",
+    "src/pietto/generated/PiettoVisitor.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase48_schema_availability_state_carrier.py",
+    "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
+    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
+    "tests/test_phase62_slice10_authored_join_traversal_syntax_semantic_uses.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -1010,13 +1045,15 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "Slice 3 authored base-match/private exact-field correspondence" in normalized
     )
     assert "completed by successful natural exact-head CI" in normalized
-    assert "Slices 4–8 key/FD/grain/match-guarantee authorities" in normalized
-    assert "Slice 9 is the current private explicit relationship-path" in normalized
-    assert "fanout/survival/null-potential publication candidate" in normalized
-    assert "adds no grammar, public schema, JOIN IR/SQL, multi-fact" in normalized
-    assert "natural exact-head CI completes Slice 9" in normalized
-    assert "Slices 10–16 are not started" in normalized
-    assert "Slice 10 is the sole next owner" in normalized
+    assert "Slices 4–9 key/FD/grain/match-guarantee/path authorities" in normalized
+    assert "Slice 10 is the current authored INNER/LEFT relationship-use" in normalized
+    assert "JOIN-deferred Project semantic/IR publication candidate" in normalized
+    assert (
+        "adds no binary JOIN IR, combined row schema, SQL JOIN lowering" in normalized
+    )
+    assert "natural exact-head CI completes Slice 10" in normalized
+    assert "Slices 11–16 are not started" in normalized
+    assert "Slice 11 is the sole next owner" in normalized
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -1243,6 +1280,12 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "no automatic multi-hop search or winner",
         "Phase 62 Slice 10 — Authored JOIN/Traversal Syntax And Semantic Uses",
         "Slice 10 is not implemented here",
+        "phase62-slice10-authored-join-traversal-syntax-semantic-uses-v1.md",
+        "authored INNER/LEFT JOIN clauses",
+        "`AUTHORED_JOIN_DEFERRED`",
+        "zero-allocation non-concrete Project IR terminal",
+        "Phase 62 Slice 11 — Project IR Binary JOIN Region, Multi-Input Topology, Null Extension, And Property Transfer",
+        "Slice 11 is not implemented here",
     ):
         assert evidence in phase62_normalized
 
@@ -1743,6 +1786,19 @@ def test_phase62_slice9_rebinds_exact_slice8_publication_authority() -> None:
         "33502717286",
         "A3/M5/D0",
         "project_relationship_paths.py",
+    ):
+        assert evidence in document
+
+
+def test_phase62_slice10_rebinds_exact_slice9_publication_authority() -> None:
+    document = " ".join(PHASE62_SLICE10_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "dc74cee6a0f6a67e396f12b4583a0d88d79ad130",
+        "c32444755f191a45f68c7d9207979976ffc275dd",
+        "33505927423",
+        "A3/M26/D0",
+        "project_relationship_uses.py",
+        "AUTHORED_JOIN_DEFERRED",
     ):
         assert evidence in document
 
@@ -2590,4 +2646,43 @@ def test_phase62_slice9_changed_paths_are_exact() -> None:
     assert all((REPO_ROOT / path).is_file() for path in paths)
     assert tuple(path for path in paths if path.startswith("src/")) == (
         "src/pietto/_project/project_relationship_paths.py",
+    )
+
+
+def test_phase62_slice10_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE62_SLICE10_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 29
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert tuple(path for path in paths if path.startswith("src/")) == (
+        "src/pietto/ast_nodes.py",
+        "src/pietto/ast_builder.py",
+        "src/pietto/ir/builder.py",
+        "src/pietto/_project/model.py",
+        "src/pietto/_project/module_relation_resolution.py",
+        "src/pietto/_project/module_semantic_fact_preservation.py",
+        "src/pietto/_project/row_dependency_graph.py",
+        "src/pietto/_project/row_lineage.py",
+        "src/pietto/_project/module_pure_boundary.py",
+        "src/pietto/_project/project_ir_construction.py",
+        "src/pietto/_project/project_relationship_uses.py",
+        "src/pietto/generated/Pietto.interp",
+        "src/pietto/generated/Pietto.tokens",
+        "src/pietto/generated/PiettoLexer.interp",
+        "src/pietto/generated/PiettoLexer.py",
+        "src/pietto/generated/PiettoLexer.tokens",
+        "src/pietto/generated/PiettoParser.py",
+        "src/pietto/generated/PiettoVisitor.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+                "src/pietto/sql/",
+                "src/pietto/_project_explain/",
+            )
+        )
+        for path in paths
     )

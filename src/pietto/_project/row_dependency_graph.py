@@ -72,6 +72,7 @@ class ProjectRowDependencyGraphReason(StrEnum):
     INVALID_WINDOW_OUTPUT = "invalid_window_output"
     WINDOW_RESULT_DEFERRED = "window_result_deferred"
     CONFLICTING_WINDOW_RESULT_FACTS = "conflicting_window_result_facts"
+    AUTHORED_JOIN_DEFERRED = "authored_join_deferred"
     DEFERRED_PHASE48_BEHAVIOR = "deferred_phase48_behavior"
     UNRESOLVED_RELATION_BLOCKED = "unresolved_relation_blocked"
     CYCLE_BLOCKED = "cycle_blocked"

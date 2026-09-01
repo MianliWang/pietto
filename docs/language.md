@@ -78,6 +78,7 @@ Tables and queries share this ordered clause shape:
 
 ```text
 from
+inner/left join (zero or more)
 let (optional)
 where (optional)
 group by (optional)
@@ -101,10 +102,34 @@ table active_users:
     limit 100
 ```
 
-`from` currently names one relation. Qualification, let visibility, grouped
-scope, selected-output scope, and relation-to-relation schemas are checked by
-the semantic layer. No JOIN or relationship-aware relation composition is
-currently accepted.
+`from` names the base relation. Authored relationship traversal may then add
+`inner join` or `left join` clauses with mandatory target bindings:
+
+```pietto
+query enriched:
+    from orders
+    inner join customers as customer:
+        from orders
+    left join regions as region:
+        from customer
+        via customer_region: customer -> region
+    select:
+        id
+```
+
+Zero `via` lines use exact direct-relationship shorthand. One or more lines
+name an explicit ordered path as `via relationship: source_role -> target_role`.
+Bindings are relation-local occurrences: duplicates, forward sources,
+ambiguous paths, and failed-binding dependencies fail closed without a winner.
+Intermediate path relations do not become bindings. Only `inner` and `left`
+are accepted, and there is no JOIN-local `on` refinement.
+
+Slice 10 preserves JOIN uses separately from combined row semantics. A
+JOIN-bearing table/query is `AUTHORED_JOIN_DEFERRED` for Project row facts and
+single-relation Project IR, and legacy Script IR emits `PIE-I1000`; SQL cannot
+silently omit the JOIN. Joined bindings do not enter scalar field lookup.
+Binary Project IR JOIN topology, combined rows, actual null extension, and SQL
+JOIN lowering begin in later slices. Join-free behavior is unchanged.
 
 ## Expressions
 

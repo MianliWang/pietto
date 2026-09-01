@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import cast
 
 from pietto._project.model import ProjectRelationRowSchemaStatus, ProjectSymbolKind
 from pietto._project.module_attribution import (
@@ -73,6 +74,7 @@ from pietto._project.project_ir_properties import (
     ProjectIRStageRowShape,
     ProjectIRStageScalarFieldOutput,
 )
+from pietto.ast_nodes import QueryDef, TableDef
 
 __all__: tuple[str, ...] = ()
 
@@ -124,6 +126,7 @@ class ProjectIRConcreteSingleRelationFragment:
     def __post_init__(self) -> None:
         if type(self.subject) is not ProjectIRConcreteRelationSubject:
             raise TypeError("Concrete fragment requires a concrete subject.")
+        _reject_concrete_authored_join(self.subject.evidence)
         if type(self.attribution) is not ProjectModuleAttributionFactSet:
             raise TypeError("Concrete fragment requires exact attribution authority.")
         if not (
@@ -229,6 +232,17 @@ class ProjectIRNonConcreteSingleRelationFragment:
 type ProjectIRSingleRelationFragment = (
     ProjectIRConcreteSingleRelationFragment | ProjectIRNonConcreteSingleRelationFragment
 )
+
+
+def _reject_concrete_authored_join(
+    semantic: ProjectModuleRelationSemanticFacts,
+) -> None:
+    definition = semantic.owner.definition
+    if (
+        type(definition) in {TableDef, QueryDef}
+        and cast(TableDef | QueryDef, definition).join_clauses
+    ):
+        raise ValueError("Authored JOIN cannot construct a concrete relation fragment.")
 
 
 def _require_exact_attribution_root(
@@ -491,6 +505,8 @@ def build_project_ir_single_relation_fragment(
     _require_exact_attribution_root(semantic, attribution)
     if type(allocation) is not ProjectIRAllocationState:
         raise TypeError("Project IR builder requires exact allocation state.")
+    if semantic.state.status is ProjectRelationRowSchemaStatus.CONCRETE:
+        _reject_concrete_authored_join(semantic)
     if semantic.state.status is not ProjectRelationRowSchemaStatus.CONCRETE:
         return _build_non_concrete_fragment(semantic, attribution, allocation)
 

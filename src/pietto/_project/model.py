@@ -642,6 +642,7 @@ class ProjectRelationRowSchemaReason(StrEnum):
     INVALID_WINDOW_OUTPUT = "invalid_window_output"
     WINDOW_RESULT_DEFERRED = "window_result_deferred"
     CONFLICTING_WINDOW_RESULT_FACTS = "conflicting_window_result_facts"
+    AUTHORED_JOIN_DEFERRED = "authored_join_deferred"
     DEFERRED_PHASE48_BEHAVIOR = "deferred_phase48_behavior"
     UNRESOLVED_RELATION_BLOCKED = "unresolved_relation_blocked"
     CYCLE_BLOCKED = "cycle_blocked"
@@ -2112,6 +2113,55 @@ def _build_project_relation_row_schemas(
                         "Concrete upstream requires schema, graph, and lineage"
                     )
             else:
+                continue
+
+            if definition.join_clauses:
+                state = ProjectRelationRowSchemaState(
+                    status=ProjectRelationRowSchemaStatus.DEFERRED,
+                    schema=None,
+                    reason=ProjectRelationRowSchemaReason.AUTHORED_JOIN_DEFERRED,
+                )
+                let_scope_facts = build_project_relation_let_scope_facts(
+                    definition=definition,
+                    input_schema=None,
+                    upstream_definition=upstream_definition,
+                    upstream_state=state,
+                )
+                dependency_graph = build_project_relation_row_dependency_graph(
+                    definition=definition,
+                    fallback_path=definition_paths[definition],
+                    upstream_symbol=upstream_symbol,
+                    input_schema=None,
+                    output_schema=None,
+                    state=state,
+                    let_scope_facts=let_scope_facts,
+                )
+                lineage = build_project_relation_row_lineage(
+                    definition=definition,
+                    upstream_symbol=upstream_symbol,
+                    row_schema=None,
+                    state=state,
+                    dependency_graph=dependency_graph,
+                    upstream_lineage=None,
+                )
+                _record_project_relation_terminal_bundle(
+                    relation_row_schemas=relation_row_schemas,
+                    relation_row_schema_states=relation_row_schema_states,
+                    relation_let_scope_facts=relation_let_scope_facts,
+                    relation_aggregate_result_facts=relation_aggregate_result_facts,
+                    relation_window_result_facts=relation_window_result_facts,
+                    relation_row_dependency_graphs=relation_row_dependency_graphs,
+                    relation_row_lineages=relation_row_lineages,
+                    definition=definition,
+                    state=state,
+                    let_scope_facts=let_scope_facts,
+                    aggregate_result_facts={},
+                    window_result_facts={},
+                    dependency_graph=dependency_graph,
+                    lineage=lineage,
+                )
+                completed.add(definition)
+                propagated = True
                 continue
 
             if _is_project_aggregate_grouped_definition(definition):

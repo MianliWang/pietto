@@ -1626,12 +1626,18 @@ def _relation_row_state(
         )
     if upstream_state.status is ProjectRelationRowSchemaStatus.BLOCKED:
         return _blocked_state(ProjectRelationRowSchemaReason.UPSTREAM_BLOCKED)
-    source_schema = upstream_state.schema
-    if source_schema is None or source_schema.is_unknown:
-        raise ValueError("Concrete upstream row state requires a concrete schema.")
     definition = occurrence.definition
     assert type(definition) in {TableDef, QueryDef}
     relation_definition = cast(TableDef | QueryDef, definition)
+    if relation_definition.join_clauses:
+        return ProjectRelationRowSchemaState(
+            status=ProjectRelationRowSchemaStatus.DEFERRED,
+            schema=None,
+            reason=ProjectRelationRowSchemaReason.AUTHORED_JOIN_DEFERRED,
+        )
+    source_schema = upstream_state.schema
+    if source_schema is None or source_schema.is_unknown:
+        raise ValueError("Concrete upstream row state requires a concrete schema.")
     let_names = (
         frozenset()
         if relation_definition.let_clause is None

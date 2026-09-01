@@ -76,6 +76,10 @@ WINDOW_REASONS = {
     "CONFLICTING_WINDOW_RESULT_FACTS": "conflicting_window_result_facts",
 }
 
+JOIN_REASONS = {
+    "AUTHORED_JOIN_DEFERRED": "authored_join_deferred",
+}
+
 OLD_SCHEMA_REASONS = {
     "DIRECT_SOURCE_CONCRETE": "direct_source_concrete",
     "TABLE_UPSTREAM_CONCRETE": "table_upstream_concrete",
@@ -130,14 +134,24 @@ def test_exact_four_statuses_and_five_reason_values_are_mirrored() -> None:
         member.name: member.value for member in ProjectRowDependencyGraphReason
     }
     lineage_reasons = {member.name: member.value for member in ProjectRowLineageReason}
-    assert schema_reasons == OLD_SCHEMA_REASONS | NEW_REASONS | WINDOW_REASONS
+    assert schema_reasons == (
+        OLD_SCHEMA_REASONS | NEW_REASONS | WINDOW_REASONS | JOIN_REASONS
+    )
     assert dependency_reasons == (
-        OLD_SCHEMA_REASONS | NEW_REASONS | WINDOW_REASONS | OLD_DEPENDENCY_ONLY_REASONS
+        OLD_SCHEMA_REASONS
+        | NEW_REASONS
+        | WINDOW_REASONS
+        | JOIN_REASONS
+        | OLD_DEPENDENCY_ONLY_REASONS
     )
     assert lineage_reasons == (
-        OLD_SCHEMA_REASONS | NEW_REASONS | WINDOW_REASONS | OLD_LINEAGE_ONLY_REASONS
+        OLD_SCHEMA_REASONS
+        | NEW_REASONS
+        | WINDOW_REASONS
+        | JOIN_REASONS
+        | OLD_LINEAGE_ONLY_REASONS
     )
-    aligned_reasons = NEW_REASONS | WINDOW_REASONS
+    aligned_reasons = NEW_REASONS | WINDOW_REASONS | JOIN_REASONS
     assert {
         name: dependency_reasons[name] for name in aligned_reasons
     } == aligned_reasons

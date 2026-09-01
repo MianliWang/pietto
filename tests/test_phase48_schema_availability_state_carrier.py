@@ -56,6 +56,7 @@ def test_relation_row_schema_state_vocabulary_is_private_and_readiness_oriented(
         "RELATION_UPSTREAM_CONCRETE",
         "UNKNOWN_SCHEMA",
         "DUPLICATE_OUTPUT_NAME",
+        "AUTHORED_JOIN_DEFERRED",
         "DEFERRED_PHASE48_BEHAVIOR",
         "UNRESOLVED_RELATION_BLOCKED",
         "CYCLE_BLOCKED",

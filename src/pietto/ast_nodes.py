@@ -525,6 +525,41 @@ class FromClause(Node):
     source_name: str
 
 
+class AuthoredJoinKind(StrEnum):
+    """The two authored JOIN forms owned by Phase 62."""
+
+    INNER = "inner"
+    LEFT = "left"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class JoinTraversalStep(Node):
+    """One exact authored relationship traversal step."""
+
+    relationship_name: str
+    source_endpoint_role: str
+    target_endpoint_role: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class JoinClause(Node):
+    """One authored INNER or LEFT relationship JOIN occurrence."""
+
+    kind: AuthoredJoinKind
+    target_relation_name: str
+    target_binding_name: str
+    source_binding_name: str
+    traversal_steps: tuple[JoinTraversalStep, ...] = ()
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not AuthoredJoinKind:
+            raise TypeError("join kind must be an exact authored JOIN kind")
+        if type(self.traversal_steps) is not tuple or any(
+            type(step) is not JoinTraversalStep for step in self.traversal_steps
+        ):
+            raise TypeError("join traversal steps must be an exact tuple")
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class LetBinding(Node):
     """One parse-only relation-local let binding."""
@@ -717,12 +752,17 @@ class TableDef(Node):
     satisfying_clause: SatisfyingClause | None = None
     let_clause: LetClause | None = None
     named_windows: tuple[NamedWindowDeclaration, ...] = ()
+    join_clauses: tuple[JoinClause, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.named_windows) is not tuple or any(
             type(item) is not NamedWindowDeclaration for item in self.named_windows
         ):
             raise TypeError("table named windows must be an exact declaration tuple")
+        if type(self.join_clauses) is not tuple or any(
+            type(item) is not JoinClause for item in self.join_clauses
+        ):
+            raise TypeError("table joins must be an exact clause tuple")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -739,12 +779,17 @@ class QueryDef(Node):
     satisfying_clause: SatisfyingClause | None = None
     let_clause: LetClause | None = None
     named_windows: tuple[NamedWindowDeclaration, ...] = ()
+    join_clauses: tuple[JoinClause, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.named_windows) is not tuple or any(
             type(item) is not NamedWindowDeclaration for item in self.named_windows
         ):
             raise TypeError("query named windows must be an exact declaration tuple")
+        if type(self.join_clauses) is not tuple or any(
+            type(item) is not JoinClause for item in self.join_clauses
+        ):
+            raise TypeError("query joins must be an exact clause tuple")
 
 
 Definition = (
