@@ -1144,8 +1144,8 @@ frozen its route without changing Phase-61 production behavior.
 
 ## Phase 62 route
 
-Phase 62 is active. Slices 1–4 are completed by successful natural exact-head
-CI, Slice 5 is the current publication candidate, Slices 6–16 are not started,
+Phase 62 is active. Slices 1–5 are completed by successful natural exact-head
+CI, Slice 6 is the current publication candidate, Slices 7–16 are not started,
 and the frozen route has exactly 16 numbered slices.
 
 The exact owner is **Private occurrence-safe relationships and INNER/LEFT
@@ -1257,7 +1257,25 @@ fanout, path, JOIN, Project IR, SQL, CLI/JSON, package, workflow, or version
 behavior. Successful natural exact-head CI on its single publication commit
 completes Slice 5 without a status-only follow-up commit. The only next owner
 is **Phase 62 Slice 6 — Factorized Intrinsic Grain Basis, Grain Dependencies,
-Optional Factors, And GLOBAL Grain**; Slice 6 is not implemented here.
+Optional Factors, And GLOBAL Grain**.
+
+Slice 6 adds one standalone private `src/pietto/_project/project_grain.py`
+owner. Every concrete Source creates one distinct FACTORIZED intrinsic domain,
+including Sources without keys or FDs. Exact non-empty group contexts create a
+new grouped factor retaining ordered group-key and BASE_RESULT authority;
+actual zero-key aggregate contexts create GLOBAL with zero factors. Grain
+dependencies use a distinct basis-local typed factor kernel and current
+production bases invent no non-trivial dependency. Optional factors remain
+explicitly non-constructible before logical JOIN/nulling authority. The
+controlling contract is [Phase 62 Slice 6 factorized intrinsic grain basis and
+dependencies](spec/phase62-slice6-factorized-intrinsic-grain-basis-dependencies-optional-factors-global-grain-v1.md).
+
+Slice 6 adds no grammar, public semantic field, operator grain/key/FD transfer,
+grain comparison, cardinality, fanout, path, JOIN, Project IR structure, SQL,
+CLI/JSON, package, workflow, or version behavior. Successful natural exact-head
+CI on its single publication commit completes Slice 6 without a status-only
+follow-up commit. The only next owner is **Phase 62 Slice 7 — Existing-Operator
+Key/FD/Grain Transfer And Grain Comparison**; Slice 7 is not implemented here.
 
 ## Retained later ownership
 

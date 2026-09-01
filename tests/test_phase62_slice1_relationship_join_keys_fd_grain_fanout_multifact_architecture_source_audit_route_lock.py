@@ -28,6 +28,7 @@ MODULE_SEMANTIC_FACTS = (
 PROJECT_IR_OPERATORS = REPO_ROOT / "src/pietto/_project/project_ir_operators.py"
 PROJECT_ROW_KEYS = REPO_ROOT / "src/pietto/_project/project_row_keys.py"
 PROJECT_VALUE_FDS = REPO_ROOT / "src/pietto/_project/project_value_fds.py"
+PROJECT_GRAIN = REPO_ROOT / "src/pietto/_project/project_grain.py"
 
 HEADINGS = (
     "Answer And Static Scope",
@@ -447,6 +448,32 @@ def test_live_slice5_value_fd_foundation_preserves_separate_private_domains() ->
     assert "value_fds" not in set(_class_fields(PROJECT_MODEL, "ProjectSemanticResult"))
 
 
+def test_live_slice6_grain_foundation_preserves_factor_and_operator_boundaries() -> (
+    None
+):
+    source = _read(PROJECT_GRAIN)
+    for evidence in (
+        "class ProjectGrainBasisState",
+        "class ProjectSourceGrainFactorIdentity",
+        "class ProjectGroupedGrainFactorIdentity",
+        "class ProjectGrainDependencyFact",
+        "class ProjectGrainBasis",
+        "class ProjectGrainOriginSet",
+        "def build_project_grain_origins",
+        "def grain_dependency_closure",
+        "ProjectIRAggregateEvaluationContext",
+        "ProjectValueFDBasisSet",
+        "NOT_CONSTRUCTIBLE_BEFORE_LOGICAL_JOIN",
+    ):
+        assert evidence in source
+    assert "__all__: tuple[str, ...] = ()" in source
+    assert "ProjectValueFDFact" not in source
+    assert "ProjectCompiledValueFDRule" not in source
+    assert "build_project_relationship" not in source
+    assert "ProjectIRProvidedLocalGrainEvidence" not in source
+    assert "grain" not in set(_class_fields(PROJECT_MODEL, "ProjectSemanticResult"))
+
+
 def test_phase61_inheritance_and_identity_ownership_laws_are_exact() -> None:
     inherited = _normalized(_section(_read(), "Phase 61 Inherited Readiness"))
     for evidence in (
@@ -786,7 +813,6 @@ def test_route_later_owners_exit_gate_and_static_delta_are_exact() -> None:
             "src/pietto/_project/project_join.py",
             "src/pietto/_project/project_keys.py",
             "src/pietto/_project/project_functional_dependencies.py",
-            "src/pietto/_project/project_grain.py",
             "src/pietto/_project/project_fanout.py",
             "src/pietto/_project/project_multifact.py",
         )
