@@ -451,11 +451,19 @@ class RelationshipEndpoint(Node):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class RelationshipMatchClause(Node):
+    """One optional authored relationship base-match expression."""
+
+    expression: Expression
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class RelationshipMetadata(Node):
-    """Parse-only relationship metadata containing exactly two endpoints."""
+    """Relationship metadata with two endpoints and an optional base match."""
 
     name: str
     endpoints: tuple[RelationshipEndpoint, RelationshipEndpoint]
+    base_match: RelationshipMatchClause | None = None
 
 
 class ModuleDeclarationKind(StrEnum):

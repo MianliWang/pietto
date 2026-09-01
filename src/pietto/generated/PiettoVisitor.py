@@ -59,6 +59,11 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#relationshipMatchClause.
+    def visitRelationshipMatchClause(self, ctx:PiettoParser.RelationshipMatchClauseContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#moduleStatement.
     def visitModuleStatement(self, ctx:PiettoParser.ModuleStatementContext):
         return self.visitChildren(ctx)

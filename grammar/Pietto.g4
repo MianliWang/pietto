@@ -43,17 +43,21 @@ definition
     | queryDefinition
     ;
 
-// Relationship declarations are parse-only metadata outside semantic definitions.
+// Relationship declarations remain metadata outside semantic definitions.
 relationshipDefinition
     : RELATIONSHIP identifier COLON NEWLINE NEWLINE* INDENT relationshipBody DEDENT
     ;
 
 relationshipBody
-    : NEWLINE* relationshipEndpoint NEWLINE* relationshipEndpoint NEWLINE*
+    : NEWLINE* relationshipEndpoint NEWLINE* relationshipEndpoint NEWLINE* relationshipMatchClause? NEWLINE*
     ;
 
 relationshipEndpoint
     : ENDPOINT identifier COLON identifier NEWLINE
+    ;
+
+relationshipMatchClause
+    : ON expression NEWLINE
     ;
 
 // Module syntax is parser-only metadata outside semantic definitions.

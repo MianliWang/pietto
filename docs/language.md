@@ -252,9 +252,22 @@ Project module semantics preserve exact module/declaration identity, explicit
 visibility, aliases, every collision, graph evidence, provenance, and lineage.
 They never choose a first or last winner.
 
-Relationship declarations store two named endpoints as metadata. They have a
-separate namespace and remain outside Semantic IR, SQL JOIN lowering, and
-relationship-aware query resolution.
+Relationship declarations store two named endpoints and may add one authored
+base-match expression after them:
+
+```pietto
+relationship order_customer:
+    endpoint order: orders
+    endpoint customer: customers
+    on order.customer_id == customer.id
+```
+
+Endpoint-only declarations remain valid and carry no inferred field match. A
+private Project-side analysis recognizes only ordered non-empty conjunctions
+of exact cross-endpoint field equality as proof-capable correspondence. It does
+not infer same-name fields, keys, cardinality, JOIN use, or SQL. Relationship
+declarations have a separate namespace and remain outside Semantic IR, SQL
+JOIN lowering, and relationship-aware query resolution.
 
 ## Diagnostics, IR, SQL, and output
 

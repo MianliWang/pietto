@@ -1144,9 +1144,9 @@ frozen its route without changing Phase-61 production behavior.
 
 ## Phase 62 route
 
-Phase 62 is active. Slice 1 is completed by successful natural exact-head CI,
-Slice 2 is the current publication candidate, Slices 3–16 are not started, and
-the frozen route has exactly 16 numbered slices.
+Phase 62 is active. Slices 1–2 are completed by successful natural exact-head
+CI, Slice 3 is the current publication candidate, Slices 4–16 are not started,
+and the frozen route has exactly 16 numbered slices.
 
 The exact owner is **Private occurrence-safe relationships and INNER/LEFT
 logical JOIN, typed key/FD/coverage evidence, factorized intrinsic grain,
@@ -1202,9 +1202,26 @@ Slice 2 adds no grammar, public `SemanticModel`, Project semantic result field,
 script IR/SQL, Project IR operator, condition, key/FD, grain, cardinality,
 fanout, path, JOIN, multi-fact, package, workflow, or version behavior.
 Successful natural exact-head CI on its single publication commit completes
-Slice 2 without a status-only follow-up commit. The only next owner is **Phase
-62 Slice 3 — Exact Field Correspondences, ON/WHERE Separation, Equality/Null
-Behavior, And Constraint-Scope Boundary**; Slice 3 is not implemented here.
+Slice 2 without a status-only follow-up commit.
+
+Slice 3 adds one optional authored relationship `on` clause over Pietto's
+existing expression AST and one standalone private
+`src/pietto/_project/project_relationship_conditions.py` owner. It retains
+condition/conjunct/operand occurrence identities, exact local/imported Project
+field and final-row-output authority, ordered standard-equality
+correspondences, TRUE-only/NULL-rejecting semantics, independent condition
+states, and distinct condition/constraint scopes. Unsupported, unknown, or
+incompatible conditions publish no partial correspondence facts. The
+controlling contract is [Phase 62 Slice 3 exact field correspondences and
+scope boundaries](spec/phase62-slice3-exact-field-correspondences-on-where-equality-null-behavior-constraint-scope-boundary-v1.md).
+
+Slice 3 adds no public relationship semantic field, key/FD, grain,
+cardinality, path, fanout, authored JOIN use, Project IR JOIN, SQL, CLI/JSON,
+package, workflow, or version behavior. Successful natural exact-head CI on
+its single publication commit completes Slice 3 without a status-only
+follow-up commit. The only next owner is **Phase 62 Slice 4 — UNIQUE Null
+Policy, Evidence Trust, Strict/Lax Row Uniqueness, And Candidate Keys**; Slice
+4 is not implemented here.
 
 ## Retained later ownership
 

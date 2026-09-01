@@ -54,6 +54,7 @@ from pietto.ast_nodes import (
     Parameter,
     QueryDef,
     RelationshipEndpoint,
+    RelationshipMatchClause,
     RelationshipMetadata,
     Script,
     ShapeDef,
@@ -428,14 +429,15 @@ class AstBuilder(PiettoVisitor):
     def visitRelationshipDefinition(self, ctx: _AntlrContext) -> RelationshipMetadata:
         """Build parse-only relationship metadata outside semantic definitions."""
 
-        endpoints = tuple(
-            self.visit(item) for item in ctx.relationshipBody().relationshipEndpoint()
-        )
+        body = ctx.relationshipBody()
+        endpoints = tuple(self.visit(item) for item in body.relationshipEndpoint())
         assert len(endpoints) == 2
+        match_clause = body.relationshipMatchClause()
         return RelationshipMetadata(
             span=self._span(ctx),
             name=ctx.identifier().getText(),
             endpoints=(endpoints[0], endpoints[1]),
+            base_match=(None if match_clause is None else self.visit(match_clause)),
         )
 
     def visitRelationshipEndpoint(self, ctx: _AntlrContext) -> RelationshipEndpoint:
@@ -446,6 +448,17 @@ class AstBuilder(PiettoVisitor):
             span=self._span(ctx),
             local_name=identifiers[0].getText(),
             relation_name=identifiers[1].getText(),
+        )
+
+    def visitRelationshipMatchClause(
+        self,
+        ctx: _AntlrContext,
+    ) -> RelationshipMatchClause:
+        """Build one authored base match over the shared expression AST."""
+
+        return RelationshipMatchClause(
+            span=self._span(ctx),
+            expression=self.visit(ctx.expression()),
         )
 
     def visitTableDefinition(self, ctx: _AntlrContext) -> TableDef:

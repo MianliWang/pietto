@@ -294,7 +294,7 @@ def test_live_relationship_baseline_matches_current_source() -> None:
         )
     ]
     assert (
-        "relationshipEndpoint NEWLINE* relationshipEndpoint NEWLINE*"
+        "relationshipEndpoint NEWLINE* relationshipEndpoint NEWLINE* relationshipMatchClause?"
         in relationship_body
     )
     assert _class_fields(AST_NODES, "RelationshipEndpoint") == (
@@ -304,7 +304,9 @@ def test_live_relationship_baseline_matches_current_source() -> None:
     assert _class_fields(AST_NODES, "RelationshipMetadata") == (
         "name",
         "endpoints",
+        "base_match",
     )
+    assert _class_fields(AST_NODES, "RelationshipMatchClause") == ("expression",)
     assert _class_fields(SEMANTIC_MODEL, "RelationshipSemanticEndpointInfo") == (
         "local_name",
         "relation_name",
@@ -318,6 +320,8 @@ def test_live_relationship_baseline_matches_current_source() -> None:
     builder = _read(AST_BUILDER)
     assert "assert len(endpoints) == 2" in builder
     assert "endpoints=(endpoints[0], endpoints[1])" in builder
+    assert "base_match=" in builder
+    assert "visitRelationshipMatchClause" in builder
 
     semantic = _read(RELATIONSHIP_SEMANTICS)
     for evidence in (
