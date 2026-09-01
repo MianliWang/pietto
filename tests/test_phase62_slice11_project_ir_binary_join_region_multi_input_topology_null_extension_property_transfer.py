@@ -679,7 +679,7 @@ def test_join_carriers_reject_forged_effect_topology_and_match_evidence(
     built: _Built,
 ) -> None:
     direct = _properties(built, "inner_one")[0].join
-    with pytest.raises(TypeError, match="init=False"):
+    with pytest.raises((TypeError, ValueError), match="init=False"):
         replace(
             direct,
             survival=joins.ProjectIRJoinRowSurvivalEffect.GUARANTEES_LEFT_SURVIVAL,

@@ -126,14 +126,24 @@ allocation, branching/self-role identity, actual effects, transitive nulling,
 positive/NOT_APPLICABLE null properties, key/FD transfer, directional grain
 dependencies, and 144-class Python-int FD masks.
 
-One repair batch is permitted after the complete finding set is frozen. The
-complete review froze and repaired the single root
+The initial complete review froze and repaired the root
 `JOIN_REGION_CARRIERS_AND_TRANSFER_DO_NOT_CLOSE_EXACT_SOURCE_SLICE_AND_OUTPUT_STATE`
 in repair batch 1/1. Effects and region topology are now derived or replayed
 from exact retained evidence; cumulative null provenance owns property
 availability; reverse FDs cover the complete source-binding slice; empty GLOBAL
 source factors remain exact empty evidence; and no-nulling keys recompute
 strength from output-local nullability.
+
+Failed parent commit `afca8aacc22d735a678721cb9e4b3348eb505988`, tree
+`e97894207e534a7cd3603e7c9fd64ca31a7be40f`, and natural CI `33568043743`
+remain preserved. Its Python 3.12 matrix exposed the additional portability
+root
+`PYTHON_312_DATACLASSES_REPLACE_INIT_FALSE_EXCEPTION_CLASS_PORTABILITY`.
+The portability child consumes the second and final repair batch, making
+cumulative Slice-11 repair accounting `2/2`. It changes no production
+semantics and normalizes only the Python-version-specific assurance expectation
+for the standard-library rejection of an `init=False` field supplied through
+`dataclasses.replace()`.
 
 The authoritative validator is:
 
