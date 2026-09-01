@@ -22,8 +22,8 @@ documentation does not supersede that evidence.
 | Slice 5 | `COMPLETED` |
 | Slice 6 | `COMPLETED` |
 | Slice 7 | `COMPLETED` |
-| Slice 8 | `CURRENT / PUBLICATION CANDIDATE` |
-| Slice 9 | `NOT STARTED` |
+| Slice 8 | `COMPLETED` |
+| Slice 9 | `CURRENT / PUBLICATION CANDIDATE` |
 | Slice 10 | `NOT STARTED` |
 | Slice 11 | `NOT STARTED` |
 | Slice 12 | `NOT STARTED` |
@@ -31,7 +31,7 @@ documentation does not supersede that evidence.
 | Slice 14 | `NOT STARTED` |
 | Slice 15 | `NOT STARTED` |
 | Slice 16 | `NOT STARTED` |
-| Next | `Phase 62 Slice 9 — Explicit Relationship Paths, Fanout/Survival/Null Effects, And Join-Shape Analysis` |
+| Next | `Phase 62 Slice 10 — Authored JOIN/Traversal Syntax And Semantic Uses` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -48,9 +48,9 @@ is completed by successful natural exact-head CI on its single publication
 commit. Slice 3 authored base-match/private exact-field correspondence is
 completed by successful natural exact-head CI on its single publication
 commit, without a status-only follow-up commit.
-Slices 4–7 key/FD/grain authorities are completed by natural CI. Slice 8 is the
-current private referential-coverage/MATCH-policy and directional match-bound
-publication candidate. It adds no grammar, public schema, JOIN/path/fanout,
-SQL, package, workflow, or version behavior. Successful natural exact-head CI
-completes Slice 8 without a status-only follow-up commit. Slices 9–16 are not
-started; Slice 9 is the sole next owner.
+Slices 4–8 key/FD/grain/match-guarantee authorities are completed by natural
+CI. Slice 9 is the current private explicit relationship-path and
+fanout/survival/null-potential publication candidate. It adds no grammar,
+public schema, JOIN IR/SQL, multi-fact, package, workflow, or version behavior.
+Successful natural exact-head CI completes Slice 9 without a status-only
+follow-up commit. Slices 10–16 are not started; Slice 10 is the sole next owner.

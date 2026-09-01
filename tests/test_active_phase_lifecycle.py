@@ -101,6 +101,10 @@ PHASE62_SLICE8_SPEC = (
     REPO_ROOT
     / "docs/spec/phase62-slice8-referential-coverage-match-simple-full-directional-match-guarantees-v1.md"
 )
+PHASE62_SLICE9_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase62-slice9-explicit-relationship-paths-fanout-survival-null-effects-join-shape-analysis-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -164,8 +168,8 @@ EXPECTED_STATUS = (
     ("Slice 5", "`COMPLETED`"),
     ("Slice 6", "`COMPLETED`"),
     ("Slice 7", "`COMPLETED`"),
-    ("Slice 8", "`CURRENT / PUBLICATION CANDIDATE`"),
-    ("Slice 9", "`NOT STARTED`"),
+    ("Slice 8", "`COMPLETED`"),
+    ("Slice 9", "`CURRENT / PUBLICATION CANDIDATE`"),
     ("Slice 10", "`NOT STARTED`"),
     ("Slice 11", "`NOT STARTED`"),
     ("Slice 12", "`NOT STARTED`"),
@@ -175,7 +179,7 @@ EXPECTED_STATUS = (
     ("Slice 16", "`NOT STARTED`"),
     (
         "Next",
-        "`Phase 62 Slice 9 — Explicit Relationship Paths, Fanout/Survival/Null Effects, And Join-Shape Analysis`",
+        "`Phase 62 Slice 10 — Authored JOIN/Traversal Syntax And Semantic Uses`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -203,8 +207,8 @@ EXPECTED_PHASE61_OWNER = (
     "and verifiable analysis boundary"
 )
 EXPECTED_PHASE62_STATE = (
-    "Phase 62 is active. Slices 1–7 are completed by successful natural exact-head\n"
-    "CI, Slice 8 is the current publication candidate, Slices 9–16 are not started,\n"
+    "Phase 62 is active. Slices 1–8 are completed by successful natural exact-head\n"
+    "CI, Slice 9 is the current publication candidate, Slices 10–16 are not started,\n"
     "and the frozen route has exactly 16 numbered slices."
 )
 EXPECTED_PHASE62_OWNER = (
@@ -936,6 +940,16 @@ EXPECTED_PHASE62_SLICE8_CHANGED_PATHS = (
     "tests/test_phase62_slice8_referential_coverage_match_simple_full_directional_match_guarantees.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE62_SLICE9_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase62-slice9-explicit-relationship-paths-fanout-survival-null-effects-join-shape-analysis-v1.md",
+    "docs/status.md",
+    "src/pietto/_project/project_relationship_paths.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
+    "tests/test_phase62_slice9_explicit_relationship_paths_fanout_survival_null_effects_join_shape_analysis.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -996,15 +1010,13 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "Slice 3 authored base-match/private exact-field correspondence" in normalized
     )
     assert "completed by successful natural exact-head CI" in normalized
-    assert "Slices 4–7 key/FD/grain authorities are completed" in normalized
-    assert (
-        "Slice 8 is the current private referential-coverage/MATCH-policy" in normalized
-    )
-    assert "directional match-bound publication candidate" in normalized
-    assert "adds no grammar, public schema, JOIN/path/fanout" in normalized
-    assert "natural exact-head CI completes Slice 8" in normalized
-    assert "Slices 9–16 are not started" in normalized
-    assert "Slice 9 is the sole next owner" in normalized
+    assert "Slices 4–8 key/FD/grain/match-guarantee authorities" in normalized
+    assert "Slice 9 is the current private explicit relationship-path" in normalized
+    assert "fanout/survival/null-potential publication candidate" in normalized
+    assert "adds no grammar, public schema, JOIN IR/SQL, multi-fact" in normalized
+    assert "natural exact-head CI completes Slice 9" in normalized
+    assert "Slices 10–16 are not started" in normalized
+    assert "Slice 10 is the sole next owner" in normalized
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -1225,6 +1237,12 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "current authored source explicitly lacks a positive producer",
         "Phase 62 Slice 9 — Explicit Relationship Paths, Fanout/Survival/Null Effects, And Join-Shape Analysis",
         "Slice 9 is not implemented here",
+        "`project_relationship_paths.py`",
+        "phase62-slice9-explicit-relationship-paths-fanout-survival-null-effects-join-shape-analysis-v1.md",
+        "exact direct-candidate index",
+        "no automatic multi-hop search or winner",
+        "Phase 62 Slice 10 — Authored JOIN/Traversal Syntax And Semantic Uses",
+        "Slice 10 is not implemented here",
     ):
         assert evidence in phase62_normalized
 
@@ -1713,6 +1731,18 @@ def test_phase62_slice8_rebinds_exact_slice7_publication_authority() -> None:
         "33498869865",
         "A3/M5/D0",
         "project_relationship_match_guarantees.py",
+    ):
+        assert evidence in document
+
+
+def test_phase62_slice9_rebinds_exact_slice8_publication_authority() -> None:
+    document = " ".join(PHASE62_SLICE9_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "6dd7dec031bb23d4d675ecf03542186b6df5f371",
+        "ec3c885527968f4fad65b619bc4fccd5253392dd",
+        "33502717286",
+        "A3/M5/D0",
+        "project_relationship_paths.py",
     ):
         assert evidence in document
 
@@ -2551,4 +2581,13 @@ def test_phase62_slice8_changed_paths_are_exact() -> None:
     assert all((REPO_ROOT / path).is_file() for path in paths)
     assert tuple(path for path in paths if path.startswith("src/")) == (
         "src/pietto/_project/project_relationship_match_guarantees.py",
+    )
+
+
+def test_phase62_slice9_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE62_SLICE9_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 8
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert tuple(path for path in paths if path.startswith("src/")) == (
+        "src/pietto/_project/project_relationship_paths.py",
     )

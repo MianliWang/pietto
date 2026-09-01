@@ -35,6 +35,9 @@ PROJECT_IR_RELATIONAL_PROPERTIES = (
 PROJECT_RELATIONSHIP_MATCH_GUARANTEES = (
     REPO_ROOT / "src/pietto/_project/project_relationship_match_guarantees.py"
 )
+PROJECT_RELATIONSHIP_PATHS = (
+    REPO_ROOT / "src/pietto/_project/project_relationship_paths.py"
+)
 
 HEADINGS = (
     "Answer And Static Scope",
@@ -511,6 +514,24 @@ def test_live_slice8_match_guarantees_preserve_key_coverage_and_join_boundaries(
         assert evidence in source
     assert "__all__: tuple[str, ...] = ()" in source
     assert "MATCH_PARTIAL" not in source
+
+
+def test_live_slice9_paths_preserve_explicit_only_and_no_join_boundaries() -> None:
+    source = _read(PROJECT_RELATIONSHIP_PATHS)
+    for evidence in (
+        "class ProjectRelationshipJoinShapeIndex",
+        "class ProjectRelationshipPathStep",
+        "class ProjectRelationshipPath",
+        "class ProjectRelationshipPathAnalysis",
+        "build_explicit_relationship_path",
+        "analyze_relationship_path",
+        "MAY_MULTIPLY",
+        "MAY_NULL_EXTEND",
+    ):
+        assert evidence in source
+    assert "__all__: tuple[str, ...] = ()" in source
+    for forbidden in ("bfs", "dfs", "dijkstra", "shortest_path", "find_path"):
+        assert forbidden not in source.lower()
 
 
 def test_phase61_inheritance_and_identity_ownership_laws_are_exact() -> None:

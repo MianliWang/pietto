@@ -1144,8 +1144,8 @@ frozen its route without changing Phase-61 production behavior.
 
 ## Phase 62 route
 
-Phase 62 is active. Slices 1–7 are completed by successful natural exact-head
-CI, Slice 8 is the current publication candidate, Slices 9–16 are not started,
+Phase 62 is active. Slices 1–8 are completed by successful natural exact-head
+CI, Slice 9 is the current publication candidate, Slices 10–16 are not started,
 and the frozen route has exactly 16 numbered slices.
 
 The exact owner is **Private occurrence-safe relationships and INNER/LEFT
@@ -1303,6 +1303,19 @@ or version behavior. Successful natural exact-head CI completes it without a
 status-only commit. The only next owner is **Phase 62 Slice 9 — Explicit
 Relationship Paths, Fanout/Survival/Null Effects, And Join-Shape Analysis**;
 Slice 9 is not implemented here.
+
+Slice 9 adds private `project_relationship_paths.py`: an exact direct-candidate
+index, caller-supplied explicit ordered paths, and independent linear fanout,
+future-INNER survival, and future-LEFT null-potential folds. Parallel/self
+directions remain complete; no automatic multi-hop search or winner exists.
+The controlling contract is [Phase 62 Slice 9 explicit paths and join-shape
+analysis](spec/phase62-slice9-explicit-relationship-paths-fanout-survival-null-effects-join-shape-analysis-v1.md).
+
+Slice 9 adds no authored JOIN/traversal syntax, binary JOIN IR, actual nulling,
+SQL/public or multi-fact behavior. Successful natural exact-head CI completes
+it without a status-only commit. The only next owner is **Phase 62 Slice 10 —
+Authored JOIN/Traversal Syntax And Semantic Uses**; Slice 10 is not implemented
+here.
 
 ## Retained later ownership
 
