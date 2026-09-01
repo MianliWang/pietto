@@ -29,6 +29,9 @@ PROJECT_IR_OPERATORS = REPO_ROOT / "src/pietto/_project/project_ir_operators.py"
 PROJECT_ROW_KEYS = REPO_ROOT / "src/pietto/_project/project_row_keys.py"
 PROJECT_VALUE_FDS = REPO_ROOT / "src/pietto/_project/project_value_fds.py"
 PROJECT_GRAIN = REPO_ROOT / "src/pietto/_project/project_grain.py"
+PROJECT_IR_RELATIONAL_PROPERTIES = (
+    REPO_ROOT / "src/pietto/_project/project_ir_relational_properties.py"
+)
 
 HEADINGS = (
     "Answer And Static Scope",
@@ -472,6 +475,21 @@ def test_live_slice6_grain_foundation_preserves_factor_and_operator_boundaries()
     assert "build_project_relationship" not in source
     assert "ProjectIRProvidedLocalGrainEvidence" not in source
     assert "grain" not in set(_class_fields(PROJECT_MODEL, "ProjectSemanticResult"))
+
+
+def test_live_slice7_relational_properties_remain_private_and_post_verified() -> None:
+    source = _read(PROJECT_IR_RELATIONAL_PROPERTIES)
+    for evidence in (
+        "class ProjectIRRelationalPropertyStage",
+        "class ProjectIRProvidedIntrinsicGrain",
+        "class ProjectIROutputCandidateKey",
+        "class ProjectIROutputValueFD",
+        "ProjectIRAnalysisBundle",
+        "topological_order",
+        "build_project_ir_relational_property_stage",
+    ):
+        assert evidence in source
+    assert "__all__: tuple[str, ...] = ()" in source
 
 
 def test_phase61_inheritance_and_identity_ownership_laws_are_exact() -> None:

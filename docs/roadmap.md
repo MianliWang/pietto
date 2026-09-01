@@ -1144,8 +1144,8 @@ frozen its route without changing Phase-61 production behavior.
 
 ## Phase 62 route
 
-Phase 62 is active. Slices 1–5 are completed by successful natural exact-head
-CI, Slice 6 is the current publication candidate, Slices 7–16 are not started,
+Phase 62 is active. Slices 1–6 are completed by successful natural exact-head
+CI, Slice 7 is the current publication candidate, Slices 8–16 are not started,
 and the frozen route has exactly 16 numbered slices.
 
 The exact owner is **Private occurrence-safe relationships and INNER/LEFT
@@ -1276,6 +1276,18 @@ CLI/JSON, package, workflow, or version behavior. Successful natural exact-head
 CI on its single publication commit completes Slice 6 without a status-only
 follow-up commit. The only next owner is **Phase 62 Slice 7 — Existing-Operator
 Key/FD/Grain Transfer And Grain Comparison**; Slice 7 is not implemented here.
+
+Slice 7 adds private `project_ir_relational_properties.py` over the freshly
+verified analysis bundle. It attaches occurrence-owned field/value classes,
+transferred key/FD facts, and intrinsic-grain properties to every concrete row
+output in topological order; GROUP_AGGREGATE installs grouped/GLOBAL origins,
+and comparison is on demand. The controlling contract is [Phase 62 Slice 7
+operator transfer and grain comparison](spec/phase62-slice7-existing-operator-key-fd-grain-transfer-grain-comparison-v1.md).
+
+Slice 7 adds no public/SQL/JOIN/cardinality/fanout/path behavior. Successful
+natural exact-head CI completes it without a status-only commit. The only next
+owner is **Phase 62 Slice 8 — Referential Coverage, MATCH SIMPLE/FULL, And
+Directional Match Guarantees**; Slice 8 is not implemented here.
 
 ## Retained later ownership
 

@@ -20,8 +20,8 @@ documentation does not supersede that evidence.
 | Slice 3 | `COMPLETED` |
 | Slice 4 | `COMPLETED` |
 | Slice 5 | `COMPLETED` |
-| Slice 6 | `CURRENT / PUBLICATION CANDIDATE` |
-| Slice 7 | `NOT STARTED` |
+| Slice 6 | `COMPLETED` |
+| Slice 7 | `CURRENT / PUBLICATION CANDIDATE` |
 | Slice 8 | `NOT STARTED` |
 | Slice 9 | `NOT STARTED` |
 | Slice 10 | `NOT STARTED` |
@@ -31,7 +31,7 @@ documentation does not supersede that evidence.
 | Slice 14 | `NOT STARTED` |
 | Slice 15 | `NOT STARTED` |
 | Slice 16 | `NOT STARTED` |
-| Next | `Phase 62 Slice 7 — Existing-Operator Key/FD/Grain Transfer And Grain Comparison` |
+| Next | `Phase 62 Slice 8 — Referential Coverage, MATCH SIMPLE/FULL, And Directional Match Guarantees` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -48,12 +48,9 @@ is completed by successful natural exact-head CI on its single publication
 commit. Slice 3 authored base-match/private exact-field correspondence is
 completed by successful natural exact-head CI on its single publication
 commit, without a status-only follow-up commit.
-Slice 4 authored-UNIQUE/row-uniqueness/candidate-key and Slice 5 strict/lax
-value-FD authorities are completed by successful natural exact-head CI on their
-publication commits. Slice 6 is the current private source/group/global
-intrinsic-grain and factor-dependency-kernel publication candidate. It adds no
-grammar, public schema, operator transfer/comparison, cardinality, fanout,
-JOIN, Project IR, SQL, package, workflow, or version behavior. Successful
-natural exact-head CI on its single publication commit completes Slice 6
-without a status-only follow-up commit. Slices 7–16 are not started; the only
-next owner is Phase 62 Slice 7, whose implementation is not authorized here.
+Slices 4–6 key/FD/intrinsic-grain authorities are completed by natural CI.
+Slice 7 is the current private existing-operator key/FD/grain transfer and
+grain-comparison publication candidate. It adds no grammar, public schema,
+JOIN/cardinality/fanout/path, SQL, package, workflow, or version behavior.
+Successful natural exact-head CI completes Slice 7 without a status-only
+follow-up commit. Slices 8–16 are not started; Slice 8 is the sole next owner.

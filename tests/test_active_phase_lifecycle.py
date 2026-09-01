@@ -93,6 +93,10 @@ PHASE62_SLICE6_SPEC = (
     REPO_ROOT
     / "docs/spec/phase62-slice6-factorized-intrinsic-grain-basis-dependencies-optional-factors-global-grain-v1.md"
 )
+PHASE62_SLICE7_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase62-slice7-existing-operator-key-fd-grain-transfer-grain-comparison-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -154,8 +158,8 @@ EXPECTED_STATUS = (
     ("Slice 3", "`COMPLETED`"),
     ("Slice 4", "`COMPLETED`"),
     ("Slice 5", "`COMPLETED`"),
-    ("Slice 6", "`CURRENT / PUBLICATION CANDIDATE`"),
-    ("Slice 7", "`NOT STARTED`"),
+    ("Slice 6", "`COMPLETED`"),
+    ("Slice 7", "`CURRENT / PUBLICATION CANDIDATE`"),
     ("Slice 8", "`NOT STARTED`"),
     ("Slice 9", "`NOT STARTED`"),
     ("Slice 10", "`NOT STARTED`"),
@@ -167,7 +171,7 @@ EXPECTED_STATUS = (
     ("Slice 16", "`NOT STARTED`"),
     (
         "Next",
-        "`Phase 62 Slice 7 — Existing-Operator Key/FD/Grain Transfer And Grain Comparison`",
+        "`Phase 62 Slice 8 — Referential Coverage, MATCH SIMPLE/FULL, And Directional Match Guarantees`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -195,8 +199,8 @@ EXPECTED_PHASE61_OWNER = (
     "and verifiable analysis boundary"
 )
 EXPECTED_PHASE62_STATE = (
-    "Phase 62 is active. Slices 1–5 are completed by successful natural exact-head\n"
-    "CI, Slice 6 is the current publication candidate, Slices 7–16 are not started,\n"
+    "Phase 62 is active. Slices 1–6 are completed by successful natural exact-head\n"
+    "CI, Slice 7 is the current publication candidate, Slices 8–16 are not started,\n"
     "and the frozen route has exactly 16 numbered slices."
 )
 EXPECTED_PHASE62_OWNER = (
@@ -908,6 +912,16 @@ EXPECTED_PHASE62_SLICE6_CHANGED_PATHS = (
     "tests/test_phase62_slice6_factorized_intrinsic_grain_basis_dependencies_optional_factors_global_grain.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE62_SLICE7_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase62-slice7-existing-operator-key-fd-grain-transfer-grain-comparison-v1.md",
+    "docs/status.md",
+    "src/pietto/_project/project_ir_relational_properties.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
+    "tests/test_phase62_slice7_existing_operator_key_fd_grain_transfer_grain_comparison.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -968,15 +982,13 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "Slice 3 authored base-match/private exact-field correspondence" in normalized
     )
     assert "completed by successful natural exact-head CI" in normalized
-    assert "Slice 4 authored-UNIQUE/row-uniqueness/candidate-key" in normalized
-    assert "Slice 5 strict/lax value-FD authorities are completed" in normalized
-    assert "Slice 6 is the current private source/group/global" in normalized
-    assert "factor-dependency-kernel publication candidate" in normalized
-    assert "adds no grammar, public schema, operator transfer/comparison" in normalized
-    assert "single publication commit completes Slice 6" in normalized
-    assert "Slices 7–16 are not started" in normalized
-    assert "only next owner is Phase 62 Slice 7" in normalized
-    assert "implementation is not authorized here" in normalized
+    assert "Slices 4–6 key/FD/intrinsic-grain authorities are completed" in normalized
+    assert "Slice 7 is the current private existing-operator key/FD/grain" in normalized
+    assert "grain-comparison publication candidate" in normalized
+    assert "adds no grammar, public schema, JOIN/cardinality/fanout/path" in normalized
+    assert "natural exact-head CI completes Slice 7" in normalized
+    assert "Slices 8–16 are not started" in normalized
+    assert "Slice 8 is the sole next owner" in normalized
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -1653,6 +1665,18 @@ def test_phase62_slice6_rebinds_exact_slice5_publication_authority() -> None:
         "src/pietto/_project/project_grain.py",
         "Slice 6 current/publication candidate",
         "Slices 7–16 not started",
+    ):
+        assert evidence in document
+
+
+def test_phase62_slice7_rebinds_exact_slice6_publication_authority() -> None:
+    document = " ".join(PHASE62_SLICE7_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "88dbfb51a35504b0b753e299c6c90b6303a8e450",
+        "724f2b8ce113bf01072e83f7cd4792cae4a9d8be",
+        "33491899112",
+        "A3/M5/D0",
+        "project_ir_relational_properties.py",
     ):
         assert evidence in document
 
@@ -2473,4 +2497,13 @@ def test_phase62_slice6_changed_paths_are_exact() -> None:
             )
         )
         for path in paths
+    )
+
+
+def test_phase62_slice7_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE62_SLICE7_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 8
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert tuple(path for path in paths if path.startswith("src/")) == (
+        "src/pietto/_project/project_ir_relational_properties.py",
     )
