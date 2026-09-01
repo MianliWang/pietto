@@ -32,6 +32,9 @@ PROJECT_GRAIN = REPO_ROOT / "src/pietto/_project/project_grain.py"
 PROJECT_IR_RELATIONAL_PROPERTIES = (
     REPO_ROOT / "src/pietto/_project/project_ir_relational_properties.py"
 )
+PROJECT_RELATIONSHIP_MATCH_GUARANTEES = (
+    REPO_ROOT / "src/pietto/_project/project_relationship_match_guarantees.py"
+)
 
 HEADINGS = (
     "Answer And Static Scope",
@@ -490,6 +493,24 @@ def test_live_slice7_relational_properties_remain_private_and_post_verified() ->
     ):
         assert evidence in source
     assert "__all__: tuple[str, ...] = ()" in source
+
+
+def test_live_slice8_match_guarantees_preserve_key_coverage_and_join_boundaries() -> (
+    None
+):
+    source = _read(PROJECT_RELATIONSHIP_MATCH_GUARANTEES)
+    for evidence in (
+        "class ProjectRelationshipDirectionIdentity",
+        "class ProjectReferentialCoverageEvidence",
+        "class ProjectDirectionalRelationshipMatchGuarantee",
+        "MATCH_SIMPLE",
+        "MATCH_FULL",
+        "UNBOUNDED_BY_ONE",
+        "build_project_relationship_match_guarantees",
+    ):
+        assert evidence in source
+    assert "__all__: tuple[str, ...] = ()" in source
+    assert "MATCH_PARTIAL" not in source
 
 
 def test_phase61_inheritance_and_identity_ownership_laws_are_exact() -> None:

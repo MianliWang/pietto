@@ -82,8 +82,8 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
         if "generated" not in path.parts
     )
     test_files = tuple(sorted((REPO_ROOT / "tests").rglob("*.py")))
-    assert len(production_files) == 154
-    assert len(test_files) == 394
+    assert len(production_files) == 155
+    assert len(test_files) == 395
     assert set(production_files).isdisjoint(test_files)
 
 

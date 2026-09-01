@@ -21,8 +21,8 @@ documentation does not supersede that evidence.
 | Slice 4 | `COMPLETED` |
 | Slice 5 | `COMPLETED` |
 | Slice 6 | `COMPLETED` |
-| Slice 7 | `CURRENT / PUBLICATION CANDIDATE` |
-| Slice 8 | `NOT STARTED` |
+| Slice 7 | `COMPLETED` |
+| Slice 8 | `CURRENT / PUBLICATION CANDIDATE` |
 | Slice 9 | `NOT STARTED` |
 | Slice 10 | `NOT STARTED` |
 | Slice 11 | `NOT STARTED` |
@@ -31,7 +31,7 @@ documentation does not supersede that evidence.
 | Slice 14 | `NOT STARTED` |
 | Slice 15 | `NOT STARTED` |
 | Slice 16 | `NOT STARTED` |
-| Next | `Phase 62 Slice 8 — Referential Coverage, MATCH SIMPLE/FULL, And Directional Match Guarantees` |
+| Next | `Phase 62 Slice 9 — Explicit Relationship Paths, Fanout/Survival/Null Effects, And Join-Shape Analysis` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -48,9 +48,9 @@ is completed by successful natural exact-head CI on its single publication
 commit. Slice 3 authored base-match/private exact-field correspondence is
 completed by successful natural exact-head CI on its single publication
 commit, without a status-only follow-up commit.
-Slices 4–6 key/FD/intrinsic-grain authorities are completed by natural CI.
-Slice 7 is the current private existing-operator key/FD/grain transfer and
-grain-comparison publication candidate. It adds no grammar, public schema,
-JOIN/cardinality/fanout/path, SQL, package, workflow, or version behavior.
-Successful natural exact-head CI completes Slice 7 without a status-only
-follow-up commit. Slices 8–16 are not started; Slice 8 is the sole next owner.
+Slices 4–7 key/FD/grain authorities are completed by natural CI. Slice 8 is the
+current private referential-coverage/MATCH-policy and directional match-bound
+publication candidate. It adds no grammar, public schema, JOIN/path/fanout,
+SQL, package, workflow, or version behavior. Successful natural exact-head CI
+completes Slice 8 without a status-only follow-up commit. Slices 9–16 are not
+started; Slice 9 is the sole next owner.

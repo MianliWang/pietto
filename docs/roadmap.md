@@ -1144,8 +1144,8 @@ frozen its route without changing Phase-61 production behavior.
 
 ## Phase 62 route
 
-Phase 62 is active. Slices 1–6 are completed by successful natural exact-head
-CI, Slice 7 is the current publication candidate, Slices 8–16 are not started,
+Phase 62 is active. Slices 1–7 are completed by successful natural exact-head
+CI, Slice 8 is the current publication candidate, Slices 9–16 are not started,
 and the frozen route has exactly 16 numbered slices.
 
 The exact owner is **Private occurrence-safe relationships and INNER/LEFT
@@ -1288,6 +1288,21 @@ Slice 7 adds no public/SQL/JOIN/cardinality/fanout/path behavior. Successful
 natural exact-head CI completes it without a status-only commit. The only next
 owner is **Phase 62 Slice 8 — Referential Coverage, MATCH SIMPLE/FULL, And
 Directional Match Guarantees**; Slice 8 is not implemented here.
+
+Slice 8 adds private `project_relationship_match_guarantees.py`. Each concrete
+proof-capable relationship produces two occurrence-safe directions with
+independent lower/upper evidence. Exact target keys establish at-most-one;
+referential coverage remains a distinct typed domain, and current authored
+source explicitly lacks a positive producer. MATCH SIMPLE/FULL applicability
+and NON_NULL-backed existence are retained without changing equality. The
+controlling contract is [Phase 62 Slice 8 directional match
+guarantees](spec/phase62-slice8-referential-coverage-match-simple-full-directional-match-guarantees-v1.md).
+
+Slice 8 adds no public syntax/schema, JOIN/path/fanout, SQL, package, workflow,
+or version behavior. Successful natural exact-head CI completes it without a
+status-only commit. The only next owner is **Phase 62 Slice 9 — Explicit
+Relationship Paths, Fanout/Survival/Null Effects, And Join-Shape Analysis**;
+Slice 9 is not implemented here.
 
 ## Retained later ownership
 
