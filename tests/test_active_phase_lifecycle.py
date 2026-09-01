@@ -73,6 +73,10 @@ PHASE62_SLICE1_SPEC = (
     REPO_ROOT
     / "docs/spec/phase62-relationship-join-keys-fd-grain-fanout-multifact-architecture-source-audit-route-lock-v1.md"
 )
+PHASE62_SLICE2_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase62-slice2-relationship-declaration-identity-endpoint-roles-module-local-resolution-construction-states-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -129,8 +133,8 @@ EXPECTED_STATUS = (
     ("Phase 60", "`COMPLETED`"),
     ("Phase 61", "`COMPLETED`"),
     ("Phase 62", "`ACTIVE`"),
-    ("Slice 1", "`CURRENT / PUBLICATION CANDIDATE`"),
-    ("Slice 2", "`NOT STARTED`"),
+    ("Slice 1", "`COMPLETED`"),
+    ("Slice 2", "`CURRENT / PUBLICATION CANDIDATE`"),
     ("Slice 3", "`NOT STARTED`"),
     ("Slice 4", "`NOT STARTED`"),
     ("Slice 5", "`NOT STARTED`"),
@@ -147,7 +151,7 @@ EXPECTED_STATUS = (
     ("Slice 16", "`NOT STARTED`"),
     (
         "Next",
-        "`Phase 62 Slice 2 — Relationship Declaration Identity, Endpoint Roles, Module-Local Resolution, And Construction States`",
+        "`Phase 62 Slice 3 — Exact Field Correspondences, ON/WHERE Separation, Equality/Null Behavior, And Constraint-Scope Boundary`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -175,9 +179,9 @@ EXPECTED_PHASE61_OWNER = (
     "and verifiable analysis boundary"
 )
 EXPECTED_PHASE62_STATE = (
-    "Phase 62 is active. Slice 1 is the current documentation/static-assurance\n"
-    "publication candidate, Slices 2–16 are not started, and the frozen route has\n"
-    "exactly 16 numbered slices."
+    "Phase 62 is active. Slice 1 is completed by successful natural exact-head CI,\n"
+    "Slice 2 is the current publication candidate, Slices 3–16 are not started, and\n"
+    "the frozen route has exactly 16 numbered slices."
 )
 EXPECTED_PHASE62_OWNER = (
     "Private occurrence-safe relationships and INNER/LEFT logical JOIN, typed "
@@ -829,6 +833,16 @@ EXPECTED_PHASE62_SLICE1_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
     "tests/test_workflow_lifecycle_validation_efficiency.py",
 )
+EXPECTED_PHASE62_SLICE2_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase62-slice2-relationship-declaration-identity-endpoint-roles-module-local-resolution-construction-states-v1.md",
+    "docs/status.md",
+    "src/pietto/_project/project_relationships.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
+    "tests/test_phase62_slice2_relationship_declaration_identity_endpoint_roles_module_local_resolution_construction_states.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -879,18 +893,17 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "single Slice 12 publication commit" in normalized
     assert "Phase61 self-owned-open = 0" in normalized
     assert "Phase 62 is active" in normalized
-    assert (
-        "Slice 1 is the current architecture, documentation, and static assurance"
-        in (normalized)
-    )
-    assert "publication candidate" in normalized
-    assert "formal BAG/NULL semantics" in normalized
+    assert "Slice 1 architecture, formal BAG/NULL laws" in normalized
     assert "exact 16-Slice route" in normalized
-    assert "Slice 1 adds no production semantics" in normalized
-    assert "single publication commit completes Slice 1" in normalized
-    assert "Slices 2–16 are not started" in normalized
-    assert "only next owner is Phase 62 Slice 2" in normalized
-    assert "does not authorize its implementation" in normalized
+    assert "completed by successful natural exact-head CI" in normalized
+    assert "portability-repair child" in normalized
+    assert "Slice 2 is the current private relationship" in normalized
+    assert "identity/module-resolution publication candidate" in normalized
+    assert "adds no grammar, public schema, JOIN, key/FD, grain" in normalized
+    assert "single publication commit completes Slice 2" in normalized
+    assert "Slices 3–16 are not started" in normalized
+    assert "only next owner is Phase 62 Slice 3" in normalized
+    assert "implementation is not authorized here" in normalized
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -1063,8 +1076,15 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "multi-fact alignment",
         "documentation/static assurance only",
         "changes no grammar, AST",
-        "Phase 62 Slice 2 — Relationship Declaration Identity, Endpoint Roles, Module-Local Resolution, And Construction States",
-        "Slice 2 is not implemented here",
+        "portability-repair child completed Slice 1",
+        "`src/pietto/_project/project_relationships.py`",
+        "phase62-slice2-relationship-declaration-identity-endpoint-roles-module-local-resolution-construction-states-v1.md",
+        "existing `ProjectSemanticResult`",
+        "existing `check_relationship_metadata` semantic owner",
+        "UNKNOWN/BLOCKED/AMBIGUOUS terminals",
+        "adds no grammar, public `SemanticModel`",
+        "Phase 62 Slice 3 — Exact Field Correspondences, ON/WHERE Separation, Equality/Null Behavior, And Constraint-Scope Boundary",
+        "Slice 3 is not implemented here",
     ):
         assert evidence in phase62_normalized
 
@@ -1432,6 +1452,25 @@ def test_phase62_slice1_rebinds_exact_phase61_completion_authority() -> None:
         "Phase 62 = ACTIVE",
         "Slice 1 = CURRENT / PUBLICATION CANDIDATE",
         "Slices 2-16 = NOT STARTED",
+    ):
+        assert evidence in document
+
+
+def test_phase62_slice2_rebinds_exact_slice1_publication_authority() -> None:
+    document = " ".join(PHASE62_SLICE2_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "998eaa5655bbe64d4ae13b8ac03f413ce84343ff",
+        "d3a698a3a4916cac39a0852bb43ef4243876b18e",
+        "5fe550481b5de34977a59078e1f5ba9b5c90d0b0",
+        "Fix Phase 61 completion test portability",
+        "33463294917",
+        "Phase 61 = COMPLETED",
+        "Slice 1 = COMPLETED / PUBLISHED",
+        "Slice 2 = NEXT / NOT IMPLEMENTED",
+        "A3/M5/D0",
+        "src/pietto/_project/project_relationships.py",
+        "Slice 2 = CURRENT / PUBLICATION CANDIDATE",
+        "Slices 3-16 = NOT STARTED",
     ):
         assert evidence in document
 
@@ -2111,6 +2150,31 @@ def test_phase62_slice1_changed_paths_are_exact() -> None:
                 "scripts/",
                 "tests/fixtures/",
                 "tests/goldens/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase62_slice2_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE62_SLICE2_CHANGED_PATHS
+    assert len(paths) == 8
+    assert len(set(paths)) == 8
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert tuple(path for path in paths if path.startswith("src/")) == (
+        "src/pietto/_project/project_relationships.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+                "src/pietto/_project_explain/",
+                "src/pietto/ir/",
+                "src/pietto/sql/",
             )
         )
         for path in paths

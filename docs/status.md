@@ -15,8 +15,8 @@ documentation does not supersede that evidence.
 | Phase 60 | `COMPLETED` |
 | Phase 61 | `COMPLETED` |
 | Phase 62 | `ACTIVE` |
-| Slice 1 | `CURRENT / PUBLICATION CANDIDATE` |
-| Slice 2 | `NOT STARTED` |
+| Slice 1 | `COMPLETED` |
+| Slice 2 | `CURRENT / PUBLICATION CANDIDATE` |
 | Slice 3 | `NOT STARTED` |
 | Slice 4 | `NOT STARTED` |
 | Slice 5 | `NOT STARTED` |
@@ -31,7 +31,7 @@ documentation does not supersede that evidence.
 | Slice 14 | `NOT STARTED` |
 | Slice 15 | `NOT STARTED` |
 | Slice 16 | `NOT STARTED` |
-| Next | `Phase 62 Slice 2 — Relationship Declaration Identity, Endpoint Roles, Module-Local Resolution, And Construction States` |
+| Next | `Phase 62 Slice 3 — Exact Field Correspondences, ON/WHERE Separation, Equality/Null Behavior, And Constraint-Scope Boundary` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -41,11 +41,12 @@ unnumbered Slice 5 prerequisites are completed by live Git and successful
 natural exact-head CI on its single Slice 12 publication commit, without a
 status-only follow-up commit; `Phase61 self-owned-open = 0`.
 
-Phase 62 is active. Slice 1 is the current architecture, documentation, and
-static assurance publication candidate. It freezes current/mature-source dispositions,
-formal BAG/NULL semantics, relationship/key/FD/coverage/grain/fanout/multi-fact
-laws, the exact 16-Slice route, exit criteria, and the Phase 63 handoff. Slice 1
-adds no production semantics. Successful natural exact-head CI on its single
-publication commit completes Slice 1 without a status-only follow-up commit.
-Slices 2–16 are not started. The only next owner is Phase 62 Slice 2; this
-status does not authorize its implementation.
+Phase 62 is active. Slice 1 architecture, formal BAG/NULL laws, exact 16-Slice
+route, and source audit are completed by successful natural exact-head CI on
+its portability-repair child. Slice 2 is the current private relationship
+identity/module-resolution publication candidate. It adds no grammar, public
+schema, JOIN, key/FD, grain, cardinality, fanout, SQL, package, workflow, or
+version behavior. Successful natural exact-head CI on its single publication
+commit completes Slice 2 without a status-only follow-up commit. Slices 3–16
+are not started; the only next owner is Phase 62 Slice 3, whose implementation
+is not authorized here.

@@ -1144,9 +1144,9 @@ frozen its route without changing Phase-61 production behavior.
 
 ## Phase 62 route
 
-Phase 62 is active. Slice 1 is the current documentation/static-assurance
-publication candidate, Slices 2–16 are not started, and the frozen route has
-exactly 16 numbered slices.
+Phase 62 is active. Slice 1 is completed by successful natural exact-head CI,
+Slice 2 is the current publication candidate, Slices 3–16 are not started, and
+the frozen route has exactly 16 numbered slices.
 
 The exact owner is **Private occurrence-safe relationships and INNER/LEFT
 logical JOIN, typed key/FD/coverage evidence, factorized intrinsic grain,
@@ -1183,10 +1183,28 @@ source-audit route lock](spec/phase62-relationship-join-keys-fd-grain-fanout-mul
 Slice 1 adds documentation/static assurance only. It changes no grammar, AST,
 semantic admission, Project semantic facts, Project IR operator, SQL, CLI,
 public JSON/schema, Project Explain, package/dependency/workflow, or version.
+Successful natural exact-head CI on its portability-repair child completed
+Slice 1 without a status-only follow-up commit.
+
+Slice 2 adds one standalone private
+`src/pietto/_project/project_relationships.py` owner. It consumes the exact
+existing `ProjectSemanticResult`, declaring-module relation-resolution
+environment, authored `RelationshipMetadata`, and existing
+`check_relationship_metadata` semantic owner to construct complete
+module/source-ordered relationship subjects. Declaration and endpoint identity
+remain nominally distinct; endpoint roles are retained without cardinality or
+direction inference; self/same-target relationships do not collapse; and
+UNKNOWN/BLOCKED/AMBIGUOUS terminals retain exact evidence without fake
+concrete facts. The controlling contract is [Phase 62 Slice 2 relationship
+declaration identity and module-local resolution](spec/phase62-slice2-relationship-declaration-identity-endpoint-roles-module-local-resolution-construction-states-v1.md).
+
+Slice 2 adds no grammar, public `SemanticModel`, Project semantic result field,
+script IR/SQL, Project IR operator, condition, key/FD, grain, cardinality,
+fanout, path, JOIN, multi-fact, package, workflow, or version behavior.
 Successful natural exact-head CI on its single publication commit completes
-Slice 1 without a status-only follow-up commit. The only next owner is **Phase
-62 Slice 2 — Relationship Declaration Identity, Endpoint Roles, Module-Local
-Resolution, And Construction States**; Slice 2 is not implemented here.
+Slice 2 without a status-only follow-up commit. The only next owner is **Phase
+62 Slice 3 — Exact Field Correspondences, ON/WHERE Separation, Equality/Null
+Behavior, And Constraint-Scope Boundary**; Slice 3 is not implemented here.
 
 ## Retained later ownership
 

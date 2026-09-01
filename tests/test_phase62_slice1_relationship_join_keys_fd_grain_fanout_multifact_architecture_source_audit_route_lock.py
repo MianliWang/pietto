@@ -731,7 +731,6 @@ def test_route_later_owners_exit_gate_and_static_delta_are_exact() -> None:
     assert not any(
         (REPO_ROOT / path).exists()
         for path in (
-            "src/pietto/_project/project_relationships.py",
             "src/pietto/_project/project_join.py",
             "src/pietto/_project/project_keys.py",
             "src/pietto/_project/project_functional_dependencies.py",
