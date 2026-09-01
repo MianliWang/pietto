@@ -27,6 +27,7 @@ MODULE_SEMANTIC_FACTS = (
 )
 PROJECT_IR_OPERATORS = REPO_ROOT / "src/pietto/_project/project_ir_operators.py"
 PROJECT_ROW_KEYS = REPO_ROOT / "src/pietto/_project/project_row_keys.py"
+PROJECT_VALUE_FDS = REPO_ROOT / "src/pietto/_project/project_value_fds.py"
 
 HEADINGS = (
     "Answer And Static Scope",
@@ -412,6 +413,38 @@ def test_live_unique_baseline_is_evidence_readiness_not_key_authority() -> None:
     ):
         assert non_authority in baseline
     assert "No new UNIQUE syntax or semantics is implemented" in baseline
+
+
+def test_live_slice5_value_fd_foundation_preserves_separate_private_domains() -> None:
+    source = _read(PROJECT_VALUE_FDS)
+    for evidence in (
+        "class ProjectValueFDFieldUniverse",
+        "class ProjectValueFDIdentity",
+        "class ProjectValueFDFact",
+        "class ProjectValueFDIndex",
+        "class ProjectValueFDBasisSet",
+        "class ProjectValueFDDeterminationStatus",
+        "def build_project_value_fds",
+        "def strict_value_fd_closure",
+        "def strictly_determines",
+        "ProjectCandidateKeyFact",
+        "ProjectRowUniquenessStrength.STRICT",
+        "ProjectRowUniquenessStrength.LAX",
+        "ProjectConstraintEvidenceOrigin.DERIVED_THEOREM",
+        "ProjectConstraintEvidenceTrust.TRUSTED",
+        "ProjectConstraintEnforcementPosture.MODEL_CONTRACT",
+        "ProjectExactRowOutputConstraintScope",
+        "MappingProxyType",
+        "bit_count",
+        "deque",
+    ):
+        assert evidence in source
+    assert "__all__: tuple[str, ...] = ()" in source
+    assert "build_project_relationship_conditions" not in source
+    assert "ProjectRelationshipEqualityCorrespondence" not in source
+    assert "ProjectIR" not in source
+    assert "grain" not in source.lower()
+    assert "value_fds" not in set(_class_fields(PROJECT_MODEL, "ProjectSemanticResult"))
 
 
 def test_phase61_inheritance_and_identity_ownership_laws_are_exact() -> None:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import json
+import tokenize
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
@@ -229,9 +231,9 @@ def test_slice8_does_not_add_deferred_project_capabilities() -> None:
         assert forbidden not in project_source
 
     assert "load_project_config" not in source_tree_without_project_config_or_check
+    assert "compile_project" not in _python_identifier_names(source_tree)
     for forbidden in (
         "configured_source_selection",
-        "compile_project",
         "aggregate_project_metadata",
         "result.explain",
     ):
@@ -252,6 +254,32 @@ def test_slice8_does_not_add_deferred_project_capabilities() -> None:
 
     assert '"--project"' not in _configure_parser_source(cli_source, "emit_sql")
     assert '"--project"' in _configure_parser_source(cli_source, "explain")
+
+
+def test_deferred_compile_project_reader_uses_exact_python_identifiers() -> None:
+    for source in (
+        "def compile_project():\n    pass\n",
+        "compile_project()\n",
+        "module.compile_project()\n",
+        "from package import compile_project\n",
+    ):
+        assert "compile_project" in _python_identifier_names(source)
+
+    for source in (
+        "def _compile_project_value_fd_index():\n    pass\n",
+        "compile_project_value_fd_index()\n",
+        "some_compile_project_helper = None\n",
+        "# compile_project\nvalue = 'compile_project'\n",
+    ):
+        assert "compile_project" not in _python_identifier_names(source)
+
+
+def _python_identifier_names(source: str) -> frozenset[str]:
+    return frozenset(
+        token.string
+        for token in tokenize.generate_tokens(io.StringIO(source).readline)
+        if token.type == tokenize.NAME
+    )
 
 
 def _read_json_document(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:

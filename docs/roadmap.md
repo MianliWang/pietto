@@ -1144,8 +1144,8 @@ frozen its route without changing Phase-61 production behavior.
 
 ## Phase 62 route
 
-Phase 62 is active. Slices 1–3 are completed by successful natural exact-head
-CI, Slice 4 is the current publication candidate, Slices 5–16 are not started,
+Phase 62 is active. Slices 1–4 are completed by successful natural exact-head
+CI, Slice 5 is the current publication candidate, Slices 6–16 are not started,
 and the frozen route has exactly 16 numbered slices.
 
 The exact owner is **Private occurrence-safe relationships and INNER/LEFT
@@ -1238,8 +1238,26 @@ Slice 4 adds no grammar, public semantic field, FD, grain, operator key
 transfer, cardinality, fanout, path, JOIN, Project IR, SQL, CLI/JSON, package,
 workflow, or version behavior. Successful natural exact-head CI on its single
 publication commit completes Slice 4 without a status-only follow-up commit.
-The only next owner is **Phase 62 Slice 5 — Strict/Lax Value-FD Basis, Compact
-Indexes, And Targeted Closure**; Slice 5 is not implemented here.
+
+Slice 5 adds one standalone private
+`src/pietto/_project/project_value_fds.py` owner. It consumes the unchanged
+Slice-4 candidate-key frontier and exact concrete Source row-output authority
+to derive one direct STRICT/LAX value FD per non-trivial candidate key. Every
+output has one exact ordered field universe and immutable Python-`int` compiled
+index. Targeted STRICT closure uses LHS-incident worklists, excludes LAX rules,
+returns epistemic `PROVEN`/`NOT_PROVEN`, and retains one deterministic direct-FD
+proof witness. Normative facts retain the exact candidate premise and all of
+its authored supports. The controlling contract is [Phase 62 Slice 5
+strict/lax value-FD basis, compact indexes, and targeted
+closure](spec/phase62-slice5-strict-lax-value-fd-basis-compact-indexes-targeted-closure-v1.md).
+
+Slice 5 adds no grammar, public semantic field, authored/general/catalog FD,
+candidate-key mutation, operator transfer, grain dependency, cardinality,
+fanout, path, JOIN, Project IR, SQL, CLI/JSON, package, workflow, or version
+behavior. Successful natural exact-head CI on its single publication commit
+completes Slice 5 without a status-only follow-up commit. The only next owner
+is **Phase 62 Slice 6 — Factorized Intrinsic Grain Basis, Grain Dependencies,
+Optional Factors, And GLOBAL Grain**; Slice 6 is not implemented here.
 
 ## Retained later ownership
 
