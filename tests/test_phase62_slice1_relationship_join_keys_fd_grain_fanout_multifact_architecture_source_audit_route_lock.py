@@ -26,6 +26,7 @@ MODULE_SEMANTIC_FACTS = (
     REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py"
 )
 PROJECT_IR_OPERATORS = REPO_ROOT / "src/pietto/_project/project_ir_operators.py"
+PROJECT_ROW_KEYS = REPO_ROOT / "src/pietto/_project/project_row_keys.py"
 
 HEADINGS = (
     "Answer And Static Scope",
@@ -386,6 +387,20 @@ def test_live_unique_baseline_is_evidence_readiness_not_key_authority() -> None:
         _class_fields(MODULE_SEMANTIC_FACTS, "ProjectModuleRelationSemanticFacts")
     )
     assert not {"uniques", "keys", "functional_dependencies", "grain"} & fact_fields
+    row_keys = _read(PROJECT_ROW_KEYS)
+    for evidence in (
+        "class ProjectUniqueDeclarationIdentity",
+        "class ProjectRowUniquenessEvidenceIdentity",
+        "class ProjectRowUniquenessEvidence",
+        "class ProjectCandidateKeyFact",
+        "ProjectUniqueNullPolicy.NULLS_DISTINCT",
+        "ProjectRowUniquenessStrength.STRICT",
+        "ProjectRowUniquenessStrength.LAX",
+        "check_shape_structures",
+        "ProjectExactRowOutputConstraintScope",
+    ):
+        assert evidence in row_keys
+    assert "__all__: tuple[str, ...] = ()" in row_keys
 
     baseline = _normalized(_section(_read(), "Live Pietto UNIQUE Baseline"))
     assert "existing authored UNIQUE = potential semantic evidence premise" in baseline

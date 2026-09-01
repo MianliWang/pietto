@@ -58,8 +58,12 @@ shape User:
 ```
 
 Shape items may include fields, named `check` blocks, `unique` declarations,
-and `index` hints. Accepted syntax does not imply runtime validation, DDL, or
-database metadata behavior.
+and `index` hints. An admitted `unique ... on ...` is a trusted Pietto model
+contract whose authored NULL policy defaults to `NULLS_DISTINCT`. On an exact
+source row output, all-`NON_NULL` determinants provide strict row uniqueness;
+otherwise the evidence remains lax and usable under standard equality.
+This does not claim runtime validation, catalog enforcement, DDL, or physical
+database UNIQUE behavior.
 
 ## Sources and relations
 

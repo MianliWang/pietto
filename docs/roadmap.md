@@ -1144,8 +1144,8 @@ frozen its route without changing Phase-61 production behavior.
 
 ## Phase 62 route
 
-Phase 62 is active. Slices 1–2 are completed by successful natural exact-head
-CI, Slice 3 is the current publication candidate, Slices 4–16 are not started,
+Phase 62 is active. Slices 1–3 are completed by successful natural exact-head
+CI, Slice 4 is the current publication candidate, Slices 5–16 are not started,
 and the frozen route has exactly 16 numbered slices.
 
 The exact owner is **Private occurrence-safe relationships and INNER/LEFT
@@ -1219,9 +1219,27 @@ Slice 3 adds no public relationship semantic field, key/FD, grain,
 cardinality, path, fanout, authored JOIN use, Project IR JOIN, SQL, CLI/JSON,
 package, workflow, or version behavior. Successful natural exact-head CI on
 its single publication commit completes Slice 3 without a status-only
-follow-up commit. The only next owner is **Phase 62 Slice 4 — UNIQUE Null
-Policy, Evidence Trust, Strict/Lax Row Uniqueness, And Candidate Keys**; Slice
-4 is not implemented here.
+follow-up commit.
+
+Slice 4 adds one standalone private
+`src/pietto/_project/project_row_keys.py` owner. It consumes existing Shape
+UNIQUE diagnostics, exact source-to-Shape resolution, concrete source semantic
+rows, source-field attribution, and Slice-3 exact-row-output scope. Current
+authored UNIQUE is a trusted `NULLS_DISTINCT` Pietto model contract; exact
+all-`NON_NULL` determinants produce STRICT evidence and nullable/unknown
+determinants remain LAX. Distinct Shape declarations/applications/evidence and
+derived candidate facts do not collapse. The candidate frontier is the
+complete non-dominated antichain built only from direct trusted evidence, with
+all support occurrences retained. The controlling contract is [Phase 62 Slice
+4 UNIQUE null policy, row uniqueness, and candidate
+keys](spec/phase62-slice4-unique-null-policy-evidence-trust-strict-lax-row-uniqueness-candidate-keys-v1.md).
+
+Slice 4 adds no grammar, public semantic field, FD, grain, operator key
+transfer, cardinality, fanout, path, JOIN, Project IR, SQL, CLI/JSON, package,
+workflow, or version behavior. Successful natural exact-head CI on its single
+publication commit completes Slice 4 without a status-only follow-up commit.
+The only next owner is **Phase 62 Slice 5 — Strict/Lax Value-FD Basis, Compact
+Indexes, And Targeted Closure**; Slice 5 is not implemented here.
 
 ## Retained later ownership
 
