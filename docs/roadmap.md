@@ -1144,8 +1144,8 @@ frozen its route without changing Phase-61 production behavior.
 
 ## Phase 62 route
 
-Phase 62 is active. Slices 1–9 are completed by successful natural exact-head
-CI, Slice 10 is the current publication candidate, Slices 11–16 are not
+Phase 62 is active. Slices 1–10 are completed by successful natural exact-head
+CI, Slice 11 is the current publication candidate, Slices 12–16 are not
 started, and the frozen route has exactly 16 numbered slices.
 
 The exact owner is **Private occurrence-safe relationships and INNER/LEFT
@@ -1335,6 +1335,23 @@ multi-fact behavior. Successful natural exact-head CI completes it without a
 status-only commit. The only next owner is **Phase 62 Slice 11 — Project IR
 Binary JOIN Region, Multi-Input Topology, Null Extension, And Property
 Transfer**; Slice 11 is not implemented here.
+
+Slice 11 adds one same-snapshot post-base binary JOIN-region stage. It consumes
+the exact base plan/property stage, Slice-10 use set, and ending allocation;
+emits one binary node per authored path step with two dedicated JOIN-input uses;
+constructs occurrence-local joined rows, actual fanout/survival/nulling, and
+positive `NULL_EXTENSION` provenance; and extends candidate keys, value FDs,
+and grain-factor uses through exact directional evidence. The base pipeline,
+composition, verifier, semantic JOIN deferral, and single-relation fragments
+remain unchanged. The controlling contract is [Phase 62 Slice 11 binary
+Project IR JOIN region](spec/phase62-slice11-project-ir-binary-join-region-multi-input-topology-null-extension-property-transfer-v1.md).
+
+Slice 11 adds no joined scalar namespace or unary tail, Script IR/SQL JOIN
+lowering, join reordering/path search, public schema, or multi-fact/chasm
+behavior. Successful natural exact-head CI completes it without a status-only
+commit. The only next owner is **Phase 62 Slice 12 — Per-Aggregate Fact
+Locality, Chasm Detection, And Multi-Fact Alignment**; Slice 12 is not
+implemented here.
 
 ## Retained later ownership
 

@@ -17,7 +17,7 @@ from pietto._project.module_attribution import ProjectDeclarationOccurrenceIdent
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleRelationSemanticFacts,
 )
-from pietto._project.project_ir import ProjectIRPlanNodeRef
+from pietto._project.project_ir import ProjectIRPlanNodeRef, ProjectIRUseRef
 from pietto._project.project_ir_evaluation_context import (
     ProjectIRAggregateEvaluationContext,
     ProjectIREvaluationContextStage,
@@ -128,8 +128,48 @@ class ProjectGroupedGrainFactorIdentity:
             raise ValueError("Grouped grain identity requires exact group authority.")
 
 
-type ProjectGrainFactorIdentity = (
+type ProjectBaseGrainFactorIdentity = (
     ProjectSourceGrainFactorIdentity | ProjectGroupedGrainFactorIdentity
+)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectJoinGrainFactorIdentity:
+    """One snapshot-local factor use introduced into a JOIN region."""
+
+    base: ProjectBaseGrainFactorIdentity
+    introduction_use: ProjectIRUseRef
+    nulling_joins: tuple[ProjectIRPlanNodeRef, ...]
+    kind: ProjectGrainFactorKind = field(init=False)
+
+    def __post_init__(self) -> None:
+        if type(self.base) not in {
+            ProjectSourceGrainFactorIdentity,
+            ProjectGroupedGrainFactorIdentity,
+        }:
+            raise TypeError("JOIN grain use requires an exact base factor.")
+        if type(self.introduction_use) is not ProjectIRUseRef:
+            raise TypeError("JOIN grain use requires an introduction-use ref.")
+        if type(self.nulling_joins) is not tuple or any(
+            type(item) is not ProjectIRPlanNodeRef for item in self.nulling_joins
+        ):
+            raise TypeError("JOIN grain nulling refs must be an exact tuple.")
+        positions = tuple(item.position for item in self.nulling_joins)
+        if len(set(self.nulling_joins)) != len(self.nulling_joins) or any(
+            left >= right for left, right in zip(positions, positions[1:], strict=False)
+        ):
+            raise ValueError("JOIN grain nulling refs must be unique and ordered.")
+        if any(
+            item.scope is not self.introduction_use.scope for item in self.nulling_joins
+        ):
+            raise ValueError("JOIN grain use requires one snapshot scope.")
+        object.__setattr__(self, "kind", self.base.kind)
+
+
+type ProjectGrainFactorIdentity = (
+    ProjectSourceGrainFactorIdentity
+    | ProjectGroupedGrainFactorIdentity
+    | ProjectJoinGrainFactorIdentity
 )
 
 
@@ -143,6 +183,7 @@ class ProjectGrainDomainFactor:
         if type(self.identity) not in {
             ProjectSourceGrainFactorIdentity,
             ProjectGroupedGrainFactorIdentity,
+            ProjectJoinGrainFactorIdentity,
         }:
             raise TypeError("Grain factor requires an exact domain identity.")
 
@@ -167,6 +208,7 @@ class ProjectGrainDependencyFact:
                     not in {
                         ProjectSourceGrainFactorIdentity,
                         ProjectGroupedGrainFactorIdentity,
+                        ProjectJoinGrainFactorIdentity,
                     }
                     for value in values
                 )

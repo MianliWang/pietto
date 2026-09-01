@@ -27,6 +27,8 @@ from pietto._project.project_ir_operators import (
     ProjectIRLogicalOperatorOccurrence,
 )
 from pietto._project.project_ir_properties import (
+    ProjectIRJoinRowOutput,
+    ProjectIRJoinedRowField,
     ProjectIRRelationRowOutput,
 )
 from pietto._project.project_ir_verification import ProjectIRAnalysisBundle
@@ -34,6 +36,9 @@ from pietto._project.project_row_keys import ProjectRowUniquenessStrength
 from pietto.ast_nodes import DottedNameExpr, NameExpr
 
 __all__: tuple[str, ...] = ()
+
+type ProjectIRRelationalRowOutput = ProjectIRRelationRowOutput | ProjectIRJoinRowOutput
+_RELATIONAL_ROW_OUTPUT_TYPES = (ProjectIRRelationRowOutput, ProjectIRJoinRowOutput)
 
 
 class ProjectIRGrainComparisonStatus(StrEnum):
@@ -47,12 +52,13 @@ class ProjectIRGrainComparisonStatus(StrEnum):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectIROutputFieldOccurrence:
-    output: ProjectIRRelationRowOutput
+    output: ProjectIRRelationalRowOutput
     field_position: int
     evidence: ProjectRowField = field(repr=False)
+    effective_nullability: ProjectRowFieldNullability = field(init=False)
 
     def __post_init__(self) -> None:
-        if type(self.output) is not ProjectIRRelationRowOutput:
+        if type(self.output) not in _RELATIONAL_ROW_OUTPUT_TYPES:
             raise TypeError("Output field requires an exact relation-row output.")
         row_fields = self.output.row_shape.fields
         if (
@@ -62,15 +68,25 @@ class ProjectIROutputFieldOccurrence:
             or row_fields[self.field_position].evidence is not self.evidence
         ):
             raise ValueError("Output field must retain exact row-shape order.")
+        shape_field = row_fields[self.field_position]
+        object.__setattr__(
+            self,
+            "effective_nullability",
+            (
+                shape_field.effective_nullability
+                if type(shape_field) is ProjectIRJoinedRowField
+                else self.evidence.nullability
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectIROutputValueClass:
-    output: ProjectIRRelationRowOutput
+    output: ProjectIRRelationalRowOutput
     members: tuple[ProjectIROutputFieldOccurrence, ...]
 
     def __post_init__(self) -> None:
-        if type(self.output) is not ProjectIRRelationRowOutput or not self.members:
+        if type(self.output) not in _RELATIONAL_ROW_OUTPUT_TYPES or not self.members:
             raise ValueError("Value class requires one exact output and members.")
         if any(member.output is not self.output for member in self.members):
             raise ValueError("Value-class members must share one output occurrence.")
@@ -78,14 +94,14 @@ class ProjectIROutputValueClass:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectIROutputCandidateKey:
-    output: ProjectIRRelationRowOutput
+    output: ProjectIRRelationalRowOutput
     determinants: tuple[ProjectIROutputValueClass, ...]
     strength: ProjectRowUniquenessStrength
     supports: tuple[object, ...] = field(repr=False, compare=False, hash=False)
 
     def __post_init__(self) -> None:
         if (
-            type(self.output) is not ProjectIRRelationRowOutput
+            type(self.output) not in _RELATIONAL_ROW_OUTPUT_TYPES
             or not self.determinants
             or any(item.output is not self.output for item in self.determinants)
             or not self.supports
@@ -95,7 +111,7 @@ class ProjectIROutputCandidateKey:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectIROutputValueFD:
-    output: ProjectIRRelationRowOutput
+    output: ProjectIRRelationalRowOutput
     determinants: tuple[ProjectIROutputValueClass, ...]
     dependents: tuple[ProjectIROutputValueClass, ...]
     strength: ProjectRowUniquenessStrength
@@ -103,7 +119,7 @@ class ProjectIROutputValueFD:
 
     def __post_init__(self) -> None:
         if (
-            type(self.output) is not ProjectIRRelationRowOutput
+            type(self.output) not in _RELATIONAL_ROW_OUTPUT_TYPES
             or not self.determinants
             or not self.dependents
             or any(
@@ -125,7 +141,7 @@ class ProjectIRCompiledOutputFDRule:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectIROutputFDIndex:
-    output: ProjectIRRelationRowOutput
+    output: ProjectIRRelationalRowOutput
     universe: tuple[ProjectIROutputValueClass, ...]
     facts: tuple[ProjectIROutputValueFD, ...]
     positions: Mapping[ProjectIROutputValueClass, int] = field(
@@ -192,7 +208,7 @@ class ProjectIROutputDeterminationResult:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectIRProvidedIntrinsicGrain:
-    output: ProjectIRRelationRowOutput
+    output: ProjectIRRelationalRowOutput
     state: ProjectGrainBasisState
     factors: tuple[ProjectGrainDomainFactor, ...]
     active: tuple[ProjectGrainFactorIdentity, ...]
@@ -201,7 +217,7 @@ class ProjectIRProvidedIntrinsicGrain:
     witness: object = field(repr=False, compare=False, hash=False)
 
     def __post_init__(self) -> None:
-        if type(self.output) is not ProjectIRRelationRowOutput or self.state not in {
+        if type(self.output) not in _RELATIONAL_ROW_OUTPUT_TYPES or self.state not in {
             ProjectGrainBasisState.FACTORIZED,
             ProjectGrainBasisState.GLOBAL,
         }:
@@ -215,7 +231,7 @@ class ProjectIRProvidedIntrinsicGrain:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectIROutputRelationalProperties:
-    output: ProjectIRRelationRowOutput
+    output: ProjectIRRelationalRowOutput
     fields: tuple[ProjectIROutputFieldOccurrence, ...]
     value_classes: tuple[ProjectIROutputValueClass, ...]
     keys: tuple[ProjectIROutputCandidateKey, ...]
@@ -318,7 +334,7 @@ def _incoming(
     return None
 
 
-def _field_occurrences(output: ProjectIRRelationRowOutput):
+def _field_occurrences(output: ProjectIRRelationalRowOutput):
     return tuple(
         ProjectIROutputFieldOccurrence(
             output=output,
@@ -337,7 +353,7 @@ def _singleton_classes(output, fields):
 
 def _preserving_classes(
     incoming: ProjectIROutputRelationalProperties,
-    output: ProjectIRRelationRowOutput,
+    output: ProjectIRRelationalRowOutput,
     fields: tuple[ProjectIROutputFieldOccurrence, ...],
 ):
     classes: list[ProjectIROutputValueClass] = []
@@ -368,7 +384,7 @@ def _preserving_classes(
 def _projection_images(
     incoming: ProjectIROutputRelationalProperties,
     operator: ProjectIRLogicalOperatorOccurrence,
-    output: ProjectIRRelationRowOutput,
+    output: ProjectIRRelationalRowOutput,
     fields: tuple[ProjectIROutputFieldOccurrence, ...],
 ):
     members_by_old = {item: [] for item in incoming.value_classes}

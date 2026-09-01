@@ -382,6 +382,31 @@ class ProjectIROperatorFlowUseOccurrence:
             raise ValueError("Operator-flow input ordinal must be zero.")
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectIRJoinInputUseOccurrence:
+    """Exact external or accumulated row input for one binary JOIN node."""
+
+    ref: ProjectIRUseRef
+    output: ProjectIROutputValueOccurrence
+    slot: ProjectIRInputSlotOccurrence
+
+    def __post_init__(self) -> None:
+        if type(self.ref) is not ProjectIRUseRef:
+            raise TypeError("JOIN-input use requires an exact use ref.")
+        if type(self.output) is not ProjectIROutputValueOccurrence:
+            raise TypeError("JOIN-input use requires an output occurrence.")
+        if type(self.slot) is not ProjectIRInputSlotOccurrence:
+            raise TypeError("JOIN-input use requires an input-slot occurrence.")
+        if not (self.ref.scope is self.output.ref.scope is self.slot.ref.scope):
+            raise ValueError("JOIN-input composition requires one snapshot scope.")
+        if type(self.output.anchor) is not ProjectIRRelationAnchor:
+            raise ValueError("JOIN input requires a relation-row output.")
+        if self.slot.input_ordinal not in {0, 1}:
+            raise ValueError("JOIN-input ordinal must be zero or one.")
+        if self.output.producer.ref.position >= self.slot.consumer.ref.position:
+            raise ValueError("JOIN input must flow from an earlier plan node.")
+
+
 type ProjectIRStructuralUseOccurrence = (
     ProjectIRUseOccurrence | ProjectIROperatorFlowUseOccurrence
 )

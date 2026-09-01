@@ -24,14 +24,14 @@ documentation does not supersede that evidence.
 | Slice 7 | `COMPLETED` |
 | Slice 8 | `COMPLETED` |
 | Slice 9 | `COMPLETED` |
-| Slice 10 | `CURRENT / PUBLICATION CANDIDATE` |
-| Slice 11 | `NOT STARTED` |
+| Slice 10 | `COMPLETED` |
+| Slice 11 | `CURRENT / PUBLICATION CANDIDATE` |
 | Slice 12 | `NOT STARTED` |
 | Slice 13 | `NOT STARTED` |
 | Slice 14 | `NOT STARTED` |
 | Slice 15 | `NOT STARTED` |
 | Slice 16 | `NOT STARTED` |
-| Next | `Phase 62 Slice 11 — Project IR Binary JOIN Region, Multi-Input Topology, Null Extension, And Property Transfer` |
+| Next | `Phase 62 Slice 12 — Per-Aggregate Fact Locality, Chasm Detection, And Multi-Fact Alignment` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -48,10 +48,11 @@ is completed by successful natural exact-head CI on its single publication
 commit. Slice 3 authored base-match/private exact-field correspondence is
 completed by successful natural exact-head CI on its single publication
 commit, without a status-only follow-up commit.
-Slices 4–9 key/FD/grain/match-guarantee/path authorities are completed by
-natural CI. Slice 10 is the current authored INNER/LEFT relationship-use and
-JOIN-deferred Project semantic/IR publication candidate. It adds no binary
-JOIN IR, combined row schema, SQL JOIN lowering, public schema, multi-fact,
-package, workflow, or version behavior. Successful natural exact-head CI
-completes Slice 10 without a status-only follow-up commit. Slices 11–16 are not
-started; Slice 11 is the sole next owner.
+Slices 4–10 key/FD/grain/path/authored-use authorities are completed by natural
+CI. Slice 11 is the current post-base binary JOIN-region, multi-input topology,
+null-extension, and property-transfer publication candidate. The Slice-10
+semantic/single-relation barrier remains intact; no joined scalar namespace,
+Script IR/SQL, public schema, multi-fact, package, workflow, or version behavior
+is added. Successful natural exact-head CI completes Slice 11 without a
+status-only follow-up commit. Slices 12–16 are not started; Slice 12 is the sole
+next owner.

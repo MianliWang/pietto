@@ -10,6 +10,7 @@ from pietto._project.model import (
     ProjectRelationRowSchemaStatus,
     ProjectRelationRowSchemaState,
     ProjectRowField,
+    ProjectRowFieldNullability,
 )
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
@@ -22,7 +23,10 @@ from pietto._project.project_ir import (
     ProjectIRConcreteRelationSubject,
     ProjectIRFieldAnchor,
     ProjectIRInputSlotOccurrence,
+    ProjectIRJoinInputUseOccurrence,
     ProjectIROutputValueOccurrence,
+    ProjectIRPlanNodeOccurrence,
+    ProjectIRPlanNodeRef,
     ProjectIRRelationAnchor,
     ProjectIRResolvedRelationAnchor,
     ProjectIRSnapshotScope,
@@ -208,6 +212,106 @@ class ProjectIRStageRowShape:
     @property
     def evidence(self) -> ProjectModuleRelationSemanticFacts:
         return self.checkpoint.evidence
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectIRJoinedRowField:
+    """One plan-local joined field instance with exact nulling provenance."""
+
+    field_position: int
+    evidence: ProjectRowField = field(repr=False)
+    introduction_use: ProjectIRJoinInputUseOccurrence = field(
+        repr=False, compare=False, hash=False
+    )
+    nulling_joins: tuple[ProjectIRPlanNodeRef, ...]
+    effective_nullability: ProjectRowFieldNullability
+
+    def __post_init__(self) -> None:
+        if type(self.field_position) is not int or self.field_position < 0:
+            raise ValueError("Joined field position must be non-negative.")
+        if type(self.evidence) is not ProjectRowField:
+            raise TypeError("Joined field requires exact semantic field evidence.")
+        if type(self.introduction_use) is not ProjectIRJoinInputUseOccurrence:
+            raise TypeError("Joined field requires an exact introduction use.")
+        if type(self.nulling_joins) is not tuple or any(
+            type(item) is not ProjectIRPlanNodeRef for item in self.nulling_joins
+        ):
+            raise TypeError("Joined field nulling provenance must be an exact tuple.")
+        positions = tuple(item.position for item in self.nulling_joins)
+        if len(set(self.nulling_joins)) != len(self.nulling_joins) or any(
+            left >= right for left, right in zip(positions, positions[1:], strict=False)
+        ):
+            raise ValueError("Joined field nulling refs must be unique and ordered.")
+        if any(
+            item.scope is not self.introduction_use.ref.scope
+            for item in self.nulling_joins
+        ):
+            raise ValueError("Joined field provenance requires one snapshot scope.")
+        if type(self.effective_nullability) is not ProjectRowFieldNullability:
+            raise TypeError("Joined field requires exact effective nullability.")
+        if self.nulling_joins and (
+            self.effective_nullability is not ProjectRowFieldNullability.NULLABLE
+        ):
+            raise ValueError("Null-generated joined fields must be nullable.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectIRJoinedRowShape:
+    """One plan-local binary JOIN row without fabricated semantic-row facts."""
+
+    relation: ProjectIRRelationAnchor
+    producer: ProjectIRPlanNodeOccurrence
+    fields: tuple[ProjectIRJoinedRowField, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.relation) is not ProjectIRRelationAnchor:
+            raise TypeError("Joined row shape requires a relation anchor.")
+        if (
+            type(self.producer) is not ProjectIRPlanNodeOccurrence
+            or self.producer.anchor != self.relation
+        ):
+            raise ValueError("Joined row shape requires its exact producer node.")
+        _require_exact_tuple(
+            self.fields, ProjectIRJoinedRowField, label="Joined fields"
+        )
+        if tuple(item.field_position for item in self.fields) != tuple(
+            range(len(self.fields))
+        ):
+            raise ValueError("Joined row fields must retain exact output order.")
+        if any(
+            item.introduction_use.ref.scope is not self.producer.ref.scope
+            for item in self.fields
+        ):
+            raise ValueError("Joined row fields require one snapshot scope.")
+        if any(
+            item.introduction_use.slot.consumer.ref.position
+            > self.producer.ref.position
+            or any(
+                ref.position > self.producer.ref.position for ref in item.nulling_joins
+            )
+            for item in self.fields
+        ):
+            raise ValueError("Joined row provenance cannot refer to a later JOIN.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectIRJoinRowOutput:
+    """One binary JOIN row output outside the base unary property stage."""
+
+    occurrence: ProjectIROutputValueOccurrence
+    row_shape: ProjectIRJoinedRowShape
+
+    def __post_init__(self) -> None:
+        if type(self.occurrence) is not ProjectIROutputValueOccurrence:
+            raise TypeError("JOIN row output requires an output occurrence.")
+        if type(self.row_shape) is not ProjectIRJoinedRowShape:
+            raise TypeError("JOIN row output requires an exact joined row shape.")
+        if (
+            type(self.occurrence.anchor) is not ProjectIRRelationAnchor
+            or self.occurrence.anchor != self.row_shape.relation
+            or self.occurrence.producer is not self.row_shape.producer
+        ):
+            raise ValueError("JOIN row output must retain its exact producer and row.")
 
 
 type ProjectIRCurrentRowShape = ProjectIRRowShape | ProjectIRStageRowShape
@@ -582,6 +686,26 @@ class ProjectIRUnavailableProvidedProperty:
             raise ValueError("Current typed outputs always establish output shape.")
         if type(self.availability) is not ProjectIRPropertyAvailability:
             raise TypeError("Unavailable property requires an exact availability.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectIRProvidedNullExtension:
+    """Positive complete field-local null-extension provenance."""
+
+    output: ProjectIRJoinRowOutput
+    fields: tuple[ProjectIRJoinedRowField, ...] = field(init=False)
+
+    def __post_init__(self) -> None:
+        if type(self.output) is not ProjectIRJoinRowOutput:
+            raise TypeError("NULL_EXTENSION requires one joined row output.")
+        fields = self.output.row_shape.fields
+        if not any(item.nulling_joins for item in fields):
+            raise ValueError("Positive NULL_EXTENSION requires exact nulling evidence.")
+        object.__setattr__(self, "fields", fields)
+
+    @property
+    def property_slot(self) -> ProjectIRProvidedPropertySlot:
+        return ProjectIRProvidedPropertySlot.NULL_EXTENSION
 
 
 type ProjectIRProvidedProperty = (

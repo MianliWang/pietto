@@ -109,6 +109,10 @@ PHASE62_SLICE10_SPEC = (
     REPO_ROOT
     / "docs/spec/phase62-slice10-authored-join-traversal-syntax-semantic-uses-v1.md"
 )
+PHASE62_SLICE11_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase62-slice11-project-ir-binary-join-region-multi-input-topology-null-extension-property-transfer-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -174,8 +178,8 @@ EXPECTED_STATUS = (
     ("Slice 7", "`COMPLETED`"),
     ("Slice 8", "`COMPLETED`"),
     ("Slice 9", "`COMPLETED`"),
-    ("Slice 10", "`CURRENT / PUBLICATION CANDIDATE`"),
-    ("Slice 11", "`NOT STARTED`"),
+    ("Slice 10", "`COMPLETED`"),
+    ("Slice 11", "`CURRENT / PUBLICATION CANDIDATE`"),
     ("Slice 12", "`NOT STARTED`"),
     ("Slice 13", "`NOT STARTED`"),
     ("Slice 14", "`NOT STARTED`"),
@@ -183,7 +187,7 @@ EXPECTED_STATUS = (
     ("Slice 16", "`NOT STARTED`"),
     (
         "Next",
-        "`Phase 62 Slice 11 — Project IR Binary JOIN Region, Multi-Input Topology, Null Extension, And Property Transfer`",
+        "`Phase 62 Slice 12 — Per-Aggregate Fact Locality, Chasm Detection, And Multi-Fact Alignment`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -211,8 +215,8 @@ EXPECTED_PHASE61_OWNER = (
     "and verifiable analysis boundary"
 )
 EXPECTED_PHASE62_STATE = (
-    "Phase 62 is active. Slices 1–9 are completed by successful natural exact-head\n"
-    "CI, Slice 10 is the current publication candidate, Slices 11–16 are not\n"
+    "Phase 62 is active. Slices 1–10 are completed by successful natural exact-head\n"
+    "CI, Slice 11 is the current publication candidate, Slices 12–16 are not\n"
     "started, and the frozen route has exactly 16 numbered slices."
 )
 EXPECTED_PHASE62_OWNER = (
@@ -985,6 +989,20 @@ EXPECTED_PHASE62_SLICE10_CHANGED_PATHS = (
     "tests/test_phase62_slice10_authored_join_traversal_syntax_semantic_uses.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE62_SLICE11_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase62-slice11-project-ir-binary-join-region-multi-input-topology-null-extension-property-transfer-v1.md",
+    "docs/status.md",
+    "src/pietto/_project/project_ir.py",
+    "src/pietto/_project/project_ir_properties.py",
+    "src/pietto/_project/project_grain.py",
+    "src/pietto/_project/project_ir_relational_properties.py",
+    "src/pietto/_project/project_ir_joins.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
+    "tests/test_phase62_slice11_project_ir_binary_join_region_multi_input_topology_null_extension_property_transfer.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -1045,15 +1063,14 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "Slice 3 authored base-match/private exact-field correspondence" in normalized
     )
     assert "completed by successful natural exact-head CI" in normalized
-    assert "Slices 4–9 key/FD/grain/match-guarantee/path authorities" in normalized
-    assert "Slice 10 is the current authored INNER/LEFT relationship-use" in normalized
-    assert "JOIN-deferred Project semantic/IR publication candidate" in normalized
-    assert (
-        "adds no binary JOIN IR, combined row schema, SQL JOIN lowering" in normalized
-    )
-    assert "natural exact-head CI completes Slice 10" in normalized
-    assert "Slices 11–16 are not started" in normalized
-    assert "Slice 11 is the sole next owner" in normalized
+    assert "Slices 4–10 key/FD/grain/path/authored-use authorities" in normalized
+    assert "Slice 11 is the current post-base binary JOIN-region" in normalized
+    assert "null-extension, and property-transfer publication candidate" in normalized
+    assert "Slice-10 semantic/single-relation barrier remains intact" in normalized
+    assert "no joined scalar namespace, Script IR/SQL" in normalized
+    assert "natural exact-head CI completes Slice 11" in normalized
+    assert "Slices 12–16 are not started" in normalized
+    assert "Slice 12 is the sole next owner" in normalized
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -1286,6 +1303,12 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "zero-allocation non-concrete Project IR terminal",
         "Phase 62 Slice 11 — Project IR Binary JOIN Region, Multi-Input Topology, Null Extension, And Property Transfer",
         "Slice 11 is not implemented here",
+        "phase62-slice11-project-ir-binary-join-region-multi-input-topology-null-extension-property-transfer-v1.md",
+        "same-snapshot post-base binary JOIN-region stage",
+        "one binary node per authored path step",
+        "positive `NULL_EXTENSION` provenance",
+        "Phase 62 Slice 12 — Per-Aggregate Fact Locality, Chasm Detection, And Multi-Fact Alignment",
+        "Slice 12 is not implemented here",
     ):
         assert evidence in phase62_normalized
 
@@ -1799,6 +1822,19 @@ def test_phase62_slice10_rebinds_exact_slice9_publication_authority() -> None:
         "A3/M26/D0",
         "project_relationship_uses.py",
         "AUTHORED_JOIN_DEFERRED",
+    ):
+        assert evidence in document
+
+
+def test_phase62_slice11_rebinds_exact_slice10_publication_authority() -> None:
+    document = " ".join(PHASE62_SLICE11_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "b26e394e5f8238f2c69d86844fb15f7bcb52362b",
+        "fcbd2b5cf661ae9b8793371c9ae750768fe164e3",
+        "33559281666",
+        "A3/M9/D0",
+        "project_ir_joins.py",
+        "ProjectIRJoinInputUseOccurrence",
     ):
         assert evidence in document
 
@@ -2682,6 +2718,36 @@ def test_phase62_slice10_changed_paths_are_exact() -> None:
                 "tests/goldens/",
                 "src/pietto/sql/",
                 "src/pietto/_project_explain/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase62_slice11_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE62_SLICE11_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 12
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert tuple(path for path in paths if path.startswith("src/")) == (
+        "src/pietto/_project/project_ir.py",
+        "src/pietto/_project/project_ir_properties.py",
+        "src/pietto/_project/project_grain.py",
+        "src/pietto/_project/project_ir_relational_properties.py",
+        "src/pietto/_project/project_ir_joins.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "src/pietto/generated/",
+                "src/pietto/ir/",
+                "src/pietto/semantic/",
+                "src/pietto/sql/",
+                "src/pietto/_project_explain/",
+                "tests/fixtures/",
+                "tests/goldens/",
             )
         )
         for path in paths

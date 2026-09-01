@@ -41,6 +41,7 @@ PROJECT_RELATIONSHIP_PATHS = (
 PROJECT_RELATIONSHIP_USES = (
     REPO_ROOT / "src/pietto/_project/project_relationship_uses.py"
 )
+PROJECT_IR_JOINS = REPO_ROOT / "src/pietto/_project/project_ir_joins.py"
 
 HEADINGS = (
     "Answer And Static Scope",
@@ -557,6 +558,32 @@ def test_live_slice10_join_uses_preserve_deferred_ir_and_no_search_boundaries() 
         "shortest_path",
         "ProjectIRJoin",
         "ProjectIROptionalGrain",
+    ):
+        assert forbidden not in source
+
+
+def test_live_slice11_binary_join_region_preserves_post_base_boundaries() -> None:
+    source = _read(PROJECT_IR_JOINS)
+    for evidence in (
+        "class ProjectIRBinaryJoinIdentity",
+        "class ProjectIRBinaryJoinOccurrence",
+        "class ProjectIRJoinStructuralStage",
+        "class ProjectIRJoinRegionStage",
+        "class ProjectIRJoinRelationalPropertyExtension",
+        "build_project_ir_join_region",
+        "ProjectIRJoinInputUseOccurrence",
+        "ProjectIRProvidedNullExtension",
+        "ProjectJoinGrainFactorIdentity",
+    ):
+        assert evidence in source
+    assert "__all__: tuple[str, ...] = ()" in source
+    for forbidden in (
+        "build_project_ir_pipeline",
+        "shortest_path",
+        "JOIN_LOCAL_ON_REFINEMENT",
+        "ProjectIRLogicalOperatorKind.JOIN",
+        "chasm",
+        "multi_fact",
     ):
         assert forbidden not in source
 
