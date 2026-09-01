@@ -69,6 +69,10 @@ PHASE61_SLICE11_SPEC = (
 PHASE61_COMPLETION_SPEC = (
     REPO_ROOT / "docs/spec/phase61-completion-audit-phase62-handoff-v1.md"
 )
+PHASE62_SLICE1_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase62-relationship-join-keys-fd-grain-fanout-multifact-architecture-source-audit-route-lock-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -123,25 +127,27 @@ EXPECTED_STATUS = (
     ("Phase 59", "`COMPLETED`"),
     ("Validation/Test Performance Optimization Interlude", "`COMPLETED`"),
     ("Phase 60", "`COMPLETED`"),
-    ("Phase 61", "`COMPLETION CANDIDATE`"),
-    ("Slice 1", "`COMPLETED`"),
-    ("Slice 2", "`COMPLETED`"),
-    ("Slice 3", "`COMPLETED`"),
-    ("Slice 4", "`COMPLETED`"),
-    ("Output-identity continuation", "`COMPLETED`"),
-    ("Intra-relation dataflow continuation", "`COMPLETED`"),
-    ("Slice 5", "`COMPLETED`"),
-    ("Slice 6", "`COMPLETED`"),
-    ("Slice 7", "`COMPLETED`"),
-    ("Slice 8", "`COMPLETED`"),
-    ("Slice 9", "`COMPLETED`"),
-    ("Slice 10", "`COMPLETED`"),
-    ("Slice 11", "`COMPLETED`"),
-    ("Slice 12", "`CURRENT`"),
-    ("Phase 62", "`NEXT / NOT IMPLEMENTED`"),
+    ("Phase 61", "`COMPLETED`"),
+    ("Phase 62", "`ACTIVE`"),
+    ("Slice 1", "`CURRENT / PUBLICATION CANDIDATE`"),
+    ("Slice 2", "`NOT STARTED`"),
+    ("Slice 3", "`NOT STARTED`"),
+    ("Slice 4", "`NOT STARTED`"),
+    ("Slice 5", "`NOT STARTED`"),
+    ("Slice 6", "`NOT STARTED`"),
+    ("Slice 7", "`NOT STARTED`"),
+    ("Slice 8", "`NOT STARTED`"),
+    ("Slice 9", "`NOT STARTED`"),
+    ("Slice 10", "`NOT STARTED`"),
+    ("Slice 11", "`NOT STARTED`"),
+    ("Slice 12", "`NOT STARTED`"),
+    ("Slice 13", "`NOT STARTED`"),
+    ("Slice 14", "`NOT STARTED`"),
+    ("Slice 15", "`NOT STARTED`"),
+    ("Slice 16", "`NOT STARTED`"),
     (
         "Next",
-        "`Phase 62 — Relationships/JOIN, key/FD evidence, grain comparison, fanout/multiplicity, and multi-fact alignment`",
+        "`Phase 62 Slice 2 — Relationship Declaration Identity, Endpoint Roles, Module-Local Resolution, And Construction States`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -159,14 +165,24 @@ EXPECTED_PHASE60_STATE = (
 )
 EXPECTED_PHASE60_OWNER = "Advanced Windows And Phase 51–60 Readiness Checkpoint"
 EXPECTED_PHASE61_STATE = (
-    "Phase 61 is an active completion candidate. Slices 1–11 and both unnumbered\n"
-    "Slice 5 prerequisites are completed, Slice 12 completion audit is current, and\n"
-    "Phase 62 remains next / not implemented. The frozen Phase 61 route still has\n"
-    "exactly 12 numbered slices."
+    "Phase 61 and all 12 numbered Slices are completed by live Git and successful\n"
+    "natural exact-head CI. Both unnumbered Slice 5 prerequisites are also\n"
+    "completed. Phase 62 is active, its Slice 1 route-lock publication candidate is\n"
+    "current, and the completed Phase 61 route remains exactly 12 numbered slices."
 )
 EXPECTED_PHASE61_OWNER = (
     "Private target-independent Project Logical IR, exact semantic composition, "
     "and verifiable analysis boundary"
+)
+EXPECTED_PHASE62_STATE = (
+    "Phase 62 is active. Slice 1 is the current documentation/static-assurance\n"
+    "publication candidate, Slices 2–16 are not started, and the frozen route has\n"
+    "exactly 16 numbered slices."
+)
+EXPECTED_PHASE62_OWNER = (
+    "Private occurrence-safe relationships and INNER/LEFT logical JOIN, typed "
+    "key/FD/coverage evidence, factorized intrinsic grain, directional fanout, "
+    "and multi-fact alignment analysis"
 )
 EXPECTED_PHASE58_ROUTE = (
     (
@@ -304,36 +320,86 @@ EXPECTED_PHASE61_ROUTE = (
     ("11", "Differential Compatibility"),
     ("12", "Completion Audit And Phase 62 Handoff"),
 )
-EXPECTED_RETAINED_LATER_OWNERS = (
+EXPECTED_PHASE62_ROUTE = (
     (
-        "62",
-        "Relationships/JOIN, key/FD evidence, grain comparison, fanout/multiplicity, and multi-fact alignment",
+        "1",
+        "Architecture, current/mature-source audit, formal BAG/NULL semantics, semantic laws, and route lock",
     ),
     (
+        "2",
+        "Relationship declaration identity, endpoint roles, module-local resolution, and construction states",
+    ),
+    (
+        "3",
+        "Exact field correspondences, ON/WHERE separation, equality/null behavior, and constraint-scope boundary",
+    ),
+    (
+        "4",
+        "UNIQUE null policy, evidence trust, strict/lax row uniqueness, and candidate keys",
+    ),
+    ("5", "Strict/lax value-FD basis, compact indexes, and targeted closure"),
+    (
+        "6",
+        "Factorized intrinsic grain basis, grain dependencies, optional factors, and GLOBAL grain",
+    ),
+    ("7", "Existing-operator key/FD/grain transfer and grain comparison"),
+    (
+        "8",
+        "Referential coverage, MATCH SIMPLE/FULL, and directional match guarantees",
+    ),
+    (
+        "9",
+        "Explicit relationship paths, fanout/survival/null effects, and join-shape analysis",
+    ),
+    ("10", "Authored JOIN/traversal syntax and semantic uses"),
+    (
+        "11",
+        "Project IR binary JOIN region, multi-input topology, null extension, and property transfer",
+    ),
+    (
+        "12",
+        "Per-aggregate fact locality, chasm detection, and multi-fact alignment",
+    ),
+    (
+        "13",
+        "Integrity/verifier, analysis invalidation, and bounded BAG/NULL semantic oracle",
+    ),
+    ("14", "Private inspection, winner-free query, and pure canonical boundary"),
+    (
+        "15",
+        "Real authored E2E, Python differential compatibility, and metamorphic JOIN assurance",
+    ),
+    ("16", "Completion audit and Phase 63 handoff"),
+)
+EXPECTED_RETAINED_LATER_OWNERS = (
+    (
         "63",
-        "Multi-relation SQL, project emit-SQL, correlated/nested-query syntax, open plans/outer bindings, Collect/Unnest, LATERAL/decorrelation, and QUALIFY",
+        "Additional logical JOIN forms and single-match enforcement; multi-relation SQL; correlation, nested results, open plans/outer bindings, Collect/Unnest, LATERAL/decorrelation, and QUALIFY",
     ),
     (
         "64",
-        "Advanced types/coercion, recursive record/container typing, nullability refinement, temporal/Decimal/native mapping, and advanced RANGE typing",
+        "Null-safe/collation/NaN/coercive equality; temporal/range/as-of relationships; advanced types, Decimal/time/interval comparison, record/container typing, and nullability",
     ),
     (
         "65",
-        "Aggregate algebra/state, aggregate-as-window, multi-stage/reaggregation, advanced grouping, and first_value(aggregate_output_alias) admission",
+        "Aggregate algebra/state, symmetric/fanout-safe aggregates, aggregate-as-window, multi-stage aggregation/reaggregation, automatic aggregate/grain repair, and first_value(aggregate_output_alias)",
     ),
     (
         "66",
-        "Reusable relation/nested semantic assets and advanced module/semantic-package assets",
+        "Relationship import/export; reusable relationship/key/FD/grain declarations and libraries; reusable relation/nested semantic assets",
     ),
-    ("67", "Remote package manager and trust boundary"),
-    ("68", "Dependency solver, canonical lockfile, and first Rust kernel decision"),
+    ("67", "Remote packages/assets, transport, registry, and trust"),
+    (
+        "68",
+        "Dependency solver, canonical lockfile, and first profiling-driven Python-to-Rust kernel decision",
+    ),
     (
         "69",
-        "Broad backend/catalog physical capabilities, including the release-aware PostgreSQL core builtin signature catalog, backend-specific core catalog foundations, generated/multi-source extension catalog assembly, extension-specific lowering, and additional dialect foundations",
+        "Catalog constraints and statistics; optimizer memo, join-order/hypergraph search, outer-join reordering, predicate transfer/factorized/WCOJ execution, physical join strategies, and broad backend/catalog capabilities",
     ),
     (
         "70",
-        "Public Project-IR/nested/lineage exposure and v0.2 release-readiness decision",
+        "Public relationship/key/FD/grain/fanout/alignment and Project-IR/nested/lineage schemas, versioned representation, and release readiness",
     ),
 )
 EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS = (
@@ -752,6 +818,17 @@ EXPECTED_PHASE61_SLICE12_CHANGED_PATHS = (
     "tests/test_phase61_slice12_completion_audit_phase62_handoff.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE62_SLICE1_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase62-relationship-join-keys-fd-grain-fanout-multifact-architecture-source-audit-route-lock-v1.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase61_slice12_completion_audit_phase62_handoff.py",
+    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
+    "tests/test_validation_performance_interlude_slice3_repository_reader_acquisition_reuse.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_workflow_lifecycle_validation_efficiency.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -797,34 +874,23 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "Phase 60 and all 13 Slices are completed" in normalized
     assert "single Slice 13 publication commit" in normalized
     assert "without a status-only follow-up commit" in normalized
-    assert "Phase 61 is active" in normalized
-    assert "Slice 1 is completed by live Git" in normalized
-    assert "Slice 2 is completed by live Git" in normalized
-    assert "Slice 3 is completed by live Git" in normalized
-    assert "Slice 4 is completed by live Git" in normalized
-    assert "output-identity readiness continuation is completed" in normalized
-    assert (
-        "intra-relation dataflow readiness continuation is also completed" in normalized
-    )
-    assert "Slice 5 canonical single-relation construction is completed" in normalized
-    assert "Slice 6 cross-module relation composition" in normalized
-    assert "DAG construction is completed" in normalized
-    assert "Slice 7 aggregate/window evaluation context" in normalized
-    assert "policy/effect preservation is completed" in normalized
-    assert "Slice 8 independent integrity verification" in normalized
-    assert "rewrite-readiness assessment is completed" in normalized
-    assert "Slice 9 private inspection" in normalized
-    assert "pure portable boundary is completed" in normalized
-    assert "Slice 10 real authored multi-module Project IR" in normalized
-    assert "orchestration and E2E assurance is completed" in normalized
-    assert "Slice 11 differential compatibility assurance is completed" in normalized
-    assert "Slice 12 completion audit and Phase 62 handoff is current" in normalized
-    assert "all 13 predecessor publications audited" in normalized
-    assert "all 13 exit criteria satisfied" in normalized
+    assert "Phase 61, all 12 numbered Slices" in normalized
+    assert "both unnumbered Slice 5 prerequisites are completed" in normalized
+    assert "single Slice 12 publication commit" in normalized
     assert "Phase61 self-owned-open = 0" in normalized
-    assert "single publication commit completes Phase 61" in normalized
-    assert "Phase 62 remains next / not implemented" in normalized
-    assert "does not authorize Phase 62 implementation" in normalized
+    assert "Phase 62 is active" in normalized
+    assert (
+        "Slice 1 is the current architecture, documentation, and static assurance"
+        in (normalized)
+    )
+    assert "publication candidate" in normalized
+    assert "formal BAG/NULL semantics" in normalized
+    assert "exact 16-Slice route" in normalized
+    assert "Slice 1 adds no production semantics" in normalized
+    assert "single publication commit completes Slice 1" in normalized
+    assert "Slices 2–16 are not started" in normalized
+    assert "only next owner is Phase 62 Slice 2" in normalized
+    assert "does not authorize its implementation" in normalized
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -836,6 +902,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     phase59 = _section(roadmap, "Phase 59 route").lstrip()
     phase60 = _section(roadmap, "Phase 60 route").lstrip()
     phase61 = _section(roadmap, "Phase 61 route").lstrip()
+    phase62 = _section(roadmap, "Phase 62 route").lstrip()
     phase60_normalized = " ".join(phase60.split())
     assert phase58.startswith(f"{EXPECTED_PHASE58_STATE}\n")
     assert phase58.count(EXPECTED_PHASE58_STATE) == 1
@@ -972,17 +1039,43 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "13/13 exit ledger",
         "Phase61 self-owned-open = 0",
         "Phase 62 readiness",
-        "fresh architecture/source audit and route lock",
-        "no Phase 62 route is frozen here",
         "NEXT / NOT IMPLEMENTED",
+        "Phase 62 Slice 1 has now rebound that authority",
+        "frozen its route",
     ):
         assert evidence in phase61_normalized
+
+    assert phase62.startswith(f"{EXPECTED_PHASE62_STATE}\n")
+    assert phase62.count(EXPECTED_PHASE62_STATE) == 1
+    phase62_normalized = " ".join(phase62.split())
+    assert phase62_normalized.count(EXPECTED_PHASE62_OWNER) == 1
+    assert _table_rows(phase62)[1:] == EXPECTED_PHASE62_ROUTE
+    for evidence in (
+        "phase62-relationship-join-keys-fd-grain-fanout-multifact-architecture-source-audit-route-lock-v1.md",
+        "current Pietto relationship and authored `UNIQUE` authority",
+        "target-independent finite-BAG and SQL-NULL reference model",
+        "relationship/endpoint/traversal/path/JOIN identity",
+        "value FDs",
+        "row uniqueness/keys",
+        "grain dependencies",
+        "referential coverage",
+        "directional match guarantees",
+        "multi-fact alignment",
+        "documentation/static assurance only",
+        "changes no grammar, AST",
+        "Phase 62 Slice 2 — Relationship Declaration Identity, Endpoint Roles, Module-Local Resolution, And Construction States",
+        "Slice 2 is not implemented here",
+    ):
+        assert evidence in phase62_normalized
 
     retained = _section(roadmap, "Retained later ownership")
     assert _table_rows(retained)[1:] == EXPECTED_RETAINED_LATER_OWNERS
     retained_normalized = " ".join(retained.split())
     assert "dedicated later owner with no phase number" in retained_normalized
     assert "Persistent incremental-cache identity" in retained_normalized
+    assert "Incremental/differential Project IR" in retained_normalized
+    assert "formal rewrite certification" in retained_normalized
+    assert "general constraint/chase reasoning" in retained_normalized
     interlude = _section(
         roadmap,
         "Validation/Test Performance Optimization Interlude",
@@ -1098,8 +1191,8 @@ def test_interlude_scorecard_self_owned_open_and_phase60_handoff_are_exact() -> 
         "Advanced Windows And Phase 51–60 Readiness Checkpoint"
     )
     assert EXPECTED_RETAINED_LATER_OWNERS[0] == (
-        "62",
-        "Relationships/JOIN, key/FD evidence, grain comparison, fanout/multiplicity, and multi-fact alignment",
+        "63",
+        "Additional logical JOIN forms and single-match enforcement; multi-relation SQL; correlation, nested results, open plans/outer bindings, Collect/Unnest, LATERAL/decorrelation, and QUALIFY",
     )
 
 
@@ -1319,6 +1412,26 @@ def test_phase61_completion_rebinds_exact_slice11_publication_authority() -> Non
         "PHASE61_SELF_OWNED_OPEN = 0",
         "Phase 62 = NEXT / NOT IMPLEMENTED",
         "A2/M4/D0",
+    ):
+        assert evidence in document
+
+
+def test_phase62_slice1_rebinds_exact_phase61_completion_authority() -> None:
+    document = " ".join(PHASE62_SLICE1_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "7f78077d45bad378c1fb01561455a15ec95309b9",
+        "398e68027e1259bd191d571af9df99436d2782fc",
+        "34a9f48811101b0df66119db94277ff2fbfd9d23",
+        "Complete Phase 61 Project IR",
+        "33359859544",
+        "Phase 61 = COMPLETED",
+        "Phase61 self-owned-open = 0",
+        "Phase 62 = NEXT / NOT IMPLEMENTED",
+        "A2/M7/D0",
+        "Production changes | `0`",
+        "Phase 62 = ACTIVE",
+        "Slice 1 = CURRENT / PUBLICATION CANDIDATE",
+        "Slices 2-16 = NOT STARTED",
     ):
         assert evidence in document
 
@@ -1968,6 +2081,26 @@ def test_phase61_slice12_changed_paths_are_exact() -> None:
     paths = EXPECTED_PHASE61_SLICE12_CHANGED_PATHS
     assert len(paths) == 6
     assert len(set(paths)) == 6
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert not any(path.startswith("src/") for path in paths)
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase62_slice1_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE62_SLICE1_CHANGED_PATHS
+    assert len(paths) == 9
+    assert len(set(paths)) == 9
     assert all((REPO_ROOT / path).is_file() for path in paths)
     assert not any(path.startswith("src/") for path in paths)
     assert not any(

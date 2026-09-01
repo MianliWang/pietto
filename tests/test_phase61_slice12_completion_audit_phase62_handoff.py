@@ -35,6 +35,7 @@ PHASE61_BASE = "bf4eeb06507f84374b9d97070423face3e54d929"
 PHASE61_BASE_TREE = "1ca3542b1f373cdce6b7035b33000eda474ae39d"
 PHASE61_BASE_CI = "33295132391"
 PHASE61_BASE_SUBJECT = "Complete Phase 60 advanced windows"
+PHASE61_COMPLETION = "7f78077d45bad378c1fb01561455a15ec95309b9"
 
 _UNIT_AUTHORITIES = (
     (
@@ -846,9 +847,7 @@ def test_deferred_subjects_self_owned_open_and_exact_later_owners_are_closed() -
     )
 
 
-def test_phase62_readiness_is_complete_but_route_and_implementation_are_absent() -> (
-    None
-):
+def test_phase62_readiness_and_historical_unstarted_state_are_exact() -> None:
     document = SPEC.read_text(encoding="utf-8")
     readiness = _table(_section(document, "Phase 62 Readiness Inventory"))
     assert len(readiness) == 13
@@ -876,14 +875,46 @@ def test_phase62_readiness_is_complete_but_route_and_implementation_are_absent()
     assert "contains no Phase 62 route table" in handoff
     assert "| Slice |" not in handoff_section
 
-    assert not tuple((REPO_ROOT / "src").glob("**/*phase62*"))
-    assert not tuple((REPO_ROOT / "tests").glob("test_phase62*.py"))
-    assert not any(
-        "phase62" in module
-        for path in _PHASE61_PRODUCTION_PATHS
-        for module in _imported_modules(REPO_ROOT / path)
+    published_paths = frozenset(
+        _git("ls-tree", "-r", "--name-only", PHASE61_COMPLETION).splitlines()
     )
-    assert "JOIN" not in {item.name for item in ProjectIRLogicalOperatorKind}
+    assert not any(
+        path.startswith("src/") and "phase62" in path.lower()
+        for path in published_paths
+    )
+    assert not any(path.startswith("tests/test_phase62") for path in published_paths)
+    for path in _PHASE61_PRODUCTION_PATHS:
+        historical_source = _git("show", f"{PHASE61_COMPLETION}:{path}")
+        historical_tree = ast.parse(historical_source, filename=path)
+        assert not any(
+            isinstance(node, ast.ImportFrom)
+            and node.module is not None
+            and "phase62" in node.module
+            for node in ast.walk(historical_tree)
+        )
+
+    historical_operator_source = _git(
+        "show",
+        f"{PHASE61_COMPLETION}:src/pietto/_project/project_ir_operators.py",
+    )
+    historical_operator_tree = ast.parse(
+        historical_operator_source,
+        filename="src/pietto/_project/project_ir_operators.py",
+    )
+    logical_operator = next(
+        node
+        for node in historical_operator_tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "ProjectIRLogicalOperatorKind"
+    )
+    historical_operator_names = {
+        target.id
+        for node in logical_operator.body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+    assert "JOIN" not in historical_operator_names
 
 
 def test_slice12_reader_closure_zero_delta_and_non_circular_lifecycle_are_exact() -> (

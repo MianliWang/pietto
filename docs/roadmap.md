@@ -856,10 +856,10 @@ historical authority.
 
 ## Phase 61 route
 
-Phase 61 is an active completion candidate. Slices 1–11 and both unnumbered
-Slice 5 prerequisites are completed, Slice 12 completion audit is current, and
-Phase 62 remains next / not implemented. The frozen Phase 61 route still has
-exactly 12 numbered slices.
+Phase 61 and all 12 numbered Slices are completed by live Git and successful
+natural exact-head CI. Both unnumbered Slice 5 prerequisites are also
+completed. Phase 62 is active, its Slice 1 route-lock publication candidate is
+current, and the completed Phase 61 route remains exactly 12 numbered slices.
 
 The exact owner is **Private target-independent Project Logical IR, exact
 semantic composition, and verifiable analysis boundary**.
@@ -1136,30 +1136,79 @@ its route or implementation. The controlling contract is [Phase 61 completion
 audit and Phase 62 handoff](spec/phase61-completion-audit-phase62-handoff-v1.md).
 
 Successful natural exact-head CI on the single Slice 12 publication commit
-completes Phase 61 and all 12 numbered Slices without a status-only follow-up
-commit. The exact next owner remains **Phase 62 — Relationships/JOIN, key/FD
-evidence, grain comparison, fanout/multiplicity, and multi-fact alignment**,
-with state `NEXT / NOT IMPLEMENTED`. Phase 62 must begin with a fresh
-architecture/source audit and route lock; no Phase 62 route is frozen here.
+completed Phase 61 and all 12 numbered Slices without a status-only follow-up
+commit. That publication handed off **Phase 62 — Relationships/JOIN, key/FD
+evidence, grain comparison, fanout/multiplicity, and multi-fact alignment** as
+`NEXT / NOT IMPLEMENTED`; Phase 62 Slice 1 has now rebound that authority and
+frozen its route without changing Phase-61 production behavior.
+
+## Phase 62 route
+
+Phase 62 is active. Slice 1 is the current documentation/static-assurance
+publication candidate, Slices 2–16 are not started, and the frozen route has
+exactly 16 numbered slices.
+
+The exact owner is **Private occurrence-safe relationships and INNER/LEFT
+logical JOIN, typed key/FD/coverage evidence, factorized intrinsic grain,
+directional fanout, and multi-fact alignment analysis**.
+
+| Slice | Exact owner |
+| ---: | --- |
+| 1 | Architecture, current/mature-source audit, formal BAG/NULL semantics, semantic laws, and route lock |
+| 2 | Relationship declaration identity, endpoint roles, module-local resolution, and construction states |
+| 3 | Exact field correspondences, ON/WHERE separation, equality/null behavior, and constraint-scope boundary |
+| 4 | UNIQUE null policy, evidence trust, strict/lax row uniqueness, and candidate keys |
+| 5 | Strict/lax value-FD basis, compact indexes, and targeted closure |
+| 6 | Factorized intrinsic grain basis, grain dependencies, optional factors, and GLOBAL grain |
+| 7 | Existing-operator key/FD/grain transfer and grain comparison |
+| 8 | Referential coverage, MATCH SIMPLE/FULL, and directional match guarantees |
+| 9 | Explicit relationship paths, fanout/survival/null effects, and join-shape analysis |
+| 10 | Authored JOIN/traversal syntax and semantic uses |
+| 11 | Project IR binary JOIN region, multi-input topology, null extension, and property transfer |
+| 12 | Per-aggregate fact locality, chasm detection, and multi-fact alignment |
+| 13 | Integrity/verifier, analysis invalidation, and bounded BAG/NULL semantic oracle |
+| 14 | Private inspection, winner-free query, and pure canonical boundary |
+| 15 | Real authored E2E, Python differential compatibility, and metamorphic JOIN assurance |
+| 16 | Completion audit and Phase 63 handoff |
+
+Slice 1 audits current Pietto relationship and authored `UNIQUE` authority,
+binds current mature implementations/specifications/research, freezes one
+target-independent finite-BAG and SQL-NULL reference model, separates
+relationship/endpoint/traversal/path/JOIN identity, and separates value FDs,
+row uniqueness/keys, grain dependencies, referential coverage, directional
+match guarantees, fanout, and multi-fact alignment. Its controlling contract is
+[Phase 62 relationship/JOIN/key/FD/grain/fanout/multi-fact architecture and
+source-audit route lock](spec/phase62-relationship-join-keys-fd-grain-fanout-multifact-architecture-source-audit-route-lock-v1.md).
+
+Slice 1 adds documentation/static assurance only. It changes no grammar, AST,
+semantic admission, Project semantic facts, Project IR operator, SQL, CLI,
+public JSON/schema, Project Explain, package/dependency/workflow, or version.
+Successful natural exact-head CI on its single publication commit completes
+Slice 1 without a status-only follow-up commit. The only next owner is **Phase
+62 Slice 2 — Relationship Declaration Identity, Endpoint Roles, Module-Local
+Resolution, And Construction States**; Slice 2 is not implemented here.
 
 ## Retained later ownership
 
 | Phase | Owner |
 | ---: | --- |
-| 62 | Relationships/JOIN, key/FD evidence, grain comparison, fanout/multiplicity, and multi-fact alignment |
-| 63 | Multi-relation SQL, project emit-SQL, correlated/nested-query syntax, open plans/outer bindings, Collect/Unnest, LATERAL/decorrelation, and QUALIFY |
-| 64 | Advanced types/coercion, recursive record/container typing, nullability refinement, temporal/Decimal/native mapping, and advanced RANGE typing |
-| 65 | Aggregate algebra/state, aggregate-as-window, multi-stage/reaggregation, advanced grouping, and first_value(aggregate_output_alias) admission |
-| 66 | Reusable relation/nested semantic assets and advanced module/semantic-package assets |
-| 67 | Remote package manager and trust boundary |
-| 68 | Dependency solver, canonical lockfile, and first Rust kernel decision |
-| 69 | Broad backend/catalog physical capabilities, including the release-aware PostgreSQL core builtin signature catalog, backend-specific core catalog foundations, generated/multi-source extension catalog assembly, extension-specific lowering, and additional dialect foundations |
-| 70 | Public Project-IR/nested/lineage exposure and v0.2 release-readiness decision |
+| 63 | Additional logical JOIN forms and single-match enforcement; multi-relation SQL; correlation, nested results, open plans/outer bindings, Collect/Unnest, LATERAL/decorrelation, and QUALIFY |
+| 64 | Null-safe/collation/NaN/coercive equality; temporal/range/as-of relationships; advanced types, Decimal/time/interval comparison, record/container typing, and nullability |
+| 65 | Aggregate algebra/state, symmetric/fanout-safe aggregates, aggregate-as-window, multi-stage aggregation/reaggregation, automatic aggregate/grain repair, and first_value(aggregate_output_alias) |
+| 66 | Relationship import/export; reusable relationship/key/FD/grain declarations and libraries; reusable relation/nested semantic assets |
+| 67 | Remote packages/assets, transport, registry, and trust |
+| 68 | Dependency solver, canonical lockfile, and first profiling-driven Python-to-Rust kernel decision |
+| 69 | Catalog constraints and statistics; optimizer memo, join-order/hypergraph search, outer-join reordering, predicate transfer/factorized/WCOJ execution, physical join strategies, and broad backend/catalog capabilities |
+| 70 | Public relationship/key/FD/grain/fanout/alignment and Project-IR/nested/lineage schemas, versioned representation, and release readiness |
 
 Recursive relations, fixpoints, iterative planning, and bounded recursive
 provenance remain a dedicated later owner with no phase number assigned here.
 Persistent incremental-cache identity likewise remains separate from
 snapshot-local Project IR identity and has no Phase 61 implementation.
+Incremental/differential Project IR, formal rewrite certification, runtime
+data-quality discovery, and general constraint/chase reasoning also remain
+separate dedicated later owners; the Phase 62 Slice 1 contract freezes their
+exact boundaries.
 
 Phase 57 begins from the complete private Phase 56 capability chain.
 `CapabilityKey` remains release-free, exact profile targets retain database and
