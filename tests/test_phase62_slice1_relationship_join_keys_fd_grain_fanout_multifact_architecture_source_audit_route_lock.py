@@ -47,6 +47,12 @@ PROJECT_PHASE62_VERIFICATION = (
     REPO_ROOT / "src/pietto/_project/project_phase62_verification.py"
 )
 PROJECT_BAG_NULL_ORACLE = REPO_ROOT / "src/pietto/_project/project_bag_null_oracle.py"
+PROJECT_PHASE62_INSPECTION = (
+    REPO_ROOT / "src/pietto/_project/project_phase62_inspection.py"
+)
+PROJECT_PHASE62_PURE_BOUNDARY = (
+    REPO_ROOT / "src/pietto/_project/project_phase62_pure_boundary.py"
+)
 
 HEADINGS = (
     "Answer And Static Scope",
@@ -649,6 +655,44 @@ def test_live_slice13_verifier_and_oracle_remain_separate_private_boundaries() -
     assert "build_project_ir_join_region" not in verifier
     assert "build_project_multifact_analysis" not in verifier
     assert "pietto" not in oracle
+
+
+def test_live_slice14_inspection_and_pure_boundary_remain_private_and_isolated() -> (
+    None
+):
+    runtime = _read(PROJECT_PHASE62_INSPECTION)
+    pure = _read(PROJECT_PHASE62_PURE_BOUNDARY)
+    for evidence in (
+        "class ProjectPhase62Inspection",
+        "class ProjectPhase62InspectionProduct",
+        "build_project_phase62_inspection",
+        "query_project_phase62_relationships",
+        "query_project_phase62_alignment_bucket",
+        "query_project_phase62_non_concrete_multifact_regions",
+        "evaluate_project_phase62_document",
+    ):
+        assert evidence in runtime
+    for evidence in (
+        'PROJECT_PHASE62_INSPECTION_FORMAT = "pietto.phase62-inspection.v1"',
+        "class ProjectPhase62PortableRefDomain",
+        "class ProjectPhase62PureDocument",
+        "class ProjectPhase62PureStatus",
+        "def evaluate_project_phase62_document",
+        "def _encode_document",
+    ):
+        assert evidence in pure
+    assert "__all__: tuple[str, ...] = ()" in runtime
+    assert "__all__: tuple[str, ...] = ()" in pure
+    assert "project_bag_null_oracle" not in runtime + pure
+    assert "verify_project_phase62(" not in runtime
+    assert "build_project_multifact_analysis(" not in runtime
+    assert "build_project_ir_join_region(" not in runtime
+    pure_imports = {
+        node.module
+        for node in ast.walk(ast.parse(pure))
+        if isinstance(node, ast.ImportFrom)
+    }
+    assert pure_imports <= {"__future__", "dataclasses", "enum", "heapq", "typing"}
 
 
 def test_phase61_inheritance_and_identity_ownership_laws_are_exact() -> None:

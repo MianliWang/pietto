@@ -1144,8 +1144,8 @@ frozen its route without changing Phase-61 production behavior.
 
 ## Phase 62 route
 
-Phase 62 is active. Slices 1–12 are completed by successful natural exact-head
-CI, Slice 13 is the current publication candidate, Slices 14–16 are not
+Phase 62 is active. Slices 1–13 are completed by successful natural exact-head
+CI, Slice 14 is the current publication candidate, Slices 15–16 are not
 started, and the frozen route has exactly 16 numbered slices.
 
 The exact owner is **Private occurrence-safe relationships and INNER/LEFT
@@ -1386,8 +1386,29 @@ Slice 13 adds no existing-owner mutation, public/SQL behavior, joined scalar
 namespace, aggregate-over-JOIN semantics, reaggregation/algebra,
 optimizer/rewrite, persistent cache, recursion, package, workflow, dependency,
 or version behavior. Successful natural exact-head CI completes it without a
-status-only commit. The only next owner is **Phase 62 Slice 14 — Private
-Inspection, Winner-Free Query, And Pure Canonical Boundary**; Slice 14 is not
+status-only commit. The only current owner is **Phase 62 Slice 14 — Private
+Inspection, Winner-Free Query, And Pure Canonical Boundary**.
+
+Slice 14 adds separate private `project_phase62_inspection.py` and
+`project_phase62_pure_boundary.py` owners. The first admits only the exact
+VERIFIED Slice-13 analysis bundle, retains complete runtime relationship/JOIN/
+property/multi-fact/analysis authority by object identity, exposes typed
+winner-free tuple queries, and projects once into a portable immutable
+document. The second is stdlib-only, validates closed record/value/ref domains
+and structural consistency as a total evaluator, and owns the sole canonical
+encoder under `pietto.phase62-inspection.v1`. Runtime scope tokens and BAG/NULL
+oracle cases are not serialized; canonical bytes are not semantic, runtime,
+cache, or content identity. The controlling contract is [Phase 62 Slice 14
+private inspection and pure canonical
+boundary](spec/phase62-slice14-private-inspection-winner-free-query-pure-canonical-boundary-v1.md).
+
+Slice 14 adds no semantic derivation, verifier/oracle behavior, grammar/AST,
+joined scalar namespace, aggregate-over-JOIN semantics, reaggregation/algebra,
+Script IR/SQL, CLI/JSON/Project Explain, public schema, optimizer/rewrite,
+persistent cache, package, workflow, dependency, or version behavior.
+Successful natural exact-head CI completes it without a status-only commit.
+The only next owner is **Phase 62 Slice 15 — Real Authored E2E, Python
+Differential Compatibility, And Metamorphic JOIN Assurance**; Slice 15 is not
 implemented here.
 
 ## Retained later ownership
