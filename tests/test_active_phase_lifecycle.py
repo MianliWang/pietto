@@ -129,6 +129,9 @@ PHASE62_SLICE15_SPEC = (
     REPO_ROOT
     / "docs/spec/phase62-slice15-real-authored-e2e-python-differential-metamorphic-join-assurance-v1.md"
 )
+PHASE62_SLICE16_SPEC = (
+    REPO_ROOT / "docs/spec/phase62-completion-audit-phase63-handoff-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -184,7 +187,8 @@ EXPECTED_STATUS = (
     ("Validation/Test Performance Optimization Interlude", "`COMPLETED`"),
     ("Phase 60", "`COMPLETED`"),
     ("Phase 61", "`COMPLETED`"),
-    ("Phase 62", "`ACTIVE`"),
+    ("Phase 62", "`COMPLETION CANDIDATE`"),
+    ("Phase 63", "`NEXT / NOT IMPLEMENTED`"),
     ("Slice 1", "`COMPLETED`"),
     ("Slice 2", "`COMPLETED`"),
     ("Slice 3", "`COMPLETED`"),
@@ -199,11 +203,11 @@ EXPECTED_STATUS = (
     ("Slice 12", "`COMPLETED`"),
     ("Slice 13", "`COMPLETED`"),
     ("Slice 14", "`COMPLETED`"),
-    ("Slice 15", "`CURRENT / PUBLICATION CANDIDATE`"),
-    ("Slice 16", "`NOT STARTED`"),
+    ("Slice 15", "`COMPLETED`"),
+    ("Slice 16", "`CURRENT`"),
     (
         "Next",
-        "`Phase 62 Slice 16 — Completion Audit And Phase 63 Handoff`",
+        "`Phase 63 — Fresh Architecture/Source Audit, Design Reconciliation, And Route Lock`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -231,9 +235,9 @@ EXPECTED_PHASE61_OWNER = (
     "and verifiable analysis boundary"
 )
 EXPECTED_PHASE62_STATE = (
-    "Phase 62 is active. Slices 1–14 are completed by successful natural exact-head\n"
-    "CI, Slice 15 is the current publication candidate, Slice 16 is not\n"
-    "started, and the frozen route has exactly 16 numbered slices."
+    "Phase 62 is an active completion candidate. Slices 1–15 are completed, Slice\n"
+    "16 completion audit is current, and Phase 63 remains next / not implemented.\n"
+    "The frozen Phase-62 route still has exactly 16 numbered slices."
 )
 EXPECTED_PHASE62_OWNER = (
     "Private occurrence-safe relationships and INNER/LEFT logical JOIN, typed "
@@ -430,11 +434,11 @@ EXPECTED_PHASE62_ROUTE = (
 EXPECTED_RETAINED_LATER_OWNERS = (
     (
         "63",
-        "Additional logical JOIN forms and single-match enforcement; multi-relation SQL; correlation, nested results, open plans/outer bindings, Collect/Unnest, LATERAL/decorrelation, and QUALIFY",
+        "Additional logical JOIN forms and single-match enforcement; multi-relation SQL/project emit-SQL; correlation, nested results, open plans/outer bindings, Collect/Unnest, LATERAL/decorrelation, and QUALIFY",
     ),
     (
         "64",
-        "Null-safe/collation/NaN/coercive equality; temporal/range/as-of relationships; advanced types, Decimal/time/interval comparison, record/container typing, and nullability",
+        "Null-safe/collation/NaN/coercive equality; temporal/range/as-of relationships; advanced types, Decimal/time/interval comparison, record/container typing, and deeper nullability",
     ),
     (
         "65",
@@ -1062,6 +1066,14 @@ EXPECTED_PHASE62_SLICE15_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice2_differential_probe_runtime_decomposition_optimization.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE62_SLICE16_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase62-completion-audit-phase63-handoff-v1.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase62_slice16_completion_audit_phase63_handoff.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -1122,14 +1134,24 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "Slice 3 authored base-match/private exact-field correspondence" in normalized
     )
     assert "completed by successful natural exact-head CI" in normalized
-    assert "Slices 4–14 key/FD/grain/path/authored-use" in normalized
+    assert "Slices 4–15 key/FD/grain/path/authored-use" in normalized
+    assert "post-base binary JOIN-region" in normalized
     assert "multi-fact, independent verifier/invalidation" in normalized
-    assert "inspection, winner-free typed-query, portable-document" in normalized
-    assert "Slice 15 is the current real-authored" in normalized
-    assert "Python differential, metamorphic JOIN" in normalized
-    assert "changes no production, public, SQL, CLI, JSON" in normalized
-    assert "natural exact-head CI completes Slice 15" in normalized
-    assert "Slice 16 is not started and is the sole next owner" in normalized
+    assert "inspection, winner-free query/pure canonical boundary" in normalized
+    assert "real-authored differential/metamorphic assurance" in normalized
+    assert (
+        "Slice 16 is the current documentation/static completion-audit publication "
+        "candidate" in normalized
+    )
+    assert "Phase62 material exits = 15/15" in normalized
+    assert "Phase62 self-owned-open = 0" in normalized
+    assert (
+        "changes no production/public/SQL/CLI/JSON/ package/workflow/version"
+        in normalized
+    )
+    assert "hands off only READY typed assets" in normalized
+    assert "natural exact-head CI completes Phase 62" in normalized
+    assert "Phase 63 remains `NEXT / NOT IMPLEMENTED`" in normalized
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -1287,6 +1309,9 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     assert phase62.startswith(f"{EXPECTED_PHASE62_STATE}\n")
     assert phase62.count(EXPECTED_PHASE62_STATE) == 1
     phase62_normalized = " ".join(phase62.split())
+    assert not any(
+        marker in phase62 for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
+    )
     assert phase62_normalized.count(EXPECTED_PHASE62_OWNER) == 1
     assert _table_rows(phase62)[1:] == EXPECTED_PHASE62_ROUTE
     for evidence in (
@@ -1341,7 +1366,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "non-constructible before logical JOIN/nulling authority",
         "adds no grammar, public semantic field, operator grain/key/FD transfer",
         "Phase 62 Slice 7 — Existing-Operator Key/FD/Grain Transfer And Grain Comparison",
-        "Slice 7 is not implemented here",
+        "completed Slice 6 without a status-only follow-up commit and handed off",
         "`project_ir_relational_properties.py`",
         "phase62-slice7-existing-operator-key-fd-grain-transfer-grain-comparison-v1.md",
         "`project_relationship_match_guarantees.py`",
@@ -1349,19 +1374,17 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "two occurrence-safe directions with independent lower/upper evidence",
         "current authored source explicitly lacks a positive producer",
         "Phase 62 Slice 9 — Explicit Relationship Paths, Fanout/Survival/Null Effects, And Join-Shape Analysis",
-        "Slice 9 is not implemented here",
+        "completed it without a status-only commit and handed off",
         "`project_relationship_paths.py`",
         "phase62-slice9-explicit-relationship-paths-fanout-survival-null-effects-join-shape-analysis-v1.md",
         "exact direct-candidate index",
         "no automatic multi-hop search or winner",
         "Phase 62 Slice 10 — Authored JOIN/Traversal Syntax And Semantic Uses",
-        "Slice 10 is not implemented here",
         "phase62-slice10-authored-join-traversal-syntax-semantic-uses-v1.md",
         "authored INNER/LEFT JOIN clauses",
         "`AUTHORED_JOIN_DEFERRED`",
         "zero-allocation non-concrete Project IR terminal",
         "Phase 62 Slice 11 — Project IR Binary JOIN Region, Multi-Input Topology, Null Extension, And Property Transfer",
-        "Slice 11 is not implemented here",
         "phase62-slice11-project-ir-binary-join-region-multi-input-topology-null-extension-property-transfer-v1.md",
         "same-snapshot post-base binary JOIN-region stage",
         "one binary node per authored path step",
@@ -1399,9 +1422,29 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "INNER versus LEFT",
         "dependent non-chasm chain",
         "Phase 62 Slice 16 — Completion Audit And Phase 63 Handoff",
-        "Slice 16 is not implemented here",
+        "phase62-completion-audit-phase63-handoff-v1.md",
+        "15 successful publication terminals",
+        "three preserved failed heads",
+        "`Phase62 self-owned-open = 0`",
+        "Phase 63 is **NEXT / NOT IMPLEMENTED**",
+        "does not freeze a Phase-63 numbered route",
     ):
         assert evidence in phase62_normalized
+
+    phase63 = _section(roadmap, "Phase 63 readiness")
+    phase63_normalized = " ".join(phase63.split())
+    for evidence in (
+        "published Phase-62 relationship/direction",
+        "typed inputs",
+        "must not replace them with a second name- or SQL-derived relationship/JOIN model",
+        "AUTHORED_JOIN_DEFERRED",
+        "legal joined scalar namespace authority",
+        "executable multi-relation SQL",
+        "Winner-free path authority",
+        "absence of join-order optimization",
+    ):
+        assert evidence in phase63_normalized
+    assert "## Phase 63 route" not in roadmap
 
     retained = _section(roadmap, "Retained later ownership")
     assert _table_rows(retained)[1:] == EXPECTED_RETAINED_LATER_OWNERS
@@ -1527,7 +1570,7 @@ def test_interlude_scorecard_self_owned_open_and_phase60_handoff_are_exact() -> 
     )
     assert EXPECTED_RETAINED_LATER_OWNERS[0] == (
         "63",
-        "Additional logical JOIN forms and single-match enforcement; multi-relation SQL; correlation, nested results, open plans/outer bindings, Collect/Unnest, LATERAL/decorrelation, and QUALIFY",
+        "Additional logical JOIN forms and single-match enforcement; multi-relation SQL/project emit-SQL; correlation, nested results, open plans/outer bindings, Collect/Unnest, LATERAL/decorrelation, and QUALIFY",
     )
 
 
@@ -1986,6 +2029,24 @@ def test_phase62_slice15_rebinds_exact_slice14_publication_authority() -> None:
         "test_phase62_slice15_real_authored_e2e_python_differential_metamorphic_join_assurance.py",
         "Slice 15 是唯一 publication candidate",
         "Phase 62 Slice 16 = NEXT / NOT IMPLEMENTED",
+    ):
+        assert evidence in document
+
+
+def test_phase62_slice16_rebinds_exact_slice15_publication_authority() -> None:
+    document = " ".join(PHASE62_SLICE16_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "1b11f64d0e3bc2bf040793db015f75600a9f181c",
+        "23103e4c07f637cacd1f835c08c6d2f6b8375d53",
+        "c67b2414942974988397682e4a8a776890e38b5d",
+        "Add Phase 62 JOIN end-to-end assurance",
+        "33591427553",
+        "100126039679",
+        "100126039576",
+        "A2/M4/D0",
+        "Phase 62 = ACTIVE / COMPLETION CANDIDATE",
+        "Slice 16 = CURRENT / COMPLETION CANDIDATE",
+        "Phase 63 = NEXT / NOT IMPLEMENTED",
     ):
         assert evidence in document
 
@@ -2993,6 +3054,25 @@ def test_phase62_slice15_changed_paths_are_exact() -> None:
     assert tuple(path for path in paths if path.startswith("tests/_")) == (
         "tests/_pietto_phase62_join_differential_probe.py",
     )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "src/",
+                "tests/fixtures/",
+                "tests/goldens/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase62_slice16_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE62_SLICE16_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 6
+    assert all((REPO_ROOT / path).is_file() for path in paths)
     assert not any(
         path.startswith(
             (

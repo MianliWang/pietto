@@ -6,9 +6,10 @@ Every substantive slice begins by identifying its authority roots, current
 invariants, compatibility boundary, and the smallest behavior that is actually
 needed.
 
-The active product direction is a typed, target-independent advanced-window
-semantic model built on the existing Phase 53 window, Phase 56 capability, and
-Phase 59 occurrence/lineage authorities. Project Explain v1 remains unchanged.
+The next product decision is Phase 63's fresh architecture/source audit, design
+reconciliation, and route lock over the published Phase-62 authorities. No
+Phase-63 numbered route or production implementation is authorized here.
+Project Explain v1 remains unchanged.
 Pietto remains compiler-only: no package or catalog registry, dependency
 solver, remote loading, database execution, runtime evaluation, installation
 discovery, or implicit project discovery is authorized. Future work must
@@ -1144,9 +1145,9 @@ frozen its route without changing Phase-61 production behavior.
 
 ## Phase 62 route
 
-Phase 62 is active. Slices 1–14 are completed by successful natural exact-head
-CI, Slice 15 is the current publication candidate, Slice 16 is not
-started, and the frozen route has exactly 16 numbered slices.
+Phase 62 is an active completion candidate. Slices 1–15 are completed, Slice
+16 completion audit is current, and Phase 63 remains next / not implemented.
+The frozen Phase-62 route still has exactly 16 numbered slices.
 
 The exact owner is **Private occurrence-safe relationships and INNER/LEFT
 logical JOIN, typed key/FD/coverage evidence, factorized intrinsic grain,
@@ -1255,8 +1256,8 @@ Slice 5 adds no grammar, public semantic field, authored/general/catalog FD,
 candidate-key mutation, operator transfer, grain dependency, cardinality,
 fanout, path, JOIN, Project IR, SQL, CLI/JSON, package, workflow, or version
 behavior. Successful natural exact-head CI on its single publication commit
-completes Slice 5 without a status-only follow-up commit. The only next owner
-is **Phase 62 Slice 6 — Factorized Intrinsic Grain Basis, Grain Dependencies,
+completed Slice 5 without a status-only follow-up commit and handed off to
+**Phase 62 Slice 6 — Factorized Intrinsic Grain Basis, Grain Dependencies,
 Optional Factors, And GLOBAL Grain**.
 
 Slice 6 adds one standalone private `src/pietto/_project/project_grain.py`
@@ -1273,9 +1274,9 @@ dependencies](spec/phase62-slice6-factorized-intrinsic-grain-basis-dependencies-
 Slice 6 adds no grammar, public semantic field, operator grain/key/FD transfer,
 grain comparison, cardinality, fanout, path, JOIN, Project IR structure, SQL,
 CLI/JSON, package, workflow, or version behavior. Successful natural exact-head
-CI on its single publication commit completes Slice 6 without a status-only
-follow-up commit. The only next owner is **Phase 62 Slice 7 — Existing-Operator
-Key/FD/Grain Transfer And Grain Comparison**; Slice 7 is not implemented here.
+CI on its single publication commit completed Slice 6 without a status-only
+follow-up commit and handed off to **Phase 62 Slice 7 — Existing-Operator
+Key/FD/Grain Transfer And Grain Comparison**.
 
 Slice 7 adds private `project_ir_relational_properties.py` over the freshly
 verified analysis bundle. It attaches occurrence-owned field/value classes,
@@ -1285,9 +1286,9 @@ and comparison is on demand. The controlling contract is [Phase 62 Slice 7
 operator transfer and grain comparison](spec/phase62-slice7-existing-operator-key-fd-grain-transfer-grain-comparison-v1.md).
 
 Slice 7 adds no public/SQL/JOIN/cardinality/fanout/path behavior. Successful
-natural exact-head CI completes it without a status-only commit. The only next
-owner is **Phase 62 Slice 8 — Referential Coverage, MATCH SIMPLE/FULL, And
-Directional Match Guarantees**; Slice 8 is not implemented here.
+natural exact-head CI completed it without a status-only commit and handed off
+to **Phase 62 Slice 8 — Referential Coverage, MATCH SIMPLE/FULL, And
+Directional Match Guarantees**.
 
 Slice 8 adds private `project_relationship_match_guarantees.py`. Each concrete
 proof-capable relationship produces two occurrence-safe directions with
@@ -1299,10 +1300,9 @@ controlling contract is [Phase 62 Slice 8 directional match
 guarantees](spec/phase62-slice8-referential-coverage-match-simple-full-directional-match-guarantees-v1.md).
 
 Slice 8 adds no public syntax/schema, JOIN/path/fanout, SQL, package, workflow,
-or version behavior. Successful natural exact-head CI completes it without a
-status-only commit. The only next owner is **Phase 62 Slice 9 — Explicit
-Relationship Paths, Fanout/Survival/Null Effects, And Join-Shape Analysis**;
-Slice 9 is not implemented here.
+or version behavior. Successful natural exact-head CI completed it without a
+status-only commit and handed off to **Phase 62 Slice 9 — Explicit Relationship
+Paths, Fanout/Survival/Null Effects, And Join-Shape Analysis**.
 
 Slice 9 adds private `project_relationship_paths.py`: an exact direct-candidate
 index, caller-supplied explicit ordered paths, and independent linear fanout,
@@ -1312,10 +1312,9 @@ The controlling contract is [Phase 62 Slice 9 explicit paths and join-shape
 analysis](spec/phase62-slice9-explicit-relationship-paths-fanout-survival-null-effects-join-shape-analysis-v1.md).
 
 Slice 9 adds no authored JOIN/traversal syntax, binary JOIN IR, actual nulling,
-SQL/public or multi-fact behavior. Successful natural exact-head CI completes
-it without a status-only commit. The only next owner is **Phase 62 Slice 10 —
-Authored JOIN/Traversal Syntax And Semantic Uses**; Slice 10 is not implemented
-here.
+SQL/public or multi-fact behavior. Successful natural exact-head CI completed
+it without a status-only commit and handed off to **Phase 62 Slice 10 —
+Authored JOIN/Traversal Syntax And Semantic Uses**.
 
 Slice 10 adds authored INNER/LEFT JOIN clauses with optional explicit VIA
 paths, immutable source-located AST occurrences, occurrence-safe query-local
@@ -1331,10 +1330,9 @@ uses](spec/phase62-slice10-authored-join-traversal-syntax-semantic-uses-v1.md).
 
 Slice 10 adds no joined scalar namespace, binary Project IR JOIN, actual null
 extension, optional grain factor, SQL JOIN lowering, public schema, or
-multi-fact behavior. Successful natural exact-head CI completes it without a
-status-only commit. The only next owner is **Phase 62 Slice 11 — Project IR
-Binary JOIN Region, Multi-Input Topology, Null Extension, And Property
-Transfer**; Slice 11 is not implemented here.
+multi-fact behavior. Successful natural exact-head CI completed it without a
+status-only commit and handed off to **Phase 62 Slice 11 — Project IR Binary
+JOIN Region, Multi-Input Topology, Null Extension, And Property Transfer**.
 
 Slice 11 adds one same-snapshot post-base binary JOIN-region stage. It consumes
 the exact base plan/property stage, Slice-10 use set, and ending allocation;
@@ -1348,9 +1346,9 @@ Project IR JOIN region](spec/phase62-slice11-project-ir-binary-join-region-multi
 
 Slice 11 adds no joined scalar namespace or unary tail, Script IR/SQL JOIN
 lowering, join reordering/path search, public schema, or multi-fact/chasm
-behavior. Successful natural exact-head CI completes it without a status-only
-commit. The only current owner is **Phase 62 Slice 12 — Per-Aggregate Fact
-Locality, Chasm Detection, And Multi-Fact Alignment**.
+behavior. Successful natural exact-head CI completed it without a status-only
+commit and handed off to **Phase 62 Slice 12 — Per-Aggregate Fact Locality,
+Chasm Detection, And Multi-Fact Alignment**.
 
 Slice 12 adds one private `src/pietto/_project/project_multifact.py` analysis
 over exact base aggregate contexts/properties and Slice-11 JOIN regions. Every
@@ -1367,9 +1365,9 @@ multi-fact alignment](spec/phase62-slice12-per-aggregate-fact-locality-chasm-det
 Slice 12 adds no aggregate-over-JOIN semantics, joined scalar namespace,
 reaggregation, aggregate-function safety algebra, automatic fanout repair,
 Script IR/SQL, public schema, CLI/JSON, package, workflow, or version behavior.
-Successful natural exact-head CI completes it without a status-only commit.
-The only current owner is **Phase 62 Slice 13 — Integrity/Verifier, Analysis
-Invalidation, And Bounded BAG/NULL Semantic Oracle**.
+Successful natural exact-head CI completed it without a status-only commit and
+handed off to **Phase 62 Slice 13 — Integrity/Verifier, Analysis Invalidation,
+And Bounded BAG/NULL Semantic Oracle**.
 
 Slice 13 adds separate private `project_phase62_verification.py` and
 `project_bag_null_oracle.py` owners. The first freshly runs the base Project IR
@@ -1385,9 +1383,9 @@ oracle](spec/phase62-slice13-integrity-verifier-analysis-invalidation-bounded-ba
 Slice 13 adds no existing-owner mutation, public/SQL behavior, joined scalar
 namespace, aggregate-over-JOIN semantics, reaggregation/algebra,
 optimizer/rewrite, persistent cache, recursion, package, workflow, dependency,
-or version behavior. Successful natural exact-head CI completes it without a
-status-only commit. The only current owner is **Phase 62 Slice 14 — Private
-Inspection, Winner-Free Query, And Pure Canonical Boundary**.
+or version behavior. Successful natural exact-head CI completed it without a
+status-only commit and handed off to **Phase 62 Slice 14 — Private Inspection,
+Winner-Free Query, And Pure Canonical Boundary**.
 
 Slice 14 adds separate private `project_phase62_inspection.py` and
 `project_phase62_pure_boundary.py` owners. The first admits only the exact
@@ -1406,9 +1404,9 @@ Slice 14 adds no semantic derivation, verifier/oracle behavior, grammar/AST,
 joined scalar namespace, aggregate-over-JOIN semantics, reaggregation/algebra,
 Script IR/SQL, CLI/JSON/Project Explain, public schema, optimizer/rewrite,
 persistent cache, package, workflow, dependency, or version behavior.
-Successful natural exact-head CI completes it without a status-only commit.
-The only current owner is **Phase 62 Slice 15 — Real Authored E2E, Python
-Differential Compatibility, And Metamorphic JOIN Assurance**.
+Successful natural exact-head CI completed it without a status-only commit and
+handed off to **Phase 62 Slice 15 — Real Authored E2E, Python Differential
+Compatibility, And Metamorphic JOIN Assurance**.
 
 Slice 15 adds assurance only: one process-batched test probe owns a real
 authored two-module Project corpus and calls the published Slice-2–14 builders
@@ -1427,16 +1425,47 @@ assurance](spec/phase62-slice15-real-authored-e2e-python-differential-metamorphi
 
 Slice 15 adds no production/public/SQL/CLI/JSON behavior, semantic rule,
 inspection format, oracle behavior, package/dependency/workflow/version change,
-or Slice-16 work. Successful natural exact-head CI completes it without a
-status-only commit. The only next owner is **Phase 62 Slice 16 — Completion
-Audit And Phase 63 Handoff**; Slice 16 is not implemented here.
+or Slice-16 work. Successful natural exact-head CI completed it without a
+status-only commit and handed off to the current completion candidate,
+**Phase 62 Slice 16 — Completion Audit And Phase 63 Handoff**.
+
+Slice 16 reconstructs the exact Phase-61-base-to-Slice-15 first-parent chain,
+15 successful publication terminals, three preserved failed heads, exact trees
+and natural Python 3.12/3.13 CI jobs. It reconciles all controlling contracts,
+principal tests, production/source owners, architecture laws, open markers,
+later-owner transfers, and public/SQL boundaries. The material exit ledger is
+`15/15`, `Phase62 self-owned-open = 0`, and no production path changes. The
+controlling contract is [Phase 62 completion audit and Phase 63
+handoff](spec/phase62-completion-audit-phase63-handoff-v1.md).
+
+Successful natural exact-head CI completes Phase 62 without a status-only
+commit. Phase 63 is **NEXT / NOT IMPLEMENTED** and begins with a fresh
+architecture/source audit, design reconciliation, and route lock. Slice 16
+does not freeze a Phase-63 numbered route or implement Phase-63 syntax,
+multi-relation SQL, joined scalar namespaces, correlation, nested results,
+LATERAL/decorrelation, Collect/Unnest, or QUALIFY.
+
+## Phase 63 readiness
+
+Phase 63 inherits the published Phase-62 relationship/direction,
+correspondence, key/FD/grain, match-guarantee, path/effect, JOIN-use/binary
+topology, joined-field/nulling, multi-fact/chasm, verifier/oracle, inspection,
+and differential-assurance assets as typed inputs. It must not replace them
+with a second name- or SQL-derived relationship/JOIN model.
+
+The fresh audit must reconcile retirement of `AUTHORED_JOIN_DEFERRED`, legal
+joined scalar namespace authority, unary-tail reattachment, executable
+multi-relation SQL, additional logical JOIN forms and single-match enforcement,
+correlated/open plans, nested results, Collect/Unnest, LATERAL/decorrelation,
+QUALIFY, and explicit nested multiplicity/grain. Winner-free path authority and
+the absence of join-order optimization remain mandatory starting constraints.
 
 ## Retained later ownership
 
 | Phase | Owner |
 | ---: | --- |
-| 63 | Additional logical JOIN forms and single-match enforcement; multi-relation SQL; correlation, nested results, open plans/outer bindings, Collect/Unnest, LATERAL/decorrelation, and QUALIFY |
-| 64 | Null-safe/collation/NaN/coercive equality; temporal/range/as-of relationships; advanced types, Decimal/time/interval comparison, record/container typing, and nullability |
+| 63 | Additional logical JOIN forms and single-match enforcement; multi-relation SQL/project emit-SQL; correlation, nested results, open plans/outer bindings, Collect/Unnest, LATERAL/decorrelation, and QUALIFY |
+| 64 | Null-safe/collation/NaN/coercive equality; temporal/range/as-of relationships; advanced types, Decimal/time/interval comparison, record/container typing, and deeper nullability |
 | 65 | Aggregate algebra/state, symmetric/fanout-safe aggregates, aggregate-as-window, multi-stage aggregation/reaggregation, automatic aggregate/grain repair, and first_value(aggregate_output_alias) |
 | 66 | Relationship import/export; reusable relationship/key/FD/grain declarations and libraries; reusable relation/nested semantic assets |
 | 67 | Remote packages/assets, transport, registry, and trust |
