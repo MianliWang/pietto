@@ -28,10 +28,10 @@ documentation does not supersede that evidence.
 | Slice 11 | `COMPLETED` |
 | Slice 12 | `COMPLETED` |
 | Slice 13 | `COMPLETED` |
-| Slice 14 | `CURRENT / PUBLICATION CANDIDATE` |
-| Slice 15 | `NOT STARTED` |
+| Slice 14 | `COMPLETED` |
+| Slice 15 | `CURRENT / PUBLICATION CANDIDATE` |
 | Slice 16 | `NOT STARTED` |
-| Next | `Phase 62 Slice 15 — Real Authored E2E, Python Differential Compatibility, And Metamorphic JOIN Assurance` |
+| Next | `Phase 62 Slice 16 — Completion Audit And Phase 63 Handoff` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -48,14 +48,12 @@ is completed by successful natural exact-head CI on its single publication
 commit. Slice 3 authored base-match/private exact-field correspondence is
 completed by successful natural exact-head CI on its single publication
 commit, without a status-only follow-up commit.
-Slices 4–13 key/FD/grain/path/authored-use, post-base binary JOIN-region,
-multi-fact, independent verifier/invalidation, and bounded BAG/NULL oracle
-authorities are completed by natural CI. Slice 14 is the current private
+Slices 4–14 key/FD/grain/path/authored-use, post-base binary JOIN-region,
+multi-fact, independent verifier/invalidation, bounded BAG/NULL oracle, private
 inspection, winner-free typed-query, portable-document, and pure canonical-byte
-boundary publication candidate. It observes only the exact VERIFIED Slice-13
-bundle; the BAG/NULL oracle remains outside inspection. No joined scalar
-namespace, aggregate-over-JOIN semantics, reaggregation, aggregate algebra,
-Script IR/SQL, CLI/JSON/public schema, optimizer, cache identity, package,
-workflow, or version behavior is added. Successful natural exact-head CI
-completes Slice 14 without a status-only follow-up commit. Slices 15–16 are not
-started; Slice 15 is the sole next owner.
+authorities are completed by natural CI. Slice 15 is the current real-authored
+E2E, Python differential, metamorphic JOIN, and bounded BAG/NULL assurance
+publication candidate. It changes no production, public, SQL, CLI, JSON,
+package, workflow, dependency, golden, or version behavior. Successful natural
+exact-head CI completes Slice 15 without a status-only follow-up commit. Slice
+16 is not started and is the sole next owner.

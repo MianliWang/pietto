@@ -1144,8 +1144,8 @@ frozen its route without changing Phase-61 production behavior.
 
 ## Phase 62 route
 
-Phase 62 is active. Slices 1–13 are completed by successful natural exact-head
-CI, Slice 14 is the current publication candidate, Slices 15–16 are not
+Phase 62 is active. Slices 1–14 are completed by successful natural exact-head
+CI, Slice 15 is the current publication candidate, Slice 16 is not
 started, and the frozen route has exactly 16 numbered slices.
 
 The exact owner is **Private occurrence-safe relationships and INNER/LEFT
@@ -1407,9 +1407,29 @@ joined scalar namespace, aggregate-over-JOIN semantics, reaggregation/algebra,
 Script IR/SQL, CLI/JSON/Project Explain, public schema, optimizer/rewrite,
 persistent cache, package, workflow, dependency, or version behavior.
 Successful natural exact-head CI completes it without a status-only commit.
-The only next owner is **Phase 62 Slice 15 — Real Authored E2E, Python
-Differential Compatibility, And Metamorphic JOIN Assurance**; Slice 15 is not
-implemented here.
+The only current owner is **Phase 62 Slice 15 — Real Authored E2E, Python
+Differential Compatibility, And Metamorphic JOIN Assurance**.
+
+Slice 15 adds assurance only: one process-batched test probe owns a real
+authored two-module Project corpus and calls the published Slice-2–14 builders
+in dependency order through VERIFIED analysis, private inspection, portable
+records, and `pietto.phase62-inspection.v1` bytes. One frozen reviewed manifest
+and complete byte comparisons cover Python 3.12/3.13, four fixed hash seeds,
+normal/reverse creation and construction order, cwd/ambient changes, relocated
+source, and an isolated installed wheel. Authored metamorphics cover direct
+versus VIA, parallel ambiguity, target-UNIQUE removal, INNER versus LEFT,
+multi-hop accumulated-left topology, and role-playing reuse. Test-side bounded
+BAG/NULL witnesses cover fanout, unmatched LEFT/NULL, composite equality,
+independent chasm multiplication, and a dependent non-chasm chain. The
+controlling contract is [Phase 62 Slice 15 real authored differential and
+metamorphic JOIN
+assurance](spec/phase62-slice15-real-authored-e2e-python-differential-metamorphic-join-assurance-v1.md).
+
+Slice 15 adds no production/public/SQL/CLI/JSON behavior, semantic rule,
+inspection format, oracle behavior, package/dependency/workflow/version change,
+or Slice-16 work. Successful natural exact-head CI completes it without a
+status-only commit. The only next owner is **Phase 62 Slice 16 — Completion
+Audit And Phase 63 Handoff**; Slice 16 is not implemented here.
 
 ## Retained later ownership
 

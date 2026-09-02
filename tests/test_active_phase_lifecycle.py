@@ -125,6 +125,10 @@ PHASE62_SLICE14_SPEC = (
     REPO_ROOT
     / "docs/spec/phase62-slice14-private-inspection-winner-free-query-pure-canonical-boundary-v1.md"
 )
+PHASE62_SLICE15_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase62-slice15-real-authored-e2e-python-differential-metamorphic-join-assurance-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -194,12 +198,12 @@ EXPECTED_STATUS = (
     ("Slice 11", "`COMPLETED`"),
     ("Slice 12", "`COMPLETED`"),
     ("Slice 13", "`COMPLETED`"),
-    ("Slice 14", "`CURRENT / PUBLICATION CANDIDATE`"),
-    ("Slice 15", "`NOT STARTED`"),
+    ("Slice 14", "`COMPLETED`"),
+    ("Slice 15", "`CURRENT / PUBLICATION CANDIDATE`"),
     ("Slice 16", "`NOT STARTED`"),
     (
         "Next",
-        "`Phase 62 Slice 15 — Real Authored E2E, Python Differential Compatibility, And Metamorphic JOIN Assurance`",
+        "`Phase 62 Slice 16 — Completion Audit And Phase 63 Handoff`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -227,8 +231,8 @@ EXPECTED_PHASE61_OWNER = (
     "and verifiable analysis boundary"
 )
 EXPECTED_PHASE62_STATE = (
-    "Phase 62 is active. Slices 1–13 are completed by successful natural exact-head\n"
-    "CI, Slice 14 is the current publication candidate, Slices 15–16 are not\n"
+    "Phase 62 is active. Slices 1–14 are completed by successful natural exact-head\n"
+    "CI, Slice 15 is the current publication candidate, Slice 16 is not\n"
     "started, and the frozen route has exactly 16 numbered slices."
 )
 EXPECTED_PHASE62_OWNER = (
@@ -1047,6 +1051,17 @@ EXPECTED_PHASE62_SLICE14_CHANGED_PATHS = (
     "tests/test_phase62_slice14_private_inspection_winner_free_query_pure_canonical_boundary.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE62_SLICE15_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase62-slice15-real-authored-e2e-python-differential-metamorphic-join-assurance-v1.md",
+    "docs/status.md",
+    "tests/_pietto_phase62_join_differential_probe.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
+    "tests/test_phase62_slice15_real_authored_e2e_python_differential_metamorphic_join_assurance.py",
+    "tests/test_validation_performance_interlude_slice2_differential_probe_runtime_decomposition_optimization.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -1107,15 +1122,14 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "Slice 3 authored base-match/private exact-field correspondence" in normalized
     )
     assert "completed by successful natural exact-head CI" in normalized
-    assert "Slices 4–13 key/FD/grain/path/authored-use" in normalized
+    assert "Slices 4–14 key/FD/grain/path/authored-use" in normalized
     assert "multi-fact, independent verifier/invalidation" in normalized
-    assert "Slice 14 is the current" in normalized
     assert "inspection, winner-free typed-query, portable-document" in normalized
-    assert "BAG/NULL oracle remains outside inspection" in normalized
-    assert "No joined scalar namespace, aggregate-over-JOIN semantics" in normalized
-    assert "natural exact-head CI completes Slice 14" in normalized
-    assert "Slices 15–16 are not started" in normalized
-    assert "Slice 15 is the sole next owner" in normalized
+    assert "Slice 15 is the current real-authored" in normalized
+    assert "Python differential, metamorphic JOIN" in normalized
+    assert "changes no production, public, SQL, CLI, JSON" in normalized
+    assert "natural exact-head CI completes Slice 15" in normalized
+    assert "Slice 16 is not started and is the sole next owner" in normalized
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -1375,7 +1389,17 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "`pietto.phase62-inspection.v1`",
         "canonical bytes are not semantic",
         "Phase 62 Slice 15 — Real Authored E2E, Python Differential Compatibility, And Metamorphic JOIN Assurance",
-        "Slice 15 is not implemented here",
+        "phase62-slice15-real-authored-e2e-python-differential-metamorphic-join-assurance-v1.md",
+        "real authored two-module Project corpus",
+        "Python 3.12/3.13",
+        "four fixed hash seeds",
+        "direct versus VIA",
+        "parallel ambiguity",
+        "target-UNIQUE removal",
+        "INNER versus LEFT",
+        "dependent non-chasm chain",
+        "Phase 62 Slice 16 — Completion Audit And Phase 63 Handoff",
+        "Slice 16 is not implemented here",
     ):
         assert evidence in phase62_normalized
 
@@ -1947,6 +1971,21 @@ def test_phase62_slice14_rebinds_exact_slice13_publication_authority() -> None:
         "project_phase62_pure_boundary.py",
         "Slice 14 是唯一当前 publication candidate",
         "Phase 62 Slice 15 = NEXT / NOT IMPLEMENTED",
+    ):
+        assert evidence in document
+
+
+def test_phase62_slice15_rebinds_exact_slice14_publication_authority() -> None:
+    document = " ".join(PHASE62_SLICE15_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "c67b2414942974988397682e4a8a776890e38b5d",
+        "15200d4207f29904d970041518209872e7e5bb75",
+        "33587048578",
+        "A3/M6/D0",
+        "_pietto_phase62_join_differential_probe.py",
+        "test_phase62_slice15_real_authored_e2e_python_differential_metamorphic_join_assurance.py",
+        "Slice 15 是唯一 publication candidate",
+        "Phase 62 Slice 16 = NEXT / NOT IMPLEMENTED",
     ):
         assert evidence in document
 
@@ -2938,6 +2977,29 @@ def test_phase62_slice14_changed_paths_are_exact() -> None:
                 "src/pietto/semantic/",
                 "src/pietto/sql/",
                 "src/pietto/_project_explain/",
+                "tests/fixtures/",
+                "tests/goldens/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase62_slice15_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE62_SLICE15_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 9
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert not any(path.startswith("src/") for path in paths)
+    assert tuple(path for path in paths if path.startswith("tests/_")) == (
+        "tests/_pietto_phase62_join_differential_probe.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "src/",
                 "tests/fixtures/",
                 "tests/goldens/",
             )

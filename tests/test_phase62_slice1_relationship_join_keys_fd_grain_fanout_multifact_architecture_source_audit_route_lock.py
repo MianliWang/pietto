@@ -53,6 +53,11 @@ PROJECT_PHASE62_INSPECTION = (
 PROJECT_PHASE62_PURE_BOUNDARY = (
     REPO_ROOT / "src/pietto/_project/project_phase62_pure_boundary.py"
 )
+PHASE62_SLICE15_PROBE = REPO_ROOT / "tests/_pietto_phase62_join_differential_probe.py"
+PHASE62_SLICE15_TEST = (
+    REPO_ROOT
+    / "tests/test_phase62_slice15_real_authored_e2e_python_differential_metamorphic_join_assurance.py"
+)
 
 HEADINGS = (
     "Answer And Static Scope",
@@ -693,6 +698,46 @@ def test_live_slice14_inspection_and_pure_boundary_remain_private_and_isolated()
         if isinstance(node, ast.ImportFrom)
     }
     assert pure_imports <= {"__future__", "dataclasses", "enum", "heapq", "typing"}
+
+
+def test_live_slice15_assurance_reuses_published_owners_with_zero_production_delta() -> (
+    None
+):
+    probe = _read(PHASE62_SLICE15_PROBE)
+    assurance = _read(PHASE62_SLICE15_TEST)
+    for evidence in (
+        "PRIMARY_MAIN_SOURCE",
+        "DISCONNECTED_SOURCE",
+        "check_project_parse_only(",
+        "build_empty_project_semantic_result(",
+        "build_project_multifact_analysis(",
+        "verify_project_phase62(",
+        "build_project_phase62_analysis_bundle(",
+        "build_project_phase62_inspection(",
+        "pietto.phase62-join-differential.v1",
+    ):
+        assert evidence in probe
+    for evidence in (
+        "EXPECTED_COMMON_MANIFEST",
+        "test_all_supported_interpreters_seeds_relocation_and_bytes_match_exactly",
+        "test_real_authored_continuity_and_required_metamorphics_are_exact",
+        "test_bag_null_oracle_chasm_and_dependent_chain_witnesses_are_distinct",
+    ):
+        assert evidence in assurance
+    assert "subprocess.run(" not in probe
+    assert "sort_keys=False" in probe
+    for forbidden in (
+        "ProjectMultiFactAnalysis(",
+        "ProjectPhase62VerificationResult(",
+        "ProjectPhase62AnalysisBundle(",
+        "ProjectPhase62Inspection(",
+        "ProjectPhase62PureDocument(",
+        "sort_keys=True",
+        ".sort(",
+        "lru_cache",
+        ".venv/bin/python",
+    ):
+        assert forbidden not in probe
 
 
 def test_phase61_inheritance_and_identity_ownership_laws_are_exact() -> None:
