@@ -6,6 +6,7 @@ from dataclasses import replace
 import os
 from pathlib import Path
 import subprocess
+import sys
 from typing import cast
 
 import pytest
@@ -561,7 +562,7 @@ def test_projection_is_zero_mutation_and_repeatable(
 def test_hash_seed_and_unrelated_cwd_do_not_change_canonical_bytes(
     tmp_path: Path,
 ) -> None:
-    python = REPO_ROOT / ".venv/bin/python"
+    python = sys.executable
     script = """
 from pathlib import Path
 import sys

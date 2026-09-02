@@ -206,3 +206,63 @@ UV_PYTHON=3.13 uv run python scripts/validate.py --timings
 
 Publication 使用一个普通 non-amend commit `Add Phase 62 private inspection`、一个
 fast-forward push，以及自然 exact-head CI；不 dispatch、rerun 或 cancel。
+
+## Failed-head CI interpreter portability continuation
+
+原始 Slice-14 review repair root 保持原样：“portable projection 对少量既有
+authority 仍不够完整（endpoint/binding identity facts、why-not reasons、
+verification header），且 pure JOIN topology 可再封闭两个遗漏关系。”该 repair
+已在 failed parent 中完成，不在本 continuation 中重开或修改。
+
+Failed publication authority 为：
+
+```text
+commit f688a84972696c009994849688cf9348f7398983
+tree   87ed4473c6071cfd520051c58a03adb93f26cd58
+CI     33585654081
+       push/main
+       attempt 1
+       failure
+```
+
+Python 3.12 与 Python 3.13 都只在 Slice-14 hash-seed/cwd subprocess assurance
+失败；CI 的 uv project environment 位于 runner temp，因此仓库内没有
+`.venv/bin/python`。Additional root 精确冻结为：
+
+```text
+SLICE14_HASH_SEED_CWD_ASSURANCE_HARDCODES_REPOSITORY_DOT_VENV_INSTEAD_OF_ACTIVE_INTERPRETER
+```
+
+Repair child 只把 focused determinism test 的 subprocess interpreter authority
+从 repository-local `.venv/bin/python` 改为执行当前 test process 的
+`sys.executable`。Hash seeds、unrelated cwd、`PYTHONPATH`、environment isolation 与
+canonical-byte assertions 全部不变；不创建、查找或推断第二个 interpreter。
+
+该 child 不改变任何 production semantics。Phase-62 inspection runtime authority、
+winner-free query、portable document、canonical bytes、pure stdlib-only boundary 与
+BAG/NULL oracle isolation 均保持 byte/behavior zero-delta；Slice 15 未开始。
+
+Continuation child changed-path closure 为：
+
+```text
+docs/spec/phase62-slice14-private-inspection-winner-free-query-pure-canonical-boundary-v1.md
+tests/test_phase62_slice14_private_inspection_winner_free_query_pure_canonical_boundary.py
+
+A0/M2/D0
+```
+
+Operation ledger 不重置：
+
+```text
+original repairs:                         1/1
+additional CI-portability repair:         1/1
+cumulative repairs:                       2/2
+
+original local authoritative validators:  1/1
+continuation child validator allocation:  1/1
+cumulative local authoritative validators after child validation: 2/2
+```
+
+失败 parent 与 CI `33585654081` 保持不变，不 amend、force-push、rerun、dispatch、
+cancel 或改写历史。Continuation validation 成功后只允许一个普通 child commit、
+一次 fast-forward push，以及该 child 自然产生的 exact-head `push/main` attempt 1。
