@@ -6,9 +6,11 @@ Every substantive slice begins by identifying its authority roots, current
 invariants, compatibility boundary, and the smallest behavior that is actually
 needed.
 
-The next product decision is Phase 63's fresh architecture/source audit, design
-reconciliation, and route lock over the published Phase-62 authorities. No
-Phase-63 numbered route or production implementation is authorized here.
+Phase 63 is active. Slice 1 is the current Product/Phase Initiation Gate v3,
+Pietto/external source-audit, Future Roadmap v6, and exact route-lock
+publication candidate over the published Phase-62 authorities. It adds no
+production behavior. Successful natural exact-head CI completes Slice 1 and
+hands off to Phase 63 Slice 2, which remains `NEXT / NOT IMPLEMENTED`.
 Project Explain v1 remains unchanged.
 Pietto remains compiler-only: no package or catalog registry, dependency
 solver, remote loading, database execution, runtime evaluation, installation
@@ -1145,9 +1147,9 @@ frozen its route without changing Phase-61 production behavior.
 
 ## Phase 62 route
 
-Phase 62 is an active completion candidate. Slices 1–15 are completed, Slice
-16 completion audit is current, and Phase 63 remains next / not implemented.
-The frozen Phase-62 route still has exactly 16 numbered slices.
+Phase 62 and all 16 numbered Slices are completed by live Git and successful
+natural exact-head CI. Phase 63 is active, and the completed Phase-62 route
+remains exactly 16 numbered Slices.
 
 The exact owner is **Private occurrence-safe relationships and INNER/LEFT
 logical JOIN, typed key/FD/coverage evidence, factorized intrinsic grain,
@@ -1438,49 +1440,129 @@ later-owner transfers, and public/SQL boundaries. The material exit ledger is
 controlling contract is [Phase 62 completion audit and Phase 63
 handoff](spec/phase62-completion-audit-phase63-handoff-v1.md).
 
-Successful natural exact-head CI completes Phase 62 without a status-only
-commit. Phase 63 is **NEXT / NOT IMPLEMENTED** and begins with a fresh
-architecture/source audit, design reconciliation, and route lock. Slice 16
-does not freeze a Phase-63 numbered route or implement Phase-63 syntax,
-multi-relation SQL, joined scalar namespaces, correlation, nested results,
-LATERAL/decorrelation, Collect/Unnest, or QUALIFY.
+Successful natural exact-head CI completed Phase 62 without a status-only
+commit. Phase 63 is now active. The published Phase-62 handoff remains
+historical evidence and does not itself authorize Phase-63 implementation.
 
-## Phase 63 readiness
+## Phase 63 route
 
-Phase 63 inherits the published Phase-62 relationship/direction,
-correspondence, key/FD/grain, match-guarantee, path/effect, JOIN-use/binary
-topology, joined-field/nulling, multi-fact/chasm, verifier/oracle, inspection,
-and differential-assurance assets as typed inputs. It must not replace them
-with a second name- or SQL-derived relationship/JOIN model.
+Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slice 1 is
+the current documentation/static-assurance publication candidate. Slices 2–16
+are not implemented. The published route has exactly 16 numbered Slices.
 
-The fresh audit must reconcile retirement of `AUTHORED_JOIN_DEFERRED`, legal
-joined scalar namespace authority, unary-tail reattachment, executable
-multi-relation SQL, additional logical JOIN forms and single-match enforcement,
-correlated/open plans, nested results, Collect/Unnest, LATERAL/decorrelation,
-QUALIFY, and explicit nested multiplicity/grain. Winner-free path authority and
-the absence of join-order optimization remain mandatory starting constraints.
+| Slice | Owner |
+| ---: | --- |
+| 1 | Product Gate v3, Pietto/external source audit, Future Roadmap, route lock |
+| 2 | Query-block owner bridge, row-source sum, states, mode boundary |
+| 3 | Scalar-reference environment, resolution facts, type-kernel adapter |
+| 4 | Bindings, visible joined fields, qualified/unqualified lookup |
+| 5 | LET, stage namespace lattice, shadowing and alias laws |
+| 6 | Post-JOIN row semantics, nullability, lineage and property bridge |
+| 7 | Completion scheduling, effective-output ledger foundation, module propagation |
+| 8 | Joined row filtering |
+| 9 | Joined grouping, aggregate, GLOBAL, satisfying and risk linkage |
+| 10 | Generic window-computation sites and named-window reuse |
+| 11 | QUALIFY grammar, AST, semantics and property transfer |
+| 12 | Projection, ordering, limit, final output and ledger completion |
+| 13 | Completed project semantic result and public check boundaries |
+| 14 | Query-block Project IR composition, verification and invalidation |
+| 15 | Inspection/pure boundary and real E2E/differential/metamorphic assurance |
+| 16 | Completion audit and Phase-64 handoff |
 
-## Retained later ownership
+The controlling contract is [Phase 63 Joined Query Block Product Architecture
+Source Audit Future Roadmap Route
+Lock](spec/phase63-joined-query-block-product-architecture-source-audit-future-roadmap-route-lock-v1.md).
+It freezes the mandatory Product/Phase Initiation Gate v3, 12 reconciled live
+source findings, 16 exact external reference records, the old-owner migration
+ledger, and Future Roadmap v6. The architecture reuses
+`ProjectDeclarationOccurrence`, `QueryBlockOccurrence`, existing scalar
+type/function/operator laws, Phase-62 joined-field provenance, existing
+dependency/actual-use graphs, selected-output `WindowOccurrenceIdentity`, and
+existing final output identities. It creates no third query-block identity,
+flattened joined `RowSchema`, second expression type system, third normative
+dependency graph, or partial completed output.
+
+`AUTHORED_JOIN_DEFERRED` remains exact historical authority. A later Phase-63
+completion bridge and one project-wide effective relation-output ledger supply
+new concrete authority. Positive joined completion is
+`EXPLICIT_MODULES`-only; single-file, `LEGACY_FLAT`, and `PACKAGE_ROOT` JOIN
+paths remain typed fail-closed. Completed joined outputs may feed downstream
+no-new-JOIN blocks but do not automatically become relationship endpoints or
+Phase-62 path nodes.
+
+`LET` is the first post-JOIN scalar scope. Each stage has an immutable
+visibility environment and hidden intermediate path fields remain non-nameable
+without an authored binding. Joined aggregate semantics retain Phase-62
+fanout/chasm/risk evidence and perform no aggregate-algebra repair. `QUALIFY`
+is a distinct stage after window evaluation and before final projection; TRUE
+retains while FALSE/UNKNOWN drop. A generic computation-site bridge does not
+migrate selected-output window identity, projection aliases do not become
+backward `QUALIFY` authority, and window ordering is not final relation order.
+
+The query-block Project IR extends the exact Phase-61/62 snapshot and attaches
+the unary tail after the binary JOIN region. Independent verification,
+invalidation, inspection, canonical observation, real E2E, differential, and
+metamorphic assurance remain mandatory. Slice 1 changes no production,
+grammar, generated, public schema, package, dependency, workflow, version,
+SQL, Arrow, executor, or Slice-2 behavior. Successful natural exact-head CI on
+its single publication commit completes Slice 1 without a status-only follow-up
+commit and leaves Slice 2 `NEXT / NOT IMPLEMENTED`.
+
+## Future Roadmap v6
+
+These rows replace the former broad Phase-63–70 map. They assign one phase-level
+owner to every retained or newly identified subject; they do not authorize a
+Phase-64+ Slice route or implementation.
 
 | Phase | Owner |
 | ---: | --- |
-| 63 | Additional logical JOIN forms and single-match enforcement; multi-relation SQL/project emit-SQL; correlation, nested results, open plans/outer bindings, Collect/Unnest, LATERAL/decorrelation, and QUALIFY |
-| 64 | Null-safe/collation/NaN/coercive equality; temporal/range/as-of relationships; advanced types, Decimal/time/interval comparison, record/container typing, and deeper nullability |
-| 65 | Aggregate algebra/state, symmetric/fanout-safe aggregates, aggregate-as-window, multi-stage aggregation/reaggregation, automatic aggregate/grain repair, and first_value(aggregate_output_alias) |
-| 66 | Relationship import/export; reusable relationship/key/FD/grain declarations and libraries; reusable relation/nested semantic assets |
-| 67 | Remote packages/assets, transport, registry, and trust |
-| 68 | Dependency solver, canonical lockfile, and first profiling-driven Python-to-Rust kernel decision |
-| 69 | Catalog constraints and statistics; optimizer memo, join-order/hypergraph search, outer-join reordering, predicate transfer/factorized/WCOJ execution, physical join strategies, and broad backend/catalog capabilities |
-| 70 | Public relationship/key/FD/grain/fanout/alignment and Project-IR/nested/lineage schemas, versioned representation, and release readiness |
+| 63 | Joined Query Block semantic completion and QUALIFY |
+| 64 | Flat relational algebra: generic ON/refinement; CROSS/RIGHT/FULL/SEMI/ANTI; DISTINCT; UNION/INTERSECT/EXCEPT; single-match enforcement |
+| 65 | Target-neutral ProjectSQLPlan, parameters, source maps, legality and capability requirements |
+| 66 | PostgreSQL/MySQL baseline multi-relation SQL and Project emit-SQL |
+| 67 | Arrow interchange foundation and Pietto result contract |
+| 68 | Explicit executor SPI, ADBC/DBAPI, streaming/cancellation/backpressure |
+| 69 | Public alpha release engineering and unified safe entrypoints |
+| 70 | Open/composite plans, nonrecursive CTE/subqueries, VALUES/table functions, outer captures, EXISTS/IN, LATERAL, bounded decorrelation, effect authority |
+| 71 | NestedRelation, Collect, Unnest, flatten, outer/inner grain, nested Arrow |
+| 72 | Advanced equality/types/nullability and temporal/range/ASOF relationships |
+| 73 | Aggregate algebra/state, grouping extensions, fanout-safe reaggregation |
+| 74 | Reusable local semantic assets, derived relationships, function/plugin SPI |
+| 75 | Formatter, LSP, editor, diagnostics, syntax editions and migrations |
+| 76 | PostgreSQL deep adaptation |
+| 77 | MySQL deep adaptation |
+| 78 | SQLite deep adaptation |
+| 79 | DuckDB deep adaptation |
+| 80 | pandas/Polars/NumPy/SciPy/Matplotlib interoperability |
+| 81 | High-intensity real-DB/differential/metamorphic/fuzz/performance assurance |
+| 82 | Public schemas/API/CLI/syntax/support-matrix freeze |
+| 83 | Stable 1.0 release audit and publication |
+| 84 | Remote assets/registry/transport/signing/trust |
+| 85 | Dependency solver/canonical lockfile/reproducible resolution |
+| 86 | RDKit/geospatial/sparse/DLPack/device-framework adapters |
+| 87 | Catalog/constraints/statistics/runtime-data-quality/chase |
+| 88 | Logical optimizer memo and join-order/hypergraph search |
+| 89 | Physical strategies including Yannakakis/WCOJ/Free Join/predicate transfer |
+| 90 | Profiling-driven Rust kernels, PyO3/maturin, parity and wheel matrix |
 
-Recursive relations, fixpoints, iterative planning, and bounded recursive
-provenance remain a dedicated later owner with no phase number assigned here.
-Persistent incremental-cache identity likewise remains separate from
-snapshot-local Project IR identity and has no Phase 61 implementation.
-Incremental/differential Project IR, formal rewrite certification, runtime
-data-quality discovery, and general constraint/chase reasoning also remain
-separate dedicated later owners; the Phase 62 Slice 1 contract freezes their
-exact boundaries.
+The controlling Phase-63 Slice-1 contract contains the complete old-owner ->
+new-owner ledger, including every former Phase-63–70 subject and every new
+ownerless subject.
+
+## Tentative later ownership
+
+These separately numbered owners are `TENTATIVE / OWNER ONLY` and authorize no
+implementation：
+
+| Tentative phase | Owner |
+| ---: | --- |
+| 91 | Persistent incremental-cache identity and incremental/differential Project IR |
+| 92 | Recursive relations, fixpoints, iterative planning, and bounded recursive provenance |
+| 93 | Formal rewrite certification |
+| 94 | Cloud/federation semantics, planning, and transport |
+| 95 | DML, DDL, and migrations |
+| 96 | Governance and security policy semantics |
+| 97 | Continuous/streaming query semantics distinct from finite-result streaming |
 
 Phase 57 begins from the complete private Phase 56 capability chain.
 `CapabilityKey` remains release-free, exact profile targets retain database and
