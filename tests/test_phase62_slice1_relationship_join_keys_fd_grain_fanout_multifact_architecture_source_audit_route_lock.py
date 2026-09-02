@@ -43,6 +43,10 @@ PROJECT_RELATIONSHIP_USES = (
 )
 PROJECT_IR_JOINS = REPO_ROOT / "src/pietto/_project/project_ir_joins.py"
 PROJECT_MULTIFACT = REPO_ROOT / "src/pietto/_project/project_multifact.py"
+PROJECT_PHASE62_VERIFICATION = (
+    REPO_ROOT / "src/pietto/_project/project_phase62_verification.py"
+)
+PROJECT_BAG_NULL_ORACLE = REPO_ROOT / "src/pietto/_project/project_bag_null_oracle.py"
 
 HEADINGS = (
     "Answer And Static Scope",
@@ -613,6 +617,38 @@ def test_live_slice12_multifact_analysis_preserves_aggregate_algebra_boundary() 
         "build_project_ir_pipeline",
     ):
         assert forbidden not in source
+
+
+def test_live_slice13_verifier_and_oracle_remain_separate_private_boundaries() -> None:
+    verifier = _read(PROJECT_PHASE62_VERIFICATION)
+    oracle = _read(PROJECT_BAG_NULL_ORACLE)
+    for evidence in (
+        "class ProjectPhase62VerificationIssueKind",
+        "class ProjectPhase62VerificationResult",
+        "verify_project_phase62",
+        "class ProjectPhase62AnalysisBundle",
+        "build_project_phase62_analysis_bundle",
+        "class ProjectPhase62ChangeDomain",
+        "assess_project_phase62_analysis_invalidation",
+        "verify_project_ir_stage",
+    ):
+        assert evidence in verifier
+    for evidence in (
+        "class ProjectBagNullTruth",
+        "class ProjectBagNullJoinKind",
+        "class ProjectFiniteBag",
+        "class ProjectBagNullJoinSpecification",
+        "evaluate_project_bag_null_equality",
+        "evaluate_project_bag_null_join",
+    ):
+        assert evidence in oracle
+    assert "__all__: tuple[str, ...] = ()" in verifier
+    assert "__all__: tuple[str, ...] = ()" in oracle
+    assert "project_bag_null_oracle" not in verifier
+    assert "evaluate_project_bag_null" not in verifier
+    assert "build_project_ir_join_region" not in verifier
+    assert "build_project_multifact_analysis" not in verifier
+    assert "pietto" not in oracle
 
 
 def test_phase61_inheritance_and_identity_ownership_laws_are_exact() -> None:

@@ -1144,8 +1144,8 @@ frozen its route without changing Phase-61 production behavior.
 
 ## Phase 62 route
 
-Phase 62 is active. Slices 1–11 are completed by successful natural exact-head
-CI, Slice 12 is the current publication candidate, Slices 13–16 are not
+Phase 62 is active. Slices 1–12 are completed by successful natural exact-head
+CI, Slice 13 is the current publication candidate, Slices 14–16 are not
 started, and the frozen route has exactly 16 numbered slices.
 
 The exact owner is **Private occurrence-safe relationships and INNER/LEFT
@@ -1368,8 +1368,26 @@ Slice 12 adds no aggregate-over-JOIN semantics, joined scalar namespace,
 reaggregation, aggregate-function safety algebra, automatic fanout repair,
 Script IR/SQL, public schema, CLI/JSON, package, workflow, or version behavior.
 Successful natural exact-head CI completes it without a status-only commit.
-The only next owner is **Phase 62 Slice 13 — Integrity/Verifier, Analysis
-Invalidation, And Bounded BAG/NULL Semantic Oracle**; Slice 13 is not
+The only current owner is **Phase 62 Slice 13 — Integrity/Verifier, Analysis
+Invalidation, And Bounded BAG/NULL Semantic Oracle**.
+
+Slice 13 adds separate private `project_phase62_verification.py` and
+`project_bag_null_oracle.py` owners. The first freshly runs the base Project IR
+verifier, independently replays Slice-11/12 JOIN and multi-fact laws, checks one
+combined actual-use DAG, derives five detachable analyses, and exposes exact
+typed invalidation with verification always rerun. The second is a stdlib-only
+bounded reference evaluator for ordinary INNER/LEFT exact-compatible equality
+under three-valued NULL and finite-BAG multiplicity semantics. The verifier
+never invokes the oracle. The controlling contract is [Phase 62 Slice 13
+integrity verifier and bounded BAG/NULL semantic
+oracle](spec/phase62-slice13-integrity-verifier-analysis-invalidation-bounded-bag-null-semantic-oracle-v1.md).
+
+Slice 13 adds no existing-owner mutation, public/SQL behavior, joined scalar
+namespace, aggregate-over-JOIN semantics, reaggregation/algebra,
+optimizer/rewrite, persistent cache, recursion, package, workflow, dependency,
+or version behavior. Successful natural exact-head CI completes it without a
+status-only commit. The only next owner is **Phase 62 Slice 14 — Private
+Inspection, Winner-Free Query, And Pure Canonical Boundary**; Slice 14 is not
 implemented here.
 
 ## Retained later ownership

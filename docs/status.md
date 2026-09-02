@@ -26,12 +26,12 @@ documentation does not supersede that evidence.
 | Slice 9 | `COMPLETED` |
 | Slice 10 | `COMPLETED` |
 | Slice 11 | `COMPLETED` |
-| Slice 12 | `CURRENT / PUBLICATION CANDIDATE` |
-| Slice 13 | `NOT STARTED` |
+| Slice 12 | `COMPLETED` |
+| Slice 13 | `CURRENT / PUBLICATION CANDIDATE` |
 | Slice 14 | `NOT STARTED` |
 | Slice 15 | `NOT STARTED` |
 | Slice 16 | `NOT STARTED` |
-| Next | `Phase 62 Slice 13 — Integrity/Verifier, Analysis Invalidation, And Bounded BAG/NULL Semantic Oracle` |
+| Next | `Phase 62 Slice 14 — Private Inspection, Winner-Free Query, And Pure Canonical Boundary` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -48,12 +48,12 @@ is completed by successful natural exact-head CI on its single publication
 commit. Slice 3 authored base-match/private exact-field correspondence is
 completed by successful natural exact-head CI on its single publication
 commit, without a status-only follow-up commit.
-Slices 4–11 key/FD/grain/path/authored-use and post-base binary JOIN-region
-authorities are completed by natural CI. Slice 12 is the current per-aggregate
-fact-locality, chasm-detection, and multi-fact-alignment analysis publication
-candidate. The Slice-10 semantic/single-relation barrier remains intact; no
-joined scalar namespace, aggregate-over-JOIN semantics, reaggregation,
-aggregate algebra, Script IR/SQL, public schema, package, workflow, or version
-behavior is added. Successful natural exact-head CI completes Slice 12 without
-a status-only follow-up commit. Slices 13–16 are not started; Slice 13 is the
-sole next owner.
+Slices 4–12 key/FD/grain/path/authored-use, post-base binary JOIN-region, and
+multi-fact authorities are completed by natural CI. Slice 13 is the current
+independent integrity-verifier, analysis-invalidation, and bounded BAG/NULL
+oracle publication candidate. The verifier and oracle remain separate private
+boundaries; no joined scalar namespace, aggregate-over-JOIN semantics,
+reaggregation, aggregate algebra, Script IR/SQL, public schema, optimizer,
+package, workflow, or version behavior is added. Successful natural exact-head
+CI completes Slice 13 without a status-only follow-up commit. Slices 14–16 are
+not started; Slice 14 is the sole next owner.
