@@ -221,6 +221,31 @@ def _git(*arguments: str) -> str:
     return result.stdout.strip()
 
 
+def _git_parent_if_available(commit: str) -> str | None:
+    parents = tuple(
+        line.removeprefix("parent ")
+        for line in _git("cat-file", "-p", commit).splitlines()
+        if line.startswith("parent ")
+    )
+    assert len(parents) == 1
+    parent = parents[0]
+    expression = f"{parent}^{{commit}}"
+    result = subprocess.run(
+        ("git", "cat-file", "-e", expression),
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode == 0:
+        assert result.stdout == result.stderr == ""
+        return parent
+    assert result.returncode == 128
+    assert result.stdout == ""
+    assert result.stderr == f"fatal: Not a valid object name {expression}\n"
+    assert _git("rev-parse", "--is-shallow-repository") == "true"
+    return None
+
+
 def _external_record_blocks(
     document: str,
 ) -> tuple[tuple[str, str, tuple[str, ...], str], ...]:
@@ -529,15 +554,22 @@ def test_slice1_delta_is_exact_and_has_zero_production_behavior() -> None:
     matches = tuple(commit for commit, subject in available if subject == SUBJECT)
     if matches:
         assert len(matches) == 1
-        actual = tuple(
-            tuple(line.split("\t", 1))
-            for line in _git(
-                "diff-tree",
-                "--no-commit-id",
-                "--name-status",
-                "-r",
-                matches[0],
-            ).splitlines()
+        commit = matches[0]
+        parent = _git_parent_if_available(commit)
+        actual = (
+            None
+            if parent is None
+            else tuple(
+                tuple(line.split("\t", 1))
+                for line in _git(
+                    "diff-tree",
+                    "--no-commit-id",
+                    "--name-status",
+                    "-r",
+                    parent,
+                    commit,
+                ).splitlines()
+            )
         )
     elif head == BASELINE:
         actual = tuple(
@@ -550,11 +582,13 @@ def test_slice1_delta_is_exact_and_has_zero_production_behavior() -> None:
         )
     else:
         assert _git("rev-parse", "--is-shallow-repository") == "true"
-        return
+        assert _git_parent_if_available(head) is None
+        actual = None
 
-    assert len(actual) == 6
-    assert len(set(actual)) == 6
-    assert frozenset(actual) == frozenset(expected)
+    if actual is not None:
+        assert len(actual) == 6
+        assert len(set(actual)) == 6
+        assert frozenset(actual) == frozenset(expected)
 
     assert not any(
         path.startswith(("src/", "grammar/", ".github/", "scripts/"))
