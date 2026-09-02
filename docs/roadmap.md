@@ -1144,8 +1144,8 @@ frozen its route without changing Phase-61 production behavior.
 
 ## Phase 62 route
 
-Phase 62 is active. Slices 1–10 are completed by successful natural exact-head
-CI, Slice 11 is the current publication candidate, Slices 12–16 are not
+Phase 62 is active. Slices 1–11 are completed by successful natural exact-head
+CI, Slice 12 is the current publication candidate, Slices 13–16 are not
 started, and the frozen route has exactly 16 numbered slices.
 
 The exact owner is **Private occurrence-safe relationships and INNER/LEFT
@@ -1349,8 +1349,27 @@ Project IR JOIN region](spec/phase62-slice11-project-ir-binary-join-region-multi
 Slice 11 adds no joined scalar namespace or unary tail, Script IR/SQL JOIN
 lowering, join reordering/path search, public schema, or multi-fact/chasm
 behavior. Successful natural exact-head CI completes it without a status-only
-commit. The only next owner is **Phase 62 Slice 12 — Per-Aggregate Fact
-Locality, Chasm Detection, And Multi-Fact Alignment**; Slice 12 is not
+commit. The only current owner is **Phase 62 Slice 12 — Per-Aggregate Fact
+Locality, Chasm Detection, And Multi-Fact Alignment**.
+
+Slice 12 adds one private `src/pietto/_project/project_multifact.py` analysis
+over exact base aggregate contexts/properties and Slice-11 JOIN regions. Every
+concrete aggregate result becomes one occurrence-safe fact with distinct
+stage/home value authority; each standalone JOIN introduction creates one
+use-specific locality with carried fields and contextual grain-factor uses.
+The existing typed grain closure derives exact/alignable/reaggregation or
+incompatible structure, winner-free actual common-grain buckets, later fanout
+exposures, and complete fact-based chasm evidence. Non-concrete regions retain
+`AMBIGUOUS_PATH` or `INSUFFICIENT_EVIDENCE` without a partial concrete prefix.
+The controlling contract is [Phase 62 Slice 12 per-aggregate fact locality and
+multi-fact alignment](spec/phase62-slice12-per-aggregate-fact-locality-chasm-detection-multi-fact-alignment-v1.md).
+
+Slice 12 adds no aggregate-over-JOIN semantics, joined scalar namespace,
+reaggregation, aggregate-function safety algebra, automatic fanout repair,
+Script IR/SQL, public schema, CLI/JSON, package, workflow, or version behavior.
+Successful natural exact-head CI completes it without a status-only commit.
+The only next owner is **Phase 62 Slice 13 — Integrity/Verifier, Analysis
+Invalidation, And Bounded BAG/NULL Semantic Oracle**; Slice 13 is not
 implemented here.
 
 ## Retained later ownership

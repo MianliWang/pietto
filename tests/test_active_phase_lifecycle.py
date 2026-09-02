@@ -113,6 +113,10 @@ PHASE62_SLICE11_SPEC = (
     REPO_ROOT
     / "docs/spec/phase62-slice11-project-ir-binary-join-region-multi-input-topology-null-extension-property-transfer-v1.md"
 )
+PHASE62_SLICE12_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase62-slice12-per-aggregate-fact-locality-chasm-detection-multi-fact-alignment-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -179,15 +183,15 @@ EXPECTED_STATUS = (
     ("Slice 8", "`COMPLETED`"),
     ("Slice 9", "`COMPLETED`"),
     ("Slice 10", "`COMPLETED`"),
-    ("Slice 11", "`CURRENT / PUBLICATION CANDIDATE`"),
-    ("Slice 12", "`NOT STARTED`"),
+    ("Slice 11", "`COMPLETED`"),
+    ("Slice 12", "`CURRENT / PUBLICATION CANDIDATE`"),
     ("Slice 13", "`NOT STARTED`"),
     ("Slice 14", "`NOT STARTED`"),
     ("Slice 15", "`NOT STARTED`"),
     ("Slice 16", "`NOT STARTED`"),
     (
         "Next",
-        "`Phase 62 Slice 12 — Per-Aggregate Fact Locality, Chasm Detection, And Multi-Fact Alignment`",
+        "`Phase 62 Slice 13 — Integrity/Verifier, Analysis Invalidation, And Bounded BAG/NULL Semantic Oracle`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -215,8 +219,8 @@ EXPECTED_PHASE61_OWNER = (
     "and verifiable analysis boundary"
 )
 EXPECTED_PHASE62_STATE = (
-    "Phase 62 is active. Slices 1–10 are completed by successful natural exact-head\n"
-    "CI, Slice 11 is the current publication candidate, Slices 12–16 are not\n"
+    "Phase 62 is active. Slices 1–11 are completed by successful natural exact-head\n"
+    "CI, Slice 12 is the current publication candidate, Slices 13–16 are not\n"
     "started, and the frozen route has exactly 16 numbered slices."
 )
 EXPECTED_PHASE62_OWNER = (
@@ -1003,6 +1007,16 @@ EXPECTED_PHASE62_SLICE11_CHANGED_PATHS = (
     "tests/test_phase62_slice11_project_ir_binary_join_region_multi_input_topology_null_extension_property_transfer.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE62_SLICE12_CHANGED_PATHS = (
+    "docs/roadmap.md",
+    "docs/spec/phase62-slice12-per-aggregate-fact-locality-chasm-detection-multi-fact-alignment-v1.md",
+    "docs/status.md",
+    "src/pietto/_project/project_multifact.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
+    "tests/test_phase62_slice12_per_aggregate_fact_locality_chasm_detection_multi_fact_alignment.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -1063,14 +1077,15 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "Slice 3 authored base-match/private exact-field correspondence" in normalized
     )
     assert "completed by successful natural exact-head CI" in normalized
-    assert "Slices 4–10 key/FD/grain/path/authored-use authorities" in normalized
-    assert "Slice 11 is the current post-base binary JOIN-region" in normalized
-    assert "null-extension, and property-transfer publication candidate" in normalized
+    assert "Slices 4–11 key/FD/grain/path/authored-use" in normalized
+    assert "post-base binary JOIN-region authorities are completed" in normalized
+    assert "Slice 12 is the current per-aggregate" in normalized
+    assert "fact-locality, chasm-detection, and multi-fact-alignment" in normalized
     assert "Slice-10 semantic/single-relation barrier remains intact" in normalized
-    assert "no joined scalar namespace, Script IR/SQL" in normalized
-    assert "natural exact-head CI completes Slice 11" in normalized
-    assert "Slices 12–16 are not started" in normalized
-    assert "Slice 12 is the sole next owner" in normalized
+    assert "no joined scalar namespace, aggregate-over-JOIN semantics" in normalized
+    assert "natural exact-head CI completes Slice 12" in normalized
+    assert "Slices 13–16 are not started" in normalized
+    assert "Slice 13 is the sole next owner" in normalized
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -1308,7 +1323,13 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "one binary node per authored path step",
         "positive `NULL_EXTENSION` provenance",
         "Phase 62 Slice 12 — Per-Aggregate Fact Locality, Chasm Detection, And Multi-Fact Alignment",
-        "Slice 12 is not implemented here",
+        "`src/pietto/_project/project_multifact.py`",
+        "phase62-slice12-per-aggregate-fact-locality-chasm-detection-multi-fact-alignment-v1.md",
+        "Every concrete aggregate result becomes one occurrence-safe fact",
+        "winner-free actual common-grain buckets",
+        "`AMBIGUOUS_PATH` or `INSUFFICIENT_EVIDENCE`",
+        "Phase 62 Slice 13 — Integrity/Verifier, Analysis Invalidation, And Bounded BAG/NULL Semantic Oracle",
+        "Slice 13 is not implemented here",
     ):
         assert evidence in phase62_normalized
 
@@ -1835,6 +1856,21 @@ def test_phase62_slice11_rebinds_exact_slice10_publication_authority() -> None:
         "A3/M9/D0",
         "project_ir_joins.py",
         "ProjectIRJoinInputUseOccurrence",
+    ):
+        assert evidence in document
+
+
+def test_phase62_slice12_rebinds_exact_slice11_publication_authority() -> None:
+    document = " ".join(PHASE62_SLICE12_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "f47d33dc3dfd74315a76ef62496953c804a6515c",
+        "292a20a6697856b187f92da6e67086ecbfc11c51",
+        "33569455067",
+        "afca8aacc22d735a678721cb9e4b3348eb505988",
+        "A3/M5/D0",
+        "src/pietto/_project/project_multifact.py",
+        "Slice 12 is the sole current publication candidate",
+        "Slice 13 = NEXT / NOT IMPLEMENTED",
     ):
         assert evidence in document
 
@@ -2734,6 +2770,32 @@ def test_phase62_slice11_changed_paths_are_exact() -> None:
         "src/pietto/_project/project_grain.py",
         "src/pietto/_project/project_ir_relational_properties.py",
         "src/pietto/_project/project_ir_joins.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "src/pietto/generated/",
+                "src/pietto/ir/",
+                "src/pietto/semantic/",
+                "src/pietto/sql/",
+                "src/pietto/_project_explain/",
+                "tests/fixtures/",
+                "tests/goldens/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase62_slice12_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE62_SLICE12_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 8
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert tuple(path for path in paths if path.startswith("src/")) == (
+        "src/pietto/_project/project_multifact.py",
     )
     assert not any(
         path.startswith(

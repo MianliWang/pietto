@@ -42,6 +42,7 @@ PROJECT_RELATIONSHIP_USES = (
     REPO_ROOT / "src/pietto/_project/project_relationship_uses.py"
 )
 PROJECT_IR_JOINS = REPO_ROOT / "src/pietto/_project/project_ir_joins.py"
+PROJECT_MULTIFACT = REPO_ROOT / "src/pietto/_project/project_multifact.py"
 
 HEADINGS = (
     "Answer And Static Scope",
@@ -588,6 +589,32 @@ def test_live_slice11_binary_join_region_preserves_post_base_boundaries() -> Non
         assert forbidden not in source
 
 
+def test_live_slice12_multifact_analysis_preserves_aggregate_algebra_boundary() -> None:
+    source = _read(PROJECT_MULTIFACT)
+    for evidence in (
+        "class ProjectAggregateFactIdentity",
+        "class ProjectAggregateFactOccurrence",
+        "class ProjectAggregateFactJoinLocality",
+        "class ProjectFactChasmCandidate",
+        "class ProjectMultiFactAlignment",
+        "build_project_multifact_analysis",
+        "analyze_project_fact_locality_pair",
+        "grain_dependency_closure",
+        "ProjectJoinGrainFactorIdentity",
+    ):
+        assert evidence in source
+    assert "__all__: tuple[str, ...] = ()" in source
+    for forbidden in (
+        "aggregate_result.function",
+        "lru_cache",
+        "powerset",
+        "symmetric_aggregate",
+        "distinct_rewrite",
+        "build_project_ir_pipeline",
+    ):
+        assert forbidden not in source
+
+
 def test_phase61_inheritance_and_identity_ownership_laws_are_exact() -> None:
     inherited = _normalized(_section(_read(), "Phase 61 Inherited Readiness"))
     for evidence in (
@@ -928,6 +955,5 @@ def test_route_later_owners_exit_gate_and_static_delta_are_exact() -> None:
             "src/pietto/_project/project_keys.py",
             "src/pietto/_project/project_functional_dependencies.py",
             "src/pietto/_project/project_fanout.py",
-            "src/pietto/_project/project_multifact.py",
         )
     )
