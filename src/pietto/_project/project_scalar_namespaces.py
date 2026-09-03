@@ -18,6 +18,7 @@ from pietto._project.project_scalar_references import (
     ProjectScalarEnvironmentField,
     ProjectScalarReferenceOccurrence,
     ProjectScalarReferenceResolution,
+    ProjectScalarTypeNonConcreteReason,
     scalar_field_reference_leaves,
 )
 from pietto.ast_nodes import (
@@ -316,6 +317,270 @@ def resolve_project_joined_namespace_reference(
             target=matches[0],
         )
     return fields
+
+
+def _require_expression_resolution_coverage(
+    namespace: ProjectJoinedScalarNamespace,
+    expression: Expression,
+    resolutions: tuple[ProjectJoinedNamespaceReferenceResolution, ...],
+) -> None:
+    if type(namespace) is not ProjectJoinedScalarNamespace:
+        raise TypeError("Joined expression analysis requires an exact namespace.")
+    if not isinstance(expression, Expression):
+        raise TypeError("Joined expression analysis requires an expression root.")
+    if type(resolutions) is not tuple or any(
+        type(resolution)
+        not in {
+            ProjectJoinedLetReferenceResolution,
+            ProjectScalarReferenceResolution,
+        }
+        for resolution in resolutions
+    ):
+        raise TypeError("Joined expression resolutions must be an exact tuple.")
+    leaves = scalar_field_reference_leaves(expression)
+    if len({id(leaf) for leaf in leaves}) != len(leaves):
+        raise ValueError("Joined expression leaves must be distinct occurrences.")
+    if len(resolutions) != len(leaves) or any(
+        resolution.reference.expression is not leaf
+        or resolution.reference.environment
+        is not namespace.binding_environment.scalar_environment
+        or (
+            type(resolution) is ProjectJoinedLetReferenceResolution
+            and resolution.namespace is not namespace
+        )
+        for resolution, leaf in zip(resolutions, leaves, strict=True)
+    ):
+        raise ValueError(
+            "Joined expression resolutions must retain exact leaf order and root."
+        )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectConcreteJoinedNamespaceExpression:
+    """One known expression type from an exact joined scalar namespace."""
+
+    namespace: ProjectJoinedScalarNamespace = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    expression: Expression = field(repr=False, compare=False, hash=False)
+    resolutions: tuple[ProjectJoinedNamespaceReferenceResolution, ...] = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    value_type: ValueType
+    value_types: Mapping[Expression, ValueType] = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    diagnostics: tuple[Diagnostic, ...] = ()
+
+    def __post_init__(self) -> None:
+        _require_expression_resolution_coverage(
+            self.namespace,
+            self.expression,
+            self.resolutions,
+        )
+        if any(
+            type(resolution) is ProjectScalarReferenceResolution
+            and resolution.target is None
+            for resolution in self.resolutions
+        ):
+            raise ValueError("Concrete joined expression requires concrete references.")
+        if type(self.value_type) is not ValueType or (
+            self.value_type.kind is not ValueTypeKind.KNOWN
+        ):
+            raise ValueError("Concrete joined expression requires one known type.")
+        if self.value_types.get(self.expression) is not self.value_type:
+            raise ValueError("Concrete joined expression must retain its kernel root.")
+        if type(self.diagnostics) is not tuple or any(
+            type(diagnostic) is not Diagnostic for diagnostic in self.diagnostics
+        ):
+            raise TypeError("Joined expression diagnostics must be an exact tuple.")
+        if any(
+            diagnostic.severity is Severity.ERROR for diagnostic in self.diagnostics
+        ):
+            raise ValueError("Concrete joined expression forbids blocking diagnostics.")
+        object.__setattr__(
+            self, "value_types", MappingProxyType(dict(self.value_types))
+        )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectNonConcreteJoinedNamespaceExpression:
+    """One closed joined-namespace expression blocker without a root type."""
+
+    namespace: ProjectJoinedScalarNamespace = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    expression: Expression = field(repr=False, compare=False, hash=False)
+    resolutions: tuple[ProjectJoinedNamespaceReferenceResolution, ...] = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    reason: ProjectScalarTypeNonConcreteReason
+    blocking_resolutions: tuple[ProjectScalarReferenceResolution, ...] = field(
+        default=(),
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    kernel_value_type: ValueType | None = None
+    value_types: Mapping[Expression, ValueType] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    diagnostics: tuple[Diagnostic, ...] = ()
+    value_type: None = field(init=False, default=None)
+
+    def __post_init__(self) -> None:
+        _require_expression_resolution_coverage(
+            self.namespace,
+            self.expression,
+            self.resolutions,
+        )
+        if type(self.reason) is not ProjectScalarTypeNonConcreteReason:
+            raise TypeError("Joined expression blocker requires an exact reason.")
+        if type(self.blocking_resolutions) is not tuple or any(
+            type(resolution) is not ProjectScalarReferenceResolution
+            for resolution in self.blocking_resolutions
+        ):
+            raise TypeError("Joined expression blockers must be an exact tuple.")
+        if type(self.diagnostics) is not tuple or any(
+            type(diagnostic) is not Diagnostic for diagnostic in self.diagnostics
+        ):
+            raise TypeError("Joined expression diagnostics must be an exact tuple.")
+        expected = tuple(
+            resolution
+            for resolution in self.resolutions
+            if type(resolution) is ProjectScalarReferenceResolution
+            and resolution.target is None
+        )
+        if (
+            self.reason
+            is ProjectScalarTypeNonConcreteReason.REFERENCE_RESOLUTION_NON_CONCRETE
+        ):
+            if (
+                not expected
+                or self.blocking_resolutions != expected
+                or self.kernel_value_type is not None
+                or self.value_types
+                or self.diagnostics
+            ):
+                raise ValueError(
+                    "Joined reference blocker must retain only exact lookup facts."
+                )
+        elif (
+            expected
+            or self.blocking_resolutions
+            or type(self.kernel_value_type) is not ValueType
+            or self.value_types.get(self.expression) is not self.kernel_value_type
+            or (
+                self.kernel_value_type.kind is ValueTypeKind.KNOWN
+                and not any(
+                    diagnostic.severity is Severity.ERROR
+                    for diagnostic in self.diagnostics
+                )
+            )
+        ):
+            raise ValueError("Joined kernel blocker must retain exact kernel evidence.")
+        object.__setattr__(
+            self, "value_types", MappingProxyType(dict(self.value_types))
+        )
+
+
+type ProjectJoinedNamespaceExpressionResult = (
+    ProjectConcreteJoinedNamespaceExpression
+    | ProjectNonConcreteJoinedNamespaceExpression
+)
+
+
+def analyze_project_joined_namespace_expression(
+    namespace: ProjectJoinedScalarNamespace,
+    expression: Expression,
+) -> ProjectJoinedNamespaceExpressionResult:
+    """Resolve and type one expression without applying a consumer policy."""
+
+    if type(namespace) is not ProjectJoinedScalarNamespace:
+        raise TypeError("Joined expression analysis requires an exact namespace.")
+    if not isinstance(expression, Expression):
+        raise TypeError("Joined expression analysis requires an expression root.")
+    leaves = scalar_field_reference_leaves(expression)
+    resolutions = tuple(
+        resolve_project_joined_namespace_reference(
+            namespace,
+            ProjectScalarReferenceOccurrence(
+                environment=namespace.binding_environment.scalar_environment,
+                expression=leaf,
+            ),
+        )
+        for leaf in leaves
+    )
+    blockers = tuple(
+        resolution
+        for resolution in resolutions
+        if type(resolution) is ProjectScalarReferenceResolution
+        and resolution.target is None
+    )
+    if blockers:
+        return ProjectNonConcreteJoinedNamespaceExpression(
+            namespace=namespace,
+            expression=expression,
+            resolutions=resolutions,
+            reason=(
+                ProjectScalarTypeNonConcreteReason.REFERENCE_RESOLUTION_NON_CONCRETE
+            ),
+            blocking_resolutions=blockers,
+        )
+
+    value_types: dict[Expression, ValueType] = {}
+    for resolution in resolutions:
+        if type(resolution) is ProjectScalarReferenceResolution:
+            target = resolution.target
+            if target is None:
+                raise AssertionError("concrete joined reference lost its target")
+            value_types[resolution.reference.expression] = target.value_type
+    diagnostics: list[Diagnostic] = []
+    root_value_type = infer_row_expression(
+        expression,
+        RowSchema(),
+        value_types,
+        diagnostics,
+        report_unknown_name=True,
+        bare_value_types={
+            value.occurrence.binding.name: value.value_type
+            for value in namespace.let_values
+        },
+    )
+    retained_diagnostics = tuple(diagnostics)
+    if root_value_type.kind is ValueTypeKind.UNKNOWN or any(
+        diagnostic.severity is Severity.ERROR for diagnostic in retained_diagnostics
+    ):
+        return ProjectNonConcreteJoinedNamespaceExpression(
+            namespace=namespace,
+            expression=expression,
+            resolutions=resolutions,
+            reason=ProjectScalarTypeNonConcreteReason.TYPE_KERNEL_NON_CONCRETE,
+            kernel_value_type=root_value_type,
+            value_types=value_types,
+            diagnostics=retained_diagnostics,
+        )
+    return ProjectConcreteJoinedNamespaceExpression(
+        namespace=namespace,
+        expression=expression,
+        resolutions=resolutions,
+        value_type=root_value_type,
+        value_types=value_types,
+        diagnostics=retained_diagnostics,
+    )
 
 
 def _name_admissibility(

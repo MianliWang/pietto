@@ -23,8 +23,8 @@ documentation does not supersede that evidence.
 | Slice 5 | `COMPLETED / PUBLISHED` |
 | Slice 6 | `COMPLETED / PUBLISHED` |
 | Slice 7 | `COMPLETED / PUBLISHED` |
-| Slice 8 | `NEXT / NOT IMPLEMENTED` |
-| Slice 9 | `NOT IMPLEMENTED` |
+| Slice 8 | `COMPLETED / PUBLISHED` |
+| Slice 9 | `NEXT / NOT IMPLEMENTED` |
 | Slice 10 | `NOT IMPLEMENTED` |
 | Slice 11 | `NOT IMPLEMENTED` |
 | Slice 12 | `NOT IMPLEMENTED` |
@@ -32,7 +32,7 @@ documentation does not supersede that evidence.
 | Slice 14 | `NOT IMPLEMENTED` |
 | Slice 15 | `NOT IMPLEMENTED` |
 | Slice 16 | `NOT IMPLEMENTED` |
-| Next | `Phase 63 Slice 8 — Joined Row Filtering` |
+| Next | `Phase 63 Slice 9 — Joined Grouping, Aggregate, GLOBAL, Satisfying, And Risk Linkage` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -136,5 +136,25 @@ re-export boundaries. JOIN over pending effective authority stays unsupported,
 and no relationship/path authority is rebuilt or promoted. Slice 7 adds no
 filtering, grouping, aggregate, window/QUALIFY, final projection/output, SQL,
 Arrow, executor, or public behavior. Phase 63 Slice 8 is
-`NEXT / NOT IMPLEMENTED`; Slices 9–16 and every Phase-64+ implementation remain
-unstarted and unauthorized here.
+`COMPLETED / PUBLISHED`.
+
+Its [private joined row filtering
+stage](spec/phase63-slice8-joined-row-filtering-v1.md) consumes only exact
+canonical-ledger `JOINED_TAIL_PENDING` entries and evaluates authored WHERE
+through the exact Slice-6 `POST_LET` namespace. Exact Slice-4 field resolutions,
+admitted bare LET values, the existing scalar type kernel, existing aggregate
+invalid-context behavior, and the existing Bool predicate consumer remain the
+only semantic authorities. Known nullable Bool is legal; known non-Bool retains
+`PIE-S2202`; unknown roots receive no Bool cascade. Declarative SQL truth keeps
+TRUE rows and drops FALSE/UNKNOWN rows without runtime evaluation.
+
+Concrete filtering retains the exact Slice-6 field tuple and an input-only
+preservation witness over the exact Phase-62 property bridge. It neither
+strengthens nullability nor derives keys, FDs, value classes, grain, ordering,
+cardinality, JOIN refinements, or paths. An absent WHERE remains concrete with
+no manufactured predicate or operator. No Project IR output or effective-output
+entry is created, and Slice-7 ledger entries remain `JOINED_TAIL_PENDING`.
+Slice 8 adds no grouping, aggregate-over-JOIN behavior, window/QUALIFY, final
+projection/output, SQL, Arrow, executor, or public behavior. Phase 63 Slice 9
+is `NEXT / NOT IMPLEMENTED`; Slices 10–16 and every Phase-64+ implementation
+remain unstarted and unauthorized here.

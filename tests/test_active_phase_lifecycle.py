@@ -164,6 +164,7 @@ PHASE63_SLICE7_SPEC = (
     REPO_ROOT
     / "docs/spec/phase63-slice7-completion-scheduling-effective-output-ledger-module-propagation-v1.md"
 )
+PHASE63_SLICE8_SPEC = REPO_ROOT / "docs/spec/phase63-slice8-joined-row-filtering-v1.md"
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -228,8 +229,8 @@ EXPECTED_STATUS = (
     ("Slice 5", "`COMPLETED / PUBLISHED`"),
     ("Slice 6", "`COMPLETED / PUBLISHED`"),
     ("Slice 7", "`COMPLETED / PUBLISHED`"),
-    ("Slice 8", "`NEXT / NOT IMPLEMENTED`"),
-    ("Slice 9", "`NOT IMPLEMENTED`"),
+    ("Slice 8", "`COMPLETED / PUBLISHED`"),
+    ("Slice 9", "`NEXT / NOT IMPLEMENTED`"),
     ("Slice 10", "`NOT IMPLEMENTED`"),
     ("Slice 11", "`NOT IMPLEMENTED`"),
     ("Slice 12", "`NOT IMPLEMENTED`"),
@@ -239,7 +240,7 @@ EXPECTED_STATUS = (
     ("Slice 16", "`NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 63 Slice 8 — Joined Row Filtering`",
+        "`Phase 63 Slice 9 — Joined Grouping, Aggregate, GLOBAL, Satisfying, And Risk Linkage`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -277,8 +278,8 @@ EXPECTED_PHASE62_OWNER = (
     "and multi-fact alignment analysis"
 )
 EXPECTED_PHASE63_STATE = (
-    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–7\n"
-    "are `COMPLETED / PUBLISHED`; Slice 8 is `NEXT / NOT IMPLEMENTED`; Slices 9–16\n"
+    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–8\n"
+    "are `COMPLETED / PUBLISHED`; Slice 9 is `NEXT / NOT IMPLEMENTED`; Slices 10–16\n"
     "are not implemented. The published route has exactly 16 numbered Slices."
 )
 EXPECTED_PHASE58_ROUTE = (
@@ -1411,8 +1412,24 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "JOIN over pending effective authority stays unsupported" in normalized
     assert "no relationship/path authority is rebuilt or promoted" in normalized
     assert "Slice 7 adds no filtering, grouping, aggregate" in normalized
-    assert "Phase 63 Slice 8 is `NEXT / NOT IMPLEMENTED`" in normalized
-    assert "Slices 9–16 and every Phase-64+ implementation remain" in normalized
+    assert "Phase 63 Slice 8 is `COMPLETED / PUBLISHED`" in normalized
+    assert "private joined row filtering stage" in normalized
+    assert "canonical-ledger `JOINED_TAIL_PENDING` entries" in normalized
+    assert "exact Slice-6 `POST_LET` namespace" in normalized
+    assert "existing scalar type kernel" in normalized
+    assert "existing Bool predicate consumer" in normalized
+    assert "Known nullable Bool is legal" in normalized
+    assert "known non-Bool retains `PIE-S2202`" in normalized
+    assert "unknown roots receive no Bool cascade" in normalized
+    assert "TRUE rows and drops FALSE/UNKNOWN rows" in normalized
+    assert "input-only preservation witness" in normalized
+    assert "neither strengthens nullability nor derives keys, FDs" in normalized
+    assert "absent WHERE remains concrete" in normalized
+    assert "No Project IR output or effective-output entry is created" in normalized
+    assert "Slice-7 ledger entries remain `JOINED_TAIL_PENDING`" in normalized
+    assert "Slice 8 adds no grouping, aggregate-over-JOIN behavior" in normalized
+    assert "Phase 63 Slice 9 is `NEXT / NOT IMPLEMENTED`" in normalized
+    assert "Slices 10–16 and every Phase-64+ implementation remain" in normalized
     prerequisite_target = (
         "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
     )
@@ -1444,6 +1461,10 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert f"]({slice7_target})" in status
     assert (STATUS.parent / slice7_target).resolve() == PHASE63_SLICE7_SPEC
     assert PHASE63_SLICE7_SPEC.is_file()
+    slice8_target = "spec/phase63-slice8-joined-row-filtering-v1.md"
+    assert f"]({slice8_target})" in status
+    assert (STATUS.parent / slice8_target).resolve() == PHASE63_SLICE8_SPEC
+    assert PHASE63_SLICE8_SPEC.is_file()
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -1840,6 +1861,24 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "Slice 7 adds no filtering, grouping, aggregate",
         "natural exact-head CI completes Slice 7",
         "leaves Slice 8 `NEXT / NOT IMPLEMENTED`",
+        "phase63-slice8-joined-row-filtering-v1.md",
+        "canonical-ledger `JOINED_TAIL_PENDING` entries",
+        "context-neutral joined-namespace adapter",
+        "existing `bare_value_types` seam",
+        "WHERE sees exactly `POST_LET`",
+        "underlying `relation_name` qualifier fallback remain unavailable",
+        "existing Bool consumer accepts known nullable Bool",
+        "rejects known non-Bool with `PIE-S2202`",
+        "including `PIE-S2308`",
+        "SQL TRUE retains a row while SQL FALSE and SQL UNKNOWN drop it",
+        "reference-only preservation witness",
+        "No predicate strengthens nullability or flows backward into JOIN matching",
+        "no property is rebound to a nonexistent output",
+        "absent WHERE stays concrete without manufacturing a predicate",
+        "Slice-7 entries remain unchanged and `JOINED_TAIL_PENDING`",
+        "Slice 8 adds no grouping, aggregate-over-JOIN behavior",
+        "natural exact-head CI completes Slice 8",
+        "leaves Slice 9 `NEXT / NOT IMPLEMENTED`",
     ):
         assert evidence in phase63_normalized
 
@@ -1856,6 +1895,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "spec/phase63-slice5-let-stage-namespace-lattice-shadowing-alias-laws-v1.md",
         "spec/phase63-slice6-post-join-row-semantics-nullability-lineage-property-bridge-v1.md",
         "spec/phase63-slice7-completion-scheduling-effective-output-ledger-module-propagation-v1.md",
+        "spec/phase63-slice8-joined-row-filtering-v1.md",
     ):
         assert f"]({target})" in roadmap
         assert (ROADMAP.parent / target).is_file()

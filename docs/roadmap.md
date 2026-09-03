@@ -19,7 +19,8 @@ the private immutable LET-prefix namespace and shadowing/alias-law authority,
 is `COMPLETED / PUBLISHED`. Slice 6, the exact post-JOIN row-semantic,
 nullability, lineage, and property bridge, is `COMPLETED / PUBLISHED`. Slice 7,
 the private completion schedule and effective-output ledger foundation, is
-`COMPLETED / PUBLISHED`. Phase 63 Slice 8 remains `NEXT / NOT IMPLEMENTED`.
+`COMPLETED / PUBLISHED`. Slice 8, the private joined-row filtering stage, is
+`COMPLETED / PUBLISHED`. Phase 63 Slice 9 remains `NEXT / NOT IMPLEMENTED`.
 Project Explain v1 remains unchanged.
 Pietto remains compiler-only: no package or catalog registry, dependency
 solver, remote loading, database execution, runtime evaluation, installation
@@ -1464,8 +1465,8 @@ historical evidence and does not itself authorize Phase-63 implementation.
 
 ## Phase 63 route
 
-Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–7
-are `COMPLETED / PUBLISHED`; Slice 8 is `NEXT / NOT IMPLEMENTED`; Slices 9–16
+Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–8
+are `COMPLETED / PUBLISHED`; Slice 9 is `NEXT / NOT IMPLEMENTED`; Slices 10–16
 are not implemented. The published route has exactly 16 numbered Slices.
 
 | Slice | Owner |
@@ -1623,6 +1624,34 @@ grouping, aggregate, window/QUALIFY, final projection/output, SQL, Arrow,
 executor, or public behavior. Successful natural exact-head CI completes Slice
 7 without a status-only follow-up commit and leaves Slice 8
 `NEXT / NOT IMPLEMENTED`.
+
+The [Slice 8 joined row filtering
+stage](spec/phase63-slice8-joined-row-filtering-v1.md) consumes only exact
+canonical-ledger `JOINED_TAIL_PENDING` entries whose retained readiness is a
+concrete Slice-6 joined row. A context-neutral joined-namespace adapter resolves
+exact scalar leaves through Slice 4, exposes admitted LET values only through
+the existing `bare_value_types` seam, and delegates type composition to the
+unchanged `infer_row_expression` kernel.
+
+WHERE sees exactly `POST_LET`: visible joined fields, authored
+`binding.field`, and bare LET values. Hidden multi-hop fields, projection
+aliases, and underlying `relation_name` qualifier fallback remain unavailable.
+The existing Bool consumer accepts known nullable Bool, rejects known non-Bool
+with `PIE-S2202`, suppresses unknown-type cascades, and retains existing
+aggregate/window invalid behavior including `PIE-S2308`. SQL TRUE retains a
+row while SQL FALSE and SQL UNKNOWN drop it; this is declarative effect
+authority, not runtime execution.
+
+Concrete results retain the exact Slice-6 field tuple and a reference-only
+preservation witness over the exact Phase-62 property bridge. No predicate
+strengthens nullability or flows backward into JOIN matching, keys, FDs, value
+classes, grain, or paths; no property is rebound to a nonexistent output. An
+absent WHERE stays concrete without manufacturing a predicate or `ROW_FILTER`.
+Slice-7 entries remain unchanged and `JOINED_TAIL_PENDING`. Slice 8 adds no
+grouping, aggregate-over-JOIN behavior, window/QUALIFY, final output, Project IR
+allocation, SQL, Arrow, executor, or public behavior. Successful natural
+exact-head CI completes Slice 8 without a status-only follow-up commit and
+leaves Slice 9 `NEXT / NOT IMPLEMENTED`.
 
 `LET` is the first post-JOIN scalar scope. Each stage has an immutable
 visibility environment and hidden intermediate path fields remain non-nameable
