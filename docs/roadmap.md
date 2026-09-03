@@ -9,7 +9,9 @@ needed.
 Phase 63 is active. Slice 1, the Product/Phase Initiation Gate v3,
 Pietto/external source-audit, Future Roadmap v6, and exact route lock, is
 `COMPLETED / PUBLISHED` by live Git and successful natural exact-head CI. It
-added no production behavior. Phase 63 Slice 2 remains
+added no production behavior. Slice 2, the private query-block owner bridge,
+closed row-source sum, construction states, and compilation-mode boundary, is
+also `COMPLETED / PUBLISHED`. Phase 63 Slice 3 remains
 `NEXT / NOT IMPLEMENTED`.
 Project Explain v1 remains unchanged.
 Pietto remains compiler-only: no package or catalog registry, dependency
@@ -1455,9 +1457,9 @@ historical evidence and does not itself authorize Phase-63 implementation.
 
 ## Phase 63 route
 
-Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slice 1 is
-`COMPLETED / PUBLISHED`; Slice 2 is `NEXT / NOT IMPLEMENTED`; Slices 3–16 are
-not implemented. The published route has exactly 16 numbered Slices.
+Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–2
+are `COMPLETED / PUBLISHED`; Slice 3 is `NEXT / NOT IMPLEMENTED`; Slices 4–16
+are not implemented. The published route has exactly 16 numbered Slices.
 
 | Slice | Owner |
 | ---: | --- |
@@ -1499,13 +1501,24 @@ The architecture documents own durable cross-phase laws; this roadmap owns
 phase-level future ownership and release milestones; published phase specs own
 exact phase/Slice contracts; and `docs/plan/` remains historical.
 
-`AUTHORED_JOIN_DEFERRED` remains exact historical authority. A later Phase-63
-completion bridge and one project-wide effective relation-output ledger supply
-new concrete authority. Positive joined completion is
-`EXPLICIT_MODULES`-only; single-file, `LEGACY_FLAT`, and `PACKAGE_ROOT` JOIN
-paths remain typed fail-closed. Completed joined outputs may feed downstream
-no-new-JOIN blocks but do not automatically become relationship endpoints or
-Phase-62 path nodes.
+The [Slice 2 query-block foundation](spec/phase63-slice2-query-block-owner-bridge-row-source-sum-states-mode-boundary-v1.md)
+reuses the exact `ProjectDeclarationOccurrence` and `QueryBlockOccurrence`,
+admits only existing concrete relation outputs or exact VERIFIED Phase-62
+concrete JOIN-region final outputs, and publishes either one closed concrete
+result or one typed non-concrete terminal. Joined fields retain their exact
+ordered `ProjectIRJoinedRowShape.fields` tuple and provenance without
+`RowSchema` or name-map flattening.
+
+`AUTHORED_JOIN_DEFERRED` remains exact historical authority while Slice 2
+supplies separate verified joined-row-source authority. A later project-wide
+effective relation-output ledger remains Slice 7 ownership. Positive Slice-2
+construction is `EXPLICIT_MODULES`-only; single-file, `LEGACY_FLAT`, and
+`PACKAGE_ROOT` JOIN paths remain typed fail-closed. Slice 2 adds no scalar
+lookup, bindings, LET, unary stages, SQL, Arrow, executor, or public behavior.
+Future completed joined outputs may feed downstream no-new-JOIN blocks but do
+not automatically become relationship endpoints or Phase-62 path nodes.
+Successful natural exact-head CI completes Slice 2 without a status-only
+follow-up commit and leaves Slice 3 `NEXT / NOT IMPLEMENTED`.
 
 `LET` is the first post-JOIN scalar scope. Each stage has an immutable
 visibility environment and hidden intermediate path fields remain non-nameable

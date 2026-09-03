@@ -17,8 +17,8 @@ documentation does not supersede that evidence.
 | Phase 62 | `COMPLETED` |
 | Phase 63 | `ACTIVE` |
 | Slice 1 | `COMPLETED / PUBLISHED` |
-| Slice 2 | `NEXT / NOT IMPLEMENTED` |
-| Slice 3 | `NOT IMPLEMENTED` |
+| Slice 2 | `COMPLETED / PUBLISHED` |
+| Slice 3 | `NEXT / NOT IMPLEMENTED` |
 | Slice 4 | `NOT IMPLEMENTED` |
 | Slice 5 | `NOT IMPLEMENTED` |
 | Slice 6 | `NOT IMPLEMENTED` |
@@ -32,7 +32,7 @@ documentation does not supersede that evidence.
 | Slice 14 | `NOT IMPLEMENTED` |
 | Slice 15 | `NOT IMPLEMENTED` |
 | Slice 16 | `NOT IMPLEMENTED` |
-| Next | `Phase 63 Slice 2 — Query-Block Owner Bridge, Row-Source Sum, States, And Mode Boundary` |
+| Next | `Phase 63 Slice 3 — Scalar-Reference Environment, Resolution Facts, And Type-Kernel Adapter` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -61,5 +61,16 @@ is an unnumbered, documentation-only authority projection. It is not a
 numbered Slice, not Slice 2, and not implementation of Slice 2; it therefore
 has no fake lifecycle-table row. Its publication state remains subordinate to
 live Git and natural exact-head CI and requires no status-only follow-up
-commit. Phase 63 Slice 2 is `NEXT / NOT IMPLEMENTED`; Slices 2–16 and every
-Phase-64+ implementation remain unstarted and unauthorized here.
+commit.
+
+Phase 63 Slice 2 is `COMPLETED / PUBLISHED`. Its [private query-block
+foundation](spec/phase63-slice2-query-block-owner-bridge-row-source-sum-states-mode-boundary-v1.md)
+retains the existing declaration/query-block identities, admits only existing
+concrete relation outputs or exact VERIFIED Phase-62 concrete JOIN-region final
+outputs, preserves `AUTHORED_JOIN_DEFERRED`, and publishes closed concrete or
+typed non-concrete construction results. Positive construction is
+`EXPLICIT_MODULES`-only; `LEGACY_FLAT` and `PACKAGE_ROOT` remain typed
+fail-closed. Slice 2 adds no scalar lookup, bindings, LET, filtering, grouping,
+window/QUALIFY, Project IR unary tail, SQL, Arrow, executor, or public behavior.
+Phase 63 Slice 3 is `NEXT / NOT IMPLEMENTED`; Slices 4–16 and every Phase-64+
+implementation remain unstarted and unauthorized here.

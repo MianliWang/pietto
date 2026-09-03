@@ -140,6 +140,10 @@ PHASE63_ARCHITECTURE_PREREQUISITE_SPEC = (
     REPO_ROOT
     / "docs/spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
 )
+PHASE63_SLICE2_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase63-slice2-query-block-owner-bridge-row-source-sum-states-mode-boundary-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -198,8 +202,8 @@ EXPECTED_STATUS = (
     ("Phase 62", "`COMPLETED`"),
     ("Phase 63", "`ACTIVE`"),
     ("Slice 1", "`COMPLETED / PUBLISHED`"),
-    ("Slice 2", "`NEXT / NOT IMPLEMENTED`"),
-    ("Slice 3", "`NOT IMPLEMENTED`"),
+    ("Slice 2", "`COMPLETED / PUBLISHED`"),
+    ("Slice 3", "`NEXT / NOT IMPLEMENTED`"),
     ("Slice 4", "`NOT IMPLEMENTED`"),
     ("Slice 5", "`NOT IMPLEMENTED`"),
     ("Slice 6", "`NOT IMPLEMENTED`"),
@@ -215,7 +219,7 @@ EXPECTED_STATUS = (
     ("Slice 16", "`NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 63 Slice 2 — Query-Block Owner Bridge, Row-Source Sum, States, And Mode Boundary`",
+        "`Phase 63 Slice 3 — Scalar-Reference Environment, Resolution Facts, And Type-Kernel Adapter`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -253,9 +257,9 @@ EXPECTED_PHASE62_OWNER = (
     "and multi-fact alignment analysis"
 )
 EXPECTED_PHASE63_STATE = (
-    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slice 1 is\n"
-    "`COMPLETED / PUBLISHED`; Slice 2 is `NEXT / NOT IMPLEMENTED`; Slices 3–16 are\n"
-    "not implemented. The published route has exactly 16 numbered Slices."
+    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–2\n"
+    "are `COMPLETED / PUBLISHED`; Slice 3 is `NEXT / NOT IMPLEMENTED`; Slices 4–16\n"
+    "are not implemented. The published route has exactly 16 numbered Slices."
 )
 EXPECTED_PHASE58_ROUTE = (
     (
@@ -1182,6 +1186,15 @@ EXPECTED_PHASE63_ARCHITECTURE_PREREQUISITE_CHANGED_PATHS = (
     "tests/test_repository_architecture_authority_alignment.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE63_SLICE2_CHANGED_PATHS = (
+    "src/pietto/_project/project_query_block.py",
+    "docs/spec/phase63-slice2-query-block-owner-bridge-row-source-sum-states-mode-boundary-v1.md",
+    "tests/test_phase63_slice2_query_block_owner_bridge_row_source_sum_states_mode_boundary.py",
+    "docs/roadmap.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -1254,8 +1267,17 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "not implementation of Slice 2" in normalized
     assert "no fake lifecycle-table row" in normalized
     assert "publication state remains subordinate" in normalized
-    assert "Phase 63 Slice 2 is `NEXT / NOT IMPLEMENTED`" in normalized
-    assert "Slices 2–16 and every Phase-64+ implementation remain unstarted" in (
+    assert "Phase 63 Slice 2 is `COMPLETED / PUBLISHED`" in normalized
+    assert "private query-block foundation" in normalized
+    assert "existing declaration/query-block identities" in normalized
+    assert "exact VERIFIED Phase-62 concrete JOIN-region final outputs" in normalized
+    assert "preserves `AUTHORED_JOIN_DEFERRED`" in normalized
+    assert "closed concrete or typed non-concrete construction results" in normalized
+    assert "`EXPLICIT_MODULES`-only" in normalized
+    assert "`LEGACY_FLAT` and `PACKAGE_ROOT` remain typed fail-closed" in normalized
+    assert "Slice 2 adds no scalar lookup" in normalized
+    assert "Phase 63 Slice 3 is `NEXT / NOT IMPLEMENTED`" in normalized
+    assert "Slices 4–16 and every Phase-64+ implementation remain unstarted" in (
         normalized
     )
     prerequisite_target = (
@@ -1263,6 +1285,10 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     )
     assert f"]({prerequisite_target})" in status
     assert (STATUS.parent / prerequisite_target).is_file()
+    slice2_target = "spec/phase63-slice2-query-block-owner-bridge-row-source-sum-states-mode-boundary-v1.md"
+    assert f"]({slice2_target})" in status
+    assert (STATUS.parent / slice2_target).resolve() == PHASE63_SLICE2_SPEC
+    assert PHASE63_SLICE2_SPEC.is_file()
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -1574,13 +1600,22 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "TRUE retains while FALSE/UNKNOWN drop",
         "selected-output window identity",
         "unary tail after the binary JOIN region",
-        "Slice 2 `NEXT / NOT IMPLEMENTED`",
+        "Slice 3 `NEXT / NOT IMPLEMENTED`",
         "repository architecture authority extraction prerequisite",
         "unnumbered, documentation-only authority projection",
         "does not alter this 16-Slice route",
         "this roadmap owns phase-level future ownership and release milestones",
         "published phase specs own exact phase/Slice contracts",
         "`docs/plan/` remains historical",
+        "phase63-slice2-query-block-owner-bridge-row-source-sum-states-mode-boundary-v1.md",
+        "existing concrete relation outputs or exact VERIFIED Phase-62",
+        "ordered `ProjectIRJoinedRowShape.fields` tuple and provenance",
+        "without `RowSchema` or name-map flattening",
+        "separate verified joined-row-source authority",
+        "effective relation-output ledger remains Slice 7 ownership",
+        "Positive Slice-2 construction is `EXPLICIT_MODULES`-only",
+        "Slice 2 adds no scalar lookup",
+        "natural exact-head CI completes Slice 2",
     ):
         assert evidence in phase63_normalized
 
@@ -1591,6 +1626,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "architecture/layering-and-coupling-laws-v1.md",
         "plan/README.md",
         "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md",
+        "spec/phase63-slice2-query-block-owner-bridge-row-source-sum-states-mode-boundary-v1.md",
     ):
         assert f"]({target})" in roadmap
         assert (ROADMAP.parent / target).is_file()
@@ -3302,6 +3338,27 @@ def test_phase63_architecture_prerequisite_changed_paths_are_exact() -> None:
                 "grammar/",
                 "scripts/",
                 "src/",
+                "tests/fixtures/",
+                "tests/goldens/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase63_slice2_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE63_SLICE2_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 7
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert tuple(path for path in paths if path.startswith("src/")) == (
+        "src/pietto/_project/project_query_block.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
                 "tests/fixtures/",
                 "tests/goldens/",
             )
