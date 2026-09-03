@@ -19,8 +19,8 @@ documentation does not supersede that evidence.
 | Slice 1 | `COMPLETED / PUBLISHED` |
 | Slice 2 | `COMPLETED / PUBLISHED` |
 | Slice 3 | `COMPLETED / PUBLISHED` |
-| Slice 4 | `NEXT / NOT IMPLEMENTED` |
-| Slice 5 | `NOT IMPLEMENTED` |
+| Slice 4 | `COMPLETED / PUBLISHED` |
+| Slice 5 | `NEXT / NOT IMPLEMENTED` |
 | Slice 6 | `NOT IMPLEMENTED` |
 | Slice 7 | `NOT IMPLEMENTED` |
 | Slice 8 | `NOT IMPLEMENTED` |
@@ -32,7 +32,7 @@ documentation does not supersede that evidence.
 | Slice 14 | `NOT IMPLEMENTED` |
 | Slice 15 | `NOT IMPLEMENTED` |
 | Slice 16 | `NOT IMPLEMENTED` |
-| Next | `Phase 63 Slice 4 — Bindings, Visible Joined Fields, Qualified/Unqualified Lookup` |
+| Next | `Phase 63 Slice 5 — LET, Stage Namespace Lattice, Shadowing And Alias Laws` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -83,5 +83,17 @@ occurrences feed the existing `infer_row_expression` kernel, and non-concrete
 reference or kernel evidence publishes no partial root type. Slice 3 adds no
 bindings, visibility, LET, filtering, grouping, window/QUALIFY stage, Project
 IR unary tail, SQL, Arrow, executor, or public behavior. Phase 63 Slice 4 is
-`NEXT / NOT IMPLEMENTED`; Slices 5–16 and every Phase-64+ implementation remain
+`COMPLETED / PUBLISHED`.
+
+Its [private joined scalar binding
+foundation](spec/phase63-slice4-bindings-visible-joined-fields-qualified-unqualified-lookup-v1.md)
+reuses exact Phase-62 binding occurrences and JOIN introduction provenance.
+Visible authored-binding fields and hidden multi-hop fields partition the final
+Slice-3 environment without copying or synthetic bindings. Qualified lookup
+uses only authored binding names; unqualified lookup retains complete ordered
+candidate buckets with no winner. Existing Slice-3 resolution facts and the
+semantic type kernel remain unchanged. Slice 4 adds no LET, shadowing,
+projection aliases, stage namespace mutation, filtering, grouping,
+window/QUALIFY, SQL, Arrow, executor, or public behavior. Phase 63 Slice 5 is
+`NEXT / NOT IMPLEMENTED`; Slices 6–16 and every Phase-64+ implementation remain
 unstarted and unauthorized here.

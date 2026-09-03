@@ -13,7 +13,9 @@ added no production behavior. Slice 2, the private query-block owner bridge,
 closed row-source sum, construction states, and compilation-mode boundary, is
 also `COMPLETED / PUBLISHED`. Slice 3, the occurrence-complete scalar-reference
 environment, resolution-fact carrier, and existing type-kernel adapter, is
-`COMPLETED / PUBLISHED`. Phase 63 Slice 4 remains `NEXT / NOT IMPLEMENTED`.
+`COMPLETED / PUBLISHED`. Slice 4, the authored JOIN binding visibility and
+qualified/unqualified lookup authority, is `COMPLETED / PUBLISHED`. Phase 63
+Slice 5 remains `NEXT / NOT IMPLEMENTED`.
 Project Explain v1 remains unchanged.
 Pietto remains compiler-only: no package or catalog registry, dependency
 solver, remote loading, database execution, runtime evaluation, installation
@@ -1458,8 +1460,8 @@ historical evidence and does not itself authorize Phase-63 implementation.
 
 ## Phase 63 route
 
-Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–3
-are `COMPLETED / PUBLISHED`; Slice 4 is `NEXT / NOT IMPLEMENTED`; Slices 5–16
+Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–4
+are `COMPLETED / PUBLISHED`; Slice 5 is `NEXT / NOT IMPLEMENTED`; Slices 6–16
 are not implemented. The published route has exactly 16 numbered Slices.
 
 | Slice | Owner |
@@ -1539,6 +1541,25 @@ or kernel evidence publishes no partial root type. Slice 3 adds no binding,
 LET, stage, SQL, Arrow, executor, or public behavior. Successful natural
 exact-head CI completes Slice 3 without a status-only follow-up commit and
 leaves Slice 4 `NEXT / NOT IMPLEMENTED`.
+
+The [Slice 4 joined scalar binding foundation](spec/phase63-slice4-bindings-visible-joined-fields-qualified-unqualified-lookup-v1.md)
+reuses the exact Phase-62 binding occurrences and ledger retained by each
+verified joined row source. Base fields are attributed through the first
+binary JOIN's left input use; each authored target uses its exact terminal
+path-step right input use. Final fields retain their Slice-3 occurrences and
+effective value/nullability evidence.
+
+Visible binding fields and hidden multi-hop intermediate fields form an exact
+partition in final row order. Hidden fields remain structural evidence but are
+not name-visible and receive no synthetic binding. Qualified lookup matches
+only authored `binding.field`, never the underlying `relation_name` as a
+fallback. Unqualified lookup enumerates every visible same-spelling occurrence
+and preserves `ABSENT`/`CONCRETE`/complete `AMBIGUOUS` results without a winner.
+The resulting existing Slice-3 resolution facts feed the unchanged semantic
+type kernel. Slice 4 adds no LET, shadowing, projection aliases, stage
+namespace mutation, SQL, Arrow, executor, or public behavior. Successful
+natural exact-head CI completes Slice 4 without a status-only follow-up commit
+and leaves Slice 5 `NEXT / NOT IMPLEMENTED`.
 
 `LET` is the first post-JOIN scalar scope. Each stage has an immutable
 visibility environment and hidden intermediate path fields remain non-nameable
