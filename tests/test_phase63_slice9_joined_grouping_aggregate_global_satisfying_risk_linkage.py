@@ -1147,9 +1147,10 @@ def test_scope_boundary_has_no_old_fact_forgery_ir_allocation_or_later_stage() -
     changed_paths = tuple(
         re.findall(r"^\| `([AM])` \| `([^`]+)` \|$", document, re.MULTILINE)
     )
-    assert len(changed_paths) == len(set(changed_paths)) == 7
+    assert len(changed_paths) == len(set(changed_paths)) == 8
     assert sum(status == "A" for status, _ in changed_paths) == 3
-    assert sum(status == "M" for status, _ in changed_paths) == 4
+    assert sum(status == "M" for status, _ in changed_paths) == 5
+    assert ("M", "tests/test_phase63_slice8_joined_row_filtering.py") in changed_paths
     normalized = " ".join(document.split()).replace("`", "")
     for evidence in (
         "GLOBAL != empty key",

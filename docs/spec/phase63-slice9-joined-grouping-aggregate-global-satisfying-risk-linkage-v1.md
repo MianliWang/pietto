@@ -225,9 +225,15 @@ not a public language change.
 | `M` | `docs/status.md` |
 | `M` | `tests/test_active_phase_lifecycle.py` |
 | `M` | `tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py` |
+| `M` | `tests/test_phase63_slice8_joined_row_filtering.py` |
 
-The closure is exactly seven paths, `A3/M4/D0`. The mechanical inventory
+The closure is exactly eight paths, `A3/M5/D0`. The mechanical inventory
 transition is production 170 -> 171 and tests 413 -> 414.
+
+The eighth path is the authorized historical Slice-8 inventory-reader closure
+repair: the historical Slice-8 principal no longer owns mutable current
+repository inventory. Current whole-repository Python counts remain owned by
+`tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py`.
 
 The frozen 16-Slice route, grammar/generated output, public contracts,
 package/dependency/workflow/version state, and every Phase-64+ implementation
