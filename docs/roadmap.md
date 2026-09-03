@@ -1467,8 +1467,8 @@ historical evidence and does not itself authorize Phase-63 implementation.
 
 ## Phase 63 route
 
-Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–9
-are `COMPLETED / PUBLISHED`; Slice 10 is `NEXT / NOT IMPLEMENTED`; Slices 11–16
+Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–10
+are `COMPLETED / PUBLISHED`; Slice 11 is `NEXT / NOT IMPLEMENTED`; Slices 12–16
 are not implemented. The published route has exactly 16 numbered Slices.
 
 | Slice | Owner |
@@ -1686,6 +1686,48 @@ remain unchanged and `JOINED_TAIL_PENDING`. Slice 9 adds no window computation,
 QUALIFY, final projection/order/limit/output, Project IR allocation, SQL,
 Arrow, executor, or public behavior. Successful natural exact-head CI completes
 Slice 9 without a status-only follow-up commit and leaves Slice 10
+`NEXT / NOT IMPLEMENTED`.
+
+The [Slice 10 joined window-computation
+stage](spec/phase63-slice10-generic-window-computation-sites-named-window-reuse-v1.md)
+consumes exact Slice-9 results and separates generic computation sites from the
+unchanged selected-output `WindowOccurrenceIdentity`. One occurrence-neutral
+semantic kernel owns all eleven current function families, signatures,
+nullability, ordering, navigation/frame-value, modifiers, frame validation, and
+nested-window behavior. Existing selected APIs remain compatibility wrappers
+that attach their exact historical occurrence-owned facts afterward.
+
+The exact Slice-2 `QueryBlockOccurrence` feeds the existing Phase-60
+declaration namespace, single-base DAG, monotonic component composition, and
+named selected-use occurrences. Forward/backward references, base-first
+resolution, source-order templates, provenance, and complete
+duplicate/dangling/cycle/conflict evidence remain unchanged; no second graph or
+third query-block identity is introduced.
+
+The occurrence-safe pre-window namespace contains exact visible joined fields,
+authored `binding.field`, field-backed LET chains, or exact grouped
+`GROUP_KEY`/`AGGREGATE_RESULT` outputs plus proven group-key-backed LET aliases.
+It has no joined `RowSchema`, first-name winner, hidden intermediate visibility,
+underlying relation-name fallback, or computed-LET expansion. GLOBAL without a
+selected window remains a concrete absent stage; GLOBAL plus a selected or
+hidden window remains fail-closed.
+
+Every selected computation uses the same immutable pre-window namespace and
+retains exact source-ordered, duplicate-preserving argument/default/partition/
+order dependencies. Exact selected result bindings alone enter the separate
+post-window readiness domain. Earlier window aliases and ordinary projection
+aliases never flow backward. The hidden-inline builder uses the same namespace
+and common kernel without a selected item, ordinal, occurrence, alias, binding,
+or persisted result; hidden named uses are rejected.
+
+Any named namespace or selected computation failure retains complete blockers
+but publishes no partial post-window stage. Window evaluation preserves BAG
+multiplicity and intrinsic grain by reference, filters no rows, and establishes
+no final relation ordering. Slice-7 entries remain object-identical and
+`JOINED_TAIL_PENDING`; no Project IR output or final field identity is minted.
+Slice 10 adds no QUALIFY, projection/order/limit, ledger completion, SQL,
+Arrow, executor, or public behavior. Successful natural exact-head CI completes
+Slice 10 without a status-only follow-up commit and leaves Slice 11
 `NEXT / NOT IMPLEMENTED`.
 
 `LET` is the first post-JOIN scalar scope. Each stage has an immutable

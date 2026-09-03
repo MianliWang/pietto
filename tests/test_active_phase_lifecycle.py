@@ -169,6 +169,10 @@ PHASE63_SLICE9_SPEC = (
     REPO_ROOT
     / "docs/spec/phase63-slice9-joined-grouping-aggregate-global-satisfying-risk-linkage-v1.md"
 )
+PHASE63_SLICE10_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase63-slice10-generic-window-computation-sites-named-window-reuse-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -235,8 +239,8 @@ EXPECTED_STATUS = (
     ("Slice 7", "`COMPLETED / PUBLISHED`"),
     ("Slice 8", "`COMPLETED / PUBLISHED`"),
     ("Slice 9", "`COMPLETED / PUBLISHED`"),
-    ("Slice 10", "`NEXT / NOT IMPLEMENTED`"),
-    ("Slice 11", "`NOT IMPLEMENTED`"),
+    ("Slice 10", "`COMPLETED / PUBLISHED`"),
+    ("Slice 11", "`NEXT / NOT IMPLEMENTED`"),
     ("Slice 12", "`NOT IMPLEMENTED`"),
     ("Slice 13", "`NOT IMPLEMENTED`"),
     ("Slice 14", "`NOT IMPLEMENTED`"),
@@ -244,7 +248,7 @@ EXPECTED_STATUS = (
     ("Slice 16", "`NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 63 Slice 10 — Generic Window-Computation Sites And Named-Window Reuse`",
+        "`Phase 63 Slice 11 — QUALIFY Grammar, AST, Semantics, And Property Transfer`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -282,8 +286,8 @@ EXPECTED_PHASE62_OWNER = (
     "and multi-fact alignment analysis"
 )
 EXPECTED_PHASE63_STATE = (
-    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–9\n"
-    "are `COMPLETED / PUBLISHED`; Slice 10 is `NEXT / NOT IMPLEMENTED`; Slices 11–16\n"
+    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–10\n"
+    "are `COMPLETED / PUBLISHED`; Slice 11 is `NEXT / NOT IMPLEMENTED`; Slices 12–16\n"
     "are not implemented. The published route has exactly 16 numbered Slices."
 )
 EXPECTED_PHASE58_ROUTE = (
@@ -1448,8 +1452,27 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "sees only exact supported stage outputs" in normalized
     assert "No final relation output or Project IR ref is allocated" in normalized
     assert "Slice 9 adds no window computation" in normalized
-    assert "Phase 63 Slice 10 is `NEXT / NOT IMPLEMENTED`" in normalized
-    assert "Slices 11–16 and every Phase-64+ implementation remain" in normalized
+    assert "Phase 63 Slice 10 is `COMPLETED / PUBLISHED`" in normalized
+    assert "private joined window-computation stage" in normalized
+    assert "generic computation sites" in normalized
+    assert "unchanged selected-output `WindowOccurrenceIdentity`" in normalized
+    assert "one occurrence-neutral kernel" in normalized
+    assert "exact Slice-2 `QueryBlockOccurrence`" in normalized
+    assert "no second graph or query-block identity" in normalized
+    assert "complete ambiguity buckets and no joined `RowSchema`" in normalized
+    assert "GLOBAL plus a window remains fail-closed" in normalized
+    assert (
+        "All selected computations share one immutable pre-window namespace"
+        in normalized
+    )
+    assert (
+        "Exact selected result bindings alone enter post-window readiness" in normalized
+    )
+    assert "low-level hidden-inline builder" in normalized
+    assert "publishes no partial post-window stage" in normalized
+    assert "does not establish relation ordering" in normalized
+    assert "Phase 63 Slice 11 is `NEXT / NOT IMPLEMENTED`" in normalized
+    assert "Slices 12–16 and every Phase-64+ implementation remain" in normalized
     prerequisite_target = (
         "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
     )
@@ -1489,6 +1512,12 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert f"]({slice9_target})" in status
     assert (STATUS.parent / slice9_target).resolve() == PHASE63_SLICE9_SPEC
     assert PHASE63_SLICE9_SPEC.is_file()
+    slice10_target = (
+        "spec/phase63-slice10-generic-window-computation-sites-named-window-reuse-v1.md"
+    )
+    assert f"]({slice10_target})" in status
+    assert (STATUS.parent / slice10_target).resolve() == PHASE63_SLICE10_SPEC
+    assert PHASE63_SLICE10_SPEC.is_file()
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -1919,6 +1948,24 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "Slice 9 adds no window computation",
         "natural exact-head CI completes Slice 9",
         "leaves Slice 10 `NEXT / NOT IMPLEMENTED`",
+        "phase63-slice10-generic-window-computation-sites-named-window-reuse-v1.md",
+        "separates generic computation sites from the unchanged selected-output",
+        "One occurrence-neutral semantic kernel owns all eleven current function families",
+        "Existing selected APIs remain compatibility wrappers",
+        "exact Slice-2 `QueryBlockOccurrence` feeds the existing Phase-60",
+        "no second graph or third query-block identity",
+        "occurrence-safe pre-window namespace contains exact visible joined fields",
+        "no joined `RowSchema`, first-name winner",
+        "GLOBAL plus a selected or hidden window remains fail-closed",
+        "Every selected computation uses the same immutable pre-window namespace",
+        "Exact selected result bindings alone enter the separate post-window readiness domain",
+        "hidden-inline builder uses the same namespace and common kernel",
+        "publishes no partial post-window stage",
+        "preserves BAG multiplicity and intrinsic grain by reference",
+        "establishes no final relation ordering",
+        "Slice 10 adds no QUALIFY",
+        "natural exact-head CI completes Slice 10",
+        "leaves Slice 11 `NEXT / NOT IMPLEMENTED`",
     ):
         assert evidence in phase63_normalized
 
@@ -1937,6 +1984,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "spec/phase63-slice7-completion-scheduling-effective-output-ledger-module-propagation-v1.md",
         "spec/phase63-slice8-joined-row-filtering-v1.md",
         "spec/phase63-slice9-joined-grouping-aggregate-global-satisfying-risk-linkage-v1.md",
+        "spec/phase63-slice10-generic-window-computation-sites-named-window-reuse-v1.md",
     ):
         assert f"]({target})" in roadmap
         assert (ROADMAP.parent / target).is_file()

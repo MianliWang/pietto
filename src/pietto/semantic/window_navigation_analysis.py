@@ -47,14 +47,17 @@ from pietto.semantic.nullability_formulas import (
     evaluate_signature_result_nullability,
 )
 from pietto.semantic.window_semantics import (
+    FrameValueWindowComputation,
     FrameValueFunctionKind,
     FrameValueWindowSemanticFact,
     NavigationDefaultFact,
     NavigationDirection,
     NavigationOffsetFact,
+    NavigationWindowComputation,
     NavigationWindowSemanticFact,
     NthValuePositionFact,
     ResolvedWindowFunctionModifiers,
+    WindowComputationUnsupported,
     WindowNthDirection,
     WindowNullTreatment,
     WindowFunctionFramePolicy,
@@ -278,9 +281,8 @@ def resolve_window_function_modifiers(
     )
 
 
-def analyze_navigation_arguments(
+def analyze_navigation_computation_arguments(
     *,
-    occurrence: WindowOccurrenceIdentity,
     expression: WindowExpr,
     input_schema: RowSchema,
     field_qualifier: str,
@@ -289,11 +291,9 @@ def analyze_navigation_arguments(
     modifiers: ResolvedWindowFunctionModifiers,
     bare_value_types: Mapping[str, ValueType] | None = None,
     allow_qualified_fields: bool = True,
-) -> NavigationWindowSemanticFact | WindowExpressionUnsupported:
-    """Analyze bounded value, offset, default, generic, and nullability facts."""
+) -> NavigationWindowComputation | WindowComputationUnsupported:
+    """Analyze occurrence-neutral value, offset, generic, and nullability facts."""
 
-    if type(occurrence) is not WindowOccurrenceIdentity:
-        raise TypeError("occurrence must be an exact WindowOccurrenceIdentity")
     if type(expression) is not WindowExpr:
         raise TypeError("expression must be an exact WindowExpr")
     if type(input_schema) is not RowSchema:
@@ -321,7 +321,6 @@ def analyze_navigation_arguments(
         allow_qualified_fields=allow_qualified_fields,
     ):
         return _unsupported(
-            occurrence=occurrence,
             expression=expression,
             reason="navigation value must be a direct field or scalar literal",
             diagnostics=diagnostics,
@@ -343,7 +342,6 @@ def analyze_navigation_arguments(
     value_always_null = _is_null_literal(value_expression)
     if not value_always_null and not _is_concrete_value_type(value_type):
         return _unsupported_after_inference(
-            occurrence=occurrence,
             expression=expression,
             reason="navigation value type must be concrete",
             diagnostics=diagnostics,
@@ -368,7 +366,6 @@ def analyze_navigation_arguments(
             or offset_expression.value < 0
         ):
             return _unsupported(
-                occurrence=occurrence,
                 expression=expression,
                 reason="navigation offset must be a nonnegative integer literal",
                 diagnostics=diagnostics,
@@ -400,7 +397,6 @@ def analyze_navigation_arguments(
             allow_qualified_fields=allow_qualified_fields,
         ):
             return _unsupported(
-                occurrence=occurrence,
                 expression=expression,
                 reason="navigation default must be a direct field or scalar literal",
                 diagnostics=diagnostics,
@@ -422,7 +418,6 @@ def analyze_navigation_arguments(
         default_always_null = _is_null_literal(default_expression)
         if not default_always_null and not _is_concrete_value_type(default_type):
             return _unsupported_after_inference(
-                occurrence=occurrence,
                 expression=expression,
                 reason="navigation default type must be concrete",
                 diagnostics=diagnostics,
@@ -448,7 +443,6 @@ def analyze_navigation_arguments(
     binding_identity = value_identity or default_identity
     if binding_identity is None:
         return _unsupported(
-            occurrence=occurrence,
             expression=expression,
             reason="navigation type variable T is unbound",
             diagnostics=diagnostics,
@@ -471,7 +465,6 @@ def analyze_navigation_arguments(
     )
     if type(signature_result) is not SignatureMatch:
         return _unsupported(
-            occurrence=occurrence,
             expression=expression,
             reason="navigation value and default types must match exactly",
             diagnostics=diagnostics,
@@ -519,17 +512,12 @@ def analyze_navigation_arguments(
         ),
         nullability=nullability_result.value,
     )
-    semantic_fact = WindowExpressionSemanticFact(
-        occurrence=occurrence,
-        expression=expression,
-        identity=expression.identity,
-        result=WindowResultAvailability(
-            kind=WindowResultAvailabilityKind.CONCRETE,
-            value_type=result_type,
-        ),
+    result = WindowResultAvailability(
+        kind=WindowResultAvailabilityKind.CONCRETE,
+        value_type=result_type,
     )
-    return NavigationWindowSemanticFact(
-        semantic_fact=semantic_fact,
+    return NavigationWindowComputation(
+        expression=expression,
         direction=direction,
         value_expression=value_expression,
         value_type=value_type,
@@ -539,10 +527,35 @@ def analyze_navigation_arguments(
         default_fact=default_fact,
         signature_match=signature_result,
         nullability_match=nullability_result,
+        result=result,
     )
 
 
-def analyze_frame_value_arguments(
+def _navigation_semantic_fact_from_computation(
+    semantic_fact: WindowExpressionSemanticFact,
+    computation: NavigationWindowComputation,
+) -> NavigationWindowSemanticFact:
+    if (
+        type(semantic_fact) is not WindowExpressionSemanticFact
+        or semantic_fact.expression is not computation.expression
+        or semantic_fact.result is not computation.result
+    ):
+        raise ValueError("navigation occurrence wrapper requires the common core")
+    return NavigationWindowSemanticFact(
+        semantic_fact=semantic_fact,
+        direction=computation.direction,
+        value_expression=computation.value_expression,
+        value_type=computation.value_type,
+        value_always_null=computation.value_always_null,
+        modifiers=computation.modifiers,
+        offset_fact=computation.offset_fact,
+        default_fact=computation.default_fact,
+        signature_match=computation.signature_match,
+        nullability_match=computation.nullability_match,
+    )
+
+
+def analyze_navigation_arguments(
     *,
     occurrence: WindowOccurrenceIdentity,
     expression: WindowExpr,
@@ -553,11 +566,51 @@ def analyze_frame_value_arguments(
     modifiers: ResolvedWindowFunctionModifiers,
     bare_value_types: Mapping[str, ValueType] | None = None,
     allow_qualified_fields: bool = True,
-) -> FrameValueWindowSemanticFact | WindowExpressionUnsupported:
-    """Analyze bounded frame-value input, nth position, type, and nullability."""
+) -> NavigationWindowSemanticFact | WindowExpressionUnsupported:
+    """Retain the occurrence-owned compatibility wrapper."""
 
     if type(occurrence) is not WindowOccurrenceIdentity:
         raise TypeError("occurrence must be an exact WindowOccurrenceIdentity")
+    result = analyze_navigation_computation_arguments(
+        expression=expression,
+        input_schema=input_schema,
+        field_qualifier=field_qualifier,
+        value_types=value_types,
+        diagnostics=diagnostics,
+        modifiers=modifiers,
+        bare_value_types=bare_value_types,
+        allow_qualified_fields=allow_qualified_fields,
+    )
+    if type(result) is WindowComputationUnsupported:
+        return WindowExpressionUnsupported(
+            occurrence=occurrence,
+            expression=result.expression,
+            identity=result.identity,
+            reason=result.reason,
+        )
+    assert type(result) is NavigationWindowComputation
+    semantic_fact = WindowExpressionSemanticFact(
+        occurrence=occurrence,
+        expression=result.expression,
+        identity=result.expression.identity,
+        result=result.result,
+    )
+    return _navigation_semantic_fact_from_computation(semantic_fact, result)
+
+
+def analyze_frame_value_computation_arguments(
+    *,
+    expression: WindowExpr,
+    input_schema: RowSchema,
+    field_qualifier: str,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    modifiers: ResolvedWindowFunctionModifiers,
+    bare_value_types: Mapping[str, ValueType] | None = None,
+    allow_qualified_fields: bool = True,
+) -> FrameValueWindowComputation | WindowComputationUnsupported:
+    """Analyze occurrence-neutral frame-value input and result semantics."""
+
     if type(expression) is not WindowExpr:
         raise TypeError("expression must be an exact WindowExpr")
     if type(modifiers) is not ResolvedWindowFunctionModifiers:
@@ -577,7 +630,6 @@ def analyze_frame_value_arguments(
         allow_qualified_fields=allow_qualified_fields,
     ):
         return _unsupported(
-            occurrence=occurrence,
             expression=expression,
             reason="frame-value input must be a direct field or scalar literal",
             diagnostics=diagnostics,
@@ -598,7 +650,6 @@ def analyze_frame_value_arguments(
     )
     if _is_null_literal(value_expression) or not _is_concrete_value_type(value_type):
         return _unsupported_after_inference(
-            occurrence=occurrence,
             expression=expression,
             reason="frame-value input type must be concrete",
             diagnostics=diagnostics,
@@ -621,7 +672,6 @@ def analyze_frame_value_arguments(
             or position.value < 1
         ):
             return _unsupported(
-                occurrence=occurrence,
                 expression=expression,
                 reason="nth_value position must be a positive integer literal",
                 diagnostics=diagnostics,
@@ -669,24 +719,84 @@ def analyze_frame_value_arguments(
         resolved_type=value_type.resolved_type,
         nullability=nullability_result.value,
     )
-    semantic_fact = WindowExpressionSemanticFact(
-        occurrence=occurrence,
-        expression=expression,
-        identity=expression.identity,
-        result=WindowResultAvailability(
-            kind=WindowResultAvailabilityKind.CONCRETE,
-            value_type=result_type,
-        ),
+    result = WindowResultAvailability(
+        kind=WindowResultAvailabilityKind.CONCRETE,
+        value_type=result_type,
     )
-    return FrameValueWindowSemanticFact(
-        semantic_fact=semantic_fact,
+    return FrameValueWindowComputation(
+        expression=expression,
         function=function,
         value_expression=value_expression,
         value_type=value_type,
         position_fact=position_fact,
         modifiers=modifiers,
         signature_match=signature_result,
+        result=result,
     )
+
+
+def _frame_value_semantic_fact_from_computation(
+    semantic_fact: WindowExpressionSemanticFact,
+    computation: FrameValueWindowComputation,
+) -> FrameValueWindowSemanticFact:
+    if (
+        type(semantic_fact) is not WindowExpressionSemanticFact
+        or semantic_fact.expression is not computation.expression
+        or semantic_fact.result is not computation.result
+    ):
+        raise ValueError("frame-value occurrence wrapper requires the common core")
+    return FrameValueWindowSemanticFact(
+        semantic_fact=semantic_fact,
+        function=computation.function,
+        value_expression=computation.value_expression,
+        value_type=computation.value_type,
+        position_fact=computation.position_fact,
+        modifiers=computation.modifiers,
+        signature_match=computation.signature_match,
+    )
+
+
+def analyze_frame_value_arguments(
+    *,
+    occurrence: WindowOccurrenceIdentity,
+    expression: WindowExpr,
+    input_schema: RowSchema,
+    field_qualifier: str,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    modifiers: ResolvedWindowFunctionModifiers,
+    bare_value_types: Mapping[str, ValueType] | None = None,
+    allow_qualified_fields: bool = True,
+) -> FrameValueWindowSemanticFact | WindowExpressionUnsupported:
+    """Retain the occurrence-owned frame-value compatibility wrapper."""
+
+    if type(occurrence) is not WindowOccurrenceIdentity:
+        raise TypeError("occurrence must be an exact WindowOccurrenceIdentity")
+    result = analyze_frame_value_computation_arguments(
+        expression=expression,
+        input_schema=input_schema,
+        field_qualifier=field_qualifier,
+        value_types=value_types,
+        diagnostics=diagnostics,
+        modifiers=modifiers,
+        bare_value_types=bare_value_types,
+        allow_qualified_fields=allow_qualified_fields,
+    )
+    if type(result) is WindowComputationUnsupported:
+        return WindowExpressionUnsupported(
+            occurrence=occurrence,
+            expression=result.expression,
+            identity=result.identity,
+            reason=result.reason,
+        )
+    assert type(result) is FrameValueWindowComputation
+    semantic_fact = WindowExpressionSemanticFact(
+        occurrence=occurrence,
+        expression=result.expression,
+        identity=result.expression.identity,
+        result=result.result,
+    )
+    return _frame_value_semantic_fact_from_computation(semantic_fact, result)
 
 
 def _is_bounded_value_expression(
@@ -736,17 +846,15 @@ def _logical_type_identity(value_type: ValueType | None) -> LogicalTypeIdentity:
 
 def _unsupported_after_inference(
     *,
-    occurrence: WindowOccurrenceIdentity,
     expression: WindowExpr,
     reason: str,
     diagnostics: list[Diagnostic],
     diagnostics_before: int,
     message: str,
-) -> WindowExpressionUnsupported:
+) -> WindowComputationUnsupported:
     if len(diagnostics) == diagnostics_before:
         _append_call_diagnostic(diagnostics, expression.call, message=message)
-    return WindowExpressionUnsupported(
-        occurrence=occurrence,
+    return WindowComputationUnsupported(
         expression=expression,
         identity=expression.identity,
         reason=reason,
@@ -755,15 +863,13 @@ def _unsupported_after_inference(
 
 def _unsupported(
     *,
-    occurrence: WindowOccurrenceIdentity,
     expression: WindowExpr,
     reason: str,
     diagnostics: list[Diagnostic],
     message: str,
-) -> WindowExpressionUnsupported:
+) -> WindowComputationUnsupported:
     _append_call_diagnostic(diagnostics, expression.call, message=message)
-    return WindowExpressionUnsupported(
-        occurrence=occurrence,
+    return WindowComputationUnsupported(
         expression=expression,
         identity=expression.identity,
         reason=reason,

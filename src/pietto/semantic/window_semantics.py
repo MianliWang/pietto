@@ -1137,7 +1137,33 @@ def resolve_named_window_namespace(
 
     if type(definition) not in {TableDef, QueryDef}:
         raise TypeError("named-window resolution requires an exact relation block")
-    query_block = _query_block_occurrence(definition)
+    return resolve_named_window_namespace_for_query_block(
+        definition,
+        query_block=_query_block_occurrence(definition),
+    )
+
+
+def resolve_named_window_namespace_for_query_block(
+    definition: TableDef | QueryDef,
+    *,
+    query_block: QueryBlockOccurrence,
+) -> ResolvedNamedWindowNamespace | NamedWindowResolutionFailure:
+    """Resolve declarations while retaining one supplied exact query block."""
+
+    if type(definition) not in {TableDef, QueryDef}:
+        raise TypeError("named-window resolution requires an exact relation block")
+    if type(query_block) is not QueryBlockOccurrence:
+        raise TypeError("named-window resolution requires an exact query block")
+    expected_kind = (
+        QueryBlockKind.TABLE if type(definition) is TableDef else QueryBlockKind.QUERY
+    )
+    if (
+        query_block.source_id != (definition.span.path or definition.name)
+        or query_block.relation_name != definition.name
+        or query_block.kind is not expected_kind
+        or query_block.span != definition.span
+    ):
+        raise ValueError("named-window query block must retain its exact relation")
     declarations = definition.named_windows
     for declaration in declarations:
         if declaration.base is not None:
@@ -3492,6 +3518,25 @@ class WindowResultAvailability:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class WindowComputationUnsupported:
+    """Occurrence-neutral rejection for one authored window computation."""
+
+    expression: WindowExpr
+    identity: WindowFunctionIdentity
+    reason: str
+
+    def __post_init__(self) -> None:
+        if type(self.expression) is not WindowExpr:
+            raise TypeError("window computation expression must be exact")
+        if type(self.identity) is not WindowFunctionIdentity:
+            raise TypeError("window computation identity must be exact")
+        if type(self.reason) is not str or not self.reason.strip():
+            raise ValueError("window computation rejection requires a reason")
+        if self.expression.identity != self.identity:
+            raise ValueError("window computation identity must retain authorship")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class WindowExpressionSemanticFact:
     """Inert private semantic evidence for one parsed window expression."""
 
@@ -3893,6 +3938,76 @@ class NthValuePositionFact:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class FrameValueWindowComputation:
+    """Occurrence-neutral frame-value signature and result evidence."""
+
+    expression: WindowExpr
+    function: FrameValueFunctionKind
+    value_expression: NameExpr | DottedNameExpr | LiteralExpr
+    value_type: ValueType
+    position_fact: NthValuePositionFact | None
+    modifiers: ResolvedWindowFunctionModifiers
+    signature_match: SignatureMatch
+    result: WindowResultAvailability
+
+    def __post_init__(self) -> None:
+        if type(self.expression) is not WindowExpr:
+            raise TypeError("frame-value computation expression must be exact")
+        if type(self.function) is not FrameValueFunctionKind:
+            raise TypeError("frame-value computation function must be exact")
+        if type(self.value_expression) not in {
+            NameExpr,
+            DottedNameExpr,
+            LiteralExpr,
+        }:
+            raise TypeError("frame-value computation input must be bounded")
+        if type(self.value_type) is not ValueType:
+            raise TypeError("frame-value computation input type must be exact")
+        if self.position_fact is not None and type(self.position_fact) is not (
+            NthValuePositionFact
+        ):
+            raise TypeError("frame-value computation position must be exact")
+        if type(self.modifiers) is not ResolvedWindowFunctionModifiers:
+            raise TypeError("frame-value computation modifiers must be exact")
+        if type(self.signature_match) is not SignatureMatch:
+            raise TypeError("frame-value computation signature must be exact")
+        if type(self.result) is not WindowResultAvailability:
+            raise TypeError("frame-value computation result must be exact")
+        arguments = self.expression.call.arguments
+        if (
+            self.expression.identity.name != self.function.value
+            or self.modifiers.identity != self.expression.identity
+            or self.modifiers.authored_null_treatment
+            is not self.expression.null_treatment
+            or self.modifiers.authored_nth_direction
+            is not self.expression.nth_direction
+            or self.value_expression is not arguments[0]
+            or not self.expression.spec.order_by
+        ):
+            raise ValueError("frame-value computation must retain exact semantics")
+        if self.function is FrameValueFunctionKind.NTH_VALUE:
+            if (
+                len(arguments) != 2
+                or self.position_fact is None
+                or self.position_fact.expression is not arguments[1]
+            ):
+                raise ValueError("nth_value computation requires its exact position")
+        elif len(arguments) != 1 or self.position_fact is not None:
+            raise ValueError("first/last computation forbids an nth position")
+        if (
+            self.result.kind is not WindowResultAvailabilityKind.CONCRETE
+            or self.result.value_type is None
+            or self.result.value_type.resolved_type is not self.value_type.resolved_type
+            or self.result.value_type.resolved_type.name
+            != self.signature_match.result_type.name
+            or self.result.value_type.resolved_type.kind
+            is not self.signature_match.result_type.kind
+            or self.result.value_type.nullability is not EffectiveNullability.NULLABLE
+        ):
+            raise ValueError("frame-value computation result must be nullable T")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class FrameValueWindowSemanticFact:
     """One frame-sensitive value-function semantic result."""
 
@@ -4210,6 +4325,91 @@ class NavigationDefaultFact:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class NavigationWindowComputation:
+    """Occurrence-neutral lag/lead signature and nullability evidence."""
+
+    expression: WindowExpr
+    direction: NavigationDirection
+    value_expression: NameExpr | DottedNameExpr | LiteralExpr
+    value_type: ValueType
+    value_always_null: bool
+    modifiers: ResolvedWindowFunctionModifiers
+    offset_fact: NavigationOffsetFact
+    default_fact: NavigationDefaultFact
+    signature_match: SignatureMatch
+    nullability_match: NullabilityEvaluationMatch
+    result: WindowResultAvailability
+
+    def __post_init__(self) -> None:
+        if type(self.expression) is not WindowExpr:
+            raise TypeError("navigation computation expression must be exact")
+        if type(self.direction) is not NavigationDirection:
+            raise TypeError("navigation computation direction must be exact")
+        if type(self.value_expression) not in {
+            NameExpr,
+            DottedNameExpr,
+            LiteralExpr,
+        }:
+            raise TypeError("navigation computation value must be bounded")
+        if type(self.value_type) is not ValueType:
+            raise TypeError("navigation computation value type must be exact")
+        if type(self.value_always_null) is not bool:
+            raise TypeError("navigation computation NULL evidence must be exact")
+        if type(self.modifiers) is not ResolvedWindowFunctionModifiers:
+            raise TypeError("navigation computation modifiers must be exact")
+        if type(self.offset_fact) is not NavigationOffsetFact:
+            raise TypeError("navigation computation offset must be exact")
+        if type(self.default_fact) is not NavigationDefaultFact:
+            raise TypeError("navigation computation default must be exact")
+        if type(self.signature_match) is not SignatureMatch:
+            raise TypeError("navigation computation signature must be exact")
+        if type(self.nullability_match) is not NullabilityEvaluationMatch:
+            raise TypeError("navigation computation nullability must be exact")
+        if type(self.result) is not WindowResultAvailability:
+            raise TypeError("navigation computation result must be exact")
+        arguments = self.expression.call.arguments
+        expression_is_null = (
+            type(self.value_expression) is LiteralExpr
+            and self.value_expression.value is None
+        )
+        if (
+            self.expression.identity.name != self.direction.value
+            or self.modifiers.identity != self.expression.identity
+            or self.modifiers.authored_null_treatment
+            is not self.expression.null_treatment
+            or self.modifiers.authored_nth_direction
+            is not self.expression.nth_direction
+            or not self.expression.spec.order_by
+            or len(arguments) not in {1, 2, 3}
+            or self.value_expression is not arguments[0]
+            or self.value_always_null is not expression_is_null
+        ):
+            raise ValueError("navigation computation must retain exact semantics")
+        if len(arguments) == 1:
+            if not self.offset_fact.omitted or not self.default_fact.omitted:
+                raise ValueError("one-argument navigation must omit offset and default")
+        else:
+            if self.offset_fact.expression is not arguments[1]:
+                raise ValueError("navigation offset must retain argument one")
+            if len(arguments) == 2 and not self.default_fact.omitted:
+                raise ValueError("two-argument navigation must omit default")
+            if len(arguments) == 3 and self.default_fact.expression is not arguments[2]:
+                raise ValueError("navigation default must retain argument two")
+        if self.signature_match.omitted_positions != tuple(range(len(arguments), 3)):
+            raise ValueError("navigation signature omission must match source arity")
+        if (
+            self.result.kind is not WindowResultAvailabilityKind.CONCRETE
+            or self.result.value_type is None
+            or self.result.value_type.resolved_type.name
+            != self.signature_match.result_type.name
+            or self.result.value_type.resolved_type.kind
+            is not self.signature_match.result_type.kind
+            or self.result.value_type.nullability is not self.nullability_match.value
+        ):
+            raise ValueError("navigation computation result must match its formulas")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class NavigationWindowSemanticFact:
     """Private sibling navigation evidence for one core window semantic fact."""
 
@@ -4356,6 +4556,110 @@ class NavigationWindowSemanticFact:
         """Return no peer key for peer-insensitive navigation."""
 
         return ()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WindowComputationAnalysis:
+    """Occurrence-neutral semantic result shared by selected and hidden sites."""
+
+    expression: WindowExpr
+    result: WindowResultAvailability
+    modifiers: ResolvedWindowFunctionModifiers
+    ranking_advance_policy: RankingAdvancePolicy | None
+    distribution_policy: DistributionWindowPolicy | None
+    bucket_count: int | None
+    partition_bindings: tuple[WindowPartitionFieldBinding, ...]
+    order_bindings: tuple[WindowOrderFieldBinding, ...]
+    validated_specification: ValidatedWindowSpecification
+    navigation: NavigationWindowComputation | None = None
+    frame_value: FrameValueWindowComputation | None = None
+    resolved_named_use: ResolvedNamedWindowUse | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.expression) is not WindowExpr:
+            raise TypeError("window computation expression must be exact")
+        if type(self.result) is not WindowResultAvailability or (
+            self.result.kind is not WindowResultAvailabilityKind.CONCRETE
+        ):
+            raise ValueError("window computation result must be concrete")
+        if type(self.modifiers) is not ResolvedWindowFunctionModifiers or (
+            self.modifiers.identity != self.expression.identity
+        ):
+            raise ValueError("window computation modifiers must match its identity")
+        if (
+            self.ranking_advance_policy is not None
+            and type(self.ranking_advance_policy) is not RankingAdvancePolicy
+        ):
+            raise TypeError("window ranking policy must be exact or absent")
+        if (
+            self.distribution_policy is not None
+            and type(self.distribution_policy) is not DistributionWindowPolicy
+        ):
+            raise TypeError("window distribution policy must be exact or absent")
+        if self.bucket_count is not None and type(self.bucket_count) is not int:
+            raise TypeError("window bucket count must be exact or absent")
+        if type(self.partition_bindings) is not tuple or any(
+            type(item) is not WindowPartitionFieldBinding
+            for item in self.partition_bindings
+        ):
+            raise TypeError("window partition bindings must be exact")
+        if (
+            type(self.order_bindings) is not tuple
+            or not self.order_bindings
+            or any(
+                type(item) is not WindowOrderFieldBinding
+                for item in self.order_bindings
+            )
+        ):
+            raise ValueError("window order bindings must be a nonempty exact tuple")
+        if tuple(item.expression for item in self.partition_bindings) != (
+            self.expression.spec.partition_by
+        ) or tuple(item.order_item for item in self.order_bindings) != (
+            self.expression.spec.order_by
+        ):
+            raise ValueError("window bindings must retain the effective specification")
+        if type(self.validated_specification) is not ValidatedWindowSpecification or (
+            self.validated_specification.function_identity != self.expression.identity
+            or self.validated_specification.argument_expressions
+            is not self.expression.call.arguments
+        ):
+            raise ValueError("window validation must retain the exact computation")
+        if self.navigation is not None and type(self.navigation) is not (
+            NavigationWindowComputation
+        ):
+            raise TypeError("window navigation computation must be exact or absent")
+        if self.frame_value is not None and type(self.frame_value) is not (
+            FrameValueWindowComputation
+        ):
+            raise TypeError("window frame-value computation must be exact or absent")
+        for family in (self.navigation, self.frame_value):
+            if family is not None and (
+                family.expression is not self.expression
+                or family.result is not self.result
+            ):
+                raise ValueError("window family computation must share the common core")
+        if self.resolved_named_use is None:
+            if self.expression.use_kind is not WindowUseKind.INLINE:
+                raise ValueError("standalone computation requires inline authorship")
+        else:
+            authored = self.resolved_named_use.composed.expression
+            if (
+                authored.use_kind is WindowUseKind.INLINE
+                or self.resolved_named_use.function_identity != self.expression.identity
+                or self.resolved_named_use.resolved
+                is not self.validated_specification.resolved
+                or self.expression.call is not authored.call
+                or self.expression.span != authored.span
+            ):
+                raise ValueError("named computation must retain exact authorship")
+
+    @property
+    def authored_expression(self) -> WindowExpr:
+        """Return the exact authored expression for this computation."""
+
+        if self.resolved_named_use is None:
+            return self.expression
+        return self.resolved_named_use.composed.expression
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

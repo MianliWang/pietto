@@ -25,14 +25,14 @@ documentation does not supersede that evidence.
 | Slice 7 | `COMPLETED / PUBLISHED` |
 | Slice 8 | `COMPLETED / PUBLISHED` |
 | Slice 9 | `COMPLETED / PUBLISHED` |
-| Slice 10 | `NEXT / NOT IMPLEMENTED` |
-| Slice 11 | `NOT IMPLEMENTED` |
+| Slice 10 | `COMPLETED / PUBLISHED` |
+| Slice 11 | `NEXT / NOT IMPLEMENTED` |
 | Slice 12 | `NOT IMPLEMENTED` |
 | Slice 13 | `NOT IMPLEMENTED` |
 | Slice 14 | `NOT IMPLEMENTED` |
 | Slice 15 | `NOT IMPLEMENTED` |
 | Slice 16 | `NOT IMPLEMENTED` |
-| Next | `Phase 63 Slice 10 — Generic Window-Computation Sites And Named-Window Reuse` |
+| Next | `Phase 63 Slice 11 — QUALIFY Grammar, AST, Semantics, And Property Transfer` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -177,5 +177,36 @@ diagnostics plus declarative SQL TRUE/FALSE/UNKNOWN retention.
 No final relation output or Project IR ref is allocated, and Slice-7 ledger
 entries remain `JOINED_TAIL_PENDING`. Slice 9 adds no window computation,
 QUALIFY, final projection/order/limit, ledger completion, SQL, Arrow, executor,
-or public behavior. Phase 63 Slice 10 is `NEXT / NOT IMPLEMENTED`; Slices 11–16
-and every Phase-64+ implementation remain unstarted and unauthorized here.
+or public behavior. Phase 63 Slice 10 is `COMPLETED / PUBLISHED`.
+
+Its [private joined window-computation
+stage](spec/phase63-slice10-generic-window-computation-sites-named-window-reuse-v1.md)
+separates generic computation sites from the unchanged selected-output
+`WindowOccurrenceIdentity`. The existing selected API now delegates semantic
+work to one occurrence-neutral kernel and reconstructs the same result/family,
+partition/order, frame, modifier, diagnostic, and named-window facts.
+Navigation and frame-value compatibility wrappers use that same kernel.
+
+The exact Slice-2 `QueryBlockOccurrence` feeds the existing Phase-60 named
+window declaration DAG and monotonic composer; no second graph or query-block
+identity exists. The new pre-window namespace retains exact visible joined
+field, field-backed LET, group-key, aggregate-result, and group-key-backed LET
+occurrences with complete ambiguity buckets and no joined `RowSchema`, relation
+name fallback, hidden-field visibility, or first-name winner. GLOBAL plus a
+window remains fail-closed.
+
+All selected computations share one immutable pre-window namespace. Exact
+selected result bindings alone enter post-window readiness; earlier window and
+ordinary projection aliases do not flow backward. A low-level hidden-inline
+builder creates no selected occurrence, alias, binding, or persisted result and
+rejects named hidden uses. Any selected or named-window failure publishes no
+partial post-window stage.
+
+Window evaluation retains BAG multiplicity, intrinsic grain, and the exact
+input property authority by reference; it filters no rows and does not establish
+relation ordering. No Project IR output, final field identity, QUALIFY,
+projection/order/limit, ledger completion, SQL, Arrow, executor, or public
+behavior is added. Slice-7 entries remain `JOINED_TAIL_PENDING`. Natural
+exact-head CI owns Slice 10 completion without a status-only follow-up commit.
+Phase 63 Slice 11 is `NEXT / NOT IMPLEMENTED`; Slices 12–16 and every Phase-64+
+implementation remain unstarted and unauthorized here.
