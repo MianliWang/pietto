@@ -20,8 +20,8 @@ documentation does not supersede that evidence.
 | Slice 2 | `COMPLETED / PUBLISHED` |
 | Slice 3 | `COMPLETED / PUBLISHED` |
 | Slice 4 | `COMPLETED / PUBLISHED` |
-| Slice 5 | `NEXT / NOT IMPLEMENTED` |
-| Slice 6 | `NOT IMPLEMENTED` |
+| Slice 5 | `COMPLETED / PUBLISHED` |
+| Slice 6 | `NEXT / NOT IMPLEMENTED` |
 | Slice 7 | `NOT IMPLEMENTED` |
 | Slice 8 | `NOT IMPLEMENTED` |
 | Slice 9 | `NOT IMPLEMENTED` |
@@ -32,7 +32,7 @@ documentation does not supersede that evidence.
 | Slice 14 | `NOT IMPLEMENTED` |
 | Slice 15 | `NOT IMPLEMENTED` |
 | Slice 16 | `NOT IMPLEMENTED` |
-| Next | `Phase 63 Slice 5 — LET, Stage Namespace Lattice, Shadowing And Alias Laws` |
+| Next | `Phase 63 Slice 6 — Post-JOIN Row Semantics, Nullability, Lineage And Property Bridge` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -95,5 +95,18 @@ candidate buckets with no winner. Existing Slice-3 resolution facts and the
 semantic type kernel remain unchanged. Slice 4 adds no LET, shadowing,
 projection aliases, stage namespace mutation, filtering, grouping,
 window/QUALIFY, SQL, Arrow, executor, or public behavior. Phase 63 Slice 5 is
-`NEXT / NOT IMPLEMENTED`; Slices 6–16 and every Phase-64+ implementation remain
+`COMPLETED / PUBLISHED`.
+
+Its [private joined LET namespace
+foundation](spec/phase63-slice5-let-stage-namespace-lattice-shadowing-alias-laws-v1.md)
+retains exact `LetBinding` occurrences and immutable `POST_JOIN_INPUT`,
+source-ordered `LET_BINDING(i)`, and `POST_LET` namespaces over the unchanged
+Slice-4 root. Complete-clause admission preserves duplicate, visible-field,
+binding/relation shadowing, dependency, aggregate-context, and projection
+collision laws. Bare earlier LET values and exact Slice-4 fields feed the
+existing type kernel; qualified LET and projection-alias lookup remain absent.
+Non-concrete results publish no `POST_LET`. Slice 5 adds no post-JOIN property
+bridge, filtering, grouping, aggregate-over-JOIN behavior, window/QUALIFY,
+final projection, SQL, Arrow, executor, or public behavior. Phase 63 Slice 6 is
+`NEXT / NOT IMPLEMENTED`; Slices 7–16 and every Phase-64+ implementation remain
 unstarted and unauthorized here.

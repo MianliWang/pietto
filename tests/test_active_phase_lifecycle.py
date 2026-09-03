@@ -152,6 +152,10 @@ PHASE63_SLICE4_SPEC = (
     REPO_ROOT
     / "docs/spec/phase63-slice4-bindings-visible-joined-fields-qualified-unqualified-lookup-v1.md"
 )
+PHASE63_SLICE5_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase63-slice5-let-stage-namespace-lattice-shadowing-alias-laws-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -213,8 +217,8 @@ EXPECTED_STATUS = (
     ("Slice 2", "`COMPLETED / PUBLISHED`"),
     ("Slice 3", "`COMPLETED / PUBLISHED`"),
     ("Slice 4", "`COMPLETED / PUBLISHED`"),
-    ("Slice 5", "`NEXT / NOT IMPLEMENTED`"),
-    ("Slice 6", "`NOT IMPLEMENTED`"),
+    ("Slice 5", "`COMPLETED / PUBLISHED`"),
+    ("Slice 6", "`NEXT / NOT IMPLEMENTED`"),
     ("Slice 7", "`NOT IMPLEMENTED`"),
     ("Slice 8", "`NOT IMPLEMENTED`"),
     ("Slice 9", "`NOT IMPLEMENTED`"),
@@ -227,7 +231,7 @@ EXPECTED_STATUS = (
     ("Slice 16", "`NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 63 Slice 5 — LET, Stage Namespace Lattice, Shadowing And Alias Laws`",
+        "`Phase 63 Slice 6 — Post-JOIN Row Semantics, Nullability, Lineage And Property Bridge`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -265,8 +269,8 @@ EXPECTED_PHASE62_OWNER = (
     "and multi-fact alignment analysis"
 )
 EXPECTED_PHASE63_STATE = (
-    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–4\n"
-    "are `COMPLETED / PUBLISHED`; Slice 5 is `NEXT / NOT IMPLEMENTED`; Slices 6–16\n"
+    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–5\n"
+    "are `COMPLETED / PUBLISHED`; Slice 6 is `NEXT / NOT IMPLEMENTED`; Slices 7–16\n"
     "are not implemented. The published route has exactly 16 numbered Slices."
 )
 EXPECTED_PHASE58_ROUTE = (
@@ -1222,6 +1226,15 @@ EXPECTED_PHASE63_SLICE4_CHANGED_PATHS = (
     "tests/test_active_phase_lifecycle.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE63_SLICE5_CHANGED_PATHS = (
+    "src/pietto/_project/project_scalar_namespaces.py",
+    "docs/spec/phase63-slice5-let-stage-namespace-lattice-shadowing-alias-laws-v1.md",
+    "tests/test_phase63_slice5_let_stage_namespace_lattice_shadowing_alias_laws.py",
+    "docs/roadmap.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -1327,8 +1340,20 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         in normalized
     )
     assert "Slice 4 adds no LET, shadowing" in normalized
-    assert "Phase 63 Slice 5 is `NEXT / NOT IMPLEMENTED`" in normalized
-    assert "Slices 6–16 and every Phase-64+ implementation remain" in normalized
+    assert "Phase 63 Slice 5 is `COMPLETED / PUBLISHED`" in normalized
+    assert "private joined LET namespace foundation" in normalized
+    assert (
+        "exact `LetBinding` occurrences and immutable `POST_JOIN_INPUT`" in normalized
+    )
+    assert "source-ordered `LET_BINDING(i)`, and `POST_LET` namespaces" in normalized
+    assert "Complete-clause admission preserves duplicate" in normalized
+    assert "binding/relation shadowing, dependency, aggregate-context" in normalized
+    assert "Bare earlier LET values and exact Slice-4 fields feed" in normalized
+    assert "qualified LET and projection-alias lookup remain absent" in normalized
+    assert "Non-concrete results publish no `POST_LET`" in normalized
+    assert "Slice 5 adds no post-JOIN property bridge" in normalized
+    assert "Phase 63 Slice 6 is `NEXT / NOT IMPLEMENTED`" in normalized
+    assert "Slices 7–16 and every Phase-64+ implementation remain" in normalized
     prerequisite_target = (
         "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
     )
@@ -1346,6 +1371,12 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert f"]({slice4_target})" in status
     assert (STATUS.parent / slice4_target).resolve() == PHASE63_SLICE4_SPEC
     assert PHASE63_SLICE4_SPEC.is_file()
+    slice5_target = (
+        "spec/phase63-slice5-let-stage-namespace-lattice-shadowing-alias-laws-v1.md"
+    )
+    assert f"]({slice5_target})" in status
+    assert (STATUS.parent / slice5_target).resolve() == PHASE63_SLICE5_SPEC
+    assert PHASE63_SLICE5_SPEC.is_file()
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -1700,6 +1731,20 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "Slice 4 adds no LET, shadowing",
         "natural exact-head CI completes Slice 4",
         "leaves Slice 5 `NEXT / NOT IMPLEMENTED`",
+        "phase63-slice5-let-stage-namespace-lattice-shadowing-alias-laws-v1.md",
+        "exact Slice-4 root",
+        "source ordinal and exact AST occurrence",
+        "one immutable `LET_BINDING(i)` prefix per authored occurrence",
+        "without a joined `RowSchema` or normative name map",
+        "invalidates every duplicate occurrence",
+        "Hidden intermediate fields remain non-nameable",
+        "qualified references remain Slice-4 fields only",
+        "projection aliases never enter any namespace",
+        "unchanged `infer_row_expression` kernel",
+        "publishes no `POST_LET`",
+        "Slice 5 adds no post-JOIN property bridge",
+        "natural exact-head CI completes Slice 5",
+        "leaves Slice 6 `NEXT / NOT IMPLEMENTED`",
     ):
         assert evidence in phase63_normalized
 
@@ -1713,6 +1758,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "spec/phase63-slice2-query-block-owner-bridge-row-source-sum-states-mode-boundary-v1.md",
         "spec/phase63-slice3-scalar-reference-environment-resolution-facts-type-kernel-adapter-v1.md",
         "spec/phase63-slice4-bindings-visible-joined-fields-qualified-unqualified-lookup-v1.md",
+        "spec/phase63-slice5-let-stage-namespace-lattice-shadowing-alias-laws-v1.md",
     ):
         assert f"]({target})" in roadmap
         assert (ROADMAP.parent / target).is_file()
@@ -3481,6 +3527,27 @@ def test_phase63_slice4_changed_paths_are_exact() -> None:
     assert all((REPO_ROOT / path).is_file() for path in paths)
     assert tuple(path for path in paths if path.startswith("src/")) == (
         "src/pietto/_project/project_scalar_bindings.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase63_slice5_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE63_SLICE5_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 7
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert tuple(path for path in paths if path.startswith("src/")) == (
+        "src/pietto/_project/project_scalar_namespaces.py",
     )
     assert not any(
         path.startswith(

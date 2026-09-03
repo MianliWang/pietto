@@ -14,8 +14,10 @@ closed row-source sum, construction states, and compilation-mode boundary, is
 also `COMPLETED / PUBLISHED`. Slice 3, the occurrence-complete scalar-reference
 environment, resolution-fact carrier, and existing type-kernel adapter, is
 `COMPLETED / PUBLISHED`. Slice 4, the authored JOIN binding visibility and
-qualified/unqualified lookup authority, is `COMPLETED / PUBLISHED`. Phase 63
-Slice 5 remains `NEXT / NOT IMPLEMENTED`.
+qualified/unqualified lookup authority, is `COMPLETED / PUBLISHED`. Slice 5,
+the private immutable LET-prefix namespace and shadowing/alias-law authority,
+is `COMPLETED / PUBLISHED`. Phase 63 Slice 6 remains
+`NEXT / NOT IMPLEMENTED`.
 Project Explain v1 remains unchanged.
 Pietto remains compiler-only: no package or catalog registry, dependency
 solver, remote loading, database execution, runtime evaluation, installation
@@ -1460,8 +1462,8 @@ historical evidence and does not itself authorize Phase-63 implementation.
 
 ## Phase 63 route
 
-Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–4
-are `COMPLETED / PUBLISHED`; Slice 5 is `NEXT / NOT IMPLEMENTED`; Slices 6–16
+Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–5
+are `COMPLETED / PUBLISHED`; Slice 6 is `NEXT / NOT IMPLEMENTED`; Slices 7–16
 are not implemented. The published route has exactly 16 numbered Slices.
 
 | Slice | Owner |
@@ -1560,6 +1562,26 @@ type kernel. Slice 4 adds no LET, shadowing, projection aliases, stage
 namespace mutation, SQL, Arrow, executor, or public behavior. Successful
 natural exact-head CI completes Slice 4 without a status-only follow-up commit
 and leaves Slice 5 `NEXT / NOT IMPLEMENTED`.
+
+The [Slice 5 joined LET namespace foundation](spec/phase63-slice5-let-stage-namespace-lattice-shadowing-alias-laws-v1.md)
+starts from the exact Slice-4 root and retains each authored `LetBinding` by
+source ordinal and exact AST occurrence. `POST_JOIN_INPUT`, one immutable
+`LET_BINDING(i)` prefix per authored occurrence, and `POST_LET` preserve exact
+field/binding/hidden authority without a joined `RowSchema` or normative name
+map.
+
+Complete-clause name admissibility invalidates every duplicate occurrence and
+preserves visible-field, authored-binding, retained-relation, and projection
+collision laws. Hidden intermediate fields remain non-nameable and do not
+create shadowing names. Bare earlier LET references use exact admitted values;
+qualified references remain Slice-4 fields only, and projection aliases never
+enter any namespace. Exact field leaves plus transient earlier-value types feed
+the unchanged `infer_row_expression` kernel. A non-concrete result retains
+exact blockers but publishes no `POST_LET`. Slice 5 adds no post-JOIN property
+bridge, filtering, grouping, aggregate-over-JOIN behavior, window/QUALIFY,
+final projection, SQL, Arrow, executor, or public behavior. Successful natural
+exact-head CI completes Slice 5 without a status-only follow-up commit and
+leaves Slice 6 `NEXT / NOT IMPLEMENTED`.
 
 `LET` is the first post-JOIN scalar scope. Each stage has an immutable
 visibility environment and hidden intermediate path fields remain non-nameable
