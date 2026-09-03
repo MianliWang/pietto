@@ -40,8 +40,14 @@ Query Block IR carry target-independent logical/query authority.
 `ProjectSQLPlan` owns target-neutral SQL planning and lowering requirements; a
 dialect SQL AST owns selected-backend lowering. Optional execution consumes
 compiled output but does not become semantic authority. Optimizer and physical
-strategies are separate downstream owners, not name, path, or identity
-resolvers.
+planning consume established semantic/logical authority: they are downstream
+of semantic authority, but upstream of, or a planning side-plane to, the
+lowering and execution they affect. They are not downstream of
+PiettoResultContract / Arrow or ecosystem adapters and never become name, path,
+identity, or semantic resolvers. Phases 88–89 own their exact future internal
+topology; this document neither implements those phases nor defines an
+optimizer IR, physical IR, memo shape, cost model, optimizer API, or
+physical-plan representation.
 
 This sequence is architectural ownership, not a claim that every downstream
 layer is implemented today. Current phase ownership and implementation state
@@ -79,12 +85,12 @@ interchange mechanism. In particular:
 | Source shape and locations | parser and AST |
 | Meaning, identity, legality, and complete resolution evidence | semantic authority |
 | Target-independent logical/query structure | Project IR / Query Block IR |
+| Rewrite search, costing, and physical algorithms | optimizer / physical planning side-plane; downstream of semantic/logical authority and upstream/side-plane to lowering and execution |
 | Target-neutral SQL requirements and lowering plan | ProjectSQLPlan |
 | Selected backend SQL representation | dialect SQL AST |
 | Connections, statements, streaming, and cancellation | optional execution plane |
 | Completed-result shape and transport | PiettoResultContract / Arrow |
 | pandas, Polars, NumPy, SciPy, plotting, domain, and device integration | explicit adapter planes |
-| Rewrite search, costing, and physical algorithms | optimizer / physical plane |
 
 Downstream layers may consume upstream authority but may not silently re-decide
 it. The detailed dependency laws are in [Layering And Coupling Laws

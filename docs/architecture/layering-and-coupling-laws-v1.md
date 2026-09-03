@@ -4,7 +4,7 @@ These laws are the current durable dependency contract. They assign ownership
 without claiming that future lowering, execution, interchange, adapter,
 optimizer, or physical layers are implemented.
 
-## Forward authority sequence
+## Primary semantic / compilation / result flow
 
 ```text
 AST
@@ -12,16 +12,42 @@ AST
 -> Project IR / Query Block IR
 -> ProjectSQLPlan
 -> Dialect SQL AST
--> Execution Plane
+-> optional Execution Plane
 -> ResultContract / Arrow
 -> Ecosystem Adapter Plane
--> Optimizer / Physical Plane
 ```
 
-Dependencies flow forward. Downstream layers may consume upstream authority,
-but may not silently re-decide upstream semantic facts. A downstream
-representation retains typed provenance to the fact it projects instead of
-substituting names, positions, bytes, handles, or observations for that fact.
+Dependencies flow forward within this primary structure. Downstream layers may
+consume upstream authority, but may not silently re-decide upstream semantic
+facts. A downstream representation retains typed provenance to the fact it
+projects instead of substituting names, positions, bytes, handles, or
+observations for that fact. Result interchange and ecosystem adapters remain
+downstream consumers, not normative planning inputs.
+
+## Optimizer / physical planning side-plane
+
+Logical optimizer and rewrite search consume already-established
+semantic/logical authority. They may derive alternative semantically equivalent
+logical or planning candidates and feed later planning/lowering only after the
+required legality and verification. They never become name, path, identity, or
+semantic-resolution authority.
+
+Physical strategy selection consumes selected logical/planning authority. It
+may influence later lowering or execution strategy and therefore occurs before
+the execution/result boundary it affects. ResultContract / Arrow and ecosystem
+adapters are not normative optimizer or physical-planning authority.
+
+Accordingly:
+
+- optimizer/physical plane is downstream of semantic authority;
+- optimizer/physical plane is upstream of, or a planning side-plane to,
+  lowering and execution;
+- optimizer/physical plane is not downstream of ResultContract / Arrow;
+- optimizer/physical plane is not downstream of ecosystem adapters.
+
+Phases 88–89 own the exact future internal optimizer/physical IR topology. This
+document does not implement those phases or define an optimizer IR, physical
+IR, memo shape, cost model, optimizer API, or physical-plan representation.
 
 ## Coupling distinctions
 
@@ -58,8 +84,8 @@ becoming construction paths.
 - Plugins and adapters are explicit dependencies rather than ambient lookup or
   fallback mechanisms.
 
-SQL planning/lowering, dialect lowering, execution, result interchange,
-ecosystem adapters, optimizer search, and physical strategy remain separate
+SQL planning/lowering, dialect lowering, optimizer search, physical strategy,
+execution, result interchange, and ecosystem adapters remain separate
 architectural owners. A later phase may implement one only through a fresh
 [Product/Phase Initiation Gate v1](phase-initiation-gate-v1.md) and the
 phase-level ownership in the [roadmap](../roadmap.md). This extraction

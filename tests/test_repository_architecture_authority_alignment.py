@@ -169,6 +169,11 @@ def _relative_link_paths(path: Path) -> tuple[Path, ...]:
     return tuple(targets)
 
 
+def _assert_in_order(document: str, values: tuple[str, ...]) -> None:
+    positions = tuple(document.index(value) for value in values)
+    assert positions == tuple(sorted(positions))
+
+
 def test_authority_documents_titles_navigation_and_links_are_closed() -> None:
     assert all(path.is_file() for path in NEW_AUTHORITY_DOCUMENTS)
     titles = tuple(_first_heading(_read(path)) for path in NEW_AUTHORITY_DOCUMENTS)
@@ -230,7 +235,7 @@ def test_product_architecture_preserves_layers_boundaries_and_arrow_laws() -> No
         "Optional execution",
         "stable result boundary",
         "explicit adapters",
-        "Optimizer and physical strategies",
+        "Optimizer and physical planning",
         "DBMS",
         "transaction manager",
         "job scheduler",
@@ -251,6 +256,14 @@ def test_product_architecture_preserves_layers_boundaries_and_arrow_laws() -> No
         "not the sole GPU/device interchange mechanism",
     ):
         assert arrow_law in product
+    for planning_law in (
+        "downstream of semantic authority",
+        "upstream of, or a planning side-plane to",
+        "not downstream of PiettoResultContract / Arrow or ecosystem adapters",
+        "Phases 88–89 own their exact future internal topology",
+        "neither implements those phases nor defines an optimizer IR",
+    ):
+        assert planning_law in product
     assert re.search(r"^\| Slice ", product_text, re.MULTILINE) is None
 
 
@@ -346,9 +359,50 @@ def test_identity_and_layering_laws_preserve_complete_authority() -> None:
     ):
         assert candidate_law in identity
 
-    layering = " ".join(_read(LAYERING_LAWS).split())
-    assert "Dependencies flow forward" in layering
+    layering_text = _read(LAYERING_LAWS)
+    layering = " ".join(layering_text.split())
+    primary_flow = _section(
+        layering_text,
+        "Primary semantic / compilation / result flow",
+    )
+    _assert_in_order(
+        primary_flow,
+        (
+            "Semantic Authority",
+            "Project IR / Query Block IR",
+            "ProjectSQLPlan",
+            "Dialect SQL AST",
+            "optional Execution Plane",
+            "ResultContract / Arrow",
+            "Ecosystem Adapter Plane",
+        ),
+    )
+    assert "Dependencies flow forward" in primary_flow
     assert "may not silently re-decide upstream semantic facts" in layering
+    assert "downstream consumers, not normative planning inputs" in primary_flow
+
+    planning = " ".join(
+        _section(layering_text, "Optimizer / physical planning side-plane").split()
+    )
+    for planning_law in (
+        "consume already-established semantic/logical authority",
+        "feed later planning/lowering only after the required legality and verification",
+        "never become name, path, identity, or semantic-resolution authority",
+        "occurs before the execution/result boundary it affects",
+        "ResultContract / Arrow and ecosystem adapters are not normative optimizer",
+        "optimizer/physical plane is downstream of semantic authority",
+        "optimizer/physical plane is upstream of, or a planning side-plane to, lowering and execution",
+        "optimizer/physical plane is not downstream of ResultContract / Arrow",
+        "optimizer/physical plane is not downstream of ecosystem adapters",
+        "Phases 88–89 own the exact future internal optimizer/physical IR topology",
+        "does not implement those phases or define an optimizer IR",
+        "physical IR",
+        "memo shape",
+        "cost model",
+        "optimizer API",
+        "physical-plan representation",
+    ):
+        assert planning_law in planning
     for distinction in (
         "normative fact != compiled index",
         "interface != capability",
@@ -473,6 +527,8 @@ def test_prerequisite_closure_zero_behavior_and_handoff_are_exact() -> None:
     for false_claim in (
         "phase 63 slice 2 is implemented",
         "phase 64 is implemented",
+        "phase 88 is implemented",
+        "phase 89 is implemented",
         "sql lowering is already implemented",
         "arrow execution is already implemented",
         "executor is already implemented",
