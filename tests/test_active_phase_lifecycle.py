@@ -136,6 +136,10 @@ PHASE63_SLICE1_SPEC = (
     REPO_ROOT
     / "docs/spec/phase63-joined-query-block-product-architecture-source-audit-future-roadmap-route-lock-v1.md"
 )
+PHASE63_ARCHITECTURE_PREREQUISITE_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -193,7 +197,7 @@ EXPECTED_STATUS = (
     ("Phase 61", "`COMPLETED`"),
     ("Phase 62", "`COMPLETED`"),
     ("Phase 63", "`ACTIVE`"),
-    ("Slice 1", "`CURRENT / PUBLICATION CANDIDATE`"),
+    ("Slice 1", "`COMPLETED / PUBLISHED`"),
     ("Slice 2", "`NEXT / NOT IMPLEMENTED`"),
     ("Slice 3", "`NOT IMPLEMENTED`"),
     ("Slice 4", "`NOT IMPLEMENTED`"),
@@ -250,8 +254,8 @@ EXPECTED_PHASE62_OWNER = (
 )
 EXPECTED_PHASE63_STATE = (
     "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slice 1 is\n"
-    "the current documentation/static-assurance publication candidate. Slices 2–16\n"
-    "are not implemented. The published route has exactly 16 numbered Slices."
+    "`COMPLETED / PUBLISHED`; Slice 2 is `NEXT / NOT IMPLEMENTED`; Slices 3–16 are\n"
+    "not implemented. The published route has exactly 16 numbered Slices."
 )
 EXPECTED_PHASE58_ROUTE = (
     (
@@ -1162,6 +1166,22 @@ EXPECTED_PHASE63_SLICE1_CHANGED_PATHS = (
     "tests/test_phase63_slice1_joined_query_block_product_architecture_source_audit_future_roadmap_route_lock.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE63_ARCHITECTURE_PREREQUISITE_CHANGED_PATHS = (
+    "AGENTS.md",
+    "docs/architecture/product-architecture-v1.md",
+    "docs/architecture/phase-initiation-gate-v1.md",
+    "docs/architecture/identity-and-authority-laws-v1.md",
+    "docs/architecture/layering-and-coupling-laws-v1.md",
+    "docs/references/product-design-lessons-v1.md",
+    "docs/plan/README.md",
+    "docs/plan/pietto_product_plan_2026-09-02.md",
+    "docs/spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md",
+    "docs/roadmap.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_repository_architecture_authority_alignment.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -1217,10 +1237,7 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "Phase62 material exits = 15/15" in normalized
     assert "Phase62 self-owned-open = 0" in normalized
     assert "Phase 63 is active" in normalized
-    assert (
-        "Slice 1 is the current documentation/static-assurance publication candidate"
-        in (normalized)
-    )
+    assert "Slice 1 is `COMPLETED / PUBLISHED`" in normalized
     assert "Product/Phase Initiation Gate v3" in normalized
     assert "external product/research source audit" in normalized
     assert "Future Roadmap v6" in normalized
@@ -1228,17 +1245,24 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "Joined Query Block Semantic Completion" in normalized
     assert "exactly 16 Phase-63 Slices" in normalized
     assert (
-        "changes no production/public/SQL/CLI/JSON/ package/dependency/workflow/version"
+        "changes no production/public/SQL/CLI/JSON/package/dependency/workflow/version"
         in normalized
     )
-    assert (
-        "natural exact-head CI on its single publication commit completes Slice 1"
-        in (normalized)
-    )
+    assert "repository architecture authority extraction" in normalized
+    assert "unnumbered, documentation-only authority projection" in normalized
+    assert "not a numbered Slice, not Slice 2" in normalized
+    assert "not implementation of Slice 2" in normalized
+    assert "no fake lifecycle-table row" in normalized
+    assert "publication state remains subordinate" in normalized
     assert "Phase 63 Slice 2 is `NEXT / NOT IMPLEMENTED`" in normalized
     assert "Slices 2–16 and every Phase-64+ implementation remain unstarted" in (
         normalized
     )
+    prerequisite_target = (
+        "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
+    )
+    assert f"]({prerequisite_target})" in status
+    assert (STATUS.parent / prerequisite_target).is_file()
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -1246,6 +1270,7 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
 
 def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     roadmap = _read(ROADMAP)
+    roadmap_normalized = " ".join(roadmap.split())
     phase58 = _section(roadmap, "Phase 58 route").lstrip()
     phase59 = _section(roadmap, "Phase 59 route").lstrip()
     phase60 = _section(roadmap, "Phase 60 route").lstrip()
@@ -1550,8 +1575,32 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "selected-output window identity",
         "unary tail after the binary JOIN region",
         "Slice 2 `NEXT / NOT IMPLEMENTED`",
+        "repository architecture authority extraction prerequisite",
+        "unnumbered, documentation-only authority projection",
+        "does not alter this 16-Slice route",
+        "this roadmap owns phase-level future ownership and release milestones",
+        "published phase specs own exact phase/Slice contracts",
+        "`docs/plan/` remains historical",
     ):
         assert evidence in phase63_normalized
+
+    for target in (
+        "architecture/product-architecture-v1.md",
+        "architecture/phase-initiation-gate-v1.md",
+        "architecture/identity-and-authority-laws-v1.md",
+        "architecture/layering-and-coupling-laws-v1.md",
+        "plan/README.md",
+        "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md",
+    ):
+        assert f"]({target})" in roadmap
+        assert (ROADMAP.parent / target).is_file()
+    for evidence in (
+        "Durable cross-phase product and architecture laws",
+        "This roadmap continues to own phase-level future ownership and release milestones",
+        "Published phase specs own exact phase/Slice contracts",
+        "is historical planning evidence rather than current authority",
+    ):
+        assert evidence in roadmap_normalized
 
     future = _section(roadmap, "Future Roadmap v6")
     assert _table_rows(future)[1:] == EXPECTED_FUTURE_ROADMAP_V6
@@ -3226,6 +3275,25 @@ def test_phase62_slice16_changed_paths_are_exact() -> None:
 def test_phase63_slice1_changed_paths_are_exact() -> None:
     paths = EXPECTED_PHASE63_SLICE1_CHANGED_PATHS
     assert len(paths) == len(set(paths)) == 6
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "src/",
+                "tests/fixtures/",
+                "tests/goldens/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase63_architecture_prerequisite_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE63_ARCHITECTURE_PREREQUISITE_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 14
     assert all((REPO_ROOT / path).is_file() for path in paths)
     assert not any(
         path.startswith(

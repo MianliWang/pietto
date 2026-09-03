@@ -16,7 +16,7 @@ documentation does not supersede that evidence.
 | Phase 61 | `COMPLETED` |
 | Phase 62 | `COMPLETED` |
 | Phase 63 | `ACTIVE` |
-| Slice 1 | `CURRENT / PUBLICATION CANDIDATE` |
+| Slice 1 | `COMPLETED / PUBLISHED` |
 | Slice 2 | `NEXT / NOT IMPLEMENTED` |
 | Slice 3 | `NOT IMPLEMENTED` |
 | Slice 4 | `NOT IMPLEMENTED` |
@@ -48,12 +48,18 @@ natural exact-head CI on commit
 status-only follow-up commit. Its reconstruction closes
 `Phase62 material exits = 15/15` and `Phase62 self-owned-open = 0`.
 
-Phase 63 is active. Slice 1 is the current documentation/static-assurance
-publication candidate. It freezes Product/Phase Initiation Gate v3, the live
-Pietto and external product/research source audit, Future Roadmap v6, the
-complete old-owner migration ledger, Joined Query Block Semantic Completion,
-and exactly 16 Phase-63 Slices. It changes no production/public/SQL/CLI/JSON/
-package/dependency/workflow/version behavior. Successful natural exact-head CI
-on its single publication commit completes Slice 1 without a status-only
-follow-up commit. Phase 63 Slice 2 is `NEXT / NOT IMPLEMENTED`; Slices 2–16 and
-every Phase-64+ implementation remain unstarted and unauthorized here.
+Phase 63 is active. Slice 1 is `COMPLETED / PUBLISHED` by live Git and
+successful natural exact-head CI. It freezes Product/Phase Initiation Gate v3,
+the live Pietto and external product/research source audit, Future Roadmap v6,
+the complete old-owner migration ledger, Joined Query Block Semantic
+Completion, and exactly 16 Phase-63 Slices. It changes no
+production/public/SQL/CLI/JSON/package/dependency/workflow/version behavior.
+
+The [repository architecture authority extraction
+prerequisite](spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md)
+is an unnumbered, documentation-only authority projection. It is not a
+numbered Slice, not Slice 2, and not implementation of Slice 2; it therefore
+has no fake lifecycle-table row. Its publication state remains subordinate to
+live Git and natural exact-head CI and requires no status-only follow-up
+commit. Phase 63 Slice 2 is `NEXT / NOT IMPLEMENTED`; Slices 2–16 and every
+Phase-64+ implementation remain unstarted and unauthorized here.

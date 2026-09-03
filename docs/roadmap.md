@@ -6,11 +6,11 @@ Every substantive slice begins by identifying its authority roots, current
 invariants, compatibility boundary, and the smallest behavior that is actually
 needed.
 
-Phase 63 is active. Slice 1 is the current Product/Phase Initiation Gate v3,
-Pietto/external source-audit, Future Roadmap v6, and exact route-lock
-publication candidate over the published Phase-62 authorities. It adds no
-production behavior. Successful natural exact-head CI completes Slice 1 and
-hands off to Phase 63 Slice 2, which remains `NEXT / NOT IMPLEMENTED`.
+Phase 63 is active. Slice 1, the Product/Phase Initiation Gate v3,
+Pietto/external source-audit, Future Roadmap v6, and exact route lock, is
+`COMPLETED / PUBLISHED` by live Git and successful natural exact-head CI. It
+added no production behavior. Phase 63 Slice 2 remains
+`NEXT / NOT IMPLEMENTED`.
 Project Explain v1 remains unchanged.
 Pietto remains compiler-only: no package or catalog registry, dependency
 solver, remote loading, database execution, runtime evaluation, installation
@@ -18,6 +18,15 @@ discovery, or implicit project discovery is authorized. Future work must
 preserve established identity, complete collection, provenance, ordering,
 trust, and diagnostic boundaries unless a new explicit product decision
 changes them.
+
+Durable cross-phase product and architecture laws now enter through [product
+architecture](architecture/product-architecture-v1.md), the [phase initiation
+gate](architecture/phase-initiation-gate-v1.md), [identity and authority
+laws](architecture/identity-and-authority-laws-v1.md), and [layering and
+coupling laws](architecture/layering-and-coupling-laws-v1.md). This roadmap
+continues to own phase-level future ownership and release milestones. Published
+phase specs own exact phase/Slice contracts, while [`docs/plan/`](plan/README.md)
+is historical planning evidence rather than current authority.
 
 ## Phase 55 route
 
@@ -1447,8 +1456,8 @@ historical evidence and does not itself authorize Phase-63 implementation.
 ## Phase 63 route
 
 Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slice 1 is
-the current documentation/static-assurance publication candidate. Slices 2–16
-are not implemented. The published route has exactly 16 numbered Slices.
+`COMPLETED / PUBLISHED`; Slice 2 is `NEXT / NOT IMPLEMENTED`; Slices 3–16 are
+not implemented. The published route has exactly 16 numbered Slices.
 
 | Slice | Owner |
 | ---: | --- |
@@ -1482,6 +1491,14 @@ existing final output identities. It creates no third query-block identity,
 flattened joined `RowSchema`, second expression type system, third normative
 dependency graph, or partial completed output.
 
+The [repository architecture authority extraction
+prerequisite](spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md)
+is an unnumbered, documentation-only authority projection. It does not alter
+this 16-Slice route, become Slice 2 or Slice 17, or authorize implementation.
+The architecture documents own durable cross-phase laws; this roadmap owns
+phase-level future ownership and release milestones; published phase specs own
+exact phase/Slice contracts; and `docs/plan/` remains historical.
+
 `AUTHORED_JOIN_DEFERRED` remains exact historical authority. A later Phase-63
 completion bridge and one project-wide effective relation-output ledger supply
 new concrete authority. Positive joined completion is
@@ -1502,11 +1519,11 @@ backward `QUALIFY` authority, and window ordering is not final relation order.
 The query-block Project IR extends the exact Phase-61/62 snapshot and attaches
 the unary tail after the binary JOIN region. Independent verification,
 invalidation, inspection, canonical observation, real E2E, differential, and
-metamorphic assurance remain mandatory. Slice 1 changes no production,
+metamorphic assurance remain mandatory. Slice 1 changed no production,
 grammar, generated, public schema, package, dependency, workflow, version,
 SQL, Arrow, executor, or Slice-2 behavior. Successful natural exact-head CI on
-its single publication commit completes Slice 1 without a status-only follow-up
-commit and leaves Slice 2 `NEXT / NOT IMPLEMENTED`.
+its single publication commit completed Slice 1 without a status-only follow-up
+commit and left Slice 2 `NEXT / NOT IMPLEMENTED`.
 
 ## Future Roadmap v6
 

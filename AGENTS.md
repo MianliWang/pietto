@@ -87,6 +87,15 @@ paths, formatting, and ordinary hashes do not require new authority.
 
 ## Current documentation
 
+- [Product architecture](docs/architecture/product-architecture-v1.md): durable
+  cross-phase product boundaries and layer ownership.
+- [Phase initiation gate](docs/architecture/phase-initiation-gate-v1.md):
+  mandatory review contract for new phases.
+- [Identity and authority laws](docs/architecture/identity-and-authority-laws-v1.md)
+  and [layering and coupling laws](docs/architecture/layering-and-coupling-laws-v1.md):
+  durable semantic identity and dependency rules.
+- [Product design lessons](docs/references/product-design-lessons-v1.md):
+  synthesis of already-reviewed external evidence.
 - [Language](docs/language.md): source surface and semantic boundaries.
 - [Project and package](docs/project-package.md): projects, modules, packaging,
   trusted loading, and identity.
@@ -95,6 +104,8 @@ paths, formatting, and ordinary hashes do not require new authority.
 - [Roadmap](docs/roadmap.md): authorized future work.
 - [Status](docs/status.md): current lifecycle state; live Git and CI are the
   publication authority.
+- [Plans](docs/plan/README.md): historical planning material, not current
+  architecture, roadmap, lifecycle, or implementation authority.
 - Current public contracts: [CLI JSON v1](docs/spec/cli-json-v1.md),
   [diagnostics](docs/spec/diagnostics.md), [project JSON v2](docs/spec/project-cli-json-v2.md),
   [semantic metadata artifact v1](docs/spec/semantic-metadata-artifact-v1.md),
