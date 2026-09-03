@@ -17,8 +17,9 @@ environment, resolution-fact carrier, and existing type-kernel adapter, is
 qualified/unqualified lookup authority, is `COMPLETED / PUBLISHED`. Slice 5,
 the private immutable LET-prefix namespace and shadowing/alias-law authority,
 is `COMPLETED / PUBLISHED`. Slice 6, the exact post-JOIN row-semantic,
-nullability, lineage, and property bridge, is `COMPLETED / PUBLISHED`. Phase 63
-Slice 7 remains `NEXT / NOT IMPLEMENTED`.
+nullability, lineage, and property bridge, is `COMPLETED / PUBLISHED`. Slice 7,
+the private completion schedule and effective-output ledger foundation, is
+`COMPLETED / PUBLISHED`. Phase 63 Slice 8 remains `NEXT / NOT IMPLEMENTED`.
 Project Explain v1 remains unchanged.
 Pietto remains compiler-only: no package or catalog registry, dependency
 solver, remote loading, database execution, runtime evaluation, installation
@@ -1463,8 +1464,8 @@ historical evidence and does not itself authorize Phase-63 implementation.
 
 ## Phase 63 route
 
-Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–6
-are `COMPLETED / PUBLISHED`; Slice 7 is `NEXT / NOT IMPLEMENTED`; Slices 8–16
+Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–7
+are `COMPLETED / PUBLISHED`; Slice 8 is `NEXT / NOT IMPLEMENTED`; Slices 9–16
 are not implemented. The published route has exactly 16 numbered Slices.
 
 | Slice | Owner |
@@ -1603,6 +1604,25 @@ Slice 6 adds no filtering, grouping, aggregate repair, scheduling, effective
 output, window/QUALIFY, final projection, SQL, Arrow, executor, or public
 behavior. Successful natural exact-head CI completes Slice 6 without a
 status-only follow-up commit and leaves Slice 7 `NEXT / NOT IMPLEMENTED`.
+
+The [Slice 7 completion foundation](spec/phase63-slice7-completion-scheduling-effective-output-ledger-module-propagation-v1.md)
+inventories every exact `ProjectIRProjectPlan.fragments` owner, retains
+join-free resolution or JOIN-binding dependency occurrences, and derives a
+stable dependency-first Kahn/FIFO schedule without a third graph. The immutable
+effective-output ledger retains one canonical-order entry per owner.
+
+Historically concrete fragments keep their exact root outputs and relational
+properties. A concrete Slice-6 joined result remains `JOINED_TAIL_PENDING` with
+no effective output because the binary JOIN row is not yet relation-final.
+Exact `UPSTREAM_DEFERRED` no-JOIN chains retain recoverable
+`UPSTREAM_EFFECTIVE_OUTPUT_PENDING` entries across local, imported, and
+re-exported resolution. JOIN over such pending authority remains
+`EFFECTIVE_UPSTREAM_JOIN_UNSUPPORTED`; effective outputs never become
+relationship endpoints or Phase-62 path nodes. Slice 7 adds no filtering,
+grouping, aggregate, window/QUALIFY, final projection/output, SQL, Arrow,
+executor, or public behavior. Successful natural exact-head CI completes Slice
+7 without a status-only follow-up commit and leaves Slice 8
+`NEXT / NOT IMPLEMENTED`.
 
 `LET` is the first post-JOIN scalar scope. Each stage has an immutable
 visibility environment and hidden intermediate path fields remain non-nameable

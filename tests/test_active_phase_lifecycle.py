@@ -160,6 +160,10 @@ PHASE63_SLICE6_SPEC = (
     REPO_ROOT
     / "docs/spec/phase63-slice6-post-join-row-semantics-nullability-lineage-property-bridge-v1.md"
 )
+PHASE63_SLICE7_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase63-slice7-completion-scheduling-effective-output-ledger-module-propagation-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -223,8 +227,8 @@ EXPECTED_STATUS = (
     ("Slice 4", "`COMPLETED / PUBLISHED`"),
     ("Slice 5", "`COMPLETED / PUBLISHED`"),
     ("Slice 6", "`COMPLETED / PUBLISHED`"),
-    ("Slice 7", "`NEXT / NOT IMPLEMENTED`"),
-    ("Slice 8", "`NOT IMPLEMENTED`"),
+    ("Slice 7", "`COMPLETED / PUBLISHED`"),
+    ("Slice 8", "`NEXT / NOT IMPLEMENTED`"),
     ("Slice 9", "`NOT IMPLEMENTED`"),
     ("Slice 10", "`NOT IMPLEMENTED`"),
     ("Slice 11", "`NOT IMPLEMENTED`"),
@@ -235,7 +239,7 @@ EXPECTED_STATUS = (
     ("Slice 16", "`NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 63 Slice 7 — Completion Scheduling, Effective-Output Ledger Foundation, And Module Propagation`",
+        "`Phase 63 Slice 8 — Joined Row Filtering`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -273,8 +277,8 @@ EXPECTED_PHASE62_OWNER = (
     "and multi-fact alignment analysis"
 )
 EXPECTED_PHASE63_STATE = (
-    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–6\n"
-    "are `COMPLETED / PUBLISHED`; Slice 7 is `NEXT / NOT IMPLEMENTED`; Slices 8–16\n"
+    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–7\n"
+    "are `COMPLETED / PUBLISHED`; Slice 8 is `NEXT / NOT IMPLEMENTED`; Slices 9–16\n"
     "are not implemented. The published route has exactly 16 numbered Slices."
 )
 EXPECTED_PHASE58_ROUTE = (
@@ -1248,6 +1252,15 @@ EXPECTED_PHASE63_SLICE6_CHANGED_PATHS = (
     "tests/test_active_phase_lifecycle.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE63_SLICE7_CHANGED_PATHS = (
+    "src/pietto/_project/project_completion.py",
+    "docs/spec/phase63-slice7-completion-scheduling-effective-output-ledger-module-propagation-v1.md",
+    "tests/test_phase63_slice7_completion_scheduling_effective_output_ledger_module_propagation.py",
+    "docs/roadmap.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -1382,8 +1395,24 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     )
     assert "Historical `AUTHORED_JOIN_DEFERRED` remains unchanged" in normalized
     assert "Slice 6 adds no filtering, grouping, aggregate repair" in normalized
-    assert "Phase 63 Slice 7 is `NEXT / NOT IMPLEMENTED`" in normalized
-    assert "Slices 8–16 and every Phase-64+ implementation remain" in normalized
+    assert "Phase 63 Slice 7 is `COMPLETED / PUBLISHED`" in normalized
+    assert "private completion foundation" in normalized
+    assert "every exact Project-plan relation owner" in normalized
+    assert "exact resolution/JOIN-binding dependency occurrences" in normalized
+    assert "deterministic dependency-first schedule" in normalized
+    assert "one canonical-order effective-output entry per owner" in normalized
+    assert (
+        "Existing concrete outputs and properties remain object-identical" in normalized
+    )
+    assert (
+        "`JOINED_TAIL_PENDING` with no prematurely published final output" in normalized
+    )
+    assert "no-JOIN `UPSTREAM_DEFERRED` chains remain recoverable pending" in normalized
+    assert "JOIN over pending effective authority stays unsupported" in normalized
+    assert "no relationship/path authority is rebuilt or promoted" in normalized
+    assert "Slice 7 adds no filtering, grouping, aggregate" in normalized
+    assert "Phase 63 Slice 8 is `NEXT / NOT IMPLEMENTED`" in normalized
+    assert "Slices 9–16 and every Phase-64+ implementation remain" in normalized
     prerequisite_target = (
         "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
     )
@@ -1411,6 +1440,10 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert f"]({slice6_target})" in status
     assert (STATUS.parent / slice6_target).resolve() == PHASE63_SLICE6_SPEC
     assert PHASE63_SLICE6_SPEC.is_file()
+    slice7_target = "spec/phase63-slice7-completion-scheduling-effective-output-ledger-module-propagation-v1.md"
+    assert f"]({slice7_target})" in status
+    assert (STATUS.parent / slice7_target).resolve() == PHASE63_SLICE7_SPEC
+    assert PHASE63_SLICE7_SPEC.is_file()
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -1794,6 +1827,19 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "Slice 6 adds no filtering, grouping, aggregate repair",
         "natural exact-head CI completes Slice 6",
         "leaves Slice 7 `NEXT / NOT IMPLEMENTED`",
+        "phase63-slice7-completion-scheduling-effective-output-ledger-module-propagation-v1.md",
+        "every exact `ProjectIRProjectPlan.fragments` owner",
+        "stable dependency-first Kahn/FIFO schedule without a third graph",
+        "one canonical-order entry per owner",
+        "Historically concrete fragments keep their exact root outputs",
+        "concrete Slice-6 joined result remains `JOINED_TAIL_PENDING`",
+        "binary JOIN row is not yet relation-final",
+        "`UPSTREAM_EFFECTIVE_OUTPUT_PENDING` entries across local, imported, and re-exported resolution",
+        "`EFFECTIVE_UPSTREAM_JOIN_UNSUPPORTED`",
+        "effective outputs never become relationship endpoints or Phase-62 path nodes",
+        "Slice 7 adds no filtering, grouping, aggregate",
+        "natural exact-head CI completes Slice 7",
+        "leaves Slice 8 `NEXT / NOT IMPLEMENTED`",
     ):
         assert evidence in phase63_normalized
 
@@ -1809,6 +1855,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "spec/phase63-slice4-bindings-visible-joined-fields-qualified-unqualified-lookup-v1.md",
         "spec/phase63-slice5-let-stage-namespace-lattice-shadowing-alias-laws-v1.md",
         "spec/phase63-slice6-post-join-row-semantics-nullability-lineage-property-bridge-v1.md",
+        "spec/phase63-slice7-completion-scheduling-effective-output-ledger-module-propagation-v1.md",
     ):
         assert f"]({target})" in roadmap
         assert (ROADMAP.parent / target).is_file()
@@ -3619,6 +3666,27 @@ def test_phase63_slice6_changed_paths_are_exact() -> None:
     assert all((REPO_ROOT / path).is_file() for path in paths)
     assert tuple(path for path in paths if path.startswith("src/")) == (
         "src/pietto/_project/project_joined_row_semantics.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase63_slice7_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE63_SLICE7_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 7
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert tuple(path for path in paths if path.startswith("src/")) == (
+        "src/pietto/_project/project_completion.py",
     )
     assert not any(
         path.startswith(

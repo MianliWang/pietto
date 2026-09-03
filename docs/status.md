@@ -22,8 +22,8 @@ documentation does not supersede that evidence.
 | Slice 4 | `COMPLETED / PUBLISHED` |
 | Slice 5 | `COMPLETED / PUBLISHED` |
 | Slice 6 | `COMPLETED / PUBLISHED` |
-| Slice 7 | `NEXT / NOT IMPLEMENTED` |
-| Slice 8 | `NOT IMPLEMENTED` |
+| Slice 7 | `COMPLETED / PUBLISHED` |
+| Slice 8 | `NEXT / NOT IMPLEMENTED` |
 | Slice 9 | `NOT IMPLEMENTED` |
 | Slice 10 | `NOT IMPLEMENTED` |
 | Slice 11 | `NOT IMPLEMENTED` |
@@ -32,7 +32,7 @@ documentation does not supersede that evidence.
 | Slice 14 | `NOT IMPLEMENTED` |
 | Slice 15 | `NOT IMPLEMENTED` |
 | Slice 16 | `NOT IMPLEMENTED` |
-| Next | `Phase 63 Slice 7 — Completion Scheduling, Effective-Output Ledger Foundation, And Module Propagation` |
+| Next | `Phase 63 Slice 8 — Joined Row Filtering` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -122,5 +122,19 @@ publish no concrete row-semantic stage. Historical `AUTHORED_JOIN_DEFERRED`
 remains unchanged. Slice 6 adds no filtering, grouping, aggregate repair,
 scheduling/effective-output ledger, window/QUALIFY, final projection, SQL,
 Arrow, executor, or public behavior. Phase 63 Slice 7 is
-`NEXT / NOT IMPLEMENTED`; Slices 8–16 and every Phase-64+ implementation remain
+`COMPLETED / PUBLISHED`.
+
+Its [private completion
+foundation](spec/phase63-slice7-completion-scheduling-effective-output-ledger-module-propagation-v1.md)
+retains every exact Project-plan relation owner, exact resolution/JOIN-binding
+dependency occurrences, a deterministic dependency-first schedule, and one
+canonical-order effective-output entry per owner. Existing concrete outputs and
+properties remain object-identical. Concrete Slice-6 readiness is
+`JOINED_TAIL_PENDING` with no prematurely published final output; exact
+no-JOIN `UPSTREAM_DEFERRED` chains remain recoverable pending across module and
+re-export boundaries. JOIN over pending effective authority stays unsupported,
+and no relationship/path authority is rebuilt or promoted. Slice 7 adds no
+filtering, grouping, aggregate, window/QUALIFY, final projection/output, SQL,
+Arrow, executor, or public behavior. Phase 63 Slice 8 is
+`NEXT / NOT IMPLEMENTED`; Slices 9–16 and every Phase-64+ implementation remain
 unstarted and unauthorized here.
