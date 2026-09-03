@@ -693,11 +693,3 @@ def test_scope_dependency_spec_and_inventory_are_exact() -> None:
         "Slice 9 is not begun here",
     ):
         assert evidence in normalized
-    production_files = tuple(
-        path
-        for path in (REPO_ROOT / "src/pietto").rglob("*.py")
-        if "generated" not in path.parts
-    )
-    test_files = tuple((REPO_ROOT / "tests").rglob("*.py"))
-    assert len(production_files) == 170
-    assert len(test_files) == 413

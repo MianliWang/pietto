@@ -24,15 +24,15 @@ documentation does not supersede that evidence.
 | Slice 6 | `COMPLETED / PUBLISHED` |
 | Slice 7 | `COMPLETED / PUBLISHED` |
 | Slice 8 | `COMPLETED / PUBLISHED` |
-| Slice 9 | `NEXT / NOT IMPLEMENTED` |
-| Slice 10 | `NOT IMPLEMENTED` |
+| Slice 9 | `COMPLETED / PUBLISHED` |
+| Slice 10 | `NEXT / NOT IMPLEMENTED` |
 | Slice 11 | `NOT IMPLEMENTED` |
 | Slice 12 | `NOT IMPLEMENTED` |
 | Slice 13 | `NOT IMPLEMENTED` |
 | Slice 14 | `NOT IMPLEMENTED` |
 | Slice 15 | `NOT IMPLEMENTED` |
 | Slice 16 | `NOT IMPLEMENTED` |
-| Next | `Phase 63 Slice 9 — Joined Grouping, Aggregate, GLOBAL, Satisfying, And Risk Linkage` |
+| Next | `Phase 63 Slice 10 — Generic Window-Computation Sites And Named-Window Reuse` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -156,5 +156,26 @@ no manufactured predicate or operator. No Project IR output or effective-output
 entry is created, and Slice-7 ledger entries remain `JOINED_TAIL_PENDING`.
 Slice 8 adds no grouping, aggregate-over-JOIN behavior, window/QUALIFY, final
 projection/output, SQL, Arrow, executor, or public behavior. Phase 63 Slice 9
-is `NEXT / NOT IMPLEMENTED`; Slices 10–16 and every Phase-64+ implementation
-remain unstarted and unauthorized here.
+is `COMPLETED / PUBLISHED`.
+
+Its [private joined aggregation
+stage](spec/phase63-slice9-joined-grouping-aggregate-global-satisfying-risk-linkage-v1.md)
+consumes exact Slice-8 results and publishes closed `ABSENT`, `GROUPED`, or
+`GLOBAL` evidence. Group keys retain exact joined occurrences and direct LET
+chains; aggregate occurrences reuse current function, argument, result-type,
+and diagnostic authority while retaining every underlying field dependency.
+Stage outputs remain plan-independent and mint no final identity.
+
+GROUP protection uses only proven STRICT keys/FDs. Aggregate contextual grain,
+fanout exposure, pair comparisons, common-grain candidates, and chasm evidence
+reuse exact Phase-62 roots. `FANOUT_RISK`, `CROSS_FACT_MULTIPLICATION`, or
+`REAGGREGATION_REQUIRED` retains `AGGREGATE_ALGEBRA_REQUIRED` and produces a
+typed terminal; no automatic aggregate repair occurs. Risk-free grouped
+satisfying sees only exact supported stage outputs and preserves existing
+diagnostics plus declarative SQL TRUE/FALSE/UNKNOWN retention.
+
+No final relation output or Project IR ref is allocated, and Slice-7 ledger
+entries remain `JOINED_TAIL_PENDING`. Slice 9 adds no window computation,
+QUALIFY, final projection/order/limit, ledger completion, SQL, Arrow, executor,
+or public behavior. Phase 63 Slice 10 is `NEXT / NOT IMPLEMENTED`; Slices 11–16
+and every Phase-64+ implementation remain unstarted and unauthorized here.

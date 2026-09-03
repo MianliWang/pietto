@@ -20,7 +20,9 @@ is `COMPLETED / PUBLISHED`. Slice 6, the exact post-JOIN row-semantic,
 nullability, lineage, and property bridge, is `COMPLETED / PUBLISHED`. Slice 7,
 the private completion schedule and effective-output ledger foundation, is
 `COMPLETED / PUBLISHED`. Slice 8, the private joined-row filtering stage, is
-`COMPLETED / PUBLISHED`. Phase 63 Slice 9 remains `NEXT / NOT IMPLEMENTED`.
+`COMPLETED / PUBLISHED`. Slice 9, the private joined grouping, aggregate,
+GLOBAL, satisfying, and risk-linkage stage, is `COMPLETED / PUBLISHED`. Phase
+63 Slice 10 remains `NEXT / NOT IMPLEMENTED`.
 Project Explain v1 remains unchanged.
 Pietto remains compiler-only: no package or catalog registry, dependency
 solver, remote loading, database execution, runtime evaluation, installation
@@ -1465,8 +1467,8 @@ historical evidence and does not itself authorize Phase-63 implementation.
 
 ## Phase 63 route
 
-Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–8
-are `COMPLETED / PUBLISHED`; Slice 9 is `NEXT / NOT IMPLEMENTED`; Slices 10–16
+Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–9
+are `COMPLETED / PUBLISHED`; Slice 10 is `NEXT / NOT IMPLEMENTED`; Slices 11–16
 are not implemented. The published route has exactly 16 numbered Slices.
 
 | Slice | Owner |
@@ -1652,6 +1654,39 @@ grouping, aggregate-over-JOIN behavior, window/QUALIFY, final output, Project IR
 allocation, SQL, Arrow, executor, or public behavior. Successful natural
 exact-head CI completes Slice 8 without a status-only follow-up commit and
 leaves Slice 9 `NEXT / NOT IMPLEMENTED`.
+
+The [Slice 9 joined aggregation
+stage](spec/phase63-slice9-joined-grouping-aggregate-global-satisfying-risk-linkage-v1.md)
+consumes exact Slice-8 results and selects the closed `ABSENT`, `GROUPED`, or
+`GLOBAL` mode. Occurrence-safe group keys resolve through exact joined fields
+and direct LET-to-field chains. Direct selected aggregate occurrences reuse the
+existing semantic function inventory, type/result helpers, diagnostics, and
+approved argument shapes while recursively retaining every exact underlying
+field dependency.
+
+Plan-independent group-key and aggregate stage outputs mint no final semantic
+or Project IR identity. GROUPED protection credits localized input grain only
+when exact group-key value classes prove a retained STRICT candidate key
+through existing STRICT-FD closure. Every aggregate retains argument factors,
+group-protection factors, combined seed, Phase-62 grain closure, and comparison
+with the exact final JOIN grain.
+
+`RIGHT_FINER` retains exact causative JOIN factor additions, `FANOUT_RISK`, and
+`AGGREGATE_ALGEBRA_REQUIRED`. Pairwise comparisons consume the exact Phase-62
+actual-candidate set and preserve every winner-free common-grain candidate;
+incomparable fact branches retain chasm evidence and
+`CROSS_FACT_MULTIPLICATION`. Any algebra requirement fails closed without
+preaggregation, reaggregation, COUNT/DISTINCT rewriting, or other automatic
+repair.
+
+Risk-free GROUPED satisfying sees only supported exact group-key and aggregate
+outputs, preserves existing `PIE-S2323`–`PIE-S2327`, Bool, aggregate-context,
+and SQL TRUE/FALSE/UNKNOWN laws, and never evaluates rows. Slice-7 entries
+remain unchanged and `JOINED_TAIL_PENDING`. Slice 9 adds no window computation,
+QUALIFY, final projection/order/limit/output, Project IR allocation, SQL,
+Arrow, executor, or public behavior. Successful natural exact-head CI completes
+Slice 9 without a status-only follow-up commit and leaves Slice 10
+`NEXT / NOT IMPLEMENTED`.
 
 `LET` is the first post-JOIN scalar scope. Each stage has an immutable
 visibility environment and hidden intermediate path fields remain non-nameable
