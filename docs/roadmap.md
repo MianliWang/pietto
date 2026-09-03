@@ -16,8 +16,9 @@ environment, resolution-fact carrier, and existing type-kernel adapter, is
 `COMPLETED / PUBLISHED`. Slice 4, the authored JOIN binding visibility and
 qualified/unqualified lookup authority, is `COMPLETED / PUBLISHED`. Slice 5,
 the private immutable LET-prefix namespace and shadowing/alias-law authority,
-is `COMPLETED / PUBLISHED`. Phase 63 Slice 6 remains
-`NEXT / NOT IMPLEMENTED`.
+is `COMPLETED / PUBLISHED`. Slice 6, the exact post-JOIN row-semantic,
+nullability, lineage, and property bridge, is `COMPLETED / PUBLISHED`. Phase 63
+Slice 7 remains `NEXT / NOT IMPLEMENTED`.
 Project Explain v1 remains unchanged.
 Pietto remains compiler-only: no package or catalog registry, dependency
 solver, remote loading, database execution, runtime evaluation, installation
@@ -1462,8 +1463,8 @@ historical evidence and does not itself authorize Phase-63 implementation.
 
 ## Phase 63 route
 
-Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–5
-are `COMPLETED / PUBLISHED`; Slice 6 is `NEXT / NOT IMPLEMENTED`; Slices 7–16
+Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–6
+are `COMPLETED / PUBLISHED`; Slice 7 is `NEXT / NOT IMPLEMENTED`; Slices 8–16
 are not implemented. The published route has exactly 16 numbered Slices.
 
 | Slice | Owner |
@@ -1582,6 +1583,26 @@ bridge, filtering, grouping, aggregate-over-JOIN behavior, window/QUALIFY,
 final projection, SQL, Arrow, executor, or public behavior. Successful natural
 exact-head CI completes Slice 5 without a status-only follow-up commit and
 leaves Slice 6 `NEXT / NOT IMPLEMENTED`.
+
+The [Slice 6 post-JOIN row-semantic bridge](spec/phase63-slice6-post-join-row-semantics-nullability-lineage-property-bridge-v1.md)
+attaches the exact Slice-5 `POST_LET` namespace to the VERIFIED Phase-62 final
+JOIN output. Every final visible, hidden, and repeated occurrence retains its
+Slice-3 scalar field, joined-field provenance, matching final property field,
+exact standalone input occurrence, existing canonical upstream field identity,
+and concrete module-attribution lineage paths.
+
+Effective nullability and ordered `nulling_joins` remain final-output-local
+authority and agree with the existing Slice-3 type adapter. The exact final
+`ProjectIRJoinOutputProperties` and `ProjectMultiFactConcreteRegion` are
+retained by object identity; keys, FDs, FD index, grain, NULL extension,
+ordering availability, and aggregate-risk evidence are not recomputed or
+interpreted. Existing computed/LET/grouped/window module lineage remains
+deferred and produces a typed non-concrete terminal rather than legacy
+name-based fallback. Historical `AUTHORED_JOIN_DEFERRED` remains unchanged.
+Slice 6 adds no filtering, grouping, aggregate repair, scheduling, effective
+output, window/QUALIFY, final projection, SQL, Arrow, executor, or public
+behavior. Successful natural exact-head CI completes Slice 6 without a
+status-only follow-up commit and leaves Slice 7 `NEXT / NOT IMPLEMENTED`.
 
 `LET` is the first post-JOIN scalar scope. Each stage has an immutable
 visibility environment and hidden intermediate path fields remain non-nameable

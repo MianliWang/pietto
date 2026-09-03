@@ -156,6 +156,10 @@ PHASE63_SLICE5_SPEC = (
     REPO_ROOT
     / "docs/spec/phase63-slice5-let-stage-namespace-lattice-shadowing-alias-laws-v1.md"
 )
+PHASE63_SLICE6_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase63-slice6-post-join-row-semantics-nullability-lineage-property-bridge-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -218,8 +222,8 @@ EXPECTED_STATUS = (
     ("Slice 3", "`COMPLETED / PUBLISHED`"),
     ("Slice 4", "`COMPLETED / PUBLISHED`"),
     ("Slice 5", "`COMPLETED / PUBLISHED`"),
-    ("Slice 6", "`NEXT / NOT IMPLEMENTED`"),
-    ("Slice 7", "`NOT IMPLEMENTED`"),
+    ("Slice 6", "`COMPLETED / PUBLISHED`"),
+    ("Slice 7", "`NEXT / NOT IMPLEMENTED`"),
     ("Slice 8", "`NOT IMPLEMENTED`"),
     ("Slice 9", "`NOT IMPLEMENTED`"),
     ("Slice 10", "`NOT IMPLEMENTED`"),
@@ -231,7 +235,7 @@ EXPECTED_STATUS = (
     ("Slice 16", "`NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 63 Slice 6 — Post-JOIN Row Semantics, Nullability, Lineage And Property Bridge`",
+        "`Phase 63 Slice 7 — Completion Scheduling, Effective-Output Ledger Foundation, And Module Propagation`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -269,8 +273,8 @@ EXPECTED_PHASE62_OWNER = (
     "and multi-fact alignment analysis"
 )
 EXPECTED_PHASE63_STATE = (
-    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–5\n"
-    "are `COMPLETED / PUBLISHED`; Slice 6 is `NEXT / NOT IMPLEMENTED`; Slices 7–16\n"
+    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–6\n"
+    "are `COMPLETED / PUBLISHED`; Slice 7 is `NEXT / NOT IMPLEMENTED`; Slices 8–16\n"
     "are not implemented. The published route has exactly 16 numbered Slices."
 )
 EXPECTED_PHASE58_ROUTE = (
@@ -1235,6 +1239,15 @@ EXPECTED_PHASE63_SLICE5_CHANGED_PATHS = (
     "tests/test_active_phase_lifecycle.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE63_SLICE6_CHANGED_PATHS = (
+    "src/pietto/_project/project_joined_row_semantics.py",
+    "docs/spec/phase63-slice6-post-join-row-semantics-nullability-lineage-property-bridge-v1.md",
+    "tests/test_phase63_slice6_post_join_row_semantics_nullability_lineage_property_bridge.py",
+    "docs/roadmap.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -1352,8 +1365,25 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "qualified LET and projection-alias lookup remain absent" in normalized
     assert "Non-concrete results publish no `POST_LET`" in normalized
     assert "Slice 5 adds no post-JOIN property bridge" in normalized
-    assert "Phase 63 Slice 6 is `NEXT / NOT IMPLEMENTED`" in normalized
-    assert "Slices 7–16 and every Phase-64+ implementation remain" in normalized
+    assert "Phase 63 Slice 6 is `COMPLETED / PUBLISHED`" in normalized
+    assert "private post-JOIN row-semantic bridge" in normalized
+    assert "every final joined occurrence, effective nullability" in normalized
+    assert "exact upstream canonical field identity and existing concrete" in normalized
+    assert "final Phase-62 relational and multi-fact property objects" in normalized
+    assert "Hidden and repeated occurrences remain complete and distinct" in normalized
+    assert (
+        "Computed/LET/grouped/window upstreams with deferred module lineage"
+        in normalized
+    )
+    assert "no legacy name-based lineage is substituted" in normalized
+    assert (
+        "Non-concrete Slice-5 roots also publish no concrete row-semantic stage"
+        in normalized
+    )
+    assert "Historical `AUTHORED_JOIN_DEFERRED` remains unchanged" in normalized
+    assert "Slice 6 adds no filtering, grouping, aggregate repair" in normalized
+    assert "Phase 63 Slice 7 is `NEXT / NOT IMPLEMENTED`" in normalized
+    assert "Slices 8–16 and every Phase-64+ implementation remain" in normalized
     prerequisite_target = (
         "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
     )
@@ -1377,6 +1407,10 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert f"]({slice5_target})" in status
     assert (STATUS.parent / slice5_target).resolve() == PHASE63_SLICE5_SPEC
     assert PHASE63_SLICE5_SPEC.is_file()
+    slice6_target = "spec/phase63-slice6-post-join-row-semantics-nullability-lineage-property-bridge-v1.md"
+    assert f"]({slice6_target})" in status
+    assert (STATUS.parent / slice6_target).resolve() == PHASE63_SLICE6_SPEC
+    assert PHASE63_SLICE6_SPEC.is_file()
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -1745,6 +1779,21 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "Slice 5 adds no post-JOIN property bridge",
         "natural exact-head CI completes Slice 5",
         "leaves Slice 6 `NEXT / NOT IMPLEMENTED`",
+        "phase63-slice6-post-join-row-semantics-nullability-lineage-property-bridge-v1.md",
+        "exact Slice-5 `POST_LET` namespace",
+        "Every final visible, hidden, and repeated occurrence",
+        "matching final property field",
+        "existing canonical upstream field identity",
+        "Effective nullability and ordered `nulling_joins`",
+        "exact final `ProjectIRJoinOutputProperties`",
+        "`ProjectMultiFactConcreteRegion`",
+        "not recomputed or interpreted",
+        "computed/LET/grouped/window module lineage remains deferred",
+        "typed non-concrete terminal rather than legacy name-based fallback",
+        "Historical `AUTHORED_JOIN_DEFERRED` remains unchanged",
+        "Slice 6 adds no filtering, grouping, aggregate repair",
+        "natural exact-head CI completes Slice 6",
+        "leaves Slice 7 `NEXT / NOT IMPLEMENTED`",
     ):
         assert evidence in phase63_normalized
 
@@ -1759,6 +1808,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "spec/phase63-slice3-scalar-reference-environment-resolution-facts-type-kernel-adapter-v1.md",
         "spec/phase63-slice4-bindings-visible-joined-fields-qualified-unqualified-lookup-v1.md",
         "spec/phase63-slice5-let-stage-namespace-lattice-shadowing-alias-laws-v1.md",
+        "spec/phase63-slice6-post-join-row-semantics-nullability-lineage-property-bridge-v1.md",
     ):
         assert f"]({target})" in roadmap
         assert (ROADMAP.parent / target).is_file()
@@ -3548,6 +3598,27 @@ def test_phase63_slice5_changed_paths_are_exact() -> None:
     assert all((REPO_ROOT / path).is_file() for path in paths)
     assert tuple(path for path in paths if path.startswith("src/")) == (
         "src/pietto/_project/project_scalar_namespaces.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase63_slice6_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE63_SLICE6_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 7
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert tuple(path for path in paths if path.startswith("src/")) == (
+        "src/pietto/_project/project_joined_row_semantics.py",
     )
     assert not any(
         path.startswith(

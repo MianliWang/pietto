@@ -21,8 +21,8 @@ documentation does not supersede that evidence.
 | Slice 3 | `COMPLETED / PUBLISHED` |
 | Slice 4 | `COMPLETED / PUBLISHED` |
 | Slice 5 | `COMPLETED / PUBLISHED` |
-| Slice 6 | `NEXT / NOT IMPLEMENTED` |
-| Slice 7 | `NOT IMPLEMENTED` |
+| Slice 6 | `COMPLETED / PUBLISHED` |
+| Slice 7 | `NEXT / NOT IMPLEMENTED` |
 | Slice 8 | `NOT IMPLEMENTED` |
 | Slice 9 | `NOT IMPLEMENTED` |
 | Slice 10 | `NOT IMPLEMENTED` |
@@ -32,7 +32,7 @@ documentation does not supersede that evidence.
 | Slice 14 | `NOT IMPLEMENTED` |
 | Slice 15 | `NOT IMPLEMENTED` |
 | Slice 16 | `NOT IMPLEMENTED` |
-| Next | `Phase 63 Slice 6 — Post-JOIN Row Semantics, Nullability, Lineage And Property Bridge` |
+| Next | `Phase 63 Slice 7 — Completion Scheduling, Effective-Output Ledger Foundation, And Module Propagation` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -108,5 +108,19 @@ existing type kernel; qualified LET and projection-alias lookup remain absent.
 Non-concrete results publish no `POST_LET`. Slice 5 adds no post-JOIN property
 bridge, filtering, grouping, aggregate-over-JOIN behavior, window/QUALIFY,
 final projection, SQL, Arrow, executor, or public behavior. Phase 63 Slice 6 is
-`NEXT / NOT IMPLEMENTED`; Slices 7–16 and every Phase-64+ implementation remain
+`COMPLETED / PUBLISHED`.
+
+Its [private post-JOIN row-semantic
+bridge](spec/phase63-slice6-post-join-row-semantics-nullability-lineage-property-bridge-v1.md)
+retains every final joined occurrence, effective nullability and nulling
+provenance, exact upstream canonical field identity and existing concrete
+module lineage, plus the final Phase-62 relational and multi-fact property
+objects. Hidden and repeated occurrences remain complete and distinct.
+Computed/LET/grouped/window upstreams with deferred module lineage fail closed;
+no legacy name-based lineage is substituted. Non-concrete Slice-5 roots also
+publish no concrete row-semantic stage. Historical `AUTHORED_JOIN_DEFERRED`
+remains unchanged. Slice 6 adds no filtering, grouping, aggregate repair,
+scheduling/effective-output ledger, window/QUALIFY, final projection, SQL,
+Arrow, executor, or public behavior. Phase 63 Slice 7 is
+`NEXT / NOT IMPLEMENTED`; Slices 8–16 and every Phase-64+ implementation remain
 unstarted and unauthorized here.
