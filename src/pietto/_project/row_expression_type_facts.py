@@ -8,6 +8,7 @@ from types import MappingProxyType
 from pietto._project.model import (
     ProjectResolvedType,
     ProjectResolvedTypeKind,
+    ProjectRowField,
     ProjectRowFieldNullability,
     ProjectRowSchema,
 )
@@ -40,6 +41,30 @@ _PROJECT_BUILTIN_TYPE_NAMES = frozenset(
         "UUID",
     }
 )
+_UNKNOWN_PROJECT_FIELD_VALUE_TYPE = ValueType(
+    resolved_type=ResolvedType(name="<unknown>", kind=TypeKind.UNKNOWN),
+    nullability=EffectiveNullability.UNKNOWN,
+    kind=ValueTypeKind.UNKNOWN,
+)
+
+
+def project_row_field_to_semantic_value_type(
+    field: ProjectRowField,
+    effective_nullability: ProjectRowFieldNullability,
+) -> ValueType:
+    """Adapt one exact Project field occurrence for the semantic type kernel."""
+
+    if type(field) is not ProjectRowField:
+        raise TypeError("Project field adaptation requires an exact row field.")
+    if type(effective_nullability) is not ProjectRowFieldNullability:
+        raise TypeError("Project field adaptation requires exact nullability.")
+    resolved_type = _semantic_resolved_type(field.resolved_type)
+    if resolved_type.kind is TypeKind.UNKNOWN:
+        return _UNKNOWN_PROJECT_FIELD_VALUE_TYPE
+    return ValueType(
+        resolved_type=resolved_type,
+        nullability=_semantic_nullability(effective_nullability),
+    )
 
 
 def build_project_row_expression_value_types(

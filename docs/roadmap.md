@@ -11,8 +11,9 @@ Pietto/external source-audit, Future Roadmap v6, and exact route lock, is
 `COMPLETED / PUBLISHED` by live Git and successful natural exact-head CI. It
 added no production behavior. Slice 2, the private query-block owner bridge,
 closed row-source sum, construction states, and compilation-mode boundary, is
-also `COMPLETED / PUBLISHED`. Phase 63 Slice 3 remains
-`NEXT / NOT IMPLEMENTED`.
+also `COMPLETED / PUBLISHED`. Slice 3, the occurrence-complete scalar-reference
+environment, resolution-fact carrier, and existing type-kernel adapter, is
+`COMPLETED / PUBLISHED`. Phase 63 Slice 4 remains `NEXT / NOT IMPLEMENTED`.
 Project Explain v1 remains unchanged.
 Pietto remains compiler-only: no package or catalog registry, dependency
 solver, remote loading, database execution, runtime evaluation, installation
@@ -1457,8 +1458,8 @@ historical evidence and does not itself authorize Phase-63 implementation.
 
 ## Phase 63 route
 
-Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–2
-are `COMPLETED / PUBLISHED`; Slice 3 is `NEXT / NOT IMPLEMENTED`; Slices 4–16
+Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–3
+are `COMPLETED / PUBLISHED`; Slice 4 is `NEXT / NOT IMPLEMENTED`; Slices 5–16
 are not implemented. The published route has exactly 16 numbered Slices.
 
 | Slice | Owner |
@@ -1519,6 +1520,25 @@ Future completed joined outputs may feed downstream no-new-JOIN blocks but do
 not automatically become relationship endpoints or Phase-62 path nodes.
 Successful natural exact-head CI completes Slice 2 without a status-only
 follow-up commit and leaves Slice 3 `NEXT / NOT IMPLEMENTED`.
+
+The [Slice 3 scalar-reference foundation](spec/phase63-slice3-scalar-reference-environment-resolution-facts-type-kernel-adapter-v1.md)
+projects each exact Slice-2 row-field occurrence into one ordered scalar
+environment entry. Ordinary outputs retain their existing row-shape fields;
+joined outputs retain the exact `ProjectIRJoinedRowShape.fields` tuple and use
+effective JOIN nullability. Duplicate spellings remain distinct and no joined
+`RowSchema` or name map is created.
+
+Each exact `NameExpr`/`DottedNameExpr` use retains one caller-supplied complete
+candidate bucket. The existing candidate status owns `ABSENT`, `CONCRETE`, and
+`AMBIGUOUS`; Slice 3 validates 0/1/N shape without discovering names or choosing
+a winner. Slice 4 still owns bindings, visibility, and qualified/unqualified
+lookup. Exact concrete leaves are adapted through the existing Project-field
+conversion and pre-seeded into `infer_row_expression`, which remains the sole
+function/operator/nullability type-composition kernel. Non-concrete reference
+or kernel evidence publishes no partial root type. Slice 3 adds no binding,
+LET, stage, SQL, Arrow, executor, or public behavior. Successful natural
+exact-head CI completes Slice 3 without a status-only follow-up commit and
+leaves Slice 4 `NEXT / NOT IMPLEMENTED`.
 
 `LET` is the first post-JOIN scalar scope. Each stage has an immutable
 visibility environment and hidden intermediate path fields remain non-nameable

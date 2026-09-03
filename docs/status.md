@@ -18,8 +18,8 @@ documentation does not supersede that evidence.
 | Phase 63 | `ACTIVE` |
 | Slice 1 | `COMPLETED / PUBLISHED` |
 | Slice 2 | `COMPLETED / PUBLISHED` |
-| Slice 3 | `NEXT / NOT IMPLEMENTED` |
-| Slice 4 | `NOT IMPLEMENTED` |
+| Slice 3 | `COMPLETED / PUBLISHED` |
+| Slice 4 | `NEXT / NOT IMPLEMENTED` |
 | Slice 5 | `NOT IMPLEMENTED` |
 | Slice 6 | `NOT IMPLEMENTED` |
 | Slice 7 | `NOT IMPLEMENTED` |
@@ -32,7 +32,7 @@ documentation does not supersede that evidence.
 | Slice 14 | `NOT IMPLEMENTED` |
 | Slice 15 | `NOT IMPLEMENTED` |
 | Slice 16 | `NOT IMPLEMENTED` |
-| Next | `Phase 63 Slice 3 — Scalar-Reference Environment, Resolution Facts, And Type-Kernel Adapter` |
+| Next | `Phase 63 Slice 4 — Bindings, Visible Joined Fields, Qualified/Unqualified Lookup` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -72,5 +72,16 @@ typed non-concrete construction results. Positive construction is
 `EXPLICIT_MODULES`-only; `LEGACY_FLAT` and `PACKAGE_ROOT` remain typed
 fail-closed. Slice 2 adds no scalar lookup, bindings, LET, filtering, grouping,
 window/QUALIFY, Project IR unary tail, SQL, Arrow, executor, or public behavior.
-Phase 63 Slice 3 is `NEXT / NOT IMPLEMENTED`; Slices 4–16 and every Phase-64+
-implementation remain unstarted and unauthorized here.
+
+Phase 63 Slice 3 is `COMPLETED / PUBLISHED`. Its [private scalar-reference
+foundation](spec/phase63-slice3-scalar-reference-environment-resolution-facts-type-kernel-adapter-v1.md)
+retains exact ordinary/joined field occurrences in structural order, including
+duplicate spellings and effective JOIN nullability. Caller-supplied complete
+candidate tuples use the existing `ABSENT`/`CONCRETE`/`AMBIGUOUS` status law;
+Slice 3 performs no name lookup or winner selection. Pre-resolved exact leaf
+occurrences feed the existing `infer_row_expression` kernel, and non-concrete
+reference or kernel evidence publishes no partial root type. Slice 3 adds no
+bindings, visibility, LET, filtering, grouping, window/QUALIFY stage, Project
+IR unary tail, SQL, Arrow, executor, or public behavior. Phase 63 Slice 4 is
+`NEXT / NOT IMPLEMENTED`; Slices 5–16 and every Phase-64+ implementation remain
+unstarted and unauthorized here.

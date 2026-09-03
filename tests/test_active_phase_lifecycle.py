@@ -144,6 +144,10 @@ PHASE63_SLICE2_SPEC = (
     REPO_ROOT
     / "docs/spec/phase63-slice2-query-block-owner-bridge-row-source-sum-states-mode-boundary-v1.md"
 )
+PHASE63_SLICE3_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase63-slice3-scalar-reference-environment-resolution-facts-type-kernel-adapter-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -203,8 +207,8 @@ EXPECTED_STATUS = (
     ("Phase 63", "`ACTIVE`"),
     ("Slice 1", "`COMPLETED / PUBLISHED`"),
     ("Slice 2", "`COMPLETED / PUBLISHED`"),
-    ("Slice 3", "`NEXT / NOT IMPLEMENTED`"),
-    ("Slice 4", "`NOT IMPLEMENTED`"),
+    ("Slice 3", "`COMPLETED / PUBLISHED`"),
+    ("Slice 4", "`NEXT / NOT IMPLEMENTED`"),
     ("Slice 5", "`NOT IMPLEMENTED`"),
     ("Slice 6", "`NOT IMPLEMENTED`"),
     ("Slice 7", "`NOT IMPLEMENTED`"),
@@ -219,7 +223,7 @@ EXPECTED_STATUS = (
     ("Slice 16", "`NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 63 Slice 3 — Scalar-Reference Environment, Resolution Facts, And Type-Kernel Adapter`",
+        "`Phase 63 Slice 4 — Bindings, Visible Joined Fields, Qualified/Unqualified Lookup`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -257,8 +261,8 @@ EXPECTED_PHASE62_OWNER = (
     "and multi-fact alignment analysis"
 )
 EXPECTED_PHASE63_STATE = (
-    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–2\n"
-    "are `COMPLETED / PUBLISHED`; Slice 3 is `NEXT / NOT IMPLEMENTED`; Slices 4–16\n"
+    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–3\n"
+    "are `COMPLETED / PUBLISHED`; Slice 4 is `NEXT / NOT IMPLEMENTED`; Slices 5–16\n"
     "are not implemented. The published route has exactly 16 numbered Slices."
 )
 EXPECTED_PHASE58_ROUTE = (
@@ -1195,6 +1199,16 @@ EXPECTED_PHASE63_SLICE2_CHANGED_PATHS = (
     "tests/test_active_phase_lifecycle.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE63_SLICE3_CHANGED_PATHS = (
+    "src/pietto/_project/project_scalar_references.py",
+    "src/pietto/_project/row_expression_type_facts.py",
+    "docs/spec/phase63-slice3-scalar-reference-environment-resolution-facts-type-kernel-adapter-v1.md",
+    "tests/test_phase63_slice3_scalar_reference_environment_resolution_facts_type_kernel_adapter.py",
+    "docs/roadmap.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -1276,10 +1290,17 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "`EXPLICIT_MODULES`-only" in normalized
     assert "`LEGACY_FLAT` and `PACKAGE_ROOT` remain typed fail-closed" in normalized
     assert "Slice 2 adds no scalar lookup" in normalized
-    assert "Phase 63 Slice 3 is `NEXT / NOT IMPLEMENTED`" in normalized
-    assert "Slices 4–16 and every Phase-64+ implementation remain unstarted" in (
-        normalized
-    )
+    assert "Phase 63 Slice 3 is `COMPLETED / PUBLISHED`" in normalized
+    assert "private scalar-reference foundation" in normalized
+    assert "exact ordinary/joined field occurrences in structural order" in normalized
+    assert "duplicate spellings and effective JOIN nullability" in normalized
+    assert "existing `ABSENT`/`CONCRETE`/`AMBIGUOUS` status law" in normalized
+    assert "performs no name lookup or winner selection" in normalized
+    assert "feed the existing `infer_row_expression` kernel" in normalized
+    assert "publishes no partial root type" in normalized
+    assert "Slice 3 adds no bindings, visibility, LET" in normalized
+    assert "Phase 63 Slice 4 is `NEXT / NOT IMPLEMENTED`" in normalized
+    assert "Slices 5–16 and every Phase-64+ implementation remain" in (normalized)
     prerequisite_target = (
         "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
     )
@@ -1289,6 +1310,10 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert f"]({slice2_target})" in status
     assert (STATUS.parent / slice2_target).resolve() == PHASE63_SLICE2_SPEC
     assert PHASE63_SLICE2_SPEC.is_file()
+    slice3_target = "spec/phase63-slice3-scalar-reference-environment-resolution-facts-type-kernel-adapter-v1.md"
+    assert f"]({slice3_target})" in status
+    assert (STATUS.parent / slice3_target).resolve() == PHASE63_SLICE3_SPEC
+    assert PHASE63_SLICE3_SPEC.is_file()
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -1600,7 +1625,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "TRUE retains while FALSE/UNKNOWN drop",
         "selected-output window identity",
         "unary tail after the binary JOIN region",
-        "Slice 3 `NEXT / NOT IMPLEMENTED`",
+        "Slice 4 `NEXT / NOT IMPLEMENTED`",
         "repository architecture authority extraction prerequisite",
         "unnumbered, documentation-only authority projection",
         "does not alter this 16-Slice route",
@@ -1616,6 +1641,19 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "Positive Slice-2 construction is `EXPLICIT_MODULES`-only",
         "Slice 2 adds no scalar lookup",
         "natural exact-head CI completes Slice 2",
+        "phase63-slice3-scalar-reference-environment-resolution-facts-type-kernel-adapter-v1.md",
+        "exact Slice-2 row-field occurrence into one ordered scalar environment entry",
+        "use effective JOIN nullability",
+        "Duplicate spellings remain distinct",
+        "no joined `RowSchema` or name map",
+        "caller-supplied complete candidate bucket",
+        "Slice 3 validates 0/1/N shape without discovering names",
+        "Slice 4 still owns bindings, visibility, and qualified/unqualified lookup",
+        "pre-seeded into `infer_row_expression`",
+        "sole function/operator/nullability type-composition kernel",
+        "publishes no partial root type",
+        "Slice 3 adds no binding",
+        "natural exact-head CI completes Slice 3",
     ):
         assert evidence in phase63_normalized
 
@@ -1627,6 +1665,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "plan/README.md",
         "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md",
         "spec/phase63-slice2-query-block-owner-bridge-row-source-sum-states-mode-boundary-v1.md",
+        "spec/phase63-slice3-scalar-reference-environment-resolution-facts-type-kernel-adapter-v1.md",
     ):
         assert f"]({target})" in roadmap
         assert (ROADMAP.parent / target).is_file()
@@ -3352,6 +3391,28 @@ def test_phase63_slice2_changed_paths_are_exact() -> None:
     assert all((REPO_ROOT / path).is_file() for path in paths)
     assert tuple(path for path in paths if path.startswith("src/")) == (
         "src/pietto/_project/project_query_block.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase63_slice3_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE63_SLICE3_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 8
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert tuple(path for path in paths if path.startswith("src/")) == (
+        "src/pietto/_project/project_scalar_references.py",
+        "src/pietto/_project/row_expression_type_facts.py",
     )
     assert not any(
         path.startswith(

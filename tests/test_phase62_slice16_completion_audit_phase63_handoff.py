@@ -19,6 +19,8 @@ PHASE62_BASE = "7f78077d45bad378c1fb01561455a15ec95309b9"
 PHASE62_BASE_TREE = "398e68027e1259bd191d571af9df99436d2782fc"
 PHASE62_BASE_CI = "33359859544"
 PHASE62_HEAD = "1b11f64d0e3bc2bf040793db015f75600a9f181c"
+PHASE62_SLICE16_TERMINAL = "d9a423fe6822ed549e3063299a4781cd7ed4b480"
+PHASE62_SLICE16_TERMINAL_TREE = "d0c40f2a644b5cb8cff2fb5390e991ab1ec1ef31"
 
 ROUTE = (
     (
@@ -972,7 +974,24 @@ def test_phase63_handoff_assets_questions_and_zero_implementation_are_exact() ->
 
 def test_slice16_zero_delta_and_non_circular_authority() -> None:
     if not _is_shallow():
-        assert _git("diff", "--name-only", PHASE62_HEAD, "--", "src") == ""
+        assert _git("rev-parse", PHASE62_SLICE16_TERMINAL) == (PHASE62_SLICE16_TERMINAL)
+        assert _git("show", "-s", "--format=%T", PHASE62_SLICE16_TERMINAL) == (
+            PHASE62_SLICE16_TERMINAL_TREE
+        )
+        assert _git("show", "-s", "--format=%P", PHASE62_SLICE16_TERMINAL) == (
+            PHASE62_HEAD
+        )
+        assert (
+            _git(
+                "diff",
+                "--name-only",
+                PHASE62_HEAD,
+                PHASE62_SLICE16_TERMINAL,
+                "--",
+                "src",
+            )
+            == ""
+        )
     document = SPEC.read_text(encoding="utf-8")
     for evidence in (
         "production delta = 0",
