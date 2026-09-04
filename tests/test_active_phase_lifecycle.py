@@ -193,6 +193,9 @@ PHASE63_SLICE15_SPEC = (
     REPO_ROOT
     / "docs/spec/phase63-slice15-inspection-pure-boundary-real-e2e-differential-metamorphic-assurance-v1.md"
 )
+PHASE63_COMPLETION_SPEC = (
+    REPO_ROOT / "docs/spec/phase63-completion-audit-phase64-handoff-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -249,7 +252,7 @@ EXPECTED_STATUS = (
     ("Phase 60", "`COMPLETED`"),
     ("Phase 61", "`COMPLETED`"),
     ("Phase 62", "`COMPLETED`"),
-    ("Phase 63", "`ACTIVE`"),
+    ("Phase 63", "`COMPLETED`"),
     ("Slice 1", "`COMPLETED / PUBLISHED`"),
     ("Slice 2", "`COMPLETED / PUBLISHED`"),
     ("Slice 3", "`COMPLETED / PUBLISHED`"),
@@ -265,10 +268,11 @@ EXPECTED_STATUS = (
     ("Slice 13", "`COMPLETED / PUBLISHED`"),
     ("Slice 14", "`COMPLETED / PUBLISHED`"),
     ("Slice 15", "`COMPLETED / PUBLISHED`"),
-    ("Slice 16", "`NEXT / NOT IMPLEMENTED`"),
+    ("Slice 16", "`COMPLETED / PUBLISHED`"),
+    ("Phase 64", "`NEXT / NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 63 Slice 16 — Completion Audit And Phase-64 Handoff`",
+        "`Phase 64 — Fresh Product/Phase Initiation Gate And Route Lock`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -306,9 +310,9 @@ EXPECTED_PHASE62_OWNER = (
     "and multi-fact alignment analysis"
 )
 EXPECTED_PHASE63_STATE = (
-    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–15\n"
-    "are `COMPLETED / PUBLISHED`; Slice 16 is `NEXT / NOT IMPLEMENTED`. The\n"
-    "published route has exactly 16 numbered Slices."
+    "Phase 63 **Joined Query Block Semantic Completion And QUALIFY** and all 16\n"
+    "numbered Slices are `COMPLETED / PUBLISHED`. Phase 64 is\n"
+    "`NEXT / NOT IMPLEMENTED`. The completed route has exactly 16 numbered Slices."
 )
 EXPECTED_PHASE58_ROUTE = (
     (
@@ -1346,6 +1350,14 @@ EXPECTED_PHASE63_SLICE15_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice2_differential_probe_runtime_decomposition_optimization.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE63_SLICE16_CHANGED_PATHS = (
+    "docs/spec/phase63-completion-audit-phase64-handoff-v1.md",
+    "tests/test_phase63_slice16_completion_audit_phase64_handoff.py",
+    "docs/roadmap.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -1670,6 +1682,19 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "Process-batched Python 3.12/3.13 hash-seed" in normalized
     assert "Slice 16 is `NEXT / NOT IMPLEMENTED`" in normalized
     assert "every Phase-64+ implementation remain" in normalized
+    assert (
+        "Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED`" in normalized
+    )
+    assert "Phase-63 completion audit and Phase-64 handoff" in normalized
+    assert "exact 19-commit first-parent chain" in normalized
+    assert "one preserved failed Slice-1 implementation head" in normalized
+    assert "ordinary M1 repair child" in normalized
+    assert "sole numbered Slice-1 terminal" in normalized
+    assert "successful M2 evidence reconciliation" in normalized
+    assert "Phase63 material exits = 15/15" in normalized
+    assert "Phase63 self-owned-open = 0" in normalized
+    assert "Phase 64 is `NEXT / NOT IMPLEMENTED`, not ACTIVE" in normalized
+    assert "No Phase-64 production or numbered route exists" in normalized
     prerequisite_target = (
         "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
     )
@@ -1737,6 +1762,10 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert f"]({slice15_target})" in status
     assert (STATUS.parent / slice15_target).resolve() == PHASE63_SLICE15_SPEC
     assert PHASE63_SLICE15_SPEC.is_file()
+    completion_target = "spec/phase63-completion-audit-phase64-handoff-v1.md"
+    assert f"]({completion_target})" in status
+    assert (STATUS.parent / completion_target).resolve() == PHASE63_COMPLETION_SPEC
+    assert PHASE63_COMPLETION_SPEC.is_file()
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -2274,6 +2303,20 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "Python 3.12/3.13 hash seeds",
         "No subprocess-per-assertion or persistent observation cache",
         "leaves Slice 16 `NEXT / NOT IMPLEMENTED`",
+        "phase63-completion-audit-phase64-handoff-v1.md",
+        "19-commit first-parent topology",
+        "15 final numbered terminals",
+        "two unnumbered architecture publications",
+        "preserved failed Slice-1 implementation head",
+        "successful ordinary M1 repair child",
+        "successful M2 evidence-reconciliation child",
+        "Historical intended single-commit wording never overrides live Git/CI",
+        "Phase63 material exits = 15/15",
+        "Phase63 self-owned-open = 0",
+        "Aggregate algebra remains Phase 73",
+        "READY inherited assets do not implement Phase-64 features",
+        "Phase 64 is `NEXT / NOT IMPLEMENTED`, not ACTIVE",
+        "It has no numbered route",
     ):
         assert evidence in phase63_normalized
 
@@ -2298,6 +2341,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "spec/phase63-slice13-completed-project-semantic-result-public-check-boundaries-v1.md",
         "spec/phase63-slice14-query-block-project-ir-composition-verification-invalidation-v1.md",
         "spec/phase63-slice15-inspection-pure-boundary-real-e2e-differential-metamorphic-assurance-v1.md",
+        "spec/phase63-completion-audit-phase64-handoff-v1.md",
     ):
         assert f"]({target})" in roadmap
         assert (ROADMAP.parent / target).is_file()
@@ -2316,6 +2360,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     assert "do not authorize a Phase-64+ Slice route or implementation" in (
         future_normalized
     )
+    assert "## Phase 64 route" not in roadmap
     assert "complete old-owner -> new-owner ledger" in future_normalized
 
     tentative = _section(roadmap, "Tentative later ownership")
@@ -3022,6 +3067,33 @@ def test_phase63_slice15_rebinds_exact_slice14_publication_authority() -> None:
         "pietto.phase63-query-block-ir-inspection.v1",
         "Slice 16 is `NEXT / NOT IMPLEMENTED`",
         "Phase 64 is `NOT STARTED`",
+    ):
+        assert evidence in document
+
+
+def test_phase63_slice16_rebinds_exact_corrected_completion_authority() -> None:
+    document = " ".join(PHASE63_COMPLETION_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "e1590be595f9218341c74a830f611170bfc6092a",
+        "7708b722af9e601bee62bd852593086a6c89e802",
+        "23c9d9c4e657501b07664c7f65ee4e455ff7bb0f",
+        "Add Phase 63 query-block IR inspection",
+        "33903599417",
+        "`19` 个 first-parent commits",
+        "ahead/behind `19/0`",
+        "e5b790b0b1c516bbeb2aac0833d209afe1b83811",
+        "33690102213",
+        "e90e8eb5c3fcee12fb932773959e9b862968776e",
+        "33693963322",
+        "exact M2",
+        "A3/M5/D0",
+        "Phase63 material exits = 15/15",
+        "Phase63 self-owned-open = 0",
+        "A2/M4/D0",
+        "production Python: 179 -> 179",
+        "tests: 421 -> 422",
+        "Complete Phase 63 joined query blocks",
+        "Phase 64 = NEXT / NOT IMPLEMENTED",
     ):
         assert evidence in document
 
@@ -4333,4 +4405,19 @@ def test_phase63_slice15_changed_paths_are_exact() -> None:
             )
         )
         for path in paths
+    )
+
+
+def test_phase63_slice16_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE63_SLICE16_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 6
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert tuple(path for path in paths if path.startswith("src/")) == ()
+    assert tuple(path for path in paths if path.startswith("grammar/")) == ()
+    assert tuple(path for path in paths if path.startswith("tests/_")) == ()
+    assert tuple(path for path in paths if path.startswith("docs/spec/")) == (
+        "docs/spec/phase63-completion-audit-phase64-handoff-v1.md",
+    )
+    assert tuple(path for path in paths if path.startswith("tests/test_phase63")) == (
+        "tests/test_phase63_slice16_completion_audit_phase64_handoff.py",
     )

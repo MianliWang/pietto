@@ -1467,9 +1467,9 @@ historical evidence and does not itself authorize Phase-63 implementation.
 
 ## Phase 63 route
 
-Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–15
-are `COMPLETED / PUBLISHED`; Slice 16 is `NEXT / NOT IMPLEMENTED`. The
-published route has exactly 16 numbered Slices.
+Phase 63 **Joined Query Block Semantic Completion And QUALIFY** and all 16
+numbered Slices are `COMPLETED / PUBLISHED`. Phase 64 is
+`NEXT / NOT IMPLEMENTED`. The completed route has exactly 16 numbered Slices.
 
 | Slice | Owner |
 | ---: | --- |
@@ -1909,6 +1909,43 @@ natural exact-head CI completes it without a status-only follow-up commit and
 leaves Slice 16 `NEXT / NOT IMPLEMENTED`; Slice 16 and Phase 64 remain
 unstarted.
 
+The [Phase-63 completion audit and Phase-64
+handoff](spec/phase63-completion-audit-phase64-handoff-v1.md) closes the exact
+19-commit first-parent topology from the Phase-62 terminal through Slice 15.
+Its role equation is 15 final numbered terminals, two unnumbered architecture
+publications, one preserved failed Slice-1 implementation head, and one
+successful non-terminal Slice-9 semantic implementation publication.
+
+Slice 1 preserves failed pushed head `e5b790b0...` and its successful ordinary
+M1 repair child `e90e8eb5...`; only the child is the numbered Slice-1 terminal.
+Slice 9 separately preserves successful semantic publication `adb1c7ef...` and
+successful M2 evidence-reconciliation child `fb0e4584...`; only the child is
+the numbered Slice-9 terminal, and this is not a failed-head repair lineage.
+Historical intended single-commit wording never overrides live Git/CI.
+
+All 15 product contracts, principals, source authorities, terminal trees and
+natural exact-head CI runs are closed. `Phase63 material exits = 15/15` and
+`Phase63 self-owned-open = 0`. Historical lifecycle/repair prose, typed
+non-concrete states, and `AUTHORED_JOIN_DEFERRED` are classified rather than
+misreported as unfinished work. Generic JOIN over arbitrary effective sources,
+generic ON/refinement, additional JOIN kinds, DISTINCT, set operations,
+single-match enforcement, and the two effective-JOIN terminal boundaries have
+the exact Phase-64 owner. Aggregate algebra remains Phase 73.
+
+Phase 64 inherits the completed identity, relationship, joined-row,
+nullability, key/FD/grain, fanout/chasm, WHERE/GROUP/WINDOW/QUALIFY/final-output,
+effective-output, completed-semantics, active-IR, verifier/analysis,
+inspection/pure, and real E2E/differential assurance assets. READY inherited
+assets do not implement Phase-64 features. Slice 16 adds no production,
+grammar/generated, public API, CLI/JSON behavior, SQL, Arrow, executor,
+optimizer, package, dependency, workflow, version, or Phase-64 implementation.
+
+Successful natural exact-head CI completes Phase 63 without a status-only
+follow-up commit. Phase 64 is `NEXT / NOT IMPLEMENTED`, not ACTIVE. It has no
+numbered route; a later Phase-64 Slice 1 must run a fresh Product/Phase
+Initiation Gate, review live source/external evidence, answer the mandatory
+handoff questions, and freeze its own route before implementation.
+
 `LET` is the first post-JOIN scalar scope. Each stage has an immutable
 visibility environment and hidden intermediate path fields remain non-nameable
 without an authored binding. Joined aggregate semantics retain Phase-62
@@ -1924,8 +1961,9 @@ invalidation, inspection, canonical observation, real E2E, differential, and
 metamorphic assurance remain mandatory. Slice 1 changed no production,
 grammar, generated, public schema, package, dependency, workflow, version,
 SQL, Arrow, executor, or Slice-2 behavior. Successful natural exact-head CI on
-its single publication commit completed Slice 1 without a status-only follow-up
-commit and left Slice 2 `NEXT / NOT IMPLEMENTED`.
+its preserved failed implementation head and successful ordinary repair child
+completed Slice 1 without a status-only follow-up commit and left Slice 2
+`NEXT / NOT IMPLEMENTED` at that historical point.
 
 ## Future Roadmap v6
 

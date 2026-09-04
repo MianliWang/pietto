@@ -15,7 +15,7 @@ documentation does not supersede that evidence.
 | Phase 60 | `COMPLETED` |
 | Phase 61 | `COMPLETED` |
 | Phase 62 | `COMPLETED` |
-| Phase 63 | `ACTIVE` |
+| Phase 63 | `COMPLETED` |
 | Slice 1 | `COMPLETED / PUBLISHED` |
 | Slice 2 | `COMPLETED / PUBLISHED` |
 | Slice 3 | `COMPLETED / PUBLISHED` |
@@ -31,8 +31,9 @@ documentation does not supersede that evidence.
 | Slice 13 | `COMPLETED / PUBLISHED` |
 | Slice 14 | `COMPLETED / PUBLISHED` |
 | Slice 15 | `COMPLETED / PUBLISHED` |
-| Slice 16 | `NEXT / NOT IMPLEMENTED` |
-| Next | `Phase 63 Slice 16 — Completion Audit And Phase-64 Handoff` |
+| Slice 16 | `COMPLETED / PUBLISHED` |
+| Phase 64 | `NEXT / NOT IMPLEMENTED` |
+| Next | `Phase 64 — Fresh Product/Phase Initiation Gate And Route Lock` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -375,3 +376,37 @@ optimizer, package, dependency, workflow, or version behavior. Natural
 exact-head CI owns completion without a status-only follow-up commit. Phase 63
 Slice 16 is `NEXT / NOT IMPLEMENTED`; Slice 16 implementation and every
 Phase-64+ implementation remain unstarted and unauthorized here.
+
+Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED`. The [Phase-63
+completion audit and Phase-64
+handoff](spec/phase63-completion-audit-phase64-handoff-v1.md) reconstructs the
+exact 19-commit first-parent chain from the Phase-62 terminal through Slice 15:
+15 final numbered Slice terminals, two unnumbered architecture publications,
+one preserved failed Slice-1 implementation head, and one successful
+non-terminal Slice-9 semantic implementation publication.
+
+The Slice-1 failed head `e5b790b0b1c516bbeb2aac0833d209afe1b83811`
+remains immutable with natural CI `33690102213` failure. Its ordinary M1 repair
+child `e90e8eb5c3fcee12fb932773959e9b862968776e` has successful natural CI
+`33693963322` and is the sole numbered Slice-1 terminal. Slice 9 separately
+retains successful semantic implementation `adb1c7ef...` followed by successful
+M2 evidence reconciliation `fb0e4584...`; this is not a failed-head repair.
+
+The audit binds all 15 product contracts, principals, source authorities,
+terminal trees and successful exact-head CI runs. `Phase63 material exits =
+15/15` and `Phase63 self-owned-open = 0`. Historical lifecycle/repair prose and
+typed runtime non-concrete states are not open work. Exact generic flat
+relational algebra subjects transfer to Phase 64; aggregate algebra and other
+Future Roadmap v6 subjects retain their existing later owners.
+
+Package/CLI version remains `0.1.0`; Project JSON v2, text success bytes,
+single-file and legacy modes, Project Explain, SQL, package/dependency/workflow,
+and private Phase-61/62 observation formats remain compatible. The Phase-63
+inspection format is additive and private. Slice 16 has zero production,
+grammar/generated, public API, CLI/JSON behavior, SQL, Arrow, executor,
+optimizer, package, workflow, version, or Phase-64 implementation delta.
+
+Natural exact-head CI owns Phase-63 completion without a status-only follow-up
+commit. Phase 64 is `NEXT / NOT IMPLEMENTED`, not ACTIVE. No Phase-64 production
+or numbered route exists; its future Slice 1 must perform a fresh live
+Product/Phase Initiation Gate and freeze its own route before implementation.
