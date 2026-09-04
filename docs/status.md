@@ -27,12 +27,12 @@ documentation does not supersede that evidence.
 | Slice 9 | `COMPLETED / PUBLISHED` |
 | Slice 10 | `COMPLETED / PUBLISHED` |
 | Slice 11 | `COMPLETED / PUBLISHED` |
-| Slice 12 | `NEXT / NOT IMPLEMENTED` |
-| Slice 13 | `NOT IMPLEMENTED` |
+| Slice 12 | `COMPLETED / PUBLISHED` |
+| Slice 13 | `NEXT / NOT IMPLEMENTED` |
 | Slice 14 | `NOT IMPLEMENTED` |
 | Slice 15 | `NOT IMPLEMENTED` |
 | Slice 16 | `NOT IMPLEMENTED` |
-| Next | `Phase 63 Slice 12 — Projection, Ordering, Limit, Final Output, And Ledger Completion` |
+| Next | `Phase 63 Slice 13 — Completed Project Semantic Result And Public Check Boundaries` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -241,4 +241,37 @@ projection/order/limit, effective-output completion, SQL, Arrow, executor, or
 public schema is added; Slice-7 remains `JOINED_TAIL_PENDING`. Natural exact-head
 CI owns Slice 11 completion without a status-only follow-up commit. Phase 63
 Slice 12 is `NEXT / NOT IMPLEMENTED`; Slices 13–16 and every Phase-64+
+implementation remain unstarted and unauthorized here.
+
+Phase 63 Slice 12 is `COMPLETED / PUBLISHED`. Its [private final-output
+completion overlay](spec/phase63-slice12-projection-order-limit-final-output-ledger-completion-v1.md)
+retains the exact immutable Slice-7 completion, Slice-11 QUALIFY set, canonical
+owner order, dependency tuple, and existing dependency-first schedule. Safe
+historical outputs and nonrecoverable terminals remain object-identical;
+`JOINED_TAIL_PENDING` and recoverable no-JOIN propagation publish either one
+all-or-none semantic completed output or one typed causal terminal.
+
+Every completed field retains its exact historical `ProjectModuleSelectFact`,
+selected ordinal/item/name, existing `ProjectModuleRowFieldIdentity` with
+`RELATION_OUTPUT`, completed `ProjectRowField`, role, and exact Slice-9,
+Slice-10, joined scalar, or no-JOIN replay source evidence. Stable output names
+retain `PIE-S2304`/`PIE-S2305`; projection aliases do not flow backward. No
+historical joined attribution is forged.
+
+ABSENT completion preserves exact row-domain authority; GROUPED retains only
+its exact semantic group-key basis without `ProjectGroupedGrainFactorIdentity`;
+GLOBAL remains explicit. Relation ORDER is distinct from window ordering,
+preserves source order and effective ASC/DESC, enforces current ABSENT/GROUPED
+scope and selected-window fallback laws, and keeps GLOBAL plus ORDER
+non-concrete. Static LIMIT retains the exact `0..9223372036854775807` law and
+`PIE-S2307`, and establishes only a row-count upper bound.
+
+Historical no-JOIN definitions with authored QUALIFY are replayed instead of
+blindly reused. Joined and no-JOIN QUALIFY share one predicate kernel while
+keeping separate exact lookup evidence; downstream A -> B -> C propagation
+uses the original Slice-7 schedule. Slice 12 allocates no Project IR or
+`ProjectIROutputRelationalProperties`, changes no SQL/public/CLI/JSON behavior,
+and does not construct the Slice-13 completed-result wrapper. Natural
+exact-head CI owns Slice 12 completion without a status-only follow-up commit.
+Phase 63 Slice 13 is `NEXT / NOT IMPLEMENTED`; Slices 14–16 and every Phase-64+
 implementation remain unstarted and unauthorized here.

@@ -177,6 +177,10 @@ PHASE63_SLICE11_SPEC = (
     REPO_ROOT
     / "docs/spec/phase63-slice11-qualify-grammar-ast-semantics-property-transfer-v1.md"
 )
+PHASE63_SLICE12_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase63-slice12-projection-order-limit-final-output-ledger-completion-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -245,14 +249,14 @@ EXPECTED_STATUS = (
     ("Slice 9", "`COMPLETED / PUBLISHED`"),
     ("Slice 10", "`COMPLETED / PUBLISHED`"),
     ("Slice 11", "`COMPLETED / PUBLISHED`"),
-    ("Slice 12", "`NEXT / NOT IMPLEMENTED`"),
-    ("Slice 13", "`NOT IMPLEMENTED`"),
+    ("Slice 12", "`COMPLETED / PUBLISHED`"),
+    ("Slice 13", "`NEXT / NOT IMPLEMENTED`"),
     ("Slice 14", "`NOT IMPLEMENTED`"),
     ("Slice 15", "`NOT IMPLEMENTED`"),
     ("Slice 16", "`NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 63 Slice 12 — Projection, Ordering, Limit, Final Output, And Ledger Completion`",
+        "`Phase 63 Slice 13 — Completed Project Semantic Result And Public Check Boundaries`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -290,8 +294,8 @@ EXPECTED_PHASE62_OWNER = (
     "and multi-fact alignment analysis"
 )
 EXPECTED_PHASE63_STATE = (
-    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–11\n"
-    "are `COMPLETED / PUBLISHED`; Slice 12 is `NEXT / NOT IMPLEMENTED`; Slices 13–16\n"
+    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–12\n"
+    "are `COMPLETED / PUBLISHED`; Slice 13 is `NEXT / NOT IMPLEMENTED`; Slices 14–16\n"
     "are not implemented. The published route has exactly 16 numbered Slices."
 )
 EXPECTED_PHASE58_ROUTE = (
@@ -1274,6 +1278,16 @@ EXPECTED_PHASE63_SLICE7_CHANGED_PATHS = (
     "tests/test_active_phase_lifecycle.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE63_SLICE12_CHANGED_PATHS = (
+    "src/pietto/_project/project_final_outputs.py",
+    "docs/spec/phase63-slice12-projection-order-limit-final-output-ledger-completion-v1.md",
+    "tests/test_phase63_slice12_projection_order_limit_final_output_ledger_completion.py",
+    "src/pietto/_project/project_joined_qualify.py",
+    "docs/roadmap.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -1495,6 +1509,37 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "derives no nullability, key, FD" in normalized
     assert "Phase 63 Slice 12 is `NEXT / NOT IMPLEMENTED`" in normalized
     assert "Slices 13–16 and every Phase-64+ implementation remain" in normalized
+    assert "Phase 63 Slice 12 is `COMPLETED / PUBLISHED`" in normalized
+    assert "private final-output completion overlay" in normalized
+    assert "exact immutable Slice-7 completion, Slice-11 QUALIFY set" in normalized
+    assert "existing dependency-first schedule" in normalized
+    assert (
+        "Safe historical outputs and nonrecoverable terminals remain object-identical"
+        in normalized
+    )
+    assert (
+        "one all-or-none semantic completed output or one typed causal terminal"
+        in normalized
+    )
+    assert "exact historical `ProjectModuleSelectFact`" in normalized
+    assert (
+        "existing `ProjectModuleRowFieldIdentity` with `RELATION_OUTPUT`" in normalized
+    )
+    assert "No historical joined attribution is forged" in normalized
+    assert "GROUPED retains only its exact semantic group-key basis" in normalized
+    assert "Relation ORDER is distinct from window ordering" in normalized
+    assert "keeps GLOBAL plus ORDER non-concrete" in normalized
+    assert "exact `0..9223372036854775807` law" in normalized
+    assert "establishes only a row-count upper bound" in normalized
+    assert "authored QUALIFY are replayed instead of blindly reused" in normalized
+    assert "share one predicate kernel" in normalized
+    assert "downstream A -> B -> C propagation" in normalized
+    assert (
+        "allocates no Project IR or `ProjectIROutputRelationalProperties`" in normalized
+    )
+    assert "does not construct the Slice-13 completed-result wrapper" in normalized
+    assert "Phase 63 Slice 13 is `NEXT / NOT IMPLEMENTED`" in normalized
+    assert "Slices 14–16 and every Phase-64+ implementation remain" in normalized
     prerequisite_target = (
         "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
     )
@@ -1546,6 +1591,10 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert f"]({slice11_target})" in status
     assert (STATUS.parent / slice11_target).resolve() == PHASE63_SLICE11_SPEC
     assert PHASE63_SLICE11_SPEC.is_file()
+    slice12_target = "spec/phase63-slice12-projection-order-limit-final-output-ledger-completion-v1.md"
+    assert f"]({slice12_target})" in status
+    assert (STATUS.parent / slice12_target).resolve() == PHASE63_SLICE12_SPEC
+    assert PHASE63_SLICE12_SPEC.is_file()
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -2016,6 +2065,27 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "Slice 11 adds no final field",
         "natural exact-head CI completes Slice 11",
         "leaves Slice 12 `NEXT / NOT IMPLEMENTED`",
+        "phase63-slice12-projection-order-limit-final-output-ledger-completion-v1.md",
+        "exact immutable Slice-7 completion, Slice-11 result set",
+        "existing dependency-first schedule",
+        "Safe historical outputs and nonrecoverable terminals remain object-identical",
+        "no-JOIN chains replay over exact completed upstream schemas",
+        "without a new topological algorithm or JOIN re-entry",
+        "exact historical `ProjectModuleSelectFact`",
+        "existing canonical `ProjectModuleRowFieldIdentity`",
+        "all final output and schema publication is all-or-none",
+        "no `ProjectModuleRelationOutputFieldAttribution` is forged",
+        "GROUPED output retains only the exact group-key semantic basis",
+        "Relation ORDER is separate from window-local order",
+        "GROUPED `PIE-S2321`",
+        "LIMIT reuses the static integer `0..9223372036854775807` checker",
+        "adds only a row-count upper bound",
+        "Historical concrete no-JOIN definitions with authored QUALIFY are replayed",
+        "one shared QUALIFY kernel",
+        "No Project IR or relational-property object",
+        "completed public result wrapper",
+        "natural exact-head CI completes Slice 12",
+        "leaves Slice 13 `NEXT / NOT IMPLEMENTED`",
     ):
         assert evidence in phase63_normalized
 
@@ -2036,6 +2106,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "spec/phase63-slice9-joined-grouping-aggregate-global-satisfying-risk-linkage-v1.md",
         "spec/phase63-slice10-generic-window-computation-sites-named-window-reuse-v1.md",
         "spec/phase63-slice11-qualify-grammar-ast-semantics-property-transfer-v1.md",
+        "spec/phase63-slice12-projection-order-limit-final-output-ledger-completion-v1.md",
     ):
         assert f"]({target})" in roadmap
         assert (ROADMAP.parent / target).is_file()
@@ -2676,6 +2747,24 @@ def test_phase63_slice1_rebinds_exact_phase62_completion_authority() -> None:
         "Phase 63 Slice 1 = COMPLETED / PUBLISHED",
         "Phase 63 Slice 2 = NEXT / NOT IMPLEMENTED",
         "Do not begin Slice 2",
+    ):
+        assert evidence in document
+
+
+def test_phase63_slice12_rebinds_exact_slice11_publication_authority() -> None:
+    document = " ".join(PHASE63_SLICE12_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "3f0a5435aa14d7b6ca23348b28c5b966f745c04f",
+        "be7f7c7dc1f36ed0a7aed1a4561d33eb17fd21ec",
+        "4b984f8c8578bcd7abd42db80fa8ead294d49f8f",
+        "Add Phase 63 QUALIFY semantics",
+        "33831892060",
+        "Python 3.12",
+        "Python 3.13",
+        "A3/M5/D0",
+        "173 -> 174",
+        "416 -> 417",
+        "Slice 13 是唯一 `NEXT / NOT IMPLEMENTED` owner",
     ):
         assert evidence in document
 
@@ -3867,6 +3956,28 @@ def test_phase63_slice7_changed_paths_are_exact() -> None:
     assert all((REPO_ROOT / path).is_file() for path in paths)
     assert tuple(path for path in paths if path.startswith("src/")) == (
         "src/pietto/_project/project_completion.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase63_slice12_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE63_SLICE12_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 8
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert tuple(path for path in paths if path.startswith("src/")) == (
+        "src/pietto/_project/project_final_outputs.py",
+        "src/pietto/_project/project_joined_qualify.py",
     )
     assert not any(
         path.startswith(

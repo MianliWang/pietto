@@ -149,7 +149,23 @@ def _qualify_operands(expression: Expression) -> tuple[_QualifyOperand, ...]:
 def _reference_diagnostic(
     resolution: ProjectQualifyReferenceResolution,
 ) -> Diagnostic:
-    expression = resolution.expression
+    return _qualify_reference_diagnostic(
+        resolution.expression,
+        resolution.status,
+    )
+
+
+def _qualify_reference_diagnostic(
+    expression: NameExpr | DottedNameExpr,
+    status: ProjectModuleCandidateBucketStatus,
+) -> Diagnostic:
+    """Build the shared exact 0/1/N QUALIFY reference diagnostic."""
+
+    if type(expression) not in {NameExpr, DottedNameExpr} or status not in {
+        ProjectModuleCandidateBucketStatus.ABSENT,
+        ProjectModuleCandidateBucketStatus.AMBIGUOUS,
+    }:
+        raise ValueError("QUALIFY diagnostics require one blocking reference.")
     if type(expression) is NameExpr:
         name = expression.name
     else:
@@ -157,7 +173,7 @@ def _reference_diagnostic(
         name = ".".join(expression.parts)
     adjective = (
         "Unknown"
-        if resolution.status is ProjectModuleCandidateBucketStatus.ABSENT
+        if status is ProjectModuleCandidateBucketStatus.ABSENT
         else "Ambiguous"
     )
     span = expression.span
@@ -206,6 +222,157 @@ def _hidden_value_type(computation: ProjectConcreteWindowComputation) -> ValueTy
     if value_type is None:
         raise ValueError("Concrete hidden window requires one result value type.")
     return value_type
+
+
+class _ProjectQualifyPredicateNonConcreteReason(StrEnum):
+    """Scope-neutral blocker order shared by joined and replayed QUALIFY."""
+
+    WINDOW_COMPUTATION_REQUIRED = "window_computation_required"
+    HIDDEN_WINDOW_NON_CONCRETE = "hidden_window_non_concrete"
+    REFERENCE_NON_CONCRETE = "reference_non_concrete"
+    SCALAR_KERNEL_NON_CONCRETE = "scalar_kernel_non_concrete"
+    KNOWN_NON_BOOL_PREDICATE = "known_non_bool_predicate"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class _ProjectQualifyPredicateAnalysis:
+    """One scope-neutral QUALIFY predicate result from exact supplied seeds."""
+
+    clause: QualifyClause = field(repr=False, compare=False, hash=False)
+    reason: _ProjectQualifyPredicateNonConcreteReason | None
+    kernel_value_type: ValueType | None = None
+    value_types: Mapping[Expression, ValueType] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    diagnostics: tuple[Diagnostic, ...] = ()
+    retention_effects: tuple[ProjectJoinedRowRetentionEffect, ...] = ()
+
+    def __post_init__(self) -> None:
+        if type(self.clause) is not QualifyClause or (
+            self.reason is not None
+            and type(self.reason) is not _ProjectQualifyPredicateNonConcreteReason
+        ):
+            raise TypeError("QUALIFY predicate analysis requires exact typed roots.")
+        if type(self.diagnostics) is not tuple or any(
+            type(diagnostic) is not Diagnostic for diagnostic in self.diagnostics
+        ):
+            raise TypeError("QUALIFY predicate diagnostics must be exact.")
+        if type(self.retention_effects) is not tuple or any(
+            type(effect) is not ProjectJoinedRowRetentionEffect
+            for effect in self.retention_effects
+        ):
+            raise TypeError("QUALIFY retention effects must be exact.")
+
+        value_types = MappingProxyType(dict(self.value_types))
+        object.__setattr__(self, "value_types", value_types)
+        if self.reason is None:
+            if (
+                type(self.kernel_value_type) is not ValueType
+                or self.retention_effects is not _SQL_ROW_RETENTION_EFFECTS
+            ):
+                raise ValueError("Concrete QUALIFY predicate requires exact authority.")
+        elif self.retention_effects:
+            raise ValueError("Non-concrete QUALIFY predicate cannot retain rows.")
+        if (
+            self.kernel_value_type is not None
+            and type(self.kernel_value_type) is not ValueType
+        ):
+            raise TypeError("QUALIFY predicate type must be exact or absent.")
+
+
+def _analyze_qualify_predicate(
+    *,
+    clause: QualifyClause,
+    has_window: bool,
+    hidden_blocked: bool,
+    reference_blocked: bool,
+    value_types: Mapping[Expression, ValueType],
+    diagnostics: tuple[Diagnostic, ...],
+) -> _ProjectQualifyPredicateAnalysis:
+    """Consume scope-owned seeds through the one shared QUALIFY predicate kernel."""
+
+    if type(clause) is not QualifyClause or any(
+        type(value) is not bool
+        for value in (has_window, hidden_blocked, reference_blocked)
+    ):
+        raise TypeError("QUALIFY predicate kernel requires exact inputs.")
+    if type(diagnostics) is not tuple or any(
+        type(diagnostic) is not Diagnostic for diagnostic in diagnostics
+    ):
+        raise TypeError("QUALIFY predicate kernel diagnostics must be exact.")
+    if not has_window:
+        return _ProjectQualifyPredicateAnalysis(
+            clause=clause,
+            reason=(
+                _ProjectQualifyPredicateNonConcreteReason.WINDOW_COMPUTATION_REQUIRED
+            ),
+            diagnostics=(_window_required_diagnostic(clause), *diagnostics),
+        )
+    if hidden_blocked or reference_blocked:
+        return _ProjectQualifyPredicateAnalysis(
+            clause=clause,
+            reason=(
+                _ProjectQualifyPredicateNonConcreteReason.HIDDEN_WINDOW_NON_CONCRETE
+                if hidden_blocked
+                else _ProjectQualifyPredicateNonConcreteReason.REFERENCE_NON_CONCRETE
+            ),
+            diagnostics=diagnostics,
+        )
+
+    inferred_types = dict(value_types)
+    retained_diagnostics = list(diagnostics)
+    if contains_semantic_aggregate(clause.expression):
+        retained_diagnostics.append(
+            invalid_context_diagnostic(
+                clause.expression,
+                context="qualify clause",
+            )
+        )
+    predicate_type = infer_row_expression(
+        clause.expression,
+        RowSchema(),
+        inferred_types,
+        retained_diagnostics,
+        report_unknown_name=True,
+    )
+    exact_diagnostics = tuple(retained_diagnostics)
+    if predicate_type.kind is ValueTypeKind.UNKNOWN or any(
+        diagnostic.severity is Severity.ERROR for diagnostic in exact_diagnostics
+    ):
+        return _ProjectQualifyPredicateAnalysis(
+            clause=clause,
+            reason=(
+                _ProjectQualifyPredicateNonConcreteReason.SCALAR_KERNEL_NON_CONCRETE
+            ),
+            kernel_value_type=predicate_type,
+            value_types=inferred_types,
+            diagnostics=exact_diagnostics,
+        )
+
+    bool_diagnostic = semantic_predicates._check_bool_expression(
+        clause.expression,
+        context="qualify clause",
+        expression_value_types=inferred_types,
+    )
+    if bool_diagnostic is not None:
+        return _ProjectQualifyPredicateAnalysis(
+            clause=clause,
+            reason=(_ProjectQualifyPredicateNonConcreteReason.KNOWN_NON_BOOL_PREDICATE),
+            kernel_value_type=predicate_type,
+            value_types=inferred_types,
+            diagnostics=(*exact_diagnostics, bool_diagnostic),
+        )
+    return _ProjectQualifyPredicateAnalysis(
+        clause=clause,
+        reason=None,
+        kernel_value_type=predicate_type,
+        value_types=inferred_types,
+        diagnostics=exact_diagnostics,
+        retention_effects=_SQL_ROW_RETENTION_EFFECTS,
+    )
 
 
 class ProjectJoinedQualifyStageKind(StrEnum):
@@ -715,23 +882,6 @@ def build_project_joined_qualify(
         window_stage,
         clause,
     )
-    hidden_expressions = tuple(
-        operand
-        for operand in _qualify_operands(clause.expression)
-        if type(operand) is WindowExpr
-    )
-    has_required_window = bool(window_stage.selected_results or hidden_expressions)
-    if not has_required_window:
-        return ProjectNonConcreteJoinedQualify(
-            window_set=window_set,
-            window_stage=window_stage,
-            reason=ProjectJoinedQualifyNonConcreteReason.WINDOW_COMPUTATION_REQUIRED,
-            qualify_clause=clause,
-            references=references,
-            hidden_attempts=hidden_attempts,
-            diagnostics=(_window_required_diagnostic(clause), *operand_diagnostics),
-        )
-
     hidden_failures = tuple(
         attempt
         for attempt in hidden_attempts
@@ -740,80 +890,41 @@ def build_project_joined_qualify(
     reference_failures = tuple(
         resolution for resolution in references if resolution.target is None
     )
-    if hidden_failures or reference_failures:
-        return ProjectNonConcreteJoinedQualify(
-            window_set=window_set,
-            window_stage=window_stage,
-            reason=(
-                ProjectJoinedQualifyNonConcreteReason.HIDDEN_WINDOW_NON_CONCRETE
-                if hidden_failures
-                else ProjectJoinedQualifyNonConcreteReason.REFERENCE_NON_CONCRETE
-            ),
-            qualify_clause=clause,
-            references=references,
-            hidden_attempts=hidden_attempts,
-            diagnostics=operand_diagnostics,
-        )
-
-    hidden = cast(tuple[ProjectConcreteWindowComputation, ...], hidden_attempts)
+    hidden = (
+        ()
+        if hidden_failures
+        else cast(tuple[ProjectConcreteWindowComputation, ...], hidden_attempts)
+    )
     value_types: dict[Expression, ValueType] = {}
-    for resolution in references:
-        target = resolution.target
-        if target is None:
-            raise AssertionError("Concrete QUALIFY reference lost its target.")
-        value_types[resolution.expression] = _candidate_value_type(target)
-    for computation in hidden:
-        value_types[computation.site.expression] = _hidden_value_type(computation)
-
-    diagnostics = list(operand_diagnostics)
-    if contains_semantic_aggregate(clause.expression):
-        diagnostics.append(
-            invalid_context_diagnostic(
-                clause.expression,
-                context="qualify clause",
-            )
-        )
-    predicate_type = infer_row_expression(
-        clause.expression,
-        RowSchema(),
-        value_types,
-        diagnostics,
-        report_unknown_name=True,
+    if not hidden_failures and not reference_failures:
+        for resolution in references:
+            target = resolution.target
+            if target is None:
+                raise AssertionError("Concrete QUALIFY reference lost its target.")
+            value_types[resolution.expression] = _candidate_value_type(target)
+        for computation in hidden:
+            value_types[computation.site.expression] = _hidden_value_type(computation)
+    predicate = _analyze_qualify_predicate(
+        clause=clause,
+        has_window=bool(window_stage.selected_results or hidden_attempts),
+        hidden_blocked=bool(hidden_failures),
+        reference_blocked=bool(reference_failures),
+        value_types=value_types,
+        diagnostics=operand_diagnostics,
     )
-    retained_diagnostics = tuple(diagnostics)
-    if predicate_type.kind is ValueTypeKind.UNKNOWN or any(
-        diagnostic.severity is Severity.ERROR for diagnostic in retained_diagnostics
-    ):
+    if predicate.reason is not None:
+        reason = ProjectJoinedQualifyNonConcreteReason(predicate.reason.value)
         return ProjectNonConcreteJoinedQualify(
             window_set=window_set,
             window_stage=window_stage,
-            reason=ProjectJoinedQualifyNonConcreteReason.SCALAR_KERNEL_NON_CONCRETE,
+            reason=reason,
             qualify_clause=clause,
             references=references,
             hidden_attempts=hidden_attempts,
-            kernel_value_type=predicate_type,
-            value_types=value_types,
-            diagnostics=retained_diagnostics,
+            kernel_value_type=predicate.kernel_value_type,
+            value_types=predicate.value_types,
+            diagnostics=predicate.diagnostics,
         )
-
-    bool_diagnostic = semantic_predicates._check_bool_expression(
-        clause.expression,
-        context="qualify clause",
-        expression_value_types=value_types,
-    )
-    if bool_diagnostic is not None:
-        return ProjectNonConcreteJoinedQualify(
-            window_set=window_set,
-            window_stage=window_stage,
-            reason=ProjectJoinedQualifyNonConcreteReason.KNOWN_NON_BOOL_PREDICATE,
-            qualify_clause=clause,
-            references=references,
-            hidden_attempts=hidden_attempts,
-            kernel_value_type=predicate_type,
-            value_types=value_types,
-            diagnostics=(*retained_diagnostics, bool_diagnostic),
-        )
-
     preservation, readiness = _build_preservation(
         window_stage,
         filters_rows=True,
@@ -825,10 +936,10 @@ def build_project_joined_qualify(
         qualify_clause=clause,
         references=references,
         hidden_computations=hidden,
-        predicate_value_type=predicate_type,
-        value_types=value_types,
-        diagnostics=retained_diagnostics,
-        retention_effects=_SQL_ROW_RETENTION_EFFECTS,
+        predicate_value_type=predicate.kernel_value_type,
+        value_types=predicate.value_types,
+        diagnostics=predicate.diagnostics,
+        retention_effects=predicate.retention_effects,
         preservation=preservation,
         post_qualify=readiness,
     )

@@ -1467,8 +1467,8 @@ historical evidence and does not itself authorize Phase-63 implementation.
 
 ## Phase 63 route
 
-Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–11
-are `COMPLETED / PUBLISHED`; Slice 12 is `NEXT / NOT IMPLEMENTED`; Slices 13–16
+Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–12
+are `COMPLETED / PUBLISHED`; Slice 13 is `NEXT / NOT IMPLEMENTED`; Slices 14–16
 are not implemented. The published route has exactly 16 numbered Slices.
 
 | Slice | Owner |
@@ -1764,6 +1764,40 @@ projection/order/limit, ledger completion, SQL, Arrow, executor, or public
 schema is added. Slice 11 adds no final field or output identity. Successful
 natural exact-head CI completes Slice 11 without a
 status-only follow-up commit and leaves Slice 12 `NEXT / NOT IMPLEMENTED`.
+
+The [Slice 12 final-output completion
+overlay](spec/phase63-slice12-projection-order-limit-final-output-ledger-completion-v1.md)
+retains the exact immutable Slice-7 completion, Slice-11 result set, canonical
+owner order, dependency tuple, and existing dependency-first schedule. Safe
+historical outputs and nonrecoverable terminals remain object-identical.
+`JOINED_TAIL_PENDING` consumes its one exact Slice-11 result; recoverable
+no-JOIN chains replay over exact completed upstream schemas without a new
+topological algorithm or JOIN re-entry.
+
+Each completed field couples its exact historical `ProjectModuleSelectFact`
+with the existing canonical `ProjectModuleRowFieldIdentity`, completed
+`ProjectRowField`, result role, and exact joined scalar, GROUP_KEY,
+AGGREGATE_RESULT, selected-window, or no-JOIN replay evidence. Stable names
+retain `PIE-S2304`/`PIE-S2305`; all final output and schema publication is
+all-or-none. Joined historical semantic facts remain deferred and no
+`ProjectModuleRelationOutputFieldAttribution` is forged.
+
+ABSENT output preserves exact row-domain authority. GROUPED output retains only
+the exact group-key semantic basis, with no `ProjectGroupedGrainFactorIdentity`
+or pre-aggregation JOIN-grain claim; GLOBAL is explicit. Relation ORDER is
+separate from window-local order, preserves source order/effective direction,
+and keeps current ABSENT fallback, GROUPED `PIE-S2321`, and GLOBAL fail-closed
+laws. LIMIT reuses the static integer `0..9223372036854775807` checker and
+`PIE-S2307`, and adds only a row-count upper bound.
+
+Historical concrete no-JOIN definitions with authored QUALIFY are replayed.
+Joined and no-JOIN paths delegate predicate consumption to one shared QUALIFY
+kernel while retaining separate exact lookup evidence and the existing
+occurrence-neutral window kernel. No Project IR or relational-property object,
+completed public result wrapper, SQL/CLI/JSON, Arrow, executor, package,
+dependency, workflow, or version behavior is added. Successful natural
+exact-head CI completes Slice 12 without a status-only follow-up commit and
+leaves Slice 13 `NEXT / NOT IMPLEMENTED`.
 
 `LET` is the first post-JOIN scalar scope. Each stage has an immutable
 visibility environment and hidden intermediate path fields remain non-nameable
