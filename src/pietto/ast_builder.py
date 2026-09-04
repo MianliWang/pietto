@@ -55,6 +55,7 @@ from pietto.ast_nodes import (
     OrderByClause,
     OrderItem,
     Parameter,
+    QualifyClause,
     QueryDef,
     RelationshipEndpoint,
     RelationshipMatchClause,
@@ -476,6 +477,7 @@ class AstBuilder(PiettoVisitor):
             select_items,
             named_windows,
             satisfying_clause,
+            qualify_clause,
             order_by_clause,
             limit_clause,
         ) = self._relation_body(ctx.tableBody())
@@ -490,6 +492,7 @@ class AstBuilder(PiettoVisitor):
             order_by_clause=order_by_clause,
             limit_clause=limit_clause,
             satisfying_clause=satisfying_clause,
+            qualify_clause=qualify_clause,
             let_clause=let_clause,
             named_windows=named_windows,
         )
@@ -506,6 +509,7 @@ class AstBuilder(PiettoVisitor):
             select_items,
             named_windows,
             satisfying_clause,
+            qualify_clause,
             order_by_clause,
             limit_clause,
         ) = self._relation_body(ctx.tableBody())
@@ -520,6 +524,7 @@ class AstBuilder(PiettoVisitor):
             order_by_clause=order_by_clause,
             limit_clause=limit_clause,
             satisfying_clause=satisfying_clause,
+            qualify_clause=qualify_clause,
             let_clause=let_clause,
             named_windows=named_windows,
         )
@@ -620,9 +625,6 @@ class AstBuilder(PiettoVisitor):
     def visitWindowExpression(self, ctx: _AntlrContext) -> WindowExpr:
         """Preserve one direct call and its exact inline or named use."""
 
-        call = self._call_expr(ctx.dottedName(), ctx.callSuffix())
-        callee = call.callee
-        parts = (callee.name,) if isinstance(callee, NameExpr) else callee.parts
         use = ctx.windowSpec()
         identifier = use.identifier()
         base = (
@@ -639,6 +641,36 @@ class AstBuilder(PiettoVisitor):
             use_kind = WindowUseKind.NAMED_DIRECT
         else:
             use_kind = WindowUseKind.NAMED_EXTENDED
+        return self._window_expression(
+            ctx,
+            specification=self.visit(use),
+            use_kind=use_kind,
+            base=base,
+        )
+
+    def visitQualifyWindowExpression(self, ctx: _AntlrContext) -> WindowExpr:
+        """Build one hidden inline window through the selected-use helper."""
+
+        return self._window_expression(
+            ctx,
+            specification=self.visit(ctx.qualifyInlineWindowSpec()),
+            use_kind=WindowUseKind.INLINE,
+            base=None,
+        )
+
+    def _window_expression(
+        self,
+        ctx: _AntlrContext,
+        *,
+        specification: WindowSpec,
+        use_kind: WindowUseKind,
+        base: NamedWindowReference | None,
+    ) -> WindowExpr:
+        """Share exact call, modifier, identity, and specification construction."""
+
+        call = self._call_expr(ctx.dottedName(), ctx.callSuffix())
+        callee = call.callee
+        parts = (callee.name,) if isinstance(callee, NameExpr) else callee.parts
         nth_direction = (
             None
             if ctx.nthValueDirection() is None
@@ -666,7 +698,7 @@ class AstBuilder(PiettoVisitor):
         return WindowExpr(
             span=self._span(ctx),
             call=call,
-            spec=self.visit(use),
+            spec=specification,
             identity=_window_identity.WindowFunctionIdentity(
                 namespace=parts[:-1],
                 name=parts[-1],
@@ -689,6 +721,14 @@ class AstBuilder(PiettoVisitor):
                 order_by=(),
             )
         return self._window_spec_from_body(body, span=self._span(ctx))
+
+    def visitQualifyInlineWindowSpec(self, ctx: _AntlrContext) -> WindowSpec:
+        """Build the shared nonempty inline specification."""
+
+        return self._window_spec_from_body(
+            ctx.windowSpecBody(),
+            span=self._span(ctx),
+        )
 
     def visitNamedWindowDeclaration(
         self,
@@ -821,6 +861,14 @@ class AstBuilder(PiettoVisitor):
             expression=self.visit(ctx.expression()),
         )
 
+    def visitQualifyClause(self, ctx: _AntlrContext) -> QualifyClause:
+        """Build one exact post-window predicate occurrence."""
+
+        return QualifyClause(
+            span=self._span(ctx),
+            expression=self.visit(ctx.qualifyExpression()),
+        )
+
     def visitOrderByClause(self, ctx: _AntlrContext) -> OrderByClause:
         """Build a non-empty sorting block without resolving its expressions."""
 
@@ -884,6 +932,7 @@ class AstBuilder(PiettoVisitor):
         tuple[SelectItem, ...],
         tuple[NamedWindowDeclaration, ...],
         SatisfyingClause | None,
+        QualifyClause | None,
         OrderByClause | None,
         LimitClause | None,
     ]:
@@ -910,6 +959,11 @@ class AstBuilder(PiettoVisitor):
                 else None
             ),
             (
+                self.visit(ctx.qualifyClause())
+                if ctx.qualifyClause() is not None
+                else None
+            ),
+            (
                 self.visit(ctx.orderByClause())
                 if ctx.orderByClause() is not None
                 else None
@@ -927,14 +981,32 @@ class AstBuilder(PiettoVisitor):
     def visitExpression(self, ctx: _AntlrContext) -> Expression:
         return self.visit(ctx.orExpression())
 
+    def visitQualifyExpression(self, ctx: _AntlrContext) -> Expression:
+        return self.visit(ctx.qualifyOrExpression())
+
     def visitOrExpression(self, ctx: _AntlrContext) -> Expression:
+        return self._fold_binary(ctx)
+
+    def visitQualifyOrExpression(self, ctx: _AntlrContext) -> Expression:
         return self._fold_binary(ctx)
 
     def visitAndExpression(self, ctx: _AntlrContext) -> Expression:
         return self._fold_binary(ctx)
 
+    def visitQualifyAndExpression(self, ctx: _AntlrContext) -> Expression:
+        return self._fold_binary(ctx)
+
     def visitComparisonExpression(self, ctx: _AntlrContext) -> Expression:
-        operands = ctx.additiveExpression()
+        return self._comparison_expression(ctx, ctx.additiveExpression())
+
+    def visitQualifyComparisonExpression(self, ctx: _AntlrContext) -> Expression:
+        return self._comparison_expression(ctx, ctx.qualifyAdditiveExpression())
+
+    def _comparison_expression(
+        self,
+        ctx: _AntlrContext,
+        operands: list[_AntlrContext],
+    ) -> Expression:
         left = cast(Expression, self.visit(operands[0]))
 
         if ctx.comparisonOperator() is not None:
@@ -962,7 +1034,13 @@ class AstBuilder(PiettoVisitor):
     def visitAdditiveExpression(self, ctx: _AntlrContext) -> Expression:
         return self._fold_binary(ctx)
 
+    def visitQualifyAdditiveExpression(self, ctx: _AntlrContext) -> Expression:
+        return self._fold_binary(ctx)
+
     def visitMultiplicativeExpression(self, ctx: _AntlrContext) -> Expression:
+        return self._fold_binary(ctx)
+
+    def visitQualifyMultiplicativeExpression(self, ctx: _AntlrContext) -> Expression:
         return self._fold_binary(ctx)
 
     def visitUnaryExpression(self, ctx: _AntlrContext) -> Expression:
@@ -972,6 +1050,15 @@ class AstBuilder(PiettoVisitor):
             span=self._span(ctx),
             operator=ctx.getChild(0).getText(),
             operand=self.visit(ctx.unaryExpression()),
+        )
+
+    def visitQualifyUnaryExpression(self, ctx: _AntlrContext) -> Expression:
+        if ctx.qualifyPrimaryExpression() is not None:
+            return self.visit(ctx.qualifyPrimaryExpression())
+        return UnaryExpr(
+            span=self._span(ctx),
+            operator=ctx.getChild(0).getText(),
+            operand=self.visit(ctx.qualifyUnaryExpression()),
         )
 
     def visitPrimaryExpression(self, ctx: _AntlrContext) -> Expression:
@@ -985,6 +1072,23 @@ class AstBuilder(PiettoVisitor):
             return callee
         return self._call_expr(ctx.dottedName(), ctx.callSuffix())
 
+    def visitQualifyPrimaryExpression(self, ctx: _AntlrContext) -> Expression:
+        if ctx.qualifyWindowExpression() is not None:
+            return self.visit(ctx.qualifyWindowExpression())
+        if ctx.literal() is not None:
+            return self.visit(ctx.literal())
+        if ctx.qualifyExpression() is not None:
+            return self.visit(ctx.qualifyExpression())
+
+        callee = self._dotted_name_expr(ctx.dottedName())
+        if ctx.qualifyCallSuffix() is None:
+            return callee
+        return self._call_expr_from_arguments(
+            ctx.dottedName(),
+            ctx.qualifyCallSuffix(),
+            ctx.qualifyCallSuffix().qualifyExpression(),
+        )
+
     def _call_expr(
         self,
         dotted_name_ctx: _AntlrContext,
@@ -992,12 +1096,24 @@ class AstBuilder(PiettoVisitor):
     ) -> CallExpr:
         """Build a call whose span ends at its call suffix, not a later suffix."""
 
+        return self._call_expr_from_arguments(
+            dotted_name_ctx,
+            call_suffix_ctx,
+            call_suffix_ctx.expression(),
+        )
+
+    def _call_expr_from_arguments(
+        self,
+        dotted_name_ctx: _AntlrContext,
+        call_suffix_ctx: _AntlrContext,
+        argument_contexts: list[_AntlrContext],
+    ) -> CallExpr:
+        """Build one call from either the global or QUALIFY expression domain."""
+
         return CallExpr(
             span=self._span_between(dotted_name_ctx, call_suffix_ctx),
             callee=self._dotted_name_expr(dotted_name_ctx),
-            arguments=tuple(
-                self.visit(argument) for argument in call_suffix_ctx.expression()
-            ),
+            arguments=tuple(self.visit(argument) for argument in argument_contexts),
         )
 
     def _dotted_name_expr(self, ctx: _AntlrContext) -> NameExpr | DottedNameExpr:

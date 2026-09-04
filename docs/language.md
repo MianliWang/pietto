@@ -84,6 +84,7 @@ where (optional)
 group by (optional)
 select
 satisfying (optional)
+qualify (optional)
 order by (optional)
 limit (optional)
 ```
@@ -259,9 +260,41 @@ identity in private IR, Project semantic provenance, and package inspection.
 MySQL may preserve reachable source order; PostgreSQL uses stable base-first
 ordering; exact inline fallback is used when native inheritance is not
 representable. Unsupported target shapes fail closed without erasing semantic
-provenance. Named windows do not cross relation blocks. `QUALIFY`,
-arbitrary nesting, and window expressions in unsupported clauses remain
-rejected.
+provenance. Named windows do not cross relation blocks. Arbitrary nesting and
+window expressions in unsupported clauses remain rejected.
+
+Joined query blocks may add one `qualify:` block after named-window declarations
+and optional `satisfying`, but before relation `order by` and `limit`:
+
+```pietto
+query top_items:
+    from items
+    select:
+        item
+    qualify:
+        row_number() window:
+            order by:
+                item
+        <= 3
+```
+
+QUALIFY has its own expression grammar with the existing scalar precedence and
+AST forms plus an inline-only hidden `WindowExpr`. Hidden named-window uses are
+not accepted, and adding QUALIFY does not make window expressions legal in
+WHERE, LET, GROUP BY, or the global scalar grammar.
+
+Outer QUALIFY names resolve across the complete pre-window input bucket followed
+by exact selected window-result bindings. Selected aliases are bare-only;
+qualified lookup remains input-only. A collision is ambiguous with no selected
+or input winner. Ordinary projection aliases never become backward QUALIFY
+bindings. Every hidden window uses the same pre-window namespace as selected
+windows and therefore cannot consume a selected result.
+
+An authored QUALIFY requires at least one selected or hidden window computation.
+Its predicate reuses the existing scalar and Bool kernels; a known nullable Bool
+is legal. SQL truth retains only TRUE and drops FALSE or UNKNOWN. This stage does
+not yet lower QUALIFY to IR or SQL, establish relation ordering, or complete the
+final relation output.
 
 ## Modules and relationships
 

@@ -1456,7 +1456,10 @@ def test_frames_named_windows_qualify_extension_and_later_identity_boundaries_ar
             for token in ("rows", "range", "groups", "name", "inherits")
         )
     elif _case == 6:
-        assert "QUALIFY" not in _read("grammar/Pietto.g4")
+        grammar = " ".join(_read("grammar/Pietto.g4").split())
+        assert "qualifyClause : QUALIFY" in grammar
+        assert "QUALIFY: 'qualify';" in grammar
+        assert "qualify" not in {field.name for field in dataclasses.fields(RelationIR)}
     elif 7 <= _case <= 9:
         identity = ("first_value", "last_value", "nth_value")[_case - 7]
         assert identity in capability_windows._WINDOW_IDENTITIES

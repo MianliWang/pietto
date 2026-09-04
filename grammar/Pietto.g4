@@ -249,7 +249,7 @@ sourceDefinition
     ;
 
 // Relations support from, optional where/group by, ordered select, optional
-// satisfying, ordered order items, and limit.
+// satisfying/qualify, ordered order items, and limit.
 tableDefinition
     : TABLE identifier COLON NEWLINE NEWLINE* INDENT tableBody DEDENT
     ;
@@ -260,7 +260,7 @@ queryDefinition
     ;
 
 tableBody
-    : NEWLINE* fromClause NEWLINE* (joinClause NEWLINE*)* letClause? NEWLINE* whereClause? NEWLINE* groupByClause? NEWLINE* selectClause NEWLINE* (namedWindowDeclaration NEWLINE*)* satisfyingClause? NEWLINE* orderByClause? NEWLINE* limitClause? NEWLINE*
+    : NEWLINE* fromClause NEWLINE* (joinClause NEWLINE*)* letClause? NEWLINE* whereClause? NEWLINE* groupByClause? NEWLINE* selectClause NEWLINE* (namedWindowDeclaration NEWLINE*)* satisfyingClause? NEWLINE* qualifyClause? NEWLINE* orderByClause? NEWLINE* limitClause? NEWLINE*
     ;
 
 fromClause
@@ -340,6 +340,10 @@ windowSpec
     | WINDOW identifier COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT
     ;
 
+qualifyInlineWindowSpec
+    : WINDOW COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT
+    ;
+
 namedWindowDeclaration
     : WINDOW identifier (ASSIGN identifier)? NEWLINE
     | WINDOW identifier (ASSIGN identifier)? COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT
@@ -376,6 +380,58 @@ frameBound
 
 satisfyingClause
     : SATISFYING COLON NEWLINE NEWLINE* INDENT expression NEWLINE NEWLINE* DEDENT
+    ;
+
+qualifyClause
+    : QUALIFY COLON NEWLINE NEWLINE* INDENT qualifyExpression NEWLINE NEWLINE* DEDENT
+    ;
+
+qualifyExpression
+    : qualifyOrExpression
+    ;
+
+qualifyOrExpression
+    : qualifyAndExpression (OR qualifyAndExpression)*
+    ;
+
+qualifyAndExpression
+    : qualifyComparisonExpression (AND qualifyComparisonExpression)*
+    ;
+
+qualifyComparisonExpression
+    : qualifyAdditiveExpression (
+        comparisonOperator qualifyAdditiveExpression
+        | BETWEEN qualifyAdditiveExpression AND qualifyAdditiveExpression
+        | IS NOT? NULL
+    )?
+    ;
+
+qualifyAdditiveExpression
+    : qualifyMultiplicativeExpression ((PLUS | MINUS) qualifyMultiplicativeExpression)*
+    ;
+
+qualifyMultiplicativeExpression
+    : qualifyUnaryExpression ((STAR | SLASH | PERCENT) qualifyUnaryExpression)*
+    ;
+
+qualifyUnaryExpression
+    : (PLUS | MINUS) qualifyUnaryExpression
+    | qualifyPrimaryExpression
+    ;
+
+qualifyPrimaryExpression
+    : qualifyWindowExpression
+    | literal
+    | dottedName qualifyCallSuffix?
+    | LPAREN qualifyExpression RPAREN
+    ;
+
+qualifyWindowExpression
+    : dottedName callSuffix nthValueDirection? nullTreatment? qualifyInlineWindowSpec
+    ;
+
+qualifyCallSuffix
+    : LPAREN (qualifyExpression (COMMA qualifyExpression)* COMMA?)? RPAREN
     ;
 
 orderByClause
@@ -468,6 +524,7 @@ namePart
     | QUERY
     | LIMIT
     | SATISFYING
+    | QUALIFY
     | RELATIONSHIP
     | ENDPOINT
     | INNER
@@ -507,6 +564,7 @@ identifier
     | GROUP
     | LET
     | SATISFYING
+    | QUALIFY
     | RELATIONSHIP
     | ENDPOINT
     | INNER
@@ -558,6 +616,7 @@ ASC: 'asc';
 DESC: 'desc';
 LIMIT: 'limit';
 SATISFYING: 'satisfying';
+QUALIFY: 'qualify';
 RELATIONSHIP: 'relationship';
 ENDPOINT: 'endpoint';
 IMPORT: 'import';

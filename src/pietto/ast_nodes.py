@@ -612,6 +612,13 @@ class SatisfyingClause(Node):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class QualifyClause(Node):
+    """A parse-only post-window relation predicate."""
+
+    expression: Expression
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class OrderItem(Node):
     """One source-ordered sorting expression and optional direction."""
 
@@ -750,6 +757,7 @@ class TableDef(Node):
     order_by_clause: OrderByClause | None = None
     limit_clause: LimitClause | None = None
     satisfying_clause: SatisfyingClause | None = None
+    qualify_clause: QualifyClause | None = None
     let_clause: LetClause | None = None
     named_windows: tuple[NamedWindowDeclaration, ...] = ()
     join_clauses: tuple[JoinClause, ...] = ()
@@ -777,6 +785,7 @@ class QueryDef(Node):
     order_by_clause: OrderByClause | None = None
     limit_clause: LimitClause | None = None
     satisfying_clause: SatisfyingClause | None = None
+    qualify_clause: QualifyClause | None = None
     let_clause: LetClause | None = None
     named_windows: tuple[NamedWindowDeclaration, ...] = ()
     join_clauses: tuple[JoinClause, ...] = ()

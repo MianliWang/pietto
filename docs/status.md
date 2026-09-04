@@ -26,13 +26,13 @@ documentation does not supersede that evidence.
 | Slice 8 | `COMPLETED / PUBLISHED` |
 | Slice 9 | `COMPLETED / PUBLISHED` |
 | Slice 10 | `COMPLETED / PUBLISHED` |
-| Slice 11 | `NEXT / NOT IMPLEMENTED` |
-| Slice 12 | `NOT IMPLEMENTED` |
+| Slice 11 | `COMPLETED / PUBLISHED` |
+| Slice 12 | `NEXT / NOT IMPLEMENTED` |
 | Slice 13 | `NOT IMPLEMENTED` |
 | Slice 14 | `NOT IMPLEMENTED` |
 | Slice 15 | `NOT IMPLEMENTED` |
 | Slice 16 | `NOT IMPLEMENTED` |
-| Next | `Phase 63 Slice 11 — QUALIFY Grammar, AST, Semantics, And Property Transfer` |
+| Next | `Phase 63 Slice 12 — Projection, Ordering, Limit, Final Output, And Ledger Completion` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -209,4 +209,36 @@ projection/order/limit, ledger completion, SQL, Arrow, executor, or public
 behavior is added. Slice-7 entries remain `JOINED_TAIL_PENDING`. Natural
 exact-head CI owns Slice 10 completion without a status-only follow-up commit.
 Phase 63 Slice 11 is `NEXT / NOT IMPLEMENTED`; Slices 12–16 and every Phase-64+
+implementation remain unstarted and unauthorized here.
+
+Phase 63 Slice 11 is `COMPLETED / PUBLISHED`. Its [private joined QUALIFY
+stage](spec/phase63-slice11-qualify-grammar-ast-semantics-property-transfer-v1.md)
+adds one distinct `QualifyClause` after selected/named-window and optional
+satisfying semantics but before final ordering and limit. A dedicated QUALIFY
+expression grammar adds hidden inline `WindowExpr` values without widening the
+global expression grammar; selected and hidden windows share one AST
+construction helper. Hidden named uses and window expressions in WHERE, LET,
+GROUP BY, and other global scalar contexts remain parser-negative.
+
+Outer bare lookup concatenates exact pre-window inputs and exact selected
+window-result bindings, preserving complete `ABSENT`/`CONCRETE`/`AMBIGUOUS`
+buckets with no winner. Dotted lookup remains pre-window-only. Ordinary
+projection aliases never flow backward. Each hidden occurrence is atomic and
+uses the exact Slice-10 hidden builder and pre-window namespace, so it creates no
+selected identity/output and cannot consume a selected result.
+
+Exact resolved references and hidden results seed the existing
+`infer_row_expression` kernel; the existing Bool consumer accepts nullable Bool
+and retains `PIE-S2202` for known non-Bool. `PIE-S2331` requires at least one
+selected or hidden window, and `PIE-S2332` preserves unknown versus ambiguous
+reference evidence. Existing `PIE-S2308` rejects newly computed aggregates.
+SQL TRUE retains a row while FALSE and UNKNOWN drop it.
+
+The preservation witness retains Slice-10 BAG, intrinsic grain, selected result,
+and unknown-order authority by reference. It derives no nullability, key, FD,
+value class, grain, or ordering fact. No Project IR output, final field,
+projection/order/limit, effective-output completion, SQL, Arrow, executor, or
+public schema is added; Slice-7 remains `JOINED_TAIL_PENDING`. Natural exact-head
+CI owns Slice 11 completion without a status-only follow-up commit. Phase 63
+Slice 12 is `NEXT / NOT IMPLEMENTED`; Slices 13–16 and every Phase-64+
 implementation remain unstarted and unauthorized here.

@@ -1467,8 +1467,8 @@ historical evidence and does not itself authorize Phase-63 implementation.
 
 ## Phase 63 route
 
-Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–10
-are `COMPLETED / PUBLISHED`; Slice 11 is `NEXT / NOT IMPLEMENTED`; Slices 12–16
+Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–11
+are `COMPLETED / PUBLISHED`; Slice 12 is `NEXT / NOT IMPLEMENTED`; Slices 13–16
 are not implemented. The published route has exactly 16 numbered Slices.
 
 | Slice | Owner |
@@ -1729,6 +1729,41 @@ Slice 10 adds no QUALIFY, projection/order/limit, ledger completion, SQL,
 Arrow, executor, or public behavior. Successful natural exact-head CI completes
 Slice 10 without a status-only follow-up commit and leaves Slice 11
 `NEXT / NOT IMPLEMENTED`.
+
+The [Slice 11 joined QUALIFY
+stage](spec/phase63-slice11-qualify-grammar-ast-semantics-property-transfer-v1.md)
+adds one exact `QualifyClause` after named-window declarations and optional
+satisfying, before relation ordering and limit. Its dedicated expression grammar
+reuses existing precedence and AST forms while admitting hidden inline
+`WindowExpr` values only inside QUALIFY. One AST helper constructs selected and
+hidden inline windows; hidden named uses and global WindowExpr placement remain
+parser-negative.
+
+Bare predicate lookup concatenates the exact Slice-10 pre-window and selected
+result domains in retained order. Dotted lookup remains pre-window-only.
+Complete 0/1/N buckets use existing status authority, selected/input collisions
+have no winner, and ordinary projection aliases do not flow backward. Hidden
+windows are atomic outer operands, remain occurrence-distinct, and call the
+exact Slice-10 hidden builder once each against the same pre-window namespace.
+They create no selected identity, output binding, or nameable result and cannot
+consume selected aliases.
+
+Exact reference and hidden result types seed the unchanged
+`infer_row_expression` kernel. The existing Bool consumer admits nullable Bool;
+ordinary aggregate calls retain `PIE-S2308`. `PIE-S2331` requires one selected
+or hidden window and `PIE-S2332` records unknown or ambiguous outer references
+without Bool cascades. Concrete SQL truth evidence retains only TRUE and drops
+FALSE/UNKNOWN without executing rows.
+
+Absent QUALIFY is a concrete pass-through. Authored concrete QUALIFY preserves
+Slice-10 BAG multiplicity, intrinsic grain, selected result identity, and
+unknown relation ordering by reference while recording row filtering. It
+derives no nullability, key, FD, value class, grain, or ordering fact. Slice-7
+entries remain `JOINED_TAIL_PENDING`; no Project IR output, final field,
+projection/order/limit, ledger completion, SQL, Arrow, executor, or public
+schema is added. Slice 11 adds no final field or output identity. Successful
+natural exact-head CI completes Slice 11 without a
+status-only follow-up commit and leaves Slice 12 `NEXT / NOT IMPLEMENTED`.
 
 `LET` is the first post-JOIN scalar scope. Each stage has an immutable
 visibility environment and hidden intermediate path fields remain non-nameable

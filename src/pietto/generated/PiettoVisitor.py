@@ -369,6 +369,11 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#qualifyInlineWindowSpec.
+    def visitQualifyInlineWindowSpec(self, ctx:PiettoParser.QualifyInlineWindowSpecContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#namedWindowDeclaration.
     def visitNamedWindowDeclaration(self, ctx:PiettoParser.NamedWindowDeclarationContext):
         return self.visitChildren(ctx)
@@ -406,6 +411,61 @@ class PiettoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by PiettoParser#satisfyingClause.
     def visitSatisfyingClause(self, ctx:PiettoParser.SatisfyingClauseContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#qualifyClause.
+    def visitQualifyClause(self, ctx:PiettoParser.QualifyClauseContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#qualifyExpression.
+    def visitQualifyExpression(self, ctx:PiettoParser.QualifyExpressionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#qualifyOrExpression.
+    def visitQualifyOrExpression(self, ctx:PiettoParser.QualifyOrExpressionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#qualifyAndExpression.
+    def visitQualifyAndExpression(self, ctx:PiettoParser.QualifyAndExpressionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#qualifyComparisonExpression.
+    def visitQualifyComparisonExpression(self, ctx:PiettoParser.QualifyComparisonExpressionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#qualifyAdditiveExpression.
+    def visitQualifyAdditiveExpression(self, ctx:PiettoParser.QualifyAdditiveExpressionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#qualifyMultiplicativeExpression.
+    def visitQualifyMultiplicativeExpression(self, ctx:PiettoParser.QualifyMultiplicativeExpressionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#qualifyUnaryExpression.
+    def visitQualifyUnaryExpression(self, ctx:PiettoParser.QualifyUnaryExpressionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#qualifyPrimaryExpression.
+    def visitQualifyPrimaryExpression(self, ctx:PiettoParser.QualifyPrimaryExpressionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#qualifyWindowExpression.
+    def visitQualifyWindowExpression(self, ctx:PiettoParser.QualifyWindowExpressionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#qualifyCallSuffix.
+    def visitQualifyCallSuffix(self, ctx:PiettoParser.QualifyCallSuffixContext):
         return self.visitChildren(ctx)
 
 

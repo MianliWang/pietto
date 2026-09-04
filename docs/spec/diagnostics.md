@@ -79,6 +79,8 @@ stored separately and is never encoded in the code.
 | `PIE-S2328` | Parsed `let:` binding uses an unsupported lowering boundary outside the current row-level inline expansion MVP |
 | `PIE-S2329` | Invalid `let:` binding name, shadowing, duplicate name, or projection output conflict |
 | `PIE-S2330` | Invalid `let:` binding dependency order, self-reference, or cycle |
+| `PIE-S2331` | `QUALIFY` lacks both a selected window result and a hidden predicate window computation |
+| `PIE-S2332` | `QUALIFY` reference is unknown or ambiguous across visible pre-window inputs and selected window results |
 | `PIE-S2401` | Constraint return type does not expand to `Bool` |
 | `PIE-S2402` | Callable or field derive body type mismatch |
 | `PIE-S2501` | Duplicate shape item name |
