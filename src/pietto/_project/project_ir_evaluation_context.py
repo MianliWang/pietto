@@ -14,7 +14,11 @@ from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleRelationSemanticFacts,
     ProjectModuleWindowOutputFact,
 )
-from pietto._project.project_ir import ProjectIROperatorFlowUseOccurrence
+from pietto._project.module_attribution import ProjectDeclarationOccurrenceIdentity
+from pietto._project.project_ir import (
+    ProjectIROperatorFlowUseOccurrence,
+    ProjectIRPlanNodeOccurrence,
+)
 from pietto._project.project_ir_composition import ProjectIRProjectPlan
 from pietto._project.project_ir_construction import (
     ProjectIRConcreteSingleRelationFragment,
@@ -129,8 +133,26 @@ def _effect(
     return matches[0]
 
 
+class ProjectIRGroupedEvaluationContext:
+    """Nominal authority seam shared by historical and additive group stages."""
+
+    __slots__ = ()
+
+    @property
+    def grouped_operator_node(self) -> ProjectIRPlanNodeOccurrence:
+        raise NotImplementedError
+
+    @property
+    def grouped_owner(self) -> ProjectDeclarationOccurrenceIdentity:
+        raise NotImplementedError
+
+    @property
+    def grouped_keys(self) -> tuple[object, ...]:
+        raise NotImplementedError
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ProjectIRAggregateEvaluationContext:
+class ProjectIRAggregateEvaluationContext(ProjectIRGroupedEvaluationContext):
     """Exact semantic and row-stream authority for one group/aggregate stage."""
 
     fragment: ProjectIRConcreteSingleRelationFragment
@@ -215,6 +237,18 @@ class ProjectIRAggregateEvaluationContext:
             or self.result_effect is not _effect(self.fragment, self.result_row_output)
         ):
             raise ValueError("Aggregate context must retain closed effect authority.")
+
+    @property
+    def grouped_operator_node(self) -> ProjectIRPlanNodeOccurrence:
+        return self.operator.node
+
+    @property
+    def grouped_owner(self) -> ProjectDeclarationOccurrenceIdentity:
+        return self.operator.node.anchor.identity
+
+    @property
+    def grouped_keys(self) -> tuple[object, ...]:
+        return self.group_keys
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

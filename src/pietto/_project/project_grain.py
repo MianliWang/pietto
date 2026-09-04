@@ -21,8 +21,8 @@ from pietto._project.project_ir import ProjectIRPlanNodeRef, ProjectIRUseRef
 from pietto._project.project_ir_evaluation_context import (
     ProjectIRAggregateEvaluationContext,
     ProjectIREvaluationContextStage,
+    ProjectIRGroupedEvaluationContext,
 )
-from pietto._project.project_ir_operators import ProjectIRLogicalOperatorKind
 from pietto._project.project_ir_properties import (
     ProjectIRStageRowCheckpointKind,
     ProjectIRStageRowShape,
@@ -103,7 +103,7 @@ class ProjectGroupedGrainFactorIdentity:
 
     owner: ProjectDeclarationOccurrenceIdentity
     operator: ProjectIRPlanNodeRef
-    context: ProjectIRAggregateEvaluationContext = field(
+    context: ProjectIRGroupedEvaluationContext = field(
         repr=False,
         compare=False,
         hash=False,
@@ -118,12 +118,10 @@ class ProjectGroupedGrainFactorIdentity:
             raise TypeError("Grouped grain identity requires an exact owner.")
         if type(self.operator) is not ProjectIRPlanNodeRef:
             raise TypeError("Grouped grain identity requires an exact plan ref.")
-        if type(self.context) is not ProjectIRAggregateEvaluationContext or (
-            not self.context.group_keys
-            or self.context.operator.node.ref != self.operator
-            or self.context.operator.kind
-            is not ProjectIRLogicalOperatorKind.GROUP_AGGREGATE
-            or self.context.operator.node.anchor.identity != self.owner
+        if not isinstance(self.context, ProjectIRGroupedEvaluationContext) or (
+            not self.context.grouped_keys
+            or self.context.grouped_operator_node.ref != self.operator
+            or self.context.grouped_owner != self.owner
         ):
             raise ValueError("Grouped grain identity requires exact group authority.")
 
@@ -666,6 +664,12 @@ class ProjectNonConcreteGrainSubject:
             raise ValueError("Non-concrete aggregate grain requires readiness roots.")
 
 
+class ProjectGrainOriginAuthority:
+    """Nominal root shared by historical and additive grain-origin snapshots."""
+
+    __slots__ = ()
+
+
 def _aggregate_origin_matches_context(
     origin: ProjectConcreteGrainOrigin,
     context: ProjectIRAggregateEvaluationContext,
@@ -689,7 +693,7 @@ def _aggregate_origin_matches_context(
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ProjectGrainOriginSet:
+class ProjectGrainOriginSet(ProjectGrainOriginAuthority):
     """Complete source and aggregate grain-origin projection."""
 
     value_fds: ProjectValueFDBasisSet = field(

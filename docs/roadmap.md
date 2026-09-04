@@ -1467,9 +1467,9 @@ historical evidence and does not itself authorize Phase-63 implementation.
 
 ## Phase 63 route
 
-Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–13
-are `COMPLETED / PUBLISHED`; Slice 14 is `NEXT / NOT IMPLEMENTED`; Slices 15–16
-are not implemented. The published route has exactly 16 numbered Slices.
+Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–14
+are `COMPLETED / PUBLISHED`; Slice 15 is `NEXT / NOT IMPLEMENTED`; Slice 16 is
+not implemented. The published route has exactly 16 numbered Slices.
 
 | Slice | Owner |
 | ---: | --- |
@@ -1825,6 +1825,54 @@ public API, package, dependency, workflow, or version behavior changes.
 
 Successful natural exact-head CI completes Slice 13 without a status-only
 follow-up commit and leaves Slice 14 `NEXT / NOT IMPLEMENTED`.
+
+The [Slice 14 query-block Project IR
+overlay](spec/phase63-slice14-query-block-project-ir-composition-verification-invalidation-v1.md)
+retains the exact Phase-61 Project plan and Phase-62 JOIN stage, starts at the
+exact Phase-62 ending allocation, and continues one snapshot scope plus the
+existing plan-node/output/input-slot/use coordinate domains. It consumes the
+Slice-12 canonical owner/dependency/schedule ledger and publishes exactly one
+historical reuse, historical no-JOIN rebound, fresh completed joined/replay IR,
+or typed zero-allocation terminal per owner.
+
+Historical reuse requires the exact active upstream IR root; stale cross edges
+are rebuilt only for no-JOIN unary fragments using existing resolution and
+dependency authority. Phase-62 JOIN regions remain immutable: every external
+input must still be its effective owner's exact active output, otherwise
+`EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED` closes the owner without replacement
+JOIN allocation. Generic JOIN over effective outputs remains Phase 64.
+
+The historical eight-value `ProjectIRLogicalOperatorKind` is unchanged. One
+private QUALIFY extension composes exact authored stages, with no RELATION_INPUT
+after a joined region, no unary JOIN, and no operator for LET or named-window
+declarations. Occurrence-complete row shapes preserve duplicate names,
+effective nullability, and JOIN introduction/nulling provenance; only
+FINAL_PROJECTION receives exact Slice-12 final field identities. Selected
+windows create stage-local scalar outputs and fresh singleton classes; hidden
+QUALIFY windows create neither. Relation ORDER and LIMIT retain only their
+exact Slice-12 authority.
+
+The overlay reuses the existing value-class, key, FD, FD-index, STRICT closure,
+grouped-factor, and grain-dependency kernels. GROUPED mints the existing
+`ProjectGroupedGrainFactorIdentity` at the real new aggregate node; GLOBAL has
+no active grouped factor or fake key. One immutable grain-origin extension is
+rooted in the exact historical origin set, and every new relational grain
+product retains that same root.
+
+Separate private verification derives no expected answer by calling the
+constructor. It checks roots, allocation, ledger/mapping, reuse/rebind/JOIN
+boundaries, operators/evidence, topology, row shapes, properties, grain origins,
+and foreign grafts. Only VERIFIED snapshots derive combined reverse uses,
+topological order, and reachability through one generic actual-use topology
+kernel. Invalidation reuses `ProjectIRChangeDomain`; verification always reruns,
+a changed Slice-13 root rebuilds the complete overlay, and no persistent or
+incremental cross-snapshot cache is added.
+
+Slice 14 adds no inspection/pure/canonical projection, public API, CLI, JSON,
+Project Explain, SQL, Arrow, executor, optimizer, parser/AST, package,
+dependency, workflow, or version behavior. Successful natural exact-head CI
+completes it without a status-only follow-up commit and leaves Slice 15
+`NEXT / NOT IMPLEMENTED`; Slice 16 and Phase 64 remain unstarted.
 
 `LET` is the first post-JOIN scalar scope. Each stage has an immutable
 visibility environment and hidden intermediate path fields remain non-nameable

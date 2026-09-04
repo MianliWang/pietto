@@ -185,6 +185,10 @@ PHASE63_SLICE13_SPEC = (
     REPO_ROOT
     / "docs/spec/phase63-slice13-completed-project-semantic-result-public-check-boundaries-v1.md"
 )
+PHASE63_SLICE14_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase63-slice14-query-block-project-ir-composition-verification-invalidation-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -255,12 +259,12 @@ EXPECTED_STATUS = (
     ("Slice 11", "`COMPLETED / PUBLISHED`"),
     ("Slice 12", "`COMPLETED / PUBLISHED`"),
     ("Slice 13", "`COMPLETED / PUBLISHED`"),
-    ("Slice 14", "`NEXT / NOT IMPLEMENTED`"),
-    ("Slice 15", "`NOT IMPLEMENTED`"),
+    ("Slice 14", "`COMPLETED / PUBLISHED`"),
+    ("Slice 15", "`NEXT / NOT IMPLEMENTED`"),
     ("Slice 16", "`NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 63 Slice 14 — Query-Block Project IR Composition, Verification, And Invalidation`",
+        "`Phase 63 Slice 15 — Inspection/Pure Boundary And Real E2E/Differential/Metamorphic Assurance`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -298,9 +302,9 @@ EXPECTED_PHASE62_OWNER = (
     "and multi-fact alignment analysis"
 )
 EXPECTED_PHASE63_STATE = (
-    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–13\n"
-    "are `COMPLETED / PUBLISHED`; Slice 14 is `NEXT / NOT IMPLEMENTED`; Slices 15–16\n"
-    "are not implemented. The published route has exactly 16 numbered Slices."
+    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–14\n"
+    "are `COMPLETED / PUBLISHED`; Slice 15 is `NEXT / NOT IMPLEMENTED`; Slice 16 is\n"
+    "not implemented. The published route has exactly 16 numbered Slices."
 )
 EXPECTED_PHASE58_ROUTE = (
     (
@@ -1313,6 +1317,19 @@ EXPECTED_PHASE63_SLICE13_MECHANICAL_PATHS = (
     "tests/test_phase54_schema_v2_explicit_module_carrier.py",
     "tests/test_phase55_slice2_explicit_package_activation_compatibility_and_immutable_package_carrier.py",
 )
+EXPECTED_PHASE63_SLICE14_CHANGED_PATHS = (
+    "src/pietto/_project/project_query_block_ir.py",
+    "src/pietto/_project/project_query_block_ir_verification.py",
+    "src/pietto/_project/project_ir_relational_properties.py",
+    "src/pietto/_project/project_ir_evaluation_context.py",
+    "src/pietto/_project/project_grain.py",
+    "docs/spec/phase63-slice14-query-block-project-ir-composition-verification-invalidation-v1.md",
+    "tests/test_phase63_slice14_query_block_project_ir_composition_verification_invalidation.py",
+    "docs/roadmap.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -1589,6 +1606,44 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "no Slice-14 unary-tail IR is constructed" in normalized
     assert "Phase 63 Slice 14 is `NEXT / NOT IMPLEMENTED`" in normalized
     assert "Slices 15–16 and every Phase-64+ implementation remain" in normalized
+    assert "Phase 63 Slice 14 is `COMPLETED / PUBLISHED`" in normalized
+    assert "private query-block Project IR overlay" in normalized
+    assert "exact Phase-61 Project plan and Phase-62 binary JOIN snapshot" in normalized
+    assert "exact Phase-62 ending allocation" in normalized
+    assert (
+        "same plan-node, output, input-slot, use, and snapshot-scope domains"
+        in normalized
+    )
+    assert "historical no-JOIN rebound" in normalized
+    assert "typed zero-allocation IR terminal" in normalized
+    assert (
+        "historical eight-value `ProjectIRLogicalOperatorKind` remains unchanged"
+        in normalized
+    )
+    assert "QUALIFY is one private additive operator extension" in normalized
+    assert "Joined tails add no RELATION_INPUT" in normalized
+    assert "`EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED`" in normalized
+    assert "no JOIN is rewritten or reconstructed" in normalized
+    assert (
+        "Occurrence-complete query-block row shapes retain duplicate names"
+        in normalized
+    )
+    assert "FINAL_PROJECTION reuses exact Slice-12 field identities" in normalized
+    assert "without a second property engine" in normalized
+    assert (
+        "Hidden QUALIFY windows produce no scalar output or final field" in normalized
+    )
+    assert "without invoking the constructor" in normalized
+    assert (
+        "combined reverse-use, topological-order, and reachability analyses"
+        in normalized
+    )
+    assert "one generic actual-use topology kernel" in normalized
+    assert "a changed Slice-13 root rebuilds the complete overlay" in normalized
+    assert "No persistent cache exists" in normalized
+    assert "Slice 14 adds no public API, CLI, JSON, Project Explain" in normalized
+    assert "Phase 63 Slice 15 is `NEXT / NOT IMPLEMENTED`" in normalized
+    assert "Slice 16 and every Phase-64+ implementation remain" in normalized
     prerequisite_target = (
         "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
     )
@@ -1648,6 +1703,10 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert f"]({slice13_target})" in status
     assert (STATUS.parent / slice13_target).resolve() == PHASE63_SLICE13_SPEC
     assert PHASE63_SLICE13_SPEC.is_file()
+    slice14_target = "spec/phase63-slice14-query-block-project-ir-composition-verification-invalidation-v1.md"
+    assert f"]({slice14_target})" in status
+    assert (STATUS.parent / slice14_target).resolve() == PHASE63_SLICE14_SPEC
+    assert PHASE63_SLICE14_SPEC.is_file()
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -2154,6 +2213,29 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "No historical `ProjectSemanticResult.ok`",
         "natural exact-head CI completes Slice 13",
         "leaves Slice 14 `NEXT / NOT IMPLEMENTED`",
+        "phase63-slice14-query-block-project-ir-composition-verification-invalidation-v1.md",
+        "exact Phase-61 Project plan and Phase-62 JOIN stage",
+        "exact Phase-62 ending allocation",
+        "existing plan-node/output/input-slot/use coordinate domains",
+        "historical no-JOIN rebound",
+        "typed zero-allocation terminal per owner",
+        "stale cross edges are rebuilt only for no-JOIN unary fragments",
+        "`EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED`",
+        "Generic JOIN over effective outputs remains Phase 64",
+        "historical eight-value `ProjectIRLogicalOperatorKind` is unchanged",
+        "no RELATION_INPUT after a joined region",
+        "Occurrence-complete row shapes preserve duplicate names",
+        "only FINAL_PROJECTION receives exact Slice-12 final field identities",
+        "hidden QUALIFY windows create neither",
+        "existing value-class, key, FD, FD-index, STRICT closure",
+        "`ProjectGroupedGrainFactorIdentity`",
+        "One immutable grain-origin extension",
+        "derives no expected answer by calling the constructor",
+        "one generic actual-use topology kernel",
+        "a changed Slice-13 root rebuilds the complete overlay",
+        "no persistent or incremental cross-snapshot cache",
+        "Slice 14 adds no inspection/pure/canonical projection",
+        "leaves Slice 15 `NEXT / NOT IMPLEMENTED`",
     ):
         assert evidence in phase63_normalized
 
@@ -2176,6 +2258,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "spec/phase63-slice11-qualify-grammar-ast-semantics-property-transfer-v1.md",
         "spec/phase63-slice12-projection-order-limit-final-output-ledger-completion-v1.md",
         "spec/phase63-slice13-completed-project-semantic-result-public-check-boundaries-v1.md",
+        "spec/phase63-slice14-query-block-project-ir-composition-verification-invalidation-v1.md",
     ):
         assert f"]({target})" in roadmap
         assert (ROADMAP.parent / target).is_file()
@@ -2854,6 +2937,27 @@ def test_phase63_slice13_rebinds_exact_slice12_publication_authority() -> None:
         "174 -> 175",
         "417 -> 418",
         "Slice 14 是唯一 `NEXT / NOT IMPLEMENTED` owner",
+    ):
+        assert evidence in document
+
+
+def test_phase63_slice14_rebinds_exact_slice13_publication_authority() -> None:
+    document = " ".join(PHASE63_SLICE14_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "8b56db95ab45933d05db2123b3e89fb81b8ac2fa",
+        "c07493ab11dcf308a0cde01f9ef33a567096eb3c",
+        "0d1d66badc2cf901d35876b360a25a9c36a829b3",
+        "Add Phase 63 completed project semantics",
+        "33855263140",
+        "push / main / attempt 1 / success",
+        "A4/M7/D0",
+        "175 -> 177",
+        "418 -> 419",
+        "production repairs 是 `10/12`",
+        "mechanical closure paths 是 `0/12`",
+        "authoritative validator starts 是 `0/4`",
+        "Slice 15 是 `NEXT / NOT IMPLEMENTED`",
+        "Phase 64 单独拥有 generic JOIN semantics",
     ):
         assert evidence in document
 
@@ -4115,4 +4219,29 @@ def test_phase63_slice13_changed_paths_are_exact() -> None:
         "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
         "tests/test_phase54_schema_v2_explicit_module_carrier.py",
         "tests/test_phase55_slice2_explicit_package_activation_compatibility_and_immutable_package_carrier.py",
+    )
+
+
+def test_phase63_slice14_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE63_SLICE14_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 11
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert tuple(path for path in paths if path.startswith("src/")) == (
+        "src/pietto/_project/project_query_block_ir.py",
+        "src/pietto/_project/project_query_block_ir_verification.py",
+        "src/pietto/_project/project_ir_relational_properties.py",
+        "src/pietto/_project/project_ir_evaluation_context.py",
+        "src/pietto/_project/project_grain.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+            )
+        )
+        for path in paths
     )

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from heapq import heappop, heappush
 from types import MappingProxyType
-from typing import cast
+from typing import Any, cast
 
 from pietto._project.model import ProjectRowField, ProjectRowFieldNullability
 from pietto._project.project_grain import (
@@ -16,6 +16,7 @@ from pietto._project.project_grain import (
     ProjectGrainDependencyFact,
     ProjectGrainDomainFactor,
     ProjectGrainFactorIdentity,
+    ProjectGrainOriginAuthority,
     ProjectGrainOriginSet,
 )
 from pietto._project.project_ir import (
@@ -37,8 +38,28 @@ from pietto.ast_nodes import DottedNameExpr, NameExpr
 
 __all__: tuple[str, ...] = ()
 
-type ProjectIRRelationalRowOutput = ProjectIRRelationRowOutput | ProjectIRJoinRowOutput
+
+class ProjectIRRelationalRowOutputExtension:
+    """Nominal input to the existing algebra for additive private row outputs."""
+
+    __slots__ = ()
+
+    occurrence: Any
+    row_shape: Any
+
+
+type ProjectIRRelationalRowOutput = (
+    ProjectIRRelationRowOutput
+    | ProjectIRJoinRowOutput
+    | ProjectIRRelationalRowOutputExtension
+)
 _RELATIONAL_ROW_OUTPUT_TYPES = (ProjectIRRelationRowOutput, ProjectIRJoinRowOutput)
+
+
+def _is_relational_row_output(output: object) -> bool:
+    return type(output) in _RELATIONAL_ROW_OUTPUT_TYPES or isinstance(
+        output, ProjectIRRelationalRowOutputExtension
+    )
 
 
 class ProjectIRGrainComparisonStatus(StrEnum):
@@ -58,7 +79,7 @@ class ProjectIROutputFieldOccurrence:
     effective_nullability: ProjectRowFieldNullability = field(init=False)
 
     def __post_init__(self) -> None:
-        if type(self.output) not in _RELATIONAL_ROW_OUTPUT_TYPES:
+        if not _is_relational_row_output(self.output):
             raise TypeError("Output field requires an exact relation-row output.")
         row_fields = self.output.row_shape.fields
         if (
@@ -69,14 +90,16 @@ class ProjectIROutputFieldOccurrence:
         ):
             raise ValueError("Output field must retain exact row-shape order.")
         shape_field = row_fields[self.field_position]
+        if type(shape_field) is ProjectIRJoinedRowField:
+            effective_nullability = shape_field.effective_nullability
+        elif isinstance(self.output, ProjectIRRelationalRowOutputExtension):
+            effective_nullability = cast(Any, shape_field).effective_nullability
+        else:
+            effective_nullability = self.evidence.nullability
         object.__setattr__(
             self,
             "effective_nullability",
-            (
-                shape_field.effective_nullability
-                if type(shape_field) is ProjectIRJoinedRowField
-                else self.evidence.nullability
-            ),
+            effective_nullability,
         )
 
 
@@ -86,7 +109,7 @@ class ProjectIROutputValueClass:
     members: tuple[ProjectIROutputFieldOccurrence, ...]
 
     def __post_init__(self) -> None:
-        if type(self.output) not in _RELATIONAL_ROW_OUTPUT_TYPES or not self.members:
+        if not _is_relational_row_output(self.output) or not self.members:
             raise ValueError("Value class requires one exact output and members.")
         if any(member.output is not self.output for member in self.members):
             raise ValueError("Value-class members must share one output occurrence.")
@@ -101,7 +124,7 @@ class ProjectIROutputCandidateKey:
 
     def __post_init__(self) -> None:
         if (
-            type(self.output) not in _RELATIONAL_ROW_OUTPUT_TYPES
+            not _is_relational_row_output(self.output)
             or not self.determinants
             or any(item.output is not self.output for item in self.determinants)
             or not self.supports
@@ -119,7 +142,7 @@ class ProjectIROutputValueFD:
 
     def __post_init__(self) -> None:
         if (
-            type(self.output) not in _RELATIONAL_ROW_OUTPUT_TYPES
+            not _is_relational_row_output(self.output)
             or not self.determinants
             or not self.dependents
             or any(
@@ -213,14 +236,23 @@ class ProjectIRProvidedIntrinsicGrain:
     factors: tuple[ProjectGrainDomainFactor, ...]
     active: tuple[ProjectGrainFactorIdentity, ...]
     dependencies: tuple[ProjectGrainDependencyFact, ...]
-    origin_set: ProjectGrainOriginSet = field(repr=False, compare=False, hash=False)
+    origin_set: ProjectGrainOriginAuthority = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
     witness: object = field(repr=False, compare=False, hash=False)
 
     def __post_init__(self) -> None:
-        if type(self.output) not in _RELATIONAL_ROW_OUTPUT_TYPES or self.state not in {
-            ProjectGrainBasisState.FACTORIZED,
-            ProjectGrainBasisState.GLOBAL,
-        }:
+        if (
+            not _is_relational_row_output(self.output)
+            or not isinstance(self.origin_set, ProjectGrainOriginAuthority)
+            or self.state
+            not in {
+                ProjectGrainBasisState.FACTORIZED,
+                ProjectGrainBasisState.GLOBAL,
+            }
+        ):
             raise ValueError("Provided grain requires one concrete output state.")
         identities = tuple(factor.identity for factor in self.factors)
         if any(item not in identities for item in self.active):
@@ -387,8 +419,7 @@ def _projection_images(
     output: ProjectIRRelationalRowOutput,
     fields: tuple[ProjectIROutputFieldOccurrence, ...],
 ):
-    members_by_old = {item: [] for item in incoming.value_classes}
-    assigned: set[int] = set()
+    source_classes: list[ProjectIROutputValueClass | None] = [None] * len(fields)
     for fact in operator.evidence.select_facts:
         if (
             fact.selected_output_ordinal >= len(fields)
@@ -407,9 +438,36 @@ def _projection_images(
             )
         )
         if len(matches) == 1:
-            member = fields[fact.selected_output_ordinal]
-            members_by_old[matches[0]].append(member)
-            assigned.add(member.field_position)
+            source_classes[fact.selected_output_ordinal] = matches[0]
+    return _projection_classes_from_sources(
+        incoming,
+        output,
+        fields,
+        tuple(source_classes),
+    )
+
+
+def _projection_classes_from_sources(
+    incoming: ProjectIROutputRelationalProperties,
+    output: ProjectIRRelationalRowOutput,
+    fields: tuple[ProjectIROutputFieldOccurrence, ...],
+    source_classes: tuple[ProjectIROutputValueClass | None, ...],
+):
+    """Image exact direct sources; unassigned outputs remain singleton classes."""
+
+    if len(source_classes) != len(fields) or any(
+        source is not None
+        and not any(source is retained for retained in incoming.value_classes)
+        for source in source_classes
+    ):
+        raise ValueError("Projection sources require exact incoming value classes.")
+    members_by_old = {item: [] for item in incoming.value_classes}
+    assigned: set[int] = set()
+    for member, source in zip(fields, source_classes, strict=True):
+        if source is None:
+            continue
+        members_by_old[source].append(member)
+        assigned.add(member.field_position)
     classes: list[ProjectIROutputValueClass] = []
     images: dict[ProjectIROutputValueClass, ProjectIROutputValueClass | None] = {}
     for old in incoming.value_classes:
@@ -507,6 +565,81 @@ def _key_fds(output, classes, keys, inherited=()):
                 supports=(*existing.supports, *fact.supports),
             )
     return tuple(merged)
+
+
+def _image_keys_and_fds(
+    incoming: ProjectIROutputRelationalProperties,
+    output: ProjectIRRelationalRowOutput,
+    classes: tuple[ProjectIROutputValueClass, ...],
+    images: Mapping[
+        ProjectIROutputValueClass,
+        ProjectIROutputValueClass | None,
+    ],
+    *,
+    support: object | None = None,
+) -> tuple[
+    tuple[ProjectIROutputCandidateKey, ...],
+    tuple[ProjectIROutputValueFD, ...],
+]:
+    """Transfer keys and FDs once through an exact output-local class image."""
+
+    if set(images) != set(incoming.value_classes) or any(
+        image is not None and not any(image is item for item in classes)
+        for image in images.values()
+    ):
+        raise ValueError("Relational property image requires exact class authority.")
+
+    def retained_support(item: object) -> tuple[object, ...]:
+        return (item,) if support is None else (item, support)
+
+    transferred = tuple(
+        ProjectIROutputCandidateKey(
+            output=output,
+            determinants=tuple(
+                cast(ProjectIROutputValueClass, images[item])
+                for item in key.determinants
+            ),
+            strength=(
+                ProjectRowUniquenessStrength.STRICT
+                if all(
+                    all(
+                        member.effective_nullability
+                        is ProjectRowFieldNullability.NON_NULL
+                        for member in cast(
+                            ProjectIROutputValueClass,
+                            images[item],
+                        ).members
+                    )
+                    for item in key.determinants
+                )
+                else key.strength
+            ),
+            supports=retained_support(key),
+        )
+        for key in incoming.keys
+        if all(images[item] is not None for item in key.determinants)
+    )
+    keys = _frontier(transferred)
+    mapped_fds = tuple(
+        ProjectIROutputValueFD(
+            output=output,
+            determinants=tuple(
+                cast(ProjectIROutputValueClass, images[item])
+                for item in fact.determinants
+            ),
+            dependents=tuple(
+                cast(ProjectIROutputValueClass, images[item])
+                for item in fact.dependents
+                if images[item] is not None
+            ),
+            strength=fact.strength,
+            supports=retained_support(fact),
+        )
+        for fact in incoming.fds
+        if all(images[item] is not None for item in fact.determinants)
+        and any(images[item] is not None for item in fact.dependents)
+    )
+    return keys, _key_fds(output, classes, keys, mapped_fds)
 
 
 def _compile_output_fd_index(output, universe, facts):
@@ -751,53 +884,12 @@ def build_project_ir_relational_property_stage(
                 if operator.kind is ProjectIRLogicalOperatorKind.FINAL_PROJECTION
                 else _preserving_classes(incoming, output, fields)
             )
-            transferred = tuple(
-                ProjectIROutputCandidateKey(
-                    output=output,
-                    determinants=tuple(
-                        cast(ProjectIROutputValueClass, images[item])
-                        for item in key.determinants
-                    ),
-                    strength=(
-                        ProjectRowUniquenessStrength.STRICT
-                        if all(
-                            all(
-                                member.evidence.nullability
-                                is ProjectRowFieldNullability.NON_NULL
-                                for member in cast(
-                                    ProjectIROutputValueClass, images[item]
-                                ).members
-                            )
-                            for item in key.determinants
-                        )
-                        else key.strength
-                    ),
-                    supports=(key,),
-                )
-                for key in incoming.keys
-                if all(images[item] for item in key.determinants)
+            keys, fds = _image_keys_and_fds(
+                incoming,
+                output,
+                classes,
+                images,
             )
-            keys = _frontier(transferred)
-            mapped_fds = tuple(
-                ProjectIROutputValueFD(
-                    output=output,
-                    determinants=tuple(
-                        cast(ProjectIROutputValueClass, images[item])
-                        for item in fact.determinants
-                    ),
-                    dependents=tuple(
-                        cast(ProjectIROutputValueClass, images[item])
-                        for item in fact.dependents
-                        if images[item] is not None
-                    ),
-                    strength=fact.strength,
-                    supports=(fact,),
-                )
-                for fact in incoming.fds
-                if all(images[item] for item in fact.determinants)
-                and any(images[item] for item in fact.dependents)
-            )
-            fds = _key_fds(output, classes, keys, mapped_fds)
             provided_grain = ProjectIRProvidedIntrinsicGrain(
                 output=output,
                 state=incoming.grain.state,

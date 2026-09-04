@@ -29,10 +29,10 @@ documentation does not supersede that evidence.
 | Slice 11 | `COMPLETED / PUBLISHED` |
 | Slice 12 | `COMPLETED / PUBLISHED` |
 | Slice 13 | `COMPLETED / PUBLISHED` |
-| Slice 14 | `NEXT / NOT IMPLEMENTED` |
-| Slice 15 | `NOT IMPLEMENTED` |
+| Slice 14 | `COMPLETED / PUBLISHED` |
+| Slice 15 | `NEXT / NOT IMPLEMENTED` |
 | Slice 16 | `NOT IMPLEMENTED` |
-| Next | `Phase 63 Slice 14 — Query-Block Project IR Composition, Verification, And Invalidation` |
+| Next | `Phase 63 Slice 15 — Inspection/Pure Boundary And Real E2E/Differential/Metamorphic Assurance` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -301,3 +301,43 @@ verification prerequisite only and no Slice-14 unary-tail IR is constructed.
 Natural exact-head CI owns Slice 13 completion without a status-only follow-up
 commit. Phase 63 Slice 14 is `NEXT / NOT IMPLEMENTED`; Slices 15–16 and every
 Phase-64+ implementation remain unstarted and unauthorized here.
+
+Phase 63 Slice 14 is `COMPLETED / PUBLISHED`. Its [private query-block Project
+IR overlay](spec/phase63-slice14-query-block-project-ir-composition-verification-invalidation-v1.md)
+retains the exact Phase-61 Project plan and Phase-62 binary JOIN snapshot, starts
+at the exact Phase-62 ending allocation, and continues the same plan-node,
+output, input-slot, use, and snapshot-scope domains. Every Slice-12 effective
+owner maps to exact historical reuse, historical no-JOIN rebound, a freshly
+completed joined/replay unary tail, or one typed zero-allocation IR terminal.
+
+The historical eight-value `ProjectIRLogicalOperatorKind` remains unchanged;
+QUALIFY is one private additive operator extension after WINDOW_EVALUATION and
+before FINAL_PROJECTION. Joined tails add no RELATION_INPUT, while no-JOIN
+replay/rebound consumes the exact active upstream output through existing
+resolution/dependency authority. A stale Phase-62 external JOIN input fails
+closed as `EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED`; no JOIN is rewritten or
+reconstructed.
+
+Occurrence-complete query-block row shapes retain duplicate names, exact field
+evidence, effective nullability, and JOIN introduction/nulling provenance.
+FINAL_PROJECTION reuses exact Slice-12 field identities. Existing value-class,
+key, FD, FD-index, STRICT-closure, grain-factor, and dependency kernels transfer
+BAG, properties, grouped/global grain, relation ORDER, LIMIT bounds, effects,
+and window policy without a second property engine. Hidden QUALIFY windows
+produce no scalar output or final field.
+
+An independent verifier checks exact roots, dense allocation, ledger and active
+mapping, reuse/rebind/JOIN laws, operator/evidence order, structural endpoints,
+row shapes, properties, grain origins, and graft resistance without invoking
+the constructor. Only VERIFIED snapshots derive fresh combined reverse-use,
+topological-order, and reachability analyses through one generic actual-use
+topology kernel. Invalidation reuses `ProjectIRChangeDomain`; verification is
+always `RERUN_REQUIRED`, and a changed Slice-13 root rebuilds the complete
+overlay. No persistent cache exists.
+
+Slice 14 adds no public API, CLI, JSON, Project Explain, inspection, pure
+boundary, canonical serialization, SQL, Arrow, executor, optimizer, parser/AST,
+package, dependency, workflow, or version behavior. Natural exact-head CI owns
+completion without a status-only follow-up commit. Phase 63 Slice 15 is
+`NEXT / NOT IMPLEMENTED`; Slice 16 and every Phase-64+ implementation remain
+unstarted and unauthorized here.
