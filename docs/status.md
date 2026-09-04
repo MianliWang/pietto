@@ -30,9 +30,9 @@ documentation does not supersede that evidence.
 | Slice 12 | `COMPLETED / PUBLISHED` |
 | Slice 13 | `COMPLETED / PUBLISHED` |
 | Slice 14 | `COMPLETED / PUBLISHED` |
-| Slice 15 | `NEXT / NOT IMPLEMENTED` |
-| Slice 16 | `NOT IMPLEMENTED` |
-| Next | `Phase 63 Slice 15 — Inspection/Pure Boundary And Real E2E/Differential/Metamorphic Assurance` |
+| Slice 15 | `COMPLETED / PUBLISHED` |
+| Slice 16 | `NEXT / NOT IMPLEMENTED` |
+| Next | `Phase 63 Slice 16 — Completion Audit And Phase-64 Handoff` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -338,6 +338,40 @@ overlay. No persistent cache exists.
 Slice 14 adds no public API, CLI, JSON, Project Explain, inspection, pure
 boundary, canonical serialization, SQL, Arrow, executor, optimizer, parser/AST,
 package, dependency, workflow, or version behavior. Natural exact-head CI owns
-completion without a status-only follow-up commit. Phase 63 Slice 15 is
-`NEXT / NOT IMPLEMENTED`; Slice 16 and every Phase-64+ implementation remain
-unstarted and unauthorized here.
+completion without a status-only follow-up commit.
+
+Phase 63 Slice 15 is `COMPLETED / PUBLISHED`. Its [private query-block IR
+inspection and assurance
+boundary](spec/phase63-slice15-inspection-pure-boundary-real-e2e-differential-metamorphic-assurance-v1.md)
+admits only an exact VERIFIED Slice-14 analysis bundle. It retains the exact
+Slice-14 snapshot, Slice-13 completed result, Slice-12 effective-output
+completion, Phase-62 verification/JOIN root, and Phase-61 Project plan without
+rerunning any producer or verifier. Runtime sections preserve canonical order,
+object identity, explicit `entry.active_output` and `entry.active_properties`,
+exact final field identities, terminal blockers, and all combined analyses.
+Typed queries return complete winner-free tuples and reject cross-snapshot
+refs.
+
+The additive `pietto.phase63-query-block-ir-inspection.v1` pure boundary is
+standard-library-only. Its total evaluator validates closed fields/ref domains,
+dense combined topology, owner and explicit active mappings, terminal laws,
+operators including `qualify`, row/property/key/FD/grain/window structure, and
+reverse-use/topological/reachability products before one canonical encoder may
+emit bytes. It serializes no opaque snapshot scope or environment/object
+identity. Existing `pietto.project-ir-inspection.v1` and
+`pietto.phase62-inspection.v1` behavior and canonical bytes remain unchanged.
+
+A self-contained real-authored probe covers reuse, rebound, INNER/LEFT and
+accumulated JOIN, WHERE, GROUPED/GLOBAL, satisfying, selected/hidden windows,
+QUALIFY, relation ORDER, LIMIT, mixed tails, duplicate intermediate names, and
+typed terminals. Process-batched Python 3.12/3.13 hash-seed, relocated-source,
+and isolated-wheel comparisons preserve complete records and bytes; required
+active-root, window, QUALIFY, ORDER, LIMIT, grain, downstream, reuse/rebound,
+terminal, and null-extension metamorphics are fixed by a reviewed manifest.
+
+Slice 15 adds no semantic authority, public API, CLI, JSON, Project Explain,
+SQL, parser/AST, JOIN/window/QUALIFY/ORDER/LIMIT rule, Arrow, executor,
+optimizer, package, dependency, workflow, or version behavior. Natural
+exact-head CI owns completion without a status-only follow-up commit. Phase 63
+Slice 16 is `NEXT / NOT IMPLEMENTED`; Slice 16 implementation and every
+Phase-64+ implementation remain unstarted and unauthorized here.

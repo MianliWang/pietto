@@ -189,6 +189,10 @@ PHASE63_SLICE14_SPEC = (
     REPO_ROOT
     / "docs/spec/phase63-slice14-query-block-project-ir-composition-verification-invalidation-v1.md"
 )
+PHASE63_SLICE15_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase63-slice15-inspection-pure-boundary-real-e2e-differential-metamorphic-assurance-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -260,11 +264,11 @@ EXPECTED_STATUS = (
     ("Slice 12", "`COMPLETED / PUBLISHED`"),
     ("Slice 13", "`COMPLETED / PUBLISHED`"),
     ("Slice 14", "`COMPLETED / PUBLISHED`"),
-    ("Slice 15", "`NEXT / NOT IMPLEMENTED`"),
-    ("Slice 16", "`NOT IMPLEMENTED`"),
+    ("Slice 15", "`COMPLETED / PUBLISHED`"),
+    ("Slice 16", "`NEXT / NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 63 Slice 15 — Inspection/Pure Boundary And Real E2E/Differential/Metamorphic Assurance`",
+        "`Phase 63 Slice 16 — Completion Audit And Phase-64 Handoff`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -302,9 +306,9 @@ EXPECTED_PHASE62_OWNER = (
     "and multi-fact alignment analysis"
 )
 EXPECTED_PHASE63_STATE = (
-    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–14\n"
-    "are `COMPLETED / PUBLISHED`; Slice 15 is `NEXT / NOT IMPLEMENTED`; Slice 16 is\n"
-    "not implemented. The published route has exactly 16 numbered Slices."
+    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–15\n"
+    "are `COMPLETED / PUBLISHED`; Slice 16 is `NEXT / NOT IMPLEMENTED`. The\n"
+    "published route has exactly 16 numbered Slices."
 )
 EXPECTED_PHASE58_ROUTE = (
     (
@@ -1330,6 +1334,18 @@ EXPECTED_PHASE63_SLICE14_CHANGED_PATHS = (
     "tests/test_active_phase_lifecycle.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE63_SLICE15_CHANGED_PATHS = (
+    "src/pietto/_project/project_query_block_ir_inspection.py",
+    "src/pietto/_project/project_query_block_ir_pure_boundary.py",
+    "docs/spec/phase63-slice15-inspection-pure-boundary-real-e2e-differential-metamorphic-assurance-v1.md",
+    "tests/_pietto_phase63_query_block_ir_differential_probe.py",
+    "tests/test_phase63_slice15_inspection_pure_boundary_real_e2e_differential_metamorphic_assurance.py",
+    "docs/roadmap.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_validation_performance_interlude_slice2_differential_probe_runtime_decomposition_optimization.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -1642,8 +1658,18 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "a changed Slice-13 root rebuilds the complete overlay" in normalized
     assert "No persistent cache exists" in normalized
     assert "Slice 14 adds no public API, CLI, JSON, Project Explain" in normalized
-    assert "Phase 63 Slice 15 is `NEXT / NOT IMPLEMENTED`" in normalized
-    assert "Slice 16 and every Phase-64+ implementation remain" in normalized
+    assert "Phase 63 Slice 15 is `COMPLETED / PUBLISHED`" in normalized
+    assert "private query-block IR inspection and assurance boundary" in normalized
+    assert "admits only an exact VERIFIED Slice-14 analysis bundle" in normalized
+    assert "explicit `entry.active_output` and `entry.active_properties`" in normalized
+    assert "Typed queries return complete winner-free tuples" in normalized
+    assert "pietto.phase63-query-block-ir-inspection.v1" in normalized
+    assert "standard-library-only" in normalized
+    assert "selected/hidden windows" in normalized
+    assert "Existing `pietto.project-ir-inspection.v1`" in normalized
+    assert "Process-batched Python 3.12/3.13 hash-seed" in normalized
+    assert "Slice 16 is `NEXT / NOT IMPLEMENTED`" in normalized
+    assert "every Phase-64+ implementation remain" in normalized
     prerequisite_target = (
         "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
     )
@@ -1707,6 +1733,10 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert f"]({slice14_target})" in status
     assert (STATUS.parent / slice14_target).resolve() == PHASE63_SLICE14_SPEC
     assert PHASE63_SLICE14_SPEC.is_file()
+    slice15_target = "spec/phase63-slice15-inspection-pure-boundary-real-e2e-differential-metamorphic-assurance-v1.md"
+    assert f"]({slice15_target})" in status
+    assert (STATUS.parent / slice15_target).resolve() == PHASE63_SLICE15_SPEC
+    assert PHASE63_SLICE15_SPEC.is_file()
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -2235,7 +2265,15 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "a changed Slice-13 root rebuilds the complete overlay",
         "no persistent or incremental cross-snapshot cache",
         "Slice 14 adds no inspection/pure/canonical projection",
-        "leaves Slice 15 `NEXT / NOT IMPLEMENTED`",
+        "phase63-slice15-inspection-pure-boundary-real-e2e-differential-metamorphic-assurance-v1.md",
+        "admits only an exact VERIFIED Slice-14 analysis bundle",
+        "Winner-free typed queries return complete tuples",
+        "pietto.phase63-query-block-ir-inspection.v1",
+        "Canonical equality is not runtime, semantic, Project-field, rewrite, cache, or content identity",
+        "normal/reverse file creation and query observation",
+        "Python 3.12/3.13 hash seeds",
+        "No subprocess-per-assertion or persistent observation cache",
+        "leaves Slice 16 `NEXT / NOT IMPLEMENTED`",
     ):
         assert evidence in phase63_normalized
 
@@ -2259,6 +2297,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "spec/phase63-slice12-projection-order-limit-final-output-ledger-completion-v1.md",
         "spec/phase63-slice13-completed-project-semantic-result-public-check-boundaries-v1.md",
         "spec/phase63-slice14-query-block-project-ir-composition-verification-invalidation-v1.md",
+        "spec/phase63-slice15-inspection-pure-boundary-real-e2e-differential-metamorphic-assurance-v1.md",
     ):
         assert f"]({target})" in roadmap
         assert (ROADMAP.parent / target).is_file()
@@ -2958,6 +2997,31 @@ def test_phase63_slice14_rebinds_exact_slice13_publication_authority() -> None:
         "authoritative validator starts 是 `0/4`",
         "Slice 15 是 `NEXT / NOT IMPLEMENTED`",
         "Phase 64 单独拥有 generic JOIN semantics",
+    ):
+        assert evidence in document
+
+
+def test_phase63_slice15_rebinds_exact_slice14_publication_authority() -> None:
+    document = " ".join(PHASE63_SLICE15_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "23c9d9c4e657501b07664c7f65ee4e455ff7bb0f",
+        "34e654d856463cc6aa63fbf4cc3591e788c1e493",
+        "8b56db95ab45933d05db2123b3e89fb81b8ac2fa",
+        "Add Phase 63 query-block Project IR",
+        "33877240716",
+        "push / main / attempt 1 / success",
+        "A5/M5/D0",
+        "Production Python moves from 177 to 179 files",
+        "tests from 419 to 421",
+        "production repairs = 0/12",
+        "mechanical closure = 0/12",
+        "authoritative validator starts = 0/4",
+        "active output -> entry.active_output",
+        "active properties -> entry.active_properties",
+        "final field -> retained Slice12 identity",
+        "pietto.phase63-query-block-ir-inspection.v1",
+        "Slice 16 is `NEXT / NOT IMPLEMENTED`",
+        "Phase 64 is `NOT STARTED`",
     ):
         assert evidence in document
 
@@ -4232,6 +4296,31 @@ def test_phase63_slice14_changed_paths_are_exact() -> None:
         "src/pietto/_project/project_ir_relational_properties.py",
         "src/pietto/_project/project_ir_evaluation_context.py",
         "src/pietto/_project/project_grain.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+            )
+        )
+        for path in paths
+    )
+
+
+def test_phase63_slice15_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE63_SLICE15_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 10
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert tuple(path for path in paths if path.startswith("src/")) == (
+        "src/pietto/_project/project_query_block_ir_inspection.py",
+        "src/pietto/_project/project_query_block_ir_pure_boundary.py",
+    )
+    assert tuple(path for path in paths if path.startswith("tests/_")) == (
+        "tests/_pietto_phase63_query_block_ir_differential_probe.py",
     )
     assert not any(
         path.startswith(

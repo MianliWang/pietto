@@ -1467,9 +1467,9 @@ historical evidence and does not itself authorize Phase-63 implementation.
 
 ## Phase 63 route
 
-Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–14
-are `COMPLETED / PUBLISHED`; Slice 15 is `NEXT / NOT IMPLEMENTED`; Slice 16 is
-not implemented. The published route has exactly 16 numbered Slices.
+Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–15
+are `COMPLETED / PUBLISHED`; Slice 16 is `NEXT / NOT IMPLEMENTED`. The
+published route has exactly 16 numbered Slices.
 
 | Slice | Owner |
 | ---: | --- |
@@ -1871,8 +1871,43 @@ incremental cross-snapshot cache is added.
 Slice 14 adds no inspection/pure/canonical projection, public API, CLI, JSON,
 Project Explain, SQL, Arrow, executor, optimizer, parser/AST, package,
 dependency, workflow, or version behavior. Successful natural exact-head CI
-completes it without a status-only follow-up commit and leaves Slice 15
-`NEXT / NOT IMPLEMENTED`; Slice 16 and Phase 64 remain unstarted.
+completes it without a status-only follow-up commit.
+
+The [Slice 15 private query-block IR inspection and assurance
+boundary](spec/phase63-slice15-inspection-pure-boundary-real-e2e-differential-metamorphic-assurance-v1.md)
+admits only an exact VERIFIED Slice-14 analysis bundle and retains identity
+through the Slice-14 snapshot, Slice-13 completed result, Slice-12
+effective-output completion, Phase-62 verification/JOIN root, and Phase-61
+Project plan. It observes explicit active roots, operators, structural
+occurrences, row/property/key/FD/grain/window evidence, terminal blockers, and
+combined analyses in canonical order. Winner-free typed queries return complete
+tuples and reject foreign-scope runtime refs; they never resolve names or infer
+an active root from collection position.
+
+One new standard-library-only pure owner defines the additive
+`pietto.phase63-query-block-ir-inspection.v1` format. Its total evaluator checks
+closed records and refs, dense topology, explicit active and terminal laws,
+operator attachment/order, property-local structure, grouped/global origins,
+selected/hidden window separation, and exact reverse/topological/reachability
+products before one canonical encoder emits bytes. Canonical equality is not
+runtime, semantic, Project-field, rewrite, cache, or content identity. The
+existing Phase-61/62 formats and canonical bytes remain zero-delta.
+
+The self-contained process-batched probe starts with real `.pietto` files and
+normal builders. A reviewed manifest and complete record/byte comparison cover
+normal/reverse file creation and query observation, Python 3.12/3.13 hash
+seeds, relocated source, isolated wheel installs, typed negative outcomes, and
+active-root, selected/hidden window, QUALIFY, ORDER, LIMIT, GROUPED/GLOBAL,
+downstream propagation, reuse/rebound, effective-JOIN, and INNER/LEFT
+metamorphics. No subprocess-per-assertion or persistent observation cache is
+introduced.
+
+Slice 15 adds no new semantic authority, public API, CLI, JSON, Project
+Explain, SQL, parser/AST, JOIN/window/QUALIFY/ORDER/LIMIT rule, Arrow, executor,
+optimizer, package, dependency, workflow, or version behavior. Successful
+natural exact-head CI completes it without a status-only follow-up commit and
+leaves Slice 16 `NEXT / NOT IMPLEMENTED`; Slice 16 and Phase 64 remain
+unstarted.
 
 `LET` is the first post-JOIN scalar scope. Each stage has an immutable
 visibility environment and hidden intermediate path fields remain non-nameable
