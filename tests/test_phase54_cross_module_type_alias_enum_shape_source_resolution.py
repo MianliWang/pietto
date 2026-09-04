@@ -1136,10 +1136,12 @@ def test_text_json_cli_remains_exact(
     assert cli.main(["check", "--project", str(root)]) == 1
     text_result = capsys.readouterr()
     assert text_result.out == ""
-    assert [
-        text_result.err.index(code) for code in ("PIE-S2701", "PIE-S2002", "PIE-S2303")
-    ] == sorted(
-        text_result.err.index(code) for code in ("PIE-S2701", "PIE-S2002", "PIE-S2303")
+    codes = ("PIE-S2701", "PIE-S2002", "PIE-S2303", "PIE-S2333")
+    assert [text_result.err.index(code) for code in codes] == sorted(
+        text_result.err.index(code) for code in codes
+    )
+    assert "Project relation semantic completion is unavailable: rows" in (
+        text_result.err
     )
 
     assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
@@ -1160,5 +1162,6 @@ def test_text_json_cli_remains_exact(
         "PIE-S2701",
         "PIE-S2002",
         "PIE-S2303",
+        "PIE-S2333",
     ]
     assert "module_type_source_resolutions" not in json.dumps(document)

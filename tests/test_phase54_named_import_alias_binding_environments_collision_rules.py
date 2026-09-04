@@ -898,10 +898,11 @@ def test_schema_v2_text_and_json_remain_exact_and_private(
             "main.pietto": 'import "library.pietto":\n    shape Customer\n',
         },
     )
-    assert cli.main(["check", "--project", str(root)]) == 1
+    assert cli.main(["check", "--project", str(root)]) == 0
     text_capture = capsys.readouterr()
-    assert text_capture.out == text_capture.err == ""
-    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    assert text_capture.out == "Project check OK: .\nFiles checked: 2\n"
+    assert text_capture.err == ""
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 0
     capture = capsys.readouterr()
     document = json.loads(capture.out)
     assert tuple(document) == (

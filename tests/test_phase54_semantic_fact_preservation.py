@@ -677,8 +677,13 @@ def test_schema_v2_builds_sidecar_from_exact_slice10_authority_without_slice11_i
     )
     assert cli.main(["check", "--project", str(unknown_root), "--format", "json"]) == 1
     cli_payload = json.loads(capsys.readouterr().out)
-    assert cli_payload["ok"] is True
-    assert cli_payload["diagnostics"] == []
+    assert cli_payload["ok"] is False
+    assert [
+        (diagnostic["code"], diagnostic["message"])
+        for diagnostic in cli_payload["diagnostics"]
+    ] == [("PIE-S2103", "Unknown function: mystery_window")]
+    assert "completion" not in cli_payload
+    assert "effective_outputs" not in cli_payload
 
 
 def test_builder_rejects_value_equal_or_misaligned_foreign_authority_roots(

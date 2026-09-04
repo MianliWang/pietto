@@ -1467,8 +1467,8 @@ historical evidence and does not itself authorize Phase-63 implementation.
 
 ## Phase 63 route
 
-Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–12
-are `COMPLETED / PUBLISHED`; Slice 13 is `NEXT / NOT IMPLEMENTED`; Slices 14–16
+Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–13
+are `COMPLETED / PUBLISHED`; Slice 14 is `NEXT / NOT IMPLEMENTED`; Slices 15–16
 are not implemented. The published route has exactly 16 numbered Slices.
 
 | Slice | Owner |
@@ -1798,6 +1798,33 @@ completed public result wrapper, SQL/CLI/JSON, Arrow, executor, package,
 dependency, workflow, or version behavior is added. Successful natural
 exact-head CI completes Slice 12 without a status-only follow-up commit and
 leaves Slice 13 `NEXT / NOT IMPLEMENTED`.
+
+The [Slice 13 completed Project semantic
+result](spec/phase63-slice13-completed-project-semantic-result-public-check-boundaries-v1.md)
+binds the original `ProjectSemanticResult`, exact existing Phase-61/62
+verification prerequisite, `ProjectCompletion`, joined Slice 8–11 stages, and
+Slice-12 overlay into one private closed result. Positive construction is
+`EXPLICIT_MODULES`-only; direct `LEGACY_FLAT` and `PACKAGE_ROOT` calls are typed
+non-concrete, while their CLI behavior remains on the historical semantic
+result.
+
+The completed result is successful only when its final diagnostics contain no
+ERROR and every effective output is exact concrete authority. Original
+diagnostics remain first; entry-local ERROR objects retain authority order and
+identity-only deduplication. A non-concrete entry without its own ERROR gets
+one authored-span `PIE-S2333` naming the relation without exposing carrier,
+terminal, object-ID, path, or Project IR details.
+
+`pietto check --project` now consumes this result only for explicit modules.
+Text success bytes and Project JSON v2 keys/schema remain unchanged; JSON gets
+only the final diagnostic tuple. Phase-61/62 Project IR is built solely as a
+private verification prerequisite and is neither exposed nor extended with the
+Slice-14 unary tail. No historical `ProjectSemanticResult.ok`, sidecar,
+`AUTHORED_JOIN_DEFERRED`, Slice-7/12 carrier, SQL, Arrow, executor, optimizer,
+public API, package, dependency, workflow, or version behavior changes.
+
+Successful natural exact-head CI completes Slice 13 without a status-only
+follow-up commit and leaves Slice 14 `NEXT / NOT IMPLEMENTED`.
 
 `LET` is the first post-JOIN scalar scope. Each stage has an immutable
 visibility environment and hidden intermediate path fields remain non-nameable

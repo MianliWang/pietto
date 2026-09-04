@@ -422,20 +422,20 @@ def test_legacy_mode_still_enters_flat_catalog_and_reports_duplicate_pie_s2001(
     assert semantic_result.modules is parse_result.modules
 
 
-def test_schema_v2_project_text_cli_fails_closed_without_success_output(
+def test_schema_v2_project_text_cli_uses_completed_success_output(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = _configured_project(tmp_path / "project", schema_version=2)
     _write(root, "row.pietto", "shape Row:\n    id: Int\n")
 
-    assert cli.main(["check", "--project", str(root)]) == 1
+    assert cli.main(["check", "--project", str(root)]) == 0
     captured = capsys.readouterr()
-    assert captured.out == ""
+    assert captured.out == "Project check OK: .\nFiles checked: 1\n"
     assert captured.err == ""
 
 
-def test_schema_v2_project_json_keeps_exact_envelope_and_fails_exit(
+def test_schema_v2_project_json_keeps_exact_envelope_and_completed_success_exit(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -453,7 +453,7 @@ def test_schema_v2_project_json_keeps_exact_envelope_and_fails_exit(
         "result": {"check": {"files_total": 1, "files_ok": 1, "files_with_errors": 0}},
     }
 
-    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 0
     captured = capsys.readouterr()
     assert captured.out == f"{json.dumps(expected, ensure_ascii=True)}\n"
     assert captured.err == ""

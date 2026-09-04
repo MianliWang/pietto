@@ -942,22 +942,13 @@ def _assert_exact_v1_v2_actual(
         )
     for carrier in (selection, parsed, semantic):
         assert "root_package" not in carrier.__dataclass_fields__
-    if schema_version == 1:
-        assert (text_exit, text_out, text_err, json_exit, json_err) == (
-            0,
-            "Project check OK: .\nFiles checked: 1\n",
-            "",
-            0,
-            "",
-        )
-    else:
-        assert (text_exit, text_out, text_err, json_exit, json_err) == (
-            1,
-            "",
-            "",
-            1,
-            "",
-        )
+    assert (text_exit, text_out, text_err, json_exit, json_err) == (
+        0,
+        "Project check OK: .\nFiles checked: 1\n",
+        "",
+        0,
+        "",
+    )
     expected_document = {
         "schema_version": 2,
         "command": "check",

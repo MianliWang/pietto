@@ -25,10 +25,14 @@ from pietto._metadata.serializer import (
 )
 from pietto._metadata.text import render_semantic_metadata_text
 from pietto._project.check import check_project_parse_only
+from pietto._project.project_completed_semantics import (
+    build_project_completed_semantic_result,
+)
 from pietto._project.json_v2 import (
     project_check_result_to_json_dict,
     render_project_json_document,
 )
+from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project_explain.json_v1 import serialize_project_explain_json_document
 from pietto._project_explain.runtime_builder import (
     ProjectExplainRuntimeOutcome,
@@ -38,6 +42,7 @@ from pietto._project_explain.text import render_project_explain_text
 from pietto._project.model import (
     ProjectDiscoveryError,
     ProjectParseCheckResult,
+    ProjectSemanticResult,
     build_empty_project_semantic_result,
 )
 from pietto.errors import Diagnostic, Severity
@@ -429,11 +434,14 @@ def _run_project_check(root: Path, *, output_format: str) -> int:
     if output_format == _FORMAT_JSON:
         if parse_result.ok:
             semantic_result = build_empty_project_semantic_result(parse_result)
+            semantic_diagnostics, semantic_ok = _project_semantic_boundary(
+                semantic_result
+            )
             _print_project_check_json(
                 parse_result,
-                semantic_diagnostics=semantic_result.diagnostics,
+                semantic_diagnostics=semantic_diagnostics,
             )
-            if not semantic_result.ok:
+            if not semantic_ok:
                 return _EXIT_DIAGNOSTIC_ERROR
             return 0
 
@@ -455,13 +463,25 @@ def _run_project_check(root: Path, *, output_format: str) -> int:
         return _EXIT_DIAGNOSTIC_ERROR
 
     semantic_result = build_empty_project_semantic_result(parse_result)
-    _render_diagnostics(semantic_result.diagnostics, fallback_path=Path("."))
-    if not semantic_result.ok:
+    semantic_diagnostics, semantic_ok = _project_semantic_boundary(semantic_result)
+    _render_diagnostics(semantic_diagnostics, fallback_path=Path("."))
+    if not semantic_ok:
         return _EXIT_DIAGNOSTIC_ERROR
 
     print("Project check OK: .")
     print(f"Files checked: {len(parse_result.inputs)}")
     return 0
+
+
+def _project_semantic_boundary(
+    semantic_result: ProjectSemanticResult,
+) -> tuple[tuple[Diagnostic, ...], bool]:
+    """Select the completed boundary only for explicit-module Project checks."""
+
+    if semantic_result.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES:
+        completed = build_project_completed_semantic_result(semantic_result)
+        return completed.diagnostics, completed.ok
+    return semantic_result.diagnostics, semantic_result.ok
 
 
 def _print_project_check_json(

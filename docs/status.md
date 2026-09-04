@@ -28,11 +28,11 @@ documentation does not supersede that evidence.
 | Slice 10 | `COMPLETED / PUBLISHED` |
 | Slice 11 | `COMPLETED / PUBLISHED` |
 | Slice 12 | `COMPLETED / PUBLISHED` |
-| Slice 13 | `NEXT / NOT IMPLEMENTED` |
-| Slice 14 | `NOT IMPLEMENTED` |
+| Slice 13 | `COMPLETED / PUBLISHED` |
+| Slice 14 | `NEXT / NOT IMPLEMENTED` |
 | Slice 15 | `NOT IMPLEMENTED` |
 | Slice 16 | `NOT IMPLEMENTED` |
-| Next | `Phase 63 Slice 13 — Completed Project Semantic Result And Public Check Boundaries` |
+| Next | `Phase 63 Slice 14 — Query-Block Project IR Composition, Verification, And Invalidation` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -275,3 +275,29 @@ and does not construct the Slice-13 completed-result wrapper. Natural
 exact-head CI owns Slice 12 completion without a status-only follow-up commit.
 Phase 63 Slice 13 is `NEXT / NOT IMPLEMENTED`; Slices 14–16 and every Phase-64+
 implementation remain unstarted and unauthorized here.
+
+Phase 63 Slice 13 is `COMPLETED / PUBLISHED`. Its [private completed Project
+semantic result](spec/phase63-slice13-completed-project-semantic-result-public-check-boundaries-v1.md)
+retains the original `ProjectSemanticResult`, exact VERIFIED Phase-62 root,
+`ProjectCompletion`, Slice-12 effective-output overlay, and final diagnostic
+projection by object identity. It is successful only when every overlay entry
+is concrete and no final diagnostic is ERROR; it does not change the historical
+`ProjectSemanticResult.ok` posture.
+
+Final diagnostics preserve the original tuple first, then exact entry-local
+ERROR objects in canonical owner order with identity-only deduplication. A
+non-concrete entry without its own ERROR receives one authored-span
+`PIE-S2333` naming only the relation. Dependency-propagated terminals receive
+their own fallback without exposing private terminal reasons, carrier names,
+object IDs, internal paths, or Project IR coordinates.
+
+`pietto check --project` consumes completed semantics only in
+`EXPLICIT_MODULES`; text success bytes and Project JSON v2 schema/keys remain
+unchanged. `LEGACY_FLAT`, `PACKAGE_ROOT`, single-file check, Project Explain,
+public API, SQL, Arrow, executor, optimizer, package, dependency, workflow, and
+version behavior remain unchanged. Existing Phase-61/62 Project IR is a private
+verification prerequisite only and no Slice-14 unary-tail IR is constructed.
+
+Natural exact-head CI owns Slice 13 completion without a status-only follow-up
+commit. Phase 63 Slice 14 is `NEXT / NOT IMPLEMENTED`; Slices 15–16 and every
+Phase-64+ implementation remain unstarted and unauthorized here.

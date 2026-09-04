@@ -233,8 +233,17 @@ The planned project check shape is:
 }
 ```
 
-`check` performs project parsing and semantic analysis only. It does not build
-project IR or emit SQL.
+`check` performs project parsing and semantic analysis only as a public
+contract. For `EXPLICIT_MODULES`, the implementation may privately construct
+the already-published Phase-61/62 Project IR and JOIN verification solely as
+prerequisites for the completed semantic result. Those prerequisites are not a
+public Project IR result and are never serialized or rendered. `check` does not
+construct the later Phase-63 unary-tail Project IR and does not emit SQL.
+
+The JSON contract remains diagnostics-only at this boundary. It exposes no
+completion carrier, effective-output entry, owner/field identity, JOIN or
+QUALIFY fact, Project IR plan/node/use/slot/coordinate/property, terminal
+reason, or private diagnostic metadata.
 
 ## Emit-SQL Result
 

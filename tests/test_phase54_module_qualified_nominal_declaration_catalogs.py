@@ -751,19 +751,19 @@ def test_current_zero_selected_input_project_remains_project_glob_failure_withou
     assert module_catalog.ProjectModuleCatalogSet().catalogs == ()
 
 
-def test_schema_v2_text_and_json_cli_remain_fail_closed_with_exact_envelope_and_no_catalog_fields(
+def test_schema_v2_text_and_json_cli_use_completed_success_with_exact_envelope_and_no_catalog_fields(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = _configured_project(tmp_path / "project", schema_version=2)
     _write(root, "row.pietto", "shape Row:\n    id: Int\n")
 
-    assert cli.main(["check", "--project", str(root)]) == 1
+    assert cli.main(["check", "--project", str(root)]) == 0
     text_capture = capsys.readouterr()
-    assert text_capture.out == ""
+    assert text_capture.out == "Project check OK: .\nFiles checked: 1\n"
     assert text_capture.err == ""
 
-    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 0
     json_capture = capsys.readouterr()
     document = json.loads(json_capture.out)
     assert tuple(document) == (

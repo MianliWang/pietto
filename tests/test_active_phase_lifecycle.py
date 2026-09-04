@@ -181,6 +181,10 @@ PHASE63_SLICE12_SPEC = (
     REPO_ROOT
     / "docs/spec/phase63-slice12-projection-order-limit-final-output-ledger-completion-v1.md"
 )
+PHASE63_SLICE13_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase63-slice13-completed-project-semantic-result-public-check-boundaries-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -250,13 +254,13 @@ EXPECTED_STATUS = (
     ("Slice 10", "`COMPLETED / PUBLISHED`"),
     ("Slice 11", "`COMPLETED / PUBLISHED`"),
     ("Slice 12", "`COMPLETED / PUBLISHED`"),
-    ("Slice 13", "`NEXT / NOT IMPLEMENTED`"),
-    ("Slice 14", "`NOT IMPLEMENTED`"),
+    ("Slice 13", "`COMPLETED / PUBLISHED`"),
+    ("Slice 14", "`NEXT / NOT IMPLEMENTED`"),
     ("Slice 15", "`NOT IMPLEMENTED`"),
     ("Slice 16", "`NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 63 Slice 13 — Completed Project Semantic Result And Public Check Boundaries`",
+        "`Phase 63 Slice 14 — Query-Block Project IR Composition, Verification, And Invalidation`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -294,8 +298,8 @@ EXPECTED_PHASE62_OWNER = (
     "and multi-fact alignment analysis"
 )
 EXPECTED_PHASE63_STATE = (
-    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–12\n"
-    "are `COMPLETED / PUBLISHED`; Slice 13 is `NEXT / NOT IMPLEMENTED`; Slices 14–16\n"
+    "Phase 63 is **Joined Query Block Semantic Completion And QUALIFY**. Slices 1–13\n"
+    "are `COMPLETED / PUBLISHED`; Slice 14 is `NEXT / NOT IMPLEMENTED`; Slices 15–16\n"
     "are not implemented. The published route has exactly 16 numbered Slices."
 )
 EXPECTED_PHASE58_ROUTE = (
@@ -1288,6 +1292,27 @@ EXPECTED_PHASE63_SLICE12_CHANGED_PATHS = (
     "tests/test_active_phase_lifecycle.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE63_SLICE13_CHANGED_PATHS = (
+    "src/pietto/_project/project_completed_semantics.py",
+    "docs/spec/phase63-slice13-completed-project-semantic-result-public-check-boundaries-v1.md",
+    "tests/test_phase63_slice13_completed_project_semantic_result_public_check_boundaries.py",
+    "src/pietto/cli.py",
+    "docs/spec/project-cli-json-v2.md",
+    "docs/spec/diagnostics.md",
+    "docs/roadmap.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
+EXPECTED_PHASE63_SLICE13_MECHANICAL_PATHS = (
+    "tests/test_phase54_semantic_fact_preservation.py",
+    "tests/test_phase54_module_qualified_nominal_declaration_catalogs.py",
+    "tests/test_phase54_local_export_visibility_module_facades.py",
+    "tests/test_phase54_cross_module_type_alias_enum_shape_source_resolution.py",
+    "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
+    "tests/test_phase54_schema_v2_explicit_module_carrier.py",
+    "tests/test_phase55_slice2_explicit_package_activation_compatibility_and_immutable_package_carrier.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -1540,6 +1565,30 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "does not construct the Slice-13 completed-result wrapper" in normalized
     assert "Phase 63 Slice 13 is `NEXT / NOT IMPLEMENTED`" in normalized
     assert "Slices 14–16 and every Phase-64+ implementation remain" in normalized
+    assert "Phase 63 Slice 13 is `COMPLETED / PUBLISHED`" in normalized
+    assert "private completed Project semantic result" in normalized
+    assert (
+        "original `ProjectSemanticResult`, exact VERIFIED Phase-62 root" in normalized
+    )
+    assert "Slice-12 effective-output overlay" in normalized
+    assert "every overlay entry is concrete" in normalized
+    assert (
+        "does not change the historical `ProjectSemanticResult.ok` posture"
+        in normalized
+    )
+    assert "identity-only deduplication" in normalized
+    assert "authored-span `PIE-S2333`" in normalized
+    assert "Dependency-propagated terminals receive their own fallback" in normalized
+    assert "without exposing private terminal reasons" in normalized
+    assert "consumes completed semantics only in `EXPLICIT_MODULES`" in normalized
+    assert "Project JSON v2 schema/keys remain unchanged" in normalized
+    assert (
+        "Phase-61/62 Project IR is a private verification prerequisite only"
+        in normalized
+    )
+    assert "no Slice-14 unary-tail IR is constructed" in normalized
+    assert "Phase 63 Slice 14 is `NEXT / NOT IMPLEMENTED`" in normalized
+    assert "Slices 15–16 and every Phase-64+ implementation remain" in normalized
     prerequisite_target = (
         "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
     )
@@ -1595,6 +1644,10 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert f"]({slice12_target})" in status
     assert (STATUS.parent / slice12_target).resolve() == PHASE63_SLICE12_SPEC
     assert PHASE63_SLICE12_SPEC.is_file()
+    slice13_target = "spec/phase63-slice13-completed-project-semantic-result-public-check-boundaries-v1.md"
+    assert f"]({slice13_target})" in status
+    assert (STATUS.parent / slice13_target).resolve() == PHASE63_SLICE13_SPEC
+    assert PHASE63_SLICE13_SPEC.is_file()
     assert not any(
         marker in status for marker in ("TO" + "DO", "FIX" + "ME", "T" + "BD")
     )
@@ -2086,6 +2139,21 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "completed public result wrapper",
         "natural exact-head CI completes Slice 12",
         "leaves Slice 13 `NEXT / NOT IMPLEMENTED`",
+        "phase63-slice13-completed-project-semantic-result-public-check-boundaries-v1.md",
+        "original `ProjectSemanticResult`, exact existing Phase-61/62 verification prerequisite",
+        "Slice-12 overlay into one private closed result",
+        "Positive construction is `EXPLICIT_MODULES`-only",
+        "direct `LEGACY_FLAT` and `PACKAGE_ROOT` calls are typed non-concrete",
+        "every effective output is exact concrete authority",
+        "identity-only deduplication",
+        "one authored-span `PIE-S2333` naming the relation",
+        "consumes this result only for explicit modules",
+        "Project JSON v2 keys/schema remain unchanged",
+        "Phase-61/62 Project IR is built solely as a private verification prerequisite",
+        "neither exposed nor extended with the Slice-14 unary tail",
+        "No historical `ProjectSemanticResult.ok`",
+        "natural exact-head CI completes Slice 13",
+        "leaves Slice 14 `NEXT / NOT IMPLEMENTED`",
     ):
         assert evidence in phase63_normalized
 
@@ -2107,6 +2175,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "spec/phase63-slice10-generic-window-computation-sites-named-window-reuse-v1.md",
         "spec/phase63-slice11-qualify-grammar-ast-semantics-property-transfer-v1.md",
         "spec/phase63-slice12-projection-order-limit-final-output-ledger-completion-v1.md",
+        "spec/phase63-slice13-completed-project-semantic-result-public-check-boundaries-v1.md",
     ):
         assert f"]({target})" in roadmap
         assert (ROADMAP.parent / target).is_file()
@@ -2765,6 +2834,26 @@ def test_phase63_slice12_rebinds_exact_slice11_publication_authority() -> None:
         "173 -> 174",
         "416 -> 417",
         "Slice 13 是唯一 `NEXT / NOT IMPLEMENTED` owner",
+    ):
+        assert evidence in document
+
+
+def test_phase63_slice13_rebinds_exact_slice12_publication_authority() -> None:
+    document = " ".join(PHASE63_SLICE13_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "0d1d66badc2cf901d35876b360a25a9c36a829b3",
+        "01817712dd0cdbf7fd6ce7a1a3442dabf9bf637f",
+        "Complete Phase 63 final relation outputs",
+        "33845906404",
+        "attempt 1",
+        "Python 3.12",
+        "Python 3.13",
+        "A3/M7/D0",
+        "A3/M14/D0",
+        "mechanical expansion 是 `7/10`",
+        "174 -> 175",
+        "417 -> 418",
+        "Slice 14 是唯一 `NEXT / NOT IMPLEMENTED` owner",
     ):
         assert evidence in document
 
@@ -3990,4 +4079,40 @@ def test_phase63_slice12_changed_paths_are_exact() -> None:
             )
         )
         for path in paths
+    )
+
+
+def test_phase63_slice13_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE63_SLICE13_CHANGED_PATHS
+    mechanical = EXPECTED_PHASE63_SLICE13_MECHANICAL_PATHS
+    assert len(paths) == len(set(paths)) == 10
+    assert len(mechanical) == len(set(mechanical)) == 7
+    assert set(paths).isdisjoint(mechanical)
+    assert len((*paths, *mechanical)) == 17
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert all((REPO_ROOT / path).is_file() for path in mechanical)
+    assert tuple(path for path in paths if path.startswith("src/")) == (
+        "src/pietto/_project/project_completed_semantics.py",
+        "src/pietto/cli.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "grammar/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+            )
+        )
+        for path in paths
+    )
+    assert mechanical == (
+        "tests/test_phase54_semantic_fact_preservation.py",
+        "tests/test_phase54_module_qualified_nominal_declaration_catalogs.py",
+        "tests/test_phase54_local_export_visibility_module_facades.py",
+        "tests/test_phase54_cross_module_type_alias_enum_shape_source_resolution.py",
+        "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
+        "tests/test_phase54_schema_v2_explicit_module_carrier.py",
+        "tests/test_phase55_slice2_explicit_package_activation_compatibility_and_immutable_package_carrier.py",
     )
