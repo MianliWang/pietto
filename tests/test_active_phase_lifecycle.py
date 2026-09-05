@@ -269,10 +269,16 @@ EXPECTED_STATUS = (
     ("Slice 14", "`COMPLETED / PUBLISHED`"),
     ("Slice 15", "`COMPLETED / PUBLISHED`"),
     ("Slice 16", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64", "`NEXT / NOT IMPLEMENTED`"),
+    (
+        "Validation/Test Performance Optimization Interlude II",
+        "`ACTIVE`",
+    ),
+    ("Interlude II Slice 1", "`COMPLETED / PUBLISHED`"),
+    ("Phase 64", "`NEXT / BLOCKED / NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 64 — Fresh Product/Phase Initiation Gate And Route Lock`",
+        "`Validation/Test Performance Optimization Interlude II Slice 2 — "
+        "Differential Probe And Process Acquisition Optimization`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1358,6 +1364,26 @@ EXPECTED_PHASE63_SLICE16_CHANGED_PATHS = (
     "tests/test_active_phase_lifecycle.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_CURRENT_OWNER_SENTENCE = (
+    "The current owner is the Validation/Test Performance Optimization "
+    "Interlude II, which is `ACTIVE`; its Slice 1 post-Phase-63 baseline "
+    "profiling, cost attribution, and route lock is `COMPLETED / PUBLISHED` "
+    "and added no production behavior."
+)
+EXPECTED_INTERLUDE_II_ROUTE = (
+    ("1", "Post-Phase-63 Baseline Profiling, Cost Attribution, And Route Lock"),
+    ("2", "Differential Probe And Process Acquisition Optimization"),
+    ("3", "Heavy-File Xdist Scheduling And Isolation Decision"),
+    ("4", "Completion Benchmark And Phase-64 Readiness Assurance"),
+)
+EXPECTED_INTERLUDE_II_SLICE1_CHANGED_PATHS = (
+    "docs/spec/validation-performance-interlude-ii-slice1-post-phase63-baseline-profiling-cost-attribution-route-lock-v1.md",
+    "tests/test_validation_performance_interlude_ii_slice1_post_phase63_baseline_profiling_cost_attribution_route_lock.py",
+    "docs/roadmap.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 
 
 def _read(path: Path) -> str:
@@ -1693,8 +1719,45 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "successful M2 evidence reconciliation" in normalized
     assert "Phase63 material exits = 15/15" in normalized
     assert "Phase63 self-owned-open = 0" in normalized
-    assert "Phase 64 is `NEXT / NOT IMPLEMENTED`, not ACTIVE" in normalized
+    assert "Phase 64 is `NEXT / BLOCKED / NOT IMPLEMENTED`, not ACTIVE" in normalized
     assert "No Phase-64 production or numbered route exists" in normalized
+    assert (
+        "Validation/Test Performance Optimization Interlude II is `ACTIVE` after "
+        "Phase-63 completion and before Phase 64" in normalized
+    )
+    for evidence in (
+        "Slice 1 post-Phase-63 baseline profiling, cost attribution, and route lock",
+        "is `COMPLETED / PUBLISHED` by live Git and successful natural exact-head CI. "
+        "It profiles only",
+        "retains no profiler in the tree",
+        "0cebaf14031779f4a824f1c44e5f7d65a0f5e782",
+        "1f4d6af00befbac20ec0f639176fc0f9023aedc8",
+        "33916022012",
+        "11487 collected tests",
+        "293.94s serial session",
+        "148.821s validator",
+        "`-n 7 --dist=loadfile` tests stage is 97.143s",
+        "Cross-process differential probes are the dominant owner",
+        "190.89s of the serial session",
+        "169.376s of child wall across 109 processes",
+        "Phase-63 Slice 15 is fifth of six probe families at 11.0% of child wall",
+        "not the dominant subprocess owner",
+        "totals at most 2.65s",
+        "approximately one read and one parse per Python file",
+        "frozen Interlude II route therefore has exactly four Slices",
+        "deleted as unsupported by measurement",
+        "remain closed by the first Interlude and are not reopened",
+        "may not introduce a persistent PASS or result cache",
+        "Interlude II Slice 2 is `NEXT / NOT IMPLEMENTED`",
+        "after this Interlude closes",
+    ):
+        assert evidence in normalized
+    interlude_ii_target = (
+        "spec/validation-performance-interlude-ii-slice1-post-phase63-baseline-"
+        "profiling-cost-attribution-route-lock-v1.md"
+    )
+    assert f"]({interlude_ii_target})" in status
+    assert (STATUS.parent / interlude_ii_target).is_file()
     prerequisite_target = (
         "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
     )
@@ -2414,6 +2477,65 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         path.startswith((".github/", "src/", "scripts/", "grammar/"))
         for path in EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS
     )
+
+    assert roadmap_normalized.count(EXPECTED_CURRENT_OWNER_SENTENCE) == 1
+    interlude_ii = _section(
+        roadmap,
+        "Validation/Test Performance Optimization Interlude II",
+    )
+    interlude_ii_normalized = " ".join(interlude_ii.split())
+    assert _table_rows(interlude_ii)[1:] == EXPECTED_INTERLUDE_II_ROUTE
+    assert (
+        "Phase 63 completion -> Validation/Test Performance Optimization "
+        "Interlude II -> Phase 64 activation" in interlude_ii_normalized
+    )
+    for evidence in (
+        "This mandatory owner is `ACTIVE` after Phase 63 completion",
+        "0cebaf14031779f4a824f1c44e5f7d65a0f5e782",
+        "33916022012",
+        "2.85s for 11487 tests",
+        "serial session is 293.94s",
+        "148.821s with a 97.143s `-n 7 --dist=loadfile` tests stage",
+        "29.338s test Pyright",
+        "22.270s production Pyright",
+        "Cross-process differential probes are `DOMINANT`",
+        "190.89s of the 293.94s serial session",
+        "169.376s of child wall across 109 processes",
+        "fifth of six probe families at 11.0% of child wall",
+        "not the dominant subprocess owner",
+        "at most 2.65s, 0.90% of the serial session",
+        "repeated same-snapshot traversal is below 0.15s",
+        "one read and one parse per Python file",
+        "43.2% parallel efficiency",
+        "`loadfile` tail of at least 49.96s, 51.4% of the stage",
+        "deleted as candidate owners because the measurements do not support them",
+        "stays closed by the first Interlude's `NO MATERIAL GAIN` finding",
+        "neither is reopened by default",
+        "implements no optimization",
+        "retains no profiler in the tree",
+        "no persistent PASS or result cache may be introduced",
+        "may close an investigated technique as `NO_GAIN` with measured evidence",
+        "Interlude II Slice 2 `NEXT / NOT IMPLEMENTED`",
+        "Phase 64 `NEXT / BLOCKED / NOT IMPLEMENTED`",
+        "fresh Product/Phase Initiation Gate after this Interlude closes",
+    ):
+        assert evidence in interlude_ii_normalized
+    interlude_ii_target = (
+        "spec/validation-performance-interlude-ii-slice1-post-phase63-baseline-"
+        "profiling-cost-attribution-route-lock-v1.md"
+    )
+    assert f"]({interlude_ii_target})" in roadmap
+    assert (ROADMAP.parent / interlude_ii_target).is_file()
+    assert len(EXPECTED_INTERLUDE_II_SLICE1_CHANGED_PATHS) == 6
+    assert all(
+        (REPO_ROOT / path).is_file()
+        for path in EXPECTED_INTERLUDE_II_SLICE1_CHANGED_PATHS
+    )
+    assert not any(
+        path.startswith((".github/", "src/", "scripts/", "grammar/"))
+        for path in EXPECTED_INTERLUDE_II_SLICE1_CHANGED_PATHS
+    )
+    assert "## Interlude II route" not in roadmap
 
 
 def test_published_interlude_chain_matches_git_and_completion_evidence() -> None:

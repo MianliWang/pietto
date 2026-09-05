@@ -6,23 +6,14 @@ Every substantive slice begins by identifying its authority roots, current
 invariants, compatibility boundary, and the smallest behavior that is actually
 needed.
 
-Phase 63 is active. Slice 1, the Product/Phase Initiation Gate v3,
-Pietto/external source-audit, Future Roadmap v6, and exact route lock, is
-`COMPLETED / PUBLISHED` by live Git and successful natural exact-head CI. It
-added no production behavior. Slice 2, the private query-block owner bridge,
-closed row-source sum, construction states, and compilation-mode boundary, is
-also `COMPLETED / PUBLISHED`. Slice 3, the occurrence-complete scalar-reference
-environment, resolution-fact carrier, and existing type-kernel adapter, is
-`COMPLETED / PUBLISHED`. Slice 4, the authored JOIN binding visibility and
-qualified/unqualified lookup authority, is `COMPLETED / PUBLISHED`. Slice 5,
-the private immutable LET-prefix namespace and shadowing/alias-law authority,
-is `COMPLETED / PUBLISHED`. Slice 6, the exact post-JOIN row-semantic,
-nullability, lineage, and property bridge, is `COMPLETED / PUBLISHED`. Slice 7,
-the private completion schedule and effective-output ledger foundation, is
-`COMPLETED / PUBLISHED`. Slice 8, the private joined-row filtering stage, is
-`COMPLETED / PUBLISHED`. Slice 9, the private joined grouping, aggregate,
-GLOBAL, satisfying, and risk-linkage stage, is `COMPLETED / PUBLISHED`. Phase
-63 Slice 10 remains `NEXT / NOT IMPLEMENTED`.
+Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
+successful natural exact-head CI. The current owner is the Validation/Test
+Performance Optimization Interlude II, which is `ACTIVE`; its Slice 1
+post-Phase-63 baseline profiling, cost attribution, and route lock is
+`COMPLETED / PUBLISHED` and added no production behavior. Interlude II Slice 2,
+differential probe and process acquisition optimization, is
+`NEXT / NOT IMPLEMENTED`. Phase 64 is `NEXT / BLOCKED / NOT IMPLEMENTED` and
+has no numbered route.
 Project Explain v1 remains unchanged.
 Pietto remains compiler-only: no package or catalog registry, dependency
 solver, remote loading, database execution, runtime evaluation, installation
@@ -1944,7 +1935,9 @@ Successful natural exact-head CI completes Phase 63 without a status-only
 follow-up commit. Phase 64 is `NEXT / NOT IMPLEMENTED`, not ACTIVE. It has no
 numbered route; a later Phase-64 Slice 1 must run a fresh Product/Phase
 Initiation Gate, review live source/external evidence, answer the mandatory
-handoff questions, and freeze its own route before implementation.
+handoff questions, and freeze its own route before implementation. The mandatory
+Validation/Test Performance Optimization Interlude II then became the active
+owner and now blocks Phase 64 until it closes.
 
 `LET` is the first post-JOIN scalar scope. Each stage has an immutable
 visibility environment and hidden intermediate path fields remain non-nameable
@@ -1964,6 +1957,76 @@ SQL, Arrow, executor, or Slice-2 behavior. Successful natural exact-head CI on
 its preserved failed implementation head and successful ordinary repair child
 completed Slice 1 without a status-only follow-up commit and left Slice 2
 `NEXT / NOT IMPLEMENTED` at that historical point.
+
+## Validation/Test Performance Optimization Interlude II
+
+This mandatory owner is `ACTIVE` after Phase 63 completion:
+
+```text
+Phase 63 completion
+-> Validation/Test Performance Optimization Interlude II
+-> Phase 64 activation
+```
+
+Its owner is evidence-backed optimization of Pietto's post-Phase-63
+test/validation runtime without weakening validation semantics or deterministic
+authority. Phase 63 added Project semantic construction, Phase-61 Project IR,
+Phase-62 JOIN/multifact verification, Phase-63 completion, effective outputs,
+completed project semantics, query-block IR, independent query-block
+verification, combined analyses, inspection/pure projection, and real authored
+differential probes. Slice 1 measured that new regime before authorizing any
+optimization.
+
+| Slice | Owner |
+| ---: | --- |
+| 1 | Post-Phase-63 Baseline Profiling, Cost Attribution, And Route Lock |
+| 2 | Differential Probe And Process Acquisition Optimization |
+| 3 | Heavy-File Xdist Scheduling And Isolation Decision |
+| 4 | Completion Benchmark And Phase-64 Readiness Assurance |
+
+Slice 1 rebound baseline `0cebaf14031779f4a824f1c44e5f7d65a0f5e782` with natural
+CI `33916022012` and ran one collection, one authoritative validator, one serial
+full suite, and two focused instrumentation runs. Collection is 2.85s for 11487
+tests. The serial session is 293.94s. The validator total is 148.821s with a
+97.143s `-n 7 --dist=loadfile` tests stage, 29.338s test Pyright, and 22.270s
+production Pyright.
+
+Cross-process differential probes are `DOMINANT`: eight families are 190.89s of
+the 293.94s serial session, and one instrumented eleven-file profile measured
+169.376s of child wall across 109 processes, 90.3% of that run. Phase-63
+Slice 15 is fifth of six probe families at 11.0% of child wall, behind Phase 58
+at 26.9% and Phase 62 at 23.1%, so it is not the dominant subprocess owner.
+Every measured Phase-61/62/63 semantic, IR, verification, analysis, inspection,
+and pure-document owner totals at most 2.65s, 0.90% of the serial session, and
+all repeated same-snapshot traversal is below 0.15s. Repository-fact acquisition
+remains approximately one read and one parse per Python file over a corpus that
+grew 21.4% since the first Interlude, so it has not materially regressed. The
+resource-aware stage runs at 43.2% parallel efficiency with a `loadfile` tail of
+at least 49.96s, 51.4% of the stage. The controlling evidence is
+[Interlude II Slice 1 post-Phase-63 baseline profiling, cost attribution, and route lock](spec/validation-performance-interlude-ii-slice1-post-phase63-baseline-profiling-cost-attribution-route-lock-v1.md).
+
+Immutable semantic/IR snapshot fixture reuse and verification/derived-analysis
+traversal optimization are deleted as candidate owners because the measurements
+do not support them. Validator static analysis stays closed by the first
+Interlude's `NO MATERIAL GAIN` finding, and repository reader acquisition stays
+closed by its Slice 3 structure; neither is reopened by default. Slice 1
+implements no optimization, changes no production, validator, workflow, xdist,
+or Pyright path, and retains no profiler in the tree.
+
+Later Slices must preserve collected tests as a floor, assertions, diagnostics,
+witness matrices, Python 3.12/3.13 natural CI, generated/golden/package gates,
+semantic identities, foreign-root and fresh-scope assurance, and the tested
+serial fallback. Acquisition of immutable evidence may be reused; a semantic
+answer may never be reused merely because expected values match, and no
+persistent PASS or result cache may be introduced. A later Slice may close an
+investigated technique as `NO_GAIN` with measured evidence.
+
+Successful natural exact-head CI on the single Slice 1 commit establishes
+completion without a status-only follow-up commit and leaves Interlude II
+Slice 2 `NEXT / NOT IMPLEMENTED` and Phase 64
+`NEXT / BLOCKED / NOT IMPLEMENTED`. Phase 64 is not started here; its future
+Slice 1 must run a fresh Product/Phase Initiation Gate after this Interlude
+closes.
 
 ## Future Roadmap v6
 

@@ -32,8 +32,10 @@ documentation does not supersede that evidence.
 | Slice 14 | `COMPLETED / PUBLISHED` |
 | Slice 15 | `COMPLETED / PUBLISHED` |
 | Slice 16 | `COMPLETED / PUBLISHED` |
-| Phase 64 | `NEXT / NOT IMPLEMENTED` |
-| Next | `Phase 64 — Fresh Product/Phase Initiation Gate And Route Lock` |
+| Validation/Test Performance Optimization Interlude II | `ACTIVE` |
+| Interlude II Slice 1 | `COMPLETED / PUBLISHED` |
+| Phase 64 | `NEXT / BLOCKED / NOT IMPLEMENTED` |
+| Next | `Validation/Test Performance Optimization Interlude II Slice 2 — Differential Probe And Process Acquisition Optimization` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -407,6 +409,44 @@ grammar/generated, public API, CLI/JSON behavior, SQL, Arrow, executor,
 optimizer, package, workflow, version, or Phase-64 implementation delta.
 
 Natural exact-head CI owns Phase-63 completion without a status-only follow-up
-commit. Phase 64 is `NEXT / NOT IMPLEMENTED`, not ACTIVE. No Phase-64 production
-or numbered route exists; its future Slice 1 must perform a fresh live
-Product/Phase Initiation Gate and freeze its own route before implementation.
+commit.
+
+The Validation/Test Performance Optimization Interlude II is `ACTIVE` after
+Phase-63 completion and before Phase 64. Its [Slice 1 post-Phase-63 baseline
+profiling, cost attribution, and route
+lock](spec/validation-performance-interlude-ii-slice1-post-phase63-baseline-profiling-cost-attribution-route-lock-v1.md)
+is `COMPLETED / PUBLISHED` by live Git and successful natural exact-head CI. It
+profiles only. It changes no production source, validator script, workflow,
+xdist policy, Pyright configuration, fixture scope, test selection, assertion,
+diagnostic, witness matrix, generated artifact, golden fixture, package,
+dependency, lockfile, or version, and retains no profiler in the tree.
+
+Slice 1 rebinds baseline `0cebaf14031779f4a824f1c44e5f7d65a0f5e782` with tree
+`1f4d6af00befbac20ec0f639176fc0f9023aedc8` and natural CI `33916022012`. On this
+host it measures 11487 collected tests in 2.85s, a 293.94s serial session, a
+148.821s validator whose resource-aware `-n 7 --dist=loadfile` tests stage is
+97.143s, and CI stage timings on both Python jobs. Cross-process differential
+probes are the dominant owner at 190.89s of the serial session and 169.376s of
+child wall across 109 processes; Phase-63 Slice 15 is fifth of six probe
+families at 11.0% of child wall, not the dominant subprocess owner. Every
+measured Phase-61/62/63 semantic, IR, verification, and analysis builder totals
+at most 2.65s, and repository-fact acquisition remains approximately one read
+and one parse per Python file.
+
+The frozen Interlude II route therefore has exactly four Slices: baseline
+profiling and route lock; differential probe and process acquisition
+optimization; heavy-file xdist scheduling and isolation decision; and completion
+benchmark with Phase-64 readiness assurance. Immutable semantic/IR snapshot
+fixture reuse and verification/derived-analysis traversal optimization are
+deleted as unsupported by measurement; validator static analysis and repository
+reader acquisition remain closed by the first Interlude and are not reopened.
+Later Slices may not weaken collected tests, assertions, diagnostics, witness
+matrices, Python 3.12/3.13 CI, generated/golden/package gates, semantic
+identities, foreign-root or fresh-scope assurance, or the tested serial
+fallback, and may not introduce a persistent PASS or result cache.
+
+Interlude II Slice 2 is `NEXT / NOT IMPLEMENTED`. Phase 64 is
+`NEXT / BLOCKED / NOT IMPLEMENTED`, not ACTIVE. No Phase-64 production or
+numbered route exists; its future Slice 1 must perform a fresh live
+Product/Phase Initiation Gate and freeze its own route before implementation,
+after this Interlude closes.
