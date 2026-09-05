@@ -229,19 +229,27 @@ def test_logical_request_matrices_and_witness_cells_are_unchanged() -> None:
     plan = _plan()
     relocated = {cell for cell in plan if cell.mode == "relocated"}
     installed = {cell for cell in plan if cell.mode == "installed"}
+    # Phase-58 through Phase-61 anchor their `source-relocated` and
+    # `installed-wheel` requests to the running interpreter, exactly as their
+    # historical fixtures did, so those coordinates are derived rather than
+    # pinned to one Python version.
+    current = cast(tuple[int, int], sys.version_info[:2])
     assert {(cell.version, cell.seed) for cell in relocated} == {
-        ((3, 13), "0"),
-        ((3, 12), "1"),
-        ((3, 13), "4294967295"),
+        (current, "0"),
+        *acquisition.COMBINED_RELOCATED_CELLS,
         ((3, 13), "7"),
         ((3, 12), "7"),
     }
     assert {(cell.version, cell.seed) for cell in installed} == {
-        ((3, 13), "0"),
+        (current, "0"),
         ((3, 13), "7"),
         ((3, 12), "7"),
     }
     assert {cell.version for cell in installed} == {(3, 12), (3, 13)}
+    assert acquisition.COMBINED_RELOCATED_CELLS == (
+        ((3, 12), "1"),
+        ((3, 13), "4294967295"),
+    )
 
     # Deliberate independent constructions are untouched.
     assert inspect.getsource(phase59_probe.observation).count("_real_graph(") == 2
