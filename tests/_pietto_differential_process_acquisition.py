@@ -303,15 +303,24 @@ class DifferentialAcquisition:
             finally:
                 os.close(handle)
             try:
-                if target.exists():
-                    shutil.rmtree(target)
-                produce(target)
-            except BaseException as error:
-                _atomic_write(failure, f"{type(error).__name__}: {error}")
-                raise
+                # Re-check inside the critical section: a previous owner may
+                # have finished between this waiter's check and its acquisition.
+                if marker.exists():
+                    return target
+                if failure.exists():
+                    raise AcquisitionFailure(failure.read_text(encoding="utf-8"))
+                try:
+                    if target.exists():
+                        shutil.rmtree(target)
+                    produce(target)
+                except BaseException as error:
+                    _atomic_write(failure, f"{type(error).__name__}: {error}")
+                    raise
+                # Publish completion before releasing the lock, so no waiter can
+                # observe a free lock and a missing marker.
+                _atomic_write(marker, "ok")
             finally:
                 lock.unlink(missing_ok=True)
-            _atomic_write(marker, "ok")
             return target
 
     def _produce_relocated(self, target: Path) -> None:
@@ -486,10 +495,17 @@ class DifferentialAcquisition:
             finally:
                 os.close(handle)
             try:
-                self._run_cell(cell, cell_root)
-            except BaseException as error:
-                _atomic_write(failure, f"{type(error).__name__}: {error}")
-                raise
+                # Re-check inside the critical section: a previous owner may
+                # have finished between this waiter's check and its acquisition.
+                if output.exists():
+                    break
+                if failure.exists():
+                    raise AcquisitionFailure(failure.read_text(encoding="utf-8"))
+                try:
+                    self._run_cell(cell, cell_root)
+                except BaseException as error:
+                    _atomic_write(failure, f"{type(error).__name__}: {error}")
+                    raise
             finally:
                 lock.unlink(missing_ok=True)
             break

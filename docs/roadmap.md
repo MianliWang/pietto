@@ -2079,7 +2079,10 @@ leftover lock, failure marker or pending residue; a repeated fixed basetemp
 re-produced every cell, so no cross-run reuse exists. Slice 3 adds no scheduler,
 duration database, group taxonomy or sharding scheme, retains
 `scripts/validate.py` and `.github/workflows/ci.yml` byte-identical, and keeps no
-experimental scheduling option. The controlling evidence is
+experimental scheduling option. Its one authorized isolation repair publishes the
+shared-resource completion marker before releasing the acquisition lock and
+re-checks both critical sections, closing a timing-dependent window in which a
+waiting worker could produce a relocated tree or wheel target twice. The controlling evidence is
 [Interlude II Slice 3 heavy-file xdist scheduling and isolation decision](spec/validation-performance-interlude-ii-slice3-heavy-file-xdist-scheduling-isolation-decision-v1.md).
 
 Successful natural exact-head CI on the single Slice 3 commit establishes

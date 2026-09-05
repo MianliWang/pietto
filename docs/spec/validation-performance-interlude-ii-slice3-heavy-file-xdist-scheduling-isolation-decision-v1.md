@@ -11,10 +11,12 @@ count, against a required 15%. `loadscope` is 1.79% slower and `load` is slower
 on both focused corpora. The validator therefore retains `loadfile`.
 
 Slice 3 changes no production source, `scripts/validate.py`,
-`.github/workflows/ci.yml`, acquisition owner, batch or probe module, expected
-manifest, differential family test, worker-count policy, or xdist distribution
-policy. It adds one specification and one static principal, and updates the two
-mutable lifecycle documents, their sole reader, and the inventory owner.
+`.github/workflows/ci.yml`, batch or probe module, expected manifest,
+differential family test, worker-count policy, or xdist distribution policy. It
+adds one specification and one static principal, updates the two mutable
+lifecycle documents, their sole reader, and the inventory owner, and makes one
+authorized isolation repair to the shared-resource lock ordering in
+`tests/_pietto_differential_process_acquisition.py`.
 
 Phase 63 is `COMPLETED`. The Validation/Test Performance Optimization Interlude
 II is `ACTIVE`. Interlude II Slice 4 is `NEXT / NOT IMPLEMENTED` and Phase 64 is
@@ -260,6 +262,62 @@ The two `.lock` files initially observed inside the store are `uv`'s own
 `empty-uv-cache/.lock` and `wheel-source/src/.lock`, not acquisition locks; the
 acquisition lock count is zero in every run.
 
+## Authorized Isolation Repair
+
+Publishing the first Slice-3 candidate exposed one genuine latent defect in the
+published Slice-2 acquisition store. It is independent of scheduler
+performance, so it is repaired under the corrective test-infrastructure
+envelope rather than worked around.
+
+| Fact | Value |
+| --- | --- |
+| Preserved failed head | `4cfed753ae59df4df8cbce351503fe474d42e889` |
+| Natural CI | `33991714141`, `push`, `main`, attempt `1`, `failure` |
+| Python 3.13 job | `101375009458`, `success` |
+| Python 3.12 job | `101375009385`, `failure` |
+| Failing test | `test_ephemeral_store_is_run_local_single_winner_and_uncached` |
+| Observed | `assert 2 == 1`, `1 failed, 11514 passed` |
+
+The root cause is lock ordering in `DifferentialAcquisition._guarded`. The
+published code released the lock in a `finally` block and only then wrote the
+completion marker, so a waiting worker could pass its `marker.exists()` check,
+acquire the just-freed lock, and produce the shared resource a second time. A
+duplicate production would `rmtree` and rebuild a relocated tree or wheel target
+that another worker may already be reading. The window is timing-dependent: it
+never triggered locally or on the Python 3.13 runner, and surfaced on the
+Python 3.12 runner.
+
+The repair is structural, not probabilistic. Both `_guarded` and
+`_cell_payload` now re-check their completion and failure markers **inside** the
+critical section, and `_guarded` publishes its completion marker **before**
+releasing the lock. A waiter that acquires the lock after a successful owner
+therefore always observes the marker and returns without producing.
+
+| Repair assurance | Result |
+| --- | --- |
+| `test_ephemeral_store_is_run_local_single_winner_and_uncached`, 10 consecutive runs | 10 passed |
+| Direct guard stress, 200 rounds x 8 threads, instant producer, Python 3.13 | 0 duplicate-production rounds |
+| Same stress under Python 3.12 | 0 duplicate-production rounds |
+
+The repair preserves logical requests, exact observation bytes, fixture meaning,
+process-cell identities and standalone behavior; it changes no request matrix,
+renderer, expected manifest or semantic assertion. Re-measured on the six
+optimized families after the repair, correctness is identical in every run and
+the scheduling verdict is unchanged:
+
+| Post-repair run | `loadfile` | `worksteal` |
+| --- | ---: | ---: |
+| Matched pass a | 113.27s | 106.40s |
+| Matched pass b | 112.19s | 110.91s |
+| Median | 112.73s | 108.66s |
+| Relative | — | 3.6% faster |
+| Result / cells / batch executions | 62 passed / 16 / 16 | 62 passed / 16 / 16 |
+
+These post-repair walls were taken after the host degraded from 4.96 GiB to
+4.78 GiB available memory and are materially slower in absolute terms than the
+earlier session; they are recorded only to confirm correctness and the unchanged
+relative verdict, and they do not revise the formal comparison above.
+
 ## Terminal Disposition
 
 ```text
@@ -275,9 +333,11 @@ scheduling change worth 4.24% median, inside its own noise band and with higher
 peak RSS, would not be proportionate to its maintenance cost.
 
 Byte-identical retention is required and verified for `scripts/validate.py`,
-`.github/workflows/ci.yml`, both acquisition owners, the shared CLI/scenario
-helper, every probe module, and all six differential family tests. No
-experimental scheduling code, option, or helper is retained "for future use".
+`.github/workflows/ci.yml`, the batch child, the shared CLI/scenario helper,
+every probe module, and all six differential family tests. The parent
+acquisition owner changes only by the authorized isolation repair recorded
+above. No experimental scheduling code, option, or helper is retained "for
+future use".
 
 ## Exact Parity
 
@@ -297,27 +357,29 @@ identical pre-principal collection.
 
 ## Changed-Path And Lifecycle Lock
 
-The exact Slice 3 changed-path closure is `A2/M4/D0`, six paths:
+The exact Slice 3 changed-path closure is `A2/M5/D0`, seven paths:
 
 ```text
 A docs/spec/validation-performance-interlude-ii-slice3-heavy-file-xdist-scheduling-isolation-decision-v1.md
 A tests/test_validation_performance_interlude_ii_slice3_heavy_file_xdist_scheduling_isolation_decision.py
 M docs/roadmap.md
 M docs/status.md
+M tests/_pietto_differential_process_acquisition.py
 M tests/test_active_phase_lifecycle.py
 M tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py
 ```
 
-No production, validator script, workflow, grammar, generated, golden, package,
-dependency, lockfile, version, acquisition-owner, probe or differential-family
-path changes. The immutable inventory transition is production Python `179`
-unchanged and Python test files `426 -> 427`.
-`tests/test_active_phase_lifecycle.py` remains the sole mutable
+The single acquisition-owner modification is the authorized isolation repair
+recorded above and is confined to lock ordering. No production, validator
+script, workflow, grammar, generated, golden, package, dependency, lockfile,
+version, batch-child, probe or differential-family path changes. The immutable
+inventory transition is production Python `179` unchanged and Python test files
+`426 -> 427`. `tests/test_active_phase_lifecycle.py` remains the sole mutable
 lifecycle-document reader, and this Slice's principal reads no mutable lifecycle
 document and performs no whole-repository inventory scan.
 
-Accounting: test-infrastructure repair batches `0/12`, mechanical closure paths
-`0/12`, isolation repairs `0`, production mutations `0`.
+Accounting: test-infrastructure repair batches `3/12`, mechanical closure paths
+`0/12`, isolation repairs `1`, production mutations `0`.
 
 Successful natural exact-head CI on the single Slice 3 commit establishes
 completion without a status-only follow-up commit and leaves:

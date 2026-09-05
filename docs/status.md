@@ -513,9 +513,16 @@ leftover acquisition locks, failure markers or pending residue. Two consecutive
 invocations sharing one explicit basetemp each re-produced every cell, so no
 cross-run reuse or persistent cache exists.
 
-Slice 3 therefore changes no production, validator, workflow, acquisition,
+Slice 3 therefore changes no production, validator, workflow, batch-child,
 probe, differential-family, expected-manifest or worker-count path, and retains
-no experimental scheduling code. Interlude II Slice 4, the completion benchmark
+no experimental scheduling code. It makes one authorized isolation repair to the
+shared-resource lock ordering in the parent acquisition owner: the completion
+marker is now published before the lock is released and both critical sections
+re-check their markers, so a waiting worker can no longer produce a shared
+resource twice. That defect was exposed by the preserved failed head
+`4cfed753...` on the Python 3.12 runner and is independent of scheduler
+performance; the repair preserves every request matrix, renderer, expected
+manifest and semantic assertion. Interlude II Slice 4, the completion benchmark
 and Phase-64 readiness assurance, is `NEXT / NOT IMPLEMENTED`. Phase 64 is
 `NEXT / BLOCKED / NOT IMPLEMENTED`, not ACTIVE. No Phase-64 production or
 numbered route exists; its future Slice 1 must perform a fresh live

@@ -1401,6 +1401,7 @@ EXPECTED_INTERLUDE_II_SLICE3_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_ii_slice3_heavy_file_xdist_scheduling_isolation_decision.py",
     "docs/roadmap.md",
     "docs/status.md",
+    "tests/_pietto_differential_process_acquisition.py",
     "tests/test_active_phase_lifecycle.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
@@ -1814,6 +1815,7 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "16 acquisition cells produced by exactly 16 batch executions",
         "no cross-run reuse or persistent cache exists",
         "retains no experimental scheduling code",
+        "one authorized isolation repair to the shared-resource lock ordering",
         "Interlude II Slice 4, the completion benchmark and Phase-64 readiness "
         "assurance, is `NEXT / NOT IMPLEMENTED`",
         "after this Interlude closes",
@@ -2638,7 +2640,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     )
     assert f"]({slice3_target})" in roadmap
     assert (ROADMAP.parent / slice3_target).is_file()
-    assert len(EXPECTED_INTERLUDE_II_SLICE3_CHANGED_PATHS) == 6
+    assert len(EXPECTED_INTERLUDE_II_SLICE3_CHANGED_PATHS) == 7
     assert all(
         (REPO_ROOT / path).is_file()
         for path in EXPECTED_INTERLUDE_II_SLICE3_CHANGED_PATHS

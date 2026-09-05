@@ -53,6 +53,7 @@ EXPECTED_ADDED_PATHS = (
     "tests/test_validation_performance_interlude_ii_slice3_heavy_file_xdist_scheduling_isolation_decision.py",
 )
 EXPECTED_NAMED_MODIFIED_PATHS = (
+    "tests/_pietto_differential_process_acquisition.py",
     "tests/test_active_phase_lifecycle.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
@@ -60,7 +61,6 @@ FORBIDDEN_PATH_PREFIXES = (".github/", "src/", "scripts/", "grammar/")
 RETAINED_BYTE_IDENTICAL = (
     "scripts/validate.py",
     ".github/workflows/ci.yml",
-    "tests/_pietto_differential_process_acquisition.py",
     "tests/_pietto_differential_probe_batch.py",
     "tests/_pietto_project_explain_scenarios.py",
     "tests/test_phase58_slice16_pure_differential_compatibility_assurance.py",
@@ -275,13 +275,13 @@ def test_no_gain_retention_and_closure_are_exact() -> None:
         in (disposition)
     )
 
-    assert "`A2/M4/D0`, six paths" in normalized_closure
+    assert "`A2/M5/D0`, seven paths" in normalized_closure
     added = tuple(line[2:] for line in closure.splitlines() if line.startswith("A "))
     modified = tuple(line[2:] for line in closure.splitlines() if line.startswith("M "))
     assert not any(line.startswith("D ") for line in closure.splitlines())
     assert added == EXPECTED_ADDED_PATHS
-    assert len(modified) == 4
-    assert len(set(added) | set(modified)) == 6
+    assert len(modified) == 5
+    assert len(set(added) | set(modified)) == 7
     for path in (*added, *modified):
         assert (REPO_ROOT / path).is_file()
         assert not path.startswith(FORBIDDEN_PATH_PREFIXES)
@@ -300,9 +300,9 @@ def test_no_gain_retention_and_closure_are_exact() -> None:
     assert "`426 -> 427`" in normalized_closure
     assert "sole mutable lifecycle-document reader" in normalized_closure
     assert "performs no whole-repository inventory scan" in normalized_closure
-    assert "repair batches `0/12`" in normalized_closure
+    assert "repair batches `3/12`" in normalized_closure
     assert "mechanical closure paths `0/12`" in normalized_closure
-    assert "isolation repairs `0`" in normalized_closure
+    assert "isolation repairs `1`" in normalized_closure
     assert "production mutations `0`" in normalized_closure
     assert "Interlude II Slices 1-3 = COMPLETED / PUBLISHED" in closure
     assert "Interlude II Slice 4 = NEXT / NOT IMPLEMENTED" in closure
@@ -311,6 +311,35 @@ def test_no_gain_retention_and_closure_are_exact() -> None:
         "VALIDATION_PERFORMANCE_INTERLUDE_II_SLICE4_COMPLETION_BENCHMARK_AND_PHASE_64_READINESS_ASSURANCE"
         in closure
     )
+
+
+def test_authorized_isolation_repair_is_recorded_and_structural() -> None:
+    repair = _normalized("Authorized Isolation Repair")
+
+    for value in (
+        "4cfed753ae59df4df8cbce351503fe474d42e889",
+        "33991714141",
+        "101375009458",
+        "101375009385",
+        "test_ephemeral_store_is_run_local_single_winner_and_uncached",
+        "assert 2 == 1",
+        "released the lock in a `finally` block and only then wrote the "
+        "completion marker",
+        "The repair is structural, not probabilistic",
+        "0 duplicate-production rounds",
+        "the scheduling verdict is unchanged",
+    ):
+        assert value in repair
+
+    # The live guard must re-check inside the critical section and publish the
+    # completion marker before releasing the lock.
+    guard = inspect.getsource(acquisition.DifferentialAcquisition._guarded)
+    marker_index = guard.index('_atomic_write(marker, "ok")')
+    unlink_index = guard.index("lock.unlink(missing_ok=True)", marker_index)
+    assert marker_index < unlink_index
+    assert guard.count("if marker.exists():") == 2
+    cell = inspect.getsource(acquisition.DifferentialAcquisition._cell_payload)
+    assert cell.count("if output.exists():") == 2
 
 
 def test_isolation_audit_and_measurement_hygiene_are_documented() -> None:
