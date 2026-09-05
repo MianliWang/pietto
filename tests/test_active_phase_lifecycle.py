@@ -275,11 +275,12 @@ EXPECTED_STATUS = (
     ),
     ("Interlude II Slice 1", "`COMPLETED / PUBLISHED`"),
     ("Interlude II Slice 2", "`COMPLETED / PUBLISHED`"),
+    ("Interlude II Slice 3", "`COMPLETED / PUBLISHED`"),
     ("Phase 64", "`NEXT / BLOCKED / NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Validation/Test Performance Optimization Interlude II Slice 3 — "
-        "Heavy-File Xdist Scheduling And Isolation Decision`",
+        "`Validation/Test Performance Optimization Interlude II Slice 4 — "
+        "Completion Benchmark And Phase-64 Readiness Assurance`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1395,6 +1396,14 @@ EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice2_differential_probe_runtime_decomposition_optimization.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_INTERLUDE_II_SLICE3_CHANGED_PATHS = (
+    "docs/spec/validation-performance-interlude-ii-slice3-heavy-file-xdist-scheduling-isolation-decision-v1.md",
+    "tests/test_validation_performance_interlude_ii_slice3_heavy_file_xdist_scheduling_isolation_decision.py",
+    "docs/roadmap.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 EXPECTED_INTERLUDE_II_ROUTE = (
     ("1", "Post-Phase-63 Baseline Profiling, Cost Attribution, And Route Lock"),
     ("2", "Differential Probe And Process Acquisition Optimization"),
@@ -1790,9 +1799,23 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "acquiring each of the 16 cells exactly once",
         "acquisition store is ephemeral",
         "no persistent PASS or result cache",
-        "Interlude II Slice 3, the heavy-file xdist scheduling and isolation "
-        "decision, is `NEXT / NOT IMPLEMENTED`",
-        "Slice 4 remains `NOT IMPLEMENTED`",
+        "Interlude II Slice 3 is `COMPLETED / PUBLISHED`",
+        "heavy-file xdist scheduling and isolation decision",
+        "closes `NO_GAIN — CURRENT LOADFILE AUTHORITY RETAINED`",
+        "retains the preserved failed Slice-2 head",
+        "pytest-xdist 3.8.0 distribution mode was inventoried",
+        "`loadgroup` was excluded",
+        "`loadfile` baseline median is 100.14s wall over five runs",
+        "`worksteal` gains only 4.24%, against a required 15%",
+        "adoption target of 85.12s",
+        "single indivisible test whose module-fixture setup costs 40.92s",
+        "four-worker portability run confirms the same conclusion",
+        "11,506 collected node IDs",
+        "16 acquisition cells produced by exactly 16 batch executions",
+        "no cross-run reuse or persistent cache exists",
+        "retains no experimental scheduling code",
+        "Interlude II Slice 4, the completion benchmark and Phase-64 readiness "
+        "assurance, is `NEXT / NOT IMPLEMENTED`",
         "after this Interlude closes",
     ):
         assert evidence in normalized
@@ -1808,6 +1831,12 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     )
     assert f"]({interlude_ii_slice2_target})" in status
     assert (STATUS.parent / interlude_ii_slice2_target).is_file()
+    interlude_ii_slice3_target = (
+        "spec/validation-performance-interlude-ii-slice3-heavy-file-xdist-"
+        "scheduling-isolation-decision-v1.md"
+    )
+    assert f"]({interlude_ii_slice3_target})" in status
+    assert (STATUS.parent / interlude_ii_slice3_target).is_file()
     prerequisite_target = (
         "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
     )
@@ -2575,9 +2604,18 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "171.460s baseline median to an 85.015s candidate median",
         "50.42% reduction against the required 25% target",
         "acquire each cell exactly once",
-        "claims no scheduling gain; Slice 3 owns that decision",
-        "leaves Interlude II Slice 3 `NEXT / NOT IMPLEMENTED`, Slice 4 "
-        "`NOT IMPLEMENTED`",
+        "claims no scheduling gain; Slice 3 owned that decision",
+        "Slice 3 owned that decision",
+        "Slice 3 closed the scheduling question as `NO_GAIN — CURRENT LOADFILE "
+        "AUTHORITY RETAINED`",
+        "excluded `loadgroup`, `each` and `no` with recorded reasons",
+        "`loadfile` baseline median is 100.14s wall over five full-suite runs",
+        "`worksteal` gains only 4.24% against the required 15%",
+        "single indivisible test whose module-fixture setup costs 40.92s",
+        "16 acquisition cells from exactly 16 batch executions",
+        "retains `scripts/validate.py` and `.github/workflows/ci.yml` byte-identical",
+        "leaves Interlude II Slice 4 `NEXT / NOT IMPLEMENTED` and Phase 64 "
+        "`NEXT / BLOCKED / NOT IMPLEMENTED`",
         "Phase 64 `NEXT / BLOCKED / NOT IMPLEMENTED`",
         "fresh Product/Phase Initiation Gate after this Interlude closes",
     ):
@@ -2594,6 +2632,21 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     )
     assert f"]({slice2_target})" in roadmap
     assert (ROADMAP.parent / slice2_target).is_file()
+    slice3_target = (
+        "spec/validation-performance-interlude-ii-slice3-heavy-file-xdist-"
+        "scheduling-isolation-decision-v1.md"
+    )
+    assert f"]({slice3_target})" in roadmap
+    assert (ROADMAP.parent / slice3_target).is_file()
+    assert len(EXPECTED_INTERLUDE_II_SLICE3_CHANGED_PATHS) == 6
+    assert all(
+        (REPO_ROOT / path).is_file()
+        for path in EXPECTED_INTERLUDE_II_SLICE3_CHANGED_PATHS
+    )
+    assert not any(
+        path.startswith((".github/", "src/", "scripts/", "grammar/"))
+        for path in EXPECTED_INTERLUDE_II_SLICE3_CHANGED_PATHS
+    )
     assert len(EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS) == 22
     assert all(
         (REPO_ROOT / path).is_file()

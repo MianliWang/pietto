@@ -14,6 +14,8 @@ post-Phase-63 baseline profiling, cost attribution, and route lock is
 differential probe and process acquisition optimization, is
 `COMPLETED / PUBLISHED` and closed `OPTIMIZED`. Interlude II Slice 3, the
 heavy-file xdist scheduling and isolation decision, is
+`COMPLETED / PUBLISHED` and closed `NO_GAIN`. Interlude II Slice 4, the
+completion benchmark and Phase-64 readiness assurance, is
 `NEXT / NOT IMPLEMENTED`. Phase 64 is `NEXT / BLOCKED / NOT IMPLEMENTED` and
 has no numbered route.
 Project Explain v1 remains unchanged.
@@ -2053,12 +2055,39 @@ controlling evidence is
 
 Slice 2 changes no production, validator, workflow, xdist scheduling or Pyright
 path, weakens no assertion, witness matrix or expected manifest, and claims no
-scheduling gain; Slice 3 owns that decision. Successful natural exact-head CI on
-the single Slice 2 commit establishes completion without a status-only follow-up
-commit and leaves Interlude II Slice 3 `NEXT / NOT IMPLEMENTED`, Slice 4
-`NOT IMPLEMENTED`, and Phase 64 `NEXT / BLOCKED / NOT IMPLEMENTED`. Phase 64 is
-not started here; its future Slice 1 must run a fresh Product/Phase Initiation
-Gate after this Interlude closes.
+scheduling gain; Slice 3 owned that decision. Successful natural exact-head CI on
+the single Slice 2 commit established completion without a status-only follow-up
+commit.
+
+Slice 3 closed the scheduling question as
+`NO_GAIN — CURRENT LOADFILE AUTHORITY RETAINED`. It inventoried every standard
+pytest-xdist 3.8.0 mode, screened `loadfile`, `loadscope`, `load` and
+`worksteal`, and excluded `loadgroup`, `each` and `no` with recorded reasons. At
+the live resolved worker count of six the `loadfile` baseline median is 100.14s
+wall over five full-suite runs; `loadscope` is 1.79% slower and the strongest
+candidate `worksteal` gains only 4.24% against the required 15% and an adoption
+target of 85.12s. That gain is smaller than either policy's own run-to-run
+range. Direct tail measurement shows why: the binding constraint is now a single
+indivisible test whose module-fixture setup costs 40.92s, which no file-, scope-
+or test-level scheduler can split. A four-worker portability run reaches the same
+conclusion at the public runner shape.
+
+Every screened mode preserved exact parity on 11,506 collected node IDs, 16
+acquisition cells from exactly 16 batch executions, one `uv build` and one
+`uv pip install`, correct import origins with no checkout fallback, and no
+leftover lock, failure marker or pending residue; a repeated fixed basetemp
+re-produced every cell, so no cross-run reuse exists. Slice 3 adds no scheduler,
+duration database, group taxonomy or sharding scheme, retains
+`scripts/validate.py` and `.github/workflows/ci.yml` byte-identical, and keeps no
+experimental scheduling option. The controlling evidence is
+[Interlude II Slice 3 heavy-file xdist scheduling and isolation decision](spec/validation-performance-interlude-ii-slice3-heavy-file-xdist-scheduling-isolation-decision-v1.md).
+
+Successful natural exact-head CI on the single Slice 3 commit establishes
+completion without a status-only follow-up commit and leaves Interlude II
+Slice 4 `NEXT / NOT IMPLEMENTED` and Phase 64
+`NEXT / BLOCKED / NOT IMPLEMENTED`. Phase 64 is not started here; its future
+Slice 1 must run a fresh Product/Phase Initiation Gate after this Interlude
+closes.
 
 ## Future Roadmap v6
 

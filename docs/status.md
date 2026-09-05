@@ -35,8 +35,9 @@ documentation does not supersede that evidence.
 | Validation/Test Performance Optimization Interlude II | `ACTIVE` |
 | Interlude II Slice 1 | `COMPLETED / PUBLISHED` |
 | Interlude II Slice 2 | `COMPLETED / PUBLISHED` |
+| Interlude II Slice 3 | `COMPLETED / PUBLISHED` |
 | Phase 64 | `NEXT / BLOCKED / NOT IMPLEMENTED` |
-| Next | `Validation/Test Performance Optimization Interlude II Slice 3 — Heavy-File Xdist Scheduling And Isolation Decision` |
+| Next | `Validation/Test Performance Optimization Interlude II Slice 4 — Completion Benchmark And Phase-64 Readiness Assurance` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -479,8 +480,43 @@ and holds no semantic authority. Slice 2 changes no production, validator,
 workflow, xdist scheduling, or Pyright path, weakens no assertion, witness
 matrix, or expected manifest, and introduces no persistent PASS or result cache.
 
-Interlude II Slice 3, the heavy-file xdist scheduling and isolation decision, is
-`NEXT / NOT IMPLEMENTED`, and Slice 4 remains `NOT IMPLEMENTED`. Phase 64 is
+Interlude II Slice 3 is `COMPLETED / PUBLISHED`. Its [heavy-file xdist
+scheduling and isolation
+decision](spec/validation-performance-interlude-ii-slice3-heavy-file-xdist-scheduling-isolation-decision-v1.md)
+closes `NO_GAIN — CURRENT LOADFILE AUTHORITY RETAINED`. It rebinds baseline
+`3e4646de879becc6a93c1502fb033c716d1bf19e` with natural CI `33961794923` and
+retains the preserved failed Slice-2 head `d847132a...` with its successful M1
+repair child unchanged.
+
+Every standard pytest-xdist 3.8.0 distribution mode was inventoried. `loadfile`,
+`loadscope`, `load` and `worksteal` were screened; `loadgroup` was excluded
+because distinct behavior would require a new `xdist_group` marker taxonomy,
+`each` because it sends every test to every environment, and `no` because it
+disables distribution. No scheduler was installed, upgraded, or written, and no
+custom scheduler, duration database, group taxonomy or sharding scheme exists.
+
+At the live resolved worker count of six the `loadfile` baseline median is
+100.14s wall over five runs. `loadscope` is 1.79% slower and `worksteal` gains
+only 4.24%, against a required 15% and an adoption target of 85.12s. The gain is
+smaller than either policy's own run-to-run range, and `worksteal` also shows the
+highest peak RSS. Direct tail measurement explains why: the binding constraint is
+no longer a heavy file but a single indivisible test whose module-fixture setup
+costs 40.92s, which no file-, scope- or test-level scheduler can split. A
+four-worker portability run confirms the same conclusion at the public runner
+shape.
+
+Every screened mode preserved exact parity: 11,506 collected node IDs with an
+unchanged set digest, all passing, 16 acquisition cells produced by exactly 16
+batch executions, one `uv build` and one `uv pip install`, correct
+checkout/relocated/installed import origins with no checkout fallback, and zero
+leftover acquisition locks, failure markers or pending residue. Two consecutive
+invocations sharing one explicit basetemp each re-produced every cell, so no
+cross-run reuse or persistent cache exists.
+
+Slice 3 therefore changes no production, validator, workflow, acquisition,
+probe, differential-family, expected-manifest or worker-count path, and retains
+no experimental scheduling code. Interlude II Slice 4, the completion benchmark
+and Phase-64 readiness assurance, is `NEXT / NOT IMPLEMENTED`. Phase 64 is
 `NEXT / BLOCKED / NOT IMPLEMENTED`, not ACTIVE. No Phase-64 production or
 numbered route exists; its future Slice 1 must perform a fresh live
 Product/Phase Initiation Gate and freeze its own route before implementation,
