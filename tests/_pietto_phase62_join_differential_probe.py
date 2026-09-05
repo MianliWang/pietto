@@ -1619,13 +1619,12 @@ def observation(workspace: Path) -> dict[str, object]:
     }
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--workspace", type=Path, required=True)
-    namespace = parser.parse_args(argv)
+def render(value: object, workspace: Path) -> bytes:
+    """Encode one observation exactly as the standalone probe emits it."""
+
     document = (
         json.dumps(
-            observation(namespace.workspace),
+            value,
             ensure_ascii=False,
             allow_nan=False,
             sort_keys=False,
@@ -1633,14 +1632,23 @@ def main(argv: list[str] | None = None) -> int:
         ).encode("utf-8")
         + b"\n"
     )
-    assert str(namespace.workspace).encode() not in document
+    assert str(workspace).encode() not in document
     assert os.getcwd().encode() not in document
     irrelevant = os.environ.get(SEED_ENVIRONMENT)
     if irrelevant is not None:
         assert irrelevant.encode() not in document
     assert b"0x" not in document
     assert b".venv" not in document
-    sys.stdout.buffer.write(document)
+    return document
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--workspace", type=Path, required=True)
+    namespace = parser.parse_args(argv)
+    sys.stdout.buffer.write(
+        render(observation(namespace.workspace), namespace.workspace)
+    )
     return 0
 
 

@@ -538,13 +538,13 @@ def observation(workspace: Path) -> dict[str, object]:
     }
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--workspace", type=Path, required=True)
-    namespace = parser.parse_args(argv)
-    document = (
+def render(value: object, workspace: Path) -> bytes:
+    """Encode one observation exactly as the standalone probe emits it."""
+
+    assert isinstance(workspace, Path)
+    return (
         json.dumps(
-            observation(namespace.workspace),
+            value,
             ensure_ascii=False,
             allow_nan=False,
             sort_keys=False,
@@ -552,7 +552,15 @@ def main(argv: list[str] | None = None) -> int:
         ).encode("utf-8")
         + b"\n"
     )
-    sys.stdout.buffer.write(document)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--workspace", type=Path, required=True)
+    namespace = parser.parse_args(argv)
+    sys.stdout.buffer.write(
+        render(observation(namespace.workspace), namespace.workspace)
+    )
     return 0
 
 

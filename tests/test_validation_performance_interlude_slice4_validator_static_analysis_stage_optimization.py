@@ -83,7 +83,7 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
     )
     test_files = tuple(sorted((REPO_ROOT / "tests").rglob("*.py")))
     assert len(production_files) == 179
-    assert len(test_files) == 423
+    assert len(test_files) == 426
     assert set(production_files).isdisjoint(test_files)
 
 

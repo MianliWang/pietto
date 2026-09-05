@@ -4,6 +4,7 @@ import inspect
 from pathlib import Path
 import subprocess
 
+import _pietto_differential_process_acquisition as acquisition_owner
 import _pietto_phase59_graph_differential_probe as phase59_probe
 import _pietto_phase60_window_differential_probe as phase60_probe
 import _pietto_phase61_project_ir_differential_probe as phase61_probe
@@ -32,6 +33,12 @@ def _section(document: str, heading: str) -> str:
     start = document.index(marker) + len(marker)
     end = document.find("\n## ", start)
     return document[start:] if end == -1 else document[start:end]
+
+
+def _two_interpreters() -> dict[tuple[int, int], str]:
+    """Evaluate the frozen logical matrices on the published two-interpreter set."""
+
+    return {(3, 13): "python3.13", (3, 12): "python3.12"}
 
 
 def _result(process: subprocess.CompletedProcess[bytes]) -> tuple[int, bytes, bytes]:
@@ -217,15 +224,32 @@ def test_process_reduction_preserves_variants_cli_calls_and_graph_builds() -> No
     phase58_cli_calls = phase58_variants * (len(phase58_probe.SCENARIO_ORDER) + 1) * 2
     phase59_cli_calls = phase59_variants * 2
     semantic_cli_calls = phase58_cli_calls + phase59_cli_calls
-    paired_cli_children = semantic_cli_calls // 2
-    fixed_fixture_launches = 2 + 6
 
     assert (phase58_variants, phase59_variants, outer_probes) == (8, 10, 18)
     assert semantic_cli_calls == 116
-    assert paired_cli_children == 58
-    assert outer_probes + semantic_cli_calls + fixed_fixture_launches == 142
-    assert outer_probes + paired_cli_children + fixed_fixture_launches == 84
     assert phase59_variants * 2 == 20
+    assert (
+        len(acquisition_owner.family_requests("phase58", _two_interpreters()))
+        == phase58_variants
+    )
+    assert (
+        len(acquisition_owner.family_requests("phase59", _two_interpreters()))
+        == phase59_variants
+    )
+
+    # Later acquisition batching may lower the physical process count further,
+    # so the durable law is one separate `main(arguments)` call per semantic
+    # command with its own fresh capture, not a fixed number of children.
+    pair_source = inspect.getsource(scenarios._run_cli_pair)
+    assert "session.run(first, cwd), session.run(second, cwd)" in pair_source
+    assert scenarios._CLI_PAIR_CODE.count("main(arguments)") == 1
+    assert scenarios._CLI_WORKER_CODE.count("main(arguments)") == 1
+    session_source = inspect.getsource(scenarios.CliWorkerSession) + inspect.getsource(
+        scenarios.cli_worker_session
+    )
+    for forbidden in ("lru_cache", "functools.cache", "shelve", "pickle"):
+        assert forbidden not in session_source
+        assert forbidden not in scenarios._CLI_WORKER_CODE
 
     phase58_source = inspect.getsource(phase58_probe)
     phase59_source = inspect.getsource(phase59_probe)

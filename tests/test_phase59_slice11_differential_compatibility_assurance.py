@@ -3,18 +3,15 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
-import os
 from pathlib import Path
-import shutil
-import subprocess
 import sys
 from typing import cast
 
 import pytest
 
+import _pietto_differential_process_acquisition as acquisition
 import _pietto_phase59_graph_differential_probe as probe
 import test_phase58_slice13_project_explain_runtime_builder as runtime_fixture
-import test_phase58_slice16_pure_differential_compatibility_assurance as phase58_diff
 import test_phase59_slice10_real_multi_package_provenance_lineage_e2e as slice10
 
 
@@ -156,57 +153,6 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
 }
 
 
-def _environment(source_root: Path | None, seed: str, ambient: str) -> dict[str, str]:
-    environment = os.environ.copy()
-    for name in ("PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV"):
-        environment.pop(name, None)
-    environment["PYTHONHASHSEED"] = seed
-    environment["PYTHONNOUSERSITE"] = "1"
-    environment["PIETTO_SLICE11_IRRELEVANT"] = ambient
-    if source_root is not None:
-        environment["PYTHONPATH"] = os.pathsep.join(
-            (str(source_root / "src"), phase58_diff._site_packages())
-        )
-    return environment
-
-
-def _run_probe(
-    executable: str,
-    probe_path: Path,
-    workspace: Path,
-    *,
-    source_root: Path | None,
-    seed: str,
-    ambient: str,
-) -> dict[str, object]:
-    run_root = workspace.parent / f"run-{workspace.name}"
-    run_root.mkdir()
-    completed = subprocess.run(
-        (executable, str(probe_path), "--workspace", str(workspace)),
-        check=True,
-        capture_output=True,
-        cwd=run_root,
-        env=_environment(source_root, seed, ambient),
-    )
-    assert completed.stderr == b""
-    assert completed.stdout.endswith(b"\n")
-    assert not completed.stdout.endswith(b"\n\n")
-    return cast(dict[str, object], json.loads(completed.stdout))
-
-
-def _relocate_source(target: Path) -> Path:
-    shutil.copytree(
-        REPO_ROOT / "src",
-        target / "src",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-    )
-    tests = target / "tests"
-    tests.mkdir()
-    shutil.copyfile(PROBE, tests / PROBE.name)
-    shutil.copyfile(SCENARIOS, tests / SCENARIOS.name)
-    return tests / PROBE.name
-
-
 def _canonical_bytes(value: object) -> bytes:
     return json.dumps(
         value,
@@ -231,6 +177,11 @@ def _fields(record: dict[str, object]) -> dict[str, object]:
 def _positions(record: dict[str, object], key: str = "ref") -> list[int]:
     ref = cast(dict[str, object], record[key])
     return cast(list[int], ref["positions"])
+
+
+def _decoded(document: bytes) -> dict[str, object]:
+    assert document.endswith(b"\n") and not document.endswith(b"\n\n")
+    return cast(dict[str, object], json.loads(document))
 
 
 def _common_manifest(observation: dict[str, object]) -> dict[str, object]:
@@ -304,85 +255,38 @@ def _common_manifest(observation: dict[str, object]) -> dict[str, object]:
 def differential_matrix(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> dict[str, object]:
+    store = acquisition.acquisition(tmp_path_factory)
+    documents = store.documents("phase59")
     observations: dict[str, dict[str, object]] = {}
     for seed in SEEDS:
-        observations[f"seed:{seed}"] = _run_probe(
-            sys.executable,
-            PROBE,
-            tmp_path_factory.mktemp(f"seed-{seed}"),
-            source_root=REPO_ROOT,
-            seed=seed,
-            ambient=f"seed-{seed}",
-        )
+        observations[f"seed:{seed}"] = _decoded(documents[f"seed:{seed}"])
 
-    interpreters = phase58_diff._available_supported_interpreters()
+    interpreters = store.interpreters
     for version, executable in interpreters.items():
         key = f"python{version[0]}.{version[1]}"
         observations[key] = (
             observations["seed:0"]
             if executable == sys.executable
-            else _run_probe(
-                executable,
-                PROBE,
-                tmp_path_factory.mktemp(key),
-                source_root=REPO_ROOT,
-                seed="0",
-                ambient=key,
-            )
+            else _decoded(documents[key])
         )
 
-    observations["project-relocated"] = _run_probe(
-        sys.executable,
-        PROBE,
-        tmp_path_factory.mktemp("project-relocated"),
-        source_root=REPO_ROOT,
-        seed="0",
-        ambient="project-relocated",
-    )
-    relocated_root = tmp_path_factory.mktemp("source-relocated")
-    relocated_probe = _relocate_source(relocated_root)
-    observations["source-relocated"] = _run_probe(
-        sys.executable,
-        relocated_probe,
-        tmp_path_factory.mktemp("source-relocated-project"),
-        source_root=relocated_root,
-        seed="0",
-        ambient="source-relocated",
-    )
+    observations["project-relocated"] = _decoded(documents["project-relocated"])
+    observations["source-relocated"] = _decoded(documents["source-relocated"])
     for version, seed in (((3, 12), "1"), ((3, 13), "4294967295")):
-        executable = interpreters.get(version)
-        if executable is not None:
-            key = f"combined:python{version[0]}.{version[1]}:seed{seed}:relocated"
-            observations[key] = _run_probe(
-                executable,
-                relocated_probe,
-                tmp_path_factory.mktemp(key.replace(":", "-")),
-                source_root=relocated_root,
-                seed=seed,
-                ambient=key,
-            )
+        if version not in interpreters:
+            continue
+        key = f"combined:python{version[0]}.{version[1]}:seed{seed}:relocated"
+        observations[key] = _decoded(documents[key])
 
-    wheel_root = tmp_path_factory.mktemp("installed-wheel")
-    (
-        installed_python,
-        installed_origin,
-        installed_source_root,
-        empty_install_cache,
-    ) = phase58_diff._installed_python(wheel_root)
-    observations["installed-wheel"] = _run_probe(
-        installed_python,
-        PROBE,
-        tmp_path_factory.mktemp("installed-project"),
-        source_root=installed_source_root,
-        seed="0",
-        ambient="installed-wheel",
-    )
+    observations["installed-wheel"] = _decoded(documents["installed-wheel"])
     return {
         "observations": observations,
         "interpreters": interpreters,
-        "installed_origin": installed_origin,
-        "installed_source_root": installed_source_root,
-        "empty_install_cache": empty_install_cache,
+        "installed_origin": store.import_origin(
+            acquisition.Cell(sys.version_info[:2], "0", "installed")
+        ),
+        "installed_source_root": store.installed_source_root(),
+        "empty_install_cache": store.empty_install_cache(),
     }
 
 

@@ -34,8 +34,9 @@ documentation does not supersede that evidence.
 | Slice 16 | `COMPLETED / PUBLISHED` |
 | Validation/Test Performance Optimization Interlude II | `ACTIVE` |
 | Interlude II Slice 1 | `COMPLETED / PUBLISHED` |
+| Interlude II Slice 2 | `COMPLETED / PUBLISHED` |
 | Phase 64 | `NEXT / BLOCKED / NOT IMPLEMENTED` |
-| Next | `Validation/Test Performance Optimization Interlude II Slice 2 — Differential Probe And Process Acquisition Optimization` |
+| Next | `Validation/Test Performance Optimization Interlude II Slice 3 — Heavy-File Xdist Scheduling And Isolation Decision` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -445,7 +446,41 @@ matrices, Python 3.12/3.13 CI, generated/golden/package gates, semantic
 identities, foreign-root or fresh-scope assurance, or the tested serial
 fallback, and may not introduce a persistent PASS or result cache.
 
-Interlude II Slice 2 is `NEXT / NOT IMPLEMENTED`. Phase 64 is
+Interlude II Slice 2 is `COMPLETED / PUBLISHED`. Its [differential probe and
+process acquisition
+optimization](spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md)
+is `OPTIMIZED`. It rebinds baseline `69cf857310491b29822302f17d494293e33ff65b`
+with natural CI `33954322616` and adds two test-only acquisition owners plus one
+principal. Every logical differential request, `observation` invocation,
+separate `pietto.cli.main` call, deliberate independent construction, and exact
+byte is retained; only physical acquisition falls.
+
+The 62 logical outer requests group into exactly 16 exact process cells keyed by
+executable version, `PYTHONHASHSEED`, and import/source root, so nothing is
+batched across Python 3.12 versus 3.13, different seeds, checkout versus
+relocated source, or source versus installed wheel. A hash-seed cell is never
+simulated by mutating the environment after interpreter startup. Standalone,
+forward-batched, and reverse-batched acquisition produce identical bytes for all
+six families in checkout, relocated-source, and installed-wheel cells.
+
+Physical outer probe processes fall from 62 to 16, nested CLI child processes
+from 78 to 9 explicit worker sessions, `uv build` and `uv pip install` from 6
+each to 1 each, and parent-observed direct children from 109 to 38. On the frozen
+eleven-file profile the cumulative direct-child wall falls from a 171.460s
+baseline median to an 85.015s candidate median, a 50.42% reduction against the
+required 25% target, with targeted wall falling 46.22% and 194 tests passing on
+both sides. Serial, `-n 2 --dist=loadfile`, and `-n 7 --dist=loadfile` runs agree
+exactly, acquiring each of the 16 cells exactly once with no leftover lock,
+partial result, or orphan process.
+
+The acquisition store is ephemeral: it lives under the current pytest run's
+temporary root, is never reused by another run, leaves no repository artifact,
+and holds no semantic authority. Slice 2 changes no production, validator,
+workflow, xdist scheduling, or Pyright path, weakens no assertion, witness
+matrix, or expected manifest, and introduces no persistent PASS or result cache.
+
+Interlude II Slice 3, the heavy-file xdist scheduling and isolation decision, is
+`NEXT / NOT IMPLEMENTED`, and Slice 4 remains `NOT IMPLEMENTED`. Phase 64 is
 `NEXT / BLOCKED / NOT IMPLEMENTED`, not ACTIVE. No Phase-64 production or
 numbered route exists; its future Slice 1 must perform a fresh live
 Product/Phase Initiation Gate and freeze its own route before implementation,

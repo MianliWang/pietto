@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Iterator
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -93,12 +95,173 @@ sys.stdout.write(json.dumps([run(command) for command in commands], separators=(
 """
 
 
+_CLI_WORKER_CODE = r"""
+import base64
+import io
+import json
+import os
+import sys
+from pietto.cli import main
+
+class Capture:
+    encoding = "utf-8"
+
+    def __init__(self):
+        self.buffer = io.BytesIO()
+
+    def write(self, value):
+        self.buffer.write(value.encode(self.encoding))
+        return len(value)
+
+    def flush(self):
+        pass
+
+    def isatty(self):
+        return False
+
+def run(arguments):
+    stdout = Capture()
+    stderr = Capture()
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    try:
+        sys.stdout = stdout
+        sys.stderr = stderr
+        try:
+            returncode = main(arguments)
+        except SystemExit as error:
+            returncode = error.code
+    finally:
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+    assert type(returncode) is int
+    return [
+        returncode,
+        base64.b64encode(stdout.buffer.getvalue()).decode("ascii"),
+        base64.b64encode(stderr.buffer.getvalue()).decode("ascii"),
+    ]
+
+session_root = os.getcwd()
+for line in sys.stdin:
+    if line == "\n" or not line:
+        continue
+    request = json.loads(line)
+    if request == "stop":
+        break
+    assert type(request) is list and len(request) == 2
+    os.chdir(request[0])
+    try:
+        result = run([str(item) for item in request[1]])
+    finally:
+        os.chdir(session_root)
+    sys.stdout.write(json.dumps(result, separators=(",", ":")) + "\n")
+    sys.stdout.flush()
+"""
+
+
+class CliWorkerSession:
+    """Call `pietto.cli.main` repeatedly inside one explicit worker interpreter.
+
+    Every request remains one separate `main(arguments)` call with its own
+    fresh stdout/stderr capture, exit code, and explicit working directory.
+    This is acquisition reuse: no observation, result, or failure is cached,
+    reused, retried, or normalized across requests.
+    """
+
+    def __init__(self) -> None:
+        self._process = subprocess.Popen(
+            (sys.executable, "-c", _CLI_WORKER_CODE),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=os.environ.copy(),
+        )
+
+    def run(
+        self,
+        arguments: tuple[str, ...],
+        cwd: Path,
+    ) -> subprocess.CompletedProcess[bytes]:
+        stdin = self._process.stdin
+        stdout = self._process.stdout
+        assert stdin is not None and stdout is not None
+        request = json.dumps([str(cwd), list(arguments)], separators=(",", ":"))
+        stdin.write(request.encode("utf-8") + b"\n")
+        stdin.flush()
+        line = stdout.readline()
+        if not line:
+            raise RuntimeError(
+                "CLI worker session ended before answering: "
+                f"{self._stderr().decode('utf-8', 'replace')}"
+            )
+        item = json.loads(line)
+        assert (
+            type(item) is list
+            and len(item) == 3
+            and type(item[0]) is int
+            and type(item[1]) is str
+            and type(item[2]) is str
+        )
+        return subprocess.CompletedProcess(
+            arguments,
+            item[0],
+            base64.b64decode(item[1]),
+            base64.b64decode(item[2]),
+        )
+
+    def _stderr(self) -> bytes:
+        stderr = self._process.stderr
+        return b"" if stderr is None else stderr.read()
+
+    def close(self) -> None:
+        process = self._process
+        try:
+            if process.poll() is None and process.stdin is not None:
+                process.stdin.write(b'"stop"\n')
+                process.stdin.flush()
+                process.stdin.close()
+                process.wait(timeout=30)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            process.kill()
+            process.wait()
+        finally:
+            for stream in (process.stdin, process.stdout, process.stderr):
+                if stream is not None and not stream.closed:
+                    stream.close()
+        assert process.poll() is not None
+
+
+_ACTIVE_CLI_SESSION: CliWorkerSession | None = None
+
+
+@contextmanager
+def cli_worker_session() -> Iterator[CliWorkerSession]:
+    """Make one explicit CLI worker session the active acquisition transport."""
+
+    global _ACTIVE_CLI_SESSION
+    assert _ACTIVE_CLI_SESSION is None
+    session = CliWorkerSession()
+    _ACTIVE_CLI_SESSION = session
+    try:
+        yield session
+    finally:
+        _ACTIVE_CLI_SESSION = None
+        session.close()
+
+
+def active_cli_session() -> CliWorkerSession | None:
+    return _ACTIVE_CLI_SESSION
+
+
 def _run_cli_pair(
     first: tuple[str, ...],
     second: tuple[str, ...],
     cwd: Path,
 ) -> tuple[subprocess.CompletedProcess[bytes], subprocess.CompletedProcess[bytes]]:
     commands = (first, second)
+    session = _ACTIVE_CLI_SESSION
+    if session is not None:
+        return session.run(first, cwd), session.run(second, cwd)
     completed = subprocess.run(
         (
             sys.executable,

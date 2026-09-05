@@ -12,6 +12,8 @@ Performance Optimization Interlude II, which is `ACTIVE`; its Slice 1
 post-Phase-63 baseline profiling, cost attribution, and route lock is
 `COMPLETED / PUBLISHED` and added no production behavior. Interlude II Slice 2,
 differential probe and process acquisition optimization, is
+`COMPLETED / PUBLISHED` and closed `OPTIMIZED`. Interlude II Slice 3, the
+heavy-file xdist scheduling and isolation decision, is
 `NEXT / NOT IMPLEMENTED`. Phase 64 is `NEXT / BLOCKED / NOT IMPLEMENTED` and
 has no numbered route.
 Project Explain v1 remains unchanged.
@@ -2021,12 +2023,42 @@ answer may never be reused merely because expected values match, and no
 persistent PASS or result cache may be introduced. A later Slice may close an
 investigated technique as `NO_GAIN` with measured evidence.
 
-Successful natural exact-head CI on the single Slice 1 commit establishes
-completion without a status-only follow-up commit and leaves Interlude II
-Slice 2 `NEXT / NOT IMPLEMENTED` and Phase 64
-`NEXT / BLOCKED / NOT IMPLEMENTED`. Phase 64 is not started here; its future
-Slice 1 must run a fresh Product/Phase Initiation Gate after this Interlude
-closes.
+Successful natural exact-head CI on the single Slice 1 commit established
+completion without a status-only follow-up commit.
+
+Slice 2 optimized process acquisition only. It rebound baseline
+`69cf857310491b29822302f17d494293e33ff65b` with natural CI `33954322616`, added
+two test-only acquisition owners, and grouped the 62 logical outer requests into
+exactly 16 exact process cells keyed by executable version, `PYTHONHASHSEED`,
+and import/source root. Nothing is batched across Python 3.12 versus 3.13,
+different seeds, checkout versus relocated source, or source versus installed
+wheel, and a hash-seed cell is never simulated after interpreter startup.
+Standalone, forward-batched and reverse-batched acquisition produce identical
+bytes for all six families in checkout, relocated-source and installed-wheel
+cells.
+
+Logical requests, `observation` invocations, 156 separate `pietto.cli.main`
+calls, deliberate independent constructions and environment cells are all
+unchanged. Physical outer probe processes fall from 62 to 16, nested CLI child
+processes from 78 to 9 explicit worker sessions, `uv build` and `uv pip install`
+from 6 each to 1 each, and parent-observed direct children from 109 to 38. The
+frozen eleven-file profile's cumulative direct-child wall falls from a 171.460s
+baseline median to an 85.015s candidate median, a 50.42% reduction against the
+required 25% target, with targeted wall 46.22% lower and 194 tests passing on
+both sides. Serial, `-n 2 --dist=loadfile` and `-n 7 --dist=loadfile` agree
+exactly and acquire each cell exactly once. The acquisition store is ephemeral,
+run-local, and leaves no repository artifact or persistent cache. The
+controlling evidence is
+[Interlude II Slice 2 differential probe and process acquisition optimization](spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md).
+
+Slice 2 changes no production, validator, workflow, xdist scheduling or Pyright
+path, weakens no assertion, witness matrix or expected manifest, and claims no
+scheduling gain; Slice 3 owns that decision. Successful natural exact-head CI on
+the single Slice 2 commit establishes completion without a status-only follow-up
+commit and leaves Interlude II Slice 3 `NEXT / NOT IMPLEMENTED`, Slice 4
+`NOT IMPLEMENTED`, and Phase 64 `NEXT / BLOCKED / NOT IMPLEMENTED`. Phase 64 is
+not started here; its future Slice 1 must run a fresh Product/Phase Initiation
+Gate after this Interlude closes.
 
 ## Future Roadmap v6
 

@@ -3,18 +3,15 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
-import os
 from pathlib import Path
-import shutil
-import subprocess
 import sys
 from typing import cast
 
 import pytest
 
+import _pietto_differential_process_acquisition as acquisition
 import _pietto_phase62_join_differential_probe as probe
 from pietto._project import project_bag_null_oracle as oracle
-import test_phase58_slice16_pure_differential_compatibility_assurance as phase58_diff
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -984,78 +981,6 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
 }
 
 
-def _environment(source_root: Path, seed: str, ambient: str) -> dict[str, str]:
-    environment = os.environ.copy()
-    for name in ("PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV"):
-        environment.pop(name, None)
-    environment["PYTHONHASHSEED"] = seed
-    environment["PYTHONNOUSERSITE"] = "1"
-    environment[probe.SEED_ENVIRONMENT] = ambient
-    environment["PYTHONPATH"] = os.pathsep.join(
-        (str(source_root / "src"), phase58_diff._site_packages())
-    )
-    return environment
-
-
-def _run_probe(
-    executable: str,
-    probe_path: Path,
-    workspace: Path,
-    *,
-    source_root: Path,
-    seed: str,
-    ambient: str,
-) -> bytes:
-    run_root = workspace.parent / f"run-{workspace.name}"
-    run_root.mkdir()
-    completed = subprocess.run(
-        (executable, str(probe_path), "--workspace", str(workspace)),
-        check=True,
-        capture_output=True,
-        cwd=run_root,
-        env=_environment(source_root, seed, ambient),
-    )
-    assert completed.stderr == b""
-    assert completed.stdout.endswith(b"\n")
-    assert not completed.stdout.endswith(b"\n\n")
-    json.loads(completed.stdout)
-    return completed.stdout
-
-
-def _relocate_source(target: Path) -> Path:
-    shutil.copytree(
-        REPO_ROOT / "src",
-        target / "src",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-    )
-    tests = target / "tests"
-    tests.mkdir()
-    shutil.copyfile(PROBE, tests / PROBE.name)
-    return tests / PROBE.name
-
-
-def _import_origin(
-    executable: str,
-    source_root: Path,
-    cwd: Path,
-) -> Path:
-    completed = subprocess.run(
-        (
-            executable,
-            "-c",
-            "from pathlib import Path; import pietto; "
-            "print(Path(pietto.__file__).resolve())",
-        ),
-        check=True,
-        text=True,
-        capture_output=True,
-        cwd=cwd,
-        env=_environment(source_root, "7", "installed-origin"),
-    )
-    assert completed.stderr == ""
-    return Path(completed.stdout.strip())
-
-
 def _decoded(document: bytes) -> dict[str, object]:
     return cast(dict[str, object], json.loads(document))
 
@@ -1336,68 +1261,32 @@ def _common_manifest(document: bytes) -> dict[str, object]:
 def differential_matrix(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> dict[str, object]:
+    store = acquisition.acquisition(tmp_path_factory)
+    documents = store.documents("phase62")
     observations: dict[str, bytes] = {}
-    interpreters = phase58_diff._available_supported_interpreters()
-    for interpreter_version, executable in interpreters.items():
+    interpreters = store.interpreters
+    for interpreter_version in interpreters:
         label = f"python{interpreter_version[0]}.{interpreter_version[1]}"
         for seed in SEEDS:
             key = f"source:{label}:seed:{seed}"
-            observations[key] = _run_probe(
-                executable,
-                PROBE,
-                tmp_path_factory.mktemp(key.replace(":", "-")),
-                source_root=REPO_ROOT,
-                seed=seed,
-                ambient=key,
-            )
+            observations[key] = documents[key]
 
-    relocated_root = tmp_path_factory.mktemp("source-relocated")
-    relocated_probe = _relocate_source(relocated_root)
-    for interpreter_version, executable in interpreters.items():
+    for interpreter_version in interpreters:
         label = f"python{interpreter_version[0]}.{interpreter_version[1]}"
         key = f"relocated:{label}:seed:7"
-        observations[key] = _run_probe(
-            executable,
-            relocated_probe,
-            tmp_path_factory.mktemp(key.replace(":", "-")),
-            source_root=relocated_root,
-            seed="7",
-            ambient=key,
-        )
+        observations[key] = documents[key]
 
-    wheel_root = tmp_path_factory.mktemp("installed-wheel")
-    (
-        _installed_python,
-        _installed_origin,
-        installed_source_root,
-        empty_install_cache,
-    ) = phase58_diff._installed_python(wheel_root)
-    installed_probe = wheel_root / PROBE.name
-    shutil.copyfile(PROBE, installed_probe)
-    installed_origins: dict[tuple[int, int], Path] = {}
-    for interpreter_version, executable in interpreters.items():
+    for interpreter_version in interpreters:
         label = f"python{interpreter_version[0]}.{interpreter_version[1]}"
         key = f"installed:{label}:seed:7"
-        workspace = tmp_path_factory.mktemp(key.replace(":", "-"))
-        observations[key] = _run_probe(
-            executable,
-            installed_probe,
-            workspace,
-            source_root=installed_source_root,
-            seed="7",
-            ambient=key,
-        )
-        installed_origins[interpreter_version] = _import_origin(
-            executable,
-            installed_source_root,
-            workspace.parent,
-        )
+        observations[key] = documents[key]
+
     return {
         "observations": observations,
         "interpreters": interpreters,
-        "installed_origins": installed_origins,
-        "installed_source_root": installed_source_root,
-        "empty_install_cache": empty_install_cache,
+        "installed_origins": store.installed_origins(),
+        "installed_source_root": store.installed_source_root(),
+        "empty_install_cache": store.empty_install_cache(),
     }
 
 

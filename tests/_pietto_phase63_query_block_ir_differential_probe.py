@@ -6,6 +6,7 @@ from dataclasses import replace
 from importlib.metadata import version
 import json
 from pathlib import Path
+import sys
 from typing import cast
 
 from pietto._project.project_completed_semantics import (
@@ -1064,18 +1065,27 @@ def observation(workspace: Path) -> dict[str, object]:
     }
 
 
+def render(value: object, workspace: Path) -> bytes:
+    """Encode one observation exactly as the standalone probe emits it."""
+
+    assert isinstance(workspace, Path)
+    return (
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        + b"\n"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", type=Path, required=True)
     arguments = parser.parse_args()
-    result = observation(arguments.workspace)
-    print(
-        json.dumps(
-            result,
-            ensure_ascii=False,
-            allow_nan=False,
-            separators=(",", ":"),
-        )
+    sys.stdout.buffer.write(
+        render(observation(arguments.workspace), arguments.workspace)
     )
 
 

@@ -274,11 +274,12 @@ EXPECTED_STATUS = (
         "`ACTIVE`",
     ),
     ("Interlude II Slice 1", "`COMPLETED / PUBLISHED`"),
+    ("Interlude II Slice 2", "`COMPLETED / PUBLISHED`"),
     ("Phase 64", "`NEXT / BLOCKED / NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Validation/Test Performance Optimization Interlude II Slice 2 — "
-        "Differential Probe And Process Acquisition Optimization`",
+        "`Validation/Test Performance Optimization Interlude II Slice 3 — "
+        "Heavy-File Xdist Scheduling And Isolation Decision`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1370,6 +1371,30 @@ EXPECTED_CURRENT_OWNER_SENTENCE = (
     "profiling, cost attribution, and route lock is `COMPLETED / PUBLISHED` "
     "and added no production behavior."
 )
+EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
+    "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
+    "tests/_pietto_differential_process_acquisition.py",
+    "tests/_pietto_differential_probe_batch.py",
+    "tests/test_validation_performance_interlude_ii_slice2_differential_probe_process_acquisition_optimization.py",
+    "docs/roadmap.md",
+    "docs/status.md",
+    "tests/_pietto_phase59_graph_differential_probe.py",
+    "tests/_pietto_phase60_window_differential_probe.py",
+    "tests/_pietto_phase61_project_ir_differential_probe.py",
+    "tests/_pietto_phase62_join_differential_probe.py",
+    "tests/_pietto_phase63_query_block_ir_differential_probe.py",
+    "tests/_pietto_project_explain_differential_probe.py",
+    "tests/_pietto_project_explain_scenarios.py",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_phase58_slice16_pure_differential_compatibility_assurance.py",
+    "tests/test_phase59_slice11_differential_compatibility_assurance.py",
+    "tests/test_phase60_slice12_differential_compatibility.py",
+    "tests/test_phase61_slice11_differential_compatibility.py",
+    "tests/test_phase62_slice15_real_authored_e2e_python_differential_metamorphic_join_assurance.py",
+    "tests/test_phase63_slice15_inspection_pure_boundary_real_e2e_differential_metamorphic_assurance.py",
+    "tests/test_validation_performance_interlude_slice2_differential_probe_runtime_decomposition_optimization.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 EXPECTED_INTERLUDE_II_ROUTE = (
     ("1", "Post-Phase-63 Baseline Profiling, Cost Attribution, And Route Lock"),
     ("2", "Differential Probe And Process Acquisition Optimization"),
@@ -1748,7 +1773,26 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "deleted as unsupported by measurement",
         "remain closed by the first Interlude and are not reopened",
         "may not introduce a persistent PASS or result cache",
-        "Interlude II Slice 2 is `NEXT / NOT IMPLEMENTED`",
+        "Interlude II Slice 2 is `COMPLETED / PUBLISHED`",
+        "differential probe and process acquisition optimization",
+        "is `OPTIMIZED`",
+        "two test-only acquisition owners plus one principal",
+        "62 logical outer requests group into exactly 16 exact process cells",
+        "never simulated by mutating the environment after interpreter startup",
+        "Standalone, forward-batched, and reverse-batched acquisition produce "
+        "identical bytes",
+        "outer probe processes fall from 62 to 16",
+        "nested CLI child processes from 78 to 9 explicit worker sessions",
+        "direct children from 109 to 38",
+        "171.460s baseline median to an 85.015s candidate median",
+        "50.42% reduction against the required 25% target",
+        "targeted wall falling 46.22%",
+        "acquiring each of the 16 cells exactly once",
+        "acquisition store is ephemeral",
+        "no persistent PASS or result cache",
+        "Interlude II Slice 3, the heavy-file xdist scheduling and isolation "
+        "decision, is `NEXT / NOT IMPLEMENTED`",
+        "Slice 4 remains `NOT IMPLEMENTED`",
         "after this Interlude closes",
     ):
         assert evidence in normalized
@@ -1758,6 +1802,12 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     )
     assert f"]({interlude_ii_target})" in status
     assert (STATUS.parent / interlude_ii_target).is_file()
+    interlude_ii_slice2_target = (
+        "spec/validation-performance-interlude-ii-slice2-differential-probe-"
+        "process-acquisition-optimization-v1.md"
+    )
+    assert f"]({interlude_ii_slice2_target})" in status
+    assert (STATUS.parent / interlude_ii_slice2_target).is_file()
     prerequisite_target = (
         "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
     )
@@ -2515,7 +2565,19 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "retains no profiler in the tree",
         "no persistent PASS or result cache may be introduced",
         "may close an investigated technique as `NO_GAIN` with measured evidence",
-        "Interlude II Slice 2 `NEXT / NOT IMPLEMENTED`",
+        "Slice 2 optimized process acquisition only",
+        "exactly 16 exact process cells",
+        "never simulated after interpreter startup",
+        "156 separate `pietto.cli.main` calls",
+        "outer probe processes fall from 62 to 16",
+        "nested CLI child processes from 78 to 9 explicit worker sessions",
+        "direct children from 109 to 38",
+        "171.460s baseline median to an 85.015s candidate median",
+        "50.42% reduction against the required 25% target",
+        "acquire each cell exactly once",
+        "claims no scheduling gain; Slice 3 owns that decision",
+        "leaves Interlude II Slice 3 `NEXT / NOT IMPLEMENTED`, Slice 4 "
+        "`NOT IMPLEMENTED`",
         "Phase 64 `NEXT / BLOCKED / NOT IMPLEMENTED`",
         "fresh Product/Phase Initiation Gate after this Interlude closes",
     ):
@@ -2526,6 +2588,21 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     )
     assert f"]({interlude_ii_target})" in roadmap
     assert (ROADMAP.parent / interlude_ii_target).is_file()
+    slice2_target = (
+        "spec/validation-performance-interlude-ii-slice2-differential-probe-"
+        "process-acquisition-optimization-v1.md"
+    )
+    assert f"]({slice2_target})" in roadmap
+    assert (ROADMAP.parent / slice2_target).is_file()
+    assert len(EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS) == 22
+    assert all(
+        (REPO_ROOT / path).is_file()
+        for path in EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS
+    )
+    assert not any(
+        path.startswith((".github/", "src/", "scripts/", "grammar/"))
+        for path in EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS
+    )
     assert len(EXPECTED_INTERLUDE_II_SLICE1_CHANGED_PATHS) == 6
     assert all(
         (REPO_ROOT / path).is_file()
