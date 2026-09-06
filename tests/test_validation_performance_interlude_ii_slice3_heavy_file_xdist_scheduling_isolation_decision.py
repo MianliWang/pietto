@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections import Counter
 import importlib.util
 import inspect
 from pathlib import Path
+import sys
 from types import ModuleType
 from typing import Any, cast
 
@@ -230,6 +232,23 @@ def test_acquisition_invariants_hold_under_the_candidate_scheduler() -> None:
     assert sum(len(requests) for requests in plan.values()) == 62
     assert acquisition.FAMILY_ORDER == tuple(batch.FAMILY_MODULES)
 
+    # The recorded per-mode origin counts must partition the plan exactly. The
+    # published row originally read 9 checkout cells, which is the independent
+    # 9/7 Python-version partition rather than the 8/5/3 mode partition.
+    modes = Counter(cell.mode for cell in plan)
+    assert modes == Counter({"checkout": 8, "relocated": 5, "installed": 3})
+    assert sum(modes.values()) == len(plan) == 16
+    # The mode partition is interpreter-invariant. The version partition is not:
+    # Phase-58 through Phase-61 anchor their project-relocated, source-relocated
+    # and installed-wheel requests to the running interpreter, so it holds 9
+    # cells and the other supported interpreter holds 7.
+    current = cast(tuple[int, int], sys.version_info[:2])
+    other = next(v for v in acquisition.SUPPORTED_INTERPRETERS if v != current)
+    assert Counter(cell.version for cell in plan) == Counter({current: 9, other: 7})
+    for mode, count in modes.items():
+        assert f"{count} cells correct" in invariants or mode == "installed"
+    assert "3 cells correct, wheel-source only" in invariants
+
 
 def test_no_custom_scheduler_or_policy_change_exists() -> None:
     assert validate.GATES == EXPECTED_GATES
@@ -384,9 +403,11 @@ def test_isolation_audit_and_measurement_hygiene_are_documented() -> None:
     )
     assert own_imports == (
         "from __future__ import annotations",
+        "from collections import Counter",
         "import importlib.util",
         "import inspect",
         "from pathlib import Path",
+        "import sys",
         "from types import ModuleType",
         "from typing import Any, cast",
         "import _pietto_differential_process_acquisition as acquisition",

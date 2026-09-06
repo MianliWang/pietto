@@ -7,17 +7,21 @@ invariants, compatibility boundary, and the smallest behavior that is actually
 needed.
 
 Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
-successful natural exact-head CI. The current owner is the Validation/Test
-Performance Optimization Interlude II, which is `ACTIVE`; its Slice 1
-post-Phase-63 baseline profiling, cost attribution, and route lock is
-`COMPLETED / PUBLISHED` and added no production behavior. Interlude II Slice 2,
+successful natural exact-head CI. The current owner is Phase 64, which is
+`NEXT / NOT IMPLEMENTED` and awaits its own fresh Product/Phase Initiation Gate
+v3; the Validation/Test Performance Optimization Interlude II that preceded it
+is `COMPLETED`. Interlude II Slice 1, post-Phase-63 baseline profiling, cost
+attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
+behavior. Interlude II Slice 2,
 differential probe and process acquisition optimization, is
 `COMPLETED / PUBLISHED` and closed `OPTIMIZED`. Interlude II Slice 3, the
 heavy-file xdist scheduling and isolation decision, is
 `COMPLETED / PUBLISHED` and closed `NO_GAIN`. Interlude II Slice 4, the
 completion benchmark and Phase-64 readiness assurance, is
-`NEXT / NOT IMPLEMENTED`. Phase 64 is `NEXT / BLOCKED / NOT IMPLEMENTED` and
-has no numbered route.
+`COMPLETED / PUBLISHED`, so the Validation/Test Performance Optimization
+Interlude II is `COMPLETED` with `Interlude II self-owned-open = 0`. Phase 64 is
+`NEXT / NOT IMPLEMENTED`, is no longer blocked, is not ACTIVE, and has no
+numbered route; the next task is its fresh Product/Phase Initiation Gate v3.
 Project Explain v1 remains unchanged.
 Pietto remains compiler-only: no package or catalog registry, dependency
 solver, remote loading, database execution, runtime evaluation, installation
@@ -1964,7 +1968,7 @@ completed Slice 1 without a status-only follow-up commit and left Slice 2
 
 ## Validation/Test Performance Optimization Interlude II
 
-This mandatory owner is `ACTIVE` after Phase 63 completion:
+This mandatory owner is `COMPLETED` after Phase 63 completion:
 
 ```text
 Phase 63 completion
@@ -2085,12 +2089,37 @@ re-checks both critical sections, closing a timing-dependent window in which a
 waiting worker could produce a relocated tree or wheel target twice. The controlling evidence is
 [Interlude II Slice 3 heavy-file xdist scheduling and isolation decision](spec/validation-performance-interlude-ii-slice3-heavy-file-xdist-scheduling-isolation-decision-v1.md).
 
-Successful natural exact-head CI on the single Slice 3 commit establishes
-completion without a status-only follow-up commit and leaves Interlude II
-Slice 4 `NEXT / NOT IMPLEMENTED` and Phase 64
-`NEXT / BLOCKED / NOT IMPLEMENTED`. Phase 64 is not started here; its future
-Slice 1 must run a fresh Product/Phase Initiation Gate after this Interlude
-closes.
+Successful natural exact-head CI on the single Slice 3 commit established
+completion without a status-only follow-up commit.
+
+Slice 4 completed the Interlude by measuring, auditing and closing rather than
+optimizing. The final same-method serial benchmark is a `MATERIAL_IMPROVEMENT`:
+the serial session falls from the Slice-1 baseline of 293.94s to a 223.57s
+median, 23.94% lower, over a suite that grew from 11,487 to 11,516 tests.
+Collection is `NO_MATERIAL_CHANGE` and both Pyright stages remain within noise.
+Resource-aware and validator comparisons are labelled
+`POLICY-LEVEL / WORKER-COUNT-DIFFERENT` because the live policy now resolves
+five to six workers against the baseline's seven, and serial maximum RSS rises
+22.03% as a `MATERIAL_REGRESSION_EXPLAINED` consequence of batch acquisition.
+
+Slice 4 also corrected one published Slice-3 evidence row: the acquisition
+invariant table recorded an impossible 9 + 5 + 3 partition of 16 cells, where
+the live plan partitions by mode as 8 + 5 + 3 and independently by version as
+9 + 7. Only that row changed, and the Slice-3 principal now derives both
+partitions from the live plan.
+
+The completion scorecard closes every owner as adopted, no-gain, repaired,
+deleted-as-unsupported or retained-closed, with
+`Interlude II self-owned-open = 0`. Both preserved failed heads and their
+ordinary repair children are retained exactly. The controlling evidence is
+[Interlude II Slice 4 completion benchmark and Phase-64 readiness assurance](spec/validation-performance-interlude-ii-slice4-completion-benchmark-phase64-readiness-assurance-v1.md).
+
+Successful natural exact-head CI on the single Slice 4 commit completes the
+Interlude without a status-only follow-up commit and hands off to Phase 64.
+Phase 64 is `NEXT / NOT IMPLEMENTED`, no longer blocked, not ACTIVE, and has no
+numbered route; all 15 transferred subjects remain unimplemented, all 22
+inherited assets remain available, and all 12 mandatory initiation questions
+remain unanswered by a future Phase-64 Slice 1.
 
 ## Future Roadmap v6
 

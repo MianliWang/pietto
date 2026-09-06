@@ -32,12 +32,13 @@ documentation does not supersede that evidence.
 | Slice 14 | `COMPLETED / PUBLISHED` |
 | Slice 15 | `COMPLETED / PUBLISHED` |
 | Slice 16 | `COMPLETED / PUBLISHED` |
-| Validation/Test Performance Optimization Interlude II | `ACTIVE` |
+| Validation/Test Performance Optimization Interlude II | `COMPLETED` |
 | Interlude II Slice 1 | `COMPLETED / PUBLISHED` |
 | Interlude II Slice 2 | `COMPLETED / PUBLISHED` |
 | Interlude II Slice 3 | `COMPLETED / PUBLISHED` |
-| Phase 64 | `NEXT / BLOCKED / NOT IMPLEMENTED` |
-| Next | `Validation/Test Performance Optimization Interlude II Slice 4 — Completion Benchmark And Phase-64 Readiness Assurance` |
+| Interlude II Slice 4 | `COMPLETED / PUBLISHED` |
+| Phase 64 | `NEXT / NOT IMPLEMENTED` |
+| Next | `Phase 64 — Fresh Product/Phase Initiation Gate v3` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -522,9 +523,46 @@ re-check their markers, so a waiting worker can no longer produce a shared
 resource twice. That defect was exposed by the preserved failed head
 `4cfed753...` on the Python 3.12 runner and is independent of scheduler
 performance; the repair preserves every request matrix, renderer, expected
-manifest and semantic assertion. Interlude II Slice 4, the completion benchmark
-and Phase-64 readiness assurance, is `NEXT / NOT IMPLEMENTED`. Phase 64 is
-`NEXT / BLOCKED / NOT IMPLEMENTED`, not ACTIVE. No Phase-64 production or
-numbered route exists; its future Slice 1 must perform a fresh live
-Product/Phase Initiation Gate and freeze its own route before implementation,
-after this Interlude closes.
+manifest and semantic assertion. Interlude II Slice 4 is `COMPLETED / PUBLISHED` and completes the Interlude. Its
+[completion benchmark and Phase-64 readiness
+assurance](spec/validation-performance-interlude-ii-slice4-completion-benchmark-phase64-readiness-assurance-v1.md)
+measures, audits and closes; it implements no optimization and adds no
+production or performance mechanism.
+
+The final same-method serial benchmark is a `MATERIAL_IMPROVEMENT`: the serial
+session falls from the Slice-1 baseline of 293.94s to a 223.57s median, 23.94%
+lower, while the suite grew from 11,487 to 11,516 tests. Collection is
+`NO_MATERIAL_CHANGE`, and both Pyright stages remain within noise of their
+baselines. The resource-aware and validator comparisons are labelled
+`POLICY-LEVEL / WORKER-COUNT-DIFFERENT` because the live resource policy now
+resolves five to six workers where the Slice-1 baseline resolved seven; a
+fixed-seven confirmation was not run because current resource authority is
+lower. Serial maximum RSS rises 22.03%, a `MATERIAL_REGRESSION_EXPLAINED` by
+Slice-2's batch acquisition topology, which cut direct child processes from 109
+to 38.
+
+Slice 4 also corrects one published Slice-3 evidence row. The acquisition
+invariant table recorded 9 checkout, 5 relocated and 3 installed cells, an
+impossible partition of 16; the live plan partitions by mode as 8 + 5 + 3 = 16
+and independently by version as 9 + 7 = 16, and the Python-3.13 count had been
+written into the checkout row. Only that row changed, and the Slice-3 principal
+now derives both partitions from the live plan. No Slice-3 timing, candidate
+result, `NO_GAIN` disposition, process-cell identity, request count, origin
+check or isolation repair changed.
+
+`Interlude II self-owned-open = 0`. Slice 1 profiling and route lock, Slice 2
+differential acquisition, Slice 3 xdist scheduling, the Slice-3 isolation race,
+the Slice-3 evidence typo, the Slice-4 benchmark and Slice-4 Phase-64 readiness
+are all closed. Every Interlude publication head, including the two preserved
+failed heads `d847132a...` and `4cfed753...` with their ordinary repair
+children, is retained exactly.
+
+Phase 64 is `NEXT / NOT IMPLEMENTED` and is no longer blocked, but it is not
+ACTIVE. No Phase-64 production or numbered route exists. All 15 transferred
+subjects remain
+unimplemented: the authored grammar admits only `(INNER | LEFT) JOIN` and
+contains no `UNION`, `INTERSECT`, `EXCEPT`, `DISTINCT`, `CROSS`, `RIGHT`,
+`FULL`, `SEMI` or `ANTI`; both fail-closed effective-JOIN terminals are
+retained. All 22 inherited assets remain available, and all 12 mandatory
+Phase-64 initiation questions remain unanswered. The next task is a fresh
+Phase-64 Product/Phase Initiation Gate v3.

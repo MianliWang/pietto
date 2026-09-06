@@ -247,7 +247,7 @@ out-of-repository parent child-process counter:
 | Unexpected `.failed` | 0 | 0 |
 | Partial cell result | none | none |
 | Orphan batch child or CLI worker | none | none |
-| Checkout-mode import origin | inside the checkout | 9 cells correct |
+| Checkout-mode import origin | inside the checkout | 8 cells correct |
 | Relocated import origin | inside the relocated source, outside the checkout | 5 cells correct |
 | Installed import origin | inside the isolated target, outside the checkout | 3 cells correct, wheel-source only |
 | Per-cell version and seed | equal to the cell key | all 16 correct |

@@ -271,16 +271,16 @@ EXPECTED_STATUS = (
     ("Slice 16", "`COMPLETED / PUBLISHED`"),
     (
         "Validation/Test Performance Optimization Interlude II",
-        "`ACTIVE`",
+        "`COMPLETED`",
     ),
     ("Interlude II Slice 1", "`COMPLETED / PUBLISHED`"),
     ("Interlude II Slice 2", "`COMPLETED / PUBLISHED`"),
     ("Interlude II Slice 3", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64", "`NEXT / BLOCKED / NOT IMPLEMENTED`"),
+    ("Interlude II Slice 4", "`COMPLETED / PUBLISHED`"),
+    ("Phase 64", "`NEXT / NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Validation/Test Performance Optimization Interlude II Slice 4 — "
-        "Completion Benchmark And Phase-64 Readiness Assurance`",
+        "`Phase 64 — Fresh Product/Phase Initiation Gate v3`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1367,10 +1367,9 @@ EXPECTED_PHASE63_SLICE16_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
 EXPECTED_CURRENT_OWNER_SENTENCE = (
-    "The current owner is the Validation/Test Performance Optimization "
-    "Interlude II, which is `ACTIVE`; its Slice 1 post-Phase-63 baseline "
-    "profiling, cost attribution, and route lock is `COMPLETED / PUBLISHED` "
-    "and added no production behavior."
+    "The current owner is Phase 64, which is `NEXT / NOT IMPLEMENTED` and "
+    "awaits its own fresh Product/Phase Initiation Gate v3; the Validation/Test "
+    "Performance Optimization Interlude II that preceded it is `COMPLETED`."
 )
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
@@ -1394,6 +1393,16 @@ EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "tests/test_phase62_slice15_real_authored_e2e_python_differential_metamorphic_join_assurance.py",
     "tests/test_phase63_slice15_inspection_pure_boundary_real_e2e_differential_metamorphic_assurance.py",
     "tests/test_validation_performance_interlude_slice2_differential_probe_runtime_decomposition_optimization.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
+EXPECTED_INTERLUDE_II_SLICE4_CHANGED_PATHS = (
+    "docs/spec/validation-performance-interlude-ii-slice4-completion-benchmark-phase64-readiness-assurance-v1.md",
+    "tests/test_validation_performance_interlude_ii_slice4_completion_benchmark_phase64_readiness_assurance.py",
+    "docs/roadmap.md",
+    "docs/spec/validation-performance-interlude-ii-slice3-heavy-file-xdist-scheduling-isolation-decision-v1.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_validation_performance_interlude_ii_slice3_heavy_file_xdist_scheduling_isolation_decision.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
 EXPECTED_INTERLUDE_II_SLICE3_CHANGED_PATHS = (
@@ -1754,7 +1763,9 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "successful M2 evidence reconciliation" in normalized
     assert "Phase63 material exits = 15/15" in normalized
     assert "Phase63 self-owned-open = 0" in normalized
-    assert "Phase 64 is `NEXT / BLOCKED / NOT IMPLEMENTED`, not ACTIVE" in normalized
+    assert "Phase 64 is `NEXT / NOT IMPLEMENTED` and is no longer blocked" in (
+        normalized
+    )
     assert "No Phase-64 production or numbered route exists" in normalized
     assert (
         "Validation/Test Performance Optimization Interlude II is `ACTIVE` after "
@@ -1816,9 +1827,26 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "no cross-run reuse or persistent cache exists",
         "retains no experimental scheduling code",
         "one authorized isolation repair to the shared-resource lock ordering",
-        "Interlude II Slice 4, the completion benchmark and Phase-64 readiness "
-        "assurance, is `NEXT / NOT IMPLEMENTED`",
-        "after this Interlude closes",
+        "Interlude II Slice 4 is `COMPLETED / PUBLISHED` and completes the Interlude",
+        "completion benchmark and Phase-64 readiness assurance",
+        "implements no optimization",
+        "serial session falls from the Slice-1 baseline of 293.94s to a 223.57s "
+        "median, 23.94% lower",
+        "`POLICY-LEVEL / WORKER-COUNT-DIFFERENT`",
+        "fixed-seven confirmation was not run",
+        "`MATERIAL_REGRESSION_EXPLAINED`",
+        "direct child processes from 109 to 38",
+        "impossible partition of 16",
+        "8 + 5 + 3 = 16",
+        "9 + 7 = 16",
+        "`Interlude II self-owned-open = 0`",
+        "two preserved failed heads `d847132a...` and `4cfed753...`",
+        "All 15 transferred subjects remain unimplemented",
+        "only `(INNER | LEFT) JOIN`",
+        "22 inherited assets remain available",
+        "12 mandatory Phase-64 initiation questions remain unanswered",
+        "fresh Phase-64 Product/Phase Initiation Gate v3",
+        "The next task is a fresh Phase-64 Product/Phase Initiation Gate v3",
     ):
         assert evidence in normalized
     interlude_ii_target = (
@@ -1839,6 +1867,12 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     )
     assert f"]({interlude_ii_slice3_target})" in status
     assert (STATUS.parent / interlude_ii_slice3_target).is_file()
+    interlude_ii_slice4_target = (
+        "spec/validation-performance-interlude-ii-slice4-completion-benchmark-"
+        "phase64-readiness-assurance-v1.md"
+    )
+    assert f"]({interlude_ii_slice4_target})" in status
+    assert (STATUS.parent / interlude_ii_slice4_target).is_file()
     prerequisite_target = (
         "spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
     )
@@ -2571,7 +2605,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "Interlude II -> Phase 64 activation" in interlude_ii_normalized
     )
     for evidence in (
-        "This mandatory owner is `ACTIVE` after Phase 63 completion",
+        "This mandatory owner is `COMPLETED` after Phase 63 completion",
         "0cebaf14031779f4a824f1c44e5f7d65a0f5e782",
         "33916022012",
         "2.85s for 11487 tests",
@@ -2616,10 +2650,18 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "single indivisible test whose module-fixture setup costs 40.92s",
         "16 acquisition cells from exactly 16 batch executions",
         "retains `scripts/validate.py` and `.github/workflows/ci.yml` byte-identical",
-        "leaves Interlude II Slice 4 `NEXT / NOT IMPLEMENTED` and Phase 64 "
-        "`NEXT / BLOCKED / NOT IMPLEMENTED`",
-        "Phase 64 `NEXT / BLOCKED / NOT IMPLEMENTED`",
-        "fresh Product/Phase Initiation Gate after this Interlude closes",
+        "Slice 4 completed the Interlude by measuring, auditing and closing "
+        "rather than optimizing",
+        "223.57s median, 23.94% lower",
+        "`POLICY-LEVEL / WORKER-COUNT-DIFFERENT`",
+        "impossible 9 + 5 + 3 partition of 16 cells",
+        "`Interlude II self-owned-open = 0`",
+        "completes the Interlude without a status-only follow-up commit",
+        "Phase 64 is `NEXT / NOT IMPLEMENTED`, no longer blocked, not ACTIVE, "
+        "and has no numbered route",
+        "Phase 64 is `NEXT / NOT IMPLEMENTED`, no longer blocked, not ACTIVE, "
+        "and has no numbered route",
+        "a future Phase-64 Slice 1",
     ):
         assert evidence in interlude_ii_normalized
     interlude_ii_target = (
@@ -2640,6 +2682,21 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     )
     assert f"]({slice3_target})" in roadmap
     assert (ROADMAP.parent / slice3_target).is_file()
+    slice4_target = (
+        "spec/validation-performance-interlude-ii-slice4-completion-benchmark-"
+        "phase64-readiness-assurance-v1.md"
+    )
+    assert f"]({slice4_target})" in roadmap
+    assert (ROADMAP.parent / slice4_target).is_file()
+    assert len(EXPECTED_INTERLUDE_II_SLICE4_CHANGED_PATHS) == 8
+    assert all(
+        (REPO_ROOT / path).is_file()
+        for path in EXPECTED_INTERLUDE_II_SLICE4_CHANGED_PATHS
+    )
+    assert not any(
+        path.startswith((".github/", "src/", "scripts/", "grammar/"))
+        for path in EXPECTED_INTERLUDE_II_SLICE4_CHANGED_PATHS
+    )
     assert len(EXPECTED_INTERLUDE_II_SLICE3_CHANGED_PATHS) == 7
     assert all(
         (REPO_ROOT / path).is_file()
