@@ -196,6 +196,10 @@ PHASE63_SLICE15_SPEC = (
 PHASE63_COMPLETION_SPEC = (
     REPO_ROOT / "docs/spec/phase63-completion-audit-phase64-handoff-v1.md"
 )
+PHASE64_SLICE1_SPEC = (
+    REPO_ROOT
+    / "docs/spec/phase64-flat-relational-algebra-product-phase-initiation-gate-v3-source-audit-architecture-route-lock-v1.md"
+)
 PUBLISHED_INTERLUDE = (
     (
         "cc9884d1f24c9f1a8199fbdf0e20d48533e056d4",
@@ -277,10 +281,12 @@ EXPECTED_STATUS = (
     ("Interlude II Slice 2", "`COMPLETED / PUBLISHED`"),
     ("Interlude II Slice 3", "`COMPLETED / PUBLISHED`"),
     ("Interlude II Slice 4", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64", "`NEXT / NOT IMPLEMENTED`"),
+    ("Phase 64", "`ACTIVE`"),
+    ("Phase 64 Slice 1", "`COMPLETED / PUBLISHED`"),
+    ("Phase 64 Slice 2", "`NEXT / NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 64 — Fresh Product/Phase Initiation Gate v3`",
+        "`Phase 64 Slice 2 — Generic ON and new JOIN kind grammar and AST`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -319,8 +325,8 @@ EXPECTED_PHASE62_OWNER = (
 )
 EXPECTED_PHASE63_STATE = (
     "Phase 63 **Joined Query Block Semantic Completion And QUALIFY** and all 16\n"
-    "numbered Slices are `COMPLETED / PUBLISHED`. Phase 64 is\n"
-    "`NEXT / NOT IMPLEMENTED`. The completed route has exactly 16 numbered Slices."
+    "numbered Slices are `COMPLETED / PUBLISHED`. Phase 64 is now `ACTIVE`. The\n"
+    "completed route has exactly 16 numbered Slices."
 )
 EXPECTED_PHASE58_ROUTE = (
     (
@@ -1366,10 +1372,52 @@ EXPECTED_PHASE63_SLICE16_CHANGED_PATHS = (
     "tests/test_active_phase_lifecycle.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
+EXPECTED_PHASE64_ROUTE = (
+    ("1", "Product Gate v3, source audit, architecture and route lock"),
+    (
+        "2",
+        "Generic `ON` and new JOIN kind grammar, AST, contextual keywords and spans",
+    ),
+    (
+        "3",
+        "Generic ON condition semantics and base/refinement/WHERE authority separation",
+    ),
+    (
+        "4",
+        "Row-source sum extension, effective-output JOIN boundary and first generic vertical closure",
+    ),
+    (
+        "5",
+        "`CROSS`/`RIGHT`/`FULL` output shapes, null-extension and property transfer",
+    ),
+    ("6", "`SEMI`/`ANTI` left-occurrence retention and existence semantics"),
+    (
+        "7",
+        "Single-match direction, unit, scoped proof, obligation and warning diagnostics",
+    ),
+    ("8", "Row-equivalence domain, `DISTINCT` and quotient grain origin"),
+    (
+        "9",
+        "`UNION`/`INTERSECT`/`EXCEPT`, explicit `ALL`/`DISTINCT` and output identity",
+    ),
+    (
+        "10",
+        "Project IR composition, verification, invalidation, inspection and pure boundary",
+    ),
+    ("11", "Completion audit and Phase-65 handoff"),
+)
+EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
+    "docs/spec/phase64-flat-relational-algebra-product-phase-initiation-gate-v3-source-audit-architecture-route-lock-v1.md",
+    "tests/test_phase64_slice1_flat_relational_algebra_product_phase_initiation_gate_v3_source_audit_architecture_route_lock.py",
+    "docs/roadmap.md",
+    "docs/status.md",
+    "tests/test_active_phase_lifecycle.py",
+    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+)
 EXPECTED_CURRENT_OWNER_SENTENCE = (
-    "The current owner is Phase 64, which is `NEXT / NOT IMPLEMENTED` and "
-    "awaits its own fresh Product/Phase Initiation Gate v3; the Validation/Test "
-    "Performance Optimization Interlude II that preceded it is `COMPLETED`."
+    "The current owner is Phase 64, which is `ACTIVE` after its own fresh "
+    "Product/Phase Initiation Gate v3; the Validation/Test Performance "
+    "Optimization Interlude II that preceded it is `COMPLETED`."
 )
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
@@ -1763,12 +1811,10 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "successful M2 evidence reconciliation" in normalized
     assert "Phase63 material exits = 15/15" in normalized
     assert "Phase63 self-owned-open = 0" in normalized
-    assert "Phase 64 is `NEXT / NOT IMPLEMENTED` and is no longer blocked" in (
-        normalized
-    )
-    assert "No Phase-64 production or numbered route exists" in normalized
+    assert "Phase 64 **Flat Relational Algebra** is `ACTIVE`" in normalized
+    assert "Slice 1 changes no production behavior" in normalized
     assert (
-        "Validation/Test Performance Optimization Interlude II is `ACTIVE` after "
+        "Validation/Test Performance Optimization Interlude II was `ACTIVE` after "
         "Phase-63 completion and before Phase 64" in normalized
     )
     for evidence in (
@@ -1841,12 +1887,12 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "9 + 7 = 16",
         "`Interlude II self-owned-open = 0`",
         "two preserved failed heads `d847132a...` and `4cfed753...`",
-        "All 15 transferred subjects remain unimplemented",
+        "a route of exactly 11 numbered Slices",
         "only `(INNER | LEFT) JOIN`",
-        "22 inherited assets remain available",
-        "12 mandatory Phase-64 initiation questions remain unanswered",
-        "fresh Phase-64 Product/Phase Initiation Gate v3",
-        "The next task is a fresh Phase-64 Product/Phase Initiation Gate v3",
+        "All 22 inherited assets remain available",
+        "all 12 mandatory Phase-64 initiation questions are answered",
+        "all 15 transferred subjects are assigned to the numbered route",
+        "Slice 2 is `NEXT / NOT IMPLEMENTED`, and Slices 3–11 are `NOT IMPLEMENTED`",
     ):
         assert evidence in normalized
     interlude_ii_target = (
@@ -2493,8 +2539,8 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "Phase63 self-owned-open = 0",
         "Aggregate algebra remains Phase 73",
         "READY inherited assets do not implement Phase-64 features",
-        "Phase 64 is `NEXT / NOT IMPLEMENTED`, not ACTIVE",
-        "It has no numbered route",
+        "Slice 16 left Phase 64 `NEXT / NOT IMPLEMENTED` with no numbered route",
+        "the Phase-64 route is now frozen below",
     ):
         assert evidence in phase63_normalized
 
@@ -2538,7 +2584,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     assert "do not authorize a Phase-64+ Slice route or implementation" in (
         future_normalized
     )
-    assert "## Phase 64 route" not in roadmap
+    assert "## Phase 64 route" in roadmap
     assert "complete old-owner -> new-owner ledger" in future_normalized
 
     tentative = _section(roadmap, "Tentative later ownership")
@@ -2657,11 +2703,9 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "impossible 9 + 5 + 3 partition of 16 cells",
         "`Interlude II self-owned-open = 0`",
         "completes the Interlude without a status-only follow-up commit",
-        "Phase 64 is `NEXT / NOT IMPLEMENTED`, no longer blocked, not ACTIVE, "
-        "and has no numbered route",
-        "Phase 64 is `NEXT / NOT IMPLEMENTED`, no longer blocked, not ACTIVE, "
-        "and has no numbered route",
-        "a future Phase-64 Slice 1",
+        "Phase 64 is `ACTIVE`; its Slice 1 answered all 12 mandatory initiation "
+        "questions",
+        "assigned all 15 transferred subjects to the numbered route below",
     ):
         assert evidence in interlude_ii_normalized
     interlude_ii_target = (
@@ -4731,4 +4775,91 @@ def test_phase63_slice16_changed_paths_are_exact() -> None:
     )
     assert tuple(path for path in paths if path.startswith("tests/test_phase63")) == (
         "tests/test_phase63_slice16_completion_audit_phase64_handoff.py",
+    )
+
+
+def test_phase64_route_section_is_exact() -> None:
+    roadmap = ROADMAP.read_text(encoding="utf-8")
+    section = _section(roadmap, "Phase 64 route")
+    assert _table_rows(section)[1:] == EXPECTED_PHASE64_ROUTE
+    normalized = " ".join(section.split())
+    for evidence in (
+        "Phase 64 **Flat Relational Algebra** is `ACTIVE`",
+        "Slice 1 is `COMPLETED / PUBLISHED`, Slice 2 is `NEXT / NOT IMPLEMENTED`",
+        "the frozen route has exactly 11 numbered Slices",
+        "13 reconciled live source findings",
+        "three exclusive ledgers",
+        "atomic pull-forward classification for every owner 65–97",
+        "11 new external reference records",
+        "10 rewriting-premise law records with 10 independently reproduced "
+        "counterexamples",
+        "the confirmed decision set D01–D08",
+        "The new kinds are direct-binary only; multi-hop `VIA` paths remain "
+        "`INNER`/`LEFT`",
+        "An existing named relation is the sole explicit composition boundary",
+        "no inline path-group or outer-capture syntax is added",
+        "`ALL` or `DISTINCT` must be written explicitly",
+        "`Decimal` participates only at identical precision and scale",
+        "`Any`, `Bytes` and `Json` remain fail-closed",
+        "a new grain origin rather than reusing `GROUPED_RESULT`",
+        "emits a `WARNING` in every check mode and never escalates to an error",
+        "Slice 1 changes no production, grammar, generated, public, SQL, CLI, "
+        "JSON, package, dependency, workflow or version behavior",
+    ):
+        assert evidence in normalized
+
+    target = (
+        "spec/phase64-flat-relational-algebra-product-phase-initiation-gate-v3-"
+        "source-audit-architecture-route-lock-v1.md"
+    )
+    assert f"]({target})" in roadmap
+    assert (ROADMAP.parent / target).is_file()
+
+
+def test_phase64_slice1_rebinds_exact_interlude_ii_publication_authority() -> None:
+    document = " ".join(PHASE64_SLICE1_SPEC.read_text(encoding="utf-8").split())
+    for evidence in (
+        "bb52135038973b40638ff86367ba478846f898c6",
+        "8244d6ecf9c98af0895992a39cac93dd9352481d",
+        "461e5ef59b689b61a1815f039b93331bed3ac576",
+        "Complete validation performance interlude II",
+        "34002966434",
+        "push / main / 1 / success",
+        "101405014835",
+        "101405014976",
+        "production Python = 179",
+        "test Python = 428",
+        "collected tests = 11526",
+        "A2/M4/D0",
+        "production Python: 179 -> 179",
+        "tests: 428 -> 429",
+        "Establish Phase 64 flat relational algebra route",
+        "Phase 64 Slice 2 = NEXT / NOT IMPLEMENTED",
+    ):
+        assert evidence in document
+
+
+def test_phase64_slice1_changed_paths_are_exact() -> None:
+    paths = EXPECTED_PHASE64_SLICE1_CHANGED_PATHS
+    assert len(paths) == len(set(paths)) == 6
+    assert all((REPO_ROOT / path).is_file() for path in paths)
+    assert tuple(path for path in paths if path.startswith("src/")) == ()
+    assert tuple(path for path in paths if path.startswith("grammar/")) == ()
+    assert tuple(path for path in paths if path.startswith("tests/_")) == ()
+    assert tuple(path for path in paths if path.startswith("docs/spec/")) == (
+        "docs/spec/phase64-flat-relational-algebra-product-phase-initiation-gate-v3-source-audit-architecture-route-lock-v1.md",
+    )
+    assert tuple(path for path in paths if path.startswith("tests/test_phase64")) == (
+        "tests/test_phase64_slice1_flat_relational_algebra_product_phase_initiation_gate_v3_source_audit_architecture_route_lock.py",
+    )
+    assert not any(
+        path.startswith(
+            (
+                ".github/",
+                "scripts/",
+                "tests/fixtures/",
+                "tests/goldens/",
+            )
+        )
+        for path in paths
     )

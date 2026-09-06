@@ -37,8 +37,10 @@ documentation does not supersede that evidence.
 | Interlude II Slice 2 | `COMPLETED / PUBLISHED` |
 | Interlude II Slice 3 | `COMPLETED / PUBLISHED` |
 | Interlude II Slice 4 | `COMPLETED / PUBLISHED` |
-| Phase 64 | `NEXT / NOT IMPLEMENTED` |
-| Next | `Phase 64 — Fresh Product/Phase Initiation Gate v3` |
+| Phase 64 | `ACTIVE` |
+| Phase 64 Slice 1 | `COMPLETED / PUBLISHED` |
+| Phase 64 Slice 2 | `NEXT / NOT IMPLEMENTED` |
+| Next | `Phase 64 Slice 2 — Generic ON and new JOIN kind grammar and AST` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -414,7 +416,7 @@ optimizer, package, workflow, version, or Phase-64 implementation delta.
 Natural exact-head CI owns Phase-63 completion without a status-only follow-up
 commit.
 
-The Validation/Test Performance Optimization Interlude II is `ACTIVE` after
+The Validation/Test Performance Optimization Interlude II was `ACTIVE` after
 Phase-63 completion and before Phase 64. Its [Slice 1 post-Phase-63 baseline
 profiling, cost attribution, and route
 lock](spec/validation-performance-interlude-ii-slice1-post-phase63-baseline-profiling-cost-attribution-route-lock-v1.md)
@@ -557,12 +559,33 @@ are all closed. Every Interlude publication head, including the two preserved
 failed heads `d847132a...` and `4cfed753...` with their ordinary repair
 children, is retained exactly.
 
-Phase 64 is `NEXT / NOT IMPLEMENTED` and is no longer blocked, but it is not
-ACTIVE. No Phase-64 production or numbered route exists. All 15 transferred
-subjects remain
-unimplemented: the authored grammar admits only `(INNER | LEFT) JOIN` and
-contains no `UNION`, `INTERSECT`, `EXCEPT`, `DISTINCT`, `CROSS`, `RIGHT`,
-`FULL`, `SEMI` or `ANTI`; both fail-closed effective-JOIN terminals are
-retained. All 22 inherited assets remain available, and all 12 mandatory
-Phase-64 initiation questions remain unanswered. The next task is a fresh
-Phase-64 Product/Phase Initiation Gate v3.
+Phase 64 **Flat Relational Algebra** is `ACTIVE`. Its Slice 1 is
+`COMPLETED / PUBLISHED` by live Git and successful natural exact-head CI. Slice
+1 freezes a fresh Product/Phase Initiation Gate v3, 13 reconciled live source
+findings, three exclusive ledgers, an atomic pull-forward classification for
+every owner 65–97, 11 new external reference records, 10 rewriting-premise laws
+with 10 independently reproduced counterexamples, the confirmed decision set
+D01–D08, and a route of exactly 11 numbered Slices. The controlling evidence is
+the [Phase 64 product, source audit, architecture and route
+lock](spec/phase64-flat-relational-algebra-product-phase-initiation-gate-v3-source-audit-architecture-route-lock-v1.md).
+
+The frozen authored surface extends the existing `joinBody` with an `ON`
+alternative beside the existing `VIA` steps and grows the authored kind set to
+`INNER`, `LEFT`, `CROSS`, `RIGHT`, `FULL`, `SEMI` and `ANTI`. New kinds are
+direct-binary only; multi-hop `VIA` paths remain `INNER`/`LEFT`, and an existing
+named relation is the sole explicit composition boundary, so no inline
+path-group or outer-capture syntax is added. Set operations are a top-level
+clause over positionally aligned named operands whose `ALL` or `DISTINCT` must
+be written explicitly. Row equivalence treats `NULL` as equivalent to `NULL`
+and admits `Decimal` only at identical precision and scale, while `Any`,
+`Bytes` and `Json` stay fail-closed. Single-match keeps its complete obligation
+private and emits a `WARNING` in every check mode for a statically legal but
+unproved requirement, so check success keeps one meaning across modes.
+
+Slice 1 changes no production behavior. The authored grammar still admits only
+`(INNER | LEFT) JOIN` and contains no `UNION`, `INTERSECT`, `EXCEPT`,
+`DISTINCT`, `CROSS`, `RIGHT`, `FULL`, `SEMI` or `ANTI`; both fail-closed
+effective-JOIN terminals are retained. All 22 inherited assets remain
+available, all 12 mandatory Phase-64 initiation questions are answered, and all
+15 transferred subjects are assigned to the numbered route. Slice 2 is
+`NEXT / NOT IMPLEMENTED`, and Slices 3–11 are `NOT IMPLEMENTED`.

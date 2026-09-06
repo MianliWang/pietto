@@ -8,8 +8,8 @@ needed.
 
 Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. The current owner is Phase 64, which is
-`NEXT / NOT IMPLEMENTED` and awaits its own fresh Product/Phase Initiation Gate
-v3; the Validation/Test Performance Optimization Interlude II that preceded it
+`ACTIVE` after its own fresh Product/Phase Initiation Gate v3; the
+Validation/Test Performance Optimization Interlude II that preceded it
 is `COMPLETED`. Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
 behavior. Interlude II Slice 2,
@@ -20,8 +20,8 @@ heavy-file xdist scheduling and isolation decision, is
 completion benchmark and Phase-64 readiness assurance, is
 `COMPLETED / PUBLISHED`, so the Validation/Test Performance Optimization
 Interlude II is `COMPLETED` with `Interlude II self-owned-open = 0`. Phase 64 is
-`NEXT / NOT IMPLEMENTED`, is no longer blocked, is not ACTIVE, and has no
-numbered route; the next task is its fresh Product/Phase Initiation Gate v3.
+`ACTIVE`, its Slice 1 froze a fresh Product/Phase Initiation Gate v3 and a
+route of exactly 11 numbered Slices, and Slice 2 is `NEXT / NOT IMPLEMENTED`.
 Project Explain v1 remains unchanged.
 Pietto remains compiler-only: no package or catalog registry, dependency
 solver, remote loading, database execution, runtime evaluation, installation
@@ -1467,8 +1467,8 @@ historical evidence and does not itself authorize Phase-63 implementation.
 ## Phase 63 route
 
 Phase 63 **Joined Query Block Semantic Completion And QUALIFY** and all 16
-numbered Slices are `COMPLETED / PUBLISHED`. Phase 64 is
-`NEXT / NOT IMPLEMENTED`. The completed route has exactly 16 numbered Slices.
+numbered Slices are `COMPLETED / PUBLISHED`. Phase 64 is now `ACTIVE`. The
+completed route has exactly 16 numbered Slices.
 
 | Slice | Owner |
 | ---: | --- |
@@ -1940,12 +1940,13 @@ grammar/generated, public API, CLI/JSON behavior, SQL, Arrow, executor,
 optimizer, package, dependency, workflow, version, or Phase-64 implementation.
 
 Successful natural exact-head CI completes Phase 63 without a status-only
-follow-up commit. Phase 64 is `NEXT / NOT IMPLEMENTED`, not ACTIVE. It has no
-numbered route; a later Phase-64 Slice 1 must run a fresh Product/Phase
+follow-up commit. Slice 16 left Phase 64 `NEXT / NOT IMPLEMENTED` with no
+numbered route, requiring a later Phase-64 Slice 1 to run a fresh Product/Phase
 Initiation Gate, review live source/external evidence, answer the mandatory
 handoff questions, and freeze its own route before implementation. The mandatory
 Validation/Test Performance Optimization Interlude II then became the active
-owner and now blocks Phase 64 until it closes.
+owner and blocked Phase 64 until it closed; the Phase-64 route is now frozen
+below.
 
 `LET` is the first post-JOIN scalar scope. Each stage has an immutable
 visibility environment and hidden intermediate path fields remain non-nameable
@@ -2116,10 +2117,65 @@ ordinary repair children are retained exactly. The controlling evidence is
 
 Successful natural exact-head CI on the single Slice 4 commit completes the
 Interlude without a status-only follow-up commit and hands off to Phase 64.
-Phase 64 is `NEXT / NOT IMPLEMENTED`, no longer blocked, not ACTIVE, and has no
-numbered route; all 15 transferred subjects remain unimplemented, all 22
-inherited assets remain available, and all 12 mandatory initiation questions
-remain unanswered by a future Phase-64 Slice 1.
+Phase 64 is `ACTIVE`; its Slice 1 answered all 12 mandatory initiation
+questions, retained all 22 inherited assets, and assigned all 15 transferred
+subjects to the numbered route below.
+
+## Phase 64 route
+
+Phase 64 **Flat Relational Algebra** is `ACTIVE`. Slice 1 is
+`COMPLETED / PUBLISHED`, Slice 2 is `NEXT / NOT IMPLEMENTED`, and the frozen
+route has exactly 11 numbered Slices.
+
+| Slice | Owner |
+| ---: | --- |
+| 1 | Product Gate v3, source audit, architecture and route lock |
+| 2 | Generic `ON` and new JOIN kind grammar, AST, contextual keywords and spans |
+| 3 | Generic ON condition semantics and base/refinement/WHERE authority separation |
+| 4 | Row-source sum extension, effective-output JOIN boundary and first generic vertical closure |
+| 5 | `CROSS`/`RIGHT`/`FULL` output shapes, null-extension and property transfer |
+| 6 | `SEMI`/`ANTI` left-occurrence retention and existence semantics |
+| 7 | Single-match direction, unit, scoped proof, obligation and warning diagnostics |
+| 8 | Row-equivalence domain, `DISTINCT` and quotient grain origin |
+| 9 | `UNION`/`INTERSECT`/`EXCEPT`, explicit `ALL`/`DISTINCT` and output identity |
+| 10 | Project IR composition, verification, invalidation, inspection and pure boundary |
+| 11 | Completion audit and Phase-65 handoff |
+
+The controlling contract is [Phase 64 Flat Relational Algebra Product/Phase
+Initiation Gate v3, Source Audit, Architecture And Route
+Lock](spec/phase64-flat-relational-algebra-product-phase-initiation-gate-v3-source-audit-architecture-route-lock-v1.md).
+It freezes the 30-field Gate v3 answers, 13 reconciled live source findings,
+three exclusive ledgers, an atomic pull-forward classification for every owner
+65–97, 11 new external reference records, 10 rewriting-premise law records with
+10 independently reproduced counterexamples, and the confirmed decision set
+D01–D08.
+
+The authored surface extends the existing `joinBody`: `FROM` may be followed by
+an `ON` alternative beside the existing `VIA` steps, and the authored kind set
+grows to `INNER`, `LEFT`, `CROSS`, `RIGHT`, `FULL`, `SEMI` and `ANTI`. The new
+kinds are direct-binary only; multi-hop `VIA` paths remain `INNER`/`LEFT`. An
+existing named relation is the sole explicit composition boundary, so
+whole-path optionality is authored by declaring the path as a relation and
+joining that relation; no inline path-group or outer-capture syntax is added.
+
+Set operations are a top-level relation-body clause over named operands with
+positional alignment, and `ALL` or `DISTINCT` must be written explicitly.
+`DISTINCT` and set operations use an exact row-equivalence domain in which
+`NULL` is equivalent to `NULL` and `Decimal` participates only at identical
+precision and scale, while `Any`, `Bytes` and `Json` remain fail-closed. The
+quotient and alternative row domains receive a new grain origin rather than
+reusing `GROUPED_RESULT`.
+
+Single-match enforcement keeps the complete obligation private and surfaces it
+through the existing diagnostic channel. A statically legal requirement that is
+not proved emits a `WARNING` in every check mode and never escalates to an
+error, so check success keeps one meaning across modes; illegal combinations
+remain errors under separate codes. Phase 64 stays target-neutral: it builds
+its own Project IR products, while the `ProjectSQLPlan` carrying shape,
+parameters, source maps and backend legality remain Phase 65.
+
+Slice 1 changes no production, grammar, generated, public, SQL, CLI, JSON,
+package, dependency, workflow or version behavior.
 
 ## Future Roadmap v6
 
