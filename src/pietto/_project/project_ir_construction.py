@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto.ast_nodes import SetRelationDef
+
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -238,6 +240,8 @@ def _reject_concrete_authored_join(
     semantic: ProjectModuleRelationSemanticFacts,
 ) -> None:
     definition = semantic.owner.definition
+    if type(definition) is SetRelationDef:
+        raise ValueError("Set syntax cannot construct a concrete relation fragment.")
     if (
         type(definition) in {TableDef, QueryDef}
         and cast(TableDef | QueryDef, definition).join_clauses

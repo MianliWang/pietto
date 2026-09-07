@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto.ast_nodes import SetRelationDef
+
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -92,7 +94,7 @@ _COLLISION_ISSUE_STATUSES = frozenset(
         ProjectModuleBindingIssueStatus.IMPORT_BINDING_COLLISION,
     }
 )
-_DefinitionT = SourceDef | TableDef | QueryDef
+_DefinitionT = SourceDef | TableDef | QueryDef | SetRelationDef
 _KeyT = TypeVar("_KeyT")
 _ObjectT = TypeVar("_ObjectT")
 _ValueT = TypeVar("_ValueT")
@@ -401,7 +403,7 @@ class ProjectModuleRelationResolutionEnvironment:
         row_facts: dict[_DefinitionT, list[ProjectModuleRelationRowFact]] = {}
         for fact in self.row_facts:
             definition = fact.owner.definition
-            if type(definition) not in {SourceDef, TableDef, QueryDef}:
+            if type(definition) not in {SourceDef, TableDef, QueryDef, SetRelationDef}:
                 raise ValueError("Relation row fact requires a relation definition.")
             row_facts.setdefault(cast(_DefinitionT, definition), []).append(fact)
         if any(
@@ -443,7 +445,7 @@ class ProjectModuleRelationResolutionEnvironment:
     ) -> tuple[ProjectModuleRelationRowFact, ...]:
         """Return one exact row fact for a retained relation definition."""
 
-        if type(definition) not in {SourceDef, TableDef, QueryDef}:
+        if type(definition) not in {SourceDef, TableDef, QueryDef, SetRelationDef}:
             raise TypeError("Row-fact lookup requires a relation definition.")
         return self._row_facts_by_definition.get(definition, ())
 
@@ -1206,6 +1208,14 @@ def _build_module_row_facts(
             state=state,
         )
 
+    for occurrence in draft.catalog.occurrences:
+        if type(occurrence.definition) is SetRelationDef:
+            draft.row_facts[occurrence] = ProjectModuleRelationRowFact(
+                owner=occurrence,
+                state=_blocked_state(
+                    ProjectRelationRowSchemaReason.RELATIONAL_SYNTAX_UNSUPPORTED
+                ),
+            )
     pending: list[ProjectDeclarationOccurrence] = []
     for occurrence in draft.catalog.occurrences:
         if type(occurrence.definition) not in {TableDef, QueryDef}:

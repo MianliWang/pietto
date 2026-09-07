@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto.ast_nodes import SetRelationDef
+
 from collections import deque
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -813,7 +815,7 @@ def _dependencies(
     for fragment in plan.fragments:
         owner = fragment.semantic_facts.owner
         definition = owner.definition
-        if type(definition) is SourceDef:
+        if type(definition) in {SourceDef, SetRelationDef}:
             continue
         if type(definition) not in {TableDef, QueryDef}:
             raise TypeError("Completion inventory requires relation-producing owners.")

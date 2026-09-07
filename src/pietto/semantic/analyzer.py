@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pietto.ast_nodes import SetRelationDef
+from pietto._flat_relational_admission import syntax_diagnostics
+
 from collections.abc import Iterator, Mapping
 from typing import TYPE_CHECKING
 
@@ -276,6 +279,11 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
         decimal_precision_scales=decimal_precision_scales,
     )
 
+    diagnostics.extend(
+        diagnostic
+        for definition in script.definitions
+        for diagnostic in syntax_diagnostics(definition)
+    )
     return SemanticResult(
         model=SemanticModel(
             mode=mode,
@@ -663,7 +671,7 @@ def _namespace_for(
         return "type", type_symbols
     if isinstance(definition, (ConstraintDef, DeriveDef)):
         return "callable", callable_symbols
-    if isinstance(definition, (SourceDef, TableDef, QueryDef)):
+    if isinstance(definition, (SourceDef, TableDef, QueryDef, SetRelationDef)):
         return "relation", relation_symbols
     raise AssertionError(f"Unsupported definition: {type(definition).__name__}")
 

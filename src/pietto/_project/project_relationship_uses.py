@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto._flat_relational_admission import unsupported_join
+
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import cast
@@ -65,6 +67,7 @@ class ProjectJoinUseState(StrEnum):
 class ProjectJoinUseIssueKind(StrEnum):
     """Typed causal failures retained without a candidate winner."""
 
+    SYNTAX_UNSUPPORTED = "syntax_unsupported"
     UNKNOWN_SOURCE_BINDING = "unknown_source_binding"
     FORWARD_SOURCE_BINDING = "forward_source_binding"
     AMBIGUOUS_SOURCE_BINDING = "ambiguous_source_binding"
@@ -86,6 +89,7 @@ class ProjectJoinUseIssueKind(StrEnum):
 
 
 _ISSUE_STATES = {
+    ProjectJoinUseIssueKind.SYNTAX_UNSUPPORTED: ProjectJoinUseState.BLOCKED,
     ProjectJoinUseIssueKind.UNKNOWN_SOURCE_BINDING: ProjectJoinUseState.UNKNOWN,
     ProjectJoinUseIssueKind.FORWARD_SOURCE_BINDING: ProjectJoinUseState.BLOCKED,
     ProjectJoinUseIssueKind.AMBIGUOUS_SOURCE_BINDING: ProjectJoinUseState.AMBIGUOUS,
@@ -388,6 +392,10 @@ class ProjectConcreteJoinUse:
 
     def __post_init__(self) -> None:
         _validate_use_site(self.identity, self.owner, self.clause)
+        if unsupported_join(self.clause):
+            raise ValueError(
+                "New JOIN syntax cannot construct concrete relationship uses."
+            )
         if self.kind is not self.clause.kind:
             raise ValueError("Concrete JOIN use must retain its authored kind.")
         if (
@@ -1034,6 +1042,18 @@ def _build_use(
         for step_position, step in enumerate(clause.traversal_steps)
     )
     step_issues = tuple(issue for use in step_uses for issue in use.issues)
+    if unsupported_join(clause):
+        return _non_concrete_use(
+            identity=identity,
+            owner=owner,
+            clause=clause,
+            target=target,
+            step_uses=step_uses,
+            issues=(
+                _issue(ProjectJoinUseIssueKind.SYNTAX_UNSUPPORTED, clause),
+                *step_issues,
+            ),
+        )
     earlier = bindings[: position + 1]
     matches: tuple[ProjectRelationBindingOccurrence, ...] = tuple(
         binding for binding in earlier if binding.name == clause.source_binding_name

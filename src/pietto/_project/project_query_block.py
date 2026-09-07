@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto.ast_nodes import SetRelationDef
+
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import cast
@@ -70,12 +72,14 @@ class ProjectQueryBlockOwnerBridge:
         if type(self.owner) is not ProjectDeclarationOccurrence:
             raise TypeError("Query-block bridge requires an exact declaration owner.")
         definition = self.owner.definition
-        if type(definition) not in {TableDef, QueryDef}:
+        if type(definition) not in {TableDef, QueryDef, SetRelationDef}:
             raise TypeError("Query-block bridge requires a TableDef or QueryDef owner.")
         object.__setattr__(
             self,
             "query_block",
-            _query_block_occurrence(cast(TableDef | QueryDef, definition)),
+            _query_block_occurrence(
+                cast(TableDef | QueryDef | SetRelationDef, definition)
+            ),
         )
 
 

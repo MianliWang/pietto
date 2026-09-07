@@ -13,6 +13,7 @@ from pietto.ast_nodes import (
     QueryDef,
     ShapeDef,
     SourceDef,
+    SetRelationDef,
     TableDef,
     TypeDef,
 )
@@ -30,6 +31,7 @@ def test_definition_union_matches_top_level_grammar() -> None:
         SourceDef,
         TableDef,
         QueryDef,
+        SetRelationDef,
     )
 
 

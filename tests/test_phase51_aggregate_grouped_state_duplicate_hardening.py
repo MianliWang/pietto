@@ -134,32 +134,26 @@ def test_exact_four_statuses_and_five_reason_values_are_mirrored() -> None:
         member.name: member.value for member in ProjectRowDependencyGraphReason
     }
     lineage_reasons = {member.name: member.value for member in ProjectRowLineageReason}
-    assert schema_reasons == (
-        OLD_SCHEMA_REASONS | NEW_REASONS | WINDOW_REASONS | JOIN_REASONS
-    )
-    assert dependency_reasons == (
-        OLD_SCHEMA_REASONS
-        | NEW_REASONS
-        | WINDOW_REASONS
-        | JOIN_REASONS
-        | OLD_DEPENDENCY_ONLY_REASONS
-    )
-    assert lineage_reasons == (
-        OLD_SCHEMA_REASONS
-        | NEW_REASONS
-        | WINDOW_REASONS
-        | JOIN_REASONS
-        | OLD_LINEAGE_ONLY_REASONS
-    )
+    # These readers own SELECT-body graph/lineage reasons. Later alternate
+    # relation bodies may have schema-only terminals without a SELECT graph.
+    shared_reasons = OLD_SCHEMA_REASONS | NEW_REASONS | WINDOW_REASONS | JOIN_REASONS
+    assert shared_reasons.items() <= schema_reasons.items()
+    assert (
+        shared_reasons | OLD_DEPENDENCY_ONLY_REASONS
+    ).items() <= dependency_reasons.items()
+    assert (
+        shared_reasons | OLD_LINEAGE_ONLY_REASONS
+    ).items() <= lineage_reasons.items()
     aligned_reasons = NEW_REASONS | WINDOW_REASONS | JOIN_REASONS
     assert {
         name: dependency_reasons[name] for name in aligned_reasons
     } == aligned_reasons
     assert {name: lineage_reasons[name] for name in aligned_reasons} == aligned_reasons
-    assert set(schema_reasons.values()) <= set(dependency_reasons.values())
-    assert set(schema_reasons.values()) <= set(lineage_reasons.values())
+    assert set(shared_reasons.values()) <= set(dependency_reasons.values())
+    assert set(shared_reasons.values()) <= set(lineage_reasons.values())
 
-    for reason in ProjectRelationRowSchemaReason:
+    for name in shared_reasons:
+        reason = ProjectRelationRowSchemaReason[name]
         assert ProjectRowDependencyGraphReason(reason.value).value == reason.value
         assert ProjectRowLineageReason(reason.value).value == reason.value
 

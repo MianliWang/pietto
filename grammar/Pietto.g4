@@ -251,12 +251,12 @@ sourceDefinition
 // Relations support from, optional where/group by, ordered select, optional
 // satisfying/qualify, ordered order items, and limit.
 tableDefinition
-    : TABLE identifier COLON NEWLINE NEWLINE* INDENT tableBody DEDENT
+    : TABLE identifier COLON NEWLINE NEWLINE* INDENT (tableBody | setOperationBody) DEDENT
     ;
 
 // Phase 1 queries reuse the minimal table body without execution semantics.
 queryDefinition
-    : QUERY identifier COLON NEWLINE NEWLINE* INDENT tableBody DEDENT
+    : QUERY identifier COLON NEWLINE NEWLINE* INDENT (tableBody | setOperationBody) DEDENT
     ;
 
 tableBody
@@ -268,15 +268,35 @@ fromClause
     ;
 
 joinClause
-    : (INNER | LEFT) JOIN identifier AS identifier COLON NEWLINE NEWLINE* INDENT joinBody DEDENT
+    : (INNER | LEFT | CROSS | RIGHT | FULL | SEMI | ANTI) JOIN identifier AS identifier COLON NEWLINE NEWLINE* INDENT joinBody DEDENT
     ;
 
 joinBody
-    : NEWLINE* FROM identifier NEWLINE NEWLINE* (joinTraversalStep NEWLINE*)*
+    : NEWLINE* FROM identifier NEWLINE NEWLINE* (joinTraversalStep NEWLINE*)* joinOnClause? NEWLINE*
     ;
 
 joinTraversalStep
     : VIA identifier COLON identifier ARROW identifier NEWLINE
+    ;
+
+joinOnClause
+    : ON expression NEWLINE
+    ;
+
+setOperationBody
+    : NEWLINE* setOperationKind setQuantifier? COLON NEWLINE NEWLINE* INDENT setOperand (setOperand | NEWLINE)* DEDENT NEWLINE*
+    ;
+
+setOperationKind
+    : UNION | INTERSECT | EXCEPT
+    ;
+
+setQuantifier
+    : ALL | DISTINCT
+    ;
+
+setOperand
+    : FROM identifier NEWLINE
     ;
 
 letClause
@@ -531,6 +551,8 @@ namePart
     | LEFT
     | JOIN
     | VIA
+    | CROSS | RIGHT | FULL | SEMI | ANTI
+    | UNION | INTERSECT | EXCEPT | ALL | DISTINCT
     ;
 
 // New language keywords remain valid in identifier positions for compatibility.
@@ -571,6 +593,8 @@ identifier
     | LEFT
     | JOIN
     | VIA
+    | CROSS | RIGHT | FULL | SEMI | ANTI
+    | UNION | INTERSECT | EXCEPT | ALL | DISTINCT
     ;
 
 callSuffix
@@ -624,6 +648,16 @@ EXPORT: 'export';
 AS: 'as';
 INNER: 'inner';
 LEFT: 'left';
+CROSS: 'cross';
+RIGHT: 'right';
+FULL: 'full';
+SEMI: 'semi';
+ANTI: 'anti';
+UNION: 'union';
+INTERSECT: 'intersect';
+EXCEPT: 'except';
+ALL: 'all';
+DISTINCT: 'distinct';
 JOIN: 'join';
 VIA: 'via';
 WINDOW: 'window';

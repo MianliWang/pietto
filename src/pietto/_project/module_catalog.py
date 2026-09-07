@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto.ast_nodes import SetRelationDef
+
 from dataclasses import dataclass
 
 from pietto._project.model import (
@@ -29,6 +31,7 @@ from pietto.ast_nodes import (
 __all__: tuple[str, ...] = ()
 
 _DEFINITION_TYPES = (
+    SetRelationDef,
     TypeDef,
     EnumDef,
     ShapeDef,

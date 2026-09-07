@@ -122,8 +122,29 @@ Zero `via` lines use exact direct-relationship shorthand. One or more lines
 name an explicit ordered path as `via relationship: source_role -> target_role`.
 Bindings are relation-local occurrences: duplicates, forward sources,
 ambiguous paths, and failed-binding dependencies fail closed without a winner.
-Intermediate path relations do not become bindings. Only `inner` and `left`
-are accepted, and there is no JOIN-local `on` refinement.
+Intermediate path relations do not become bindings. INNER/LEFT relationship
+traversal retains its existing semantic support. The parser also retains
+`cross`, `right`, `full`, `semi`, `anti`, and one optional JOIN-local `on`
+expression after VIA steps. ON-only and VIA+ON are distinct AST forms; generic
+ON, refinement and additional kinds currently emit `PIE-S2334` in every check
+mode. Parsing does not enable their semantics or SQL lowering.
+
+An alternate complete table/query body retains named set operands:
+
+```pietto
+query combined:
+    union all:
+        from current_orders
+        from archived_orders
+```
+
+`union`, `intersect`, and `except` retain `all`/`distinct` and operand order,
+including repeated names. Omitted quantifiers and a single operand are retained
+for later precise rejection; no quantifier is defaulted. Empty bodies and
+conflicting/repeated quantifiers are syntax errors. Set bodies have no additional
+SELECT/order/limit tail and currently emit `PIE-S2334`, not a result. Referenced
+named inputs keep their own completed clauses. Relational `select distinct:`,
+single-match markers and positive set semantics are not implemented here.
 
 Historical Project row facts and single-relation IR retain
 `AUTHORED_JOIN_DEFERRED`. The completed EXPLICIT_MODULES path adds combined JOIN

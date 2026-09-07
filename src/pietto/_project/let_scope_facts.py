@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto.ast_nodes import SetRelationDef
+
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -31,7 +33,7 @@ _Key = TypeVar("_Key")
 _Value = TypeVar("_Value")
 
 _DerivedRelation = TableDef | QueryDef
-_RelationDefinition = SourceDef | TableDef | QueryDef
+_RelationDefinition = SourceDef | TableDef | QueryDef | SetRelationDef
 
 
 def _readonly_mapping(
@@ -161,6 +163,9 @@ def build_project_relation_let_scope_facts(
             bindings=bindings,
             binding_expressions=binding_expressions,
         )
+
+    if isinstance(upstream_definition, SetRelationDef):
+        raise ValueError("Set input cannot supply a concrete row schema.")
 
     row_schema = project_row_schema_to_semantic_row_schema(effective_input_schema)
     scopes, _expression_value_types, diagnostics = analyze_relation_let_bindings(

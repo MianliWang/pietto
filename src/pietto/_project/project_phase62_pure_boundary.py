@@ -778,6 +778,8 @@ _OWNER_DOMAINS: dict[ProjectPhase62RecordKind, ProjectPhase62PortableRefDomain] 
     if schema and schema[0].key == "ref" and schema[0].domains
 }
 
+_ADDITIONAL_AUTHORED_JOIN_KINDS = frozenset({"cross", "right", "full", "semi", "anti"})
+
 _ENUMERATIONS = frozenset(
     {
         "concrete",
@@ -934,6 +936,7 @@ def _enum_value(record: ProjectPhase62PureRecord, key: str) -> str:
 def _value_valid(
     value: object,
     spec: _FieldSpec,
+    extra_enumerations: frozenset[str] = frozenset(),
 ) -> bool:
     if (
         type(value) is not ProjectPhase62PureValue
@@ -963,7 +966,9 @@ def _value_valid(
     if value.tag is ProjectPhase62PureTag.BOOLEAN:
         return type(value.boolean) is bool
     if value.tag is ProjectPhase62PureTag.ENUMERATION:
-        return type(value.enumeration) is str and value.enumeration in _ENUMERATIONS
+        return type(value.enumeration) is str and value.enumeration in (
+            _ENUMERATIONS | extra_enumerations
+        )
     if value.tag is ProjectPhase62PureTag.REF:
         return type(value.ref) is ProjectPhase62PortableRef and (
             not spec.domains or value.ref.domain in spec.domains
@@ -997,7 +1002,8 @@ def _value_valid(
         type(value.enumerations) is tuple
         and bool(value.enumerations)
         and all(
-            type(item) is str and item in _ENUMERATIONS for item in value.enumerations
+            type(item) is str and item in (_ENUMERATIONS | extra_enumerations)
+            for item in value.enumerations
         )
     )
 
@@ -1033,10 +1039,23 @@ def _validate_shape(
         for field_position, (field, spec) in enumerate(
             zip(record.fields, schema, strict=True)
         ):
+            extra_enumerations = frozenset()
+            if record.kind is ProjectPhase62RecordKind.JOIN_USE:
+                if spec.key == "kind":
+                    extra_enumerations = _ADDITIONAL_AUTHORED_JOIN_KINDS
+                elif spec.key == "reasons":
+                    extra_enumerations = frozenset({"syntax_unsupported"})
+            elif (
+                record.kind is ProjectPhase62RecordKind.NON_CONCRETE
+                and spec.key == "reasons"
+                and _enum_value(record, "kind")
+                in {"join_use", "join_region", "multifact_region"}
+            ):
+                extra_enumerations = frozenset({"syntax_unsupported"})
             if (
                 type(field) is not ProjectPhase62PureField
                 or field.key != spec.key
-                or not _value_valid(field.value, spec)
+                or not _value_valid(field.value, spec, extra_enumerations)
             ):
                 return _reject(
                     ProjectPhase62PureStatus.INVALID_VALUE,
@@ -1258,7 +1277,23 @@ def _validate_joins(
             previous_output = _ref_value(join, "output")
     if tuple(retained_join_refs) != tuple(binaries):
         return _reject(ProjectPhase62PureStatus.INVALID_JOIN)
+    for terminal in _records(document, ProjectPhase62RecordKind.NON_CONCRETE):
+        if (
+            "syntax_unsupported" in _field(terminal, "reasons").enumerations
+            and _enum_value(terminal, "state") == "concrete"
+        ):
+            return _reject(ProjectPhase62PureStatus.INVALID_JOIN)
     for join_use in _records(document, ProjectPhase62RecordKind.JOIN_USE):
+        state = _enum_value(join_use, "state")
+        kind = _enum_value(join_use, "kind")
+        syntax_blocked = (
+            "syntax_unsupported" in _field(join_use, "reasons").enumerations
+        )
+        if (syntax_blocked and state == "concrete") or (
+            kind in _ADDITIONAL_AUTHORED_JOIN_KINDS
+            and (state not in {"blocked", "unknown", "ambiguous"} or not syntax_blocked)
+        ):
+            return _reject(ProjectPhase62PureStatus.INVALID_JOIN)
         join_use_ref = _ref_value(join_use, "ref")
         owned = tuple(
             item
@@ -1276,6 +1311,8 @@ def _validate_joins(
     fields = _records(document, ProjectPhase62RecordKind.JOINED_FIELD)
     matches = _records(document, ProjectPhase62RecordKind.JOIN_MATCH)
     for binary_ref, binary in binaries.items():
+        if _enum_value(binary, "kind") not in {"inner", "left"}:
+            return _reject(ProjectPhase62PureStatus.INVALID_JOIN)
         owned = tuple(
             item for item in fields if _ref_value(item, "binary_join") == binary_ref
         )

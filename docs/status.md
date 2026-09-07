@@ -40,8 +40,9 @@ documentation does not supersede that evidence.
 | Phase 64 | `ACTIVE` |
 | Phase 64 Slice 1 | `COMPLETED / PUBLISHED` |
 | Unnumbered compilation-boundary repair | `COMPLETED / PUBLISHED` |
-| Phase 64 Slice 2 | `NEXT / NOT IMPLEMENTED` |
-| Next | `Phase 64 Slice 2 — Generic ON, new JOIN kind and set-operation clause grammar and AST` |
+| Phase 64 Slice 2 | `COMPLETED / PUBLISHED` |
+| Phase 64 Slice 3 | `NEXT / NOT IMPLEMENTED` |
+| Next | `Phase 64 Slice 3 — Generic ON condition semantics and base/refinement/WHERE authority separation` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -583,13 +584,13 @@ and admits `Decimal` only at identical precision and scale, while `Any`,
 private and emits a `WARNING` in every check mode for a statically legal but
 unproved requirement, so check success keeps one meaning across modes.
 
-Slice 1 changes no production behavior. The authored grammar still admits only
+Slice 1 changes no production behavior. At that historical boundary the grammar admitted only
 `(INNER | LEFT) JOIN` and contains no `UNION`, `INTERSECT`, `EXCEPT`,
 `DISTINCT`, `CROSS`, `RIGHT`, `FULL`, `SEMI` or `ANTI`; both fail-closed
 effective-JOIN terminals are retained. All 22 inherited assets remain
 available, all 12 mandatory Phase-64 initiation questions are answered, and all
-15 transferred subjects are assigned to the numbered route. Slice 2 is
-`NEXT / NOT IMPLEMENTED`, and Slices 3–11 are `NOT IMPLEMENTED`.
+15 transferred subjects are assigned to the numbered route. That publication left
+Slice 2 `NEXT / NOT IMPLEMENTED`; its syntax implementation is recorded below.
 
 The [unnumbered compilation-boundary repair](spec/pre-phase64-slice2-compilation-boundary-correctness-repair-v1.md)
 rejects unsupported QUALIFY at the shared legacy-IR boundary and retains relation
@@ -597,4 +598,14 @@ cycles as typed completion failures with precise diagnostics. Natural exact-head
 CI on its ordinary publication commit establishes `COMPLETED / PUBLISHED`
 without a status-only follow-up. These are public error/admission corrections;
 JSON shapes and D01–D08, the 11-Slice route and E01–E12 remain unchanged.
-Phase 64 Slice 2 remains `NEXT / NOT IMPLEMENTED` and was not started.
+That repair left Phase 64 Slice 2 `NEXT / NOT IMPLEMENTED` and did not start it.
+
+
+Phase 64 Slice 2 is `COMPLETED / PUBLISHED` by natural exact-head CI. Its
+[grammar/AST/spans contract](spec/phase64-slice2-generic-on-join-kinds-set-operation-grammar-ast-spans-v1.md)
+retains located JOIN-local ON, additional authored JOIN kinds and alternate set
+relation bodies, including omitted quantifiers and repeated operand occurrences.
+New forms remain explicitly unavailable through PIE-S2334/PIE-I1000, without
+positive ON/set semantics or SQL. The QUALIFY and exact cycle/partial-schedule
+repairs remain intact. D01–D08, N=11 and E01–E12 are unchanged.
+Phase 64 Slice 3 is `NEXT / NOT IMPLEMENTED`; Slices 4–11 are `NOT IMPLEMENTED`.

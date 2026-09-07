@@ -299,6 +299,31 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#joinOnClause.
+    def visitJoinOnClause(self, ctx:PiettoParser.JoinOnClauseContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#setOperationBody.
+    def visitSetOperationBody(self, ctx:PiettoParser.SetOperationBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#setOperationKind.
+    def visitSetOperationKind(self, ctx:PiettoParser.SetOperationKindContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#setQuantifier.
+    def visitSetQuantifier(self, ctx:PiettoParser.SetQuantifierContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#setOperand.
+    def visitSetOperand(self, ctx:PiettoParser.SetOperandContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#letClause.
     def visitLetClause(self, ctx:PiettoParser.LetClauseContext):
         return self.visitChildren(ctx)

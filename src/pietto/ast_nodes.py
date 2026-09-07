@@ -526,10 +526,22 @@ class FromClause(Node):
 
 
 class AuthoredJoinKind(StrEnum):
-    """The two authored JOIN forms owned by Phase 62."""
+    """Authored JOIN kinds; parsing does not imply semantic availability."""
 
     INNER = "inner"
     LEFT = "left"
+    CROSS = "cross"
+    RIGHT = "right"
+    FULL = "full"
+    SEMI = "semi"
+    ANTI = "anti"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class JoinOnClause(Node):
+    """One JOIN-local predicate, separate from VIA and relationship metadata."""
+
+    expression: Expression
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -543,13 +555,14 @@ class JoinTraversalStep(Node):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class JoinClause(Node):
-    """One authored INNER or LEFT relationship JOIN occurrence."""
+    """One authored JOIN with independently retained VIA and optional ON."""
 
     kind: AuthoredJoinKind
     target_relation_name: str
     target_binding_name: str
     source_binding_name: str
     traversal_steps: tuple[JoinTraversalStep, ...] = ()
+    on_clause: JoinOnClause | None = None
 
     def __post_init__(self) -> None:
         if type(self.kind) is not AuthoredJoinKind:
@@ -558,6 +571,8 @@ class JoinClause(Node):
             type(step) is not JoinTraversalStep for step in self.traversal_steps
         ):
             raise TypeError("join traversal steps must be an exact tuple")
+        if self.on_clause is not None and type(self.on_clause) is not JoinOnClause:
+            raise TypeError("join ON requires an exact JOIN-local clause")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -801,6 +816,82 @@ class QueryDef(Node):
             raise TypeError("query joins must be an exact clause tuple")
 
 
+class SetOperationKind(StrEnum):
+    UNION = "union"
+    INTERSECT = "intersect"
+    EXCEPT = "except"
+
+
+class SetOperationQuantifier(StrEnum):
+    ALL = "all"
+    DISTINCT = "distinct"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SetOperand(Node):
+    """One authored named operand occurrence; no relation resolution."""
+
+    relation_name: str
+
+    def __post_init__(self) -> None:
+        if type(self.relation_name) is not str or not self.relation_name:
+            raise TypeError("set operand requires a nonempty relation name")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SetOperationBody(Node):
+    """Alternate complete relation body; omission never supplies a quantifier."""
+
+    kind: SetOperationKind
+    operator_span: Span
+    quantifier: SetOperationQuantifier | None
+    quantifier_span: Span | None
+    operands: tuple[SetOperand, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.kind) is not SetOperationKind
+            or type(self.operator_span) is not Span
+        ):
+            raise TypeError("set body requires an exact located operator")
+        if self.quantifier is None:
+            if self.quantifier_span is not None:
+                raise ValueError("omitted set quantifier cannot invent a span")
+        elif (
+            type(self.quantifier) is not SetOperationQuantifier
+            or type(self.quantifier_span) is not Span
+        ):
+            raise TypeError("set quantifier requires exact authored evidence")
+        if (
+            type(self.operands) is not tuple
+            or not self.operands
+            or any(type(item) is not SetOperand for item in self.operands)
+        ):
+            raise TypeError("set operands require a nonempty exact occurrence tuple")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SetRelationDef(Node):
+    """TABLE/QUERY declaration with a set body and no SELECT-only fields."""
+
+    name: str
+    kind: ModuleDeclarationKind
+    body: SetOperationBody
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not ModuleDeclarationKind or self.kind not in {
+            ModuleDeclarationKind.TABLE,
+            ModuleDeclarationKind.QUERY,
+        }:
+            raise TypeError("set relation requires TABLE or QUERY declaration kind")
+        if (
+            type(self.name) is not str
+            or not self.name
+            or type(self.body) is not SetOperationBody
+        ):
+            raise TypeError("set relation requires a name and exact set body")
+
+
 Definition = (
     TypeDef
     | EnumDef
@@ -810,6 +901,7 @@ Definition = (
     | SourceDef
     | TableDef
     | QueryDef
+    | SetRelationDef
 )
 
 

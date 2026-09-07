@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pietto.ast_nodes import SetRelationDef
+from pietto._flat_relational_admission import availability_diagnostic
+
 from collections.abc import Mapping
 
 from pietto.ast_nodes import (
@@ -34,6 +37,13 @@ def resolve_relation_inputs(
         target = relation_symbols.get(from_clause.source_name)
         if isinstance(target, (SourceDef, TableDef, QueryDef)):
             resolutions[from_clause] = target
+        elif isinstance(target, SetRelationDef):
+            diagnostics.append(
+                availability_diagnostic(
+                    from_clause.span,
+                    f"Set-operation input semantics are not implemented: {target.name}",
+                )
+            )
         else:
             diagnostics.append(_unknown_relation_diagnostic(from_clause))
 

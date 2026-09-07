@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto.ast_nodes import SetRelationDef
+
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -136,6 +138,8 @@ def _lower_definition(
 ) -> DefinitionIR | None:
     """Lower one supported declaration and skip later-slice definitions."""
 
+    if isinstance(definition, SetRelationDef):
+        raise _MissingSemanticFact(definition.body, "set-operation lowering")
     if isinstance(definition, TypeDef):
         return _lower_type(definition, semantic_model)
     if isinstance(definition, EnumDef):

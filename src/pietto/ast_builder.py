@@ -42,6 +42,7 @@ from pietto.ast_nodes import (
     ImportStatement,
     IsNullExpr,
     JoinClause,
+    JoinOnClause,
     JoinTraversalStep,
     LetBinding,
     LetClause,
@@ -61,6 +62,11 @@ from pietto.ast_nodes import (
     RelationshipMatchClause,
     RelationshipMetadata,
     Script,
+    SetOperand,
+    SetOperationBody,
+    SetOperationKind,
+    SetOperationQuantifier,
+    SetRelationDef,
     ShapeDef,
     ShapeItem,
     SourceDef,
@@ -465,9 +471,11 @@ class AstBuilder(PiettoVisitor):
             expression=self.visit(ctx.expression()),
         )
 
-    def visitTableDefinition(self, ctx: _AntlrContext) -> TableDef:
+    def visitTableDefinition(self, ctx: _AntlrContext) -> TableDef | SetRelationDef:
         """Build a minimal table without resolving inputs or projection names."""
 
+        if ctx.setOperationBody() is not None:
+            return self._set_relation(ctx, ModuleDeclarationKind.TABLE)
         (
             from_clause,
             join_clauses,
@@ -497,9 +505,11 @@ class AstBuilder(PiettoVisitor):
             named_windows=named_windows,
         )
 
-    def visitQueryDefinition(self, ctx: _AntlrContext) -> QueryDef:
+    def visitQueryDefinition(self, ctx: _AntlrContext) -> QueryDef | SetRelationDef:
         """Build a minimal query without resolving or executing its input."""
 
+        if ctx.setOperationBody() is not None:
+            return self._set_relation(ctx, ModuleDeclarationKind.QUERY)
         (
             from_clause,
             join_clauses,
@@ -544,17 +554,54 @@ class AstBuilder(PiettoVisitor):
         body = ctx.joinBody()
         return JoinClause(
             span=self._span(ctx),
-            kind=(
-                AuthoredJoinKind.INNER
-                if ctx.INNER() is not None
-                else AuthoredJoinKind.LEFT
-            ),
+            kind=AuthoredJoinKind(ctx.start.text),
             target_relation_name=identifiers[0].getText(),
             target_binding_name=identifiers[1].getText(),
             source_binding_name=body.identifier().getText(),
             traversal_steps=tuple(
                 self.visit(step) for step in body.joinTraversalStep()
             ),
+            on_clause=(
+                self.visit(body.joinOnClause())
+                if body.joinOnClause() is not None
+                else None
+            ),
+        )
+
+    def visitJoinOnClause(self, ctx: _AntlrContext) -> JoinOnClause:
+        return JoinOnClause(
+            span=self._span(ctx), expression=self.visit(ctx.expression())
+        )
+
+    def _set_relation(
+        self, ctx: _AntlrContext, kind: ModuleDeclarationKind
+    ) -> SetRelationDef:
+        return SetRelationDef(
+            span=self._span(ctx),
+            name=ctx.identifier().getText(),
+            kind=kind,
+            body=self.visit(ctx.setOperationBody()),
+        )
+
+    def visitSetOperationBody(self, ctx: _AntlrContext) -> SetOperationBody:
+        operator = ctx.setOperationKind()
+        quantifier = ctx.setQuantifier()
+        return SetOperationBody(
+            span=self._span_between(operator, ctx),
+            kind=SetOperationKind(operator.getText()),
+            operator_span=self._span(operator),
+            quantifier=(
+                None
+                if quantifier is None
+                else SetOperationQuantifier(quantifier.getText())
+            ),
+            quantifier_span=(None if quantifier is None else self._span(quantifier)),
+            operands=tuple(self.visit(item) for item in ctx.setOperand()),
+        )
+
+    def visitSetOperand(self, ctx: _AntlrContext) -> SetOperand:
+        return SetOperand(
+            span=self._span(ctx), relation_name=ctx.identifier().getText()
         )
 
     def visitJoinTraversalStep(self, ctx: _AntlrContext) -> JoinTraversalStep:

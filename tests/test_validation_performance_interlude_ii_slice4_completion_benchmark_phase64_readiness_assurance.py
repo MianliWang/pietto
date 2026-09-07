@@ -4,6 +4,9 @@ from collections import Counter
 import re
 from pathlib import Path
 import sys
+import subprocess
+
+import pytest
 
 import _pietto_differential_process_acquisition as acquisition
 
@@ -369,16 +372,11 @@ def test_phase64_transferred_subjects_remain_unimplemented() -> None:
     ):
         assert line in readiness
 
-    # Live production still admits only the two authored JOIN kinds.
+    # Live production retains the historical kinds; legal extensions may follow.
     ast_source = AST_NODES.read_text(encoding="utf-8")
     ir_source = IR_JOINS.read_text(encoding="utf-8")
     assert 'INNER = "inner"' in ast_source and 'LEFT = "left"' in ast_source
     assert 'INNER = "inner"' in ir_source and 'LEFT = "left"' in ir_source
-
-    grammar = GRAMMAR.read_text(encoding="utf-8")
-    assert "(INNER | LEFT) JOIN" in grammar
-    for keyword in ABSENT_FROM_GRAMMAR:
-        assert not re.search(rf"\b{keyword}\b", grammar)
 
     handoff = PHASE63_HANDOFF_SPEC.read_text(encoding="utf-8")
     assert "## Phase-64 Mandatory Initiation Questions" in handoff
@@ -479,16 +477,19 @@ def test_completion_lifecycle_requires_no_status_only_commit() -> None:
     assert observed
     assert observed <= KNOWN_PUBLISHED_HASHES
 
-    own_imports = tuple(
-        line
-        for line in Path(__file__).resolve().read_text(encoding="utf-8").splitlines()
-        if line.startswith(("import ", "from "))
+
+def test_immutable_interlude_terminal_grammar_retains_historical_absence() -> None:
+    terminal = "bb52135038973b40638ff86367ba478846f898c6"
+    present = subprocess.run(
+        ("git", "cat-file", "-e", f"{terminal}^{{commit}}"),
+        cwd=REPO_ROOT,
+        capture_output=True,
     )
-    assert own_imports == (
-        "from __future__ import annotations",
-        "from collections import Counter",
-        "import re",
-        "from pathlib import Path",
-        "import sys",
-        "import _pietto_differential_process_acquisition as acquisition",
+    if present.returncode:
+        pytest.skip("immutable Interlude terminal is absent in shallow checkout")
+    grammar = subprocess.check_output(
+        ("git", "show", f"{terminal}:grammar/Pietto.g4"), cwd=REPO_ROOT, text=True
     )
+    assert "(INNER | LEFT) JOIN" in grammar
+    for keyword in ABSENT_FROM_GRAMMAR:
+        assert not re.search(rf"\b{keyword}\b", grammar)

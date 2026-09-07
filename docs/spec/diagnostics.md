@@ -82,6 +82,7 @@ stored separately and is never encoded in the code.
 | `PIE-S2331` | `QUALIFY` lacks both a selected window result and a hidden predicate window computation |
 | `PIE-S2332` | `QUALIFY` reference is unknown or ambiguous across visible pre-window inputs and selected window results |
 | `PIE-S2333` | Project relation semantic completion is unavailable |
+| `PIE-S2334` | Parsed flat-relational syntax or a named set input is not semantically available; ERROR in LOOSE/CHECKED/STRICT, retaining the authored JOIN/ON/operator/input span. No positive ON, new-kind JOIN or set semantics is implied. |
 | `PIE-S2401` | Constraint return type does not expand to `Bool` |
 | `PIE-S2402` | Callable or field derive body type mismatch |
 | `PIE-S2501` | Duplicate shape item name |

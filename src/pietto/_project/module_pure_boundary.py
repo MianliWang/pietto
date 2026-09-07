@@ -69,6 +69,7 @@ _SOURCE_STATE_PAIRS: tuple[tuple[str, str], ...] = (
 )
 
 _RELATION_STATE_PAIRS: tuple[tuple[str, str], ...] = (
+    ("blocked", "relational_syntax_unsupported"),
     ("concrete", "direct_source_concrete"),
     ("concrete", "relation_upstream_concrete"),
     ("unknown", "unknown_schema"),
@@ -96,6 +97,7 @@ _DERIVED_STATE_PAIRS: tuple[tuple[str, str], ...] = tuple(
 )
 
 _ROW_FACT_STATE_PAIRS: tuple[tuple[str, str], ...] = (
+    ("blocked", "relational_syntax_unsupported"),
     ("concrete", "direct_source_concrete"),
     ("concrete", "relation_upstream_concrete"),
     ("unknown", "unknown_schema"),
@@ -607,6 +609,7 @@ _VOCABULARY_RELATION_ROW_REASON: tuple[str, ...] = (
     "invalid_window_output",
     "window_result_deferred",
     "conflicting_window_result_facts",
+    "relational_syntax_unsupported",
     "authored_join_deferred",
     "deferred_phase48_behavior",
     "unresolved_relation_blocked",
@@ -3094,6 +3097,24 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         state_rules=(
             _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
+                keys=(
+                    "reason",
+                    "let_bindings",
+                    "selects",
+                    "clause_dependencies",
+                    "window_outputs",
+                ),
+                admitted=(
+                    ("relational_syntax_unsupported", "zero", "zero", "zero", "zero"),
+                    *(
+                        (reason, "*", "*", "*", "*")
+                        for reason in _VOCABULARY_RELATION_ROW_REASON
+                        if reason != "relational_syntax_unsupported"
+                    ),
+                ),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
                 keys=("status", "reason"),
                 admitted=_RELATION_STATE_PAIRS,
             ),
@@ -3140,7 +3161,15 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 child="declaration",
                 pairs=(("owner_declaration_position", "declaration"),),
                 fixed=(("declaration_kind", ("e:source",)),),
-                when=("selects", "zero"),
+                when=(
+                    "reason",
+                    *(
+                        reason
+                        for reason in _VOCABULARY_RELATION_ROW_REASON
+                        if reason != "relational_syntax_unsupported"
+                    ),
+                ),
+                when_all=(("selects", "zero"),),
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.LEDGER_MATCH,

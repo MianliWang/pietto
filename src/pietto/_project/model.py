@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pietto.ast_nodes import SetRelationDef
+from pietto._flat_relational_admission import syntax_diagnostics
+
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -642,6 +645,7 @@ class ProjectRelationRowSchemaReason(StrEnum):
     INVALID_WINDOW_OUTPUT = "invalid_window_output"
     WINDOW_RESULT_DEFERRED = "window_result_deferred"
     CONFLICTING_WINDOW_RESULT_FACTS = "conflicting_window_result_facts"
+    RELATIONAL_SYNTAX_UNSUPPORTED = "relational_syntax_unsupported"
     AUTHORED_JOIN_DEFERRED = "authored_join_deferred"
     DEFERRED_PHASE48_BEHAVIOR = "deferred_phase48_behavior"
     UNRESOLVED_RELATION_BLOCKED = "unresolved_relation_blocked"
@@ -1609,6 +1613,12 @@ def build_empty_project_semantic_result(
             *relation_diagnostics,
             *relation_row_schema_result.diagnostics,
             *cycle_diagnostics,
+            *(
+                diagnostic
+                for parsed in parse_result.parsed_inputs
+                for definition in parsed.script.definitions
+                for diagnostic in syntax_diagnostics(definition)
+            ),
         ),
         compilation_mode=parse_result.compilation_mode,
         modules=parse_result.modules,
@@ -3118,6 +3128,8 @@ def _classify_project_definition(
 ) -> tuple[ProjectSymbolNamespace, ProjectSymbolKind]:
     """Classify a top-level definition into the Phase 45 hybrid namespace."""
 
+    if isinstance(definition, SetRelationDef):
+        return ProjectSymbolNamespace.RELATION, ProjectSymbolKind(definition.kind.value)
     if isinstance(definition, TypeDef):
         return ProjectSymbolNamespace.TYPE, ProjectSymbolKind.TYPE_ALIAS
     if isinstance(definition, EnumDef):

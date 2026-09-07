@@ -21,14 +21,15 @@ completion benchmark and Phase-64 readiness assurance, is
 `COMPLETED / PUBLISHED`, so the Validation/Test Performance Optimization
 Interlude II is `COMPLETED` with `Interlude II self-owned-open = 0`. Phase 64 is
 `ACTIVE`, its Slice 1 froze a fresh Product/Phase Initiation Gate v3 and a
-route of exactly 11 numbered Slices, and Slice 2 is `NEXT / NOT IMPLEMENTED`.
+route of exactly 11 numbered Slices. Slice 2 is `COMPLETED / PUBLISHED`;
+Slice 3 is `NEXT / NOT IMPLEMENTED`.
 Project Explain v1 remains unchanged.
 
 The [unnumbered compilation-boundary repair](spec/pre-phase64-slice2-compilation-boundary-correctness-repair-v1.md)
 closes unsupported QUALIFY admission and typed relation-cycle failure before
 Slice 2. Successful natural exact-head CI on its ordinary commit establishes
 completion. It adds no numbered route row, changes no D01–D08 or E01–E12, and
-leaves Phase 64 Slice 2 `NEXT / NOT IMPLEMENTED`.
+left Phase 64 Slice 2 `NEXT / NOT IMPLEMENTED`.
 
 Pietto remains compiler-only: no package or catalog registry, dependency
 solver, remote loading, database execution, runtime evaluation, installation
@@ -2131,8 +2132,8 @@ subjects to the numbered route below.
 ## Phase 64 route
 
 Phase 64 **Flat Relational Algebra** is `ACTIVE`. Slice 1 is
-`COMPLETED / PUBLISHED`, Slice 2 is `NEXT / NOT IMPLEMENTED`, and the frozen
-route has exactly 11 numbered Slices.
+`COMPLETED / PUBLISHED`, Slice 2 is `COMPLETED / PUBLISHED`, Slice 3 is
+`NEXT / NOT IMPLEMENTED`, and the frozen route has exactly 11 numbered Slices.
 
 | Slice | Owner |
 | ---: | --- |
@@ -2183,6 +2184,14 @@ parameters, source maps and backend legality remain Phase 65.
 
 Slice 1 changes no production, grammar, generated, public, SQL, CLI, JSON,
 package, dependency, workflow or version behavior.
+
+The [Slice-2 grammar/AST/spans contract](spec/phase64-slice2-generic-on-join-kinds-set-operation-grammar-ast-spans-v1.md)
+adds parse-only JOIN-local ON, additional authored kinds and alternate set bodies.
+Located AST retention includes absent quantifiers and repeated named operands;
+negative admission prevents silent omission or false semantic/SQL success.
+Natural exact-head CI completes Slice 2 without a status-only follow-up.
+Slice 3 remains NEXT / NOT IMPLEMENTED; positive operator semantics stay with
+Slices 3–10, and no additional route row or product exit is introduced.
 
 ## Future Roadmap v6
 

@@ -284,11 +284,12 @@ EXPECTED_STATUS = (
     ("Phase 64", "`ACTIVE`"),
     ("Phase 64 Slice 1", "`COMPLETED / PUBLISHED`"),
     ("Unnumbered compilation-boundary repair", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64 Slice 2", "`NEXT / NOT IMPLEMENTED`"),
+    ("Phase 64 Slice 2", "`COMPLETED / PUBLISHED`"),
+    ("Phase 64 Slice 3", "`NEXT / NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 64 Slice 2 — Generic ON, new JOIN kind and set-operation clause "
-        "grammar and AST`",
+        "`Phase 64 Slice 3 — Generic ON condition semantics and "
+        "base/refinement/WHERE authority separation`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1519,7 +1520,7 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     normalized = " ".join(status.split())
     assert "pre-phase64-slice2-compilation-boundary-correctness-repair-v1.md" in status
     assert (
-        "Phase 64 Slice 2 remains `NEXT / NOT IMPLEMENTED` and was not started."
+        "That repair left Phase 64 Slice 2 `NEXT / NOT IMPLEMENTED` and did not start it."
         in normalized
     )
     assert (
@@ -1900,7 +1901,7 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "All 22 inherited assets remain available",
         "all 12 mandatory Phase-64 initiation questions are answered",
         "all 15 transferred subjects are assigned to the numbered route",
-        "Slice 2 is `NEXT / NOT IMPLEMENTED`, and Slices 3–11 are `NOT IMPLEMENTED`",
+        "Phase 64 Slice 3 is `NEXT / NOT IMPLEMENTED`; Slices 4–11 are `NOT IMPLEMENTED`",
     ):
         assert evidence in normalized
     interlude_ii_target = (
@@ -4793,7 +4794,8 @@ def test_phase64_route_section_is_exact() -> None:
     normalized = " ".join(section.split())
     for evidence in (
         "Phase 64 **Flat Relational Algebra** is `ACTIVE`",
-        "Slice 1 is `COMPLETED / PUBLISHED`, Slice 2 is `NEXT / NOT IMPLEMENTED`",
+        "Slice 1 is `COMPLETED / PUBLISHED`, Slice 2 is `COMPLETED / PUBLISHED`, "
+        "Slice 3 is `NEXT / NOT IMPLEMENTED`",
         "the frozen route has exactly 11 numbered Slices",
         "13 reconciled live source findings",
         "three exclusive ledgers",

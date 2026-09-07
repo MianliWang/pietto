@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto.ast_nodes import SetRelationDef
+
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -2256,6 +2258,11 @@ def _build_row_facts(
     pending: list[ProjectModuleRelationRowFact] = []
     for fact in facts:
         definition = fact.owner.definition
+        if type(definition) is SetRelationDef:
+            if fact.state.status is ProjectRelationRowSchemaStatus.CONCRETE:
+                raise ValueError("Set syntax cannot publish concrete lineage.")
+            lineage_by_owner[_declaration_identity(fact.owner)] = _empty_lineage(fact)
+            continue
         if type(definition) not in {TableDef, QueryDef}:
             continue
         if fact.state.status is ProjectRelationRowSchemaStatus.CONCRETE:

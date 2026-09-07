@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto.ast_nodes import SetRelationDef
+
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
@@ -1514,16 +1516,20 @@ def _effective_named_window_expression(
 
 
 def _query_block_occurrence(
-    definition: TableDef | QueryDef,
+    definition: TableDef | QueryDef | SetRelationDef,
 ) -> QueryBlockOccurrence:
+    if type(definition) is TableDef:
+        kind = QueryBlockKind.TABLE
+    elif type(definition) is QueryDef:
+        kind = QueryBlockKind.QUERY
+    elif type(definition) is SetRelationDef:
+        kind = QueryBlockKind(definition.kind.value)
+    else:
+        raise TypeError("query-block occurrence requires an exact relation definition")
     return QueryBlockOccurrence(
         source_id=definition.span.path or definition.name,
         relation_name=definition.name,
-        kind=(
-            QueryBlockKind.TABLE
-            if type(definition) is TableDef
-            else QueryBlockKind.QUERY
-        ),
+        kind=kind,
         span=definition.span,
     )
 

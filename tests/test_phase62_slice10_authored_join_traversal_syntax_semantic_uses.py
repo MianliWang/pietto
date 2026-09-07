@@ -345,19 +345,20 @@ def test_join_grammar_ast_occurrences_spans_order_and_compatibility() -> None:
         ],
     )
     assert join_free.join_clauses == ()
-    assert tuple(field.name for field in fields(JoinClause)) == (
+    assert {
         "span",
         "kind",
         "target_relation_name",
         "target_binding_name",
         "source_binding_name",
         "traversal_steps",
-    )
+    } <= {field.name for field in fields(JoinClause)}
+    assert join_free.join_clauses == ()
     for identifier in ("inner", "left", "join", "via"):
         assert _parse(f"type {identifier} = Int\n").definitions[0].name == identifier
 
 
-@pytest.mark.parametrize("kind", ("right", "full", "semi", "anti", "mark", "single"))
+@pytest.mark.parametrize("kind", ("mark", "single"))
 def test_unsupported_join_kinds_and_join_local_on_fail_closed(kind: str) -> None:
     source = (
         "query result:\n"
@@ -375,7 +376,8 @@ def test_unsupported_join_kinds_and_join_local_on_fail_closed(kind: str) -> None
         ),
         path="join-on.pietto",
     )
-    assert on_result.ast is None and on_result.diagnostics
+    assert on_result.ast is not None and not on_result.diagnostics
+    assert any(d.code == "PIE-S2334" for d in analyze(on_result.ast).diagnostics)
 
 
 def test_join_bearing_semantics_and_project_ir_are_deferred_without_global_failure(

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pietto.ast_nodes import SetRelationDef
+from pietto._flat_relational_admission import syntax_diagnostics
+
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
@@ -163,7 +166,7 @@ from pietto.semantic.window_semantics import (
 __all__: tuple[str, ...] = ()
 
 _DerivedRelation = TableDef | QueryDef
-_RelationDefinition = SourceDef | TableDef | QueryDef
+_RelationDefinition = SourceDef | TableDef | QueryDef | SetRelationDef
 _WindowAnalysis = WindowExpressionAnalysis | WindowExpressionUnsupported
 _NAMED_WINDOW_DIAGNOSTIC_CODES = frozenset(
     {"PIE-S2110", "PIE-S2111", "PIE-S2112", "PIE-S2113"}
@@ -1210,6 +1213,33 @@ class ProjectModuleRelationSemanticFacts:
                 "Non-concrete semantic facts cannot publish aggregate results."
             )
         definition = self.owner.definition
+        if type(definition) is SetRelationDef:
+            if (
+                self.state is not self.base_row_fact.state
+                or self.state.schema is not None
+                or self.state.status is ProjectRelationRowSchemaStatus.CONCRETE
+                or any(
+                    (
+                        self.resolution is not None,
+                        self.input_state is not None,
+                        self.base_result_state is not None,
+                        self.let_scope_facts is not None,
+                        bool(self.let_bindings),
+                        bool(self.select_facts),
+                        bool(self.group_key_occurrences),
+                        self.aggregate_grouped_clause_readiness is not None,
+                        bool(self.clause_dependencies),
+                        bool(self.aggregate_result_facts),
+                        bool(self.window_outputs),
+                        self.named_window_namespace is not None,
+                    )
+                )
+                or self.helper_diagnostics != syntax_diagnostics(definition)
+            ):
+                raise ValueError(
+                    "Set syntax cannot publish SELECT or concrete semantic facts."
+                )
+            return
         if type(definition) is SourceDef:
             if self.state is not self.base_row_fact.state:
                 raise ValueError(
@@ -1494,7 +1524,7 @@ class ProjectModuleSemanticFactEnvironment:
         for fact in self.relation_facts:
             definition = fact.owner.definition
             expected_resolution: ProjectResolvedModuleRelationReference | None
-            if type(definition) is SourceDef:
+            if type(definition) in {SourceDef, SetRelationDef}:
                 expected_resolution = None
             elif type(definition) in {TableDef, QueryDef}:
                 derived = cast(_DerivedRelation, definition)
@@ -1536,7 +1566,7 @@ class ProjectModuleSemanticFactEnvironment:
     ) -> tuple[ProjectModuleRelationSemanticFacts, ...]:
         """Return the complete exact AST-definition bucket."""
 
-        if type(definition) not in {SourceDef, TableDef, QueryDef}:
+        if type(definition) not in {SourceDef, TableDef, QueryDef, SetRelationDef}:
             raise TypeError("Semantic fact lookup requires a relation definition.")
         return tuple(
             fact
@@ -2047,6 +2077,11 @@ def _validate_relation_window_fact_set_closure(
     pre_window_state: ProjectRelationRowSchemaState,
 ) -> None:
     definition = relation.owner.definition
+    if type(definition) is SetRelationDef:
+        relation.__post_init__()
+        if upstream is not None or relation.state is not pre_window_state:
+            raise ValueError("Unavailable set body must retain its exact base state.")
+        return
     if type(definition) is SourceDef:
         if relation.window_outputs:
             raise ValueError("Source relation cannot retain window outputs.")
@@ -2399,7 +2434,19 @@ def _build_project_module_semantic_fact_set(
             for base_row_fact in tuple(pending):
                 owner = base_row_fact.owner
                 definition = owner.definition
-                if type(definition) is SourceDef:
+                if type(definition) is SetRelationDef:
+                    semantic_fact = ProjectModuleRelationSemanticFacts(
+                        owner=owner,
+                        base_row_fact=base_row_fact,
+                        resolution=None,
+                        input_state=None,
+                        base_result_state=None,
+                        state=base_row_fact.state,
+                        let_scope_facts=None,
+                        helper_diagnostics=syntax_diagnostics(definition),
+                    )
+                    pre_window_state = base_row_fact.state
+                elif type(definition) is SourceDef:
                     semantic_fact = ProjectModuleRelationSemanticFacts(
                         owner=owner,
                         base_row_fact=base_row_fact,
@@ -2481,7 +2528,8 @@ def _build_project_module_semantic_fact_set(
         catalog_relation_owners = tuple(
             occurrence
             for occurrence in catalog.occurrences
-            if type(occurrence.definition) in {SourceDef, TableDef, QueryDef}
+            if type(occurrence.definition)
+            in {SourceDef, TableDef, QueryDef, SetRelationDef}
         )
         ordered = tuple(
             next(fact for fact in built_for_module if fact.owner is owner)
@@ -2737,6 +2785,8 @@ def _build_derived_relation_facts(
         _RelationDefinition,
         resolution.target_symbol.target_occurrence.definition,
     )
+    if isinstance(upstream_definition, SetRelationDef):
+        raise ValueError("Set input cannot supply a concrete semantic row.")
     upstream_symbol = _project_symbol_for_resolution(resolution)
     let_scope = build_project_relation_let_scope_facts(
         definition=definition,
@@ -2930,6 +2980,7 @@ def _nonconcrete_relation_facts(
         ),
         window_outputs=window_outputs,
         named_window_namespace=named_window_namespace,
+        helper_diagnostics=syntax_diagnostics(definition),
     )
 
 

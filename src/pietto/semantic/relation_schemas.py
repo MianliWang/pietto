@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto._flat_relational_admission import unsupported_join
+
 from collections.abc import Mapping
 
 from pietto.ast_nodes import (
@@ -73,6 +75,9 @@ def propagate_relation_schemas(
 
     def infer(definition: DerivedRelation) -> RowSchema:
         if definition in schemas:
+            return schemas[definition]
+        if any(unsupported_join(clause) for clause in definition.join_clauses):
+            schemas[definition] = _unknown_schema()
             return schemas[definition]
         if definition in cyclic_relations:
             schema, relation_diagnostics = _project_schema(
