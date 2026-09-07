@@ -54,6 +54,7 @@ from pietto._project.project_scalar_references import (
     build_project_scalar_environment,
 )
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
+from pietto.errors import Diagnostic, Severity, SourceLocation
 
 __all__: tuple[str, ...] = ()
 
@@ -145,6 +146,8 @@ class ProjectExistingEffectiveOutput:
 class ProjectEffectiveOutputTerminalReason(StrEnum):
     """Closed Slice-7 reasons for an absent current effective output."""
 
+    DEPENDENCY_CYCLE = "dependency_cycle"
+    UPSTREAM_DEPENDENCY_CYCLE = "upstream_dependency_cycle"
     JOINED_TAIL_PENDING = "joined_tail_pending"
     UPSTREAM_EFFECTIVE_OUTPUT_PENDING = "upstream_effective_output_pending"
     JOINED_COMPLETION_NON_CONCRETE = "joined_completion_non_concrete"
@@ -167,6 +170,348 @@ def _joined_completion_owner(
     if type(readiness) is ProjectNonConcreteJoinedRowSemantics:
         return readiness.namespaces.binding_environment.ledger.owner
     raise TypeError("Joined readiness requires an exact published result.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectCompletionCycle:
+    """One exact SCC, all internal uses, and a bounded real-edge witness."""
+
+    members: tuple[ProjectDeclarationOccurrence, ...]
+    dependencies: tuple[ProjectCompletionDependency, ...]
+    witness: tuple[ProjectCompletionDependency, ...]
+    diagnostics: tuple[Diagnostic, ...]
+
+
+def _cycle_components(
+    owners: tuple[ProjectDeclarationOccurrence, ...],
+    dependencies: tuple[ProjectCompletionDependency, ...],
+    schedule: tuple[ProjectDeclarationOccurrence, ...],
+) -> tuple[
+    tuple[
+        tuple[ProjectDeclarationOccurrence, ...],
+        tuple[ProjectCompletionDependency, ...],
+        tuple[ProjectCompletionDependency, ...],
+    ],
+    ...,
+]:
+    """Iterative Kosaraju on the exact unscheduled relation-use graph."""
+
+    scheduled = {id(owner) for owner in schedule}
+    remaining = {id(owner) for owner in owners} - scheduled
+    adjacency = {key: [] for key in remaining}
+    reverse = {key: [] for key in remaining}
+    for edge in dependencies:
+        source, target = id(edge.consumer), id(edge.target)
+        if source in remaining and target in remaining:
+            adjacency[source].append(edge)
+            reverse[target].append(source)
+    seen = set()
+    finished = []
+    for owner in owners:
+        root = id(owner)
+        if root not in remaining or root in seen:
+            continue
+        seen.add(root)
+        stack = [(root, 0)]
+        while stack:
+            node, position = stack[-1]
+            if position == len(adjacency[node]):
+                finished.append(node)
+                stack.pop()
+                continue
+            stack[-1] = (node, position + 1)
+            target = id(adjacency[node][position].target)
+            if target not in seen:
+                seen.add(target)
+                stack.append((target, 0))
+    assigned = set()
+    components = []
+    for root in reversed(finished):
+        if root in assigned:
+            continue
+        members = set()
+        pending = [root]
+        assigned.add(root)
+        while pending:
+            node = pending.pop()
+            members.add(node)
+            for source in reverse[node]:
+                if source not in assigned:
+                    assigned.add(source)
+                    pending.append(source)
+        internal = tuple(
+            edge
+            for edge in dependencies
+            if id(edge.consumer) in members and id(edge.target) in members
+        )
+        if len(members) == 1 and not internal:
+            continue
+        canonical = tuple(owner for owner in owners if id(owner) in members)
+        # The first internal edge starts at the canonical first member. BFS
+        # finds one return path, without enumerating all simple cycles.
+        first = internal[0]
+        start, target = id(first.consumer), id(first.target)
+        parents = {target: None}
+        queue = deque((target,))
+        while start not in parents:
+            node = queue.popleft()
+            for edge in adjacency[node]:
+                child = id(edge.target)
+                if child in members and child not in parents:
+                    parents[child] = edge
+                    queue.append(child)
+        suffix = []
+        node = start
+        while node != target:
+            edge = parents[node]
+            if edge is None:
+                raise AssertionError("Cycle witness lost its return path.")
+            suffix.append(edge)
+            node = id(edge.consumer)
+        witness = (first, *reversed(suffix))
+        components.append((canonical, internal, witness))
+    order = {id(owner): position for position, owner in enumerate(owners)}
+    return tuple(sorted(components, key=lambda item: order[id(item[0][0])]))
+
+
+def _cycle_diagnostics(
+    verification: ProjectPhase62VerificationResult,
+    members: tuple[ProjectDeclarationOccurrence, ...],
+    witness: tuple[ProjectCompletionDependency, ...],
+) -> tuple[Diagnostic, ...]:
+    semantic = verification.root.join_regions.uses.relationships.semantic_result
+    resolutions = semantic.module_relation_resolutions
+    if resolutions is None:
+        raise ValueError("Completion cycle requires retained relation resolution.")
+    member_ids = {id(owner) for owner in members}
+    existing = tuple(
+        issue.diagnostic
+        for issue in resolutions.issues
+        if issue.relation_cycle
+        and {id(owner) for owner in issue.relation_cycle} <= member_ids
+        and issue.diagnostic is not None
+        and issue.diagnostic.code == "PIE-S2302"
+    )
+    if existing:
+        return existing
+    closing = witness[-1].evidence
+    site = (
+        closing.reference.from_clause
+        if type(closing) is ProjectResolvedModuleRelationReference
+        else cast(ProjectRelationBindingOccurrence, closing).site
+    )
+    span = site.span
+    cross_module = len({owner.identity.module_path for owner in members}) > 1
+    names = tuple(
+        (f"{edge.consumer.identity.module_path}:" if cross_module else "")
+        + edge.consumer.identity.declared_name
+        for edge in witness
+    )
+    return (
+        Diagnostic(
+            code="PIE-S2302",
+            severity=Severity.ERROR,
+            message=f"Relation cycle detected: {' -> '.join((*names, names[0]))}",
+            location=SourceLocation(
+                path=span.path,
+                line=span.line,
+                column=span.column,
+                end_line=span.end_line,
+                end_column=span.end_column,
+            ),
+        ),
+    )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectCompletionTopology:
+    """Derived relation topology; reporting blocked owners is not evaluation."""
+
+    verification: ProjectPhase62VerificationResult = field(repr=False)
+    owners: tuple[ProjectDeclarationOccurrence, ...] = field(init=False)
+    dependencies: tuple[ProjectCompletionDependency, ...] = field(init=False)
+    schedule: tuple[ProjectDeclarationOccurrence, ...] = field(init=False)
+    cycles: tuple[ProjectCompletionCycle, ...] = field(init=False)
+    blocked_owners: tuple[ProjectDeclarationOccurrence, ...] = field(init=False)
+
+    def __post_init__(self) -> None:
+        if type(self.verification) is not ProjectPhase62VerificationResult or (
+            self.verification.status is not ProjectPhase62VerificationStatus.VERIFIED
+        ):
+            raise ValueError("Completion topology requires exact VERIFIED roots.")
+        owners = tuple(
+            fragment.semantic_facts.owner
+            for fragment in self.verification.root.evaluation.project_plan.fragments
+        )
+        dependencies = _dependencies(self.verification)
+        schedule = _schedule(owners, dependencies)
+        cycles = tuple(
+            ProjectCompletionCycle(
+                members=members,
+                dependencies=internal,
+                witness=witness,
+                diagnostics=_cycle_diagnostics(self.verification, members, witness),
+            )
+            for members, internal, witness in _cycle_components(
+                owners, dependencies, schedule
+            )
+        )
+        scheduled = {id(owner) for owner in schedule}
+        for name, value in (
+            ("owners", owners),
+            ("dependencies", dependencies),
+            ("schedule", schedule),
+            ("cycles", cycles),
+            (
+                "blocked_owners",
+                tuple(owner for owner in owners if id(owner) not in scheduled),
+            ),
+        ):
+            object.__setattr__(self, name, value)
+
+    def validate(self) -> None:
+        """Read-only integrity check against retained dependency authority."""
+
+        if type(self.verification) is not ProjectPhase62VerificationResult or (
+            self.verification.status is not ProjectPhase62VerificationStatus.VERIFIED
+        ):
+            raise ValueError("Completion topology requires exact VERIFIED roots.")
+        expected_owners = tuple(
+            fragment.semantic_facts.owner
+            for fragment in self.verification.root.evaluation.project_plan.fragments
+        )
+        expected_dependencies = _dependencies(self.verification)
+        if not _same_objects(self.owners, expected_owners) or (
+            type(self.dependencies) is not tuple
+            or len(self.dependencies) != len(expected_dependencies)
+            or any(
+                type(edge) is not ProjectCompletionDependency
+                or edge.consumer is not expected.consumer
+                or edge.target is not expected.target
+                or type(edge.dependency_ordinal) is not int
+                or edge.dependency_ordinal != expected.dependency_ordinal
+                or edge.evidence is not expected.evidence
+                for edge, expected in zip(
+                    self.dependencies, expected_dependencies, strict=True
+                )
+            )
+        ):
+            raise ValueError("Completion topology lost exact owner/use authority.")
+        expected_schedule = _schedule(self.owners, self.dependencies)
+        scheduled = {id(owner) for owner in expected_schedule}
+        if not _same_objects(self.schedule, expected_schedule) or not _same_objects(
+            self.blocked_owners,
+            tuple(owner for owner in self.owners if id(owner) not in scheduled),
+        ):
+            raise ValueError("Completion topology lost its exact acyclic schedule.")
+        components = _cycle_components(self.owners, self.dependencies, self.schedule)
+        if type(self.cycles) is not tuple or len(self.cycles) != len(components):
+            raise ValueError("Completion topology lost a cyclic component.")
+        for cycle, (members, internal, witness) in zip(
+            self.cycles, components, strict=True
+        ):
+            if type(cycle) is not ProjectCompletionCycle or not all(
+                (
+                    _same_objects(cycle.members, members),
+                    _same_objects(cycle.dependencies, internal),
+                    _same_objects(cycle.witness, witness),
+                )
+            ):
+                raise ValueError("Completion cycle lost canonical member/use evidence.")
+            expected = _cycle_diagnostics(self.verification, members, witness)
+            if (
+                type(cycle.diagnostics) is not tuple
+                or cycle.diagnostics != expected
+                or any(
+                    actual is not retained
+                    for actual, retained in zip(
+                        cycle.diagnostics, expected, strict=True
+                    )
+                    if any(
+                        retained is item
+                        for item in self.verification.root.join_regions.uses.relationships.semantic_result.diagnostics
+                    )
+                )
+            ):
+                raise ValueError("Completion cycle lost its precise diagnostics.")
+
+    def causes(
+        self,
+        owner: ProjectDeclarationOccurrence,
+    ) -> tuple[
+        tuple[ProjectCompletionCycle, ...], tuple[ProjectCompletionDependency, ...]
+    ]:
+        if not any(owner is retained for retained in self.blocked_owners):
+            raise ValueError("Cycle blocker requires an exact blocked owner.")
+        blocked = {id(item) for item in self.blocked_owners}
+        outgoing: dict[int, list[ProjectCompletionDependency]] = {}
+        for edge in self.dependencies:
+            if id(edge.target) in blocked:
+                outgoing.setdefault(id(edge.consumer), []).append(edge)
+        reachable = {id(owner)}
+        queue = deque((owner,))
+        while queue:
+            current = queue.popleft()
+            for edge in outgoing.get(id(current), ()):
+                target = id(edge.target)
+                if target not in reachable:
+                    reachable.add(target)
+                    queue.append(edge.target)
+        return (
+            tuple(cycle for cycle in self.cycles if id(cycle.members[0]) in reachable),
+            tuple(
+                edge
+                for edge in self.dependencies
+                if id(edge.consumer) in reachable and id(edge.target) in blocked
+            ),
+        )
+
+
+def _same_objects(actual: tuple[object, ...], expected: tuple[object, ...]) -> bool:
+    return (
+        type(actual) is tuple
+        and len(actual) == len(expected)
+        and all(
+            item is retained for item, retained in zip(actual, expected, strict=True)
+        )
+    )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectCompletionCycleBlocker:
+    """Non-recursive cause references for a cycle member or affected dependent."""
+
+    topology: ProjectCompletionTopology = field(repr=False)
+    owner: ProjectDeclarationOccurrence = field(repr=False)
+    cycles: tuple[ProjectCompletionCycle, ...] = field(init=False)
+    dependencies: tuple[ProjectCompletionDependency, ...] = field(init=False)
+    is_cycle_member: bool = field(init=False)
+
+    def __post_init__(self) -> None:
+        if type(self.topology) is not ProjectCompletionTopology:
+            raise TypeError("Cycle blocker requires exact topology authority.")
+        cycles, dependencies = self.topology.causes(self.owner)
+        object.__setattr__(self, "cycles", cycles)
+        object.__setattr__(self, "dependencies", dependencies)
+        object.__setattr__(
+            self,
+            "is_cycle_member",
+            any(self.owner is member for cycle in cycles for member in cycle.members),
+        )
+
+    def validate(self) -> None:
+        cycles, dependencies = self.topology.causes(self.owner)
+        if (
+            not _same_objects(self.cycles, cycles)
+            or not _same_objects(self.dependencies, dependencies)
+            or (
+                self.is_cycle_member
+                is not any(
+                    self.owner is member for cycle in cycles for member in cycle.members
+                )
+            )
+        ):
+            raise ValueError("Cycle blocker lost complete canonical causes.")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -204,6 +549,9 @@ class ProjectEffectiveOutputTerminal:
         compare=False,
         hash=False,
     )
+    cycle_blocker: ProjectCompletionCycleBlocker | None = field(
+        default=None, repr=False
+    )
     output: None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
@@ -240,6 +588,32 @@ class ProjectEffectiveOutputTerminal:
             )
         ):
             raise ValueError("Pending entries must retain exact dependency evidence.")
+
+        if self.reason in {
+            ProjectEffectiveOutputTerminalReason.DEPENDENCY_CYCLE,
+            ProjectEffectiveOutputTerminalReason.UPSTREAM_DEPENDENCY_CYCLE,
+        }:
+            blocker = self.cycle_blocker
+            if (
+                type(blocker) is not ProjectCompletionCycleBlocker
+                or blocker.owner is not self.owner
+            ):
+                raise ValueError("Cycle terminal requires exact owner-local causes.")
+            blocker.validate()
+            if (
+                self.reason is ProjectEffectiveOutputTerminalReason.DEPENDENCY_CYCLE
+            ) is not blocker.is_cycle_member or any(
+                (
+                    self.joined_completion is not None,
+                    self.resolution is not None,
+                    bool(self.pending_dependencies),
+                    bool(self.pending_entries),
+                )
+            ):
+                raise ValueError("Cycle terminal cannot invent evaluation or replay.")
+            return
+        if self.cycle_blocker is not None:
+            raise ValueError("Acyclic terminal cannot acquire cycle evidence.")
 
         if self.reason is ProjectEffectiveOutputTerminalReason.JOINED_TAIL_PENDING:
             if (
@@ -321,6 +695,7 @@ class ProjectCompletion:
     dependencies: tuple[ProjectCompletionDependency, ...]
     schedule: tuple[ProjectDeclarationOccurrence, ...]
     entries: tuple[ProjectEffectiveOutputEntry, ...]
+    topology: ProjectCompletionTopology = field(repr=False)
 
     def __post_init__(self) -> None:
         if (
@@ -374,19 +749,14 @@ class ProjectCompletion:
             for owner in self.owners
         ):
             raise ValueError("Completion dependencies must retain canonical order.")
-        if (
-            len(self.schedule) != len(self.owners)
-            or {id(owner) for owner in self.schedule} != owner_ids
+        if type(self.topology) is not ProjectCompletionTopology or (
+            self.topology.verification is not self.verification
+            or self.owners is not self.topology.owners
+            or self.dependencies is not self.topology.dependencies
+            or self.schedule is not self.topology.schedule
         ):
-            raise ValueError("Completion schedule must contain every owner once.")
-        schedule_positions = {
-            id(owner): position for position, owner in enumerate(self.schedule)
-        }
-        if any(
-            schedule_positions[id(item.target)] >= schedule_positions[id(item.consumer)]
-            for item in self.dependencies
-        ):
-            raise ValueError("Completion schedule must remain dependency-first.")
+            raise ValueError("Completion requires exact retained topology authority.")
+        self.topology.validate()
         if len(self.entries) != len(self.owners) or any(
             type(entry)
             not in {
@@ -399,6 +769,21 @@ class ProjectCompletion:
             for entry, owner in zip(self.entries, self.owners, strict=True)
         ):
             raise ValueError("Completion ledger requires exactly one entry per owner.")
+
+        blocked = {id(owner) for owner in self.topology.blocked_owners}
+        for entry in self.entries:
+            if id(entry.owner) in blocked:
+                if type(entry) is not ProjectEffectiveOutputTerminal or (
+                    type(entry.cycle_blocker) is not ProjectCompletionCycleBlocker
+                    or entry.cycle_blocker.topology is not self.topology
+                ):
+                    raise ValueError("Blocked owner must retain its cycle terminal.")
+                entry.__post_init__()
+            elif (
+                type(entry) is ProjectEffectiveOutputTerminal
+                and entry.cycle_blocker is not None
+            ):
+                raise ValueError("Scheduled owner cannot be cycle-blocked.")
 
     def find_owner(
         self,
@@ -487,8 +872,6 @@ def _schedule(
             indegree[successor] -= 1
             if indegree[successor] == 0:
                 ready.append(successor)
-    if len(ordered) != len(owners):
-        raise ValueError("Exact completion dependencies must remain acyclic.")
     return tuple(ordered)
 
 
@@ -632,9 +1015,10 @@ def build_project_completion(
     ):
         raise ValueError("Completion requires an exact VERIFIED Phase-62 root.")
     plan = verification.root.evaluation.project_plan
-    owners = tuple(fragment.semantic_facts.owner for fragment in plan.fragments)
-    dependencies = _dependencies(verification)
-    schedule = _schedule(owners, dependencies)
+    topology = ProjectCompletionTopology(verification=verification)
+    owners = topology.owners
+    dependencies = topology.dependencies
+    schedule = topology.schedule
     fragments = {
         id(fragment.semantic_facts.owner): fragment for fragment in plan.fragments
     }
@@ -643,6 +1027,24 @@ def build_project_completion(
         for owner in owners
     }
     built_by_owner: dict[int, ProjectEffectiveOutputEntry] = {}
+    for owner in topology.blocked_owners:
+        fragment = fragments[id(owner)]
+        if type(fragment) is not ProjectIRNonConcreteSingleRelationFragment:
+            raise ValueError(
+                "Cyclic dependency cannot have a concrete historical root."
+            )
+        blocker = ProjectCompletionCycleBlocker(topology=topology, owner=owner)
+        built_by_owner[id(owner)] = ProjectEffectiveOutputTerminal(
+            owner=owner,
+            fragment=fragment,
+            reason=(
+                ProjectEffectiveOutputTerminalReason.DEPENDENCY_CYCLE
+                if blocker.is_cycle_member
+                else ProjectEffectiveOutputTerminalReason.UPSTREAM_DEPENDENCY_CYCLE
+            ),
+            dependencies=dependencies_by_owner[id(owner)],
+            cycle_blocker=blocker,
+        )
     for owner in schedule:
         fragment = fragments[id(owner)]
         owner_dependencies = dependencies_by_owner[id(owner)]
@@ -673,4 +1075,5 @@ def build_project_completion(
         dependencies=dependencies,
         schedule=schedule,
         entries=entries,
+        topology=topology,
     )

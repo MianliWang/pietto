@@ -125,12 +125,11 @@ ambiguous paths, and failed-binding dependencies fail closed without a winner.
 Intermediate path relations do not become bindings. Only `inner` and `left`
 are accepted, and there is no JOIN-local `on` refinement.
 
-Slice 10 preserves JOIN uses separately from combined row semantics. A
-JOIN-bearing table/query is `AUTHORED_JOIN_DEFERRED` for Project row facts and
-single-relation Project IR, and legacy Script IR emits `PIE-I1000`; SQL cannot
-silently omit the JOIN. Joined bindings do not enter scalar field lookup.
-Binary Project IR JOIN topology, combined rows, actual null extension, and SQL
-JOIN lowering begin in later slices. Join-free behavior is unchanged.
+Historical Project row facts and single-relation IR retain
+`AUTHORED_JOIN_DEFERRED`. The completed EXPLICIT_MODULES path adds combined JOIN
+rows, joined scalar lookup, null-extension evidence, final outputs and private
+Query-block IR. Legacy Script IR rejects authored JOIN with `PIE-I1000`;
+multi-relation SQL lowering remains unavailable. Join-free behavior is unchanged.
 
 ## Expressions
 
@@ -292,9 +291,11 @@ windows and therefore cannot consume a selected result.
 
 An authored QUALIFY requires at least one selected or hidden window computation.
 Its predicate reuses the existing scalar and Bool kernels; a known nullable Bool
-is legal. SQL truth retains only TRUE and drops FALSE or UNKNOWN. This stage does
-not yet lower QUALIFY to IR or SQL, establish relation ordering, or complete the
-final relation output.
+is legal. SQL truth retains only TRUE and drops FALSE or UNKNOWN. Completed
+EXPLICIT_MODULES semantics and private Query-block IR retain QUALIFY, final
+relation ordering and output. Legacy Script IR rejects every authored QUALIFY
+with `PIE-I1000`; SQL lowering remains unavailable, including for a constant-true
+predicate. This corrects the former silent omission without changing parsing.
 
 ## Modules and relationships
 

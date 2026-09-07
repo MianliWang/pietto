@@ -82,7 +82,7 @@ D01–D08 落定后全部作答。
 | 6 | Proof posture | asserted / derived / verified / observed / unknown / disproven 分离；本文件的 counterexample 为 disproven-by-example，finite case 不证明全称等式。single-match 另立第三态「合法但未证明」，见 #20 | C01–C10；D05 |
 | 7 | Layer ownership | 每个新 fact 归属 semantic stage、Project IR 或 inspection 之一；不新建第二套 property engine | F10, F11 |
 | 8 | Dependency direction | semantic → IR → verification → inspection 单向；下游不得重新决定语义 | `layering-and-coupling-laws-v1.md` |
-| 9 | Versioning and migration | Project JSON v2、CLI text/JSON、`AUTHORED_JOIN_DEFERRED`、既有 inspection format 保持不变；新增只允许 additive private | Phase-63 public exit |
+| 9 | Versioning and migration | Project JSON v2、CLI text/JSON 的形状、`AUTHORED_JOIN_DEFERRED`、既有 inspection format 保持不变；内部载体为 additive private，新增 authored 语法与诊断为 additive public | Phase-63 public exit；§Public And Compatibility Exit |
 | 10 | Requirements vs capabilities | Phase 64 保持 target-neutral；backend legality 与 capability 仍属 Phase 65+ | Handoff Q11 |
 | 11 | Interchange | 无新的 process/serialization/device 边界；private canonical bytes 仅用于 observation | Phase-63 Slice 15 |
 | 12 | Execution | 无 execution；Phase 64 不引入 evaluator、optimizer 或 backend selection | `AGENTS.md` 产品边界 |

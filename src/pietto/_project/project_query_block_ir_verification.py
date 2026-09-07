@@ -665,16 +665,29 @@ def _verify_ledger(
             )
         )
     )
+    completion = root.completed.completion
+    completion.__post_init__()
+    blocked = {id(owner) for owner in completion.topology.blocked_owners}
     schedule_positions = {
         id(owner): position for position, owner in enumerate(root.schedule)
     }
     valid = (
         valid
-        and len(schedule_positions) == len(root.owners)
+        and len(schedule_positions) + len(blocked) == len(root.owners)
+        and not set(schedule_positions) & blocked
         and all(
             schedule_positions.get(id(dependency.target), len(root.schedule))
-            < schedule_positions.get(id(dependency.consumer), -1)
+            < schedule_positions[id(dependency.consumer)]
             for dependency in root.dependencies
+            if id(dependency.consumer) not in blocked
+        )
+        and all(
+            type(entry) is ProjectIRQueryBlockTerminal
+            and entry.reason
+            is ProjectIRQueryBlockTerminalReason.SEMANTIC_OUTPUT_NON_CONCRETE
+            and entry.blocker is entry.semantic_entry
+            for entry in root.entries
+            if id(entry.owner) in blocked
         )
     )
     if not valid:

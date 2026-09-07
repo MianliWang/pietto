@@ -216,9 +216,10 @@ assets -> trusted loading and D1 content identity -> exact local dependency
 plan -> deterministic rejection -> private inspection -> portable pure
 evaluation and differential compatibility. Later ownership remains separate:
 Phase 58 owns public package inspection and explain; Phase 59 owns richer local
-package graph, provenance, and lineage; Phase 66 owns additional package asset
-kinds; Phase 67 owns remote package management and trust; and Phase 68 owns a
-solver, lockfile, and the first Rust-kernel decision.
+package graph, provenance, and lineage. The current roadmap assigns reusable
+local semantic assets to Phase 74, remote assets and trust to Phase 84,
+dependency solving and lockfiles to Phase 85, and profiling-driven Rust kernels
+to Phase 90. Phase 67 owns result interchange and Phase 68 owns explicit execution.
 
 ## Inspection and portable boundaries
 

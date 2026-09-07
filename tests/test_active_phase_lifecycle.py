@@ -283,6 +283,7 @@ EXPECTED_STATUS = (
     ("Interlude II Slice 4", "`COMPLETED / PUBLISHED`"),
     ("Phase 64", "`ACTIVE`"),
     ("Phase 64 Slice 1", "`COMPLETED / PUBLISHED`"),
+    ("Unnumbered compilation-boundary repair", "`COMPLETED / PUBLISHED`"),
     ("Phase 64 Slice 2", "`NEXT / NOT IMPLEMENTED`"),
     (
         "Next",
@@ -1516,6 +1517,11 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     status = _read(STATUS)
     assert _table_rows(status)[1:] == EXPECTED_STATUS
     normalized = " ".join(status.split())
+    assert "pre-phase64-slice2-compilation-boundary-correctness-repair-v1.md" in status
+    assert (
+        "Phase 64 Slice 2 remains `NEXT / NOT IMPLEMENTED` and was not started."
+        in normalized
+    )
     assert (
         "Phase 59 and the Validation/Test Performance Optimization Interlude are "
         "completed by live Git and successful natural exact-head CI" in normalized

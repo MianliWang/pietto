@@ -23,6 +23,13 @@ Interlude II is `COMPLETED` with `Interlude II self-owned-open = 0`. Phase 64 is
 `ACTIVE`, its Slice 1 froze a fresh Product/Phase Initiation Gate v3 and a
 route of exactly 11 numbered Slices, and Slice 2 is `NEXT / NOT IMPLEMENTED`.
 Project Explain v1 remains unchanged.
+
+The [unnumbered compilation-boundary repair](spec/pre-phase64-slice2-compilation-boundary-correctness-repair-v1.md)
+closes unsupported QUALIFY admission and typed relation-cycle failure before
+Slice 2. Successful natural exact-head CI on its ordinary commit establishes
+completion. It adds no numbered route row, changes no D01–D08 or E01–E12, and
+leaves Phase 64 Slice 2 `NEXT / NOT IMPLEMENTED`.
+
 Pietto remains compiler-only: no package or catalog registry, dependency
 solver, remote loading, database execution, runtime evaluation, installation
 discovery, or implicit project discovery is authorized. Future work must

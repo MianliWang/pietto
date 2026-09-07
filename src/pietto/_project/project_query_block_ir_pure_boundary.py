@@ -831,7 +831,47 @@ def _validate_entries(
     owners = _records(document, _K.OWNER_ENTRY)
     owner_refs = tuple(_ref(record, "ref") for record in owners)
     schedule = _refs(document.records[0], "schedule")
-    if len(schedule) != len(owner_refs) or set(schedule) != set(owner_refs):
+    dependencies = _records(document, _K.DEPENDENCY)
+    remaining = set(owner_refs)
+    indegree = dict.fromkeys(owner_refs, 0)
+    successors: dict[
+        ProjectQueryBlockIRPortableRef, list[ProjectQueryBlockIRPortableRef]
+    ] = {owner: [] for owner in owner_refs}
+    for edge in dependencies:
+        consumer, target = _ref(edge, "consumer"), _ref(edge, "target")
+        indegree[consumer] += 1
+        successors[target].append(consumer)
+    ready = [owner for owner in owner_refs if indegree[owner] == 0]
+    available: set[ProjectQueryBlockIRPortableRef] = set()
+    # Independently check the evaluable domain using complete dependency uses.
+    # Cyclic and transitively blocked owners must remain non-concrete records.
+    while ready:
+        owner = ready.pop()
+        available.add(owner)
+        remaining.remove(owner)
+        for consumer in successors[owner]:
+            indegree[consumer] -= 1
+            if indegree[consumer] == 0:
+                ready.append(consumer)
+    if (
+        len(schedule) != len(available)
+        or set(schedule) != available
+        or any(
+            _enumeration(declared[owner], "variant") != "terminal"
+            or _enumeration(declared[owner], "terminal_reason")
+            != "semantic_output_non_concrete"
+            or _enumeration(declared[owner], "blocker_kind")
+            != "ProjectEffectiveOutputTerminal"
+            for owner in remaining
+        )
+    ):
+        return _reject(ProjectQueryBlockIRPureStatus.INVALID_ENTRY, 0, 10)
+    positions = {owner: position for position, owner in enumerate(schedule)}
+    if any(
+        positions[_ref(edge, "target")] >= positions[_ref(edge, "consumer")]
+        for edge in dependencies
+        if _ref(edge, "consumer") in available
+    ):
         return _reject(ProjectQueryBlockIRPureStatus.INVALID_ENTRY, 0, 10)
     variants = {"reused", "rebound", "completed", "terminal"}
     terminal_reasons = {

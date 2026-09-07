@@ -242,7 +242,17 @@ def _diagnostics_from_carrier(carrier: object | None) -> tuple[Diagnostic, ...]:
             for diagnostic in _diagnostics_from_carrier(item)
         )
     if type(carrier) is ProjectEffectiveOutputTerminal:
+        cycle_diagnostics = (
+            ()
+            if carrier.cycle_blocker is None
+            else tuple(
+                diagnostic
+                for cycle in carrier.cycle_blocker.cycles
+                for diagnostic in cycle.diagnostics
+            )
+        )
         return (
+            *cycle_diagnostics,
             *_diagnostics_from_carrier(carrier.fragment.semantic_facts),
             *_diagnostics_from_carrier(carrier.joined_completion),
             *_diagnostics_from_carrier(carrier.pending_entries),

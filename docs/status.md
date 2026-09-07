@@ -39,6 +39,7 @@ documentation does not supersede that evidence.
 | Interlude II Slice 4 | `COMPLETED / PUBLISHED` |
 | Phase 64 | `ACTIVE` |
 | Phase 64 Slice 1 | `COMPLETED / PUBLISHED` |
+| Unnumbered compilation-boundary repair | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 2 | `NEXT / NOT IMPLEMENTED` |
 | Next | `Phase 64 Slice 2 — Generic ON, new JOIN kind and set-operation clause grammar and AST` |
 
@@ -589,3 +590,11 @@ effective-JOIN terminals are retained. All 22 inherited assets remain
 available, all 12 mandatory Phase-64 initiation questions are answered, and all
 15 transferred subjects are assigned to the numbered route. Slice 2 is
 `NEXT / NOT IMPLEMENTED`, and Slices 3–11 are `NOT IMPLEMENTED`.
+
+The [unnumbered compilation-boundary repair](spec/pre-phase64-slice2-compilation-boundary-correctness-repair-v1.md)
+rejects unsupported QUALIFY at the shared legacy-IR boundary and retains relation
+cycles as typed completion failures with precise diagnostics. Natural exact-head
+CI on its ordinary publication commit establishes `COMPLETED / PUBLISHED`
+without a status-only follow-up. These are public error/admission corrections;
+JSON shapes and D01–D08, the 11-Slice route and E01–E12 remain unchanged.
+Phase 64 Slice 2 remains `NEXT / NOT IMPLEMENTED` and was not started.

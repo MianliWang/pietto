@@ -420,6 +420,11 @@ def _lower_relation(
             definition,
             "binary JOIN lowering for an authored relationship traversal",
         )
+    if definition.qualify_clause is not None:
+        raise _MissingSemanticFact(
+            definition.qualify_clause,
+            "QUALIFY lowering",
+        )
 
     target = semantic_model.from_resolutions.get(definition.from_clause)
     if target is None:

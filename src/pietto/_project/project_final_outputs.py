@@ -3355,7 +3355,10 @@ def build_project_effective_output_completion(
             strict=True,
         )
     }
-    built_by_owner: dict[int, ProjectEffectiveOutputCompletionEntry] = {}
+    built_by_owner: dict[int, ProjectEffectiveOutputCompletionEntry] = {
+        id(owner): base_by_owner[id(owner)]
+        for owner in completion.topology.blocked_owners
+    }
     replay_roots: list[ProjectNoJoinReplayRoot] = []
     for owner in completion.schedule:
         base_entry = base_by_owner[id(owner)]

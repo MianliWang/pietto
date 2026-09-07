@@ -2505,7 +2505,8 @@ def _build_pending_entries(
     }
     pending_by_owner: dict[int, _PendingEntry] = {}
     current = verification.root.join_regions.ending_allocation
-    for owner in overlay.schedule:
+    # Blocked owners are reported as zero-allocation terminals, never evaluated.
+    for owner in (*overlay.schedule, *completed.completion.topology.blocked_owners):
         semantic_entry = semantic_by_owner[id(owner)]
         if type(semantic_entry) in {
             ProjectEffectiveOutputTerminal,
@@ -3219,7 +3220,10 @@ def _build_final_entries(
     origins: ProjectIRQueryBlockGrainOriginExtension,
 ) -> tuple[tuple[ProjectIRQueryBlockEntry, ...], dict[int, ProjectIRQueryBlockEntry]]:
     built_by_owner: dict[int, ProjectIRQueryBlockEntry] = {}
-    for owner in completed.effective_outputs.schedule:
+    for owner in (
+        *completed.effective_outputs.schedule,
+        *completed.completion.topology.blocked_owners,
+    ):
         pending = pending_by_owner[id(owner)]
         if type(pending) is _PendingTerminal:
             blocker = pending.blocker
