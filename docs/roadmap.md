@@ -2133,7 +2133,8 @@ subjects to the numbered route below.
 
 Phase 64 **Flat Relational Algebra** is `ACTIVE`. Slice 1 is
 `COMPLETED / PUBLISHED`, Slice 2 is `COMPLETED / PUBLISHED`, Slice 3 is
-`NEXT / NOT IMPLEMENTED`, and the frozen route has exactly 11 numbered Slices.
+`COMPLETED / PUBLISHED`, Slice 4 is `NEXT / NOT IMPLEMENTED`, and the frozen
+route has exactly 11 numbered Slices.
 
 | Slice | Owner |
 | ---: | --- |
@@ -2190,8 +2191,17 @@ adds parse-only JOIN-local ON, additional authored kinds and alternate set bodie
 Located AST retention includes absent quantifiers and repeated named operands;
 negative admission prevents silent omission or false semantic/SQL success.
 Natural exact-head CI completes Slice 2 without a status-only follow-up.
-Slice 3 remains NEXT / NOT IMPLEMENTED; positive operator semantics stay with
-Slices 3–10, and no additional route row or product exit is introduced.
+That publication left Slice 3 NEXT / NOT IMPLEMENTED.
+
+The [Slice-3 condition authority contract](spec/phase64-slice3-generic-on-condition-semantics-authority-separation-v1.md)
+adds private Bool/reference/conjunct/null-rejection facts from exact pre-match
+inputs, with generic and relationship-refinement authority separated. C03
+retains exact upper-bound evidence and drops coverage; C04 disjunction supplies
+no unconditional key null-rejection. Condition readiness does not complete a
+new JOIN or admit IR/SQL. Natural exact-head CI completes Slice 3 without a
+status-only follow-up. Slice 4 is NEXT / NOT IMPLEMENTED and owns effective-input
+integration and the first generic INNER/LEFT vertical closure. Slices 5–11
+remain NOT IMPLEMENTED; no additional route row or product exit is introduced.
 
 ## Future Roadmap v6
 

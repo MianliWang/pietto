@@ -61,6 +61,7 @@ class ProjectRelationshipConditionScope(StrEnum):
     RELATIONSHIP_BASE_MATCH = "relationship_base_match"
     JOIN_LOCAL_ON_REFINEMENT = "join_local_on_refinement"
     POST_JOIN_FILTER = "post_join_filter"
+    GENERIC_JOIN_MATCH = "generic_join_match"
 
 
 class ProjectRelationshipConstraintScopeKind(StrEnum):

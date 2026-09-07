@@ -1015,6 +1015,79 @@ def _non_concrete_use(
     )
 
 
+def project_join_mode(clause: JoinClause) -> str:
+    """Classify authored authority without discovering a relationship."""
+    if clause.kind is AuthoredJoinKind.CROSS:
+        return "M5"
+    if clause.on_clause is not None:
+        return "M4" if clause.traversal_steps else "M3"
+    return "M2" if clause.traversal_steps else "M1"
+
+
+def project_join_combination_error(clause: JoinClause) -> str | None:
+    if clause.kind is AuthoredJoinKind.CROSS and (
+        clause.on_clause is not None or clause.traversal_steps
+    ):
+        return "CROSS JOIN cannot have ON or VIA."
+    if len(clause.traversal_steps) > 1:
+        if clause.on_clause is not None:
+            return "JOIN-local ON refinement requires exactly one VIA step."
+        if clause.kind not in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}:
+            return "This JOIN kind requires a direct binary input."
+    return None
+
+
+def project_join_source_candidates(
+    ledger: ProjectRelationJoinUseLedger, use: ProjectJoinUse
+) -> tuple[ProjectRelationBindingOccurrence, ...]:
+    """Keep every earlier source binding; never choose a duplicate winner."""
+    if not any(use is retained for retained in ledger.uses):
+        raise ValueError("Pre-match source requires its exact JOIN ledger.")
+    return tuple(
+        binding
+        for binding in ledger.bindings[: use.identity.join_position + 1]
+        if binding.name == use.clause.source_binding_name
+    )
+
+
+def validate_project_join_input_bindings(
+    roots: ProjectRelationshipUseSet, ledger: ProjectRelationJoinUseLedger
+) -> None:
+    """Rebind pre-match inputs to existing exact resolution/output authority."""
+    if not any(ledger is retained for retained in roots.ledgers):
+        raise ValueError("Pre-match bindings require their exact ledger.")
+    resolutions = roots.relationships.semantic_result.module_relation_resolutions
+    if resolutions is None:
+        raise ValueError("Pre-match bindings require exact module resolutions.")
+    environments = resolutions.find_module_path(ledger.owner.identity.module_path)
+    if len(environments) != 1:
+        raise ValueError("Pre-match bindings require one exact module environment.")
+    names = tuple(binding.name for binding in ledger.bindings)
+    for position, binding in enumerate(ledger.bindings):
+        expected = _binding(
+            owner=ledger.owner,
+            position=position,
+            environment=environments[0],
+            index=roots.index,
+            duplicate=names.count(binding.name) > 1,
+        )
+        if (
+            binding.target is not expected.target
+            or binding.output is not expected.output
+            or binding.state is not expected.state
+            or len(binding.relation_issues) != len(expected.relation_issues)
+            or any(
+                actual is not retained
+                for actual, retained in zip(
+                    binding.relation_issues, expected.relation_issues, strict=True
+                )
+            )
+        ):
+            raise ValueError(
+                "Pre-match binding must retain exact resolved input authority."
+            )
+
+
 def _build_use(
     *,
     owner: ProjectDeclarationOccurrence,

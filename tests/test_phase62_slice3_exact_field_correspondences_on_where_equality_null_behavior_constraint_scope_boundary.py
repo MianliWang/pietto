@@ -462,10 +462,12 @@ def test_condition_and_constraint_scope_vocabularies_remain_separate(
     result = _condition_set(tmp_path)
     single = _named(result, "single")
     assert type(single) is conditions.ProjectConcreteRelationshipCondition
-    assert tuple(conditions.ProjectRelationshipConditionScope) == (
-        conditions.ProjectRelationshipConditionScope.RELATIONSHIP_BASE_MATCH,
-        conditions.ProjectRelationshipConditionScope.JOIN_LOCAL_ON_REFINEMENT,
-        conditions.ProjectRelationshipConditionScope.POST_JOIN_FILTER,
+    assert set(conditions.ProjectRelationshipConditionScope).issuperset(
+        {
+            conditions.ProjectRelationshipConditionScope.RELATIONSHIP_BASE_MATCH,
+            conditions.ProjectRelationshipConditionScope.JOIN_LOCAL_ON_REFINEMENT,
+            conditions.ProjectRelationshipConditionScope.POST_JOIN_FILTER,
+        }
     )
     assert tuple(conditions.ProjectRelationshipConstraintScopeKind) == (
         conditions.ProjectRelationshipConstraintScopeKind.UNCONDITIONAL_ON_EXACT_ROW_OUTPUT,

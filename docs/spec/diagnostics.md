@@ -82,7 +82,9 @@ stored separately and is never encoded in the code.
 | `PIE-S2331` | `QUALIFY` lacks both a selected window result and a hidden predicate window computation |
 | `PIE-S2332` | `QUALIFY` reference is unknown or ambiguous across visible pre-window inputs and selected window results |
 | `PIE-S2333` | Project relation semantic completion is unavailable |
-| `PIE-S2334` | Parsed flat-relational syntax or a named set input is not semantically available; ERROR in LOOSE/CHECKED/STRICT, retaining the authored JOIN/ON/operator/input span. No positive ON, new-kind JOIN or set semantics is implied. |
+| `PIE-S2334` | Complete flat-relational operations or a named set input remain unavailable; ERROR in LOOSE/CHECKED/STRICT, retaining existing messages and authored JOIN/ON/operator/input spans. A private ready ON condition does not remove this operation boundary. |
+| `PIE-S2335` | JOIN pre-match input/reference/type or scalar context is unavailable, unknown, forward or ambiguous; ERROR at the exact JOIN/reference/expression span. Existing scalar-kernel and Bool-consumer diagnostics retain their codes and objects. |
+| `PIE-S2336` | Unsupported authored JOIN combination: CROSS with ON/VIA, multi-hop VIA with ON, or a multi-hop new kind; ERROR at the authored JOIN span. |
 | `PIE-S2401` | Constraint return type does not expand to `Bool` |
 | `PIE-S2402` | Callable or field derive body type mismatch |
 | `PIE-S2501` | Duplicate shape item name |

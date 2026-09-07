@@ -127,7 +127,16 @@ traversal retains its existing semantic support. The parser also retains
 `cross`, `right`, `full`, `semi`, `anti`, and one optional JOIN-local `on`
 expression after VIA steps. ON-only and VIA+ON are distinct AST forms; generic
 ON, refinement and additional kinds currently emit `PIE-S2334` in every check
-mode. Parsing does not enable their semantics or SQL lowering.
+mode because their complete operation is unavailable. Private explicit-module
+condition analysis now accepts the existing row-scalar Bool domain, including
+nullable Bool with TRUE-only matching. It uses exact pre-match fields and prior
+JOIN nullability, without current-block LET/projection/window capture. Generic
+ON does not discover relationships. Exactly one VIA plus ON retains the base
+condition and adds a JOIN-local refinement; its upper bound may survive but
+coverage does not. Ordered AND conjuncts retain exact reference occurrences;
+OR alone supplies no unconditional key non-nullness. Invalid conditions and
+combinations add precise diagnostics. CROSS has no ON/VIA, and new kinds are
+direct binary only. These facts do not enable complete JOIN check or SQL.
 
 An alternate complete table/query body retains named set operands:
 

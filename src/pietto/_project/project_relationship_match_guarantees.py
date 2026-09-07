@@ -303,6 +303,28 @@ class ProjectDirectionalRelationshipMatchGuarantee:
         return f"{lower}..{upper}"
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectRefinedMatchBounds:
+    """Subset rule only: a refinement preserves upper bounds, not coverage.
+
+    The JOIN condition consumer owns and validates the actual refinement.
+    This adapter cannot be substituted for a directional base guarantee.
+    """
+
+    base: ProjectDirectionalRelationshipMatchGuarantee
+    minimum: ProjectRelationshipMinimumBound = field(
+        init=False, default=ProjectRelationshipMinimumBound.ZERO_ALLOWED
+    )
+    maximum: ProjectRelationshipMaximumBound = field(init=False)
+    maximum_evidence: ProjectMaximumBoundEvidence = field(init=False)
+
+    def __post_init__(self) -> None:
+        if type(self.base) is not ProjectDirectionalRelationshipMatchGuarantee:
+            raise TypeError("Refinement requires an exact base guarantee.")
+        object.__setattr__(self, "maximum", self.base.maximum)
+        object.__setattr__(self, "maximum_evidence", self.base.maximum_evidence)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectNonConcreteMatchGuaranteeSubject:
     relationship: (

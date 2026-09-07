@@ -285,11 +285,12 @@ EXPECTED_STATUS = (
     ("Phase 64 Slice 1", "`COMPLETED / PUBLISHED`"),
     ("Unnumbered compilation-boundary repair", "`COMPLETED / PUBLISHED`"),
     ("Phase 64 Slice 2", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64 Slice 3", "`NEXT / NOT IMPLEMENTED`"),
+    ("Phase 64 Slice 3", "`COMPLETED / PUBLISHED`"),
+    ("Phase 64 Slice 4", "`NEXT / NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 64 Slice 3 — Generic ON condition semantics and "
-        "base/refinement/WHERE authority separation`",
+        "`Phase 64 Slice 4 — Row-source sum extension, effective-output JOIN "
+        "boundary and first generic vertical closure`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1901,7 +1902,7 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "All 22 inherited assets remain available",
         "all 12 mandatory Phase-64 initiation questions are answered",
         "all 15 transferred subjects are assigned to the numbered route",
-        "Phase 64 Slice 3 is `NEXT / NOT IMPLEMENTED`; Slices 4–11 are `NOT IMPLEMENTED`",
+        "Phase 64 Slice 4 is `NEXT / NOT IMPLEMENTED`; Slices 5–11 are `NOT IMPLEMENTED`",
     ):
         assert evidence in normalized
     interlude_ii_target = (
@@ -4795,7 +4796,7 @@ def test_phase64_route_section_is_exact() -> None:
     for evidence in (
         "Phase 64 **Flat Relational Algebra** is `ACTIVE`",
         "Slice 1 is `COMPLETED / PUBLISHED`, Slice 2 is `COMPLETED / PUBLISHED`, "
-        "Slice 3 is `NEXT / NOT IMPLEMENTED`",
+        "Slice 3 is `COMPLETED / PUBLISHED`, Slice 4 is `NEXT / NOT IMPLEMENTED`",
         "the frozen route has exactly 11 numbered Slices",
         "13 reconciled live source findings",
         "three exclusive ledgers",

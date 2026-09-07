@@ -58,6 +58,10 @@ from pietto._project.project_ir_verification import (
 from pietto._project.project_joined_aggregation import (
     build_project_joined_aggregations,
 )
+from pietto._project.project_join_conditions import (
+    ProjectJoinConditionSet,
+    build_project_join_conditions,
+)
 from pietto._project.project_joined_qualify import build_project_joined_qualifies
 from pietto._project.project_joined_row_filter import (
     build_project_joined_row_filters,
@@ -144,6 +148,7 @@ class _ProjectCompletedSemanticRoots:
         compare=False,
         hash=False,
     )
+    join_conditions: ProjectJoinConditionSet = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         if type(self.semantic_result) is not ProjectSemanticResult or (
@@ -152,6 +157,9 @@ class _ProjectCompletedSemanticRoots:
         ):
             raise TypeError("Completed Project semantics require exact concrete roots.")
         verification = _build_phase62_verification(self.semantic_result)
+        join_conditions = build_project_join_conditions(
+            verification.root.join_regions.uses
+        )
         completion = build_project_completion(verification)
         filters = build_project_joined_row_filters(completion)
         aggregations = build_project_joined_aggregations(filters)
@@ -164,6 +172,7 @@ class _ProjectCompletedSemanticRoots:
         object.__setattr__(self, "verification", verification)
         object.__setattr__(self, "completion", completion)
         object.__setattr__(self, "effective_outputs", effective_outputs)
+        object.__setattr__(self, "join_conditions", join_conditions)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -192,7 +201,10 @@ class ProjectConcreteCompletedSemanticResult:
         verification = self.roots.verification
         completion = self.roots.completion
         effective_outputs = self.roots.effective_outputs
-        diagnostics = _final_diagnostics(semantic_result, effective_outputs)
+        diagnostics = (
+            *_final_diagnostics(semantic_result, effective_outputs),
+            *self.roots.join_conditions.diagnostics,
+        )
         entries_are_concrete = all(
             type(entry)
             in {ProjectExistingEffectiveOutput, ProjectCompletedEffectiveOutput}

@@ -41,8 +41,9 @@ documentation does not supersede that evidence.
 | Phase 64 Slice 1 | `COMPLETED / PUBLISHED` |
 | Unnumbered compilation-boundary repair | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 2 | `COMPLETED / PUBLISHED` |
-| Phase 64 Slice 3 | `NEXT / NOT IMPLEMENTED` |
-| Next | `Phase 64 Slice 3 — Generic ON condition semantics and base/refinement/WHERE authority separation` |
+| Phase 64 Slice 3 | `COMPLETED / PUBLISHED` |
+| Phase 64 Slice 4 | `NEXT / NOT IMPLEMENTED` |
+| Next | `Phase 64 Slice 4 — Row-source sum extension, effective-output JOIN boundary and first generic vertical closure` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -608,4 +609,14 @@ relation bodies, including omitted quantifiers and repeated operand occurrences.
 New forms remain explicitly unavailable through PIE-S2334/PIE-I1000, without
 positive ON/set semantics or SQL. The QUALIFY and exact cycle/partial-schedule
 repairs remain intact. D01–D08, N=11 and E01–E12 are unchanged.
-Phase 64 Slice 3 is `NEXT / NOT IMPLEMENTED`; Slices 4–11 are `NOT IMPLEMENTED`.
+Phase 64 Slice 3 is `COMPLETED / PUBLISHED` by natural exact-head CI on its
+ordinary publication commit, without a status-only follow-up. Its
+[condition authority contract](spec/phase64-slice3-generic-on-condition-semantics-authority-separation-v1.md)
+retains exact authored uses, pre-match inputs, ordered reference/conjunct facts,
+Bool typing and sound null-rejection evidence. Generic ON performs no
+relationship discovery; one-VIA refinement retains the base condition and its
+applicable upper-bound proof while dropping coverage. Completed semantic roots
+retain these facts and exact additive diagnostics. Complete new JOIN operations
+remain unavailable through the existing check/IR/SQL boundary. F01/F02, old
+JOIN/window/QUALIFY behavior and set-body terminals remain intact.
+Phase 64 Slice 4 is `NEXT / NOT IMPLEMENTED`; Slices 5–11 are `NOT IMPLEMENTED`.
