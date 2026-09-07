@@ -286,7 +286,8 @@ EXPECTED_STATUS = (
     ("Phase 64 Slice 2", "`NEXT / NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 64 Slice 2 — Generic ON and new JOIN kind grammar and AST`",
+        "`Phase 64 Slice 2 — Generic ON, new JOIN kind and set-operation clause "
+        "grammar and AST`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1376,7 +1377,8 @@ EXPECTED_PHASE64_ROUTE = (
     ("1", "Product Gate v3, source audit, architecture and route lock"),
     (
         "2",
-        "Generic `ON` and new JOIN kind grammar, AST, contextual keywords and spans",
+        "Generic `ON`, new JOIN kind and set-operation clause grammar, AST, "
+        "contextual keywords and spans",
     ),
     (
         "3",

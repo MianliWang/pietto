@@ -2130,7 +2130,7 @@ route has exactly 11 numbered Slices.
 | Slice | Owner |
 | ---: | --- |
 | 1 | Product Gate v3, source audit, architecture and route lock |
-| 2 | Generic `ON` and new JOIN kind grammar, AST, contextual keywords and spans |
+| 2 | Generic `ON`, new JOIN kind and set-operation clause grammar, AST, contextual keywords and spans |
 | 3 | Generic ON condition semantics and base/refinement/WHERE authority separation |
 | 4 | Row-source sum extension, effective-output JOIN boundary and first generic vertical closure |
 | 5 | `CROSS`/`RIGHT`/`FULL` output shapes, null-extension and property transfer |

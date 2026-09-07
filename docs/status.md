@@ -40,7 +40,7 @@ documentation does not supersede that evidence.
 | Phase 64 | `ACTIVE` |
 | Phase 64 Slice 1 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 2 | `NEXT / NOT IMPLEMENTED` |
-| Next | `Phase 64 Slice 2 — Generic ON and new JOIN kind grammar and AST` |
+| Next | `Phase 64 Slice 2 — Generic ON, new JOIN kind and set-operation clause grammar and AST` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13

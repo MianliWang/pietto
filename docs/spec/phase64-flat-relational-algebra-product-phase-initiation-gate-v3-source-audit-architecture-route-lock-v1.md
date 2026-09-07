@@ -151,7 +151,7 @@ cost 见 Gate #15/#16 与 §Pull-Forward。
 | F09 | `src/pietto/_project/project_completion.py:145-152,575-585`；`src/pietto/_project/project_query_block_ir.py:963-969,2582-2598` | `EFFECTIVE_UPSTREAM_JOIN_UNSUPPORTED` 由「JOIN 声明的上游仍为 recoverable-pending」触发；`EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED` 由 stale active join input 触发 | 两者是 Phase-64 必须解除的确切边界，且都是真实 typed diagnosis，不可当作可丢弃的错误 |
 | F10 | `project_row_keys.py:60-72`, `project_value_fds.py:222,662`, `project_grain.py:39-62`, `project_ir_relational_properties.py:107-160` | key（`STRICT`/`LAX`、`NULLS_DISTINCT`/`NULLS_NOT_DISTINCT`）、value-FD closure index、grain factor/closure、IR 侧 value class/key/FD 均已存在 | 复用既有 kernel；Phase 64 只加 transfer rule，不建第二个 property engine |
 | F11 | `src/pietto/_project/project_grain.py:48-61` | `ProjectGrainOriginKind` 仅 `SOURCE_ROW_DOMAIN` / `GROUPED_RESULT` / `GLOBAL_AGGREGATE`；`ProjectGrainFactorKind` 仅 `SOURCE_DOMAIN` / `GROUP_DOMAIN` | DISTINCT 商域与 set-operation 备选域没有既有 origin；不得伪造 `GROUPED_RESULT`（D07） |
-| F12 | `src/pietto/semantic/model.py:71-86`；`project_relationship_conditions.py:45,720-755` | `ValueType` 分别携带 `resolved_type` 与 `nullability`；等值类型身份按 kind/name/symbol 精确比较，且 `Any/Bytes/Decimal/Json` 已被显式推迟 | 等值支持域已有先例；set-operation 的 row-equivalence 域必须同样显式有界（D07） |
+| F12 | `src/pietto/semantic/model.py:71-86`；`project_relationship_conditions.py:45,720-755` | **历史基线事实**：`ValueType` 分别携带 `resolved_type` 与 `nullability`；等值类型身份按 kind/name/symbol 精确比较，且 relationship 比较把 `Any/Bytes/Decimal/Json` 显式推迟 | 该推迟表是 relationship 比较的历史边界，**不是** Phase-64 row-equivalence 规范；后者由 D07 独立划定，且不因此顺带放宽 relationship 比较 |
 | F13 | `src/pietto/_project/project_bag_null_oracle.py:1-267` | 已存在纯有界 BAG/NULL oracle，但仅支持 `INNER`/`LEFT` 与等值对应 | Slice 1 复用它做 INNER/LEFT 证据；其余 kind 由 stdlib SQLite 独立复现，不扩展 production |
 
 历史断言与真实语义缺陷的分离：F09 的两个 terminal 是**当前真实**的 typed
@@ -198,8 +198,10 @@ release authority。
 
 | Owner | Atomic item | Class | Reason |
 | ---: | --- | --- | --- |
-| 65 | IR 保留每个 condition、field mapping、source span 与 enforcement/equality requirement，供 lowering 无需重新决定语义 | `CONTRACT_ONLY_NOW` | Phase-64 IR 必须携带这些 fact；`ProjectSQLPlan` 本身属 65 |
-| 65 | 参数化、source map、backend legality/capability | `DEFER_BY_NECESSITY` | 需要 target 模型，Phase 64 保持 target-neutral |
+| 64 core | Phase-64 IR **实际保留** 每个 condition 与其 scope、field mapping、source span、显式输出与 single-match obligation | `IMPLEMENT_NOW` | 这是本阶段自身的实现职责，不是对 Phase 65 的前移；Slices 3、7、9、10 拥有 |
+| 64 core | verification/inspection **证明** 上述保留是精确的 | `IMPLEMENT_NOW` | Slice 10 的独立验证与 VERIFIED-only 观察 |
+| 65 | Phase-65 对上述事实的**消费契约**（lowering 无需重新决定语义） | `CONTRACT_ONLY_NOW` | 只记录消费方需要什么，不冻结承载形状（D08） |
+| 65 | 构造 `ProjectSQLPlan` 及其 SQL 分解、参数、alias 与 legality 机制 | `DEFER_BY_NECESSITY` | 缺的是 SQL planning/legality 接口本身：无 plan 节点代数、无参数/占位符模型、无 alias 作用域与生成规则、无 legality/capability 判定面。这与「尚未选定后端」无关 |
 | 66 | PostgreSQL/MySQL 多关系 SQL 与 Project emit-SQL | `DEFER_BY_NECESSITY` | 先决条件为 Phase 65 plan |
 | 67 | 结果形状、hidden field、nullable/provenance 与 check-vs-executable 区分 | `CONTRACT_ONLY_NOW` | 新算子必须声明哪些 field 对用户可见；Arrow contract 本身属 67 |
 | 68 | executor SPI、ADBC/DBAPI、streaming、cancellation、backpressure | `OUT_OF_SCOPE` | 与 Phase-64 语义无共享不变量 |
@@ -208,7 +210,7 @@ release authority。
 | 70 | outer capture、EXISTS/IN、LATERAL、bounded decorrelation、effect authority | `DEFER_BY_NECESSITY` | 需要 open/composite plan 模型 |
 | 71 | NestedRelation、Collect、Unnest、flatten、nested Arrow | `OUT_OF_SCOPE` | 平坦代数不产生嵌套域 |
 | 71 | outer/inner grain 的区分不被本阶段意外冻结 | `CONTRACT_ONLY_NOW` | grain origin 扩展（D07）必须为嵌套留出空间 |
-| 72 | 基础 positional 类型兼容 + nullable 传递 + 精确 row-equivalence 支持域 | `IMPLEMENT_NOW` | set operation 无此则无法定义；Decimal precision/scale 等按既有 `_DEFERRED_EQUALITY_BUILTINS` 显式有界 |
+| 72 | 基础 positional 类型兼容 + nullable 传递 + 精确 row-equivalence 支持域 | `IMPLEMENT_NOW` | set operation 无此则无法定义；支持域按 D07 划定（含精确同参 `Decimal(p,s)`），不沿用历史 relationship 比较推迟表 |
 | 72 | advanced equality/coercion、temporal/range/ASOF relationship | `DEFER_BY_NECESSITY` | 需要 advanced type work |
 | 73 | 现有 fanout/chasm/`AGGREGATE_ALGEBRA_REQUIRED` 证据在新算子上继续成立 | `CONTRACT_ONLY_NOW` | 不得因新算子而伪造 aggregate repair |
 | 73 | aggregate algebra/state、grouping extension、reaggregation | `OUT_OF_SCOPE` | Phase-63 已明确不转移 |
@@ -240,8 +242,9 @@ release authority。
 | 96 | governance/security policy 语义 | `OUT_OF_SCOPE` | 无 policy 模型 |
 | 97 | continuous/streaming 语义 | `OUT_OF_SCOPE` | 有限 BAG 语义不隐含流式假设 |
 
-没有 placeholder abstraction 被提出；每个 `CONTRACT_ONLY_NOW` 都有当前不变量或
-指名的未来 consumer。资产计数未被照抄：`production Python = 179` 与
+表中 `64 core` 两行是**本阶段自身的实现职责**，不计入跨阶段 pull-forward；跨阶段的
+`IMPLEMENT_NOW` 恰为 Phase-72 与 Phase-81 两项。没有 placeholder abstraction 被提出；
+每个 `CONTRACT_ONLY_NOW` 都有当前不变量或指名的未来 consumer。资产计数未被照抄：`production Python = 179` 与
 `test Python = 428` 由 §Starting Authority 的既有 reader 实测。
 
 ## External Reference Review
@@ -365,31 +368,31 @@ Phase-63 的 R01–R16（`2026-09-02` snapshot）继续由那份 immutable contr
 
 ### R25 egg (equality saturation)
 
-1. Snapshot/date：[`arXiv:2004.03082`](https://arxiv.org/abs/2004.03082)，POPL 2021；审计 `2026-09-06`。
+1. Snapshot/date：[`arXiv:2004.03082`](https://arxiv.org/abs/2004.03082)，POPL 2021；API 参考 `egg 0.11.0` 的 [`Condition`](https://docs.rs/egg/0.11.0/egg/trait.Condition.html) 与 [`ConditionalApplier`](https://docs.rs/egg/0.11.0/egg/struct.ConditionalApplier.html)；审计 `2026-09-06`。
 2. Problem/constraints：以 e-graph 高效表示同余关系并做改写驱动优化。
 3. Semantics/identity：e-class analysis 为领域知识提供接入点。
 4. Layering：改写引擎与规则集分离。
 5. Algorithms/complexity：饱和过程的成本由规则集决定。
-6. Interface/version/capabilities：改写规则的**正确性由使用者提供**；引擎不验证前提。
+6. Interface/version/capabilities：引擎提供 `Condition` 与 `ConditionalApplier`，可在改写时**运行期检查**使用者提供的条件；但运行期检查一个被提供的条件，不等于**证明**该改写及其前提是可靠的——可靠性仍由使用者负责。
 7. Testing/lifecycle：不适用。
-8. Pitfalls：在规则带有 NULL/外连接前提时，无条件规则会产生不正确的等价类。
-9. Disposition：`REJECT`（对 Phase 64）。
+8. Pitfalls：把律登记为**无条件**重写规则时，带 NULL/外连接前提的等价类会不正确；`ConditionalApplier` 能表达前提，却不代表前提本身已被证明。
+9. Disposition：`REJECT`（对 Phase 64）。这是**范围**决定——Phase 64 没有 memo、cost 模型或改写引擎——不是「egg 无法表达条件」的能力主张。
 10. WHAT_NOT_TO_COPY：把 JOIN 律登记为无条件重写规则；本阶段每条律必须携带前提与观察域。
 11. Pietto owner affected：L01–L10 的记录形状；引擎实现属 Phase 88/93。
 
 ### R26 Authoring surfaces — PRQL and Ibis
 
-1. Snapshot/date：PRQL `join` 变换文档、Ibis table expression API 参考；均审计 `2026-09-06`。[PRQL join](https://prql-lang.org/book/reference/stdlib/transforms/join.html)、[Ibis tables](https://ibis-project.org/reference/expression-tables)。
+1. Snapshot/date：`ibis-project/ibis@05d2b293344e86cb41c1a426071734f7e270335a`（`2026-08-29T15:46:34Z`）与 `PRQL/prql@374d769c4177a5d374c3ed8f5b3a6678e9237e0d`（`2026-09-06T23:26:19Z`）；均审计 `2026-09-06`。[PRQL join](https://prql-lang.org/book/reference/stdlib/transforms/join.html)、[PRQL append](https://prql-lang.org/book/reference/stdlib/transforms/append.html)、[Ibis tables](https://ibis-project.org/reference/expression-tables)、`ibis/expr/types/relations.py`。
 2. Problem/constraints：可读的管道式 join / set operation 书写。
-3. Semantics/identity：PRQL 用 `join side:{inner|left|right|full} rel (condition)`，默认 `inner`，并提供 `(==col)` 自等值简写；Ibis 的 `union`/`intersect`/`difference` 均以 `distinct=True` 为默认，`join(..., how="inner")`。
+3. Semantics/identity：PRQL 用 `join side:{inner|left|right|full} rel (condition)`，默认 `inner`，并提供 `(==col)` 自等值简写；其 set operation 为 **bag 语义**——`append` 等价于 `UNION ALL`，`remove` 等价于 `EXCEPT ALL`（逐条抵消重复行），`intersect` 等价于 `INTERSECT ALL`，去重需另行 `distinct`。Ibis 的默认**逐方法不同**：`ibis/expr/types/relations.py` 中 `union(self, table, /, *rest, distinct: bool = False)`、`intersect(self, table, /, *rest, distinct: bool = True)`、`difference(self, table, /, *rest, distinct: bool = True)`；`join(..., how="inner")`。
 4. Layering：authored 表面与后端编译分离。
 5. Algorithms/complexity：不适用。
-6. Interface/version/capabilities：两者都把 kind 作为**具名参数**而非新关键字家族；两者的 set operation **默认去重**。
+6. Interface/version/capabilities：两者都把 kind 作为**具名参数**而非新关键字家族。两者的 set operation 默认**并不统一去重**：PRQL 全部为 bag 语义，Ibis 只有 `union` 默认保留重复，`intersect`/`difference` 默认去重。因此「生态一律默认 `DISTINCT`」不成立，不能作为任何 Pietto 默认值的依据。
 7. Testing/lifecycle：不适用。
-8. Pitfalls：PRQL 无 semi/anti；Ibis 的 `distinct(keep=...)` 会引入顺序依赖的赢家选择。
+8. Pitfalls：PRQL 无 semi/anti；Ibis 的 `distinct(keep=...)` 会引入顺序依赖的赢家选择；同一生态内 `union` 与 `intersect` 的默认相反，正是隐式默认易错的证据。
 9. Disposition：`ADAPT`。
 10. WHAT_NOT_TO_COPY：`keep='first'/'last'` 这类顺序依赖的行选择（Pietto 禁止任意赢家）；Python 层的隐式类型强制。
-11. Pietto owner affected：D01、D04。
+11. Pietto owner affected：D01、D04。Pietto 要求显式书写 `ALL`/`DISTINCT` 是一项**产品决定**，其依据是本记录显示的默认值不一致与隐式去重的陷阱；它不是 fail-closed / no-winner 规则的推论。
 
 ### R27 Interface/conformance references — reasoned disposition
 
@@ -424,7 +427,7 @@ Apache DataFusion 的处置沿用 Phase-63 R04（`2026-09-02` snapshot），本�
 | L05 | `A LEFT (B INNER C)` ≠ `(A LEFT B) INNER C` | BAG 多重性 | —（这是**否定**律） | R17 明文；C01 复现 | C01：1 行 vs 0 行 |
 | L06 | `A RIGHT B` = `B LEFT A`（配合字段重映射） | BAG 多重性、值 | 字段映射显式 | R17 定义为「converse of a left join」 | 若左输入是累积行且映射被省略则不成立 |
 | L07 | `SEMI(A,B)` 保留 A 的出现与多重性、**不发布** B 的字段 | BAG 多重性、字段可见性 | 存在性判定用 TRUE-only | R20；C05 复现 | 连续 SEMI 后无法再遍历下一跳（C05） |
-| L08 | `DISTINCT(R)` 在其等价域上证明全行唯一 | 值等价类 | 等价关系在支持域上是全域的且 NULL≡NULL | R17/R19/R20；C07 复现 | 等价域外（如 `Decimal`/`Json`，F12）不成立 |
+| L08 | `DISTINCT(R)` 在其等价域上证明全行唯一 | 值等价类 | 等价关系在**已批准支持域**上是全域的且 NULL≡NULL；`Decimal(p,s)` 需两侧精确同参 | R17/R19/R20；C07 复现；D07 | 支持域外不成立：`Any`/`Bytes`/`Json`，以及参数缺失或不一致的 `Decimal` |
 | L09 | `UNION` 不继承分支局部 FD | 值 | — | R19 未主张；C07 复现 | C07：`(1,Alice)` ∪ `(1,Bob)` 破坏 `id → name` |
 | L10 | `EXCEPT` 非结合 | BAG 多重性 | — | R17 左结合规定；C07 复现 | C07：`{3}` vs `{2,3}` |
 
@@ -469,9 +472,9 @@ D01 确定的语法在 Slice 1 仍然只是文档，由 Slice 2 实现。
 - 决定：扩展现有 `joinBody`。保留 `<kind> join <relation> as <binding>:` 缩进块；body 内 `FROM` 之后允许 `ON` 交替，与既有 `VIA` 并列；`AuthoredJoinKind` 扩展为 `INNER|LEFT|CROSS|RIGHT|FULL|SEMI|ANTI`。
 - 未采纳的备选：kind 作为具名参数（R26 的 PRQL/Ibis 形状）；generic 与 relationship 使用两套独立 authored 形式。
 - 理由：复用既有 kind 位置与全部 span 机制（F01），不向语言引入 Pietto 目前没有的具名参数构造。
-- 最小示例：`left join orders as o:` / `  from customers` / `  on c.id = o.customer_id`。
+- 最小示例：`left join orders as o:` / `  from customers` / `  on customers.id == o.customer_id`。
 - 兼容性：纯新增；现有 `VIA` 形式与既有程序不变。
-- 实现 owner：`grammar/Pietto.g4`、`ast_nodes.py`、`ast_builder.py`、`project_relationship_uses.py`（Slice 2）。
+- 实现 owner：**syntax owner** = Slice 2（`grammar/Pietto.g4`、`ast_nodes.py`、`ast_builder.py`）；**semantic owner** = Slice 3（`project_relationship_uses.py` 的授权 AST 消费）。
 
 ### D02 新 kind 的支持范围 — `CONFIRMED`
 
@@ -479,7 +482,7 @@ D01 确定的语法在 Slice 1 仍然只是文档，由 Slice 2 实现。
 - 未采纳的备选：全部 kind 支持逐跳多跳；分级支持 inline path group。
 - 理由：C05 证明连续 `SEMI` 会丢失遍历下一跳所需的中间字段；C10 证明 `RIGHT/FULL` 对**整个累积左输入**补空，逐跳复制既有循环（F03）语义上不成立。
 - 必要的不支持组合的替代写法：见 D03——把该路径先声明为命名关系，再对其做直接二元的新 kind JOIN。每个被拒组合发出精确 typed diagnostic，不静默改写。
-- 实现 owner：`project_relationship_uses.py`、`project_ir_joins.py`（Slices 3、5、6）。
+- 实现 owner：**syntax owner** = Slice 2（kind 关键字）；**semantic owner** = Slice 3（`project_relationship_uses.py` 的 kind 中性 use 准入与被拒组合诊断）；**输出形状与属性** = Slice 5（`CROSS`/`RIGHT`/`FULL`）与 Slice 6（`SEMI`/`ANTI`），均在 `project_ir_joins.py`。
 
 ### D03 组合边界与整段路径可选性 — `CONFIRMED`
 
@@ -487,15 +490,15 @@ D01 确定的语法在 Slice 1 仍然只是文档，由 Slice 2 实现。
 - 未采纳的备选：新增 inline group 语法；由编译器自动选择整段可选性；完全不支持整段可选。
 - 理由：C01 证明逐跳可选 / 整段可选 / 末跳必需给出 2/1/0 行，属用户可见语义，不能是静默的优化器改写（R17 明确 `A leftjoin (B join C)` ≠ `(A leftjoin B) join C`；R22 表明显式书写是成熟先例）。命名关系已经是 Pietto 的既有边界，复用它使整段可选性**无需任何新语法**：把 `B INNER C` 声明为一个关系，再 `left join` 它。
 - 架构收敛：该决定与 F08/F09 汇合为同一个机制——它要求的正是「JOIN 消费已完成的 effective output」，也就是解除 `EFFECTIVE_UPSTREAM_JOIN_UNSUPPORTED` 与 `EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED` 的那条边界。
-- 实现 owner：`project_query_block.py` 的 row-source sum 与 `project_completion.py`（Slice 4）。
+- 实现 owner：**semantic owner** = Slice 4（`project_query_block.py` 的 row-source sum 与 `project_completion.py` 的 effective-output 边界解除）；**IR consumer** = Slice 10。
 
 ### D04 Set operation 的组合与 `ALL`/`DISTINCT` — `CONFIRMED`
 
 - 决定：set operation 为 relation body 的顶层子句，操作数为具名 relation 引用；`ALL` 或 `DISTINCT` **必须显式书写**，省略即 fail closed；操作数按**位置**对齐。
-- 未采纳的备选：默认 `DISTINCT`（R17/R26 的生态惯例）；默认 `ALL`；`UNION BY NAME` 式的名字对齐。
-- 理由：`AGENTS.md` 要求不支持的语义 fail closed 且不为冲突任意选择赢家；隐式去重是已知的语义与性能陷阱。name-aligned 对应是一个可单独设计的查找选项，不是被永久禁止的身份模型，留待后续阶段。
+- 未采纳的备选：默认 `DISTINCT`（R17 的 SQL 惯例）；默认 `ALL`；`UNION BY NAME` 式的名字对齐。
+- 理由：这是一项**产品决定**，不是 fail-closed / no-winner 规则的推论——那些规则并不推出「必须显式书写」。支持该决定的证据是：SQL 的隐式去重是已知的语义与性能陷阱，而生态默认值**并不一致**（R26：PRQL 的 `append`/`remove`/`intersect` 全为 bag 语义；Ibis 的 `union` 默认 `distinct=False` 而 `intersect`/`difference` 默认 `True`）。在默认值本身有分歧时，要求作者写明比继承任一惯例更不易错。name-aligned 对应是一个可单独设计的查找选项，不是被永久禁止的身份模型，留待后续阶段。
 - 兼容性：纯新增；每个操作数出现保持独立（C07），declaration scheduling 可以去重依赖边，但操作数多重性不可。
-- 实现 owner：grammar + 新 semantic stage（Slices 2、10）。
+- 实现 owner：**syntax owner** = Slice 2（set-operation 子句的 grammar/AST/span）；**semantic owner** = Slice 9（操作数对齐、六条多重性律、显式 `ALL`/`DISTINCT` 的 fail-closed 判定）；**IR consumer** = Slice 10。
 
 ### D05 Single-match 契约 — `CONFIRMED`（含用户补正）
 
@@ -506,7 +509,7 @@ D01 确定的语法在 Slice 1 仍然只是文档，由 Slice 2 实现。
 - 合法的作用域内基数证明：若确切的**已完成右输入本身**具有全局至多一行的上界，则每个左出现至多一个右匹配；该证明**不**推出原始 source 上的键或 max-one 关系，也不同于 JOIN 之后的 `LIMIT`。必须记录确切的 proof root。
 - 禁止：为满足要求而选行、截断或去重；后置 `WHERE`/`LIMIT` 不能追溯掩盖指定匹配边界上的违规。
 - 最小反例：C06。
-- 实现 owner：`project_relationship_match_guarantees.py` + check 边界（Slice 8）。
+- 实现 owner：**semantic owner** = Slice 7（`project_relationship_match_guarantees.py` + check 边界与 warning 诊断）；**IR consumer** = Slice 10（obligation 的精确保留证明）；下游兑现方为 Phase 65/68。
 
 ### D06 共享 semantic→IR 集成缝 — `CONFIRMED`
 
@@ -514,31 +517,79 @@ D01 确定的语法在 Slice 1 仍然只是文档，由 Slice 2 实现。
 - 未采纳的备选：伪造 `SelectItem`（违反「不伪造 AST」）；新建平行输出身份域（会造出第二个身份域）；新建平行模块（两套输出构造逻辑）。
 - 源证据：F06（身份域仅需 `(owner, kind, position, name)`，且 `module_attribution.py:1717` 已有非-SELECT 铸造点）；F07（`ProjectCompletedOutputField` 硬绑 `select_fact`/`SelectItem`/`definition.select_items[ordinal]`）。
 - 兼容性：private-only；不改变既有 SELECT 路径的行为或身份。
-- 实现 owner：`project_query_block.py`、`project_final_outputs.py`（Slices 4、10）。
+- 实现 owner：**row-source sum 扩展** = Slice 4（`project_query_block.py`）；**非-SELECT output-field 入口与 `project_final_outputs.py` 窄重构** = Slice 9；**IR consumer** = Slice 10。
 
 ### D07 等价/类型支持域与 property/grain 转换 — `CONFIRMED`
 
 - 决定：row-equivalence 支持域 = 精确类型身份相等，NULL≡NULL 且在支持域上全域；**`Decimal` 进入支持域，要求精度与标度完全相同**，不做隐式拓宽；`Any`、`Bytes`、`Json` 仍显式不支持并 fail closed。DISTINCT 商域与 set-operation 备选域使用**新增的** `ProjectGrainOriginKind`，不复用 `GROUPED_RESULT`。
 - 未采纳的备选：沿用既有推迟集（会拒绝常见的 Decimal 去重工作流）；允许同标度下的受控精度拓宽（类型提升规则属 Phase 72）。
+- 精确边界（对所有当前决策陈述统一适用）：
+  - 有限 `Decimal(p,s)` 在**两侧都带经验证的同参证据**时，由 Phase-64 row-equivalence owner 支持；
+  - nullability 是**独立证据**，不参与类型身份判定；
+  - 参数缺失或未传播时**不猜测**，该列 fail closed；
+  - 不做隐式拓宽、不做舍入、不从聚合结果反推 `p`/`s`；
+  - `Any`、`Bytes`、`Json` 仍在已批准 row-equivalence 支持域之外；
+  - `UNION ALL` 只要求形状与类型兼容，**不要求**重复比较能力，因此不受本支持域约束；
+  - 历史 relationship 比较的支持范围不因本决定顺带放宽（见 F12）。
 - 源证据：F11（无既有 origin 可用）、F12（推迟集与 `ValueType` 的分离先例）；R19（Union DISTINCT 全列键 / Intersect 任一输入键 / Minus 第一输入键）；C07（FD 不逐分支继承）。
 - 属性转换：DISTINCT 在其等价关系下证明全行唯一（L08）；键结论仍需既有键模型的 NULL、相等、作用域与最小性前提，既不无条件提升也不一概禁止；`UNION` 的 nullability 为跨输入的保守 OR，`INTERSECT` 在某输入证明非空时可排除 NULL，`EXCEPT` 沿其保留的左域。
 - 兼容性：private-only。
-- 实现 owner：`project_grain.py`、`project_ir_relational_properties.py`（Slices 9、10）。
+- 实现 owner：**semantic owner** = Slice 8（row-equivalence 支持域、`DISTINCT`、新商域 `ProjectGrainOriginKind`，位于 `project_grain.py`）；**set-operation 属性传递** = Slice 9（`project_ir_relational_properties.py` 的键/FD/nullability 转换）；**IR consumer** = Slice 10。
 
 ### D08 Pull-forward 范围 — `CONFIRMED`
 
-- 决定：**拆分「当前 IR 产物」与「未来 SQLPlan 契约」**。Phase 64 构建自身算子的 Project IR 产物（`IMPLEMENT_NOW`）；Phase-65 的 target-neutral `ProjectSQLPlan` 承载形状保持 `CONTRACT_ONLY_NOW`，只记录 IR 必须携带哪些 condition、field mapping、source span 与 enforcement/equality requirement，不在无 target 模型时冻结承载结构。
+- 决定：**拆分「当前 IR 产物」与「未来 SQLPlan 契约」**，两者占据不同的原子行：
+  - Phase 64 自身**实现**其算子的 Project IR 产物，并实际保留每个 condition 与 scope、field mapping、source span、显式输出与 single-match obligation（`IMPLEMENT_NOW`）；
+  - verification/inspection **证明**这些保留是精确的（`IMPLEMENT_NOW`）；
+  - Phase-65 对这些事实的**消费契约**为 `CONTRACT_ONLY_NOW`，不在无 target 模型时冻结承载形状；
+  - 构造 `ProjectSQLPlan` 及其 SQL 分解、参数、alias、legality 机制为 `DEFER_BY_NECESSITY`，理由是缺少 SQL planning/legality 接口本身（plan 节点代数、参数/占位符模型、alias 作用域与生成规则、legality/capability 判定面），**不是**「尚未选定后端」。
 - 未采纳的备选：把 Phase-65 承载结构一并前移（在无 target 模型时容易冻结错误形状）。
-- 其余分类沿用 §Pull-Forward 表；`IMPLEMENT_NOW` 另含 Phase-72 的基础类型兼容/等价支持域与 Phase-81 的独立 oracle/反例边界。
+- 其余分类沿用 §Pull-Forward 表。区分两类计数：**Phase-64 核心实现职责**（上面两条 `64 core` 行）不是跨阶段前移；真正的**跨阶段 pull-forward** `IMPLEMENT_NOW` 仍为两项——Phase-72 的基础类型兼容/等价支持域与 Phase-81 的独立 oracle/反例边界。不得为了保住「两项」这个数字而把本阶段必需的产物错分为 `CONTRACT_ONLY_NOW`。
 - 保留 owner 边界不变：没有 public、backend、execution 或 release ownership 被重指派。
+
+## Authored Mode Source Map
+
+本表由既有已批准决策（D01–D04）导出，不引入新的产品选择。它固定了五种 authored
+形态、各自的 condition scope 与谓词作用点。
+表中的 `ON` 语法在当前 baseline **不可解析**；
+示例只描述 Slice 2 之后的形态。除被描述的未来 `ON` 子句外，示例沿用现有语言拼写：
+相等为 `==`（`grammar/Pietto.g4:660`，`=` 是 select 别名赋值），限定引用使用已声明的
+绑定名（`from` 的源名或 `as` 的目标绑定名），字符串为双引号字面量。
+
+| # | Authored 形态 | 关系发现 | 谓词的 condition scope | 谓词作用点 | Slice owner |
+| ---: | --- | --- | --- | --- | --- |
+| M1 | 直接关系简写（不变）：`inner join orders as o:` / `  from customers` | 由既有 relationship 声明发现 | `RELATIONSHIP_BASE_MATCH` | 该单跳的匹配 | 既有行为，无变更 |
+| M2 | 显式 `VIA`（不变）：`  via ships: customer -> order` | 由具名 relationship 与端点角色发现 | `RELATIONSHIP_BASE_MATCH`（逐跳各一） | 每一跳自身的匹配 | 既有行为，无变更 |
+| M3 | Generic `ON`（无关系遍历）：`inner join orders as o:` / `  from customers` / `  on customers.id == o.customer_id` | **无**关系发现 | generic 匹配条件（既有 supported row-scalar Bool，TRUE-only） | 该二元 JOIN 的匹配 | Slice 2 语法 / Slice 3 语义 |
+| M4 | 关系 refinement（单跳 + `ON`）：`left join orders as o:` / `  from customers` / `  via ships: customer -> order` / `  on o.status == "open"` | 由 relationship 发现，**base condition 保留** | `JOIN_LOCAL_ON_REFINEMENT`，与保留的 base 合取 | 同一跳的匹配，`base AND refinement` | Slice 2 语法 / Slice 3 语义 |
+| M5 | `CROSS`（无匹配条件）：`cross join calendar as k:` / `  from customers` | 无 | 无 condition | 无匹配判定，笛卡尔积 | Slice 2 语法 / Slice 5 语义 |
+
+区分三者的 authored 证据是**结构性**的，不靠命名或启发式：
+
+- **M3 与 M4 的区别**：JOIN body 内是否存在关系遍历。有遍历 + `ON` = M4 refinement，
+  base condition 继续存在且不被替换；无遍历 + `ON` = M3 generic 匹配条件。
+- **M4 与 `WHERE` 的区别**：refinement 参与**匹配判定**，因此影响 LEFT 侧是否补空
+  （C03：`AT_MOST_ONE` 可留存，`AT_LEAST_ONE` 不可，LEFT 侧变为可空）；`WHERE` 在
+  JOIN **之后**过滤，会移除已补空的行。两者 scope 不同（`JOIN_LOCAL_ON_REFINEMENT`
+  对 `POST_JOIN_FILTER`），authority 互不替代（E04）。
+- **M3 不继承关系证据**：generic `ON` 没有 base condition，也不因此获得等值对应证明；
+  非空与 FD 强化需要各自的 conjunct 级拒空证据（C04、F04）。
+
+已批准表面**不包含**多跳 `VIA` 加 `ON` refinement：其 refinement 作用于哪一跳、
+哪一组或整条路径未被任何已批准决策选定，因此该组合 fail closed 并给出精确诊断。
+其替代写法由 D03 提供：把该路径声明为命名关系，再对该关系书写 M3 或 M4。若日后需要
+多跳 refinement，那是一项**独立的产品决定**，本文件不代为选择、也不声称已闭合。
 
 ## Route Selection
 
-按 §9 的历史比较权重筛选 8–16。权重：semantic completeness 2、avoided redesign 2、
-later ownership 2、cohesion/testability 2、dependency/safe parallelism 1、
-implementation/diagnostic risk 1、reader burden 1、CI/evidence efficiency 1、
-public/release/trust containment 2。硬性的兼容性、authority 与可验证性门槛
-覆盖总分；平局取较少的 Slice 数，除非较大方案解决了已证明的过载。
+按 §9 的比较维度筛选 8–16：semantic completeness、avoided redesign、later ownership、
+cohesion/testability、dependency/safe parallelism、implementation/diagnostic risk、
+reader burden、CI/evidence efficiency、public/release/trust containment。
+
+评估方式是**定性**的：这些维度用于说明每个候选被接受或拒绝的确切理由，
+**没有**计算加权总分，也没有回溯打分矩阵。本文件不声称任何数值比较结果。
+硬性的兼容性、authority 与可验证性门槛先于任何偏好；在没有决定性差异时取较少的
+Slice 数，除非较大方案解除了已证明的过载。
 
 | Route | 结构 | 结果 |
 | ---: | --- | --- |
@@ -546,20 +597,26 @@ public/release/trust containment 2。硬性的兼容性、authority 与可验证
 | 9 | 同上再加 IR/verification 与 completion 分开 | 拒绝：同一过载未解除 |
 | 10 | 把 IR composition/verification/inspection 折进 completion | 拒绝：违反 completion 与 assurance 分离；Phase-63 的 Slice 16 为纯文档先例 |
 | **11** | 见下表 | **选定** |
-| 12 | 额外把 grammar/AST 与 ON 语义拆开 | 拒绝：Phase-63 Slice 11（QUALIFY grammar+AST+semantics 同片）已有合并先例；拆开不带来独立 production owner |
+| 12 | 把选定 route 的 Slice 4 拆成「row-source sum 扩展与 effective-output 边界解除」与「首个 generic 垂直闭合」两条 | 拒绝：拆出的前半条没有可独立演示的产品结果——扩展在垂直闭合使用它之前没有 consumer，其验收只能断言内部结构。这是与选定 route 结构上确有差异的候选，但差异不利 |
 | 13–16 | 每个 JOIN kind 或每个 set operation 各占一条 | 拒绝：五个 kind 共享 `project_ir_joins` 的 transfer rule，三个 set operation 共享同一多重性与身份机制；无独立 production/test ownership，属 Slice 膨胀 |
 
-11 与 12 在 semantic completeness、avoided redesign、later ownership、public
-containment 上同分；11 在 reader burden 与 CI/evidence efficiency 上更优，且
-按「平局取较少」规则胜出。11 相对 8–10 的额外两条不是膨胀，而是解除上表中
-已证明的过载，因此不受「优先 8–12 的较少者」约束。
+选定 11 的理由是逐候选的定性判定，而不是分数：8/9/10 都保留了上表中两处已证明的
+过载（五个新 kind 的两种互斥输出形状规则挤在一条；等价域 + `DISTINCT` + 三个 set
+operation + 新 grain origin + 非-SELECT 输出构造者挤在一条），或把 assurance 折进
+completion；12 的拆分产生一条没有独立产品结果的 Slice；13–16 缺少独立的
+production/test ownership。11 相对 8–10 的额外两条不是膨胀，而是解除那两处过载。
+
+先前版本曾把「额外把 grammar/AST 与 ON 语义拆开」列为 12 的结构，并据此声称
+11 与 12「同分」而由平局规则胜出。那是**错误**的：选定的 11 条 route 本身已把
+grammar/AST（Slice 2）与 ON 条件语义（Slice 3）分开，因此那不是一个不同的候选，
+也从未存在过一次同分或一次数值比较。此处已改为真实的替代分组与定性理由。
 
 ### 选定 route — 11 条 numbered Slice
 
 | Slice | Owner |
 | ---: | --- |
 | 1 | Product Gate v3、source audit、architecture 与 route lock |
-| 2 | Generic `ON` 与新 kind 的 grammar、AST、contextual keyword 与 span |
+| 2 | Generic `ON`、新 JOIN kind 与 set-operation 子句的 grammar、AST、contextual keyword 与 span |
 | 3 | Generic ON 条件语义、refinement 与 base/WHERE/satisfying/QUALIFY 的 authority 分离 |
 | 4 | Row-source sum 扩展、effective-output JOIN 边界解除与首个 generic 垂直闭合 |
 | 5 | `CROSS`/`RIGHT`/`FULL` 输出形状、null-extension 与属性传递 |
@@ -574,7 +631,7 @@ containment 上同分；11 在 reader burden 与 CI/evidence efficiency 上更�
 
 | Slice | Prerequisites | Production / focused-test owner | Input → output contract | Non-goals | Representative acceptance | Handoff |
 | ---: | --- | --- | --- | --- | --- | --- |
-| 2 | Slice 1 | `grammar/Pietto.g4`、`ast_nodes.py`、`ast_builder.py` / 新 focused test | 源文本 → 保留 span 的 `JoinClause`（含可选 `ON` 表达式与扩展 kind）与 set-operation 子句 AST | 无语义解析、无类型检查、无 lowering | `ON` 与 `VIA` 互斥交替被正确构建；缺失 `ALL`/`DISTINCT` 在解析层可被后续 fail closed；所有新节点带 span | AST 形状交 Slice 3 |
+| 2 | Slice 1 | `grammar/Pietto.g4`、`ast_nodes.py`、`ast_builder.py` / 新 focused test | 源文本 → 保留 span 的 `JoinClause`（含可选 `ON` 表达式与扩展 kind）与 set-operation 子句 AST | 无语义解析、无类型检查、无 lowering | `ON` 可单独出现，也可与关系遍历**共存**（后者是 refinement，见 §Authored Mode Source Map）；两种形态的 AST 可区分且都带 span；缺失 `ALL`/`DISTINCT` 在解析层保留为可被 Slice 9 fail closed 的形状 | AST 形状交 Slice 3（JOIN）与 Slice 9（set operation） |
 | 3 | Slice 2 | `project_relationship_conditions.py`、`project_relationship_uses.py` | 授权 AST → generic ON 的 Bool 类型证据、conjunct 分解与拒空证据；refinement 落入 `JOIN_LOCAL_ON_REFINEMENT` | 不构建 IR、不推导键/FD、不改写 base relationship | C04：析取 ON 不产生 `NON_NULL`；C03：refinement 保 `AT_MOST_ONE`、失 `AT_LEAST_ONE` | 条件事实交 Slice 4/5/6 |
 | 4 | Slice 3 | `project_query_block.py`、`project_completion.py`、`project_ir_joins.py` | 扩展后的 row-source sum + 已完成 effective output → 首个 generic `INNER`/`LEFT` `ON` 端到端穿过既有一元尾部至 completed output 与 check | 不引入新 kind、不引入 set operation | `EFFECTIVE_UPSTREAM_JOIN_UNSUPPORTED` 在合法输入上不再触发；一条真实 authored 查询完成 check | **早期垂直闭合**；集成缝交 Slice 5–9 |
 | 5 | Slice 4 | `project_ir_joins.py`、`project_ir_relational_properties.py` | 直接二元右输入 → `CROSS`/`RIGHT`/`FULL` 行形状、对**整个累积左输入**的 null-extension 与属性传递 | 不做 `SEMI`/`ANTI`、不做多跳新 kind | C10：`(A INNER B) FULL C` 保留真实左或右见证 | 属性传递交 Slice 10 |
@@ -601,7 +658,7 @@ E07 DISTINCT 在精确等价域上可用，含精度标度相同的 Decimal
 E08 UNION/INTERSECT/EXCEPT 六条多重性律成立且 ALL/DISTINCT 必须显式
 E09 新算子输出继续穿过既有 LET/WHERE/GROUP/satisfying/WINDOW/QUALIFY/projection/ORDER/LIMIT
 E10 新算子进入 active-output ledger、IR、verification、invalidation 与 inspection
-E11 公开面零 schema delta；新增仅为 additive 诊断码
+E11 Project JSON v2 的 top-level schema/keys 零 delta；新增的 authored 语法与诊断码是 additive public
 E12 Phase-65 handoff 记录完整，且不需要从名字、末端输出或字节重建语义
 ```
 
@@ -616,9 +673,9 @@ E12 Phase-65 handoff 记录完整，且不需要从名字、末端输出或字�
 
 | 反向 consumer | 需要什么 | 由谁提供 |
 | --- | --- | --- |
-| Phase 65 | 每个 condition、field mapping、source span 与 enforcement/equality requirement | Slices 3、7、10（D08 的 `CONTRACT_ONLY_NOW` 约束） |
+| Phase 65 | 每个 condition 与 scope、field mapping、source span 与 enforcement/equality requirement | Slices 3、7、9 实际产生并保留；Slice 10 证明保留；消费契约本身为 `CONTRACT_ONLY_NOW`（D08） |
 | Phase 67 | 结果形状、隐藏字段、nullable/provenance 与 check-vs-executable 区分 | Slices 5、6、9、10 |
-| Phase 68 | 无（Phase 64 不产生资源或 effect 语义） | — |
+| Phase 68 | single-match obligation 的**基数错误含义**：Phase 64 不执行，但该 obligation 表达「运行期可能违反至多一匹配」，须经后续 lowering/execution 兑现或拒绝 | Slice 7 的 obligation 记录 + Slice 10 的保留证明；资源与 effect 的缺席不等于没有下游 consumer |
 | Phase 73 | fanout/chasm/`AGGREGATE_ALGEBRA_REQUIRED` 证据在新算子上继续成立 | Slices 5、8、9 |
 | Phase 88 | 每条改写律的 LHS/RHS、观察域、前提与证据强度 | §Semantic Laws（L01–L10） |
 
@@ -644,7 +701,17 @@ foreign-snapshot 测试。不为每条断言新建子进程，也不施加机器
 | SQL / Arrow / executor / optimizer | 未启用 | NOT IMPLEMENTED |
 | Release surface | 无 package/dependency/lockfile/workflow/tag/Release/signing/attestation 变更 | ZERO DELTA |
 
-Slice 1 本身对上述每一项的实际 delta 均为零；表中的 ADDITIVE 项由 Slices 2–9 实现。
+三个层次必须分开陈述，不得合并为「全部只是 additive private」：
+
+| 层次 | 内容 | 公开性 |
+| --- | --- | --- |
+| Slice 1 | 本 Slice 对上述每一项的实际 delta 均为零 | 零公开行为变更 |
+| Phase 64（Slices 2–9） | **用户可见**的新 authored 语法与新增诊断码，且 single-match 在三种 check 模式下一律发 `WARNING` | **additive public**，Project JSON v2 的 top-level schema/keys 不变 |
+| Phase 64 运行期 | 无 execution、无 executor、无 effect system | 不存在运行期行为 |
+
+因此 Phase-64 的语法与诊断是**公开的 additive 变更**，只是它们不改变 JSON schema；
+把整个 Phase 64 称作「additive private only」是不准确的。JSON schema 未变与
+「无公开行为变更」是两件事。private 的部分是 `_project` 内部载体与 inspection 格式。
 
 ## Slice 1 Zero-Delta Boundary
 
@@ -669,11 +736,36 @@ Phase-64 implementation delta = 0
 专属 inventory reader 继续独占 current whole-repository Python inventory；principal
 只保留不可变的转移 `179 -> 179` 与 `428 -> 429`，不做动态 inventory scan。
 
-Phase-64 的 pre-implementation 缺席断言是**历史性**的：它绑定到本文件的
-immutable baseline tree 与 blob 证据，不创建任何永久禁止未来 Phase-64 语法出现在
-current HEAD 的断言。历史 delta 使用两个 immutable commit，绝不使用
-old-start..future-HEAD。shallow CI 下只跳过不可用的 Git-object 检查，不跳过整个
-审计。测试不访问网络。
+Phase-64 的 pre-implementation 缺席断言是**历史性**的：它绑定到 baseline
+`bb52135038973b40638ff86367ba478846f898c6` 的 immutable source/Git 对象，
+不创建任何永久禁止未来 Phase-64 语法出现在 current HEAD 的断言。历史 delta 使用两个 immutable
+commit，绝不使用 old-start..future-HEAD。shallow CI 下只跳过不可用的 Git-object 检查，
+decision/route/static assurance 仍然执行。测试不访问网络，也不从 pytest 内部拉取历史。
+
+每条被冻结的事实必须归入且仅归入以下两类之一。`HISTORICAL` 读 baseline 不可变来源
+并做**精确**比对（用安全静态解析，不执行历史源码）；`DURABLE` 读 live source 但只做
+**保留性**（子集/成员存在）检查，因此不会在下一次合法扩展时误报。
+
+| Frozen fact | 分类 | 检查方式 |
+| --- | --- | --- |
+| `AuthoredJoinKind` 成员集合 | `HISTORICAL` | baseline 静态解析，精确集合 |
+| `ProjectIRBinaryJoinKind` 成员集合 | `HISTORICAL` | baseline 静态解析，精确集合 |
+| `ProjectGrainOriginKind` 成员集合 | `HISTORICAL` | baseline 静态解析，精确集合 |
+| `ProjectEffectiveOutputTerminalReason.EFFECTIVE_UPSTREAM_JOIN_UNSUPPORTED` 存在 | `HISTORICAL` | baseline 静态解析，成员存在 |
+| `ProjectIRQueryBlockTerminalReason.EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED` 存在 | `HISTORICAL` | baseline 静态解析，成员存在 |
+| `_DEFERRED_EQUALITY_BUILTINS` 字面量 | `HISTORICAL` | baseline 源文本 |
+| authored grammar 只有 `(INNER \| LEFT) JOIN` 且无 set-operation 关键字 | `HISTORICAL` | baseline 源文本 |
+| 三个 `ProjectRelationshipConditionScope` 保留 | `DURABLE` | live，子集 |
+| `ProjectModuleRowFieldKind.RELATION_OUTPUT` 保留 | `DURABLE` | live，成员存在 |
+| `AuthoredJoinKind` 保留 `INNER`/`LEFT` | `DURABLE` | live，子集 |
+| `ProjectIRBinaryJoinKind` 保留 `INNER`/`LEFT` | `DURABLE` | live，子集 |
+| `ProjectGrainOriginKind` 保留三个 baseline origin | `DURABLE` | live，子集 |
+| `Severity` 保留 `ERROR`/`WARNING` | `DURABLE` | live，子集 |
+| `ProjectBagNullJoinKind` 保留 `INNER`/`LEFT` | `DURABLE` | live，子集 |
+
+同一个枚举可以同时出现在两类中：其**精确集合**是历史事实，其**既有成员的保留**是
+durable 法则。principal 不得对 live 枚举做精确集合比对——那会在 Slice 2、5、6、8
+合法扩展枚举时把正确的实现判为失败。
 
 ## Exact Changed-Path Closure
 
@@ -703,6 +795,36 @@ condition 与 field mapping、精确 source span、single-match 的 enforcement
 requirement，以及 §Semantic Laws 中每条改写律的前提与观察域。Phase 65 拥有
 `ProjectSQLPlan`、参数化、source map 与 backend legality/capability；Phase 64
 不冻结其承载形状（D08）。
+
+## Slice 1 Reconciliation Lineage
+
+原始 Slice-1 publication 是**不可变证据**，其数字保持为原始发布事实：
+
+```text
+original publication commit = f483d2d3a73edbfd6b203fb3014758095e398e23
+original publication tree   = 008c88eb2a6aadb63172bb2ee3b326971dfe058d
+original publication parent = bb52135038973b40638ff86367ba478846f898c6
+original publication CI     = 34049044651 / push / main / attempt 1 / success
+original publication closure = A2/M4/D0, 6 paths
+```
+
+该提交的 CI 成功是历史事实，**不是** failed head，也不被本次更正重新标记。
+
+本次为其后的一个 **documentation/static-test correction child**，不是 Slice 2、
+不是新的 numbered Slice、也不是新的 phase-start audit。它更正已发布契约与 principal
+中的六类证据缺陷（R1–R6），不改变任何已确认的产品选择、N=11 或 E01–E12：
+
+```text
+correction closure = A0/M5/D0
+correction paths   = 本契约、Slice-1 principal、roadmap、status、active lifecycle reader
+production delta   = 0
+production Python  = 179 (unchanged)
+test-file inventory = 429 (unchanged)
+```
+
+三个 alignment 路径之所以必需：Slice-2 的 authored surface 标签在 roadmap 的
+Phase-64 route 表、status 的 `Next` 行与 active lifecycle reader 的期望常量中各有
+一份，更正必须同时覆盖这三处，否则 sole-reader guard 会与契约不一致。
 
 ## Slice 1 Accounting
 

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import ast
 import re
 import subprocess
+
+import pytest
 
 from _pietto_repository_facts import REPOSITORY_FACTS
 from pietto._project.module_attribution import ProjectModuleRowFieldKind
@@ -18,10 +21,8 @@ from pietto._project.project_bag_null_oracle import (
     evaluate_project_bag_null_join,
     project_bag_int,
 )
-from pietto._project.project_completion import ProjectEffectiveOutputTerminalReason
 from pietto._project.project_grain import ProjectGrainOriginKind
 from pietto._project.project_ir_joins import ProjectIRBinaryJoinKind
-from pietto._project.project_query_block_ir import ProjectIRQueryBlockTerminalReason
 from pietto._project.project_relationship_conditions import (
     ProjectRelationshipConditionScope,
 )
@@ -54,6 +55,65 @@ LAWS = tuple(f"L{index:02d}" for index in range(1, 11))
 CASES = tuple(f"C{index:02d}" for index in range(1, 11))
 FINDINGS = tuple(f"F{index:02d}" for index in range(1, 14))
 EXITS = tuple(f"E{index:02d}" for index in range(1, 13))
+
+# Historical facts: exact member sets frozen at the immutable baseline only.
+BASELINE_ENUM_SETS = (
+    ("src/pietto/ast_nodes.py", "AuthoredJoinKind", ("INNER", "LEFT")),
+    (
+        "src/pietto/_project/project_ir_joins.py",
+        "ProjectIRBinaryJoinKind",
+        ("INNER", "LEFT"),
+    ),
+    (
+        "src/pietto/_project/project_grain.py",
+        "ProjectGrainOriginKind",
+        ("SOURCE_ROW_DOMAIN", "GROUPED_RESULT", "GLOBAL_AGGREGATE"),
+    ),
+)
+# Historical facts: member presence frozen at the immutable baseline only.
+BASELINE_ENUM_MEMBERS = (
+    (
+        "src/pietto/_project/project_completion.py",
+        "ProjectEffectiveOutputTerminalReason",
+        "EFFECTIVE_UPSTREAM_JOIN_UNSUPPORTED",
+    ),
+    (
+        "src/pietto/_project/project_query_block_ir.py",
+        "ProjectIRQueryBlockTerminalReason",
+        "EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED",
+    ),
+)
+# Durable laws: existing members must survive every future legal extension.
+DURABLE_RETENTIONS = (
+    ("AuthoredJoinKind", frozenset({"INNER", "LEFT"})),
+    ("ProjectIRBinaryJoinKind", frozenset({"INNER", "LEFT"})),
+    (
+        "ProjectRelationshipConditionScope",
+        frozenset(
+            {
+                "RELATIONSHIP_BASE_MATCH",
+                "JOIN_LOCAL_ON_REFINEMENT",
+                "POST_JOIN_FILTER",
+            }
+        ),
+    ),
+    ("ProjectModuleRowFieldKind", frozenset({"RELATION_OUTPUT"})),
+    (
+        "ProjectGrainOriginKind",
+        frozenset({"SOURCE_ROW_DOMAIN", "GROUPED_RESULT", "GLOBAL_AGGREGATE"}),
+    ),
+    ("Severity", frozenset({"ERROR", "WARNING"})),
+    ("ProjectBagNullJoinKind", frozenset({"INNER", "LEFT"})),
+)
+LIVE_ENUMS = {
+    "AuthoredJoinKind": AuthoredJoinKind,
+    "ProjectIRBinaryJoinKind": ProjectIRBinaryJoinKind,
+    "ProjectRelationshipConditionScope": ProjectRelationshipConditionScope,
+    "ProjectModuleRowFieldKind": ProjectModuleRowFieldKind,
+    "ProjectGrainOriginKind": ProjectGrainOriginKind,
+    "Severity": Severity,
+    "ProjectBagNullJoinKind": ProjectBagNullJoinKind,
+}
 
 
 def _document() -> str:
@@ -111,6 +171,28 @@ def _has_object(revision: str) -> bool:
     return completed.returncode == 0
 
 
+def _baseline_source(path: str) -> str:
+    """Read one explicit file from the immutable baseline without executing it."""
+
+    return _git("show", f"{BASELINE}:{path}")
+
+
+def _baseline_enum_members(path: str, name: str) -> tuple[str, ...]:
+    """Statically parse one baseline enum's declared member names."""
+
+    module = ast.parse(_baseline_source(path))
+    for node in module.body:
+        if isinstance(node, ast.ClassDef) and node.name == name:
+            return tuple(
+                target.id
+                for statement in node.body
+                if isinstance(statement, ast.Assign)
+                for target in statement.targets
+                if isinstance(target, ast.Name)
+            )
+    raise AssertionError(f"{name} is absent from {path} at the baseline")
+
+
 def test_gate_v3_answers_every_numbered_field_without_unknown() -> None:
     rows = _rows(_section("Product/Phase Initiation Gate v3 Coverage"))
     header, *body = rows
@@ -149,51 +231,75 @@ def test_reusable_question_groups_and_cross_cutting_additions_are_covered() -> N
         assert addition in normalized, addition
 
 
-def test_source_audit_findings_match_the_live_source_they_cite() -> None:
+def test_source_audit_findings_are_structurally_complete() -> None:
     rows = _rows(_section("Live Pietto Source Audit"))[1:]
     assert tuple(row[0] for row in rows) == FINDINGS
     for row in rows:
         assert len(row) == 4 and all(row), row[0]
+    normalized = " ".join(_section("Live Pietto Source Audit").split())
+    # F12 is a baseline fact about relationship comparison, not the future domain.
+    assert "**历史基线事实**" in normalized
+    assert "**不是** Phase-64 row-equivalence 规范" in normalized
 
-    # F01/F03: the authored and binary JOIN kind sets are still exactly INNER/LEFT.
-    assert tuple(AuthoredJoinKind) == (AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT)
-    assert tuple(ProjectIRBinaryJoinKind) == (
-        ProjectIRBinaryJoinKind.INNER,
-        ProjectIRBinaryJoinKind.LEFT,
+
+def test_frozen_fact_classification_table_is_exhaustive_and_disjoint() -> None:
+    """Every frozen fact is declared HISTORICAL or DURABLE, and nothing else."""
+
+    rows = _rows(_section("Reader And Inventory Ownership"))[1:]
+    assert rows
+    classes = tuple(row[1].strip("`") for row in rows)
+    assert set(classes) == {"HISTORICAL", "DURABLE"}
+    historical = tuple(row for row in rows if row[1].strip("`") == "HISTORICAL")
+    durable = tuple(row for row in rows if row[1].strip("`") == "DURABLE")
+    # Historical rows are checked against the baseline; durable rows against live source.
+    assert all("baseline" in row[2] for row in historical), historical
+    assert all(row[2].startswith("live") for row in durable), durable
+
+    declared_historical = len(BASELINE_ENUM_SETS) + len(BASELINE_ENUM_MEMBERS)
+    # Plus the deferred-equality literal and the authored grammar text.
+    assert len(historical) == declared_historical + 2
+    assert len(durable) == len(DURABLE_RETENTIONS)
+
+    normalized = " ".join(_section("Reader And Inventory Ownership").split())
+    assert "principal 不得对 live 枚举做精确集合比对" in normalized
+
+
+def test_historical_absence_facts_read_immutable_baseline_source() -> None:
+    """Exact member sets are frozen at the baseline, never pinned on live enums."""
+
+    if not _has_object(BASELINE):
+        pytest.skip(f"baseline object {BASELINE} is unavailable in a shallow checkout")
+    for path, name, expected in BASELINE_ENUM_SETS:
+        assert _baseline_enum_members(path, name) == expected, (path, name)
+    for path, name, member in BASELINE_ENUM_MEMBERS:
+        assert member in _baseline_enum_members(path, name), (path, name, member)
+    conditions = _baseline_source(
+        "src/pietto/_project/project_relationship_conditions.py"
     )
-    # F05: the refinement and post-JOIN condition scopes already exist.
-    assert {scope.name for scope in ProjectRelationshipConditionScope} == {
-        "RELATIONSHIP_BASE_MATCH",
-        "JOIN_LOCAL_ON_REFINEMENT",
-        "POST_JOIN_FILTER",
-    }
-    # F06: the relation-output identity domain exists.
-    assert ProjectModuleRowFieldKind.RELATION_OUTPUT in tuple(ProjectModuleRowFieldKind)
-    # F09: both transferred fail-closed terminals are live.
-    assert (
-        ProjectEffectiveOutputTerminalReason.EFFECTIVE_UPSTREAM_JOIN_UNSUPPORTED
-        in tuple(ProjectEffectiveOutputTerminalReason)
-    )
-    assert (
-        ProjectIRQueryBlockTerminalReason.EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED
-        in tuple(ProjectIRQueryBlockTerminalReason)
-    )
-    # F11: no quotient or set-alternative grain origin exists yet.
-    assert {origin.name for origin in ProjectGrainOriginKind} == {
-        "SOURCE_ROW_DOMAIN",
-        "GROUPED_RESULT",
-        "GLOBAL_AGGREGATE",
-    }
-    # F12/D07: the deferred equality builtins are exactly the documented four.
-    conditions = REPOSITORY_FACTS.python(
-        REPO_ROOT / "src/pietto/_project/project_relationship_conditions.py"
-    ).text
     assert (
         '_DEFERRED_EQUALITY_BUILTINS = frozenset({"Any", "Bytes", "Decimal", "Json"})'
         in conditions
     )
-    # D05: the existing severity channel already carries WARNING.
-    assert {severity.name for severity in Severity} == {"ERROR", "WARNING"}
+
+
+def test_durable_live_laws_are_retention_only() -> None:
+    """Live checks assert retention, so a legal Phase-64 extension cannot break them."""
+
+    for name, retained in DURABLE_RETENTIONS:
+        live = {member.name for member in LIVE_ENUMS[name]}
+        assert retained <= live, name
+
+    # F05/F06: the seams Phase 64 builds on are present in live source.
+    assert ProjectRelationshipConditionScope.JOIN_LOCAL_ON_REFINEMENT in tuple(
+        ProjectRelationshipConditionScope
+    )
+    assert ProjectModuleRowFieldKind.RELATION_OUTPUT in tuple(ProjectModuleRowFieldKind)
+    # D05: the existing severity channel carries WARNING without a new mechanism.
+    assert Severity.WARNING in tuple(Severity)
+    # F13: the bounded oracle stays available to later slices, which may extend it.
+    assert {ProjectBagNullJoinKind.INNER, ProjectBagNullJoinKind.LEFT} <= set(
+        ProjectBagNullJoinKind
+    )
 
 
 def test_pull_forward_classifications_are_exclusive_and_cover_every_later_owner() -> (
@@ -432,8 +538,10 @@ def test_route_comparison_and_per_slice_contracts_are_complete() -> None:
 
     normalized = " ".join(section.split())
     assert "**选定**" in normalized
-    assert "平局取较少" in normalized
     assert "**早期垂直闭合**" in normalized
+    # The comparison is qualitative; it must not claim a computed weighted total.
+    assert "**没有**计算加权总分，也没有回溯打分矩阵" in normalized
+    assert "本文件不声称任何数值比较结果" in normalized
     for exit_id in EXITS:
         assert exit_id in normalized, exit_id
     for consumer in ("Phase 65", "Phase 67", "Phase 68", "Phase 73", "Phase 88"):
@@ -449,9 +557,19 @@ def test_compatibility_exit_and_zero_delta_boundary_are_exact() -> None:
         "top-level schema/keys 不变",
         "`__all__ == ()`",
         "ZERO DELTA",
-        "Slice 1 本身对上述每一项的实际 delta 均为零",
+        "本 Slice 对上述每一项的实际 delta 均为零",
+        "additive public",
+        "把整个 Phase 64 称作「additive private only」是不准确的",
+        "JSON schema 未变与 「无公开行为变更」是两件事",
     ):
         assert evidence in public, evidence
+
+    layers = tuple(
+        row
+        for row in _rows(_section("Public And Compatibility Exit"))
+        if row and row[0] in {"Slice 1", "Phase 64（Slices 2–9）", "Phase 64 运行期"}
+    )
+    assert len(layers) == 3, layers
 
     zero = _section("Slice 1 Zero-Delta Boundary")
     for line in (
@@ -489,7 +607,9 @@ def test_reader_and_inventory_ownership_is_declared() -> None:
         "它不读取、不命名、也不伪装引用 mutable lifecycle 文档路径",
         "专属 inventory reader 继续独占 current whole-repository Python inventory",
         "不做动态 inventory scan",
-        "绑定到本文件的 immutable baseline tree 与 blob 证据",
+        "bb52135038973b40638ff86367ba478846f898c6` 的 immutable source/Git 对象",
+        "decision/route/static assurance 仍然执行",
+        "也不从 pytest 内部拉取历史",
         "不创建任何永久禁止未来 Phase-64 语法出现在 current HEAD 的断言",
         "历史 delta 使用两个 immutable commit",
         "测试不访问网络",
@@ -515,7 +635,7 @@ def test_exact_immutable_starting_evidence_is_bound() -> None:
         assert evidence in document, evidence
 
     if not _has_object(BASELINE) or not _has_object(BASELINE_PARENT):
-        return
+        pytest.skip("baseline lineage objects are unavailable in a shallow checkout")
     assert _git("show", "-s", "--format=%T", BASELINE) == BASELINE_TREE
     assert _git("show", "-s", "--format=%P", BASELINE) == BASELINE_PARENT
     # Historical delta between two immutable commits, never against a future HEAD.
@@ -529,7 +649,7 @@ def test_phase64_absence_is_asserted_against_the_immutable_baseline_only() -> No
     """Bind the pre-implementation absence to the frozen baseline, not current HEAD."""
 
     if not _has_object(BASELINE):
-        return
+        pytest.skip(f"baseline object {BASELINE} is unavailable in a shallow checkout")
     grammar = _git("show", f"{BASELINE}:grammar/Pietto.g4")
     assert "(INNER | LEFT) JOIN identifier AS identifier" in grammar
     for absent in (
@@ -585,3 +705,268 @@ def test_external_review_records_use_the_current_eleven_field_shape() -> None:
         "所有测试保持 network-free",
     ):
         assert evidence in normalized, evidence
+
+
+def _route_owner_labels() -> dict[str, str]:
+    section = _section("Route Selection")
+    return {
+        row[0]: row[1] for row in _rows(section) if len(row) == 2 and row[0].isdigit()
+    }
+
+
+def test_decision_owner_references_agree_with_the_selected_route() -> None:
+    """Every cited Slice exists, and syntax/semantic/IR stages stay distinguishable."""
+
+    owners = _route_owner_labels()
+    assert set(owners) == {str(index) for index in range(1, 12)}
+
+    section = _section("Resolved Decision Set")
+    cited = tuple(
+        line for line in section.splitlines() if line.startswith("- 实现 owner：")
+    )
+    # D08 classifies atomic rows rather than naming an implementation owner.
+    assert len(cited) == len(DECISIONS) - 1
+    for line in cited:
+        referenced = set(re.findall(r"Slice (\d+)", line))
+        assert referenced, line
+        assert referenced <= set(owners), line
+
+    stages = ("syntax owner", "semantic owner", "IR consumer")
+    joined = "\n".join(cited)
+    for stage in stages:
+        assert f"**{stage}**" in joined, stage
+
+    # The specific owner corrections: each decision names its true semantic stage.
+    expected = {
+        "D04": "Slice 9",
+        "D05": "Slice 7",
+        "D06": "Slice 9",
+        "D07": "Slice 8",
+    }
+    for decision, owner in expected.items():
+        start = section.index(f"### {decision} ")
+        end = section.find("\n### ", start)
+        body = section[start:] if end == -1 else section[start:end]
+        assert owner in body, (decision, owner)
+
+    # Slice 2 owns the authored surface for JOIN syntax and set-operation clauses.
+    assert "set-operation" in owners["2"]
+    assert "grammar" in owners["2"]
+
+    start = section.index("### D08 ")
+    end = section.find("\n### ", start)
+    d08 = " ".join((section[start:] if end == -1 else section[start:end]).split())
+    assert "不得为了保住「两项」这个数字" in d08
+    assert "`IMPLEMENT_NOW`" in d08 and "`DEFER_BY_NECESSITY`" in d08
+
+
+def test_route_alternatives_differ_structurally_from_the_selected_route() -> None:
+    """A rejected candidate may not be described as a split the selection already made."""
+
+    owners = _route_owner_labels()
+    section = _section("Route Selection")
+    rows = {
+        row[0].strip("*"): row[1]
+        for row in _rows(section)
+        if len(row) == 3 and row[0].strip("*") and row[0].strip("*")[0].isdigit()
+    }
+    assert "12" in rows
+    # The selected route already separates grammar/AST (2) from ON semantics (3),
+    # so that split can never be what distinguishes a 12-slice candidate.
+    assert "grammar" in owners["2"] and "条件语义" in owners["3"]
+    assert "grammar/AST 与 ON 语义拆开" not in rows["12"]
+    # The recorded alternative must name a slice the selected route actually has.
+    assert "Slice 4" in rows["12"]
+
+    normalized = " ".join(section.split())
+    assert "那是**错误**的" in normalized
+    assert "也从未存在过一次同分或一次数值比较" in normalized
+
+
+def test_authored_mode_source_map_is_consistent_and_keeps_base_authority() -> None:
+    section = _section("Authored Mode Source Map")
+    rows = _rows(section)[1:]
+    assert tuple(row[0] for row in rows) == ("M1", "M2", "M3", "M4", "M5")
+    for row in rows:
+        assert len(row) == 6 and all(row), row[0]
+
+    modes = {row[0]: row for row in rows}
+    # Generic ON performs no relationship discovery; refinement retains the base.
+    assert "**无**关系发现" in modes["M3"][2]
+    assert "base condition 保留" in modes["M4"][2]
+    assert "JOIN_LOCAL_ON_REFINEMENT" in modes["M4"][3]
+    assert "RELATIONSHIP_BASE_MATCH" in modes["M1"][3]
+    assert "base AND refinement" in modes["M4"][4]
+    # CROSS carries no match condition at all.
+    assert "无 condition" in modes["M5"][3]
+
+    normalized = " ".join(section.split())
+    assert "在当前 baseline **不可解析**" in normalized
+    assert "JOIN body 内是否存在关系遍历" in normalized
+    assert "`WHERE` 在 JOIN **之后**过滤" in normalized
+    assert "已批准表面**不包含**多跳 `VIA` 加 `ON` refinement" in normalized
+    assert "本文件不代为选择、也不声称已闭合" in normalized
+
+    # Examples must use existing scalar spelling: `==` is comparison, `=` is an alias.
+    grammar = (REPO_ROOT / "grammar/Pietto.g4").read_text(encoding="utf-8")
+    assert "EQ: '=='" in grammar and "ASSIGN: '='" in grammar
+    for row in rows:
+        example = row[1]
+        for predicate in re.findall(r"`  on ([^`]+)`", example):
+            assert "==" in predicate, (row[0], predicate)
+            assert not re.search(r"(?<![=!<>])=(?!=)", predicate), (row[0], predicate)
+    # Qualified references name declared bindings, never an invented alias.
+    joined = " ".join(row[1] for row in rows)
+    declared = set(re.findall(r"as (\w+):", joined)) | set(
+        re.findall(r"from (\w+)", joined)
+    )
+    for qualified in re.findall(r"on (\w+)\.\w+ == (\w+)\.\w+", joined):
+        assert set(qualified) <= declared, (qualified, declared)
+
+
+def test_decimal_support_agrees_across_decision_law_and_pull_forward() -> None:
+    decision = _section("Resolved Decision Set")
+    start = decision.index("### D07 ")
+    end = decision.find("\n### ", start)
+    d07 = " ".join((decision[start:] if end == -1 else decision[start:end]).split())
+    for evidence in (
+        "`Decimal` 进入支持域，要求精度与标度完全相同",
+        "nullability 是**独立证据**",
+        "参数缺失或未传播时**不猜测**",
+        "不做隐式拓宽、不做舍入、不从聚合结果反推",
+        "`Any`、`Bytes`、`Json` 仍在已批准 row-equivalence 支持域之外",
+        "历史 relationship 比较的支持范围不因本决定顺带放宽",
+    ):
+        assert evidence in d07, evidence
+
+    # UNION ALL must not inherit a row-equivalence prerequisite.
+    assert "`UNION ALL` 只要求形状与类型兼容，**不要求**重复比较能力" in d07
+
+    law = next(
+        row
+        for row in _rows(_section("Semantic Laws And Rewriting Premises"))
+        if row[0] == "L08"
+    )
+    assert "精确同参" in law[3]
+    assert "Decimal" in law[5] and "参数缺失或不一致" in law[5]
+    assert "`Decimal`/`Json`" not in law[5]
+
+    pull_forward = " ".join(_section("Whole-Roadmap Pull-Forward Audit").split())
+    assert "支持域按 D07 划定（含精确同参 `Decimal(p,s)`）" in pull_forward
+    assert "不沿用历史 relationship 比较推迟表" in pull_forward
+
+
+def test_current_ir_products_and_future_sqlplan_occupy_distinct_rows() -> None:
+    rows = _rows(_section("Whole-Roadmap Pull-Forward Audit"))[1:]
+    core = tuple(row for row in rows if row[0] == "64 core")
+    assert len(core) == 2
+    assert all(row[2].strip("`") == "IMPLEMENT_NOW" for row in core), core
+
+    phase65 = tuple(row for row in rows if row[0] == "65")
+    assert len(phase65) == 2
+    classes = {row[2].strip("`") for row in phase65}
+    assert classes == {"CONTRACT_ONLY_NOW", "DEFER_BY_NECESSITY"}
+
+    deferred = next(row for row in phase65 if row[2].strip("`") == "DEFER_BY_NECESSITY")
+    # The deferral names missing SQL planning interfaces, not an unselected backend.
+    assert "SQL planning/legality 接口本身" in deferred[3]
+    assert "这与「尚未选定后端」无关" in deferred[3]
+
+    consumers = {
+        row[0]: row
+        for row in _rows(_section("Route Selection"))
+        if len(row) == 3 and row[0].startswith("Phase ")
+    }
+    # Phase 68 consumes the single-match cardinality meaning despite no resources.
+    assert "基数错误含义" in consumers["Phase 68"][1]
+    assert "资源与 effect 的缺席不等于没有下游 consumer" in consumers["Phase 68"][2]
+
+
+def test_external_default_facts_are_recorded_accurately() -> None:
+    section = _section("External Reference Review")
+    start = section.index("### R26 ")
+    end = section.find("\n### ", start)
+    r26 = " ".join((section[start:] if end == -1 else section[start:end]).split())
+    for evidence in (
+        "`union(self, table, /, *rest, distinct: bool = False)`",
+        "`intersect(self, table, /, *rest, distinct: bool = True)`",
+        "`difference(self, table, /, *rest, distinct: bool = True)`",
+        "`append` 等价于 `UNION ALL`",
+        "`remove` 等价于 `EXCEPT ALL`",
+        "`intersect` 等价于 `INTERSECT ALL`",
+        "并不统一去重",
+        "不能作为任何 Pietto 默认值的依据",
+        "**产品决定**",
+        "它不是 fail-closed / no-winner 规则的推论",
+    ):
+        assert evidence in r26, evidence
+    assert "两者的 set operation **默认去重**" not in r26
+
+    start = section.index("### R25 ")
+    end = section.find("\n### ", start)
+    r25 = " ".join((section[start:] if end == -1 else section[start:end]).split())
+    for evidence in (
+        "`Condition` 与 `ConditionalApplier`",
+        "运行期检查",
+        "不等于**证明**该改写及其前提是可靠的",
+        "这是**范围**决定",
+        "不是「egg 无法表达条件」的能力主张",
+    ):
+        assert evidence in r25, evidence
+    assert "引擎不验证前提" not in r25
+
+    decisions = _section("Resolved Decision Set")
+    start = decisions.index("### D04 ")
+    end = decisions.find("\n### ", start)
+    d04 = " ".join((decisions[start:] if end == -1 else decisions[start:end]).split())
+    assert "这是一项**产品决定**，不是 fail-closed / no-winner 规则的推论" in d04
+    assert "生态默认值**并不一致**" in d04
+
+
+def test_reconciliation_lineage_preserves_the_original_publication_facts() -> None:
+    section = _section("Slice 1 Reconciliation Lineage")
+    for line in (
+        "original publication commit = f483d2d3a73edbfd6b203fb3014758095e398e23",
+        "original publication tree   = 008c88eb2a6aadb63172bb2ee3b326971dfe058d",
+        "original publication parent = bb52135038973b40638ff86367ba478846f898c6",
+        "original publication CI     = 34049044651 / push / main / attempt 1 / success",
+        "original publication closure = A2/M4/D0, 6 paths",
+        "correction closure = A0/M5/D0",
+        "production delta   = 0",
+        "production Python  = 179 (unchanged)",
+        "test-file inventory = 429 (unchanged)",
+    ):
+        assert line in section, line
+    normalized = " ".join(section.split())
+    assert "**不是** failed head" in normalized
+    assert "不是 Slice 2、 不是新的 numbered Slice" in normalized
+    assert "不改变任何已确认的产品选择、N=11 或 E01–E12" in normalized
+
+
+def test_principal_never_pins_an_exact_live_enum_member_set() -> None:
+    """Structural guard for R1: live enums may only be checked for retention.
+
+    An equality comparison against a live enum would fail the moment a Phase-64
+    slice legally extends it, so the principal must never contain one.
+    """
+
+    module = ast.parse(REPOSITORY_FACTS.python(Path(__file__).resolve()).text)
+    offenders: list[str] = []
+    for node in ast.walk(module):
+        if not isinstance(node, ast.Compare):
+            continue
+        if not any(isinstance(operator, ast.Eq) for operator in node.ops):
+            continue
+        referenced = {
+            child.id
+            for child in ast.walk(node)
+            if isinstance(child, ast.Name) and child.id in LIVE_ENUMS
+        }
+        if referenced:
+            offenders.append(f"line {node.lineno}: {sorted(referenced)}")
+    assert not offenders, offenders
+
+    # The historical counterpart must exist for every live enum whose exact set
+    # is a baseline fact, so removing the equality did not remove the coverage.
+    frozen = {name for _, name, _ in BASELINE_ENUM_SETS}
+    assert frozen <= set(LIVE_ENUMS)
