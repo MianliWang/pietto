@@ -969,12 +969,14 @@ def _grain(
     right_use: ProjectIRJoinInputUseOccurrence,
     source_factors: tuple[ProjectGrainFactorIdentity, ...] | None,
     nulling: tuple[ProjectIRPlanNodeRef, ...],
+    left_nulling: tuple[ProjectIRPlanNodeRef, ...] = (),
     forward_at_most_one: bool,
     reverse_at_most_one: bool,
     witness: object | None = None,
     origin_set: ProjectGrainOriginAuthority | None = None,
     preserve_nested_inputs: bool = False,
     named_left_input: bool = False,
+    empty_state: ProjectGrainBasisState = ProjectGrainBasisState.GLOBAL,
 ) -> tuple[ProjectIRProvidedIntrinsicGrain, tuple[ProjectGrainFactorIdentity, ...]]:
     if origin_set is None and left.origin_set is not right.origin_set:
         raise ValueError("JOIN grain transfer requires one exact origin set.")
@@ -991,13 +993,26 @@ def _grain(
             identity
             if type(identity) is ProjectJoinGrainFactorIdentity
             and not (preserve_nested_inputs and named_left_input)
+            and not left_nulling
             else ProjectJoinGrainFactorIdentity(
                 base=_base_factor(identity),
-                introduction_use=left_use.ref,
-                nulling_joins=(),
+                introduction_use=(
+                    identity.introduction_use
+                    if type(identity) is ProjectJoinGrainFactorIdentity
+                    and left_nulling
+                    and not (preserve_nested_inputs and named_left_input)
+                    else left_use.ref
+                ),
+                nulling_joins=(
+                    (*identity.nulling_joins, *left_nulling)
+                    if type(identity) is ProjectJoinGrainFactorIdentity
+                    and left_nulling
+                    and not (preserve_nested_inputs and named_left_input)
+                    else left_nulling
+                ),
                 source_factor=identity
-                if preserve_nested_inputs
-                and isinstance(identity, ProjectJoinGrainFactorIdentity)
+                if isinstance(identity, ProjectJoinGrainFactorIdentity)
+                and (preserve_nested_inputs or bool(left_nulling))
                 else None,
             )
         )
@@ -1034,7 +1049,11 @@ def _grain(
                 dependents=tuple(images[item] for item in fact.dependents),
             )
         )
-    effective_source_factors = left_active if source_factors is None else source_factors
+    effective_source_factors = (
+        left_active
+        if source_factors is None
+        else tuple(left_images[item] for item in source_factors)
+    )
     if forward_at_most_one and effective_source_factors and right_active:
         dependencies.append(
             ProjectGrainDependencyFact(
@@ -1054,9 +1073,17 @@ def _grain(
                 dependents=effective_source_factors,
             )
         )
-    state = (
-        ProjectGrainBasisState.FACTORIZED if active else ProjectGrainBasisState.GLOBAL
-    )
+    if ProjectGrainBasisState.UNKNOWN in {left.state, right.state}:
+        state = ProjectGrainBasisState.UNKNOWN
+    elif active:
+        state = ProjectGrainBasisState.FACTORIZED
+    elif empty_state in {
+        ProjectGrainBasisState.GLOBAL,
+        ProjectGrainBasisState.UNKNOWN,
+    }:
+        state = empty_state
+    else:
+        raise ValueError("Empty JOIN grain requires GLOBAL or UNKNOWN authority.")
     return (
         ProjectIRProvidedIntrinsicGrain(
             output=output,

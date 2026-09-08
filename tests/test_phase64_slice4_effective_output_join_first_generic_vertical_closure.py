@@ -119,7 +119,7 @@ def test_current_join_check_does_not_claim_combined_ir_or_inspection(
 
 def test_retirement_preserves_unrelated_same_code_errors(tmp_path: Path) -> None:
     source = _source("lhs.id == r.id")
-    unsupported = _source("lhs.id == r.id", kind="right").split("query result:", 1)[1]
+    unsupported = _source("lhs.id == r.id", kind="semi").split("query result:", 1)[1]
     completed = _completed(tmp_path, source + "query unsupported:" + unsupported)
     assert not completed.ok
     entries = {

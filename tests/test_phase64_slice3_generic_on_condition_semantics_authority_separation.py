@@ -175,7 +175,18 @@ def test_mode_kind_dispatch_preserves_later_kind_admission_boundaries(
     assert fact.use.clause.kind is kind
     assert any(d.code == "PIE-S2336" for d in fact.diagnostics) is bad_cross
     old = kind in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT} and on is None
-    assert completed.ok is (kind in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT})
+    supported = (
+        kind
+        in {
+            AuthoredJoinKind.INNER,
+            AuthoredJoinKind.LEFT,
+            AuthoredJoinKind.CROSS,
+            AuthoredJoinKind.RIGHT,
+            AuthoredJoinKind.FULL,
+        }
+        and not bad_cross
+    )
+    assert completed.ok is supported
     if not old:
         assert not isinstance(fact.use, ProjectConcreteJoinUse)
         assert not completed.verification.root.join_regions.structural.nodes

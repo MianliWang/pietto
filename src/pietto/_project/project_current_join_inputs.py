@@ -502,15 +502,27 @@ class ProjectCurrentPreMatchInputs:
                                         )
                     source_nulling = right_nulling
                 continue
-            if prior.use.kind is AuthoredJoinKind.LEFT:
-                nulling[id(target)] = (prior.use.identity,)
+            kind = prior.use.kind
+            if kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}:
+                for item in inputs[: prior.use.identity.join_position + 1]:
+                    causes = (*nulling.get(id(item.binding), ()), prior.use.identity)
+                    nulling[id(item.binding)] = causes
+                    for member in item.fields:
+                        nullability[id(item.binding), id(member)] = (
+                            ProjectRowFieldNullability.NULLABLE
+                        )
+            if kind in {AuthoredJoinKind.LEFT, AuthoredJoinKind.FULL}:
+                nulling[id(target)] = (
+                    *nulling.get(id(target), ()),
+                    prior.use.identity,
+                )
                 for item in inputs:
                     if item.binding is target:
                         for member in item.fields:
                             nullability[id(target), id(member)] = (
                                 ProjectRowFieldNullability.NULLABLE
                             )
-            else:
+            elif kind is AuthoredJoinKind.INNER:
                 for proof in prior.null_rejections:
                     target_field = proof.field
                     if not nulling.get(id(target_field.binding), ()):

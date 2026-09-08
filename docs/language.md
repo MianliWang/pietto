@@ -138,7 +138,17 @@ condition and adds a JOIN-local refinement; its upper bound may survive but
 coverage does not. Ordered AND conjuncts retain exact reference occurrences;
 OR alone supplies no unconditional key non-nullness. Invalid conditions and
 combinations add precise diagnostics. CROSS has no ON/VIA, and new kinds are
-direct binary only. Additional kinds and set bodies remain unavailable.
+direct binary only. CROSS, RIGHT and FULL now complete through the same
+EXPLICIT_MODULES project-check path as INNER/LEFT. CROSS has no match predicate
+and retains every occurrence pair. RIGHT preserves every right occurrence and
+null-extends the entire accumulated left input when unmatched; FULL preserves
+unmatched occurrences from both sides and null-extends the opposite side.
+Fields remain ordered left then right, repeated occurrences remain distinct,
+and earlier null-extension provenance is retained. Property transfer uses only
+exact directional premises; outer-match facts do not become unconditional
+equality, key or FD evidence. Two GLOBAL inputs under a false FULL predicate
+retain UNKNOWN intrinsic grain rather than a false GLOBAL proof. SEMI/ANTI and
+set bodies remain unavailable.
 Single-file/LEGACY_FLAT/PACKAGE_ROOT and legacy IR/SQL retain their existing
 rejection boundaries; a successful project check is not SQL capability.
 Current JOIN roots also remain unavailable to combined query-block IR and its

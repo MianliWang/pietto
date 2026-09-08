@@ -190,7 +190,7 @@ def test_project_forms_follow_current_owner_availability_without_traceback(
     result = (
         build_project_completed_semantic_result(semantic) if schema == 2 else semantic
     )
-    supported = schema == 2 and source in NEW_SOURCES[:2]
+    supported = schema == 2 and source in NEW_SOURCES[:4]
     assert result.ok is supported
     assert any(d.code == "PIE-S2334" for d in result.diagnostics) is not supported
 
@@ -216,7 +216,7 @@ def test_on_and_via_remain_distinct_from_historical_join_ir(
     if steps:
         assert clause.traversal_steps[-1].span.line < clause.on_clause.span.line
     result = _completed(tmp_path, source)
-    assert result.ok is (kind in {"inner", "left"} and steps <= 1)
+    assert result.ok is (kind in {"inner", "left", "right", "full"} and steps <= 1)
     uses = result.verification.root.join_regions.uses
     ledger = next(
         item for item in uses.ledgers if item.owner.definition.name == "result"

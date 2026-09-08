@@ -1,4 +1,4 @@
-"""Current INNER/LEFT rows from exact ON facts, outside historical JOIN IR."""
+"""Current direct-binary rows from exact authored facts, outside combined IR."""
 
 from __future__ import annotations
 
@@ -147,6 +147,7 @@ class ProjectCurrentBinaryJoin:
     prefix: _CurrentPrefix | None = field(default=None, repr=False)
     input_scope: ProjectCurrentJoinInputScope | None = field(default=None, repr=False)
     use: ProjectJoinUse = field(init=False, repr=False)
+    kind: AuthoredJoinKind = field(init=False)
     node: ProjectIRPlanNodeOccurrence = field(init=False)
     input_slots: tuple[ProjectIRInputSlotOccurrence, ...] = field(init=False)
     input_uses: tuple[ProjectIRJoinInputUseOccurrence, ...] = field(init=False)
@@ -157,15 +158,28 @@ class ProjectCurrentBinaryJoin:
 
     def __post_init__(self) -> None:
         condition = self.condition
-        if (
-            type(condition) is not ProjectJoinCondition
-            or not condition.ready
-            or condition.mode not in {"M3", "M4"}
-        ):
-            raise ValueError("Current binary JOIN requires exact ready ON authority.")
+        if type(condition) is not ProjectJoinCondition or not condition.ready:
+            raise ValueError("Current binary JOIN requires exact ready authority.")
         kind = condition.use.kind
-        if kind not in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}:
-            raise ValueError("Current binary JOIN admits only INNER/LEFT.")
+        valid_mode = (
+            (
+                kind in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}
+                and condition.mode in {"M3", "M4"}
+            )
+            or (
+                kind is AuthoredJoinKind.CROSS
+                and condition.mode == "M5"
+                and condition.expression is None
+                and condition.scope is None
+                and not condition.base_conditions
+            )
+            or (
+                kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
+                and condition.mode in {"M1", "M2", "M3", "M4"}
+            )
+        )
+        if not valid_mode:
+            raise ValueError("Current binary JOIN kind/mode is not supported here.")
         if (
             type(self.left_input) is not ProjectIROutputRelationalProperties
             or type(self.right_input) is not ProjectIROutputRelationalProperties
@@ -303,6 +317,8 @@ class ProjectCurrentBinaryJoin:
             for proof in condition.null_rejections
         }
         fields: list[ProjectIRJoinedRowField] = []
+        left_nulling = kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
+        right_nulling = kind in {AuthoredJoinKind.LEFT, AuthoredJoinKind.FULL}
         for position, member in enumerate(
             (*self.left_input.fields, *self.right_input.fields)
         ):
@@ -311,12 +327,18 @@ class ProjectCurrentBinaryJoin:
                 previous = self.left_input.output.row_shape.fields[position]
                 introduction, nulling = (
                     previous.introduction_use,
-                    previous.nulling_joins,
+                    (
+                        (*previous.nulling_joins, node.ref)
+                        if left_nulling
+                        else previous.nulling_joins
+                    ),
                 )
             else:
                 introduction = uses[1 if is_right else 0]
                 nulling = (
-                    (node.ref,) if is_right and kind is AuthoredJoinKind.LEFT else ()
+                    (node.ref,)
+                    if (is_right and right_nulling) or (not is_right and left_nulling)
+                    else ()
                 )
             nullability = (
                 ProjectRowFieldNullability.NULLABLE
@@ -353,6 +375,7 @@ class ProjectCurrentBinaryJoin:
             ),
         )
         object.__setattr__(self, "use", condition.use)
+        object.__setattr__(self, "kind", kind)
         object.__setattr__(self, "node", node)
         object.__setattr__(self, "input_slots", slots)
         object.__setattr__(self, "input_uses", uses)
@@ -424,23 +447,87 @@ def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProp
         old=right.value_classes, output=output, fields=fields, offset=len(left.fields)
     )
     classes = (*left_classes, *right_classes)
-    nulling = join.use.kind is AuthoredJoinKind.LEFT
+    kind = join.kind
+    left_nulling = kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
+    right_nulling = kind in {AuthoredJoinKind.LEFT, AuthoredJoinKind.FULL}
     left_keys = tuple(
-        _image_key(key, left_images, classes, output=output, support=join)
+        _image_key(
+            key,
+            left_images,
+            classes,
+            output=output,
+            force_lax=left_nulling,
+            support=join,
+        )
         for key in left.keys
     )
     right_keys = tuple(
         _image_key(
-            key, right_images, classes, output=output, force_lax=nulling, support=join
+            key,
+            right_images,
+            classes,
+            output=output,
+            force_lax=right_nulling,
+            support=join,
         )
         for key in right.keys
     )
+    base = join.condition.base_guarantee
     refined = join.condition.refinement_guarantee
-    upper_one = (
-        refined is not None
-        and refined.maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
+    forward_at_most_one = (
+        (
+            refined is not None
+            and refined.maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
+        )
+        or (
+            refined is None
+            and base is not None
+            and base.maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
+        )
     ) or right.grain.state is ProjectGrainBasisState.GLOBAL
-    keys = list(left_keys) if upper_one else []
+    source_is_key = False
+    reverse_at_most_one = left.grain.state is ProjectGrainBasisState.GLOBAL
+    if base is not None and len(join.condition.environment.source_candidates) == 1:
+        source = join.condition.environment.source_candidates[0]
+        matched = tuple(
+            member
+            for value_class in base.source_matched_classes
+            for member in value_class.members
+        )
+        positions = {
+            position
+            for position, (binding, original) in enumerate(join.left_fields)
+            if binding is source and any(original is member for member in matched)
+        }
+        source_classes = _ordered_classes(
+            tuple(
+                value_class
+                for value_class in left_classes
+                if any(
+                    member.field_position in positions for member in value_class.members
+                )
+            ),
+            classes,
+        )
+        source_is_key = bool(source_classes) and any(
+            set(key.determinants) == set(source_classes) for key in left_keys
+        )
+        reverse = tuple(
+            item
+            for item in join.condition.root.uses.index.by_declaration.get(
+                base.direction.declaration, ()
+            )
+            if item.source_output is base.target_output
+            and item.target_output is base.source_output
+        )
+        reverse_at_most_one |= (
+            source_is_key
+            and len(reverse) == 1
+            and reverse[0].maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
+        )
+    keys = list(left_keys) if forward_at_most_one else []
+    if reverse_at_most_one:
+        keys.extend(right_keys)
     for lhs in left_keys:
         for rhs in right_keys:
             determinants = _ordered_classes(
@@ -464,8 +551,8 @@ def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProp
     inherited = tuple(
         image
         for properties, images, weaken in (
-            (left, left_images, False),
-            (right, right_images, nulling),
+            (left, left_images, left_nulling),
+            (right, right_images, right_nulling),
         )
         for fact in properties.fds
         if (
@@ -474,9 +561,15 @@ def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProp
                 images,
                 classes,
                 output=output,
-                strength=ProjectRowUniquenessStrength.LAX
-                if weaken and not all(_all_non_null(item) for item in fact.determinants)
-                else fact.strength,
+                strength=(
+                    ProjectRowUniquenessStrength.LAX
+                    if weaken
+                    and (
+                        kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
+                        or not all(_all_non_null(item) for item in fact.determinants)
+                    )
+                    else fact.strength
+                ),
                 support=join,
             )
         )
@@ -491,9 +584,10 @@ def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProp
         left_use=join.input_uses[0],
         right_use=join.input_uses[1],
         source_factors=None,
-        nulling=(join.node.ref,) if nulling else (),
-        forward_at_most_one=upper_one,
-        reverse_at_most_one=False,
+        nulling=(join.node.ref,) if right_nulling else (),
+        left_nulling=(join.node.ref,) if left_nulling else (),
+        forward_at_most_one=forward_at_most_one,
+        reverse_at_most_one=reverse_at_most_one,
         witness=ProjectCurrentJoinGrainWitness(
             condition=join.condition, left=left.grain, right=right.grain
         ),
@@ -508,6 +602,13 @@ def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProp
         ),
         preserve_nested_inputs=True,
         named_left_input=type(left.output) is not ProjectIRJoinRowOutput,
+        empty_state=(
+            ProjectGrainBasisState.UNKNOWN
+            if kind is AuthoredJoinKind.FULL
+            and left.grain.state is ProjectGrainBasisState.GLOBAL
+            and right.grain.state is ProjectGrainBasisState.GLOBAL
+            else ProjectGrainBasisState.GLOBAL
+        ),
     )
     return ProjectIROutputRelationalProperties(
         output=output,
@@ -594,7 +695,14 @@ class ProjectCurrentJoinRegion:
             or not conditions
             or any(
                 not item.ready
-                or item.use.kind not in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}
+                or item.use.kind
+                not in {
+                    AuthoredJoinKind.INNER,
+                    AuthoredJoinKind.LEFT,
+                    AuthoredJoinKind.CROSS,
+                    AuthoredJoinKind.RIGHT,
+                    AuthoredJoinKind.FULL,
+                }
                 for item in conditions
             )
         ):
@@ -631,7 +739,10 @@ class ProjectCurrentJoinRegion:
                 raise ValueError(
                     "Current JOIN region requires an available right input."
                 )
-            if condition.mode in {"M1", "M2"}:
+            if condition.mode in {"M1", "M2"} and condition.use.kind in {
+                AuthoredJoinKind.INNER,
+                AuthoredJoinKind.LEFT,
+            }:
                 use = condition.effective_use
                 if not isinstance(use, ProjectConcreteJoinUse):
                     raise ValueError(

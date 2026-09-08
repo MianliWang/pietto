@@ -1747,7 +1747,14 @@ class ProjectCurrentJoinAdmission:
         facts = _semantic_facts(self.completion, self.region.ledger.owner)
         definition = _derived_definition(facts.owner)
         if facts.helper_diagnostics != syntax_diagnostics(definition) or any(
-            join.use.kind not in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}
+            join.use.kind
+            not in {
+                AuthoredJoinKind.INNER,
+                AuthoredJoinKind.LEFT,
+                AuthoredJoinKind.CROSS,
+                AuthoredJoinKind.RIGHT,
+                AuthoredJoinKind.FULL,
+            }
             for join in self.region.joins
         ):
             raise ValueError(
@@ -4228,7 +4235,14 @@ class _CurrentJoinBuild:
             for dependency in base_entry.dependencies
         )
         if not changed_input and not any(
-            item.use.clause.on_clause is not None for item in predicates
+            item.use.clause.on_clause is not None
+            or item.use.kind
+            in {
+                AuthoredJoinKind.CROSS,
+                AuthoredJoinKind.RIGHT,
+                AuthoredJoinKind.FULL,
+            }
+            for item in predicates
         ):
             return None
         bindings: list[ProjectCurrentBindingInput] = []
@@ -4291,8 +4305,14 @@ class _CurrentJoinBuild:
         )
         supported = bool(rebuilt) and all(
             item.ready
-            and item.mode in {"M1", "M2", "M3", "M4"}
-            and item.use.kind in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}
+            and (
+                item.use.kind in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}
+                and item.mode in {"M1", "M2", "M3", "M4"}
+                or item.use.kind is AuthoredJoinKind.CROSS
+                and item.mode == "M5"
+                or item.use.kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
+                and item.mode in {"M1", "M2", "M3", "M4"}
+            )
             for item in rebuilt
         )
         if (
@@ -4446,6 +4466,12 @@ def build_project_effective_output_completion(
             id(item.use.owner)
             for item in join_conditions.entries
             if item.use.clause.on_clause is not None
+            or item.use.kind
+            in {
+                AuthoredJoinKind.CROSS,
+                AuthoredJoinKind.RIGHT,
+                AuthoredJoinKind.FULL,
+            }
         }
         for required_owner in reversed(completion.schedule):
             if id(required_owner) in required_current:

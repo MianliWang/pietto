@@ -1419,6 +1419,8 @@ def _build_grain_linkages(
     aggregates: tuple[ProjectJoinedAggregateOccurrence, ...],
     protections: tuple[ProjectJoinedGroupProtection, ...],
 ) -> tuple[ProjectJoinedAggregateGrainLinkage, ...]:
+    if not aggregates:
+        return ()
     region = input_filter.joined_semantics.multifact_region
     index = region.grain_index
     final_grain = region.final_properties.relational.grain
@@ -2355,6 +2357,7 @@ class ProjectJoinedAggregationNonConcreteReason(StrEnum):
     GROUP_KEY_NON_CONCRETE = "group_key_non_concrete"
     AGGREGATE_NON_CONCRETE = "aggregate_non_concrete"
     SELECTED_OUTPUT_NON_CONCRETE = "selected_output_non_concrete"
+    INTRINSIC_GRAIN_NON_CONCRETE = "intrinsic_grain_non_concrete"
     AGGREGATE_ALGEBRA_REQUIRED = "aggregate_algebra_required"
     SATISFYING_NON_CONCRETE = "satisfying_non_concrete"
 
@@ -2382,6 +2385,9 @@ class ProjectNonConcreteJoinedAggregation:
     group_protections: tuple[ProjectJoinedGroupProtection, ...] = ()
     grain_linkages: tuple[ProjectJoinedAggregateGrainLinkage, ...] = ()
     pair_linkages: tuple[ProjectJoinedAggregatePairLinkage, ...] = ()
+    grain_blocker: multifact.ProjectIRProvidedIntrinsicGrain | None = field(
+        default=None, repr=False, compare=False, hash=False
+    )
     satisfying: ProjectJoinedSatisfyingAnalysis | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
     post_aggregate: None = field(init=False, default=None)
@@ -2413,6 +2419,7 @@ class ProjectNonConcreteJoinedAggregation:
                     self.group_protections,
                     self.grain_linkages,
                     self.pair_linkages,
+                    self.grain_blocker is not None,
                     self.satisfying is not None,
                     self.diagnostics,
                 )
@@ -2427,6 +2434,35 @@ class ProjectNonConcreteJoinedAggregation:
             raise ValueError(
                 "Local aggregation blocker requires concrete filtered rows."
             )
+        if self.reason is (
+            ProjectJoinedAggregationNonConcreteReason.INTRINSIC_GRAIN_NON_CONCRETE
+        ):
+            final_grain = self.input_filter.joined_semantics.multifact_region.final_properties.relational.grain
+            if (
+                self.grain_blocker is not final_grain
+                or final_grain.state is not ProjectGrainBasisState.UNKNOWN
+                or self.mode is ProjectJoinedAggregationMode.ABSENT
+                or not self.aggregate_results
+                or any(
+                    type(item) is ProjectJoinedGroupKeyIssue
+                    for item in self.group_key_results
+                )
+                or any(
+                    type(item) is ProjectJoinedAggregateIssue
+                    for item in self.aggregate_results
+                )
+                or self.selected_output_issues
+                or self.grain_linkages
+                or self.pair_linkages
+                or self.satisfying is not None
+                or self.diagnostics
+            ):
+                raise ValueError(
+                    "Unknown-grain terminal requires its exact aggregate blocker."
+                )
+            return
+        if self.grain_blocker is not None:
+            raise ValueError("Other aggregate terminals cannot borrow a grain blocker.")
         has_group_issue = any(
             type(item) is ProjectJoinedGroupKeyIssue for item in self.group_key_results
         )
@@ -2574,6 +2610,33 @@ def build_project_joined_aggregation(
         )
         else ()
     )
+    has_group_issue = any(
+        type(item) is ProjectJoinedGroupKeyIssue for item in group_key_results
+    )
+    has_aggregate_issue = any(
+        type(item) is ProjectJoinedAggregateIssue for item in aggregate_results
+    )
+    if (
+        not has_group_issue
+        and not has_aggregate_issue
+        and not selected_output_issues
+        and aggregates
+    ):
+        final_grain = input_filter.joined_semantics.multifact_region.final_properties.relational.grain
+        if final_grain.state is ProjectGrainBasisState.UNKNOWN:
+            return ProjectNonConcreteJoinedAggregation(
+                filter_set=filter_set,
+                input_filter=input_filter,
+                reason=(
+                    ProjectJoinedAggregationNonConcreteReason.INTRINSIC_GRAIN_NON_CONCRETE
+                ),
+                mode=mode,
+                group_key_results=group_key_results,
+                aggregate_results=aggregate_results,
+                stage_outputs=stage_outputs,
+                group_protections=group_protections,
+                grain_blocker=final_grain,
+            )
     grain_linkages = _build_grain_linkages(
         input_filter=input_filter,
         aggregates=aggregates,
@@ -2591,12 +2654,6 @@ def build_project_joined_aggregation(
         aggregate_results=aggregate_results,
         selected_output_issues=selected_output_issues,
         satisfying=satisfying,
-    )
-    has_group_issue = any(
-        type(item) is ProjectJoinedGroupKeyIssue for item in group_key_results
-    )
-    has_aggregate_issue = any(
-        type(item) is ProjectJoinedAggregateIssue for item in aggregate_results
     )
     has_risk = any(item.requirements for item in grain_linkages) or any(
         item.requirements for item in pair_linkages

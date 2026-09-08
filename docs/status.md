@@ -43,8 +43,9 @@ documentation does not supersede that evidence.
 | Phase 64 Slice 2 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 3 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 4 | `COMPLETED / PUBLISHED` |
-| Phase 64 Slice 5 | `NEXT / NOT IMPLEMENTED` |
-| Next | `Phase 64 Slice 5 — CROSS/RIGHT/FULL output shapes, null-extension and property transfer` |
+| Phase 64 Slice 5 | `COMPLETED / PUBLISHED` |
+| Phase 64 Slice 6 | `NEXT / NOT IMPLEMENTED` |
+| Next | `Phase 64 Slice 6 — SEMI/ANTI left-occurrence retention and existence semantics` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -633,7 +634,22 @@ exact current entries. Original authored uses remain distinct from operative
 condition facts and input occurrences. Current property transfer retains actual
 proof premises, nested self-use factors and aggregate-safety failures.
 Only exact owned temporary diagnostics of successful JOIN operations retire.
-F01/F02, unsupported kinds/sets and the other entrypoint boundaries remain.
+F01/F02, later kinds/sets and the other entrypoint boundaries remain.
 Combined query-block IR/verification/inspection is explicitly unavailable for
 current JOIN roots pending Slice 10; E05/E10 are not fully closed.
-Phase 64 Slice 5 is `NEXT / NOT IMPLEMENTED`; Slices 6–11 are `NOT IMPLEMENTED`.
+
+Phase 64 Slice 5 is `COMPLETED / PUBLISHED` by natural exact-head CI on its
+ordinary publication commit, without a status-only follow-up. Its
+[CROSS/RIGHT/FULL contract](spec/phase64-slice5-cross-right-full-output-shapes-null-extension-property-transfer-v1.md)
+extends the same direct-binary current region over exact named/effective inputs.
+CROSS retains no matching condition or relationship proof. RIGHT null-extends
+the whole accumulated left input; FULL null-extends both sides, preserving all
+earlier nulling provenance and left-then-right field occurrences. Property and
+grain transfer use exact directional premises and preserve nested input uses.
+A FULL join of two GLOBAL inputs retains explicit UNKNOWN grain instead of a
+false GLOBAL claim; aggregate consumers fail closed through a typed terminal.
+Existing SELECT tails, downstream replay/JOIN and all three EXPLICIT_MODULES
+check modes complete. SEMI/ANTI and set operations remain unavailable.
+Combined current IR/verification/inspection remains Slice 10 work, so E05/E10
+are not fully closed. Phase 64 Slice 6 is `NEXT / NOT IMPLEMENTED`; Slices
+6–11 are `NOT IMPLEMENTED`.

@@ -38,6 +38,7 @@ from pietto._project.project_ir_joins import (
     ProjectIRNonConcreteJoinRegion,
 )
 from pietto._project.project_ir_properties import (
+    ProjectIRJoinRowOutput,
     ProjectIRJoinedRowField,
     ProjectIRRelationRowOutput,
     ProjectIRScalarFieldOutput,
@@ -1297,7 +1298,17 @@ def _localized_input_factors(
     final_grain: ProjectIRProvidedIntrinsicGrain,
 ) -> tuple[ProjectGrainFactorIdentity, ...]:
     localized: list[ProjectGrainFactorIdentity] = []
+    carried_join_output = isinstance(grain.output, ProjectIRJoinRowOutput)
     for factor in grain.active:
+
+        def retains_source(retained: ProjectJoinGrainFactorIdentity) -> bool:
+            source = retained.source_factor
+            while type(source) is ProjectJoinGrainFactorIdentity:
+                if source is factor:
+                    return True
+                source = source.source_factor
+            return source is factor
+
         matches = tuple(
             retained
             for retained in final_grain.active
@@ -1305,8 +1316,14 @@ def _localized_input_factors(
                 (type(factor) is ProjectJoinGrainFactorIdentity and retained == factor)
                 or (
                     type(retained) is ProjectJoinGrainFactorIdentity
-                    and retained.source_factor is factor
-                    and retained.introduction_use == introduction_use.ref
+                    and retains_source(retained)
+                    and retained.introduction_use
+                    == (
+                        factor.introduction_use
+                        if carried_join_output
+                        and type(factor) is ProjectJoinGrainFactorIdentity
+                        else introduction_use.ref
+                    )
                 )
                 or (
                     type(factor) is not ProjectJoinGrainFactorIdentity
@@ -1555,13 +1572,15 @@ class ProjectCurrentMultiFactRegion:
         grain = final.relational.grain
         index = _grain_index(grain)
         candidates: list[ProjectActualGrainCandidate] = []
-        for join, join_properties in zip(
-            self.region.joins, self.region.join_properties, strict=True
+        for join_position, (join, join_properties) in enumerate(
+            zip(self.region.joins, self.region.join_properties, strict=True)
         ):
             for position, kind, properties in (
                 (0, ProjectActualGrainAuthorityKind.JOIN_LEFT_INPUT, join.left_input),
                 (1, ProjectActualGrainAuthorityKind.JOIN_RIGHT_INPUT, join.right_input),
             ):
+                if properties.grain.state is ProjectGrainBasisState.UNKNOWN:
+                    continue
                 introduction = join.input_uses[position]
                 factors = _localized_input_factors(
                     grain=properties.grain,
@@ -1577,12 +1596,21 @@ class ProjectCurrentMultiFactRegion:
                     allow_empty=properties.grain.state is ProjectGrainBasisState.GLOBAL,
                 )
             current = join_properties.relational.grain
+            if current.state is ProjectGrainBasisState.UNKNOWN:
+                continue
+            current_factors = current.active
+            if current is not grain:
+                current_factors = _localized_input_factors(
+                    grain=current,
+                    introduction_use=self.region.joins[join_position + 1].input_uses[0],
+                    final_grain=grain,
+                )
             _add_actual_candidate(
                 candidates,
                 index=index,
                 kind=ProjectActualGrainAuthorityKind.JOIN_OUTPUT,
                 evidence=(join, current),
-                factors=current.active,
+                factors=current_factors,
                 allow_empty=current.state is ProjectGrainBasisState.GLOBAL,
             )
         object.__setattr__(self, "final_properties", final)

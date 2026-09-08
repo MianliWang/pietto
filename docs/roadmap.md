@@ -2134,7 +2134,7 @@ subjects to the numbered route below.
 Phase 64 **Flat Relational Algebra** is `ACTIVE`. Slice 1 is
 `COMPLETED / PUBLISHED`, Slice 2 is `COMPLETED / PUBLISHED`, Slice 3 is
 `COMPLETED / PUBLISHED`, Slice 4 is `COMPLETED / PUBLISHED`, Slice 5 is
-`NEXT / NOT IMPLEMENTED`, and the frozen
+`COMPLETED / PUBLISHED`, Slice 6 is `NEXT / NOT IMPLEMENTED`, and the frozen
 route has exactly 11 numbered Slices.
 
 | Slice | Owner |
@@ -2210,8 +2210,19 @@ input roots rebuild conditions through Slice 3, and unchanged historical paths
 retain their prior objects and bytes. Current prefixes and materialized input
 boundaries retain exact occurrence/proof/allocation roots. Successful operations
 retire only their exact temporary admission causes. Natural exact-head CI closes
-Slice 4 without a status-only follow-up. Slice 5 is NEXT / NOT IMPLEMENTED and
-owns CROSS/RIGHT/FULL output semantics. Slices 6–11 remain NOT IMPLEMENTED.
+Slice 4 without a status-only follow-up.
+
+The [Slice-5 CROSS/RIGHT/FULL contract](spec/phase64-slice5-cross-right-full-output-shapes-null-extension-property-transfer-v1.md)
+extends that same scheduled current-operation path for direct-binary inputs.
+CROSS has no condition or relationship discovery. RIGHT and FULL retain exact
+authored roles and null-extend the whole accumulated left input; FULL also
+null-extends the right. Existing nulling provenance, field order, input-use
+multiplicity and sound key/FD/grain facts remain. The degenerate FULL of two
+GLOBAL inputs retains UNKNOWN grain rather than a false at-most-one claim.
+Existing SELECT tails, completed inputs, replay/JOIN and EXPLICIT_MODULES check
+complete without adding combined IR or SQL. Natural exact-head CI closes Slice 5
+without a status-only follow-up. Slice 6 is NEXT / NOT IMPLEMENTED and owns
+SEMI/ANTI left-only output semantics. Slices 6–11 remain NOT IMPLEMENTED.
 Slice 10 still owns combined IR/analysis/inspection and final
 EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED closure; E05/E10 are not fully closed.
 No additional route row or product exit is introduced.
