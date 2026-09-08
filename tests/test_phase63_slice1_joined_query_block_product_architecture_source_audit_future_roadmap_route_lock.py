@@ -227,6 +227,10 @@ def _git_parent_if_available(commit: str) -> str | None:
         for line in _git("cat-file", "-p", commit).splitlines()
         if line.startswith("parent ")
     )
+    if len(parents) == 2:
+        assert commit == _git("rev-parse", "HEAD")
+        assert _git("rev-parse", "--is-shallow-repository") == "true"
+        return None
     assert len(parents) == 1
     parent = parents[0]
     expression = f"{parent}^{{commit}}"
