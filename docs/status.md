@@ -44,8 +44,9 @@ documentation does not supersede that evidence.
 | Phase 64 Slice 3 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 4 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 5 | `COMPLETED / PUBLISHED` |
-| Phase 64 Slice 6 | `NEXT / NOT IMPLEMENTED` |
-| Next | `Phase 64 Slice 6 — SEMI/ANTI left-occurrence retention and existence semantics` |
+| Phase 64 Slice 6 | `COMPLETED / PUBLISHED` |
+| Phase 64 Slice 7 | `NEXT / NOT IMPLEMENTED` |
+| Next | `Phase 64 Slice 7 — Single-match direction, unit, scoped proof, obligation and warning diagnostics` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -649,7 +650,25 @@ grain transfer use exact directional premises and preserve nested input uses.
 A FULL join of two GLOBAL inputs retains explicit UNKNOWN grain instead of a
 false GLOBAL claim; aggregate consumers fail closed through a typed terminal.
 Existing SELECT tails, downstream replay/JOIN and all three EXPLICIT_MODULES
-check modes complete. SEMI/ANTI and set operations remain unavailable.
+check modes complete. At that publication, SEMI/ANTI and set operations remained
+unavailable.
 Combined current IR/verification/inspection remains Slice 10 work, so E05/E10
-are not fully closed. Phase 64 Slice 6 is `NEXT / NOT IMPLEMENTED`; Slices
-6–11 are `NOT IMPLEMENTED`.
+are not fully closed.
+
+Phase 64 Slice 6 is `COMPLETED / PUBLISHED` only upon successful natural exact-head
+CI on its ordinary publication commit, without a status-only follow-up. Its
+[SEMI/ANTI contract](spec/phase64-slice6-semi-anti-left-occurrence-retention-existence-semantics-v1.md)
+delivers E03 semantic/check behavior for direct M1–M4 matching. SEMI retains each
+accumulated-left occurrence once when any right occurrence matches TRUE; ANTI
+retains it once when none do. FALSE/UNKNOWN do not match. Right multiplicity
+cannot multiply output, and equal left payloads remain distinct occurrences.
+The new output retains exact ordered left fields, hidden path fields and prior
+nulling; right fields are predicate-local, with binding/use/dependency evidence
+preserved. Later conditions and SELECT tails cannot resurrect consumed fields.
+Left keys/FD/grain use subset images; UNKNOWN right grain does not contaminate
+known left output, while UNKNOWN left and earlier fanout remain unresolved.
+Completed inputs, tail stages, replay/JOIN and import/re-export compose through
+all three EXPLICIT_MODULES check modes. JSON v2 and F01/F02 remain unchanged.
+Combined IR/inspection, E05/E10 closure and single-match remain later work.
+Phase 64 Slice 7 is `NEXT / NOT IMPLEMENTED`; Slices 7–11 are `NOT IMPLEMENTED`.
+Per-left 0-or-1 output retention does not establish actual right-match cardinality.

@@ -33,6 +33,7 @@ from pietto._project.project_relationship_uses import (
     ProjectRelationBindingOccurrence,
     ProjectRelationJoinUseLedger,
     ProjectRelationshipUseSet,
+    project_join_binding_visible,
 )
 from pietto.ast_nodes import AuthoredJoinKind
 
@@ -455,6 +456,8 @@ class ProjectCurrentPreMatchInputs:
                 blocked.extend(item.binding for item in inputs[:-1])
                 break
             target = prior.use.target_binding
+            if prior.use.kind in {AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI}:
+                continue
             if prior.mode in {"M1", "M2"} and prior.effective_use.path is not None:
                 source = prior.effective_use.source_binding
                 source_nulling = () if source is None else nulling.get(id(source), ())
@@ -537,6 +540,9 @@ class ProjectCurrentPreMatchInputs:
                 nulling.get(id(item.binding), ()),
             )
             for item in inputs
+            if project_join_binding_visible(
+                item.binding, self.scope.ledger.uses[:position]
+            )
             for member in item.fields
         )
         object.__setattr__(self, "rows", rows)

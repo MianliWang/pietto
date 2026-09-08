@@ -8,6 +8,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import cast
 
+from pietto.ast_nodes import AuthoredJoinKind
 from pietto._project.model import ProjectAggregateResultFact
 from pietto._project.module_semantic_fact_preservation import ProjectModuleSelectFact
 from pietto._project.project_grain import (
@@ -1579,7 +1580,11 @@ class ProjectCurrentMultiFactRegion:
                 (0, ProjectActualGrainAuthorityKind.JOIN_LEFT_INPUT, join.left_input),
                 (1, ProjectActualGrainAuthorityKind.JOIN_RIGHT_INPUT, join.right_input),
             ):
-                if properties.grain.state is ProjectGrainBasisState.UNKNOWN:
+                if (
+                    position == 1
+                    and isinstance(join, ProjectCurrentBinaryJoin)
+                    and join.kind in {AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI}
+                ) or properties.grain.state is ProjectGrainBasisState.UNKNOWN:
                     continue
                 introduction = join.input_uses[position]
                 factors = _localized_input_factors(

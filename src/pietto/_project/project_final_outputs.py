@@ -1754,6 +1754,8 @@ class ProjectCurrentJoinAdmission:
                 AuthoredJoinKind.CROSS,
                 AuthoredJoinKind.RIGHT,
                 AuthoredJoinKind.FULL,
+                AuthoredJoinKind.SEMI,
+                AuthoredJoinKind.ANTI,
             }
             for join in self.region.joins
         ):
@@ -4241,6 +4243,8 @@ class _CurrentJoinBuild:
                 AuthoredJoinKind.CROSS,
                 AuthoredJoinKind.RIGHT,
                 AuthoredJoinKind.FULL,
+                AuthoredJoinKind.SEMI,
+                AuthoredJoinKind.ANTI,
             }
             for item in predicates
         ):
@@ -4310,7 +4314,13 @@ class _CurrentJoinBuild:
                 and item.mode in {"M1", "M2", "M3", "M4"}
                 or item.use.kind is AuthoredJoinKind.CROSS
                 and item.mode == "M5"
-                or item.use.kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
+                or item.use.kind
+                in {
+                    AuthoredJoinKind.RIGHT,
+                    AuthoredJoinKind.FULL,
+                    AuthoredJoinKind.SEMI,
+                    AuthoredJoinKind.ANTI,
+                }
                 and item.mode in {"M1", "M2", "M3", "M4"}
             )
             for item in rebuilt
@@ -4471,6 +4481,8 @@ def build_project_effective_output_completion(
                 AuthoredJoinKind.CROSS,
                 AuthoredJoinKind.RIGHT,
                 AuthoredJoinKind.FULL,
+                AuthoredJoinKind.SEMI,
+                AuthoredJoinKind.ANTI,
             }
         }
         for required_owner in reversed(completion.schedule):

@@ -1037,16 +1037,31 @@ def project_join_combination_error(clause: JoinClause) -> str | None:
     return None
 
 
+def project_join_binding_visible(
+    binding: ProjectRelationBindingOccurrence,
+    prior_uses: tuple[ProjectJoinUse, ...],
+) -> bool:
+    """Keep structural dependencies distinct from accumulated-row visibility."""
+    return not any(
+        use.target_binding is binding
+        and use.kind in {AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI}
+        for use in prior_uses
+    )
+
+
 def project_join_source_candidates(
     ledger: ProjectRelationJoinUseLedger, use: ProjectJoinUse
 ) -> tuple[ProjectRelationBindingOccurrence, ...]:
-    """Keep every earlier source binding; never choose a duplicate winner."""
+    """Keep every available earlier source; never choose a duplicate winner."""
     if not any(use is retained for retained in ledger.uses):
         raise ValueError("Pre-match source requires its exact JOIN ledger.")
     return tuple(
         binding
         for binding in ledger.bindings[: use.identity.join_position + 1]
         if binding.name == use.clause.source_binding_name
+        and project_join_binding_visible(
+            binding, ledger.uses[: use.identity.join_position]
+        )
     )
 
 
@@ -1135,7 +1150,10 @@ def _build_use(
         )
     earlier = bindings[: position + 1]
     matches: tuple[ProjectRelationBindingOccurrence, ...] = tuple(
-        binding for binding in earlier if binding.name == clause.source_binding_name
+        binding
+        for binding in earlier
+        if binding.name == clause.source_binding_name
+        and project_join_binding_visible(binding, prior_uses)
     )
     if not matches:
         later = tuple(
@@ -1305,6 +1323,9 @@ def rebuild_available_relationship_use(
                 for item in ledger.bindings[: original.identity.join_position + 1]
             )
             or binding.state is not ProjectJoinUseState.CONCRETE
+            or not project_join_binding_visible(
+                binding, ledger.uses[: original.identity.join_position]
+            )
             for binding in available
         )
     ):

@@ -82,7 +82,7 @@ stored separately and is never encoded in the code.
 | `PIE-S2331` | `QUALIFY` lacks both a selected window result and a hidden predicate window computation |
 | `PIE-S2332` | `QUALIFY` reference is unknown or ambiguous across visible pre-window inputs and selected window results |
 | `PIE-S2333` | Project relation semantic completion is unavailable, including a later tail whose required intrinsic-grain proof is explicitly UNKNOWN |
-| `PIE-S2334` | A flat-relational operation or named set input remains unavailable; ERROR in LOOSE/CHECKED/STRICT, retaining existing messages and authored spans. Successful supported explicit-module INNER/LEFT/CROSS/RIGHT/FULL operations retire only their exact owner-held temporary admission diagnostics. Condition readiness alone, other entrypoints, SEMI/ANTI and sets do not remove this boundary. |
+| `PIE-S2334` | A flat-relational operation or named set input remains unavailable; ERROR in LOOSE/CHECKED/STRICT, retaining existing messages and authored spans. Successful supported explicit-module INNER/LEFT/CROSS/RIGHT/FULL/SEMI/ANTI operations retire only their exact owner-held temporary admission diagnostics. Condition readiness alone, other entrypoints and sets do not remove this boundary. |
 | `PIE-S2335` | JOIN pre-match input/reference/type or scalar context is unavailable, unknown, forward or ambiguous; ERROR at the exact JOIN/reference/expression span. Existing scalar-kernel and Bool-consumer diagnostics retain their codes and objects. |
 | `PIE-S2336` | Unsupported authored JOIN combination: CROSS with ON/VIA, multi-hop VIA with ON, or a multi-hop new kind; ERROR at the authored JOIN span. |
 | `PIE-S2401` | Constraint return type does not expand to `Bool` |

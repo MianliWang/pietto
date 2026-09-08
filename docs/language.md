@@ -147,8 +147,19 @@ Fields remain ordered left then right, repeated occurrences remain distinct,
 and earlier null-extension provenance is retained. Property transfer uses only
 exact directional premises; outer-match facts do not become unconditional
 equality, key or FD evidence. Two GLOBAL inputs under a false FULL predicate
-retain UNKNOWN intrinsic grain rather than a false GLOBAL proof. SEMI/ANTI and
-set bodies remain unavailable.
+retain UNKNOWN intrinsic grain rather than a false GLOBAL proof.
+SEMI and ANTI also support direct M1–M4 matching through EXPLICIT_MODULES checks.
+For each occurrence of the entire accumulated left input, SEMI retains it once
+if any right occurrence matches TRUE; ANTI retains it once if no right occurrence
+matches TRUE. FALSE and UNKNOWN are non-matches. Repeated right matches never
+multiply output; equal-valued left occurrences remain distinct. Only exact left
+fields are output, including prior hidden fields and nulling history. Right
+fields are available in this matching predicate only; later JOIN conditions and
+SELECT-tail scopes cannot reference them. Their dependencies and binding names
+remain reserved. Left keys/FD/grain follow subset transfer, with no new nulling,
+fanout, coverage or ordering claim; UNKNOWN right grain alone does not make left
+grain UNKNOWN. This retention rule does not prove at-most-one right match.
+Set bodies remain unavailable.
 Single-file/LEGACY_FLAT/PACKAGE_ROOT and legacy IR/SQL retain their existing
 rejection boundaries; a successful project check is not SQL capability.
 Current JOIN roots also remain unavailable to combined query-block IR and its

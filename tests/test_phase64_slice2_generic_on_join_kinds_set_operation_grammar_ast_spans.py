@@ -216,7 +216,9 @@ def test_on_and_via_remain_distinct_from_historical_join_ir(
     if steps:
         assert clause.traversal_steps[-1].span.line < clause.on_clause.span.line
     result = _completed(tmp_path, source)
-    assert result.ok is (kind in {"inner", "left", "right", "full"} and steps <= 1)
+    assert result.ok is (
+        kind in {"inner", "left", "right", "full", "semi", "anti"} and steps <= 1
+    )
     uses = result.verification.root.join_regions.uses
     ledger = next(
         item for item in uses.ledgers if item.owner.definition.name == "result"

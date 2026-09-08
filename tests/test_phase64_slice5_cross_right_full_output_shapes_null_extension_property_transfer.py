@@ -754,8 +754,10 @@ def test_single_file_legacy_ir_and_combined_current_ir_remain_negative(
 
 
 @pytest.mark.parametrize("kind", ("semi", "anti"))
-def test_slice6_kinds_remain_precisely_unavailable(tmp_path: Path, kind: str) -> None:
-    completed = _completed(tmp_path, _source("lhs.id == r.id", kind=kind))
+def test_invalid_existence_conditions_remain_precisely_unavailable(
+    tmp_path: Path, kind: str
+) -> None:
+    completed = _completed(tmp_path, _source("1", kind=kind))
     assert not completed.ok
     facts = completed.semantic_result.module_semantic_facts
     assert facts is not None
@@ -774,7 +776,7 @@ def test_slice6_kinds_remain_precisely_unavailable(tmp_path: Path, kind: str) ->
 
 def test_success_retires_only_its_exact_temporary_diagnostics(tmp_path: Path) -> None:
     supported = _source("lhs.id == r.id", kind="full")
-    unsupported = _source("lhs.id == r.id", kind="semi").split("query result:", 1)[1]
+    unsupported = _source("1", kind="semi").split("query result:", 1)[1]
     completed = _completed(tmp_path, supported + "query unsupported:" + unsupported)
     assert not completed.ok
     admissions = completed.effective_outputs.join_admissions

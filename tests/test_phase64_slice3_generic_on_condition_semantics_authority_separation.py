@@ -183,6 +183,8 @@ def test_mode_kind_dispatch_preserves_later_kind_admission_boundaries(
             AuthoredJoinKind.CROSS,
             AuthoredJoinKind.RIGHT,
             AuthoredJoinKind.FULL,
+            AuthoredJoinKind.SEMI,
+            AuthoredJoinKind.ANTI,
         }
         and not bad_cross
     )

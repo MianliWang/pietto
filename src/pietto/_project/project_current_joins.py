@@ -104,6 +104,13 @@ class _CurrentPrefix:
             raise ValueError(
                 "Current prefix requires exact previous operator and field roots."
             )
+        if (
+            isinstance(self.join, ProjectCurrentBinaryJoin)
+            and self.origins is not self.join.field_inputs
+        ):
+            raise ValueError(
+                "Current prefix must retain exact output field-role authority."
+            )
         if isinstance(self.join, ProjectIRBinaryJoinOccurrence) and (
             self.join.use is not self.condition.effective_use
             or self.join.identity.path_step_position
@@ -174,7 +181,13 @@ class ProjectCurrentBinaryJoin:
                 and not condition.base_conditions
             )
             or (
-                kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
+                kind
+                in {
+                    AuthoredJoinKind.RIGHT,
+                    AuthoredJoinKind.FULL,
+                    AuthoredJoinKind.SEMI,
+                    AuthoredJoinKind.ANTI,
+                }
                 and condition.mode in {"M1", "M2", "M3", "M4"}
             )
         )
@@ -308,9 +321,14 @@ class ProjectCurrentBinaryJoin:
             )
             for i, properties in enumerate((self.left_input, self.right_input))
         )
+        left_only = kind in {AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI}
         origins = (
-            *self.left_fields,
-            *((condition.use.target_binding, member) for member in right_fields),
+            self.left_fields
+            if left_only
+            else (
+                *self.left_fields,
+                *((condition.use.target_binding, member) for member in right_fields),
+            )
         )
         rejected = {
             (id(proof.field.binding), id(proof.field.input_field))
@@ -320,7 +338,9 @@ class ProjectCurrentBinaryJoin:
         left_nulling = kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
         right_nulling = kind in {AuthoredJoinKind.LEFT, AuthoredJoinKind.FULL}
         for position, member in enumerate(
-            (*self.left_input.fields, *self.right_input.fields)
+            self.left_input.fields
+            if left_only
+            else (*self.left_input.fields, *self.right_input.fields)
         ):
             is_right = position >= len(self.left_input.fields)
             if not is_right and type(self.left_input.output) is ProjectIRJoinRowOutput:
@@ -438,6 +458,8 @@ class ProjectCurrentJoinProperties:
 
 
 def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProperties:
+    if join.kind in {AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI}:
+        return _left_subset_properties(join)
     left, right, output = join.left_input, join.right_input, join.output
     fields = _field_occurrences(output)
     left_classes, left_images = _classes_for_output(
@@ -621,6 +643,62 @@ def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProp
     )
 
 
+def _left_subset_properties(
+    join: ProjectCurrentBinaryJoin,
+) -> ProjectIROutputRelationalProperties:
+    left, output = join.left_input, join.output
+    fields = _field_occurrences(output)
+    classes, images = _classes_for_output(
+        old=left.value_classes, output=output, fields=fields, offset=0
+    )
+    keys = tuple(
+        _image_key(key, images, classes, output=output, force_lax=False, support=join)
+        for key in left.keys
+    )
+    fds = tuple(
+        image
+        for fact in left.fds
+        if (
+            image := _image_fd(
+                fact,
+                images,
+                classes,
+                output=output,
+                strength=fact.strength,
+                support=join,
+            )
+        )
+        is not None
+    )
+    grain, _ = _grain(
+        join_identity=None,
+        output=output,
+        left=left.grain,
+        right=join.right_input.grain,
+        left_use=join.input_uses[0],
+        right_use=join.input_uses[1],
+        source_factors=None,
+        nulling=(),
+        forward_at_most_one=False,
+        reverse_at_most_one=False,
+        witness=ProjectCurrentJoinGrainWitness(
+            condition=join.condition, left=left.grain, right=join.right_input.grain
+        ),
+        preserve_nested_inputs=True,
+        named_left_input=type(left.output) is not ProjectIRJoinRowOutput,
+        left_only=True,
+    )
+    return ProjectIROutputRelationalProperties(
+        output=output,
+        fields=fields,
+        value_classes=classes,
+        keys=keys,
+        fds=fds,
+        fd_index=_compile_output_fd_index(output, classes, fds),
+        grain=grain,
+    )
+
+
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectCurrentJoinRegion:
     conditions: ProjectJoinConditionSet = field(repr=False)
@@ -702,6 +780,8 @@ class ProjectCurrentJoinRegion:
                     AuthoredJoinKind.CROSS,
                     AuthoredJoinKind.RIGHT,
                     AuthoredJoinKind.FULL,
+                    AuthoredJoinKind.SEMI,
+                    AuthoredJoinKind.ANTI,
                 }
                 for item in conditions
             )
@@ -857,9 +937,10 @@ class ProjectCurrentJoinRegion:
                     node.properties.relational,
                     node.ending_allocation,
                 )
-                positions[id(condition.use.target_binding)] = tuple(
-                    range(offset, offset + len(right.fields))
-                )
+                if node.kind not in {AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI}:
+                    positions[id(condition.use.target_binding)] = tuple(
+                        range(offset, offset + len(right.fields))
+                    )
             if not introductions:
                 introductions.append(built[0].input_uses[0])
             introductions.append(built[-1].input_uses[1])

@@ -288,11 +288,12 @@ EXPECTED_STATUS = (
     ("Phase 64 Slice 3", "`COMPLETED / PUBLISHED`"),
     ("Phase 64 Slice 4", "`COMPLETED / PUBLISHED`"),
     ("Phase 64 Slice 5", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64 Slice 6", "`NEXT / NOT IMPLEMENTED`"),
+    ("Phase 64 Slice 6", "`COMPLETED / PUBLISHED`"),
+    ("Phase 64 Slice 7", "`NEXT / NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 64 Slice 6 — SEMI/ANTI left-occurrence retention and existence "
-        "semantics`",
+        "`Phase 64 Slice 7 — Single-match direction, unit, scoped proof, obligation "
+        "and warning diagnostics`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1904,7 +1905,7 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "All 22 inherited assets remain available",
         "all 12 mandatory Phase-64 initiation questions are answered",
         "all 15 transferred subjects are assigned to the numbered route",
-        "Phase 64 Slice 6 is `NEXT / NOT IMPLEMENTED`; Slices 6–11 are `NOT IMPLEMENTED`",
+        "Phase 64 Slice 7 is `NEXT / NOT IMPLEMENTED`; Slices 7–11 are `NOT IMPLEMENTED`",
     ):
         assert evidence in normalized
     interlude_ii_target = (
@@ -4799,7 +4800,8 @@ def test_phase64_route_section_is_exact() -> None:
         "Phase 64 **Flat Relational Algebra** is `ACTIVE`",
         "Slice 1 is `COMPLETED / PUBLISHED`, Slice 2 is `COMPLETED / PUBLISHED`, "
         "Slice 3 is `COMPLETED / PUBLISHED`, Slice 4 is `COMPLETED / PUBLISHED`, "
-        "Slice 5 is `COMPLETED / PUBLISHED`, Slice 6 is `NEXT / NOT IMPLEMENTED`",
+        "Slice 5 is `COMPLETED / PUBLISHED`, Slice 6 is `COMPLETED / PUBLISHED`, "
+        "Slice 7 is `NEXT / NOT IMPLEMENTED`",
         "the frozen route has exactly 11 numbered Slices",
         "13 reconciled live source findings",
         "three exclusive ledgers",
@@ -4822,7 +4824,9 @@ def test_phase64_route_section_is_exact() -> None:
         "CROSS has no condition or relationship discovery",
         "null-extend the whole accumulated left input",
         "degenerate FULL of two GLOBAL inputs retains UNKNOWN grain",
-        "Slice 6 is NEXT / NOT IMPLEMENTED",
+        "Slice 7 is NEXT / NOT IMPLEMENTED",
+        "Right fields are predicate-local; both dependencies and input-use roles remain",
+        "E03 is semantic/check delivery",
     ):
         assert evidence in normalized
 

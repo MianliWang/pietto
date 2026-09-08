@@ -36,6 +36,7 @@ from pietto._project.project_relationship_uses import (
     project_join_combination_error,
     project_join_mode,
     project_join_source_candidates,
+    project_join_binding_visible,
     validate_project_join_input_bindings,
     rebuild_available_relationship_use,
 )
@@ -176,6 +177,9 @@ def _input_rows(
                 nulling.get(id(binding), ()),
             )
             for binding, output in inputs
+            if project_join_binding_visible(
+                binding, ledger.uses[: use.identity.join_position]
+            )
             for item in output.fields
         ),
         tuple(
@@ -431,7 +435,10 @@ class ProjectJoinCondition:
                 for item in self.inputs.scope.bindings[
                     : self.use.identity.join_position + 1
                 ]
-                if item.authority is not None
+                if project_join_binding_visible(
+                    item.binding, self.ledger.uses[: self.use.identity.join_position]
+                )
+                and item.authority is not None
                 and item.binding.state is ProjectJoinUseState.CONCRETE
                 and item.authority.historical_properties is item.binding.output
             )

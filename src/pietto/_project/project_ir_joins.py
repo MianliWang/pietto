@@ -976,9 +976,10 @@ def _grain(
     origin_set: ProjectGrainOriginAuthority | None = None,
     preserve_nested_inputs: bool = False,
     named_left_input: bool = False,
+    left_only: bool = False,
     empty_state: ProjectGrainBasisState = ProjectGrainBasisState.GLOBAL,
 ) -> tuple[ProjectIRProvidedIntrinsicGrain, tuple[ProjectGrainFactorIdentity, ...]]:
-    if origin_set is None and left.origin_set is not right.origin_set:
+    if not left_only and origin_set is None and left.origin_set is not right.origin_set:
         raise ValueError("JOIN grain transfer requires one exact origin set.")
     if witness is None:
         if type(join_identity) is not ProjectIRBinaryJoinIdentity:
@@ -1026,14 +1027,16 @@ def _grain(
             and isinstance(factor.identity, ProjectJoinGrainFactorIdentity)
             else None,
         )
-        for factor in right.factors
+        for factor in (() if left_only else right.factors)
     }
     left_active = tuple(left_images[item] for item in left.active)
-    right_active = tuple(right_images[item] for item in right.active)
+    right_active = (
+        () if left_only else tuple(right_images[item] for item in right.active)
+    )
     active = (*left_active, *right_active)
     factor_identities = (
         *(left_images[item.identity] for item in left.factors),
-        *(right_images[item.identity] for item in right.factors),
+        *(right_images[item.identity] for item in (() if left_only else right.factors)),
     )
     factors = tuple(
         ProjectGrainDomainFactor(identity=item) for item in factor_identities
@@ -1041,7 +1044,7 @@ def _grain(
     dependencies: list[ProjectGrainDependencyFact] = []
     for fact, images in (
         *((fact, left_images) for fact in left.dependencies),
-        *((fact, right_images) for fact in right.dependencies),
+        *((fact, right_images) for fact in (() if left_only else right.dependencies)),
     ):
         dependencies.append(
             ProjectGrainDependencyFact(
@@ -1073,7 +1076,9 @@ def _grain(
                 dependents=effective_source_factors,
             )
         )
-    if ProjectGrainBasisState.UNKNOWN in {left.state, right.state}:
+    if left_only:
+        state = left.state
+    elif ProjectGrainBasisState.UNKNOWN in {left.state, right.state}:
         state = ProjectGrainBasisState.UNKNOWN
     elif active:
         state = ProjectGrainBasisState.FACTORIZED

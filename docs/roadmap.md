@@ -2134,8 +2134,8 @@ subjects to the numbered route below.
 Phase 64 **Flat Relational Algebra** is `ACTIVE`. Slice 1 is
 `COMPLETED / PUBLISHED`, Slice 2 is `COMPLETED / PUBLISHED`, Slice 3 is
 `COMPLETED / PUBLISHED`, Slice 4 is `COMPLETED / PUBLISHED`, Slice 5 is
-`COMPLETED / PUBLISHED`, Slice 6 is `NEXT / NOT IMPLEMENTED`, and the frozen
-route has exactly 11 numbered Slices.
+`COMPLETED / PUBLISHED`, Slice 6 is `COMPLETED / PUBLISHED`, Slice 7 is
+`NEXT / NOT IMPLEMENTED`, and the frozen route has exactly 11 numbered Slices.
 
 | Slice | Owner |
 | ---: | --- |
@@ -2221,8 +2221,22 @@ multiplicity and sound key/FD/grain facts remain. The degenerate FULL of two
 GLOBAL inputs retains UNKNOWN grain rather than a false at-most-one claim.
 Existing SELECT tails, completed inputs, replay/JOIN and EXPLICIT_MODULES check
 complete without adding combined IR or SQL. Natural exact-head CI closes Slice 5
-without a status-only follow-up. Slice 6 is NEXT / NOT IMPLEMENTED and owns
-SEMI/ANTI left-only output semantics. Slices 6–11 remain NOT IMPLEMENTED.
+without a status-only follow-up. That publication handed left-only existence
+semantics to Slice 6.
+
+The [Slice-6 SEMI/ANTI contract](spec/phase64-slice6-semi-anti-left-occurrence-retention-existence-semantics-v1.md)
+adds direct-binary M1–M4 existence matching with exact accumulated-left occurrence
+retention. Right fields are predicate-local; both dependencies and input-use
+roles remain. Left properties/grain survive as subset images without new fanout,
+null-extension or coverage. UNKNOWN right grain alone does not change known left
+grain, and existing left uncertainty/aggregate risks remain. Completed inputs,
+SELECT tails, replay/JOIN and import/re-export reach EXPLICIT_MODULES check.
+Natural exact-head CI closes Slice 6 without a status-only follow-up. E03 is
+semantic/check delivery; Slice 7 is NEXT / NOT IMPLEMENTED and Slices 7–11 remain
+NOT IMPLEMENTED. Slice 7 receives exact left/right matching roles, operative
+condition/base/refinement and applicable bound evidence. Fixed per-left retention
+is distinct from actual right-match cardinality; no requirement or warning is
+implemented here.
 Slice 10 still owns combined IR/analysis/inspection and final
 EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED closure; E05/E10 are not fully closed.
 No additional route row or product exit is introduced.
