@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto._project.project_current_joins import ProjectCurrentJoinRegion
+
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import cast
@@ -967,6 +969,7 @@ class ProjectIRQueryBlockTerminalReason(StrEnum):
     ACTIVE_UPSTREAM_IR_NON_CONCRETE = "active_upstream_ir_non_concrete"
     ACTIVE_UPSTREAM_ROW_INCOMPATIBLE = "active_upstream_row_incompatible"
     EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED = "effective_join_input_rebind_unsupported"
+    CURRENT_JOIN_COMPOSITION_UNSUPPORTED = "current_join_composition_unsupported"
 
 
 type ProjectIRQueryBlockSemanticEntry = ProjectEffectiveOutputCompletionEntry
@@ -1323,6 +1326,16 @@ class ProjectIRQueryBlockTerminal:
             valid = (
                 type(self.blocker) is ProjectIRQueryBlockRowCompatibility
                 and not self.blocker.satisfied
+            )
+        elif (
+            self.reason
+            is ProjectIRQueryBlockTerminalReason.CURRENT_JOIN_COMPOSITION_UNSUPPORTED
+        ):
+            valid = (
+                type(self.semantic_entry) is ProjectCompletedEffectiveOutput
+                and type(self.blocker) is tuple
+                and bool(self.blocker)
+                and all(type(item) is ProjectCurrentJoinRegion for item in self.blocker)
             )
         else:
             valid = (
@@ -2520,7 +2533,7 @@ def _build_pending_entries(
             )
         elif type(semantic_entry) is ProjectExistingEffectiveOutput:
             definition = semantic_entry.owner.definition
-            if type(definition) is SourceDef:
+            if type(definition) is SourceDef or overlay.current_regions:
                 pending = _PendingReuse(
                     semantic_entry=semantic_entry,
                     allocation=current,
@@ -2581,6 +2594,15 @@ def _build_pending_entries(
                             )
                             current = pending.ending_allocation
         elif type(semantic_entry) is ProjectCompletedEffectiveOutput:
+            if overlay.current_regions:
+                pending = _PendingTerminal(
+                    semantic_entry=semantic_entry,
+                    reason=ProjectIRQueryBlockTerminalReason.CURRENT_JOIN_COMPOSITION_UNSUPPORTED,
+                    blocker=overlay.current_regions,
+                    allocation=current,
+                )
+                pending_by_owner[id(owner)] = pending
+                continue
             root = semantic_entry.root
             if type(root) is ProjectConcreteJoinedQualify:
                 stale = _stale_join_inputs(

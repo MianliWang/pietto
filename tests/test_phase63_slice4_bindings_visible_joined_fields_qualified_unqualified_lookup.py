@@ -300,6 +300,7 @@ def test_multihop_intermediate_fields_remain_hidden_structural_occurrences(
     built: _Built,
 ) -> None:
     environment = built.multihop
+    assert isinstance(environment.region, ProjectIRConcreteJoinRegion)
     assert tuple(binding.binding.name for binding in environment.bindings) == (
         "customers",
         "returns",

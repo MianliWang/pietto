@@ -21,6 +21,7 @@ from pietto._project.project_ir_properties import (
 from pietto._project.project_ir import ProjectIRRelationConstructionState
 from pietto._project.project_query_block import (
     ProjectConcreteQueryBlock,
+    ProjectCurrentJoinedRowSource,
     ProjectExistingRelationRowSource,
     ProjectNonConcreteQueryBlock,
     ProjectQueryBlockConstructionResult,
@@ -29,10 +30,10 @@ from pietto._project.project_query_block import (
 )
 from pietto._project.row_expression_type_facts import (
     project_row_field_to_semantic_value_type,
+    scalar_field_reference_leaves as scalar_field_reference_leaves,
 )
 from pietto.ast_nodes import DottedNameExpr, Expression, NameExpr
 from pietto.errors import Diagnostic, Severity
-from pietto.semantic.aggregates import child_expressions
 from pietto.semantic.expressions import infer_row_expression
 from pietto.semantic.model import RowSchema, ValueType, ValueTypeKind
 
@@ -138,7 +139,9 @@ class ProjectConcreteScalarEnvironment:
             source_fields: tuple[ProjectScalarSourceField, ...] = (
                 _ordinary_source_fields(row_source)
             )
-        elif type(row_source) is ProjectVerifiedJoinedRowSource:
+        elif isinstance(
+            row_source, (ProjectVerifiedJoinedRowSource, ProjectCurrentJoinedRowSource)
+        ):
             source_fields = row_source.fields
         else:
             raise AssertionError("concrete query block lost its row-source variant")
@@ -272,24 +275,6 @@ class ProjectScalarReferenceResolution:
             "target",
             self.candidates[0] if len(self.candidates) == 1 else None,
         )
-
-
-def scalar_field_reference_leaves(
-    expression: Expression,
-) -> tuple[NameExpr | DottedNameExpr, ...]:
-    """Enumerate exact scalar-reference leaves without treating call callees as rows."""
-
-    if not isinstance(expression, Expression):
-        raise TypeError("Scalar reference traversal requires an expression.")
-    if type(expression) is NameExpr:
-        return (expression,)
-    if type(expression) is DottedNameExpr:
-        return (expression,)
-    return tuple(
-        leaf
-        for child in child_expressions(expression)
-        for leaf in scalar_field_reference_leaves(child)
-    )
 
 
 class ProjectScalarTypeNonConcreteReason(StrEnum):

@@ -175,7 +175,7 @@ def test_single_file_and_legacy_ir_reject_new_semantics(source: str) -> None:
 
 @pytest.mark.parametrize("source", NEW_SOURCES)
 @pytest.mark.parametrize("schema", (1, 2))
-def test_project_new_forms_are_unavailable_without_traceback(
+def test_project_forms_follow_current_owner_availability_without_traceback(
     tmp_path: Path, source: str, schema: int
 ) -> None:
     (tmp_path / "pietto.toml").write_text(
@@ -190,15 +190,16 @@ def test_project_new_forms_are_unavailable_without_traceback(
     result = (
         build_project_completed_semantic_result(semantic) if schema == 2 else semantic
     )
-    assert not result.ok
-    assert any(d.code == "PIE-S2334" for d in result.diagnostics), result.diagnostics
+    supported = schema == 2 and source in NEW_SOURCES[:2]
+    assert result.ok is supported
+    assert any(d.code == "PIE-S2334" for d in result.diagnostics) is not supported
 
 
 @pytest.mark.parametrize(
     "kind", ("inner", "left", "cross", "right", "full", "semi", "anti")
 )
 @pytest.mark.parametrize("steps", (0, 1, 2))
-def test_on_and_via_are_distinct_and_never_positive(
+def test_on_and_via_remain_distinct_from_historical_join_ir(
     kind: str, steps: int, tmp_path: Path
 ) -> None:
     tail = "        via link: l -> r\n" * steps + "        on false\n"
@@ -215,7 +216,7 @@ def test_on_and_via_are_distinct_and_never_positive(
     if steps:
         assert clause.traversal_steps[-1].span.line < clause.on_clause.span.line
     result = _completed(tmp_path, source)
-    assert not result.ok
+    assert result.ok is (kind in {"inner", "left"} and steps <= 1)
     uses = result.verification.root.join_regions.uses
     ledger = next(
         item for item in uses.ledgers if item.owner.definition.name == "result"

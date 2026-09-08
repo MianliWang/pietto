@@ -12,9 +12,9 @@ from pietto._project.model import (
     ProjectRowFieldNullability,
     ProjectRowSchema,
 )
-from pietto.ast_nodes import Expression, NameExpr
+from pietto.ast_nodes import DottedNameExpr, Expression, NameExpr
 from pietto.errors import Diagnostic
-from pietto.semantic.aggregates import contains_semantic_aggregate
+from pietto.semantic.aggregates import child_expressions, contains_semantic_aggregate
 from pietto.semantic.expressions import infer_row_expression
 from pietto.semantic.model import (
     EffectiveNullability,
@@ -46,6 +46,23 @@ _UNKNOWN_PROJECT_FIELD_VALUE_TYPE = ValueType(
     nullability=EffectiveNullability.UNKNOWN,
     kind=ValueTypeKind.UNKNOWN,
 )
+
+
+def scalar_field_reference_leaves(
+    expression: Expression,
+) -> tuple[NameExpr | DottedNameExpr, ...]:
+    """Enumerate original row-reference occurrences, excluding call callees."""
+    if not isinstance(expression, Expression):
+        raise TypeError("Scalar reference traversal requires an expression.")
+    if type(expression) is NameExpr:
+        return (expression,)
+    if type(expression) is DottedNameExpr:
+        return (expression,)
+    return tuple(
+        leaf
+        for child in child_expressions(expression)
+        for leaf in scalar_field_reference_leaves(child)
+    )
 
 
 def project_row_field_to_semantic_value_type(

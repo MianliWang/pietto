@@ -12,11 +12,13 @@ from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
 )
 from pietto._project.project_joined_row_filter import (
+    ProjectJoinedRowFilterSet,
     ProjectJoinedRowFilterPreservationWitness,
     ProjectJoinedRowMultiplicity,
     ProjectJoinedRowRetentionEffect,
     _SQL_ROW_RETENTION_EFFECTS,
 )
+from pietto._project.project_joined_aggregation import build_project_joined_aggregations
 from pietto._project.project_joined_windows import (
     ProjectConcreteJoinedWindowStage,
     ProjectConcreteWindowComputation,
@@ -31,6 +33,7 @@ from pietto._project.project_joined_windows import (
     ProjectNonConcreteWindowComputation,
     ProjectSelectedWindowResultBinding,
     analyze_hidden_project_window_computation,
+    build_project_joined_window_stages,
 )
 from pietto.ast_nodes import (
     DottedNameExpr,
@@ -989,3 +992,12 @@ def build_project_joined_qualifies(
             for stage in window_set.results
         ),
     )
+
+
+def build_project_joined_tail(
+    filter_set: ProjectJoinedRowFilterSet,
+) -> ProjectJoinedQualifySet:
+    """Run existing tail stages for a historical batch or explicit owner scope."""
+    aggregations = build_project_joined_aggregations(filter_set)
+    windows = build_project_joined_window_stages(aggregations)
+    return build_project_joined_qualifies(windows)

@@ -370,6 +370,7 @@ def test_source_and_renamed_relation_lineage_reuse_exact_attribution(
         and item.source_origin is not None
         and item.source_origin.source_field is item.canonical_field
         and item.output_attribution is None
+        and item.lineage is not None
         and item.lineage.paths[0].root_field is item.canonical_field
         for item in source.fields
     )
@@ -392,6 +393,8 @@ def test_source_and_renamed_relation_lineage_reuse_exact_attribution(
         == (item.output_attribution,)
         for item in relation_fields
     )
+    assert relation_fields[0].lineage is not None
+    assert relation_fields[1].lineage is not None
     assert (
         relation_fields[0].lineage.paths[0].hops[0].projection_kind
         is ProjectModuleProjectionKind.RENAMED
@@ -464,7 +467,9 @@ def test_repeated_and_hidden_occurrences_keep_distinct_rows_and_shared_roots(
     )
     assert tuple(item.scalar_field for item in hidden_semantics) == hidden
     assert hidden_semantics
-    assert all(item.lineage.paths for item in hidden_semantics)
+    assert all(
+        item.lineage is not None and item.lineage.paths for item in hidden_semantics
+    )
 
 
 def test_slice5_success_no_let_and_failure_attach_without_partial_stage(

@@ -55,19 +55,16 @@ from pietto._project.project_ir_verification import (
     build_project_ir_analysis_bundle,
     verify_project_ir_stage,
 )
-from pietto._project.project_joined_aggregation import (
-    build_project_joined_aggregations,
-)
 from pietto._project.project_join_conditions import (
+    ProjectJoinCondition,
+    ProjectJoinConditionCompletion,
     ProjectJoinConditionSet,
     build_project_join_conditions,
 )
-from pietto._project.project_joined_qualify import build_project_joined_qualifies
+from pietto._project.project_current_join_inputs import ProjectCurrentJoinInputFailure
+from pietto._project.project_joined_qualify import build_project_joined_tail
 from pietto._project.project_joined_row_filter import (
     build_project_joined_row_filters,
-)
-from pietto._project.project_joined_windows import (
-    build_project_joined_window_stages,
 )
 from pietto._project.project_phase62_verification import (
     ProjectPhase62VerificationResult,
@@ -148,7 +145,9 @@ class _ProjectCompletedSemanticRoots:
         compare=False,
         hash=False,
     )
-    join_conditions: ProjectJoinConditionSet = field(init=False, repr=False)
+    join_conditions: ProjectJoinConditionSet | ProjectJoinConditionCompletion = field(
+        init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         if type(self.semantic_result) is not ProjectSemanticResult or (
@@ -162,17 +161,21 @@ class _ProjectCompletedSemanticRoots:
         )
         completion = build_project_completion(verification)
         filters = build_project_joined_row_filters(completion)
-        aggregations = build_project_joined_aggregations(filters)
-        windows = build_project_joined_window_stages(aggregations)
-        qualifies = build_project_joined_qualifies(windows)
+        qualifies = build_project_joined_tail(filters)
         effective_outputs = build_project_effective_output_completion(
             completion,
             qualifies,
+            join_conditions=join_conditions,
         )
         object.__setattr__(self, "verification", verification)
         object.__setattr__(self, "completion", completion)
         object.__setattr__(self, "effective_outputs", effective_outputs)
-        object.__setattr__(self, "join_conditions", join_conditions)
+        operative = effective_outputs.operative_conditions
+        if operative is None:
+            raise ValueError(
+                "Completed roots lost their operative condition authority."
+            )
+        object.__setattr__(self, "join_conditions", operative)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -202,7 +205,15 @@ class ProjectConcreteCompletedSemanticResult:
         completion = self.roots.completion
         effective_outputs = self.roots.effective_outputs
         diagnostics = (
-            *_final_diagnostics(semantic_result, effective_outputs),
+            *_final_diagnostics(
+                semantic_result,
+                effective_outputs,
+                retired=tuple(
+                    diagnostic
+                    for admission in effective_outputs.join_admissions
+                    for diagnostic in admission.diagnostics
+                ),
+            ),
             *self.roots.join_conditions.diagnostics,
         )
         entries_are_concrete = all(
@@ -247,6 +258,10 @@ def _diagnostics_from_carrier(carrier: object | None) -> tuple[Diagnostic, ...]:
 
     if carrier is None:
         return ()
+    if type(carrier) is ProjectCurrentJoinInputFailure:
+        return _diagnostics_from_carrier(carrier.blockers)
+    if type(carrier) is ProjectJoinCondition:
+        return carrier.diagnostics
     if type(carrier) is tuple:
         return tuple(
             diagnostic
@@ -452,8 +467,15 @@ def _fallback_diagnostic(
 def _final_diagnostics(
     semantic_result: ProjectSemanticResult,
     effective_outputs: ProjectEffectiveOutputCompletion,
+    *,
+    retired: tuple[Diagnostic, ...] = (),
 ) -> tuple[Diagnostic, ...]:
-    retained = list(semantic_result.diagnostics)
+    retired_ids = {id(diagnostic) for diagnostic in retired}
+    retained = [
+        diagnostic
+        for diagnostic in semantic_result.diagnostics
+        if id(diagnostic) not in retired_ids
+    ]
     retained_ids = {id(diagnostic) for diagnostic in retained}
     for entry in effective_outputs.entries:
         if type(entry) in {
@@ -466,7 +488,11 @@ def _final_diagnostics(
             ProjectEffectiveOutputCompletionTerminal,
         }:
             raise TypeError("Final diagnostics require exact effective entries.")
-        errors = _entry_error_diagnostics(entry)
+        errors = tuple(
+            diagnostic
+            for diagnostic in _entry_error_diagnostics(entry)
+            if id(diagnostic) not in retired_ids
+        )
         if not errors:
             errors = (_fallback_diagnostic(entry),)
         for diagnostic in errors:

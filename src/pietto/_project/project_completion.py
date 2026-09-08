@@ -14,6 +14,7 @@ from pietto._project.model import (
     ProjectRelationRowSchemaStatus,
 )
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
+from pietto._project.module_attribution import ProjectModuleAttributionFactSet
 from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project.module_relation_resolution import (
     ProjectResolvedModuleRelationReference,
@@ -916,6 +917,16 @@ def _joined_completion(
         verification=verification,
         region=regions[0],
     )
+    return build_project_joined_completion(
+        query_block, verification.root.evaluation.project_plan.attribution
+    )
+
+
+def build_project_joined_completion(
+    query_block: ProjectConcreteQueryBlock | ProjectNonConcreteQueryBlock,
+    attribution: ProjectModuleAttributionFactSet,
+) -> ProjectJoinedCompletionReadiness:
+    """Apply the existing scalar/binding/LET/row bridges to one exact block."""
     if type(query_block) is ProjectNonConcreteQueryBlock:
         return query_block
     if type(query_block) is not ProjectConcreteQueryBlock:
@@ -929,7 +940,7 @@ def _joined_completion(
     namespaces = build_project_joined_let_namespaces(binding_environment)
     return build_project_joined_row_semantics(
         namespaces=namespaces,
-        attribution=verification.root.evaluation.project_plan.attribution,
+        attribution=attribution,
     )
 
 

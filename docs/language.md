@@ -126,9 +126,11 @@ Intermediate path relations do not become bindings. INNER/LEFT relationship
 traversal retains its existing semantic support. The parser also retains
 `cross`, `right`, `full`, `semi`, `anti`, and one optional JOIN-local `on`
 expression after VIA steps. ON-only and VIA+ON are distinct AST forms; generic
-ON, refinement and additional kinds currently emit `PIE-S2334` in every check
-mode because their complete operation is unavailable. Private explicit-module
-condition analysis now accepts the existing row-scalar Bool domain, including
+ON and one-VIA refinement now complete INNER/LEFT project checks in
+EXPLICIT_MODULES through available named results and the existing SELECT-body
+tail. Inputs may be exact completed joined, grouped/global, window/QUALIFY and
+ORDER/LIMIT results. Changed inputs rebuild their conditions; repeated bindings
+remain distinct. Condition analysis accepts the existing row-scalar Bool domain, including
 nullable Bool with TRUE-only matching. It uses exact pre-match fields and prior
 JOIN nullability, without current-block LET/projection/window capture. Generic
 ON does not discover relationships. Exactly one VIA plus ON retains the base
@@ -136,7 +138,11 @@ condition and adds a JOIN-local refinement; its upper bound may survive but
 coverage does not. Ordered AND conjuncts retain exact reference occurrences;
 OR alone supplies no unconditional key non-nullness. Invalid conditions and
 combinations add precise diagnostics. CROSS has no ON/VIA, and new kinds are
-direct binary only. These facts do not enable complete JOIN check or SQL.
+direct binary only. Additional kinds and set bodies remain unavailable.
+Single-file/LEGACY_FLAT/PACKAGE_ROOT and legacy IR/SQL retain their existing
+rejection boundaries; a successful project check is not SQL capability.
+Current JOIN roots also remain unavailable to combined query-block IR and its
+inspection until Slice 10. Project Explain keeps its separate schema boundary.
 
 An alternate complete table/query body retains named set operands:
 

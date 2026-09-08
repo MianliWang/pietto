@@ -9,8 +9,10 @@ from collections.abc import Mapping
 
 from pietto._flat_relational_admission import availability_diagnostic
 from pietto._project.model import ProjectRowFieldNullability
-from pietto._project.project_ir_relational_properties import (
-    ProjectIROutputFieldOccurrence,
+from pietto._project.project_current_join_inputs import (
+    ProjectCurrentPreMatchInputs,
+    ProjectCurrentSourceField,
+    ProjectCurrentNullingCause,
 )
 from pietto._project.project_relationship_conditions import (
     ProjectConcreteRelationshipCondition,
@@ -35,10 +37,11 @@ from pietto._project.project_relationship_uses import (
     project_join_mode,
     project_join_source_candidates,
     validate_project_join_input_bindings,
+    rebuild_available_relationship_use,
 )
-from pietto._project.project_scalar_references import scalar_field_reference_leaves
 from pietto._project.row_expression_type_facts import (
     project_row_field_to_semantic_value_type,
+    scalar_field_reference_leaves,
 )
 from pietto.ast_nodes import (
     AuthoredJoinKind,
@@ -82,9 +85,9 @@ def _exact_member(item: object, retained: tuple[object, ...]) -> bool:
 
 type _InputRow = tuple[
     ProjectRelationBindingOccurrence,
-    ProjectIROutputFieldOccurrence,
+    ProjectCurrentSourceField,
     ProjectRowFieldNullability,
-    tuple[ProjectRelationshipPathStep, ...],
+    tuple[ProjectCurrentNullingCause, ...],
 ]
 
 
@@ -186,6 +189,7 @@ class ProjectJoinConditionEnvironment:
     root: ProjectJoinConditionSet = field(repr=False)
     ledger: ProjectRelationJoinUseLedger = field(repr=False)
     use: ProjectJoinUse = field(repr=False)
+    inputs: ProjectCurrentPreMatchInputs | None = field(default=None, repr=False)
     bindings: tuple[ProjectRelationBindingOccurrence, ...] = field(init=False)
     source_candidates: tuple[ProjectRelationBindingOccurrence, ...] = field(init=False)
     blocked_bindings: tuple[ProjectRelationBindingOccurrence, ...] = field(init=False)
@@ -201,7 +205,19 @@ class ProjectJoinConditionEnvironment:
             raise ValueError(
                 "Condition environment requires exact root/ledger/use membership."
             )
-        rows, blocked = _input_rows(self.root.uses, self.ledger, self.use)
+        if self.inputs is None:
+            rows, blocked = _input_rows(self.root.uses, self.ledger, self.use)
+        else:
+            if (
+                type(self.inputs) is not ProjectCurrentPreMatchInputs
+                or self.inputs.scope.uses is not self.root.uses
+                or self.inputs.scope.ledger is not self.ledger
+                or self.inputs.use is not self.use
+            ):
+                raise ValueError(
+                    "Current condition inputs require exact use/root membership."
+                )
+            rows, blocked = self.inputs.rows, self.inputs.blocked_bindings
         object.__setattr__(
             self,
             "bindings",
@@ -229,9 +245,9 @@ class ProjectJoinConditionField:
     environment: ProjectJoinConditionEnvironment = field(repr=False)
     position: int
     binding: ProjectRelationBindingOccurrence = field(init=False)
-    input_field: ProjectIROutputFieldOccurrence = field(init=False)
+    input_field: ProjectCurrentSourceField = field(init=False)
     nullability: ProjectRowFieldNullability = field(init=False)
-    null_extensions: tuple[ProjectRelationshipPathStep, ...] = field(init=False)
+    null_extensions: tuple[ProjectCurrentNullingCause, ...] = field(init=False)
     value_type: ValueType = field(init=False)
 
     def __post_init__(self) -> None:
@@ -325,9 +341,9 @@ class ProjectJoinConditionReference:
 
 
 def _base_guarantees(
-    env: ProjectJoinConditionEnvironment, mode: str
+    env: ProjectJoinConditionEnvironment, mode: str, effective_use: ProjectJoinUse
 ) -> tuple[ProjectDirectionalRelationshipMatchGuarantee, ...]:
-    use = env.use
+    use = effective_use
     if mode in {"M3", "M5"}:
         return ()
     if type(use) is ProjectConcreteJoinUse:
@@ -348,6 +364,8 @@ class ProjectJoinCondition:
     root: ProjectJoinConditionSet = field(repr=False)
     ledger: ProjectRelationJoinUseLedger = field(repr=False)
     use: ProjectJoinUse = field(repr=False)
+    inputs: ProjectCurrentPreMatchInputs | None = field(default=None, repr=False)
+    effective_use: ProjectJoinUse = field(init=False, repr=False)
     environment: ProjectJoinConditionEnvironment = field(init=False)
     mode: str = field(init=False)
     scope: ProjectRelationshipConditionScope | None = field(init=False)
@@ -370,7 +388,10 @@ class ProjectJoinCondition:
 
     def __post_init__(self) -> None:
         env = ProjectJoinConditionEnvironment(
-            root=self.root, ledger=self.ledger, use=self.use
+            root=self.root,
+            ledger=self.ledger,
+            use=self.use,
+            inputs=self.inputs,
         )
         clause = self.use.clause
         mode = project_join_mode(clause)
@@ -399,7 +420,25 @@ class ProjectJoinCondition:
         combination = project_join_combination_error(clause)
         if combination is not None:
             diagnostics.append(_diagnostic(clause.span, combination, code="PIE-S2336"))
-        guarantees = _base_guarantees(env, mode)
+        effective_use = self.use
+        if (
+            mode in {"M1", "M2"}
+            and self.inputs is not None
+            and all(item.ready for item in self.inputs.prefix)
+        ):
+            available = tuple(
+                item.binding
+                for item in self.inputs.scope.bindings[
+                    : self.use.identity.join_position + 1
+                ]
+                if item.authority is not None
+                and item.binding.state is ProjectJoinUseState.CONCRETE
+                and item.authority.historical_properties is item.binding.output
+            )
+            effective_use = rebuild_available_relationship_use(
+                self.root.uses, self.ledger, self.use, available
+            )
+        guarantees = _base_guarantees(env, mode, effective_use)
         bases = tuple(
             condition
             for guarantee in guarantees
@@ -420,12 +459,21 @@ class ProjectJoinCondition:
                 )
             if mode == "M1":
                 unavailable |= len(guarantees) != 1
+            if self.inputs is not None:
+                relevant = (*source_candidates, self.use.target_binding)
+                unavailable |= any(
+                    item.authority is None
+                    or item.authority.historical_properties is None
+                    or item.authority.historical_properties is not item.binding.output
+                    for item in self.inputs.scope.bindings
+                    if any(item.binding is binding for binding in relevant)
+                )
         # Existing M1/M2 diagnostics keep their original projection and ordering.
         is_new = expression is not None or clause.kind not in {
             AuthoredJoinKind.INNER,
             AuthoredJoinKind.LEFT,
         }
-        unavailable |= not is_new and type(self.use) is not ProjectConcreteJoinUse
+        unavailable |= not is_new and type(effective_use) is not ProjectConcreteJoinUse
         if unavailable and is_new:
             if len(source_candidates) != 1:
                 later = tuple(
@@ -497,6 +545,7 @@ class ProjectJoinCondition:
         ready = state is ProjectJoinConditionState.READY
         base = guarantees[0] if len(guarantees) == 1 else None
         object.__setattr__(self, "environment", env)
+        object.__setattr__(self, "effective_use", effective_use)
         object.__setattr__(self, "mode", mode)
         object.__setattr__(self, "scope", scope)
         object.__setattr__(self, "expression", expression)
@@ -608,3 +657,93 @@ def build_project_join_conditions(
     uses: ProjectRelationshipUseSet,
 ) -> ProjectJoinConditionSet:
     return ProjectJoinConditionSet(uses=uses)
+
+
+def rebuild_project_join_condition(
+    historical: ProjectJoinCondition,
+    inputs: ProjectCurrentPreMatchInputs,
+) -> ProjectJoinCondition:
+    """Reuse unchanged evidence, otherwise analyze the exact current input root."""
+    if (
+        type(historical) is not ProjectJoinCondition
+        or type(inputs) is not ProjectCurrentPreMatchInputs
+        or inputs.use is not historical.use
+        or inputs.scope.uses is not historical.root.uses
+    ):
+        raise ValueError("Condition rebuild requires exact authored and current roots.")
+    old = historical.environment
+    unchanged = (
+        len(old._rows) == len(inputs.rows)
+        and len(old.blocked_bindings) == len(inputs.blocked_bindings)
+        and all(
+            left is right
+            for left, right in zip(
+                old.blocked_bindings, inputs.blocked_bindings, strict=True
+            )
+        )
+    )
+    unchanged = unchanged and all(
+        left[0] is right[0]
+        and left[1] is right[1]
+        and left[2] is right[2]
+        and len(left[3]) == len(right[3])
+        and all(a is b for a, b in zip(left[3], right[3], strict=True))
+        for left, right in zip(old._rows, inputs.rows, strict=True)
+    )
+    unchanged = unchanged and all(
+        item.authority is not None
+        and item.authority.historical_properties is not None
+        and item.authority.historical_properties is item.binding.output
+        for item in inputs.scope.bindings[: historical.use.identity.join_position + 2]
+    )
+    if unchanged:
+        return historical
+    return ProjectJoinCondition(
+        root=historical.root,
+        ledger=historical.ledger,
+        use=historical.use,
+        inputs=inputs,
+    )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectJoinConditionCompletion:
+    """The final operative occurrence tuple, retaining its immutable historical set."""
+
+    historical: ProjectJoinConditionSet = field(repr=False)
+    entries: tuple[ProjectJoinCondition, ...]
+    diagnostics: tuple[Diagnostic, ...] = field(init=False)
+
+    def __post_init__(self) -> None:
+        if type(self.historical) is not ProjectJoinConditionSet or len(
+            self.entries
+        ) != len(self.historical.entries):
+            raise ValueError(
+                "Operative conditions require the complete historical occurrence set."
+            )
+        for entry, old in zip(self.entries, self.historical.entries, strict=True):
+            if (
+                type(entry) is not ProjectJoinCondition
+                or entry.root is not self.historical
+                or entry.use is not old.use
+                or entry.ledger is not old.ledger
+            ):
+                raise ValueError("Operative conditions cannot replace authored roots.")
+            if entry is not old and (
+                entry.inputs is None
+                or entry.inputs.scope.uses is not self.historical.uses
+            ):
+                raise ValueError(
+                    "Rebuilt condition requires its exact current input root."
+                )
+        object.__setattr__(
+            self,
+            "diagnostics",
+            tuple(
+                diagnostic for entry in self.entries for diagnostic in entry.diagnostics
+            ),
+        )
+
+    @property
+    def uses(self) -> ProjectRelationshipUseSet:
+        return self.historical.uses

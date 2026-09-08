@@ -1096,6 +1096,8 @@ def _build_use(
     prior_uses: tuple[ProjectJoinUse, ...],
     relationship_subjects: tuple[ProjectRelationshipSubject, ...],
     index: ProjectRelationshipJoinShapeIndex,
+    available_prior_bindings: tuple[ProjectRelationBindingOccurrence, ...] = (),
+    retained_steps: tuple[ProjectTraversalStepUse, ...] | None = None,
 ) -> ProjectJoinUse:
     definition = _derived_definition(owner)
     clause = definition.join_clauses[position]
@@ -1103,16 +1105,20 @@ def _build_use(
         owner=_owner_identity(owner), join_position=position
     )
     target = bindings[position + 1]
-    step_uses = tuple(
-        _step_use(
-            identity=ProjectTraversalStepUseIdentity(
-                join=identity, step_position=step_position
-            ),
-            step=step,
-            relationships=relationship_subjects,
-            index=index,
+    step_uses = (
+        retained_steps
+        if retained_steps is not None
+        else tuple(
+            _step_use(
+                identity=ProjectTraversalStepUseIdentity(
+                    join=identity, step_position=step_position
+                ),
+                step=step,
+                relationships=relationship_subjects,
+                index=index,
+            )
+            for step_position, step in enumerate(clause.traversal_steps)
         )
-        for step_position, step in enumerate(clause.traversal_steps)
     )
     step_issues = tuple(issue for use in step_uses for issue in use.issues)
     if unsupported_join(clause):
@@ -1172,7 +1178,9 @@ def _build_use(
         issues.append(_binding_issue(source, clause, source=True))
     elif source.identity.binding_position > 0:
         producer = prior_uses[source.identity.binding_position - 1]
-        if type(producer) is ProjectNonConcreteJoinUse:
+        if type(producer) is ProjectNonConcreteJoinUse and not any(
+            source is binding for binding in available_prior_bindings
+        ):
             issues.append(
                 _issue(
                     ProjectJoinUseIssueKind.BLOCKED_SOURCE_BINDING,
@@ -1278,6 +1286,49 @@ def _build_use(
         path=path,
         analysis=analysis,
         step_uses=step_uses,
+    )
+
+
+def rebuild_available_relationship_use(
+    roots: ProjectRelationshipUseSet,
+    ledger: ProjectRelationJoinUseLedger,
+    original: ProjectJoinUse,
+    available: tuple[ProjectRelationBindingOccurrence, ...],
+) -> ProjectJoinUse:
+    """Reuse relationship resolution after a current prefix makes bindings available."""
+    if (
+        not any(ledger is item for item in roots.ledgers)
+        or not any(original is item for item in ledger.uses)
+        or any(
+            not any(
+                binding is item
+                for item in ledger.bindings[: original.identity.join_position + 1]
+            )
+            or binding.state is not ProjectJoinUseState.CONCRETE
+            for binding in available
+        )
+    ):
+        raise ValueError(
+            "Current relationship use requires exact earlier binding authority."
+        )
+    if isinstance(original, ProjectConcreteJoinUse) or unsupported_join(
+        original.clause
+    ):
+        return original
+    environments = roots.relationships.find_module_path(
+        ledger.owner.identity.module_path
+    )
+    if len(environments) != 1:
+        raise ValueError("Current relationship use requires one exact module root.")
+    return _build_use(
+        owner=ledger.owner,
+        position=original.identity.join_position,
+        bindings=ledger.bindings,
+        prior_uses=ledger.uses[: original.identity.join_position],
+        relationship_subjects=environments[0].subjects,
+        index=roots.index,
+        available_prior_bindings=available,
+        retained_steps=original.step_uses,
     )
 
 

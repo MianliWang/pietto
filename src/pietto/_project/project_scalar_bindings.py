@@ -10,7 +10,11 @@ from pietto._project.project_ir_joins import (
     ProjectIRConcreteJoinRegion,
 )
 from pietto._project.project_ir_properties import ProjectIRJoinedRowField
-from pietto._project.project_query_block import ProjectVerifiedJoinedRowSource
+from pietto._project.project_query_block import (
+    ProjectCurrentJoinedRowSource,
+    ProjectVerifiedJoinedRowSource,
+)
+from pietto._project.project_current_joins import ProjectCurrentJoinRegion
 from pietto._project.project_relationship_uses import (
     ProjectConcreteJoinUse,
     ProjectJoinUseState,
@@ -29,9 +33,11 @@ __all__: tuple[str, ...] = ()
 
 
 def _binding_introduction_use(
-    region: ProjectIRConcreteJoinRegion,
+    region: ProjectIRConcreteJoinRegion | ProjectCurrentJoinRegion,
     binding: ProjectRelationBindingOccurrence,
 ) -> ProjectIRJoinInputUseOccurrence:
+    if isinstance(region, ProjectCurrentJoinRegion):
+        return region.introduction(binding)
     position = binding.identity.binding_position
     if position == 0:
         return region.joins[0].input_uses[0]
@@ -66,6 +72,25 @@ def _joined_environment_field(
     return source_field
 
 
+def _binding_available(
+    environment: ProjectConcreteScalarEnvironment,
+    binding: ProjectRelationBindingOccurrence,
+) -> bool:
+    if binding.state is ProjectJoinUseState.CONCRETE:
+        return True
+    source = environment.row_source
+    if (
+        type(source) is not ProjectCurrentJoinedRowSource
+        or binding.state is not ProjectJoinUseState.BLOCKED
+    ):
+        return False
+    scope = source.region.input_scope
+    return scope is not None and any(
+        item.binding is binding and item.authority is not None
+        for item in scope.bindings
+    )
+
+
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectVisibleJoinedBinding:
     """One exact authored Phase-62 binding and its final visible occurrences."""
@@ -91,7 +116,7 @@ class ProjectVisibleJoinedBinding:
         if type(self.scalar_environment) is not ProjectConcreteScalarEnvironment:
             raise TypeError("Visible binding requires a concrete scalar environment.")
         if type(self.binding) is not ProjectRelationBindingOccurrence or (
-            self.binding.state is not ProjectJoinUseState.CONCRETE
+            not _binding_available(self.scalar_environment, self.binding)
         ):
             raise ValueError("Visible binding requires exact concrete authority.")
         if type(self.introduction_use) is not ProjectIRJoinInputUseOccurrence:
@@ -131,13 +156,13 @@ class ProjectJoinedScalarBindingEnvironment:
         compare=False,
         hash=False,
     )
-    row_source: ProjectVerifiedJoinedRowSource = field(
+    row_source: ProjectVerifiedJoinedRowSource | ProjectCurrentJoinedRowSource = field(
         init=False,
         repr=False,
         compare=False,
         hash=False,
     )
-    region: ProjectIRConcreteJoinRegion = field(
+    region: ProjectIRConcreteJoinRegion | ProjectCurrentJoinRegion = field(
         init=False,
         repr=False,
         compare=False,
@@ -157,17 +182,20 @@ class ProjectJoinedScalarBindingEnvironment:
         if type(self.scalar_environment) is not ProjectConcreteScalarEnvironment:
             raise TypeError("Joined bindings require a concrete scalar environment.")
         row_source = self.scalar_environment.row_source
-        if type(row_source) is not ProjectVerifiedJoinedRowSource:
+        if not isinstance(
+            row_source, (ProjectVerifiedJoinedRowSource, ProjectCurrentJoinedRowSource)
+        ):
             raise TypeError("Joined bindings require a verified joined row source.")
         region = row_source.region
         ledger = region.ledger
-        if type(region) is not ProjectIRConcreteJoinRegion or (
-            type(ledger) is not ProjectRelationJoinUseLedger
-        ):
+        if type(region) not in {
+            ProjectIRConcreteJoinRegion,
+            ProjectCurrentJoinRegion,
+        } or (type(ledger) is not ProjectRelationJoinUseLedger):
             raise TypeError("Joined bindings require exact Phase-62 roots.")
         if any(
             type(binding) is not ProjectRelationBindingOccurrence
-            or binding.state is not ProjectJoinUseState.CONCRETE
+            or not _binding_available(self.scalar_environment, binding)
             for binding in ledger.bindings
         ):
             raise ValueError(
@@ -221,7 +249,11 @@ class ProjectJoinedScalarBindingEnvironment:
             raise ValueError(
                 "Visible and hidden fields must exactly partition the row."
             )
-        nonterminal_introductions = _nonterminal_right_introductions(region.joins)
+        nonterminal_introductions = (
+            _nonterminal_right_introductions(region.joins)
+            if isinstance(region, ProjectIRConcreteJoinRegion)
+            else region.hidden_introductions
+        )
         if any(
             not any(
                 _joined_environment_field(

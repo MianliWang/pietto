@@ -1268,7 +1268,11 @@ def _multiplicity_exposures(
     *,
     aggregate: ProjectJoinedAggregateOccurrence,
     comparison: multifact.ProjectFactGrainComparison,
-) -> tuple[multifact.ProjectFactMultiplicityExposure, ...]:
+) -> tuple[
+    multifact.ProjectFactMultiplicityExposure
+    | multifact.ProjectCurrentMultiplicityExposure,
+    ...,
+]:
     if comparison.status is not multifact.ProjectIRGrainComparisonStatus.RIGHT_FINER:
         return ()
     unresolved = tuple(
@@ -1277,7 +1281,10 @@ def _multiplicity_exposures(
         if factor not in comparison.left_to_right.closure.factors
     )
     region = aggregate.input_filter.joined_semantics.row_source.region
-    exposures: list[multifact.ProjectFactMultiplicityExposure] = []
+    exposures: list[
+        multifact.ProjectFactMultiplicityExposure
+        | multifact.ProjectCurrentMultiplicityExposure
+    ] = []
     covered: set[ProjectGrainFactorIdentity] = set()
     for join in region.joins:
         additions = tuple(
@@ -1287,12 +1294,15 @@ def _multiplicity_exposures(
             and any(factor.introduction_use == use.ref for use in join.input_uses)
         )
         if additions:
-            exposures.append(
-                multifact.ProjectFactMultiplicityExposure(
-                    join=join,
-                    factor_additions=additions,
+            if isinstance(join, multifact.ProjectCurrentBinaryJoin):
+                exposure = multifact.ProjectCurrentMultiplicityExposure(
+                    join=join, factor_additions=additions
                 )
-            )
+            else:
+                exposure = multifact.ProjectFactMultiplicityExposure(
+                    join=join, factor_additions=additions
+                )
+            exposures.append(exposure)
             covered.update(additions)
     if covered != set(unresolved):
         raise ValueError("Aggregate fanout evidence must cover every finer factor.")
@@ -1304,7 +1314,10 @@ class ProjectJoinedAggregateGrainLinkage:
     """One aggregate's exact contextual grain and final fanout proof."""
 
     aggregate: ProjectJoinedAggregateOccurrence
-    multifact_region: multifact.ProjectMultiFactConcreteRegion = field(
+    multifact_region: (
+        multifact.ProjectMultiFactConcreteRegion
+        | multifact.ProjectCurrentMultiFactRegion
+    ) = field(
         repr=False,
         compare=False,
         hash=False,
@@ -1316,7 +1329,11 @@ class ProjectJoinedAggregateGrainLinkage:
     contextual_grain: multifact.ProjectFactContextualGrain
     final_grain: multifact.ProjectIRProvidedIntrinsicGrain
     final_comparison: multifact.ProjectFactGrainComparison
-    multiplicity_exposures: tuple[multifact.ProjectFactMultiplicityExposure, ...]
+    multiplicity_exposures: tuple[
+        multifact.ProjectFactMultiplicityExposure
+        | multifact.ProjectCurrentMultiplicityExposure,
+        ...,
+    ]
     multiplicity_risks: tuple[multifact.ProjectMultiFactMultiplicityRisk, ...]
     requirements: tuple[multifact.ProjectMultiFactRequirement, ...]
 
@@ -1324,7 +1341,10 @@ class ProjectJoinedAggregateGrainLinkage:
         if (
             type(self.aggregate) is not ProjectJoinedAggregateOccurrence
             or type(self.multifact_region)
-            is not multifact.ProjectMultiFactConcreteRegion
+            not in {
+                multifact.ProjectMultiFactConcreteRegion,
+                multifact.ProjectCurrentMultiFactRegion,
+            }
             or type(self.final_grain) is not multifact.ProjectIRProvidedIntrinsicGrain
             or type(self.combined_seed) is not ProjectGrainFactorSet
             or type(self.closure) is not ProjectGrainFactorSet

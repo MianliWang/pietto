@@ -42,8 +42,9 @@ documentation does not supersede that evidence.
 | Unnumbered compilation-boundary repair | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 2 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 3 | `COMPLETED / PUBLISHED` |
-| Phase 64 Slice 4 | `NEXT / NOT IMPLEMENTED` |
-| Next | `Phase 64 Slice 4 — Row-source sum extension, effective-output JOIN boundary and first generic vertical closure` |
+| Phase 64 Slice 4 | `COMPLETED / PUBLISHED` |
+| Phase 64 Slice 5 | `NEXT / NOT IMPLEMENTED` |
+| Next | `Phase 64 Slice 5 — CROSS/RIGHT/FULL output shapes, null-extension and property transfer` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -619,4 +620,20 @@ applicable upper-bound proof while dropping coverage. Completed semantic roots
 retain these facts and exact additive diagnostics. Complete new JOIN operations
 remain unavailable through the existing check/IR/SQL boundary. F01/F02, old
 JOIN/window/QUALIFY behavior and set-body terminals remain intact.
-Phase 64 Slice 4 is `NEXT / NOT IMPLEMENTED`; Slices 5–11 are `NOT IMPLEMENTED`.
+That publication left Slice 4 NEXT / NOT IMPLEMENTED.
+
+Phase 64 Slice 4 is `COMPLETED / PUBLISHED` by natural exact-head CI on its
+ordinary publication commit, without a status-only follow-up. Its
+[effective-output JOIN contract](spec/phase64-slice4-effective-output-join-first-generic-vertical-closure-v1.md)
+completes supported explicit-module generic INNER/LEFT and one-VIA refinement
+through exact scheduled inputs, the existing tail and canonical SELECT output.
+Completed joined/GROUPED/GLOBAL/window/QUALIFY/ORDER/LIMIT results can supply
+inputs; ordinary downstream replay and subsequent generic JOIN consume their
+exact current entries. Original authored uses remain distinct from operative
+condition facts and input occurrences. Current property transfer retains actual
+proof premises, nested self-use factors and aggregate-safety failures.
+Only exact owned temporary diagnostics of successful JOIN operations retire.
+F01/F02, unsupported kinds/sets and the other entrypoint boundaries remain.
+Combined query-block IR/verification/inspection is explicitly unavailable for
+current JOIN roots pending Slice 10; E05/E10 are not fully closed.
+Phase 64 Slice 5 is `NEXT / NOT IMPLEMENTED`; Slices 6–11 are `NOT IMPLEMENTED`.

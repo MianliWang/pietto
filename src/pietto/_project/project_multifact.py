@@ -56,6 +56,11 @@ from pietto._project.project_relationship_uses import (
     ProjectJoinUseIssueKind,
     ProjectNonConcreteJoinUse,
 )
+from pietto._project.project_current_joins import (
+    ProjectCurrentBinaryJoin,
+    ProjectCurrentJoinProperties,
+    ProjectCurrentJoinRegion,
+)
 
 __all__: tuple[str, ...] = ()
 
@@ -346,6 +351,28 @@ class ProjectFactMultiplicityExposure:
             for factor in self.factor_additions
         ):
             raise ValueError("Multiplicity exposure requires exact added factors.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectCurrentMultiplicityExposure:
+    join: ProjectCurrentBinaryJoin = field(repr=False)
+    factor_additions: tuple[ProjectJoinGrainFactorIdentity, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.join) is not ProjectCurrentBinaryJoin
+            or not self.factor_additions
+            or any(
+                type(item) is not ProjectJoinGrainFactorIdentity
+                or not any(
+                    item.introduction_use == use.ref for use in self.join.input_uses
+                )
+                for item in self.factor_additions
+            )
+        ):
+            raise ValueError(
+                "Current multiplicity exposure requires exact input factors."
+            )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -1275,10 +1302,15 @@ def _localized_input_factors(
             retained
             for retained in final_grain.active
             if (
-                retained == factor
-                if type(factor) is ProjectJoinGrainFactorIdentity
-                else (
+                (type(factor) is ProjectJoinGrainFactorIdentity and retained == factor)
+                or (
                     type(retained) is ProjectJoinGrainFactorIdentity
+                    and retained.source_factor is factor
+                    and retained.introduction_use == introduction_use.ref
+                )
+                or (
+                    type(factor) is not ProjectJoinGrainFactorIdentity
+                    and type(retained) is ProjectJoinGrainFactorIdentity
                     and retained.base == factor
                     and retained.introduction_use == introduction_use.ref
                 )
@@ -1503,6 +1535,59 @@ def _actual_region_candidates(
             allow_empty=output_grain.state is ProjectGrainBasisState.GLOBAL,
         )
     return tuple(candidates)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectCurrentMultiFactRegion:
+    """Current row-grain evidence for the existing tail safety consumers only."""
+
+    region: ProjectCurrentJoinRegion = field(repr=False)
+    final_properties: ProjectCurrentJoinProperties | ProjectIRJoinOutputProperties = (
+        field(init=False, repr=False)
+    )
+    grain_index: ProjectGrainDependencyIndex = field(init=False, repr=False)
+    actual_candidates: tuple[ProjectActualGrainCandidate, ...] = field(init=False)
+
+    def __post_init__(self) -> None:
+        if type(self.region) is not ProjectCurrentJoinRegion:
+            raise TypeError("Current grain bridge requires one exact current region.")
+        final = self.region.final_properties
+        grain = final.relational.grain
+        index = _grain_index(grain)
+        candidates: list[ProjectActualGrainCandidate] = []
+        for join, join_properties in zip(
+            self.region.joins, self.region.join_properties, strict=True
+        ):
+            for position, kind, properties in (
+                (0, ProjectActualGrainAuthorityKind.JOIN_LEFT_INPUT, join.left_input),
+                (1, ProjectActualGrainAuthorityKind.JOIN_RIGHT_INPUT, join.right_input),
+            ):
+                introduction = join.input_uses[position]
+                factors = _localized_input_factors(
+                    grain=properties.grain,
+                    introduction_use=introduction,
+                    final_grain=grain,
+                )
+                _add_actual_candidate(
+                    candidates,
+                    index=index,
+                    kind=kind,
+                    evidence=(join, introduction, properties.grain),
+                    factors=factors,
+                    allow_empty=properties.grain.state is ProjectGrainBasisState.GLOBAL,
+                )
+            current = join_properties.relational.grain
+            _add_actual_candidate(
+                candidates,
+                index=index,
+                kind=ProjectActualGrainAuthorityKind.JOIN_OUTPUT,
+                evidence=(join, current),
+                factors=current.active,
+                allow_empty=current.state is ProjectGrainBasisState.GLOBAL,
+            )
+        object.__setattr__(self, "final_properties", final)
+        object.__setattr__(self, "grain_index", index)
+        object.__setattr__(self, "actual_candidates", tuple(candidates))
 
 
 def _candidate_determinations(

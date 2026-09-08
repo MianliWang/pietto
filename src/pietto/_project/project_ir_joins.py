@@ -13,6 +13,8 @@ from pietto._project.project_grain import (
     ProjectGrainDependencyFact,
     ProjectGrainDomainFactor,
     ProjectGrainFactorIdentity,
+    ProjectGrainOriginAuthority,
+    ProjectCompositeGrainOriginAuthority,
     ProjectJoinGrainFactorIdentity,
 )
 from pietto._project.project_ir import (
@@ -482,15 +484,27 @@ class ProjectIRJoinGrainWitness:
     right: ProjectIRProvidedIntrinsicGrain = field(
         repr=False, compare=False, hash=False
     )
+    origin_set: ProjectGrainOriginAuthority | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if (
             type(self.join) is not ProjectIRBinaryJoinIdentity
             or type(self.left) is not ProjectIRProvidedIntrinsicGrain
             or type(self.right) is not ProjectIRProvidedIntrinsicGrain
-            or self.left.origin_set is not self.right.origin_set
+            or (
+                self.origin_set is None
+                and self.left.origin_set is not self.right.origin_set
+            )
         ):
             raise ValueError("JOIN grain witness requires exact compatible inputs.")
+        if self.origin_set is not None and (
+            type(self.origin_set) is not ProjectCompositeGrainOriginAuthority
+            or self.origin_set.left is not self.left.origin_set
+            or self.origin_set.right is not self.right.origin_set
+        ):
+            raise ValueError(
+                "Current relationship grain must retain both exact origin roots."
+            )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -528,6 +542,8 @@ class ProjectIRJoinOutputProperties:
             or witness.join != self.join.identity
             or witness.left is not self.join.left_input.grain
             or witness.right is not self.join.right_input.grain
+            or witness.origin_set is not None
+            and self.relational.grain.origin_set is not witness.origin_set
         ):
             raise ValueError("JOIN grain must retain its exact binary input witness.")
         null_extension: (
@@ -945,7 +961,7 @@ def _base_factor(
 
 def _grain(
     *,
-    join_identity: ProjectIRBinaryJoinIdentity,
+    join_identity: ProjectIRBinaryJoinIdentity | None,
     output: ProjectIRJoinRowOutput,
     left: ProjectIRProvidedIntrinsicGrain,
     right: ProjectIRProvidedIntrinsicGrain,
@@ -955,19 +971,34 @@ def _grain(
     nulling: tuple[ProjectIRPlanNodeRef, ...],
     forward_at_most_one: bool,
     reverse_at_most_one: bool,
+    witness: object | None = None,
+    origin_set: ProjectGrainOriginAuthority | None = None,
+    preserve_nested_inputs: bool = False,
+    named_left_input: bool = False,
 ) -> tuple[ProjectIRProvidedIntrinsicGrain, tuple[ProjectGrainFactorIdentity, ...]]:
-    if left.origin_set is not right.origin_set:
+    if origin_set is None and left.origin_set is not right.origin_set:
         raise ValueError("JOIN grain transfer requires one exact origin set.")
+    if witness is None:
+        if type(join_identity) is not ProjectIRBinaryJoinIdentity:
+            raise TypeError("Historical JOIN grain requires its exact binary identity.")
+        witness = ProjectIRJoinGrainWitness(
+            join=join_identity, left=left, right=right, origin_set=origin_set
+        )
     left_images: dict[ProjectGrainFactorIdentity, ProjectGrainFactorIdentity] = {}
     for factor in left.factors:
         identity = factor.identity
         left_images[identity] = (
             identity
             if type(identity) is ProjectJoinGrainFactorIdentity
+            and not (preserve_nested_inputs and named_left_input)
             else ProjectJoinGrainFactorIdentity(
                 base=_base_factor(identity),
                 introduction_use=left_use.ref,
                 nulling_joins=(),
+                source_factor=identity
+                if preserve_nested_inputs
+                and isinstance(identity, ProjectJoinGrainFactorIdentity)
+                else None,
             )
         )
     right_images = {
@@ -975,6 +1006,10 @@ def _grain(
             base=_base_factor(factor.identity),
             introduction_use=right_use.ref,
             nulling_joins=nulling,
+            source_factor=factor.identity
+            if preserve_nested_inputs
+            and isinstance(factor.identity, ProjectJoinGrainFactorIdentity)
+            else None,
         )
         for factor in right.factors
     }
@@ -1029,10 +1064,8 @@ def _grain(
             factors=factors,
             active=active,
             dependencies=tuple(dependencies),
-            origin_set=left.origin_set,
-            witness=ProjectIRJoinGrainWitness(
-                join=join_identity, left=left, right=right
-            ),
+            origin_set=left.origin_set if origin_set is None else origin_set,
+            witness=witness,
         ),
         right_active,
     )
@@ -1046,6 +1079,7 @@ def _build_relational_properties(
     source_factors: tuple[ProjectGrainFactorIdentity, ...] | None,
     right_nulling: tuple[ProjectIRPlanNodeRef, ...],
     reverse: ProjectDirectionalRelationshipMatchGuarantee,
+    origin_set: ProjectGrainOriginAuthority | None = None,
 ) -> tuple[ProjectIROutputRelationalProperties, tuple[ProjectGrainFactorIdentity, ...]]:
     output = join.output
     fields = _field_occurrences(output)
@@ -1218,6 +1252,7 @@ def _build_relational_properties(
         nulling=right_nulling,
         forward_at_most_one=forward_at_most_one,
         reverse_at_most_one=reverse_at_most_one,
+        origin_set=origin_set,
     )
     return (
         ProjectIROutputRelationalProperties(
@@ -1386,6 +1421,7 @@ def _build_join(
     source_nulling: tuple[ProjectIRPlanNodeRef, ...],
     source_factors: tuple[ProjectGrainFactorIdentity, ...] | None,
     allocation: ProjectIRAllocationState,
+    origin_set: ProjectGrainOriginAuthority | None = None,
 ) -> tuple[
     ProjectIRBinaryJoinOccurrence,
     ProjectIRJoinOutputProperties,
@@ -1550,6 +1586,7 @@ def _build_join(
         source_factors=source_factors,
         right_nulling=right_nulling,
         reverse=reverse,
+        origin_set=origin_set,
     )
     properties = ProjectIRJoinOutputProperties(
         join=join,

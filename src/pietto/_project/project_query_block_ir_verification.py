@@ -127,6 +127,7 @@ class ProjectIRQueryBlockVerificationIssueKind(StrEnum):
     PROPERTIES = "properties"
     GRAIN_ORIGIN = "grain_origin"
     COMBINED_ACTUAL_USE_CYCLE = "combined_actual_use_cycle"
+    CURRENT_JOIN_COMPOSITION_UNSUPPORTED = "current_join_composition_unsupported"
 
 
 type ProjectIRQueryBlockVerificationCoordinate = (
@@ -185,6 +186,11 @@ class ProjectIRQueryBlockVerificationResult:
             self.issues
         ):
             raise ValueError("Query-block verification status and issues disagree.")
+        if (
+            self.root.completed.effective_outputs.current_regions
+            and self.status is ProjectIRQueryBlockVerificationStatus.VERIFIED
+        ):
+            raise ValueError("Current JOIN composition is unavailable, not VERIFIED.")
 
     @property
     def verified(self) -> bool:
@@ -812,6 +818,17 @@ def _verify_join_reuse(
     root: ProjectIRQueryBlockSnapshot,
     issues: list[ProjectIRQueryBlockVerificationIssue],
 ) -> None:
+    if root.completed.effective_outputs.current_regions:
+        if any(
+            type(entry) is not ProjectIRQueryBlockTerminal
+            or entry.reason
+            is not ProjectIRQueryBlockTerminalReason.CURRENT_JOIN_COMPOSITION_UNSUPPORTED
+            or entry.blocker is not root.completed.effective_outputs.current_regions
+            for entry in root.entries
+            if type(entry.semantic_entry) is ProjectCompletedEffectiveOutput
+        ):
+            _record(issues, ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE)
+        return
     for entry in root.entries:
         semantic = entry.semantic_entry
         if (
@@ -2069,6 +2086,11 @@ def verify_project_query_block_ir(
                 issues,
                 ProjectIRQueryBlockVerificationIssueKind.COMBINED_ACTUAL_USE_CYCLE,
             )
+        if root.completed.effective_outputs.current_regions:
+            _record(
+                issues,
+                ProjectIRQueryBlockVerificationIssueKind.CURRENT_JOIN_COMPOSITION_UNSUPPORTED,
+            )
     issue_tuple = tuple(issues)
     return ProjectIRQueryBlockVerificationResult(
         root=root,
@@ -2194,6 +2216,13 @@ def build_project_query_block_ir_analysis_bundle(
 ) -> ProjectIRQueryBlockAnalysisBundle:
     """Freshly derive all combined topology analyses from one VERIFIED root."""
 
+    if (
+        type(verification) is ProjectIRQueryBlockVerificationResult
+        and verification.root.completed.effective_outputs.current_regions
+    ):
+        raise ValueError(
+            "Current JOIN combined analysis is unavailable until composition."
+        )
     if type(verification) is not ProjectIRQueryBlockVerificationResult or (
         not verification.verified
     ):

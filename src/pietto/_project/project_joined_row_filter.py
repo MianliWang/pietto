@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto._project.project_query_block import ProjectCurrentJoinedRowSource
+
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum
 from typing import cast
@@ -123,6 +125,8 @@ class ProjectJoinedRowFilterPreservationWitness:
 def _admitted_joined_semantics(
     completion: ProjectCompletion,
     entry: ProjectEffectiveOutputTerminal,
+    *,
+    current: ProjectConcreteJoinedRowSemantics | None = None,
 ) -> ProjectConcreteJoinedRowSemantics:
     if type(completion) is not ProjectCompletion:
         raise TypeError("Joined filtering requires an exact completion snapshot.")
@@ -130,6 +134,20 @@ def _admitted_joined_semantics(
         entry is retained for retained in completion.entries
     ):
         raise ValueError("Joined filtering requires exact ledger membership.")
+    if current is not None:
+        source = current.row_source
+        if (
+            type(current) is not ProjectConcreteJoinedRowSemantics
+            or type(source) is not ProjectCurrentJoinedRowSource
+            or source.base_verification is not completion.verification
+            or current.namespaces.binding_environment.ledger.owner is not entry.owner
+            or entry.cycle_blocker is not None
+            or not any(entry.owner is owner for owner in completion.schedule)
+        ):
+            raise ValueError(
+                "Current filtering requires exact scheduled row-source authority."
+            )
+        return current
     joined = entry.joined_completion
     if (
         entry.reason is not ProjectEffectiveOutputTerminalReason.JOINED_TAIL_PENDING
@@ -157,6 +175,9 @@ class ProjectConcreteJoinedRowFilter:
         repr=False,
         compare=False,
         hash=False,
+    )
+    current_semantics: ProjectConcreteJoinedRowSemantics | None = field(
+        default=None, repr=False
     )
     kind: ProjectJoinedRowFilterKind
     namespace: ProjectJoinedScalarNamespace = field(
@@ -188,7 +209,9 @@ class ProjectConcreteJoinedRowFilter:
     fields: tuple[ProjectJoinedRowFieldSemantics, ...] = field(init=False)
 
     def __post_init__(self) -> None:
-        joined = _admitted_joined_semantics(self.completion, self.entry)
+        joined = _admitted_joined_semantics(
+            self.completion, self.entry, current=self.current_semantics
+        )
         definition = _definition(self.entry)
         if type(self.kind) is not ProjectJoinedRowFilterKind or (
             self.namespace is not joined.post_let
@@ -256,6 +279,9 @@ class ProjectNonConcreteJoinedRowFilter:
         compare=False,
         hash=False,
     )
+    current_semantics: ProjectConcreteJoinedRowSemantics | None = field(
+        default=None, repr=False
+    )
     namespace: ProjectJoinedScalarNamespace = field(
         repr=False,
         compare=False,
@@ -283,7 +309,9 @@ class ProjectNonConcreteJoinedRowFilter:
     )
 
     def __post_init__(self) -> None:
-        joined = _admitted_joined_semantics(self.completion, self.entry)
+        joined = _admitted_joined_semantics(
+            self.completion, self.entry, current=self.current_semantics
+        )
         definition = _definition(self.entry)
         if (
             self.namespace is not joined.post_let
@@ -359,16 +387,19 @@ type ProjectJoinedRowFilterResult = (
 def build_project_joined_row_filter(
     completion: ProjectCompletion,
     entry: ProjectEffectiveOutputTerminal,
+    *,
+    current_semantics: ProjectConcreteJoinedRowSemantics | None = None,
 ) -> ProjectJoinedRowFilterResult:
     """Analyze WHERE only for one exact joined-tail ledger entry."""
 
-    joined = _admitted_joined_semantics(completion, entry)
+    joined = _admitted_joined_semantics(completion, entry, current=current_semantics)
     definition = _definition(entry)
     where_clause = definition.where_clause
     if where_clause is None:
         return ProjectConcreteJoinedRowFilter(
             completion=completion,
             entry=entry,
+            current_semantics=current_semantics,
             kind=ProjectJoinedRowFilterKind.ABSENT,
             namespace=joined.post_let,
             preservation=ProjectJoinedRowFilterPreservationWitness(
@@ -388,6 +419,7 @@ def build_project_joined_row_filter(
         return ProjectNonConcreteJoinedRowFilter(
             completion=completion,
             entry=entry,
+            current_semantics=current_semantics,
             namespace=joined.post_let,
             where_clause=where_clause,
             expression_analysis=analysis,
@@ -398,6 +430,7 @@ def build_project_joined_row_filter(
         return ProjectNonConcreteJoinedRowFilter(
             completion=completion,
             entry=entry,
+            current_semantics=current_semantics,
             namespace=joined.post_let,
             where_clause=where_clause,
             expression_analysis=analysis,
@@ -417,6 +450,7 @@ def build_project_joined_row_filter(
         return ProjectNonConcreteJoinedRowFilter(
             completion=completion,
             entry=entry,
+            current_semantics=current_semantics,
             namespace=joined.post_let,
             where_clause=where_clause,
             expression_analysis=analysis,
@@ -426,6 +460,7 @@ def build_project_joined_row_filter(
     return ProjectConcreteJoinedRowFilter(
         completion=completion,
         entry=entry,
+        current_semantics=current_semantics,
         kind=ProjectJoinedRowFilterKind.AUTHORED_WHERE,
         namespace=joined.post_let,
         where_clause=where_clause,
@@ -444,6 +479,9 @@ class ProjectJoinedRowFilterSet:
 
     completion: ProjectCompletion = field(repr=False, compare=False, hash=False)
     results: tuple[ProjectJoinedRowFilterResult, ...]
+    current_semantics: ProjectConcreteJoinedRowSemantics | None = field(
+        default=None, repr=False
+    )
 
     def __post_init__(self) -> None:
         if (
@@ -458,6 +496,19 @@ class ProjectJoinedRowFilterSet:
             and entry.reason is ProjectEffectiveOutputTerminalReason.JOINED_TAIL_PENDING
             and type(entry.joined_completion) is ProjectConcreteJoinedRowSemantics
         )
+        if self.current_semantics is not None:
+            owner = self.current_semantics.namespaces.binding_environment.ledger.owner
+            expected = tuple(
+                entry
+                for entry in self.completion.entries
+                if type(entry) is ProjectEffectiveOutputTerminal
+                and entry.owner is owner
+            )
+            if len(expected) != 1:
+                raise ValueError("Current filter scope requires one exact owner entry.")
+            _admitted_joined_semantics(
+                self.completion, expected[0], current=self.current_semantics
+            )
         if len(self.results) != len(expected) or any(
             type(result)
             not in {
@@ -466,6 +517,7 @@ class ProjectJoinedRowFilterSet:
             }
             or result.completion is not self.completion
             or result.entry is not entry
+            or result.current_semantics is not self.current_semantics
             for result, entry in zip(self.results, expected, strict=True)
         ):
             raise ValueError(

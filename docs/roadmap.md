@@ -2133,7 +2133,8 @@ subjects to the numbered route below.
 
 Phase 64 **Flat Relational Algebra** is `ACTIVE`. Slice 1 is
 `COMPLETED / PUBLISHED`, Slice 2 is `COMPLETED / PUBLISHED`, Slice 3 is
-`COMPLETED / PUBLISHED`, Slice 4 is `NEXT / NOT IMPLEMENTED`, and the frozen
+`COMPLETED / PUBLISHED`, Slice 4 is `COMPLETED / PUBLISHED`, Slice 5 is
+`NEXT / NOT IMPLEMENTED`, and the frozen
 route has exactly 11 numbered Slices.
 
 | Slice | Owner |
@@ -2199,9 +2200,21 @@ inputs, with generic and relationship-refinement authority separated. C03
 retains exact upper-bound evidence and drops coverage; C04 disjunction supplies
 no unconditional key null-rejection. Condition readiness does not complete a
 new JOIN or admit IR/SQL. Natural exact-head CI completes Slice 3 without a
-status-only follow-up. Slice 4 is NEXT / NOT IMPLEMENTED and owns effective-input
-integration and the first generic INNER/LEFT vertical closure. Slices 5–11
-remain NOT IMPLEMENTED; no additional route row or product exit is introduced.
+status-only follow-up. That publication left Slice 4 NEXT / NOT IMPLEMENTED.
+
+The [Slice-4 effective-output JOIN contract](spec/phase64-slice4-effective-output-join-first-generic-vertical-closure-v1.md)
+completes the first generic INNER/LEFT path through current named inputs, the
+existing SELECT-body tail, canonical outputs, downstream replay and project
+check in EXPLICIT_MODULES. The existing schedule owns construction; changed
+input roots rebuild conditions through Slice 3, and unchanged historical paths
+retain their prior objects and bytes. Current prefixes and materialized input
+boundaries retain exact occurrence/proof/allocation roots. Successful operations
+retire only their exact temporary admission causes. Natural exact-head CI closes
+Slice 4 without a status-only follow-up. Slice 5 is NEXT / NOT IMPLEMENTED and
+owns CROSS/RIGHT/FULL output semantics. Slices 6–11 remain NOT IMPLEMENTED.
+Slice 10 still owns combined IR/analysis/inspection and final
+EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED closure; E05/E10 are not fully closed.
+No additional route row or product exit is introduced.
 
 ## Future Roadmap v6
 

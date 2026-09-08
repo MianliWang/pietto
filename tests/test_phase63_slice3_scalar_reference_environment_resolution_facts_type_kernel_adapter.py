@@ -10,6 +10,7 @@ from _pietto_phase62_join_differential_probe import PRIMARY_MAIN_SOURCE, _build
 from _pietto_repository_facts import REPOSITORY_FACTS
 from pietto._project import project_query_block as query_blocks
 from pietto._project import project_scalar_references as scalar_references
+from pietto._project import row_expression_type_facts
 from pietto._project.model import (
     ProjectResolvedType,
     ProjectResolvedTypeKind,
@@ -694,7 +695,10 @@ def test_slice3_scope_dependency_and_contract_are_exact() -> None:
     facts = REPOSITORY_FACTS.python(PRODUCTION)
     assert scalar_references.__all__ == ()
     assert "infer_row_expression" in facts.identifiers
-    assert "child_expressions" in facts.identifiers
+    assert (
+        scalar_references.scalar_field_reference_leaves
+        is row_expression_type_facts.scalar_field_reference_leaves
+    )
     assert "project_row_field_to_semantic_value_type" in facts.identifiers
     assert "Mapping[str" not in facts.text
     for forbidden in (

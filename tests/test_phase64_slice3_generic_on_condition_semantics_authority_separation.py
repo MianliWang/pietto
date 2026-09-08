@@ -100,8 +100,8 @@ def test_generic_bool_readiness_is_separate_from_completion(
     assert fact.base_conditions == () and fact.base_guarantee is None
     assert fact.use.direct_result is None and fact.use.path is None
     assert fact.expression is fact.use.clause.on_clause.expression
-    assert not completed.ok and not fact.diagnostics
-    assert any(d.code == "PIE-S2334" for d in completed.diagnostics)
+    assert completed.ok and not fact.diagnostics
+    assert not any(d.code == "PIE-S2334" for d in completed.diagnostics)
 
 
 def test_refinement_keeps_base_and_conjunct_occurrences(tmp_path: Path) -> None:
@@ -165,7 +165,7 @@ def test_generic_never_calls_relationship_discovery(
 @pytest.mark.parametrize("kind", tuple(AuthoredJoinKind))
 @pytest.mark.parametrize("via", ("", "        via link: l -> r\n"))
 @pytest.mark.parametrize("on", (None, "lhs.id == r.id"))
-def test_mode_kind_dispatch_keeps_operation_admission_closed(
+def test_mode_kind_dispatch_preserves_later_kind_admission_boundaries(
     tmp_path: Path, kind, via, on
 ) -> None:
     completed = _completed(tmp_path, _source(on, kind=kind.value, via=via))
@@ -175,7 +175,7 @@ def test_mode_kind_dispatch_keeps_operation_admission_closed(
     assert fact.use.clause.kind is kind
     assert any(d.code == "PIE-S2336" for d in fact.diagnostics) is bad_cross
     old = kind in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT} and on is None
-    assert completed.ok is old
+    assert completed.ok is (kind in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT})
     if not old:
         assert not isinstance(fact.use, ProjectConcreteJoinUse)
         assert not completed.verification.root.join_regions.structural.nodes
@@ -508,17 +508,18 @@ def test_set_input_and_independent_valid_branches_survive(tmp_path: Path) -> Non
     assert valid.output is not None
 
 
-def test_join_effective_input_stays_unavailable_before_slice4(tmp_path: Path) -> None:
+def test_join_effective_input_uses_current_slice4_authority(tmp_path: Path) -> None:
     source = _source("lhs.id == r.id").replace("query result:", "table joined:")
     source += "query downstream:\n    from joined\n    inner join rhs as last:\n        from joined\n        on joined.id == last.id\n    select:\n        id = joined.id\n"
     facts = _completed(tmp_path, source).roots.join_conditions.entries
-    assert facts[0].ready and not facts[1].ready
-    assert facts[1].references[0].state.value == "unavailable"
+    assert facts[0].ready and facts[1].ready
+    assert facts[1].references[0].state.value == "resolved"
+    assert facts[1].inputs is not None
 
 
 @pytest.mark.parametrize("mode", tuple(CheckMode))
 @pytest.mark.parametrize("schema", (1, 2))
-def test_project_check_modes_do_not_admit_ready_conditions(
+def test_project_check_modes_admit_only_completed_explicit_module_conditions(
     tmp_path: Path, mode: CheckMode, schema: int
 ) -> None:
     source = f"mode {mode.value}\n" + _source("lhs.id == r.id")
@@ -532,7 +533,8 @@ def test_project_check_modes_do_not_admit_ready_conditions(
     result = (
         build_project_completed_semantic_result(semantic) if schema == 2 else semantic
     )
-    assert not result.ok and any(d.code == "PIE-S2334" for d in result.diagnostics)
+    assert result.ok is (schema == 2)
+    assert any(d.code == "PIE-S2334" for d in result.diagnostics) is (schema == 1)
 
 
 @pytest.mark.parametrize("dialect", ("postgres", "mysql"))

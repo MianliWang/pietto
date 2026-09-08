@@ -38,6 +38,7 @@ from pietto._project.project_phase62_verification import (
     ProjectPhase62VerificationStatus,
 )
 from pietto._project.project_relationship_uses import ProjectJoinUseState
+from pietto._project.project_current_joins import ProjectCurrentJoinRegion
 from pietto.ast_nodes import QueryDef, TableDef
 from pietto.semantic.window_semantics import (
     QueryBlockOccurrence,
@@ -196,8 +197,47 @@ class ProjectVerifiedJoinedRowSource:
         object.__setattr__(self, "fields", fields)
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectCurrentJoinedRowSource:
+    """A checked current JOIN row; the retained verification covers only its base."""
+
+    base_verification: ProjectPhase62VerificationResult = field(repr=False)
+    region: ProjectCurrentJoinRegion = field(repr=False)
+    historical_semantic_facts: ProjectModuleRelationSemanticFacts = field(
+        init=False, repr=False
+    )
+    final_output: ProjectIRJoinRowOutput = field(init=False)
+    fields: tuple[ProjectIRJoinedRowField, ...] = field(init=False)
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.base_verification) is not ProjectPhase62VerificationResult
+            or self.base_verification.status
+            is not ProjectPhase62VerificationStatus.VERIFIED
+            or type(self.region) is not ProjectCurrentJoinRegion
+            or self.region.conditions.uses
+            is not self.base_verification.root.join_regions.uses
+        ):
+            raise ValueError(
+                "Current row source requires exact base and condition roots."
+            )
+        matches = self.base_verification.root.evaluation.project_plan.semantic_facts.find_owner(
+            self.region.ledger.owner
+        )
+        if len(matches) != 1:
+            raise ValueError("Current row source requires one exact authored owner.")
+        output = self.region.final_properties.relational.output
+        if type(output) is not ProjectIRJoinRowOutput:
+            raise TypeError("Current row source requires its exact joined output.")
+        object.__setattr__(self, "historical_semantic_facts", matches[0])
+        object.__setattr__(self, "final_output", output)
+        object.__setattr__(self, "fields", output.row_shape.fields)
+
+
 type ProjectQueryBlockRowSource = (
-    ProjectExistingRelationRowSource | ProjectVerifiedJoinedRowSource
+    ProjectExistingRelationRowSource
+    | ProjectVerifiedJoinedRowSource
+    | ProjectCurrentJoinedRowSource
 )
 
 
@@ -220,7 +260,14 @@ class ProjectConcreteQueryBlock:
             raise TypeError("Concrete query block requires an exact owner bridge.")
         if type(self.row_source) is ProjectExistingRelationRowSource:
             owner = self.row_source.semantic_facts.owner
-        elif type(self.row_source) is ProjectVerifiedJoinedRowSource:
+        elif type(self.row_source) in {
+            ProjectVerifiedJoinedRowSource,
+            ProjectCurrentJoinedRowSource,
+        }:
+            assert isinstance(
+                self.row_source,
+                (ProjectVerifiedJoinedRowSource, ProjectCurrentJoinedRowSource),
+            )
             owner = self.row_source.region.ledger.owner
             if self.row_source.historical_semantic_facts.owner is not owner:
                 raise ValueError("Joined row source lost its historical owner.")

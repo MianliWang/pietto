@@ -39,8 +39,17 @@ from pietto._project.project_ir_relational_properties import (
 )
 from pietto._project.project_multifact import (
     ProjectMultiFactConcreteRegion,
+    ProjectCurrentMultiFactRegion,
 )
-from pietto._project.project_query_block import ProjectVerifiedJoinedRowSource
+from pietto._project.project_query_block import (
+    ProjectCurrentJoinedRowSource,
+    ProjectVerifiedJoinedRowSource,
+)
+from pietto._project.project_current_joins import ProjectCurrentJoinProperties
+from pietto._project.project_current_join_inputs import (
+    ProjectCurrentInputField,
+    ProjectCurrentMaterializedInput,
+)
 from pietto._project.project_scalar_namespaces import (
     ProjectConcreteJoinedLetNamespaces,
     ProjectJoinedLetNamespaceResult,
@@ -59,27 +68,36 @@ __all__: tuple[str, ...] = ()
 class ProjectJoinedRowPropertyBridge:
     """Exact final Phase-62 properties without derivation or interpretation."""
 
-    row_source: ProjectVerifiedJoinedRowSource = field(
+    row_source: ProjectVerifiedJoinedRowSource | ProjectCurrentJoinedRowSource = field(
         repr=False,
         compare=False,
         hash=False,
     )
-    multifact_region: ProjectMultiFactConcreteRegion = field(
-        repr=False,
-        compare=False,
-        hash=False,
+    multifact_region: ProjectMultiFactConcreteRegion | ProjectCurrentMultiFactRegion = (
+        field(
+            repr=False,
+            compare=False,
+            hash=False,
+        )
     )
-    properties: ProjectIRJoinOutputProperties = field(init=False)
+    properties: ProjectIRJoinOutputProperties | ProjectCurrentJoinProperties = field(
+        init=False
+    )
 
     def __post_init__(self) -> None:
-        if type(self.row_source) is not ProjectVerifiedJoinedRowSource or (
-            type(self.multifact_region) is not ProjectMultiFactConcreteRegion
-            or self.multifact_region.region is not self.row_source.region
-        ):
+        valid_pair = (
+            type(self.row_source) is ProjectVerifiedJoinedRowSource
+            and type(self.multifact_region) is ProjectMultiFactConcreteRegion
+        ) or (
+            type(self.row_source) is ProjectCurrentJoinedRowSource
+            and type(self.multifact_region) is ProjectCurrentMultiFactRegion
+        )
+        if not valid_pair or self.multifact_region.region is not self.row_source.region:
             raise ValueError("Joined properties require exact shared Phase-62 roots.")
         properties = self.multifact_region.final_properties
         if (
-            type(properties) is not ProjectIRJoinOutputProperties
+            type(properties)
+            not in {ProjectIRJoinOutputProperties, ProjectCurrentJoinProperties}
             or properties.join is not self.row_source.region.joins[-1]
             or properties.relational.output is not self.row_source.final_output
         ):
@@ -147,11 +165,12 @@ class ProjectJoinedRowFieldSemantics:
         hash=False,
     )
     canonical_field: ProjectModuleRowFieldIdentity
-    lineage: ProjectModuleRowFieldLineage = field(
+    lineage: ProjectModuleRowFieldLineage | None = field(
         repr=False,
         compare=False,
         hash=False,
     )
+    current_input: ProjectCurrentInputField | None = field(default=None, repr=False)
     source_origin: ProjectModuleSourceFieldOrigin | None = field(
         default=None,
         repr=False,
@@ -164,7 +183,7 @@ class ProjectJoinedRowFieldSemantics:
         compare=False,
         hash=False,
     )
-    source_roots: tuple[ProjectModuleRowFieldIdentity, ...] = field(init=False)
+    source_roots: tuple[ProjectModuleRowFieldIdentity, ...] | None = field(init=False)
 
     def __post_init__(self) -> None:
         if type(self.scalar_field) is not ProjectScalarEnvironmentField or (
@@ -190,6 +209,36 @@ class ProjectJoinedRowFieldSemantics:
             or self.input_field.evidence is not self.joined_field.evidence
         ):
             raise ValueError("Joined field semantics require its exact input output.")
+        if self.current_input is not None:
+            current = self.current_input
+            output = self.input_properties.output
+            if (
+                type(current) is not ProjectCurrentInputField
+                or not isinstance(output, ProjectCurrentMaterializedInput)
+                or current.authority is not output.authority
+                or current
+                is not output.authority.fields[self.input_field.field_position]
+                or not any(
+                    self.input_field is member
+                    for member in self.input_properties.fields
+                )
+                or self.canonical_field is not current.identity
+                or self.lineage is not None
+                or self.source_origin is not None
+                or self.output_attribution is not None
+            ):
+                raise ValueError(
+                    "Current lineage must retain its exact completed producer field."
+                )
+            if (
+                self.scalar_field.value_type.nullability.value
+                != self.joined_field.effective_nullability.value
+            ):
+                raise ValueError("Current field nullability must remain coherent.")
+            # The complete original field/stage graph stays at current.original;
+            # no historical source-root projection is synthesized for this boundary.
+            object.__setattr__(self, "source_roots", None)
+            return
         if type(self.canonical_field) is not ProjectModuleRowFieldIdentity or (
             type(self.lineage) is not ProjectModuleRowFieldLineage
             or self.lineage.field is not self.canonical_field
@@ -323,7 +372,7 @@ class ProjectConcreteJoinedRowSemantics:
         ):
             raise ValueError("Concrete joined semantics must cover final row order.")
         historical = self.property_bridge.row_source.historical_semantic_facts.state
-        if (
+        if type(self.property_bridge.row_source) is ProjectVerifiedJoinedRowSource and (
             historical.status is not ProjectRelationRowSchemaStatus.DEFERRED
             or historical.reason
             is not ProjectRelationRowSchemaReason.AUTHORED_JOIN_DEFERRED
@@ -332,7 +381,9 @@ class ProjectConcreteJoinedRowSemantics:
         object.__setattr__(self, "post_let", self.namespaces.post_let)
 
     @property
-    def row_source(self) -> ProjectVerifiedJoinedRowSource:
+    def row_source(
+        self,
+    ) -> ProjectVerifiedJoinedRowSource | ProjectCurrentJoinedRowSource:
         return self.property_bridge.row_source
 
     @property
@@ -340,7 +391,9 @@ class ProjectConcreteJoinedRowSemantics:
         return self.row_source.final_output
 
     @property
-    def multifact_region(self) -> ProjectMultiFactConcreteRegion:
+    def multifact_region(
+        self,
+    ) -> ProjectMultiFactConcreteRegion | ProjectCurrentMultiFactRegion:
         return self.property_bridge.multifact_region
 
     @property
@@ -422,7 +475,12 @@ def _require_attribution_root(
         or type(attribution) is not ProjectModuleAttributionFactSet
     ):
         raise TypeError("Joined semantics require exact Slice-5 and attribution roots.")
-    analysis = namespaces.binding_environment.row_source.verification.root
+    source = namespaces.binding_environment.row_source
+    analysis = (
+        source.base_verification
+        if isinstance(source, ProjectCurrentJoinedRowSource)
+        else source.verification
+    ).root
     if attribution._authority.semantic_facts is not (
         analysis.evaluation.project_plan.semantic_facts
     ):
@@ -433,6 +491,11 @@ def _property_bridge(
     namespaces: ProjectConcreteJoinedLetNamespaces,
 ) -> ProjectJoinedRowPropertyBridge:
     row_source = namespaces.binding_environment.row_source
+    if isinstance(row_source, ProjectCurrentJoinedRowSource):
+        return ProjectJoinedRowPropertyBridge(
+            row_source=row_source,
+            multifact_region=ProjectCurrentMultiFactRegion(region=row_source.region),
+        )
     matches = tuple(
         item
         for item in row_source.verification.root.concrete_regions
@@ -450,9 +513,23 @@ def _input_field(
     bridge: ProjectJoinedRowPropertyBridge,
     joined_field: ProjectIRJoinedRowField,
 ) -> tuple[ProjectIROutputRelationalProperties, ProjectIROutputFieldOccurrence]:
+    source = bridge.row_source
+    outputs = (
+        tuple(
+            {
+                id(item): item
+                for item in (
+                    source.region.joins[0].left_input,
+                    *(join.right_input for join in source.region.joins),
+                )
+            }.values()
+        )
+        if isinstance(source, ProjectCurrentJoinedRowSource)
+        else source.verification.root.base_relational.outputs
+    )
     matches = tuple(
         item
-        for item in bridge.row_source.verification.root.base_relational.outputs
+        for item in outputs
         if item.output.occurrence is joined_field.introduction_use.output
     )
     if len(matches) != 1:
@@ -508,6 +585,24 @@ def _field_semantics(
         raise TypeError("Joined semantics require exact joined field occurrences.")
     property_field = bridge.relational.fields[joined_field.field_position]
     input_properties, input_field = _input_field(bridge, joined_field)
+    if isinstance(input_properties.output, ProjectCurrentMaterializedInput):
+        origin = input_properties.output.row_shape.fields[
+            input_field.field_position
+        ].source_field
+        if type(origin) is not ProjectCurrentInputField:
+            raise ValueError(
+                "Current materialized input lost its completed field authority."
+            )
+        return ProjectJoinedRowFieldSemantics(
+            scalar_field=scalar_field,
+            joined_field=joined_field,
+            property_field=property_field,
+            input_properties=input_properties,
+            input_field=input_field,
+            canonical_field=origin.identity,
+            lineage=None,
+            current_input=origin,
+        )
     canonical = _canonical_field(attribution, input_properties, input_field)
     lineages = attribution.find_row_lineage(canonical.owner)
     if len(lineages) != 1:

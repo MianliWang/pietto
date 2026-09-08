@@ -138,6 +138,9 @@ class ProjectJoinGrainFactorIdentity:
     base: ProjectBaseGrainFactorIdentity
     introduction_use: ProjectIRUseRef
     nulling_joins: tuple[ProjectIRPlanNodeRef, ...]
+    source_factor: ProjectJoinGrainFactorIdentity | None = field(
+        default=None, repr=False
+    )
     kind: ProjectGrainFactorKind = field(init=False)
 
     def __post_init__(self) -> None:
@@ -148,6 +151,15 @@ class ProjectJoinGrainFactorIdentity:
             raise TypeError("JOIN grain use requires an exact base factor.")
         if type(self.introduction_use) is not ProjectIRUseRef:
             raise TypeError("JOIN grain use requires an introduction-use ref.")
+        if self.source_factor is not None and (
+            type(self.source_factor) is not ProjectJoinGrainFactorIdentity
+            or self.source_factor.base != self.base
+            or self.source_factor.introduction_use.scope
+            is not self.introduction_use.scope
+        ):
+            raise ValueError(
+                "Nested input grain must retain its exact source occurrence."
+            )
         if type(self.nulling_joins) is not tuple or any(
             type(item) is not ProjectIRPlanNodeRef for item in self.nulling_joins
         ):
@@ -668,6 +680,23 @@ class ProjectGrainOriginAuthority:
     """Nominal root shared by historical and additive grain-origin snapshots."""
 
     __slots__ = ()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectCompositeGrainOriginAuthority(ProjectGrainOriginAuthority):
+    left: ProjectGrainOriginAuthority = field(repr=False)
+    right: ProjectGrainOriginAuthority = field(repr=False)
+    witness: object = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.left, ProjectGrainOriginAuthority)
+            or not isinstance(self.right, ProjectGrainOriginAuthority)
+            or self.witness is None
+        ):
+            raise ValueError(
+                "Composite grain authority requires exact input roots and witness."
+            )
 
 
 def _aggregate_origin_matches_context(

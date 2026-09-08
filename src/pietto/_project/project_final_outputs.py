@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto._flat_relational_admission import syntax_diagnostics
+
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -58,10 +60,65 @@ from pietto._project.project_completion import (
     ProjectEffectiveOutputTerminal,
     ProjectEffectiveOutputTerminalReason,
     ProjectExistingEffectiveOutput,
+    build_project_joined_completion,
+)
+from pietto._project.project_current_joins import ProjectCurrentJoinRegion
+from pietto._project.project_join_conditions import (
+    ProjectJoinCondition,
+    ProjectJoinConditionSet,
+    ProjectJoinConditionCompletion,
+    rebuild_project_join_condition,
+)
+from pietto._project.project_current_join_inputs import (
+    ProjectCurrentInputAuthority,
+    ProjectCurrentInputField,
+    ProjectCurrentSourceField,
+    ProjectCurrentBindingInput,
+    ProjectCurrentJoinInputScope,
+    ProjectCurrentPreMatchInputs,
+    ProjectCurrentMaterializedInput,
+    ProjectCurrentJoinInputFailure,
+)
+from pietto._project.project_ir_construction import ProjectIRAllocationState
+from pietto._project.module_carrier import ProjectCompilationMode
+from pietto._project.project_query_block import (
+    ProjectConcreteQueryBlock,
+    ProjectCurrentJoinedRowSource,
+    ProjectQueryBlockOwnerBridge,
+)
+from pietto._project.project_joined_row_semantics import (
+    ProjectConcreteJoinedRowSemantics,
+    ProjectNonConcreteJoinedRowSemantics,
+    _canonical_field,
 )
 from pietto._project.project_ir_relational_properties import (
     ProjectIRProvidedIntrinsicGrain,
+    ProjectIROutputRelationalProperties,
+    ProjectIROutputValueClass,
+    ProjectIROutputCandidateKey,
+    _field_occurrences,
+    _singleton_classes,
+    _projection_classes_from_sources,
+    _image_keys_and_fds,
+    _compile_output_fd_index,
+    _key_fds,
 )
+from pietto._project.project_ir import (
+    ProjectIRPlanNodeOccurrence,
+    ProjectIRRelationAnchor,
+)
+from pietto._project.project_ir_evaluation_context import (
+    ProjectIRGroupedEvaluationContext,
+)
+from pietto._project.project_grain import (
+    ProjectGrainOriginAuthority,
+    ProjectGrainBasisState,
+    ProjectGrainDomainFactor,
+    ProjectGroupedGrainFactorIdentity,
+    ProjectGrainDependencyFact,
+)
+from pietto._project.project_row_keys import ProjectRowUniquenessStrength
+from pietto._project.project_relationship_uses import ProjectJoinUseState
 from pietto._project.project_joined_aggregation import (
     ProjectConcreteJoinedAggregation,
     ProjectJoinedAggregationMode,
@@ -80,8 +137,11 @@ from pietto._project.project_joined_qualify import (
     _analyze_qualify_predicate,
     _qualify_operands,
     _qualify_reference_diagnostic,
+    build_project_joined_tail,
 )
 from pietto._project.project_joined_row_filter import (
+    ProjectJoinedRowFilterSet,
+    build_project_joined_row_filter,
     ProjectJoinedRowRetentionEffect,
     _SQL_ROW_RETENTION_EFFECTS,
 )
@@ -107,6 +167,7 @@ from pietto._project.row_expression_type_facts import (
     project_row_schema_to_semantic_row_schema,
 )
 from pietto.ast_nodes import (
+    AuthoredJoinKind,
     DottedNameExpr,
     Expression,
     LimitClause,
@@ -1123,6 +1184,9 @@ class ProjectCompletedEffectiveOutput:
 
 
 class ProjectEffectiveOutputCompletionTerminalReason(StrEnum):
+    CURRENT_JOIN_CONDITION_NON_CONCRETE = "current_join_condition_non_concrete"
+    CURRENT_JOIN_INPUT_NON_CONCRETE = "current_join_input_non_concrete"
+    CURRENT_JOIN_TAIL_NON_CONCRETE = "current_join_tail_non_concrete"
     JOINED_QUALIFY_NON_CONCRETE = "joined_qualify_non_concrete"
     UPSTREAM_EFFECTIVE_OUTPUT_NON_CONCRETE = "upstream_effective_output_non_concrete"
     LET_NON_CONCRETE = "let_non_concrete"
@@ -1171,6 +1235,10 @@ class ProjectEffectiveOutputCompletionTerminal:
         hash=False,
     )
     diagnostics: tuple[Diagnostic, ...] = ()
+    current_region: ProjectCurrentJoinRegion | None = field(default=None, repr=False)
+    current_inputs: ProjectCurrentJoinInputScope | None = field(
+        default=None, repr=False
+    )
     output: None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
@@ -1186,6 +1254,45 @@ class ProjectEffectiveOutputCompletionTerminal:
             type(item) is not Diagnostic for item in self.diagnostics
         ):
             raise TypeError("Completion terminal diagnostics must be exact.")
+        if self.current_region is not None:
+            _validate_current_terminal(self)
+            return
+        if self.current_inputs is not None:
+            if (
+                self.current_inputs.ledger.owner is not self.owner
+                or self.joined_qualify is not None
+                or self.replay_root is not None
+                or self.upstream_entry is not None
+            ):
+                raise ValueError(
+                    "Current input terminal requires its exact complete blocker scope."
+                )
+            if (
+                self.reason
+                is ProjectEffectiveOutputCompletionTerminalReason.CURRENT_JOIN_INPUT_NON_CONCRETE
+            ):
+                valid = (
+                    type(self.blocker) is ProjectCurrentJoinInputFailure
+                    and self.blocker.scope is self.current_inputs
+                )
+            else:
+                valid = (
+                    self.reason
+                    is ProjectEffectiveOutputCompletionTerminalReason.CURRENT_JOIN_CONDITION_NON_CONCRETE
+                    and type(self.blocker) is tuple
+                    and bool(self.blocker)
+                    and all(
+                        type(item) is ProjectJoinCondition
+                        and not item.ready
+                        and item.ledger is self.current_inputs.ledger
+                        for item in self.blocker
+                    )
+                )
+            if not valid:
+                raise ValueError(
+                    "Current terminal must retain its exact input/condition failure."
+                )
+            return
         joined_tail = type(self.base_entry) is ProjectEffectiveOutputTerminal and (
             self.base_entry.reason
             is ProjectEffectiveOutputTerminalReason.JOINED_TAIL_PENDING
@@ -1293,6 +1400,364 @@ type ProjectEffectiveOutputCompletionEntry = (
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectEffectiveJoinInputAuthority(ProjectCurrentInputAuthority):
+    """Exact already-completed producer; no reinterpretation as an endpoint."""
+
+    completion: ProjectCompletion = field(repr=False)
+    entry: ProjectConcreteEffectiveOutputEntry = field(repr=False)
+    owner: ProjectDeclarationOccurrence = field(init=False)
+    fields: tuple[ProjectCurrentSourceField, ...] = field(init=False)
+    historical_properties: ProjectIROutputRelationalProperties | None = field(
+        init=False, repr=False
+    )
+
+    def __post_init__(self) -> None:
+        self.validate()
+        object.__setattr__(self, "owner", self.entry.owner)
+        if isinstance(self.entry, ProjectExistingEffectiveOutput):
+            properties = self.entry.properties
+            fields = properties.fields
+        else:
+            properties = None
+            fields = tuple(
+                ProjectCurrentInputField(authority=self, field_position=position)
+                for position in range(len(self.entry.fields))
+            )
+        object.__setattr__(self, "historical_properties", properties)
+        object.__setattr__(self, "fields", fields)
+
+    def validate(self) -> None:
+        if type(self.completion) is not ProjectCompletion or type(self.entry) not in {
+            ProjectExistingEffectiveOutput,
+            ProjectCompletedEffectiveOutput,
+        }:
+            raise TypeError(
+                "Effective input requires exact concrete completion authority."
+            )
+        entries = self.completion.find_owner(self.entry.owner)
+        base = (
+            self.entry
+            if isinstance(self.entry, ProjectExistingEffectiveOutput)
+            else self.entry.base_entry
+        )
+        if len(entries) != 1 or entries[0] is not base:
+            raise ValueError(
+                "Effective input is detached from the exact completion snapshot."
+            )
+        self.entry.__post_init__()
+
+    def field_parts(
+        self,
+    ) -> tuple[tuple[ProjectModuleRowFieldIdentity, ProjectRowField, object], ...]:
+        self.validate()
+        if isinstance(self.entry, ProjectExistingEffectiveOutput):
+            return tuple(
+                (
+                    _canonical_field(
+                        self.completion.plan.attribution, self.entry.properties, member
+                    ),
+                    member.evidence,
+                    member,
+                )
+                for member in self.entry.properties.fields
+            )
+        return tuple(
+            (member.identity, member.field, member) for member in self.entry.fields
+        )
+
+    def materialized_properties(
+        self,
+        output: ProjectCurrentMaterializedInput,
+        incoming: ProjectIROutputRelationalProperties | None,
+    ) -> ProjectIROutputRelationalProperties:
+        return _current_input_properties(self, output, incoming)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectCurrentInputGroupedContext(ProjectIRGroupedEvaluationContext):
+    """A grouped semantic result at its current input boundary, not a tail operator."""
+
+    authority: ProjectEffectiveJoinInputAuthority = field(repr=False)
+    node: ProjectIRPlanNodeOccurrence
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.authority.entry, ProjectCompletedEffectiveOutput)
+            or self.authority.entry.row_domain.kind
+            is not ProjectCompletedRowDomainKind.GROUPED
+            or type(self.node.anchor) is not ProjectIRRelationAnchor
+            or self.node.anchor.identity != _declaration_identity(self.authority.owner)
+            or self.node.ref.scope
+            is not self.authority.completion.plan.structural_stage.scope
+        ):
+            raise ValueError(
+                "Grouped input context requires exact completed group evidence."
+            )
+
+    @property
+    def grouped_operator_node(self) -> ProjectIRPlanNodeOccurrence:
+        return self.node
+
+    @property
+    def grouped_owner(self):
+        return _declaration_identity(self.authority.owner)
+
+    @property
+    def grouped_keys(self) -> tuple[object, ...]:
+        entry = self.authority.entry
+        if not isinstance(entry, ProjectCompletedEffectiveOutput):
+            raise TypeError("Grouped input requires completed semantic fields.")
+        return entry.row_domain.grouped_basis
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectCurrentInputGrainAuthority(ProjectGrainOriginAuthority):
+    source: ProjectEffectiveJoinInputAuthority = field(repr=False)
+    incoming: ProjectIRProvidedIntrinsicGrain = field(repr=False)
+    context: ProjectCurrentInputGroupedContext | None = field(repr=False)
+
+
+def _input_source_class(
+    properties: ProjectIROutputRelationalProperties, position: int
+) -> ProjectIROutputValueClass:
+    matches = tuple(
+        group
+        for group in properties.value_classes
+        if any(member is properties.fields[position] for member in group.members)
+    )
+    if len(matches) != 1:
+        raise ValueError("Input image requires an exact incoming value class.")
+    return matches[0]
+
+
+def _current_input_properties(
+    authority: ProjectEffectiveJoinInputAuthority,
+    output: ProjectCurrentMaterializedInput,
+    incoming: ProjectIROutputRelationalProperties | None,
+) -> ProjectIROutputRelationalProperties:
+    entry = authority.entry
+    if (
+        type(entry) is not ProjectCompletedEffectiveOutput
+        or output.authority is not authority
+    ):
+        raise ValueError(
+            "Current input properties require the exact completed producer."
+        )
+    root = entry.root
+    if isinstance(root, ProjectConcreteJoinedQualify):
+        source_properties = root.window_stage.input_aggregation.input_filter.joined_semantics.property_bridge.relational
+        if incoming is not None and incoming is not source_properties:
+            raise ValueError(
+                "Current joined input cannot substitute its property root."
+            )
+        incoming = source_properties
+    elif incoming is None:
+        raise ValueError("Replayed input properties require an exact upstream image.")
+    else:
+        upstream = root.upstream_entry
+        if isinstance(upstream, ProjectExistingEffectiveOutput):
+            valid = incoming is upstream.properties
+        else:
+            valid = (
+                isinstance(incoming.output, ProjectCurrentMaterializedInput)
+                and incoming.output.authority.entry is upstream
+                and incoming is incoming.output.properties
+            )
+        if not valid:
+            raise ValueError(
+                "Current replay input cannot borrow a stale upstream image."
+            )
+    fields = _field_occurrences(output)
+    domain = entry.row_domain
+    if domain.kind is ProjectCompletedRowDomainKind.PRESERVED:
+        source_classes: list[ProjectIROutputValueClass | None] = []
+        for selected in entry.fields:
+            position = None
+            source = selected.source
+            if (
+                isinstance(source, ProjectConcreteJoinedNamespaceExpression)
+                and isinstance(source.expression, (NameExpr, DottedNameExpr))
+                and len(source.resolutions) == 1
+            ):
+                resolution = source.resolutions[0]
+                if (
+                    isinstance(resolution, ProjectScalarReferenceResolution)
+                    and resolution.target is not None
+                ):
+                    position = resolution.target.position
+            elif (
+                isinstance(source, ProjectNoJoinScalarExpression)
+                and isinstance(root, ProjectConcreteNoJoinReplay)
+                and isinstance(source.expression, (NameExpr, DottedNameExpr))
+            ):
+                expression = source.expression
+                name = (
+                    expression.name
+                    if isinstance(expression, NameExpr)
+                    else expression.parts[-1]
+                )
+                if (
+                    not isinstance(expression, NameExpr)
+                    or name not in root.let_scope.value_types
+                ):
+                    member = root.input_schema.fields.get(name)
+                    matches = tuple(
+                        i
+                        for i, value in enumerate(incoming.fields)
+                        if value.evidence is member
+                    )
+                    if len(matches) == 1:
+                        position = matches[0]
+            source_classes.append(
+                None if position is None else _input_source_class(incoming, position)
+            )
+        classes, images = _projection_classes_from_sources(
+            incoming, output, fields, tuple(source_classes)
+        )
+        keys, fds = _image_keys_and_fds(
+            incoming, output, classes, images, support=authority
+        )
+        original = incoming.grain
+        grain = ProjectIRProvidedIntrinsicGrain(
+            output=output,
+            state=original.state,
+            factors=original.factors,
+            active=original.active,
+            dependencies=original.dependencies,
+            origin_set=original.origin_set,
+            witness=authority,
+        )
+    else:
+        classes = _singleton_classes(output, fields)
+        original = incoming.grain
+        context = (
+            ProjectCurrentInputGroupedContext(authority=authority, node=output.node)
+            if domain.kind is ProjectCompletedRowDomainKind.GROUPED
+            else None
+        )
+        origins = ProjectCurrentInputGrainAuthority(
+            source=authority, incoming=original, context=context
+        )
+        dependencies = list(original.dependencies)
+        if context is None:
+            active, factors, keys = (), original.factors, ()
+            state = ProjectGrainBasisState.GLOBAL
+        else:
+            factor = ProjectGroupedGrainFactorIdentity(
+                owner=context.grouped_owner, operator=output.node.ref, context=context
+            )
+            active = (factor,)
+            factors = (*original.factors, ProjectGrainDomainFactor(identity=factor))
+            if original.active:
+                dependencies.append(
+                    ProjectGrainDependencyFact(
+                        determinants=original.active, dependents=active
+                    )
+                )
+            selected_keys: list[ProjectIROutputValueClass] = []
+            represented: list[object] = []
+            for i, selected in enumerate(entry.fields):
+                source = selected.source
+                basis = None
+                if isinstance(source, ProjectJoinedStageOutputOccurrence):
+                    basis = source.group_key
+                elif (
+                    isinstance(source, ProjectNoJoinGroupedOutput)
+                    and selected.result_role is ProjectRowResultRole.GROUP_KEY
+                    and isinstance(root, ProjectConcreteNoJoinReplay)
+                ):
+                    expression = selected.item.expression
+                    name = (
+                        expression.name
+                        if isinstance(expression, NameExpr)
+                        else expression.parts[-1]
+                        if isinstance(expression, DottedNameExpr)
+                        else None
+                    )
+                    target = (
+                        None if name is None else root.input_schema.fields.get(name)
+                    )
+                    matches = tuple(
+                        item
+                        for item in domain.grouped_basis
+                        if isinstance(item, ProjectRelationClauseDependencyFact)
+                        and item.target_field is target
+                    )
+                    basis = matches[0] if len(matches) == 1 else None
+                if basis is not None:
+                    selected_keys.append(classes[i])
+                    represented.append(basis)
+            complete = all(
+                any(item is retained for retained in represented)
+                for item in domain.grouped_basis
+            )
+            keys = (
+                (
+                    ProjectIROutputCandidateKey(
+                        output=output,
+                        determinants=tuple(selected_keys),
+                        strength=ProjectRowUniquenessStrength.STRICT,
+                        supports=(authority, context),
+                    ),
+                )
+                if complete and selected_keys
+                else ()
+            )
+            state = ProjectGrainBasisState.FACTORIZED
+        fds = _key_fds(output, classes, keys)
+        grain = ProjectIRProvidedIntrinsicGrain(
+            output=output,
+            state=state,
+            factors=factors,
+            active=active,
+            dependencies=tuple(dependencies),
+            origin_set=origins,
+            witness=origins,
+        )
+    return ProjectIROutputRelationalProperties(
+        output=output,
+        fields=fields,
+        value_classes=classes,
+        keys=keys,
+        fds=fds,
+        fd_index=_compile_output_fd_index(output, classes, fds),
+        grain=grain,
+    )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectCurrentJoinAdmission:
+    """Exact owner-held temporary diagnostics retired by a successful JOIN region."""
+
+    completion: ProjectCompletion = field(repr=False)
+    region: ProjectCurrentJoinRegion = field(repr=False)
+    semantic_facts: ProjectModuleRelationSemanticFacts = field(init=False, repr=False)
+    diagnostics: tuple[Diagnostic, ...] = field(init=False)
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.completion) is not ProjectCompletion
+            or type(self.region) is not ProjectCurrentJoinRegion
+            or self.region.conditions.uses
+            is not self.completion.verification.root.join_regions.uses
+        ):
+            raise ValueError(
+                "JOIN admission retirement requires exact completed operation roots."
+            )
+        facts = _semantic_facts(self.completion, self.region.ledger.owner)
+        definition = _derived_definition(facts.owner)
+        if facts.helper_diagnostics != syntax_diagnostics(definition) or any(
+            join.use.kind not in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}
+            for join in self.region.joins
+        ):
+            raise ValueError(
+                "JOIN retirement requires its exact syntax-availability producer."
+            )
+        object.__setattr__(self, "semantic_facts", facts)
+        object.__setattr__(self, "diagnostics", facts.helper_diagnostics)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectEffectiveOutputCompletion:
     """Immutable Slice-12 overlay over the exact Slice-7 completion ledger."""
 
@@ -1311,6 +1776,28 @@ class ProjectEffectiveOutputCompletion:
     dependencies: tuple[ProjectCompletionDependency, ...]
     schedule: tuple[ProjectDeclarationOccurrence, ...]
     entries: tuple[ProjectEffectiveOutputCompletionEntry, ...]
+    current_regions: tuple[ProjectCurrentJoinRegion, ...] = field(
+        default=(), repr=False
+    )
+    current_readiness: tuple[
+        ProjectConcreteJoinedRowSemantics | ProjectNonConcreteJoinedRowSemantics, ...
+    ] = field(default=(), repr=False)
+    current_tails: tuple[ProjectJoinedQualifySet, ...] = field(default=(), repr=False)
+    condition_authority: ProjectJoinConditionSet | None = field(
+        default=None, repr=False
+    )
+    operative_conditions: (
+        ProjectJoinConditionSet | ProjectJoinConditionCompletion | None
+    ) = field(default=None, repr=False)
+    input_scopes: tuple[ProjectCurrentJoinInputScope, ...] = field(
+        default=(), repr=False
+    )
+    allocation_events: tuple[
+        ProjectCurrentMaterializedInput | ProjectCurrentJoinRegion, ...
+    ] = field(default=(), repr=False)
+    join_admissions: tuple[ProjectCurrentJoinAdmission, ...] = field(
+        init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         if (
@@ -1375,6 +1862,14 @@ class ProjectEffectiveOutputCompletion:
         ):
             raise ValueError("Completion overlay requires one exact entry per owner.")
         _validate_completion_overlay_membership(self)
+        object.__setattr__(
+            self,
+            "join_admissions",
+            tuple(
+                ProjectCurrentJoinAdmission(completion=self.base, region=region)
+                for region in self.current_regions
+            ),
+        )
 
     def find_owner(
         self,
@@ -1743,6 +2238,7 @@ def _entry_replay_root(
 def _validate_completion_overlay_membership(
     overlay: ProjectEffectiveOutputCompletion,
 ) -> None:
+    current = _validate_current_inventory(overlay)
     expected_replay_roots = tuple(
         root
         for owner in overlay.schedule
@@ -1758,6 +2254,55 @@ def _validate_completion_overlay_membership(
         overlay.base.entries,
         strict=True,
     ):
+        if (
+            type(entry) is ProjectEffectiveOutputCompletionTerminal
+            and entry.current_inputs is not None
+        ):
+            if entry.current_inputs.completion is not overlay.base or not any(
+                entry.current_inputs is scope for scope in overlay.input_scopes
+            ):
+                raise ValueError(
+                    "Current terminal requires its exact retained input scope."
+                )
+            if (
+                entry.reason
+                is ProjectEffectiveOutputCompletionTerminalReason.CURRENT_JOIN_CONDITION_NON_CONCRETE
+            ):
+                operative = overlay.operative_conditions
+                if (
+                    operative is None
+                    or type(entry.blocker) is not tuple
+                    or any(
+                        not any(item is retained for retained in operative.entries)
+                        for item in entry.blocker
+                    )
+                ):
+                    raise ValueError(
+                        "Current terminal cannot substitute alternate condition failures."
+                    )
+            continue
+        if id(entry.owner) in current:
+            region, readiness, result = current[id(entry.owner)]
+            if result is None:
+                valid = (
+                    type(entry) is ProjectEffectiveOutputCompletionTerminal
+                    and entry.current_region is region
+                    and entry.blocker is readiness
+                )
+            else:
+                valid = (
+                    type(entry) is ProjectCompletedEffectiveOutput
+                    and entry.root is result
+                ) or (
+                    type(entry) is ProjectEffectiveOutputCompletionTerminal
+                    and entry.current_region is region
+                    and entry.joined_qualify is result
+                )
+            if not valid:
+                raise ValueError(
+                    "Current completion must retain its exact local tail root."
+                )
+            continue
         joined_tail = type(base_entry) is ProjectEffectiveOutputTerminal and (
             base_entry.reason
             is ProjectEffectiveOutputTerminalReason.JOINED_TAIL_PENDING
@@ -2870,7 +3415,11 @@ def _terminal(
     joined_qualify: ProjectJoinedQualifyResult | None = None,
     replay_root: ProjectNoJoinReplayRoot | None = None,
     upstream_entry: ProjectEffectiveOutputCompletionEntry | None = None,
+    current_region: ProjectCurrentJoinRegion | None = None,
+    current_inputs: ProjectCurrentJoinInputScope | None = None,
 ) -> ProjectEffectiveOutputCompletionTerminal:
+    if current_region is None and joined_qualify is not None:
+        current_region = _current_region_for_result(joined_qualify)
     return ProjectEffectiveOutputCompletionTerminal(
         owner=base_entry.owner,
         base_entry=base_entry,
@@ -2881,6 +3430,8 @@ def _terminal(
         replay_root=replay_root,
         upstream_entry=upstream_entry,
         diagnostics=diagnostics,
+        current_region=current_region,
+        current_inputs=current_inputs,
     )
 
 
@@ -3325,9 +3876,533 @@ def _joined_result_owner(
     return result.window_stage.input_aggregation.input_filter.entry.owner
 
 
+def _current_region_for_result(
+    result: ProjectJoinedQualifyResult,
+) -> ProjectCurrentJoinRegion | None:
+    source = (
+        result.window_stage.input_aggregation.input_filter.joined_semantics.row_source
+    )
+    return source.region if type(source) is ProjectCurrentJoinedRowSource else None
+
+
+def _validate_current_terminal(
+    terminal: ProjectEffectiveOutputCompletionTerminal,
+) -> None:
+    region = terminal.current_region
+    if (
+        type(region) is not ProjectCurrentJoinRegion
+        or region.ledger.owner is not terminal.owner
+        or type(terminal.base_entry) is not ProjectEffectiveOutputTerminal
+        or terminal.base_entry.cycle_blocker is not None
+        or terminal.replay_root is not None
+        or terminal.upstream_entry is not None
+    ):
+        raise ValueError("Current terminal requires exact local JOIN authority.")
+    result = terminal.joined_qualify
+    if result is None:
+        blocker = terminal.blocker
+        if (
+            terminal.reason
+            is not ProjectEffectiveOutputCompletionTerminalReason.CURRENT_JOIN_TAIL_NON_CONCRETE
+            or type(blocker) is not ProjectNonConcreteJoinedRowSemantics
+        ):
+            raise ValueError("Current readiness terminal requires its exact blocker.")
+        source = blocker.namespaces.binding_environment.row_source
+        if (
+            type(source) is not ProjectCurrentJoinedRowSource
+            or source.region is not region
+        ):
+            raise ValueError("Current readiness blocker lost exact JOIN membership.")
+    elif _current_region_for_result(result) is not region:
+        raise ValueError("Current terminal cannot substitute an alternate tail root.")
+    elif (
+        terminal.reason
+        is ProjectEffectiveOutputCompletionTerminalReason.JOINED_QUALIFY_NON_CONCRETE
+    ):
+        if (
+            type(result) is not ProjectNonConcreteJoinedQualify
+            or terminal.blocker is not result
+        ):
+            raise ValueError("Current terminal must retain its exact QUALIFY blocker.")
+    elif type(result) is not ProjectConcreteJoinedQualify or terminal.reason not in {
+        ProjectEffectiveOutputCompletionTerminalReason.PROJECTION_NON_CONCRETE,
+        ProjectEffectiveOutputCompletionTerminalReason.ORDER_NON_CONCRETE,
+        ProjectEffectiveOutputCompletionTerminalReason.LIMIT_NON_CONCRETE,
+    }:
+        raise ValueError(
+            "Current terminal requires concrete tail evidence for finalization."
+        )
+
+
+def _validate_current_inventory(overlay: ProjectEffectiveOutputCompletion):
+    historical = overlay.condition_authority
+    if historical is None:
+        if (
+            overlay.current_regions
+            or overlay.current_readiness
+            or overlay.current_tails
+            or overlay.input_scopes
+            or overlay.allocation_events
+            or overlay.operative_conditions is not None
+        ):
+            raise ValueError(
+                "Current completion requires its exact condition authority."
+            )
+        return {}
+    if historical.uses is not overlay.base.verification.root.join_regions.uses:
+        raise ValueError(
+            "Current completion roots must share exact historical authority."
+        )
+    operative = overlay.operative_conditions
+    if operative is not historical and (
+        type(operative) is not ProjectJoinConditionCompletion
+        or operative.historical is not historical
+    ):
+        raise ValueError(
+            "Current completion requires its exact operative condition tuple."
+        )
+    assert operative is not None
+    scope_owners = tuple(scope.ledger.owner for scope in overlay.input_scopes)
+    expected_scope_owners = tuple(
+        owner
+        for owner in overlay.schedule
+        if any(owner is item for item in scope_owners)
+    )
+    if not _same_objects(scope_owners, expected_scope_owners):
+        raise ValueError("Current input scopes require unique scheduled owner order.")
+    entries = {id(entry.owner): entry for entry in overlay.entries}
+    prefix = [entries[id(owner)] for owner in overlay.base.topology.blocked_owners]
+    for owner in overlay.schedule:
+        scopes = tuple(
+            scope for scope in overlay.input_scopes if scope.ledger.owner is owner
+        )
+        if scopes:
+            scope = scopes[0]
+            if (
+                scope.completion is not overlay.base
+                or scope.uses is not historical.uses
+                or not _same_objects(scope.available_entries, tuple(prefix))
+            ):
+                raise ValueError(
+                    "Current input scope must retain the exact available prefix."
+                )
+            scope.__post_init__()
+            for binding in scope.bindings:
+                authority = binding.authority
+                if authority is None:
+                    continue
+                if type(authority) is not ProjectEffectiveJoinInputAuthority:
+                    raise TypeError(
+                        "Current inputs require exact completed-entry adapters."
+                    )
+                authority.validate()
+                original = authority.entry
+                if isinstance(original, ProjectExistingEffectiveOutput):
+                    valid = _same_objects(authority.fields, original.properties.fields)
+                else:
+                    valid = len(authority.fields) == len(original.fields) and all(
+                        type(actual) is ProjectCurrentInputField
+                        and actual.authority is authority
+                        and actual.original is retained
+                        and actual.evidence is retained.field
+                        and actual.identity is retained.identity
+                        and actual.field_position == position
+                        for position, (actual, retained) in enumerate(
+                            zip(authority.fields, original.fields, strict=True)
+                        )
+                    )
+                if not valid:
+                    raise ValueError(
+                        "Current adapter fields cannot graft alternate producer evidence."
+                    )
+        prefix.append(entries[id(owner)])
+    for condition in operative.entries:
+        if condition.inputs is not None and not any(
+            condition.inputs.scope is scope for scope in overlay.input_scopes
+        ):
+            raise ValueError("Operative condition lost its exact retained input scope.")
+        if condition.inputs is not None:
+            expected_prefix = tuple(
+                item
+                for item in operative.entries
+                if item.ledger is condition.ledger
+                and item.use.identity.join_position
+                < condition.use.identity.join_position
+            )
+            if not _same_objects(condition.inputs.prefix, expected_prefix):
+                raise ValueError(
+                    "Operative condition cannot substitute an alternate prefix."
+                )
+    events = overlay.allocation_events
+    event_regions = tuple(
+        event for event in events if type(event) is ProjectCurrentJoinRegion
+    )
+    if not _same_objects(event_regions, overlay.current_regions) or len(
+        overlay.current_regions
+    ) != len(overlay.current_readiness):
+        raise ValueError(
+            "Current allocation ledger must retain every exact region once."
+        )
+    allocation = overlay.base.verification.root.join_regions.ending_allocation
+    materialized: list[ProjectCurrentMaterializedInput] = []
+    for event in events:
+        if (
+            type(event)
+            not in {ProjectCurrentMaterializedInput, ProjectCurrentJoinRegion}
+            or event.starting_allocation is not allocation
+        ):
+            raise ValueError(
+                "Current allocations require exact contiguous construction roots."
+            )
+        allocation = event.ending_allocation
+        if isinstance(event, ProjectCurrentMaterializedInput):
+            if any(
+                event.authority.entry is item.authority.entry for item in materialized
+            ):
+                raise ValueError(
+                    "One current producer cannot have competing materializations."
+                )
+            materialized.append(event)
+    for item in materialized:
+        consumed = any(
+            properties.output is item
+            for region in overlay.current_regions
+            for properties in region.input_properties
+        ) or any(
+            other.incoming is not None and other.incoming.output is item
+            for other in materialized
+        )
+        if not consumed:
+            raise ValueError(
+                "Current input materialization requires an exact consumer."
+            )
+    owners = tuple(region.ledger.owner for region in overlay.current_regions)
+    expected = tuple(
+        owner
+        for owner in overlay.schedule
+        if any(owner is current for current in owners)
+    )
+    if not _same_objects(owners, expected):
+        raise ValueError("Current JOIN regions must retain complete scheduled order.")
+    results = {}
+    tails = iter(overlay.current_tails)
+    for region, readiness in zip(
+        overlay.current_regions, overlay.current_readiness, strict=True
+    ):
+        if (
+            region.conditions is not historical
+            or region.input_scope is None
+            or not any(region.input_scope is scope for scope in overlay.input_scopes)
+        ):
+            raise ValueError(
+                "Current JOIN region lost exact condition/input authority."
+            )
+        selected = tuple(
+            item for item in operative.entries if item.ledger is region.ledger
+        )
+        if not _same_objects(region.operative, selected):
+            raise ValueError("Current JOIN cannot consume stale condition readiness.")
+        source = readiness.namespaces.binding_environment.row_source
+        if (
+            type(source) is not ProjectCurrentJoinedRowSource
+            or source.region is not region
+            or source.base_verification is not overlay.base.verification
+        ):
+            raise ValueError("Current readiness must retain its exact input region.")
+        result = None
+        if isinstance(readiness, ProjectConcreteJoinedRowSemantics):
+            tail = next(tails, None)
+            if tail is None or len(tail.results) != 1:
+                raise ValueError(
+                    "Current completion requires each exact local tail once."
+                )
+            filters = tail.window_set.aggregation_set.filter_set
+            if (
+                filters.completion is not overlay.base
+                or filters.current_semantics is not readiness
+            ):
+                raise ValueError(
+                    "Current tail cannot use foreign owner-local readiness."
+                )
+            result = tail.results[0]
+        results[id(region.ledger.owner)] = (region, readiness, result)
+    if next(tails, None) is not None:
+        raise ValueError("Current completion cannot retain an unrelated tail.")
+    return results
+
+
+@dataclass(slots=True, kw_only=True)
+class _CurrentJoinBuild:
+    """Transient work state inside the existing completion schedule."""
+
+    completion: ProjectCompletion
+    conditions: ProjectJoinConditionSet
+    allocation: ProjectIRAllocationState = field(init=False)
+    providers: dict[int, ProjectEffectiveJoinInputAuthority] = field(
+        default_factory=dict
+    )
+    materialized: dict[int, ProjectCurrentMaterializedInput] = field(
+        default_factory=dict
+    )
+    operative: dict[int, ProjectJoinCondition] = field(init=False)
+    scopes: list[ProjectCurrentJoinInputScope] = field(default_factory=list)
+    events: list[ProjectCurrentMaterializedInput | ProjectCurrentJoinRegion] = field(
+        default_factory=list
+    )
+    regions: list[ProjectCurrentJoinRegion] = field(default_factory=list)
+    readiness: list[
+        ProjectConcreteJoinedRowSemantics | ProjectNonConcreteJoinedRowSemantics
+    ] = field(default_factory=list)
+    tails: list[ProjectJoinedQualifySet] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if (
+            self.conditions.uses
+            is not self.completion.verification.root.join_regions.uses
+        ):
+            raise ValueError(
+                "Current JOIN work requires exact completion/condition roots."
+            )
+        self.allocation = (
+            self.completion.verification.root.join_regions.ending_allocation
+        )
+        self.operative = {id(item.use): item for item in self.conditions.entries}
+
+    def provider(
+        self, entry: ProjectConcreteEffectiveOutputEntry
+    ) -> ProjectEffectiveJoinInputAuthority:
+        key = id(entry)
+        if key not in self.providers:
+            self.providers[key] = ProjectEffectiveJoinInputAuthority(
+                completion=self.completion, entry=entry
+            )
+        return self.providers[key]
+
+    def materialize(
+        self, authority: ProjectEffectiveJoinInputAuthority
+    ) -> ProjectIROutputRelationalProperties:
+        if authority.historical_properties is not None:
+            return authority.historical_properties
+        key = id(authority.entry)
+        if key in self.materialized:
+            result = self.materialized[key]
+            if result.authority is not authority:
+                raise ValueError(
+                    "Current materialization cannot replace its exact producer."
+                )
+            return result.properties
+        entry = authority.entry
+        if not isinstance(entry, ProjectCompletedEffectiveOutput):
+            raise TypeError("Materialization requires a completed producer.")
+        incoming = None
+        if isinstance(entry.root, ProjectConcreteNoJoinReplay):
+            incoming = self.materialize(self.provider(entry.root.upstream_entry))
+        result = ProjectCurrentMaterializedInput(
+            authority=authority, starting_allocation=self.allocation, incoming=incoming
+        )
+        self.materialized[key] = result
+        self.events.append(result)
+        self.allocation = result.ending_allocation
+        return result.properties
+
+    def attempt(
+        self,
+        base_entry: ProjectEffectiveOutputTerminal,
+        available: tuple[ProjectEffectiveOutputCompletionEntry, ...],
+    ) -> ProjectEffectiveOutputCompletionEntry | None:
+        ledgers = tuple(
+            ledger
+            for ledger in self.conditions.uses.ledgers
+            if ledger.owner is base_entry.owner
+        )
+        if len(ledgers) != 1:
+            return None
+        ledger = ledgers[0]
+        predicates = tuple(
+            item for item in self.conditions.entries if item.ledger is ledger
+        )
+        by_owner = {id(entry.owner): entry for entry in available}
+        changed_input = any(
+            by_owner.get(id(dependency.target))
+            is not self.completion.find_owner(dependency.target)[0]
+            for dependency in base_entry.dependencies
+        )
+        if not changed_input and not any(
+            item.use.clause.on_clause is not None for item in predicates
+        ):
+            return None
+        bindings: list[ProjectCurrentBindingInput] = []
+        for binding in ledger.bindings:
+            dependencies = tuple(
+                item for item in base_entry.dependencies if item.evidence is binding
+            )
+            if len(dependencies) != 1:
+                bindings.append(
+                    ProjectCurrentBindingInput(
+                        binding=binding, dependency=None, blocker=binding
+                    )
+                )
+                continue
+            dependency = dependencies[0]
+            source = by_owner.get(id(dependency.target))
+            if source is None:
+                raise ValueError(
+                    "Scheduled current input lost its exact earlier producer."
+                )
+            if isinstance(
+                source,
+                (ProjectExistingEffectiveOutput, ProjectCompletedEffectiveOutput),
+            ):
+                bindings.append(
+                    ProjectCurrentBindingInput(
+                        binding=binding,
+                        dependency=dependency,
+                        authority=self.provider(source),
+                    )
+                )
+            else:
+                bindings.append(
+                    ProjectCurrentBindingInput(
+                        binding=binding, dependency=dependency, blocker=source
+                    )
+                )
+        scope = ProjectCurrentJoinInputScope(
+            completion=self.completion,
+            uses=self.conditions.uses,
+            ledger=ledger,
+            available_entries=available,
+            bindings=tuple(bindings),
+        )
+        rebuilt: list[ProjectJoinCondition] = []
+        for old in predicates:
+            inputs = ProjectCurrentPreMatchInputs(
+                scope=scope, use=old.use, prefix=tuple(rebuilt)
+            )
+            current = rebuild_project_join_condition(old, inputs)
+            rebuilt.append(current)
+            self.operative[id(old.use)] = current
+        changed = any(
+            current is not old for current, old in zip(rebuilt, predicates, strict=True)
+        )
+        unavailable = any(
+            item.authority is None
+            or item.binding.state is ProjectJoinUseState.AMBIGUOUS
+            for item in bindings
+        )
+        supported = bool(rebuilt) and all(
+            item.ready
+            and item.mode in {"M1", "M2", "M3", "M4"}
+            and item.use.kind in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}
+            for item in rebuilt
+        )
+        if (
+            changed
+            or unavailable
+            or supported
+            or any(not item.ready for item in rebuilt)
+        ):
+            self.scopes.append(scope)
+        if unavailable:
+            return _terminal(
+                base_entry=base_entry,
+                reason=ProjectEffectiveOutputCompletionTerminalReason.CURRENT_JOIN_INPUT_NON_CONCRETE,
+                blocker=ProjectCurrentJoinInputFailure(scope=scope),
+                current_inputs=scope,
+                diagnostics=_semantic_facts(
+                    self.completion, base_entry.owner
+                ).helper_diagnostics,
+            )
+        failures = tuple(item for item in rebuilt if not item.ready)
+        if failures:
+            return _terminal(
+                base_entry=base_entry,
+                reason=ProjectEffectiveOutputCompletionTerminalReason.CURRENT_JOIN_CONDITION_NON_CONCRETE,
+                blocker=failures,
+                current_inputs=scope,
+                diagnostics=_semantic_facts(
+                    self.completion, base_entry.owner
+                ).helper_diagnostics,
+            )
+        if not supported:
+            return base_entry
+        properties: list[ProjectIROutputRelationalProperties] = []
+        for item in bindings:
+            authority = item.authority
+            if type(authority) is not ProjectEffectiveJoinInputAuthority:
+                raise TypeError(
+                    "Current input requires its exact effective-output adapter."
+                )
+            properties.append(self.materialize(authority))
+        region = ProjectCurrentJoinRegion(
+            conditions=self.conditions,
+            ledger=ledger,
+            starting_allocation=self.allocation,
+            input_scope=scope,
+            input_properties=tuple(properties),
+            operative=tuple(rebuilt),
+        )
+        self.events.append(region)
+        self.regions.append(region)
+        self.allocation = region.ending_allocation
+        row_source = ProjectCurrentJoinedRowSource(
+            base_verification=self.completion.verification, region=region
+        )
+        block = ProjectConcreteQueryBlock(
+            compilation_mode=ProjectCompilationMode.EXPLICIT_MODULES,
+            owner_bridge=ProjectQueryBlockOwnerBridge(owner=base_entry.owner),
+            row_source=row_source,
+        )
+        readiness = build_project_joined_completion(
+            block, self.completion.plan.attribution
+        )
+        if not isinstance(
+            readiness,
+            (ProjectConcreteJoinedRowSemantics, ProjectNonConcreteJoinedRowSemantics),
+        ):
+            raise TypeError("Current row source lost its exact semantic result.")
+        self.readiness.append(readiness)
+        if isinstance(readiness, ProjectNonConcreteJoinedRowSemantics):
+            return _terminal(
+                base_entry=base_entry,
+                reason=ProjectEffectiveOutputCompletionTerminalReason.CURRENT_JOIN_TAIL_NON_CONCRETE,
+                blocker=readiness,
+                current_region=region,
+            )
+        row_filter = build_project_joined_row_filter(
+            self.completion, base_entry, current_semantics=readiness
+        )
+        filters = ProjectJoinedRowFilterSet(
+            completion=self.completion,
+            results=(row_filter,),
+            current_semantics=readiness,
+        )
+        tail = build_project_joined_tail(filters)
+        self.tails.append(tail)
+        return _complete_joined_output(
+            completion=self.completion, base_entry=base_entry, result=tail.results[0]
+        )
+
+    def condition_result(
+        self,
+    ) -> ProjectJoinConditionSet | ProjectJoinConditionCompletion:
+        entries = tuple(
+            self.operative[id(item.use)] for item in self.conditions.entries
+        )
+        if all(
+            actual is old
+            for actual, old in zip(entries, self.conditions.entries, strict=True)
+        ):
+            return self.conditions
+        return ProjectJoinConditionCompletion(
+            historical=self.conditions, entries=entries
+        )
+
+
 def build_project_effective_output_completion(
     completion: ProjectCompletion,
     joined_qualifies: ProjectJoinedQualifySet,
+    *,
+    join_conditions: ProjectJoinConditionSet | None = None,
 ) -> ProjectEffectiveOutputCompletion:
     """Complete recoverable outputs once in the exact Slice-7 schedule."""
 
@@ -3360,10 +4435,49 @@ def build_project_effective_output_completion(
         for owner in completion.topology.blocked_owners
     }
     replay_roots: list[ProjectNoJoinReplayRoot] = []
+    current_state = (
+        None
+        if join_conditions is None
+        else _CurrentJoinBuild(completion=completion, conditions=join_conditions)
+    )
+    required_current = set()
+    if join_conditions is not None:
+        required_current = {
+            id(item.use.owner)
+            for item in join_conditions.entries
+            if item.use.clause.on_clause is not None
+        }
+        for required_owner in reversed(completion.schedule):
+            if id(required_owner) in required_current:
+                required_current.update(
+                    id(dependency.target)
+                    for dependency in completion.dependencies
+                    if dependency.consumer is required_owner
+                )
+    changed_current: set[int] = set()
     for owner in completion.schedule:
         base_entry = base_by_owner[id(owner)]
         definition = owner.definition
-        if type(base_entry) is ProjectExistingEffectiveOutput:
+        current_needed = id(owner) in required_current or any(
+            id(dependency.target) in changed_current
+            for dependency in base_entry.dependencies
+        )
+        current = (
+            current_state.attempt(base_entry, tuple(built_by_owner.values()))
+            if type(base_entry) is ProjectEffectiveOutputTerminal
+            and current_state is not None
+            and current_needed
+            else None
+        )
+        if current is not None:
+            entry = current
+        elif type(base_entry) is ProjectExistingEffectiveOutput:
+            changed_upstream = (
+                current_needed
+                and len(base_entry.dependencies) == 1
+                and built_by_owner[id(base_entry.dependencies[0].target)]
+                is not base_by_owner[id(base_entry.dependencies[0].target)]
+            )
             if (
                 type(definition) not in {TableDef, QueryDef}
                 or cast(
@@ -3371,6 +4485,7 @@ def build_project_effective_output_completion(
                     definition,
                 ).qualify_clause
                 is None
+                and not changed_upstream
             ):
                 entry: ProjectEffectiveOutputCompletionEntry = base_entry
             else:
@@ -3411,10 +4526,19 @@ def build_project_effective_output_completion(
                 base_entry=base_entry,
                 result=result,
             )
-        elif type(
-            base_entry
-        ) is ProjectEffectiveOutputTerminal and base_entry.reason is (
-            ProjectEffectiveOutputTerminalReason.UPSTREAM_EFFECTIVE_OUTPUT_PENDING
+        elif type(base_entry) is ProjectEffectiveOutputTerminal and (
+            base_entry.reason
+            is ProjectEffectiveOutputTerminalReason.UPSTREAM_EFFECTIVE_OUTPUT_PENDING
+            or (
+                current_needed
+                and isinstance(definition, (TableDef, QueryDef))
+                and not definition.join_clauses
+                and len(base_entry.dependencies) == 1
+                and base_entry.fragment.semantic_facts.resolution
+                is base_entry.dependencies[0].evidence
+                and built_by_owner[id(base_entry.dependencies[0].target)]
+                is not base_by_owner[id(base_entry.dependencies[0].target)]
+            )
         ):
             if len(base_entry.dependencies) != 1:
                 raise ValueError(
@@ -3445,6 +4569,8 @@ def build_project_effective_output_completion(
         if replay_root is not None:
             replay_roots.append(replay_root)
         built_by_owner[id(owner)] = entry
+        if current_needed and entry is not base_entry:
+            changed_current.add(id(owner))
     entries = tuple(built_by_owner[id(owner)] for owner in completion.owners)
     if set(qualify_by_owner) != {
         id(entry.owner)
@@ -3461,4 +4587,15 @@ def build_project_effective_output_completion(
         dependencies=completion.dependencies,
         schedule=completion.schedule,
         entries=entries,
+        current_regions=() if current_state is None else tuple(current_state.regions),
+        current_readiness=()
+        if current_state is None
+        else tuple(current_state.readiness),
+        current_tails=() if current_state is None else tuple(current_state.tails),
+        condition_authority=join_conditions,
+        operative_conditions=None
+        if current_state is None
+        else current_state.condition_result(),
+        input_scopes=() if current_state is None else tuple(current_state.scopes),
+        allocation_events=() if current_state is None else tuple(current_state.events),
     )
