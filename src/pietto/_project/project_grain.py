@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 from pietto._project.aggregate_grouped_clause_facts import (
     ProjectAggregateGroupedClauseReadiness,
@@ -33,6 +34,10 @@ from pietto._project.project_value_fds import (
 )
 from pietto.ast_nodes import GroupByItem, SourceDef
 
+if TYPE_CHECKING:
+    from pietto._project.project_final_outputs import ProjectDistinct
+
+
 __all__: tuple[str, ...] = ()
 
 
@@ -51,6 +56,7 @@ class ProjectGrainOriginKind(StrEnum):
     SOURCE_ROW_DOMAIN = "source_row_domain"
     GROUPED_RESULT = "grouped_result"
     GLOBAL_AGGREGATE = "global_aggregate"
+    DISTINCT_QUOTIENT = "distinct_quotient"
 
 
 class ProjectGrainFactorKind(StrEnum):
@@ -58,6 +64,7 @@ class ProjectGrainFactorKind(StrEnum):
 
     SOURCE_DOMAIN = "source_domain"
     GROUP_DOMAIN = "group_domain"
+    DISTINCT_DOMAIN = "distinct_domain"
 
 
 class ProjectOptionalGrainFactorReadiness(StrEnum):
@@ -126,8 +133,31 @@ class ProjectGroupedGrainFactorIdentity:
             raise ValueError("Grouped grain identity requires exact group authority.")
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectDistinctGrainFactorIdentity:
+    """One DISTINCT quotient domain, with no representative input row."""
+
+    origin: ProjectDistinctGrainOrigin = field(repr=False)
+    owner: ProjectDeclarationOccurrenceIdentity = field(init=False)
+    kind: ProjectGrainFactorKind = field(
+        default=ProjectGrainFactorKind.DISTINCT_DOMAIN, init=False
+    )
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.origin) is not ProjectDistinctGrainOrigin
+            or self.origin.witness.global_input
+        ):
+            raise ValueError(
+                "DISTINCT factor requires exact non-global quotient authority."
+            )
+        object.__setattr__(self, "owner", self.origin.witness.fields[0].identity.owner)
+
+
 type ProjectBaseGrainFactorIdentity = (
-    ProjectSourceGrainFactorIdentity | ProjectGroupedGrainFactorIdentity
+    ProjectSourceGrainFactorIdentity
+    | ProjectGroupedGrainFactorIdentity
+    | ProjectDistinctGrainFactorIdentity
 )
 
 
@@ -147,6 +177,7 @@ class ProjectJoinGrainFactorIdentity:
         if type(self.base) not in {
             ProjectSourceGrainFactorIdentity,
             ProjectGroupedGrainFactorIdentity,
+            ProjectDistinctGrainFactorIdentity,
         }:
             raise TypeError("JOIN grain use requires an exact base factor.")
         if type(self.introduction_use) is not ProjectIRUseRef:
@@ -179,6 +210,7 @@ class ProjectJoinGrainFactorIdentity:
 type ProjectGrainFactorIdentity = (
     ProjectSourceGrainFactorIdentity
     | ProjectGroupedGrainFactorIdentity
+    | ProjectDistinctGrainFactorIdentity
     | ProjectJoinGrainFactorIdentity
 )
 
@@ -193,6 +225,7 @@ class ProjectGrainDomainFactor:
         if type(self.identity) not in {
             ProjectSourceGrainFactorIdentity,
             ProjectGroupedGrainFactorIdentity,
+            ProjectDistinctGrainFactorIdentity,
             ProjectJoinGrainFactorIdentity,
         }:
             raise TypeError("Grain factor requires an exact domain identity.")
@@ -218,6 +251,7 @@ class ProjectGrainDependencyFact:
                     not in {
                         ProjectSourceGrainFactorIdentity,
                         ProjectGroupedGrainFactorIdentity,
+                        ProjectDistinctGrainFactorIdentity,
                         ProjectJoinGrainFactorIdentity,
                     }
                     for value in values
@@ -680,6 +714,30 @@ class ProjectGrainOriginAuthority:
     """Nominal root shared by historical and additive grain-origin snapshots."""
 
     __slots__ = ()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectDistinctGrainOrigin(ProjectGrainOriginAuthority):
+    """Exact DISTINCT occurrence and input-domain provenance, including GLOBAL."""
+
+    witness: ProjectDistinct = field(repr=False)
+    kind: ProjectGrainOriginKind = field(
+        default=ProjectGrainOriginKind.DISTINCT_QUOTIENT, init=False
+    )
+    factor: ProjectDistinctGrainFactorIdentity | None = field(init=False)
+
+    def __post_init__(self) -> None:
+        if not self.witness.equivalence.supported:
+            raise ValueError(
+                "Unsupported row equivalence cannot establish quotient grain."
+            )
+        object.__setattr__(
+            self,
+            "factor",
+            None
+            if self.witness.global_input
+            else ProjectDistinctGrainFactorIdentity(origin=self),
+        )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)

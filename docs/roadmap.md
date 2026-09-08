@@ -21,8 +21,8 @@ completion benchmark and Phase-64 readiness assurance, is
 `COMPLETED / PUBLISHED`, so the Validation/Test Performance Optimization
 Interlude II is `COMPLETED` with `Interlude II self-owned-open = 0`. Phase 64 is
 `ACTIVE`, its Slice 1 froze a fresh Product/Phase Initiation Gate v3 and a
-route of exactly 11 numbered Slices. Slice 2 is `COMPLETED / PUBLISHED`;
-Slice 3 is `NEXT / NOT IMPLEMENTED`.
+route of exactly 11 numbered Slices. Slices 1–8 are `COMPLETED / PUBLISHED`
+upon their successful natural exact-head CI; Slice 9 is `NEXT / NOT IMPLEMENTED`.
 Project Explain v1 remains unchanged.
 
 The [unnumbered compilation-boundary repair](spec/pre-phase64-slice2-compilation-boundary-correctness-repair-v1.md)
@@ -2135,8 +2135,8 @@ Phase 64 **Flat Relational Algebra** is `ACTIVE`. Slice 1 is
 `COMPLETED / PUBLISHED`, Slice 2 is `COMPLETED / PUBLISHED`, Slice 3 is
 `COMPLETED / PUBLISHED`, Slice 4 is `COMPLETED / PUBLISHED`, Slice 5 is
 `COMPLETED / PUBLISHED`, Slice 6 is `COMPLETED / PUBLISHED`, Slice 7 is
-`COMPLETED / PUBLISHED`, Slice 8 is `NEXT / NOT IMPLEMENTED`, and the frozen
-route has exactly 11 numbered Slices.
+`COMPLETED / PUBLISHED`, Slice 8 is `COMPLETED / PUBLISHED`, Slice 9 is
+`NEXT / NOT IMPLEMENTED`, and the frozen route has exactly 11 numbered Slices.
 
 | Slice | Owner |
 | ---: | --- |
@@ -2247,7 +2247,18 @@ occurrences count. Exact direction/hop/path and pre-JOIN right LIMIT/GLOBAL
 producer authority remain separate from grain, payload equality, post-JOIN
 filters and SEMI/ANTI left retention. Foreign/stale proof and role grafts fail
 closed. Natural exact-head CI closes Slice 7 without a status-only follow-up.
-Slice 8 is NEXT / NOT IMPLEMENTED; Slices 8–11 remain NOT IMPLEMENTED.
+Slice 8 closes E07 and its part of E09 only upon successful natural exact-head
+CI. The [Slice-8 contract](spec/phase64-slice8-row-equivalence-distinct-quotient-grain-origin-v1.md)
+adds visible-row DISTINCT, NULL-equal full-row uniqueness and DISTINCT_QUOTIENT
+grain, with exact canonical fields and input provenance. UNKNOWN input grain
+may become a quotient domain; sound GLOBAL/input-LIMIT posture remains stronger.
+ORDER needs exact visible-value or strict FD determination, and LIMIT follows
+DISTINCT. D07-FLOAT-DEFERRED excludes participating Float and aliases, including
+finite literals; Float row-equivalence: DEFERRED -> Phase 72. Other Float
+operations remain unchanged. Any/Bytes/Json and unproved Decimal parameters
+remain fail-closed. UNION ALL requires no row equivalence; INTERSECT/EXCEPT ALL
+still require it. This is a Slice-9 handoff, not implemented set semantics.
+Slice 9 is NEXT / NOT IMPLEMENTED; Slices 9–11 remain NOT IMPLEMENTED.
 Slice 10 still owns combined IR/analysis/inspection and final
 EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED closure; E05/E10 are not fully closed.
 No additional route row or product exit is introduced.

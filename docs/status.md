@@ -46,8 +46,9 @@ documentation does not supersede that evidence.
 | Phase 64 Slice 5 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 6 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 7 | `COMPLETED / PUBLISHED` |
-| Phase 64 Slice 8 | `NEXT / NOT IMPLEMENTED` |
-| Next | `Phase 64 Slice 8 — Row-equivalence domain, DISTINCT and quotient grain origin` |
+| Phase 64 Slice 8 | `COMPLETED / PUBLISHED` |
+| Phase 64 Slice 9 | `NEXT / NOT IMPLEMENTED` |
+| Next | `Phase 64 Slice 9 — Set operations, explicit ALL/DISTINCT and output identity` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -691,6 +692,21 @@ exact completed-right LIMIT/GLOBAL producer evidence apply only in their own
 scope. Post-JOIN LIMIT/WHERE, SEMI/ANTI output retention, equal payloads and
 intrinsic grain are not proofs. Foreign/stale/role/hop/refinement grafts cannot
 retain PROVED. Nonempty requests remain rejected by old combined IR/inspection.
-Phase 64 Slice 8 is `NEXT / NOT IMPLEMENTED`; Slices 8–11 are `NOT IMPLEMENTED`.
-Row-equivalence/DISTINCT, sets/non-SELECT, combined IR/verification/inspection,
-completion audit, SQL and runtime fulfillment retain their later owners.
+Phase 64 Slice 8 is `COMPLETED / PUBLISHED` only upon successful natural
+exact-head CI on its ordinary publication commit. Its
+[row-equivalence/DISTINCT contract](spec/phase64-slice8-row-equivalence-distinct-quotient-grain-origin-v1.md)
+closes E07 within the amended support domain and the Slice-8 part of E09.
+`select distinct:` retains the exact authored span and canonical visible fields;
+hidden fields do not enter row equivalence. NULL-equal full-row uniqueness is
+separate from keys and total cardinality. DISTINCT_QUOTIENT grain retains input
+provenance without a source winner; UNKNOWN inputs may gain a quotient factor,
+and sound GLOBAL/input-LIMIT posture remains stronger. ORDER requires visible
+values or exact strict FD proof; its own LIMIT applies after DISTINCT.
+Unsupported visible types/Decimal evidence emit PIE-S2339; hidden representative
+ORDER emits PIE-S2340. D07-FLOAT-DEFERRED excludes participating Float and aliases,
+with no finite-value exception; Float row-equivalence: DEFERRED -> Phase 72.
+Other Float operations and unaffected historical observer bytes remain unchanged.
+Named completed outputs support downstream replay/JOIN and import/reexport.
+Phase 64 Slice 9 is `NEXT / NOT IMPLEMENTED`; Slices 9–11 are `NOT IMPLEMENTED`.
+Set/non-SELECT construction, combined IR/verification/inspection, completion
+audit, SQL and runtime fulfillment retain their later owners.

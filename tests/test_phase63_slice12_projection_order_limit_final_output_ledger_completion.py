@@ -911,7 +911,12 @@ def test_completion_allocates_no_project_ir_or_historical_attribution() -> None:
     historical = " ".join(SPEC.read_text(encoding="utf-8").split())
     assert "不创建 `ProjectGroupedGrainFactorIdentity`" in historical
     assert "也不创建 `ProjectIROutputRelationalProperties`" in historical
-    assert "ProjectIRLogicalOperatorKind" not in names
+    calls = {
+        node.func.id
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "ProjectIRLogicalOperatorOccurrence" not in calls
     assert "build_project_ir_single_relation_fragment" not in names
     assert "build_project_completion" not in names
     assert "class ProjectModuleRowFieldIdentity" not in source

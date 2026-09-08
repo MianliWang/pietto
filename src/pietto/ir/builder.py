@@ -156,6 +156,8 @@ def _lower_definition(
     if isinstance(definition, SourceDef):
         return _lower_source(definition, semantic_model)
     if isinstance(definition, (TableDef, QueryDef)):
+        if definition.distinct_clause is not None:
+            raise _MissingSemanticFact(definition.distinct_clause, "DISTINCT lowering")
         return _lower_relation(definition, semantic_model)
     return None
 

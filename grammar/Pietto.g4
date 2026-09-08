@@ -328,7 +328,7 @@ groupByItem
     ;
 
 selectClause
-    : SELECT COLON NEWLINE NEWLINE* INDENT selectBody DEDENT
+    : SELECT DISTINCT? COLON NEWLINE NEWLINE* INDENT selectBody DEDENT
     ;
 
 selectBody

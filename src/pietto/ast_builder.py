@@ -12,6 +12,7 @@ from antlr4.tree.Tree import TerminalNode
 
 from pietto import _window_identity
 from pietto.ast_nodes import (
+    DistinctClause,
     Annotation,
     AuthoredJoinKind,
     AuthoredWindowFrame,
@@ -503,6 +504,7 @@ class AstBuilder(PiettoVisitor):
             qualify_clause=qualify_clause,
             let_clause=let_clause,
             named_windows=named_windows,
+            distinct_clause=self._distinct_clause(ctx.tableBody()),
         )
 
     def visitQueryDefinition(self, ctx: _AntlrContext) -> QueryDef | SetRelationDef:
@@ -537,6 +539,7 @@ class AstBuilder(PiettoVisitor):
             qualify_clause=qualify_clause,
             let_clause=let_clause,
             named_windows=named_windows,
+            distinct_clause=self._distinct_clause(ctx.tableBody()),
         )
 
     def visitFromClause(self, ctx: _AntlrContext) -> FromClause:
@@ -545,6 +548,22 @@ class AstBuilder(PiettoVisitor):
         return FromClause(
             span=self._span(ctx),
             source_name=ctx.identifier().getText(),
+        )
+
+    def _distinct_clause(self, body: _AntlrContext) -> DistinctClause | None:
+        token = body.selectClause().DISTINCT()
+        if token is None:
+            return None
+        start = token.symbol
+        end_line, end_column = self._end_position(start)
+        return DistinctClause(
+            span=Span(
+                path=self.path,
+                line=start.line,
+                column=start.column + 1,
+                end_line=end_line,
+                end_column=end_column,
+            )
         )
 
     def visitJoinClause(self, ctx: _AntlrContext) -> JoinClause:

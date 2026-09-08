@@ -42,6 +42,7 @@ from pietto._project.module_attribution import (
     _declaration_identity,
 )
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
+from pietto._project.module_resolution import ProjectTypeSourceResolutionSet
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
     ProjectModuleClauseDependencyFact,
@@ -102,15 +103,21 @@ from pietto._project.project_ir_relational_properties import (
     _image_keys_and_fds,
     _compile_output_fd_index,
     _key_fds,
+    ProjectIROutputValueClassSet,
+    ProjectIROutputDeterminationStatus,
+    ProjectIROutputDeterminationResult,
+    strictly_determines_output,
 )
 from pietto._project.project_ir import (
     ProjectIRPlanNodeOccurrence,
     ProjectIRRelationAnchor,
 )
+from pietto._project.project_ir_operators import ProjectIRLogicalOperatorKind
 from pietto._project.project_ir_evaluation_context import (
     ProjectIRGroupedEvaluationContext,
 )
 from pietto._project.project_grain import (
+    ProjectDistinctGrainOrigin,
     ProjectGrainOriginAuthority,
     ProjectGrainBasisState,
     ProjectGrainDomainFactor,
@@ -118,6 +125,7 @@ from pietto._project.project_grain import (
     ProjectGrainDependencyFact,
 )
 from pietto._project.project_row_keys import ProjectRowUniquenessStrength
+from pietto._project.project_row_equivalence import ProjectRowEquivalence
 from pietto._project.project_relationship_uses import ProjectJoinUseState
 from pietto._project.project_joined_aggregation import (
     ProjectConcreteJoinedAggregation,
@@ -157,16 +165,19 @@ from pietto._project.project_scalar_namespaces import (
 )
 from pietto._project.project_scalar_references import (
     ProjectScalarReferenceResolution,
+    ProjectScalarEnvironmentField,
 )
 from pietto._project.row_expression_schema import (
     _project_nullability,
     _project_resolved_type,
 )
 from pietto._project.row_expression_type_facts import (
+    scalar_field_reference_leaves,
     project_row_field_to_semantic_value_type,
     project_row_schema_to_semantic_row_schema,
 )
 from pietto.ast_nodes import (
+    DistinctClause,
     AuthoredJoinKind,
     DottedNameExpr,
     Expression,
@@ -222,12 +233,135 @@ __all__: tuple[str, ...] = ()
 _DerivedRelation = TableDef | QueryDef
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectDistinctFullRowUniqueness:
+    """NULL-equal full-row uniqueness; neither a smaller key nor cardinality."""
+
+    distinct: ProjectDistinct = field(repr=False)
+    nulls_equal: bool = field(default=True, init=False)
+
+    @property
+    def fields(self) -> tuple[ProjectCompletedOutputField, ...]:
+        return self.distinct.fields
+
+    @property
+    def equivalence(self) -> ProjectRowEquivalence:
+        return self.distinct.equivalence
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectDistinct:
+    """One authored quotient; repeated operators retain separate authority."""
+
+    owner: ProjectDeclarationOccurrence = field(repr=False)
+    clause: DistinctClause
+    root: ProjectFinalOutputRoot = field(repr=False)
+    fields: tuple[ProjectCompletedOutputField, ...] = field(repr=False)
+    types: ProjectTypeSourceResolutionSet = field(repr=False)
+    equivalence: ProjectRowEquivalence = field(init=False, repr=False)
+    ordering: ProjectRelationOrdering | None = field(repr=False)
+    order_proofs: tuple[object, ...] = field(repr=False)
+    input_domain: ProjectCompletedRowDomain = field(repr=False)
+    global_input: bool
+    origin: ProjectDistinctGrainOrigin = field(init=False)
+    uniqueness: ProjectDistinctFullRowUniqueness = field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "equivalence",
+            ProjectRowEquivalence(fields=self.fields, types=self.types),
+        )
+        definition = self.owner.definition
+        if (
+            not isinstance(definition, (TableDef, QueryDef))
+            or definition.distinct_clause is not self.clause
+            or type(self.equivalence) is not ProjectRowEquivalence
+            or self.equivalence.fields is not self.fields
+            or not self.equivalence.supported
+            or len(self.fields) != len(definition.select_items)
+            or any(item.owner is not self.owner for item in self.fields)
+            or type(self.global_input) is not bool
+        ):
+            raise ValueError("DISTINCT requires exact authored visible-row authority.")
+        if type(self.root) is ProjectConcreteJoinedQualify:
+            base_entry = self.root.window_stage.input_aggregation.input_filter.entry
+        elif type(self.root) is ProjectConcreteNoJoinReplay:
+            base_entry = self.root.base_entry
+        else:
+            raise TypeError("DISTINCT requires an exact completed projection root.")
+        _validate_projection_domain(
+            self.owner, base_entry, self.root, self.input_domain
+        )
+        if any(
+            not _completed_field_source_is_rooted(item.source, self.root)
+            for item in self.fields
+        ):
+            raise ValueError("DISTINCT field sources must retain their exact root.")
+        if (definition.order_by_clause is None) != (self.ordering is None) or (
+            self.ordering is not None
+            and (
+                self.ordering.owner is not self.owner
+                or self.ordering.clause is not definition.order_by_clause
+                or any(
+                    not _relation_order_source_is_rooted(item.source, self.root)
+                    for item in self.ordering.items
+                )
+            )
+        ):
+            raise ValueError("DISTINCT ORDER requires exact authored/source roots.")
+        _validate_distinct_projection(self.root, self.fields)
+        if self.global_input != _distinct_global_input(self.root, self.input_domain):
+            raise ValueError("DISTINCT requires exact input cardinality evidence.")
+        _validate_distinct_order_proofs(self)
+        object.__setattr__(self, "origin", ProjectDistinctGrainOrigin(witness=self))
+        object.__setattr__(
+            self, "uniqueness", ProjectDistinctFullRowUniqueness(distinct=self)
+        )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectDistinctUnsupported:
+    """Complete offending-field evidence with no quotient or uniqueness proof."""
+
+    equivalence: ProjectRowEquivalence
+    diagnostics: tuple[Diagnostic, ...] = field(init=False)
+
+    def __post_init__(self) -> None:
+        if self.equivalence.supported:
+            raise ValueError(
+                "Unsupported DISTINCT requires unsupported field evidence."
+            )
+        diagnostics = []
+        for evidence in self.equivalence.evidence:
+            if evidence.reason is None:
+                continue
+            selected = evidence.selected
+            span = selected.item.expression.span
+            diagnostics.append(
+                Diagnostic(
+                    code="PIE-S2339",
+                    severity=Severity.ERROR,
+                    message=f"DISTINCT field '{selected.output_name}' of type '{selected.field.resolved_type.name}' has unsupported row equivalence: {evidence.reason.value}.",
+                    location=SourceLocation(
+                        path=span.path,
+                        line=span.line,
+                        column=span.column,
+                        end_line=span.end_line,
+                        end_column=span.end_column,
+                    ),
+                )
+            )
+        object.__setattr__(self, "diagnostics", tuple(diagnostics))
+
+
 class ProjectCompletedRowDomainKind(StrEnum):
     """Semantic result-row postures without a new normative grain graph."""
 
     PRESERVED = "preserved"
     GROUPED = "grouped"
     GLOBAL = "global"
+    DISTINCT = "distinct"
 
 
 type ProjectPreservedRowDomainAuthority = (
@@ -243,6 +377,7 @@ class ProjectCompletedRowDomain:
     """One explicit final semantic row-domain posture."""
 
     kind: ProjectCompletedRowDomainKind
+    distinct: ProjectDistinct | None = field(default=None, repr=False)
     preserved: ProjectPreservedRowDomainAuthority | None = field(
         default=None,
         repr=False,
@@ -268,6 +403,23 @@ class ProjectCompletedRowDomain:
             for item in self.grouped_basis
         ):
             raise TypeError("Grouped row-domain basis must retain exact occurrences.")
+        if self.distinct is not None:
+            expected = (
+                ProjectCompletedRowDomainKind.GLOBAL
+                if self.distinct.global_input
+                else ProjectCompletedRowDomainKind.DISTINCT
+            )
+            if (
+                self.kind is not expected
+                or self.preserved is not None
+                or self.grouped_basis
+            ):
+                raise ValueError(
+                    "DISTINCT row domain requires its exact quotient witness."
+                )
+            return
+        if self.kind is ProjectCompletedRowDomainKind.DISTINCT:
+            raise ValueError("DISTINCT row domain requires an authored witness.")
         if self.kind is ProjectCompletedRowDomainKind.PRESERVED:
             if (
                 type(self.preserved)
@@ -865,6 +1017,7 @@ class ProjectRelationOrderingNonConcreteReason(StrEnum):
     EXPRESSION_NON_CONCRETE = "expression_non_concrete"
     GROUPED_ORDER_UNSUPPORTED = "grouped_order_unsupported"
     GLOBAL_ORDER_UNSUPPORTED = "global_order_unsupported"
+    DISTINCT_ORDER_NOT_DETERMINED = "distinct_order_not_determined"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -1197,6 +1350,7 @@ class ProjectEffectiveOutputCompletionTerminalReason(StrEnum):
     PROJECTION_NON_CONCRETE = "projection_non_concrete"
     ORDER_NON_CONCRETE = "order_non_concrete"
     LIMIT_NON_CONCRETE = "limit_non_concrete"
+    DISTINCT_NON_CONCRETE = "distinct_non_concrete"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -1328,6 +1482,7 @@ class ProjectEffectiveOutputCompletionTerminal:
             elif type(
                 result
             ) is not ProjectConcreteJoinedQualify or self.reason not in {
+                ProjectEffectiveOutputCompletionTerminalReason.DISTINCT_NON_CONCRETE,
                 ProjectEffectiveOutputCompletionTerminalReason.PROJECTION_NON_CONCRETE,
                 ProjectEffectiveOutputCompletionTerminalReason.ORDER_NON_CONCRETE,
                 ProjectEffectiveOutputCompletionTerminalReason.LIMIT_NON_CONCRETE,
@@ -1483,7 +1638,7 @@ class ProjectCurrentInputGroupedContext(ProjectIRGroupedEvaluationContext):
     def __post_init__(self) -> None:
         if (
             not isinstance(self.authority.entry, ProjectCompletedEffectiveOutput)
-            or self.authority.entry.row_domain.kind
+            or _projection_domain(self.authority.entry).kind
             is not ProjectCompletedRowDomainKind.GROUPED
             or type(self.node.anchor) is not ProjectIRRelationAnchor
             or self.node.anchor.identity != _declaration_identity(self.authority.owner)
@@ -1507,7 +1662,7 @@ class ProjectCurrentInputGroupedContext(ProjectIRGroupedEvaluationContext):
         entry = self.authority.entry
         if not isinstance(entry, ProjectCompletedEffectiveOutput):
             raise TypeError("Grouped input requires completed semantic fields.")
-        return entry.row_domain.grouped_basis
+        return _projection_domain(entry).grouped_basis
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -1569,6 +1724,9 @@ def _current_input_properties(
             )
     fields = _field_occurrences(output)
     domain = entry.row_domain
+    distinct = domain.distinct
+    if distinct is not None:
+        domain = distinct.input_domain
     if domain.kind is ProjectCompletedRowDomainKind.PRESERVED:
         source_classes: list[ProjectIROutputValueClass | None] = []
         for selected in entry.fields:
@@ -1714,6 +1872,21 @@ def _current_input_properties(
             origin_set=origins,
             witness=origins,
         )
+    if distinct is not None:
+        factor = distinct.origin.factor
+        grain = ProjectIRProvidedIntrinsicGrain(
+            output=output,
+            state=ProjectGrainBasisState.GLOBAL
+            if factor is None
+            else ProjectGrainBasisState.FACTORIZED,
+            factors=()
+            if factor is None
+            else (ProjectGrainDomainFactor(identity=factor),),
+            active=() if factor is None else (factor,),
+            dependencies=(),
+            origin_set=distinct.origin,
+            witness=authority,
+        )
     return ProjectIROutputRelationalProperties(
         output=output,
         fields=fields,
@@ -1746,7 +1919,9 @@ class ProjectCurrentJoinAdmission:
             )
         facts = _semantic_facts(self.completion, self.region.ledger.owner)
         definition = _derived_definition(facts.owner)
-        if facts.helper_diagnostics != syntax_diagnostics(definition) or any(
+        if facts.helper_diagnostics != syntax_diagnostics(
+            definition, allow_distinct=True
+        ) or any(
             join.use.kind
             not in {
                 AuthoredJoinKind.INNER,
@@ -2108,21 +2283,25 @@ def _is_exact_member(value: object, retained: tuple[object, ...]) -> bool:
     return any(value is item for item in retained)
 
 
-def _validate_completed_output_root(output: ProjectCompletedEffectiveOutput) -> None:
-    root = output.root
+def _validate_projection_domain(
+    owner: ProjectDeclarationOccurrence,
+    base_entry: ProjectEffectiveOutputEntry,
+    root: ProjectFinalOutputRoot,
+    domain: ProjectCompletedRowDomain,
+) -> None:
     if type(root) is ProjectConcreteJoinedQualify:
         aggregation = root.window_stage.input_aggregation
         mode = aggregation.mode
         valid_root = (
-            aggregation.input_filter.entry.owner is output.owner
-            and aggregation.input_filter.entry is output.base_entry
+            aggregation.input_filter.entry.owner is owner
+            and aggregation.input_filter.entry is base_entry
         )
         grouped_basis: tuple[object, ...] = aggregation.group_keys
         preserved = root.preservation.intrinsic_grain
     else:
         assert type(root) is ProjectConcreteNoJoinReplay
         mode = root.mode
-        valid_root = root.owner is output.owner and root.base_entry is output.base_entry
+        valid_root = root.owner is owner and root.base_entry is base_entry
         readiness = root.aggregate_readiness
         grouped_basis = (
             ()
@@ -2140,24 +2319,49 @@ def _validate_completed_output_root(output: ProjectCompletedEffectiveOutput) -> 
         )
     if mode is ProjectJoinedAggregationMode.ABSENT:
         valid_domain = (
-            output.row_domain.kind is ProjectCompletedRowDomainKind.PRESERVED
-            and output.row_domain.preserved is preserved
-            and not output.row_domain.grouped_basis
+            domain.kind is ProjectCompletedRowDomainKind.PRESERVED
+            and domain.preserved is preserved
+            and not domain.grouped_basis
         )
     elif mode is ProjectJoinedAggregationMode.GROUPED:
         valid_domain = (
-            output.row_domain.kind is ProjectCompletedRowDomainKind.GROUPED
-            and output.row_domain.preserved is None
-            and _same_objects(output.row_domain.grouped_basis, grouped_basis)
+            domain.kind is ProjectCompletedRowDomainKind.GROUPED
+            and domain.preserved is None
+            and _same_objects(domain.grouped_basis, grouped_basis)
         )
     else:
         valid_domain = (
-            output.row_domain.kind is ProjectCompletedRowDomainKind.GLOBAL
-            and output.row_domain.preserved is None
-            and not output.row_domain.grouped_basis
+            domain.kind is ProjectCompletedRowDomainKind.GLOBAL
+            and domain.preserved is None
+            and not domain.grouped_basis
         )
     if not valid_domain:
         raise ValueError("Completed output row domain must match its exact stage root.")
+
+
+def _validate_completed_output_root(output: ProjectCompletedEffectiveOutput) -> None:
+    root = output.root
+    domain = output.row_domain
+    distinct = domain.distinct
+    if (_derived_definition(output.owner).distinct_clause is None) != (
+        distinct is None
+    ):
+        raise ValueError("Completed output cannot erase authored DISTINCT.")
+    if distinct is not None:
+        if (
+            distinct.root is not root
+            or distinct.fields is not output.fields
+            or distinct.owner is not output.owner
+        ):
+            raise ValueError("DISTINCT cannot substitute an alternate projection/root.")
+        if distinct.ordering is not output.ordering:
+            raise ValueError("DISTINCT cannot substitute another ORDER root.")
+        if distinct.global_input != _distinct_global_input(root, distinct.input_domain):
+            raise ValueError("DISTINCT must retain exact input cardinality posture.")
+        _validate_distinct_projection(root, output.fields)
+        _validate_distinct_order_proofs(distinct)
+        domain = distinct.input_domain
+    _validate_projection_domain(output.owner, output.base_entry, root, domain)
     _validate_completed_output_sources(output)
 
 
@@ -2263,6 +2467,17 @@ def _validate_completion_overlay_membership(
         overlay.base.entries,
         strict=True,
     ):
+        if (
+            isinstance(entry, ProjectCompletedEffectiveOutput)
+            and entry.row_domain.distinct is not None
+        ):
+            if (
+                entry.row_domain.distinct.types
+                is not overlay.base.plan.attribution._authority.type_source_resolutions
+            ):
+                raise ValueError(
+                    "DISTINCT type evidence must retain the exact completion root."
+                )
         if (
             type(entry) is ProjectEffectiveOutputCompletionTerminal
             and entry.current_inputs is not None
@@ -3470,6 +3685,356 @@ def _no_join_terminal(
     )
 
 
+def _projection_domain(
+    entry: ProjectCompletedEffectiveOutput,
+) -> ProjectCompletedRowDomain:
+    distinct = entry.row_domain.distinct
+    return entry.row_domain if distinct is None else distinct.input_domain
+
+
+def _validate_distinct_projection(
+    root: ProjectFinalOutputRoot, fields: tuple[ProjectCompletedOutputField, ...]
+) -> None:
+    """Bind type and Decimal provenance to the exact selected source value."""
+    for selected in fields:
+        source, row_field = selected.source, selected.field
+        if isinstance(root, ProjectConcreteNoJoinReplay) and isinstance(
+            source, (ProjectNoJoinScalarExpression, ProjectNoJoinGroupedOutput)
+        ):
+            schema = root.base_state.schema
+            if (
+                schema is None
+                or schema.fields.get(selected.output_name) is not row_field
+            ):
+                raise ValueError(
+                    "DISTINCT field requires its exact pre-projection type/source."
+                )
+            continue
+        if isinstance(source, ProjectConcreteJoinedNamespaceExpression):
+            direct = _direct_joined_field(name=selected.output_name, analysis=source)
+            if direct is not None:
+                if (
+                    row_field.resolved_type is not direct.resolved_type
+                    or row_field.field_def is not direct.field_def
+                    or row_field.nullability is not direct.nullability
+                ):
+                    raise ValueError(
+                        "DISTINCT field cannot borrow another source type."
+                    )
+                continue
+            value_type = source.value_type
+        elif isinstance(
+            source,
+            (ProjectJoinedStageOutputOccurrence, ProjectSelectedWindowResultBinding),
+        ):
+            value_type = source.value_type
+        elif isinstance(source, ProjectModuleWindowOutputFact):
+            value_type = _window_output_value_type(source)
+        else:
+            raise ValueError("DISTINCT field requires an exact completed source.")
+        actual = project_row_field_to_semantic_value_type(
+            row_field, row_field.nullability
+        )
+        if (
+            row_field.field_def is not None
+            or actual.resolved_type != value_type.resolved_type
+            or actual.nullability is not value_type.nullability
+        ):
+            raise ValueError(
+                "DISTINCT computed field cannot substitute its type evidence."
+            )
+
+
+def _validate_distinct_order_proofs(distinct: ProjectDistinct) -> None:
+    expected, failure = _distinct_ordering(
+        distinct.root, distinct.fields, distinct.ordering
+    )
+    if failure is not None or len(distinct.order_proofs) != len(expected):
+        raise ValueError("DISTINCT ORDER requires complete determination evidence.")
+    for actual, required in zip(distinct.order_proofs, expected, strict=True):
+        if (
+            not isinstance(actual, tuple)
+            or not isinstance(required, tuple)
+            or len(actual) != len(required)
+            or actual[0] is not required[0]
+        ):
+            raise ValueError("DISTINCT ORDER proof lost its exact item.")
+        if len(actual) == 3:
+            if not _same_objects(actual[1], required[1]) or not _same_objects(
+                actual[2], required[2]
+            ):
+                raise ValueError("DISTINCT ORDER proof lost its visible source roots.")
+        else:
+            proof, current = actual[1], required[1]
+            if (
+                type(proof) is not ProjectIROutputDeterminationResult
+                or type(current) is not ProjectIROutputDeterminationResult
+                or proof.seed.index is not current.seed.index
+                or not _same_objects(proof.seed.classes, current.seed.classes)
+                or not _same_objects(proof.requested.classes, current.requested.classes)
+                or proof.status is not ProjectIROutputDeterminationStatus.PROVEN
+                or not _same_objects(
+                    proof.closure.classes.classes, current.closure.classes.classes
+                )
+                or not _same_objects(
+                    tuple(step.fact for step in proof.closure.witness),
+                    tuple(step.fact for step in current.closure.witness),
+                )
+            ):
+                raise ValueError(
+                    "DISTINCT ORDER FD proof must retain its exact property roots."
+                )
+
+
+def _domain_is_global(domain: ProjectPreservedRowDomainAuthority) -> bool:
+    if isinstance(domain, ProjectIRProvidedIntrinsicGrain):
+        return domain.state is ProjectGrainBasisState.GLOBAL
+    if domain.kind is ProjectCompletedRowDomainKind.GLOBAL:
+        return True
+    return domain.preserved is not None and _domain_is_global(domain.preserved)
+
+
+def _distinct_global_input(
+    root: ProjectFinalOutputRoot, domain: ProjectCompletedRowDomain
+) -> bool:
+    if _domain_is_global(domain):
+        return True
+    if (
+        isinstance(root, ProjectConcreteNoJoinReplay)
+        and root.mode is ProjectJoinedAggregationMode.ABSENT
+    ):
+        upstream = root.upstream_entry
+        if isinstance(upstream, ProjectCompletedEffectiveOutput):
+            return upstream.limit is not None and upstream.limit.value <= 1
+        if isinstance(upstream.owner.definition, (TableDef, QueryDef)):
+            bound = _relation_limit(upstream.owner)
+            operators = tuple(
+                operator
+                for operator in upstream.fragment.logical_stage.operators
+                if operator.kind is ProjectIRLogicalOperatorKind.LIMIT
+                and operator.node is upstream.fragment.root
+            )
+            return (
+                isinstance(bound, ProjectRelationLimit)
+                and bound.value <= 1
+                and len(operators) == 1
+            )
+    return False
+
+
+def _distinct_source_targets(source) -> tuple[object, ...] | None:
+    """Read retained scalar/group/window references; never infer inverse expressions."""
+    if isinstance(source, ProjectConcreteJoinedNamespaceExpression):
+        return tuple(resolution.target for resolution in source.resolutions)
+    if isinstance(source, ProjectNoJoinScalarExpression):
+        targets: list[object] = []
+        for leaf in scalar_field_reference_leaves(source.expression):
+            name = leaf.name if isinstance(leaf, NameExpr) else leaf.parts[-1]
+            target = (
+                source.let_scope.binding_expressions.get(name)
+                if isinstance(leaf, NameExpr) and name in source.let_scope.value_types
+                else source.input_schema.fields.get(name)
+            )
+            if target is None:
+                return None
+            targets.append(target)
+        return tuple(targets)
+    if isinstance(source, ProjectJoinedWindowInputBinding):
+        return (source.stage_output,) if source.stage_output is not None else None
+    if isinstance(source, ProjectModuleClauseDependencyFact):
+        return source.target_occurrences
+    if isinstance(source, ProjectNoJoinGroupedOutput):
+        return (source.select_fact.item,)
+    return (source,)
+
+
+def _distinct_ordering(
+    root: ProjectFinalOutputRoot,
+    fields: tuple[ProjectCompletedOutputField, ...],
+    ordering: ProjectRelationOrdering | None,
+) -> tuple[tuple[object, ...], ProjectNonConcreteRelationOrdering | None]:
+    if ordering is None:
+        return (), None
+    visible: list[object] = []
+    for selected in fields:
+        source = selected.source
+        # A projected expression proves its result only, not its free inputs.
+        if isinstance(
+            source,
+            (ProjectNoJoinScalarExpression, ProjectConcreteJoinedNamespaceExpression),
+        ) and not isinstance(source.expression, (NameExpr, DottedNameExpr)):
+            continue
+        targets = _distinct_source_targets(source)
+        if targets is not None:
+            visible.extend(targets)
+    if isinstance(root, ProjectConcreteJoinedQualify):
+        properties = root.window_stage.input_aggregation.input_filter.joined_semantics.property_bridge.relational
+    elif isinstance(root.upstream_entry, ProjectExistingEffectiveOutput):
+        properties = root.upstream_entry.properties
+    else:
+        properties = None
+
+    def value_class(target):
+        if properties is None:
+            return None
+        matches = tuple(
+            group
+            for group in properties.value_classes
+            if any(
+                (
+                    isinstance(target, ProjectScalarEnvironmentField)
+                    and target.position == member.field_position
+                )
+                or target is member.evidence
+                for member in group.members
+            )
+        )
+        return matches[0] if len(matches) == 1 else None
+
+    proofs: list[object] = []
+    for item in ordering.items:
+        targets = _distinct_source_targets(item.source)
+        if targets is not None and all(
+            any(target is value for value in visible) for target in targets
+        ):
+            proofs.append((item, tuple(visible), targets))
+            continue
+        if properties is not None and targets is not None:
+            seed_classes = tuple(value_class(value) for value in visible)
+            requested_classes = tuple(value_class(value) for value in targets)
+            if all(value is not None for value in requested_classes):
+                index = properties.fd_index
+                proof = strictly_determines_output(
+                    index,
+                    ProjectIROutputValueClassSet(
+                        index=index,
+                        classes=tuple(
+                            value
+                            for value in index.universe
+                            if any(value is seed for seed in seed_classes)
+                        ),
+                    ),
+                    ProjectIROutputValueClassSet(
+                        index=index,
+                        classes=tuple(
+                            value
+                            for value in index.universe
+                            if any(value is target for target in requested_classes)
+                        ),
+                    ),
+                )
+                if proof.status is ProjectIROutputDeterminationStatus.PROVEN:
+                    proofs.append((item, proof))
+                    continue
+        span = item.expression.span
+        diagnostic = Diagnostic(
+            code="PIE-S2340",
+            severity=Severity.ERROR,
+            message="DISTINCT ORDER value is not proved determined by the complete visible row; selecting a hidden representative is unsupported.",
+            location=SourceLocation(
+                path=span.path,
+                line=span.line,
+                column=span.column,
+                end_line=span.end_line,
+                end_column=span.end_column,
+            ),
+        )
+        return (), ProjectNonConcreteRelationOrdering(
+            owner=ordering.owner,
+            clause=ordering.clause,
+            reason=ProjectRelationOrderingNonConcreteReason.DISTINCT_ORDER_NOT_DETERMINED,
+            blocker=item,
+            diagnostics=(diagnostic,),
+        )
+    return tuple(proofs), None
+
+
+def _finish_completed_output(
+    *,
+    completion: ProjectCompletion,
+    owner: ProjectDeclarationOccurrence,
+    base_entry: ProjectEffectiveOutputEntry,
+    root: ProjectFinalOutputRoot,
+    fields: tuple[ProjectCompletedOutputField, ...],
+    schema: ProjectRowSchema,
+    row_domain: ProjectCompletedRowDomain,
+    ordering: ProjectRelationOrdering | None,
+    limit: ProjectRelationLimit | None,
+    dependencies: tuple[ProjectCompletionDependency, ...],
+) -> ProjectCompletedEffectiveOutput | ProjectEffectiveOutputCompletionTerminal:
+    clause = _derived_definition(owner).distinct_clause
+    if clause is not None:
+        _validate_distinct_projection(root, fields)
+        equivalence = ProjectRowEquivalence(
+            fields=fields,
+            types=completion.plan.attribution._authority.type_source_resolutions,
+        )
+        if not equivalence.supported:
+            failure = ProjectDistinctUnsupported(equivalence=equivalence)
+            if isinstance(root, ProjectConcreteJoinedQualify):
+                return _terminal(
+                    base_entry=base_entry,
+                    reason=ProjectEffectiveOutputCompletionTerminalReason.DISTINCT_NON_CONCRETE,
+                    blocker=failure,
+                    diagnostics=failure.diagnostics,
+                    joined_qualify=root,
+                )
+            return _no_join_terminal(
+                semantic_facts=root.semantic_facts,
+                base_entry=base_entry,
+                upstream_entry=root.upstream_entry,
+                reason=ProjectEffectiveOutputCompletionTerminalReason.DISTINCT_NON_CONCRETE,
+                blocker=failure,
+                diagnostics=failure.diagnostics,
+            )
+        order_proofs, order_failure = _distinct_ordering(root, fields, ordering)
+        if order_failure is not None:
+            if isinstance(root, ProjectConcreteJoinedQualify):
+                return _terminal(
+                    base_entry=base_entry,
+                    reason=ProjectEffectiveOutputCompletionTerminalReason.ORDER_NON_CONCRETE,
+                    blocker=order_failure,
+                    diagnostics=order_failure.diagnostics,
+                    joined_qualify=root,
+                )
+            return _no_join_terminal(
+                semantic_facts=root.semantic_facts,
+                base_entry=base_entry,
+                upstream_entry=root.upstream_entry,
+                reason=ProjectEffectiveOutputCompletionTerminalReason.ORDER_NON_CONCRETE,
+                blocker=order_failure,
+                diagnostics=order_failure.diagnostics,
+            )
+        distinct = ProjectDistinct(
+            owner=owner,
+            clause=clause,
+            root=root,
+            fields=fields,
+            types=equivalence.types,
+            ordering=ordering,
+            order_proofs=order_proofs,
+            input_domain=row_domain,
+            global_input=_distinct_global_input(root, row_domain),
+        )
+        row_domain = ProjectCompletedRowDomain(
+            kind=ProjectCompletedRowDomainKind.GLOBAL
+            if distinct.global_input
+            else ProjectCompletedRowDomainKind.DISTINCT,
+            distinct=distinct,
+        )
+    return ProjectCompletedEffectiveOutput(
+        owner=owner,
+        base_entry=base_entry,
+        root=root,
+        fields=fields,
+        schema=schema,
+        row_domain=row_domain,
+        ordering=ordering,
+        limit=limit,
+        dependencies=dependencies,
+    )
+
+
 def _complete_joined_output(
     *,
     completion: ProjectCompletion,
@@ -3537,7 +4102,8 @@ def _complete_joined_output(
     schema = ProjectRowSchema(
         fields={output.output_name: output.field for output in fields}
     )
-    return ProjectCompletedEffectiveOutput(
+    return _finish_completed_output(
+        completion=completion,
         owner=owner,
         base_entry=base_entry,
         root=result,
@@ -3862,7 +4428,8 @@ def _complete_no_join_output(
     schema = ProjectRowSchema(
         fields={output.output_name: output.field for output in fields}
     )
-    return ProjectCompletedEffectiveOutput(
+    return _finish_completed_output(
+        completion=completion,
         owner=owner,
         base_entry=base_entry,
         root=replay,
@@ -3934,6 +4501,7 @@ def _validate_current_terminal(
         ):
             raise ValueError("Current terminal must retain its exact QUALIFY blocker.")
     elif type(result) is not ProjectConcreteJoinedQualify or terminal.reason not in {
+        ProjectEffectiveOutputCompletionTerminalReason.DISTINCT_NON_CONCRETE,
         ProjectEffectiveOutputCompletionTerminalReason.PROJECTION_NON_CONCRETE,
         ProjectEffectiveOutputCompletionTerminalReason.ORDER_NON_CONCRETE,
         ProjectEffectiveOutputCompletionTerminalReason.LIMIT_NON_CONCRETE,
@@ -4470,9 +5038,14 @@ def build_project_effective_output_completion(
         if join_conditions is None
         else _CurrentJoinBuild(completion=completion, conditions=join_conditions)
     )
-    required_current = set()
+    required_current = {
+        id(owner)
+        for owner in completion.owners
+        if isinstance(owner.definition, (TableDef, QueryDef))
+        and owner.definition.distinct_clause is not None
+    }
     if join_conditions is not None:
-        required_current = {
+        required_current |= {
             id(item.use.owner)
             for item in join_conditions.entries
             if item.use.clause.on_clause is not None
@@ -4524,6 +5097,7 @@ def build_project_effective_output_completion(
                 ).qualify_clause
                 is None
                 and not changed_upstream
+                and cast(_DerivedRelation, definition).distinct_clause is None
             ):
                 entry: ProjectEffectiveOutputCompletionEntry = base_entry
             else:
@@ -4574,8 +5148,11 @@ def build_project_effective_output_completion(
                 and len(base_entry.dependencies) == 1
                 and base_entry.fragment.semantic_facts.resolution
                 is base_entry.dependencies[0].evidence
-                and built_by_owner[id(base_entry.dependencies[0].target)]
-                is not base_by_owner[id(base_entry.dependencies[0].target)]
+                and (
+                    definition.distinct_clause is not None
+                    or built_by_owner[id(base_entry.dependencies[0].target)]
+                    is not base_by_owner[id(base_entry.dependencies[0].target)]
+                )
             )
         ):
             if len(base_entry.dependencies) != 1:
@@ -4636,4 +5213,13 @@ def build_project_effective_output_completion(
         else current_state.condition_result(),
         input_scopes=() if current_state is None else tuple(current_state.scopes),
         allocation_events=() if current_state is None else tuple(current_state.events),
+    )
+
+
+def _has_distinct(completed) -> bool:
+    """Whether a completed root requires the deferred DISTINCT IR consumer."""
+    return any(
+        isinstance(owner.definition, (TableDef, QueryDef))
+        and owner.definition.distinct_clause is not None
+        for owner in completed.effective_outputs.owners
     )

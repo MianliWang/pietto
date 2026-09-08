@@ -38,7 +38,9 @@ def availability_diagnostic(span: Span, message: str) -> Diagnostic:
     )
 
 
-def syntax_diagnostics(definition: Definition) -> tuple[Diagnostic, ...]:
+def syntax_diagnostics(
+    definition: Definition, *, allow_distinct: bool = False
+) -> tuple[Diagnostic, ...]:
     if isinstance(definition, SetRelationDef):
         return (
             availability_diagnostic(
@@ -64,4 +66,11 @@ def syntax_diagnostics(definition: Definition) -> tuple[Diagnostic, ...]:
                     "JOIN-local ON semantics are not implemented.",
                 )
             )
+    if definition.distinct_clause is not None and not allow_distinct:
+        diagnostics.append(
+            availability_diagnostic(
+                definition.distinct_clause.span,
+                "Relational DISTINCT requires explicit-module completed semantics.",
+            )
+        )
     return tuple(diagnostics)

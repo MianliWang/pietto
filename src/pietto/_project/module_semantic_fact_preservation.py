@@ -1234,7 +1234,8 @@ class ProjectModuleRelationSemanticFacts:
                         self.named_window_namespace is not None,
                     )
                 )
-                or self.helper_diagnostics != syntax_diagnostics(definition)
+                or self.helper_diagnostics
+                != syntax_diagnostics(definition, allow_distinct=True)
             ):
                 raise ValueError(
                     "Set syntax cannot publish SELECT or concrete semantic facts."
@@ -2443,7 +2444,9 @@ def _build_project_module_semantic_fact_set(
                         base_result_state=None,
                         state=base_row_fact.state,
                         let_scope_facts=None,
-                        helper_diagnostics=syntax_diagnostics(definition),
+                        helper_diagnostics=syntax_diagnostics(
+                            definition, allow_distinct=True
+                        ),
                     )
                     pre_window_state = base_row_fact.state
                 elif type(definition) is SourceDef:
@@ -2980,7 +2983,7 @@ def _nonconcrete_relation_facts(
         ),
         window_outputs=window_outputs,
         named_window_namespace=named_window_namespace,
-        helper_diagnostics=syntax_diagnostics(definition),
+        helper_diagnostics=syntax_diagnostics(definition, allow_distinct=True),
     )
 
 

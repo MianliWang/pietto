@@ -761,6 +761,11 @@ class LimitClause(Node):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class DistinctClause(Node):
+    """The exact authored relational DISTINCT token occurrence."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class TableDef(Node):
     """A parse-only table definition."""
 
@@ -776,6 +781,7 @@ class TableDef(Node):
     let_clause: LetClause | None = None
     named_windows: tuple[NamedWindowDeclaration, ...] = ()
     join_clauses: tuple[JoinClause, ...] = ()
+    distinct_clause: DistinctClause | None = None
 
     def __post_init__(self) -> None:
         if type(self.named_windows) is not tuple or any(
@@ -804,6 +810,7 @@ class QueryDef(Node):
     let_clause: LetClause | None = None
     named_windows: tuple[NamedWindowDeclaration, ...] = ()
     join_clauses: tuple[JoinClause, ...] = ()
+    distinct_clause: DistinctClause | None = None
 
     def __post_init__(self) -> None:
         if type(self.named_windows) is not tuple or any(

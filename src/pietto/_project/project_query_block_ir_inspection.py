@@ -1720,7 +1720,7 @@ def _base_factor_identity(
     identity: ProjectGrainFactorIdentity,
 ) -> ProjectSourceGrainFactorIdentity | ProjectGroupedGrainFactorIdentity:
     if type(identity) is ProjectJoinGrainFactorIdentity:
-        return identity.base
+        identity = identity.base
     if type(identity) in {
         ProjectSourceGrainFactorIdentity,
         ProjectGroupedGrainFactorIdentity,

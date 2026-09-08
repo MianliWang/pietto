@@ -17,6 +17,7 @@ from pietto._project.module_semantic_fact_preservation import (
 )
 from pietto._project.project_completion import ProjectExistingEffectiveOutput
 from pietto._project.project_final_outputs import (
+    _has_distinct,
     ProjectCompletedEffectiveOutput,
     ProjectCompletedOutputField,
     ProjectConcreteNoJoinReplay,
@@ -523,6 +524,7 @@ def _verify_root_continuity(
     verification = completed.verification
     valid = (
         not completed.single_match_requests
+        and not _has_distinct(completed)
         and completed.roots.verification is verification
         and completed.roots.completion is completed.completion
         and completed.roots.effective_outputs is completed.effective_outputs

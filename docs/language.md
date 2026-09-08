@@ -179,8 +179,37 @@ including repeated names. Omitted quantifiers and a single operand are retained
 for later precise rejection; no quantifier is defaulted. Empty bodies and
 conflicting/repeated quantifiers are syntax errors. Set bodies have no additional
 SELECT/order/limit tail and currently emit `PIE-S2334`, not a result. Referenced
-named inputs keep their own completed clauses. Relational `select distinct:`,
-single-match markers and positive set semantics are not implemented here.
+named inputs keep their own completed clauses. Positive set semantics and authored
+single-match markers remain deferred.
+
+EXPLICIT_MODULES project check accepts both ordinary `select:` and
+`select distinct:`. DISTINCT compares exactly the final visible selected row,
+after grouping/window/QUALIFY and projection, before relation ORDER and LIMIT.
+Hidden computations, JOIN intermediates and unselected ORDER inputs are excluded.
+NULL is equivalent to NULL here; predicate equality and field nullability do not
+change. Each quotient class occurs at most once, without selecting a source-row
+representative or inventing ordering, a smaller key, or total cardinality <= 1.
+
+The [Slice-8 support contract](spec/phase64-slice8-row-equivalence-distinct-quotient-grain-origin-v1.md)
+requires exact type identity and validated identical Decimal precision/scale;
+missing or unpropagated Decimal parameters fail closed. Any, Bytes and Json are
+unsupported. D07-FLOAT-DEFERRED also excludes Float and resolved Float aliases,
+including finite literals and computed/aggregate/window results; Float row
+equivalence belongs to Phase 72. Unselected Float fields do not cause rejection,
+and other Float operations, including count_distinct, retain existing behavior.
+
+DISTINCT preserves canonical output fields and gives non-global results a new
+quotient grain domain, including inputs with UNKNOWN grain. Sound GLOBAL or
+exact input LIMIT 0/1 posture remains at most one, with authored DISTINCT
+retained. Its own later LIMIT still limits the quotient result. Relation ORDER
+must be determined by visible selected values or existing exact strict FD
+proof; PIE-S2340 rejects a hidden representative. Unsupported visible-field
+equivalence emits PIE-S2339 ERROR in all check modes, with no successful quotient.
+
+Named DISTINCT outputs compose through imports/reexports, replay and supported
+JOIN inputs. Single-file/LEGACY_FLAT/PACKAGE_ROOT, Project Explain and old IR/SQL
+keep their existing availability boundaries. Combined DISTINCT Project IR,
+verification and inspection remain Slice 10; no DISTINCT SQL is emitted here.
 
 Single-match semantic checking is available through explicit private requests on
 completed EXPLICIT_MODULES roots. Ordinary authored compilation supplies no
