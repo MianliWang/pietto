@@ -85,6 +85,8 @@ stored separately and is never encoded in the code.
 | `PIE-S2334` | A flat-relational operation or named set input remains unavailable; ERROR in LOOSE/CHECKED/STRICT, retaining existing messages and authored spans. Successful supported explicit-module INNER/LEFT/CROSS/RIGHT/FULL/SEMI/ANTI operations retire only their exact owner-held temporary admission diagnostics. Condition readiness alone, other entrypoints and sets do not remove this boundary. |
 | `PIE-S2335` | JOIN pre-match input/reference/type or scalar context is unavailable, unknown, forward or ambiguous; ERROR at the exact JOIN/reference/expression span. Existing scalar-kernel and Bool-consumer diagnostics retain their codes and objects. |
 | `PIE-S2336` | Unsupported authored JOIN combination: CROSS with ON/VIA, multi-hop VIA with ON, or a multi-hop new kind; ERROR at the authored JOIN span. |
+| `PIE-S2337` | An explicit private single-match requirement is legal but not statically proved at its exact matching boundary; WARNING in LOOSE/CHECKED/STRICT, including successful completed project checks. Counts actual matched right BAG occurrences; downstream enforcement remains required. No request or PROVED produces no such warning. |
+| `PIE-S2338` | An explicit private single-match request has an invalid owner/use/root, direction/role, scope, unit, or matching boundary (including CROSS); ERROR in every mode, with no valid obligation or proof. Existing operation diagnostics remain. |
 | `PIE-S2401` | Constraint return type does not expand to `Bool` |
 | `PIE-S2402` | Callable or field derive body type mismatch |
 | `PIE-S2501` | Duplicate shape item name |

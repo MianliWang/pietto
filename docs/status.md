@@ -45,8 +45,9 @@ documentation does not supersede that evidence.
 | Phase 64 Slice 4 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 5 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 6 | `COMPLETED / PUBLISHED` |
-| Phase 64 Slice 7 | `NEXT / NOT IMPLEMENTED` |
-| Next | `Phase 64 Slice 7 — Single-match direction, unit, scoped proof, obligation and warning diagnostics` |
+| Phase 64 Slice 7 | `COMPLETED / PUBLISHED` |
+| Phase 64 Slice 8 | `NEXT / NOT IMPLEMENTED` |
+| Next | `Phase 64 Slice 8 — Row-equivalence domain, DISTINCT and quotient grain origin` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -669,6 +670,27 @@ Left keys/FD/grain use subset images; UNKNOWN right grain does not contaminate
 known left output, while UNKNOWN left and earlier fanout remain unresolved.
 Completed inputs, tail stages, replay/JOIN and import/re-export compose through
 all three EXPLICIT_MODULES check modes. JSON v2 and F01/F02 remain unchanged.
-Combined IR/inspection, E05/E10 closure and single-match remain later work.
-Phase 64 Slice 7 is `NEXT / NOT IMPLEMENTED`; Slices 7–11 are `NOT IMPLEMENTED`.
+Combined IR/inspection and E05/E10 closure remain later work.
+That publication handed single-match requirements to Slice 7.
 Per-left 0-or-1 output retention does not establish actual right-match cardinality.
+
+
+Phase 64 Slice 7 is `COMPLETED / PUBLISHED` only upon natural exact-head CI on
+its ordinary publication commit, without a status-only follow-up. The
+[single-match contract](spec/phase64-slice7-single-match-direction-unit-scoped-proof-obligation-warning-diagnostics-v1.md)
+closes E06 semantic/check through explicit private requests over real completed
+roots; ordinary compilation has no implicit request and no authored marker.
+PROVED retains exact sufficient proof with no warning. LEGAL_UNPROVED retains
+downstream enforcement and PIE-S2337 WARNING in LOOSE/CHECKED/STRICT; INVALID
+emits separate PIE-S2338 ERROR and no valid obligation. Completed successful
+outputs expose the same Diagnostic object through existing text/JSON severity
+and success rules, without a JSON v2 shape change.
+Counting is actual right BAG matches per exact left occurrence at a direct,
+hop-local or complete-path boundary. Directional/refinement AT_MOST_ONE and
+exact completed-right LIMIT/GLOBAL producer evidence apply only in their own
+scope. Post-JOIN LIMIT/WHERE, SEMI/ANTI output retention, equal payloads and
+intrinsic grain are not proofs. Foreign/stale/role/hop/refinement grafts cannot
+retain PROVED. Nonempty requests remain rejected by old combined IR/inspection.
+Phase 64 Slice 8 is `NEXT / NOT IMPLEMENTED`; Slices 8–11 are `NOT IMPLEMENTED`.
+Row-equivalence/DISTINCT, sets/non-SELECT, combined IR/verification/inspection,
+completion audit, SQL and runtime fulfillment retain their later owners.

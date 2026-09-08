@@ -1482,7 +1482,8 @@ class ProjectIRQueryBlockSnapshot:
 
     def __post_init__(self) -> None:
         if type(self.completed) is not ProjectConcreteCompletedSemanticResult or (
-            self.completed.verification.root.evaluation.project_plan
+            self.completed.single_match_requests
+            or self.completed.verification.root.evaluation.project_plan
             is not self.base_plan
             or self.completed.verification.root.join_regions is not self.join_stage
             or self.completed.effective_outputs.owners is not self.owners
@@ -3450,6 +3451,8 @@ def build_project_query_block_ir(
 
     if type(completed) is not ProjectConcreteCompletedSemanticResult:
         raise TypeError("Query-block IR requires an exact concrete Slice-13 result.")
+    if completed.single_match_requests:
+        raise ValueError("Single-match requests require Slice-10 combined IR support.")
     verification = completed.verification
     overlay = completed.effective_outputs
     plan = verification.root.evaluation.project_plan

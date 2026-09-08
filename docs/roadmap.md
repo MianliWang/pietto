@@ -2135,7 +2135,8 @@ Phase 64 **Flat Relational Algebra** is `ACTIVE`. Slice 1 is
 `COMPLETED / PUBLISHED`, Slice 2 is `COMPLETED / PUBLISHED`, Slice 3 is
 `COMPLETED / PUBLISHED`, Slice 4 is `COMPLETED / PUBLISHED`, Slice 5 is
 `COMPLETED / PUBLISHED`, Slice 6 is `COMPLETED / PUBLISHED`, Slice 7 is
-`NEXT / NOT IMPLEMENTED`, and the frozen route has exactly 11 numbered Slices.
+`COMPLETED / PUBLISHED`, Slice 8 is `NEXT / NOT IMPLEMENTED`, and the frozen
+route has exactly 11 numbered Slices.
 
 | Slice | Owner |
 | ---: | --- |
@@ -2232,11 +2233,21 @@ null-extension or coverage. UNKNOWN right grain alone does not change known left
 grain, and existing left uncertainty/aggregate risks remain. Completed inputs,
 SELECT tails, replay/JOIN and import/re-export reach EXPLICIT_MODULES check.
 Natural exact-head CI closes Slice 6 without a status-only follow-up. E03 is
-semantic/check delivery; Slice 7 is NEXT / NOT IMPLEMENTED and Slices 7–11 remain
-NOT IMPLEMENTED. Slice 7 receives exact left/right matching roles, operative
-condition/base/refinement and applicable bound evidence. Fixed per-left retention
-is distinct from actual right-match cardinality; no requirement or warning is
-implemented here.
+semantic/check delivery. That publication handed exact left/right matching
+roles, operative condition/base/refinement and applicable bound evidence to
+Slice 7. Fixed per-left retention is distinct from actual right-match cardinality.
+
+The [Slice-7 single-match contract](spec/phase64-slice7-single-match-direction-unit-scoped-proof-obligation-warning-diagnostics-v1.md)
+closes E06 semantic/check with explicit private requests and no public marker or
+implicit JOIN requirement. PROVED keeps exact proof without warning;
+LEGAL_UNPROVED emits PIE-S2337 WARNING in every mode and retains downstream
+enforcement; INVALID emits PIE-S2338 ERROR. Successful completed checks retain
+warning identity and existing text/JSON behavior. Only actual matched right BAG
+occurrences count. Exact direction/hop/path and pre-JOIN right LIMIT/GLOBAL
+producer authority remain separate from grain, payload equality, post-JOIN
+filters and SEMI/ANTI left retention. Foreign/stale proof and role grafts fail
+closed. Natural exact-head CI closes Slice 7 without a status-only follow-up.
+Slice 8 is NEXT / NOT IMPLEMENTED; Slices 8–11 remain NOT IMPLEMENTED.
 Slice 10 still owns combined IR/analysis/inspection and final
 EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED closure; E05/E10 are not fully closed.
 No additional route row or product exit is introduced.

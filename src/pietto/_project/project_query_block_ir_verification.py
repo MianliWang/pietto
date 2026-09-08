@@ -522,7 +522,8 @@ def _verify_root_continuity(
     completed = root.completed
     verification = completed.verification
     valid = (
-        completed.roots.verification is verification
+        not completed.single_match_requests
+        and completed.roots.verification is verification
         and completed.roots.completion is completed.completion
         and completed.roots.effective_outputs is completed.effective_outputs
         and completed.effective_outputs.base is completed.completion

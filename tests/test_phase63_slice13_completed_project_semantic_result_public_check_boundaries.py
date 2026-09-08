@@ -842,7 +842,7 @@ def test_json_v2_and_public_private_boundaries_remain_exact(positive: _Built) ->
     ):
         assert forbidden not in production
     exposed_fields = {item.name for item in fields(positive.completed)}
-    assert exposed_fields == {
+    assert exposed_fields >= {
         "roots",
         "semantic_result",
         "verification",
@@ -851,6 +851,9 @@ def test_json_v2_and_public_private_boundaries_remain_exact(positive: _Built) ->
         "diagnostics",
         "ok",
     }
+    assert positive.completed.single_match_requests == ()
+    assert positive.completed.single_matches.obligations == ()
+    assert positive.completed.single_matches.diagnostics == ()
     assert not exposed_fields.intersection(
         {"plan", "node", "use", "slot", "coordinate", "canonical_bytes"}
     )

@@ -72,6 +72,10 @@ from pietto._project.project_phase62_verification import (
 )
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto._project.project_single_match import (
+    ProjectSingleMatchRequest,
+    ProjectSingleMatchSet,
+)
 
 __all__: tuple[str, ...] = ()
 
@@ -148,6 +152,7 @@ class _ProjectCompletedSemanticRoots:
     join_conditions: ProjectJoinConditionSet | ProjectJoinConditionCompletion = field(
         init=False, repr=False
     )
+    diagnostics: tuple[Diagnostic, ...] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         if type(self.semantic_result) is not ProjectSemanticResult or (
@@ -176,6 +181,22 @@ class _ProjectCompletedSemanticRoots:
                 "Completed roots lost their operative condition authority."
             )
         object.__setattr__(self, "join_conditions", operative)
+        object.__setattr__(
+            self,
+            "diagnostics",
+            (
+                *_final_diagnostics(
+                    self.semantic_result,
+                    effective_outputs,
+                    retired=tuple(
+                        diagnostic
+                        for admission in effective_outputs.join_admissions
+                        for diagnostic in admission.diagnostics
+                    ),
+                ),
+                *operative.diagnostics,
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -187,6 +208,10 @@ class ProjectConcreteCompletedSemanticResult:
         compare=False,
         hash=False,
     )
+    single_match_requests: tuple[ProjectSingleMatchRequest, ...] = field(
+        default=(), repr=False
+    )
+    single_matches: ProjectSingleMatchSet = field(init=False, repr=False)
     semantic_result: ProjectSemanticResult = field(init=False, repr=False)
     verification: ProjectPhase62VerificationResult = field(init=False, repr=False)
     completion: ProjectCompletion = field(init=False, repr=False)
@@ -204,18 +229,20 @@ class ProjectConcreteCompletedSemanticResult:
         verification = self.roots.verification
         completion = self.roots.completion
         effective_outputs = self.roots.effective_outputs
-        diagnostics = (
-            *_final_diagnostics(
-                semantic_result,
-                effective_outputs,
-                retired=tuple(
-                    diagnostic
-                    for admission in effective_outputs.join_admissions
-                    for diagnostic in admission.diagnostics
-                ),
-            ),
-            *self.roots.join_conditions.diagnostics,
+        diagnostics = self.roots.diagnostics
+        single_matches = ProjectSingleMatchSet(
+            root=effective_outputs, requests=self.single_match_requests
         )
+        retained_ids = {id(diagnostic) for diagnostic in diagnostics}
+        diagnostics = (
+            *diagnostics,
+            *(
+                diagnostic
+                for diagnostic in single_matches.diagnostics
+                if id(diagnostic) not in retained_ids
+            ),
+        )
+        object.__setattr__(self, "single_matches", single_matches)
         entries_are_concrete = all(
             type(entry)
             in {ProjectExistingEffectiveOutput, ProjectCompletedEffectiveOutput}
@@ -579,4 +606,19 @@ def build_project_completed_semantic_result(
         roots=_ProjectCompletedSemanticRoots(
             semantic_result=semantic_result,
         )
+    )
+
+
+def with_project_single_match_requests(
+    completed: ProjectConcreteCompletedSemanticResult,
+    requests: tuple[ProjectSingleMatchRequest, ...],
+) -> ProjectConcreteCompletedSemanticResult:
+    """Check explicit private requests against the same parsed/completed roots."""
+    if type(completed) is not ProjectConcreteCompletedSemanticResult:
+        raise TypeError(
+            "Single-match requests require an explicit-module completed result."
+        )
+    return ProjectConcreteCompletedSemanticResult(
+        roots=completed.roots,
+        single_match_requests=requests,
     )

@@ -182,6 +182,21 @@ SELECT/order/limit tail and currently emit `PIE-S2334`, not a result. Referenced
 named inputs keep their own completed clauses. Relational `select distinct:`,
 single-match markers and positive set semantics are not implemented here.
 
+Single-match semantic checking is available through explicit private requests on
+completed EXPLICIT_MODULES roots. Ordinary authored compilation supplies no
+requests; no marker, keyword, CLI flag or JSON field is introduced. A request
+counts actual predicate-TRUE right BAG matches per exact left occurrence at a
+direct boundary, exact relationship hop, or complete path. Equal payloads and
+SEMI/ANTI left-output retention do not change this unit. Applicable directional
+AT_MOST_ONE/refinement evidence or the exact completed right producer's LIMIT
+0/1 (and supported real GLOBAL aggregate/replay roots) may prove the request.
+Grain, post-JOIN LIMIT/WHERE, source keys or estimates alone do not prove it.
+Legal unproved requests retain a private enforcement obligation and emit
+PIE-S2337 WARNING in all three modes; invalid requests emit PIE-S2338 ERROR.
+Proved requests emit neither. Successful checks include the exact warning in
+existing text/JSON diagnostics. Nonempty private requests remain unavailable to
+combined Project IR/inspection until Slice 10; no execution or data repair occurs.
+
 Historical Project row facts and single-relation IR retain
 `AUTHORED_JOIN_DEFERRED`. The completed EXPLICIT_MODULES path adds combined JOIN
 rows, joined scalar lookup, null-extension evidence, final outputs and private
