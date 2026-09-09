@@ -159,7 +159,6 @@ SELECT-tail scopes cannot reference them. Their dependencies and binding names
 remain reserved. Left keys/FD/grain follow subset transfer, with no new nulling,
 fanout, coverage or ordering claim; UNKNOWN right grain alone does not make left
 grain UNKNOWN. This retention rule does not prove at-most-one right match.
-Set bodies remain unavailable.
 Single-file/LEGACY_FLAT/PACKAGE_ROOT and legacy IR/SQL retain their existing
 rejection boundaries; a successful project check is not SQL capability.
 Current JOIN roots also remain unavailable to combined query-block IR and its
@@ -174,13 +173,41 @@ query combined:
         from archived_orders
 ```
 
-`union`, `intersect`, and `except` retain `all`/`distinct` and operand order,
-including repeated names. Omitted quantifiers and a single operand are retained
-for later precise rejection; no quantifier is defaulted. Empty bodies and
-conflicting/repeated quantifiers are syntax errors. Set bodies have no additional
-SELECT/order/limit tail and currently emit `PIE-S2334`, not a result. Referenced
-named inputs keep their own completed clauses. Positive set semantics and authored
-single-match markers remain deferred.
+EXPLICIT_MODULES project check supports `union`, `intersect`, and `except`, each
+with explicit `all` or `distinct` and at least two named operands. Omitted
+quantifiers and single operands receive PIE-S2341; no quantifier is defaulted.
+Empty bodies and conflicting/repeated quantifiers are syntax errors. Authored
+order and repeated uses are retained. Flat operands fold left; named nested sets
+preserve their own grouping. Set bodies have no SELECT/order/limit tail;
+referenced named inputs keep their own completed clauses.
+
+Under [S9-NAME-1](spec/phase64-slice9-set-operations-explicit-all-distinct-output-identity-v1.md),
+output labels come from the first authored operand and alignment is positional.
+Output identities belong to the set, with ordinary local result roles and exact
+operand provenance. Every operand must be concrete with the same width and exact
+canonical types, including independently validated identical Decimal precision
+and scale. An unavailable first operand has no first-available fallback; runtime
+emptiness does not change labels. Unknown types never match themselves.
+
+For one row-equivalence class with left/right counts m/n, UNION ALL gives m+n,
+INTERSECT ALL min(m,n), and EXCEPT ALL max(m-n,0). Their DISTINCT counterparts
+give one exactly when either side, both sides, or only the left side is present.
+NULL is equivalent to NULL. Only UNION ALL needs no row equivalence, allowing
+matching concrete Float/Any/Bytes/Json types. The other five forms reject these
+types; Float and aliases remain deferred to Phase 72 without a finite exception.
+PIE-S2342 covers unavailable inputs/width, PIE-S2343 exact types/Decimal, and
+PIE-S2344 required row equivalence. Failed sets keep their original admission
+causes; only successful exact owners retire PIE-S2334.
+
+UNION combines nullability conservatively and inherits no branch-local key/FD.
+INTERSECT may retain safe subset facts from any operand; EXCEPT uses left value
+facts while retaining every right membership dependency. Set alternatives,
+quotients and subsets retain separate grain origins. UNKNOWN grain alone is
+legal; UNION of GLOBAL inputs does not prove GLOBAL. No source occurrence is
+chosen as a representative. Named set outputs compose through replay, either
+JOIN role, DISTINCT, nested sets and imports/reexports. Sets do not discharge
+single-match obligations. Combined IR/verification/inspection remains Slice 10;
+legacy IR/SQL/Explain retain their negative boundaries.
 
 EXPLICIT_MODULES project check accepts both ordinary `select:` and
 `select distinct:`. DISTINCT compares exactly the final visible selected row,

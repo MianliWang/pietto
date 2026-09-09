@@ -36,6 +36,7 @@ from pietto.ast_nodes import GroupByItem, SourceDef
 
 if TYPE_CHECKING:
     from pietto._project.project_final_outputs import ProjectDistinct
+    from pietto._project.project_set_operations import ProjectSetOperation
 
 
 __all__: tuple[str, ...] = ()
@@ -57,6 +58,9 @@ class ProjectGrainOriginKind(StrEnum):
     GROUPED_RESULT = "grouped_result"
     GLOBAL_AGGREGATE = "global_aggregate"
     DISTINCT_QUOTIENT = "distinct_quotient"
+    SET_ALTERNATIVES = "set_alternatives"
+    SET_QUOTIENT = "set_quotient"
+    SET_SUBSET = "set_subset"
 
 
 class ProjectGrainFactorKind(StrEnum):
@@ -65,6 +69,7 @@ class ProjectGrainFactorKind(StrEnum):
     SOURCE_DOMAIN = "source_domain"
     GROUP_DOMAIN = "group_domain"
     DISTINCT_DOMAIN = "distinct_domain"
+    SET_DOMAIN = "set_domain"
 
 
 class ProjectOptionalGrainFactorReadiness(StrEnum):
@@ -154,10 +159,36 @@ class ProjectDistinctGrainFactorIdentity:
         object.__setattr__(self, "owner", self.origin.witness.fields[0].identity.owner)
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSetGrainFactorIdentity:
+    """An alternative or quotient domain, never a product or surviving input row."""
+
+    origin: ProjectSetGrainOrigin = field(repr=False)
+    owner: ProjectDeclarationOccurrenceIdentity = field(init=False)
+    kind: ProjectGrainFactorKind = field(
+        default=ProjectGrainFactorKind.SET_DOMAIN, init=False
+    )
+
+    def __post_init__(self) -> None:
+        from pietto._project.module_attribution import _declaration_identity
+
+        if self.origin.kind not in {
+            ProjectGrainOriginKind.SET_ALTERNATIVES,
+            ProjectGrainOriginKind.SET_QUOTIENT,
+        }:
+            raise ValueError(
+                "Set factor requires an exact alternative/quotient origin."
+            )
+        object.__setattr__(
+            self, "owner", _declaration_identity(self.origin.witness.owner)
+        )
+
+
 type ProjectBaseGrainFactorIdentity = (
     ProjectSourceGrainFactorIdentity
     | ProjectGroupedGrainFactorIdentity
     | ProjectDistinctGrainFactorIdentity
+    | ProjectSetGrainFactorIdentity
 )
 
 
@@ -178,6 +209,7 @@ class ProjectJoinGrainFactorIdentity:
             ProjectSourceGrainFactorIdentity,
             ProjectGroupedGrainFactorIdentity,
             ProjectDistinctGrainFactorIdentity,
+            ProjectSetGrainFactorIdentity,
         }:
             raise TypeError("JOIN grain use requires an exact base factor.")
         if type(self.introduction_use) is not ProjectIRUseRef:
@@ -211,6 +243,7 @@ type ProjectGrainFactorIdentity = (
     ProjectSourceGrainFactorIdentity
     | ProjectGroupedGrainFactorIdentity
     | ProjectDistinctGrainFactorIdentity
+    | ProjectSetGrainFactorIdentity
     | ProjectJoinGrainFactorIdentity
 )
 
@@ -226,6 +259,7 @@ class ProjectGrainDomainFactor:
             ProjectSourceGrainFactorIdentity,
             ProjectGroupedGrainFactorIdentity,
             ProjectDistinctGrainFactorIdentity,
+            ProjectSetGrainFactorIdentity,
             ProjectJoinGrainFactorIdentity,
         }:
             raise TypeError("Grain factor requires an exact domain identity.")
@@ -252,6 +286,7 @@ class ProjectGrainDependencyFact:
                         ProjectSourceGrainFactorIdentity,
                         ProjectGroupedGrainFactorIdentity,
                         ProjectDistinctGrainFactorIdentity,
+                        ProjectSetGrainFactorIdentity,
                         ProjectJoinGrainFactorIdentity,
                     }
                     for value in values
@@ -737,6 +772,40 @@ class ProjectDistinctGrainOrigin(ProjectGrainOriginAuthority):
             None
             if self.witness.global_input
             else ProjectDistinctGrainFactorIdentity(origin=self),
+        )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSetGrainOrigin(ProjectGrainOriginAuthority):
+    """Exact set operation provenance, distinct from SELECT DISTINCT and grouping."""
+
+    witness: ProjectSetOperation = field(repr=False)
+    input_domains: tuple[object, ...] = field(repr=False)
+    kind: ProjectGrainOriginKind = field(init=False)
+    factor: ProjectSetGrainFactorIdentity | None = field(init=False)
+
+    def __post_init__(self) -> None:
+        from pietto.ast_nodes import SetOperationKind, SetRelationDef
+
+        definition = self.witness.owner.definition
+        if not isinstance(definition, SetRelationDef):
+            raise TypeError("Set grain requires an exact set declaration.")
+        kind = (
+            ProjectGrainOriginKind.SET_QUOTIENT
+            if self.witness.full_row_unique
+            else ProjectGrainOriginKind.SET_ALTERNATIVES
+            if definition.body.kind is SetOperationKind.UNION
+            else ProjectGrainOriginKind.SET_SUBSET
+        )
+        if len(self.input_domains) != len(self.witness.uses):
+            raise ValueError("Set origin must retain every operand domain/use.")
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(
+            self,
+            "factor",
+            None
+            if kind is ProjectGrainOriginKind.SET_SUBSET
+            else ProjectSetGrainFactorIdentity(origin=self),
         )
 
 

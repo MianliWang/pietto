@@ -5,7 +5,7 @@ from __future__ import annotations
 from pietto._flat_relational_admission import syntax_diagnostics
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from types import MappingProxyType
 from typing import cast
@@ -107,6 +107,7 @@ from pietto._project.project_ir_relational_properties import (
     ProjectIROutputDeterminationStatus,
     ProjectIROutputDeterminationResult,
     strictly_determines_output,
+    transfer_set_properties,
 )
 from pietto._project.project_ir import (
     ProjectIRPlanNodeOccurrence,
@@ -118,6 +119,7 @@ from pietto._project.project_ir_evaluation_context import (
 )
 from pietto._project.project_grain import (
     ProjectDistinctGrainOrigin,
+    ProjectSetGrainOrigin,
     ProjectGrainOriginAuthority,
     ProjectGrainBasisState,
     ProjectGrainDomainFactor,
@@ -125,7 +127,21 @@ from pietto._project.project_grain import (
     ProjectGrainDependencyFact,
 )
 from pietto._project.project_row_keys import ProjectRowUniquenessStrength
-from pietto._project.project_row_equivalence import ProjectRowEquivalence
+from pietto._project.project_set_operations import (
+    ProjectSetInputScope,
+    ProjectSetOperandUse,
+    ProjectSetOperation,
+    ProjectSetColumn,
+    ProjectSetFailure,
+    ProjectSetFailureReason,
+    set_diagnostic,
+)
+from pietto._project.project_row_equivalence import (
+    ProjectRowEquivalence,
+    ProjectRowEquivalenceInput,
+    ProjectRowEquivalenceField,
+    compatible_row_types,
+)
 from pietto._project.project_relationship_uses import ProjectJoinUseState
 from pietto._project.project_joined_aggregation import (
     ProjectConcreteJoinedAggregation,
@@ -178,6 +194,9 @@ from pietto._project.row_expression_type_facts import (
 )
 from pietto.ast_nodes import (
     DistinctClause,
+    SetRelationDef,
+    SetOperationKind,
+    SetOperationQuantifier,
     AuthoredJoinKind,
     DottedNameExpr,
     Expression,
@@ -337,6 +356,10 @@ class ProjectDistinctUnsupported:
             if evidence.reason is None:
                 continue
             selected = evidence.selected
+            if not isinstance(selected, ProjectCompletedOutputField):
+                raise TypeError(
+                    "SELECT DISTINCT diagnostics require selected field evidence."
+                )
             span = selected.item.expression.span
             diagnostics.append(
                 Diagnostic(
@@ -362,6 +385,7 @@ class ProjectCompletedRowDomainKind(StrEnum):
     GROUPED = "grouped"
     GLOBAL = "global"
     DISTINCT = "distinct"
+    SET = "set"
 
 
 type ProjectPreservedRowDomainAuthority = (
@@ -378,6 +402,7 @@ class ProjectCompletedRowDomain:
 
     kind: ProjectCompletedRowDomainKind
     distinct: ProjectDistinct | None = field(default=None, repr=False)
+    set_origin: ProjectSetGrainOrigin | None = field(default=None, repr=False)
     preserved: ProjectPreservedRowDomainAuthority | None = field(
         default=None,
         repr=False,
@@ -403,6 +428,17 @@ class ProjectCompletedRowDomain:
             for item in self.grouped_basis
         ):
             raise TypeError("Grouped row-domain basis must retain exact occurrences.")
+        if self.kind is ProjectCompletedRowDomainKind.SET:
+            if (
+                type(self.set_origin) is not ProjectSetGrainOrigin
+                or self.distinct is not None
+                or self.preserved is not None
+                or self.grouped_basis
+            ):
+                raise ValueError("Set row domain requires exact operation provenance.")
+            return
+        if self.set_origin is not None:
+            raise ValueError("Non-set row domains cannot carry a set origin.")
         if self.distinct is not None:
             expected = (
                 ProjectCompletedRowDomainKind.GLOBAL
@@ -864,6 +900,7 @@ class ProjectCompletedOutputField:
         compare=False,
         hash=False,
     )
+    type_sources: tuple[ProjectRowEquivalenceField, ...] = field(default=(), repr=False)
     field: ProjectRowField
     result_role: ProjectRowResultRole
 
@@ -912,6 +949,11 @@ class ProjectCompletedOutputField:
                 "Completed field source must be one closed exact authority."
             )
         _validate_completed_field_source(self)
+        if type(self.type_sources) is not tuple or any(
+            type(source) is not ProjectRowEquivalenceField
+            for source in self.type_sources
+        ):
+            raise TypeError("SELECT field type images require exact parent evidence.")
 
 
 class ProjectRelationOrderDirection(StrEnum):
@@ -1141,7 +1183,11 @@ class ProjectNoJoinReplayRoot:
             not in {ProjectExistingEffectiveOutput, ProjectEffectiveOutputTerminal}
             or self.base_entry.owner is not self.owner
             or type(self.upstream_entry)
-            not in {ProjectExistingEffectiveOutput, ProjectCompletedEffectiveOutput}
+            not in {
+                ProjectExistingEffectiveOutput,
+                ProjectCompletedEffectiveOutput,
+                ProjectCompletedSetOutput,
+            }
             or type(self.semantic_facts) is not ProjectModuleRelationSemanticFacts
             or self.semantic_facts.owner is not self.owner
             or resolution is None
@@ -1336,6 +1382,168 @@ class ProjectCompletedEffectiveOutput:
         _validate_completed_output_root(self)
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectCompletedSetOutputField:
+    """A canonical non-SELECT field with complete positional operand provenance."""
+
+    root: ProjectSetOperation = field(repr=False)
+    source: ProjectSetColumn = field(repr=False)
+    output_position: int
+    owner: ProjectDeclarationOccurrence = field(init=False)
+    output_name: str = field(init=False)
+    identity: ProjectModuleRowFieldIdentity = field(init=False)
+    field: ProjectRowField = field(init=False)
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.output_position) is not int
+            or not 0 <= self.output_position < len(self.root.columns)
+            or self.root.columns[self.output_position] is not self.source
+        ):
+            raise ValueError("Set field requires its exact operation column.")
+        first = self.source.inputs[0].selected
+        if not isinstance(first, ProjectRowEquivalenceInput):
+            raise TypeError("Set label requires the first completed operand field.")
+        object.__setattr__(self, "owner", self.root.owner)
+        object.__setattr__(self, "output_name", first.identity.name)
+        object.__setattr__(
+            self,
+            "identity",
+            _completed_field_identity(
+                self.owner, self.output_position, self.output_name
+            ),
+        )
+        object.__setattr__(
+            self,
+            "field",
+            ProjectRowField(
+                name=self.output_name,
+                resolved_type=self.source.resolved_type,
+                nullability=self.source.nullability,
+                result_role=ProjectRowResultRole.ORDINARY_ROW_VALUE,
+            ),
+        )
+
+    @property
+    def type_sources(self) -> tuple[ProjectRowEquivalenceField, ...]:
+        return self.source.inputs
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSetFullRowUniqueness:
+    output: ProjectCompletedSetOutput = field(repr=False)
+    nulls_equal: bool = field(default=True, init=False)
+
+    def __post_init__(self) -> None:
+        if (
+            not self.output.root.full_row_unique
+            or not self.output.root.requires_equivalence
+        ):
+            raise ValueError("Set uniqueness requires an exact DISTINCT set operator.")
+
+    @property
+    def fields(self) -> tuple[ProjectCompletedSetOutputField, ...]:
+        return self.output.fields
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectCompletedSetOutput:
+    """The non-SELECT variant in the canonical effective-output ledger."""
+
+    root: ProjectSetOperation = field(repr=False)
+    fields: tuple[ProjectCompletedSetOutputField, ...] = field(init=False)
+    schema: ProjectRowSchema = field(init=False)
+    row_domain: ProjectCompletedRowDomain = field(init=False)
+    uniqueness: ProjectSetFullRowUniqueness | None = field(init=False)
+    ordering: None = field(default=None, init=False)
+    limit: None = field(default=None, init=False)
+
+    def __post_init__(self) -> None:
+        if type(self.root) is not ProjectSetOperation:
+            raise TypeError(
+                "Completed set output requires its exact semantic operation."
+            )
+        fields = tuple(
+            ProjectCompletedSetOutputField(
+                root=self.root, source=column, output_position=i
+            )
+            for i, column in enumerate(self.root.columns)
+        )
+        object.__setattr__(self, "fields", fields)
+        object.__setattr__(
+            self,
+            "schema",
+            ProjectRowSchema(fields={f.output_name: f.field for f in fields}),
+        )
+        origin = ProjectSetGrainOrigin(
+            witness=self.root,
+            input_domains=tuple(
+                _entry_row_domain(use.authority.entry) for use in self.root.uses
+            ),
+        )
+        object.__setattr__(
+            self,
+            "row_domain",
+            ProjectCompletedRowDomain(
+                kind=ProjectCompletedRowDomainKind.SET, set_origin=origin
+            ),
+        )
+        object.__setattr__(
+            self,
+            "uniqueness",
+            ProjectSetFullRowUniqueness(output=self)
+            if self.root.full_row_unique
+            else None,
+        )
+        self.validate()
+
+    @property
+    def owner(self) -> ProjectDeclarationOccurrence:
+        return self.root.owner
+
+    @property
+    def base_entry(self) -> ProjectEffectiveOutputEntry:
+        return self.root.scope.base_entry
+
+    @property
+    def dependencies(self) -> tuple[ProjectCompletionDependency, ...]:
+        return self.base_entry.dependencies
+
+    def validate(self) -> None:
+        if len(self.fields) != len(self.root.columns) or any(
+            f.root is not self.root
+            or f.source is not column
+            or f.output_position != i
+            or f.owner is not self.owner
+            or self.schema.fields.get(f.output_name) is not f.field
+            or f.field.resolved_type is not column.resolved_type
+            or f.field.nullability is not column.nullability
+            or f.field.result_role is not ProjectRowResultRole.ORDINARY_ROW_VALUE
+            for i, (f, column) in enumerate(
+                zip(self.fields, self.root.columns, strict=True)
+            )
+        ):
+            raise ValueError(
+                "Completed set output lost exact source/field/type mappings."
+            )
+        if tuple(self.schema.fields) != tuple(f.output_name for f in self.fields):
+            raise ValueError(
+                "Set output labels must retain first-operand positional order."
+            )
+        origin = self.row_domain.set_origin
+        if (
+            origin is None
+            or origin.witness is not self.root
+            or not _same_objects(
+                origin.input_domains,
+                tuple(_entry_row_domain(use.authority.entry) for use in self.root.uses),
+            )
+        ):
+            raise ValueError("Set output lost its exact row-domain provenance.")
+        if self.uniqueness is not None and self.uniqueness.output is not self:
+            raise ValueError("Set uniqueness cannot be grafted from another output.")
+
+
 class ProjectEffectiveOutputCompletionTerminalReason(StrEnum):
     CURRENT_JOIN_CONDITION_NON_CONCRETE = "current_join_condition_non_concrete"
     CURRENT_JOIN_INPUT_NON_CONCRETE = "current_join_input_non_concrete"
@@ -1351,6 +1559,7 @@ class ProjectEffectiveOutputCompletionTerminalReason(StrEnum):
     ORDER_NON_CONCRETE = "order_non_concrete"
     LIMIT_NON_CONCRETE = "limit_non_concrete"
     DISTINCT_NON_CONCRETE = "distinct_non_concrete"
+    SET_NON_CONCRETE = "set_non_concrete"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -1408,6 +1617,29 @@ class ProjectEffectiveOutputCompletionTerminal:
             type(item) is not Diagnostic for item in self.diagnostics
         ):
             raise TypeError("Completion terminal diagnostics must be exact.")
+        if (
+            self.reason
+            is ProjectEffectiveOutputCompletionTerminalReason.SET_NON_CONCRETE
+        ):
+            if (
+                not isinstance(self.owner.definition, SetRelationDef)
+                or type(self.blocker) is not ProjectSetFailure
+                or self.blocker.scope.base_entry is not self.base_entry
+                or self.diagnostics is not self.blocker.diagnostics
+                or any(
+                    (
+                        self.joined_qualify is not None,
+                        self.replay_root is not None,
+                        self.upstream_entry is not None,
+                        self.current_region is not None,
+                        self.current_inputs is not None,
+                    )
+                )
+            ):
+                raise ValueError(
+                    "Set terminal requires its exact failure scope and no partial output."
+                )
+            return
         if self.current_region is not None:
             _validate_current_terminal(self)
             return
@@ -1500,6 +1732,7 @@ class ProjectEffectiveOutputCompletionTerminal:
                 ProjectExistingEffectiveOutput,
                 ProjectEffectiveOutputTerminal,
                 ProjectCompletedEffectiveOutput,
+                ProjectCompletedSetOutput,
                 ProjectEffectiveOutputCompletionTerminal,
             }
         ):
@@ -1524,6 +1757,7 @@ class ProjectEffectiveOutputCompletionTerminal:
         if type(upstream) not in {
             ProjectExistingEffectiveOutput,
             ProjectCompletedEffectiveOutput,
+            ProjectCompletedSetOutput,
         } or self.reason is (
             ProjectEffectiveOutputCompletionTerminalReason.JOINED_QUALIFY_NON_CONCRETE
         ):
@@ -1544,12 +1778,15 @@ class ProjectEffectiveOutputCompletionTerminal:
 
 
 type ProjectConcreteEffectiveOutputEntry = (
-    ProjectExistingEffectiveOutput | ProjectCompletedEffectiveOutput
+    ProjectExistingEffectiveOutput
+    | ProjectCompletedEffectiveOutput
+    | ProjectCompletedSetOutput
 )
 type ProjectEffectiveOutputCompletionEntry = (
     ProjectExistingEffectiveOutput
     | ProjectEffectiveOutputTerminal
     | ProjectCompletedEffectiveOutput
+    | ProjectCompletedSetOutput
     | ProjectEffectiveOutputCompletionTerminal
 )
 
@@ -1585,6 +1822,7 @@ class ProjectEffectiveJoinInputAuthority(ProjectCurrentInputAuthority):
         if type(self.completion) is not ProjectCompletion or type(self.entry) not in {
             ProjectExistingEffectiveOutput,
             ProjectCompletedEffectiveOutput,
+            ProjectCompletedSetOutput,
         }:
             raise TypeError(
                 "Effective input requires exact concrete completion authority."
@@ -1599,7 +1837,17 @@ class ProjectEffectiveJoinInputAuthority(ProjectCurrentInputAuthority):
             raise ValueError(
                 "Effective input is detached from the exact completion snapshot."
             )
-        self.entry.__post_init__()
+        if isinstance(self.entry, ProjectCompletedSetOutput):
+            self.entry.validate()
+        else:
+            self.entry.__post_init__()
+            if isinstance(self.entry, ProjectCompletedEffectiveOutput):
+                _validate_distinct_projection(self.entry.root, self.entry.fields)
+
+    def type_sources(
+        self, field_position: int
+    ) -> tuple[ProjectRowEquivalenceField, ...]:
+        return _entry_type_sources(self.entry, field_position)
 
     def field_parts(
         self,
@@ -1691,6 +1939,36 @@ def _current_input_properties(
     incoming: ProjectIROutputRelationalProperties | None,
 ) -> ProjectIROutputRelationalProperties:
     entry = authority.entry
+    if isinstance(entry, ProjectCompletedSetOutput):
+        if (
+            output.authority is not authority
+            or incoming is not None
+            or len(output.set_inputs) != len(entry.root.uses)
+        ):
+            raise ValueError(
+                "Set materialization requires its exact operand property tuple."
+            )
+        for use, properties in zip(entry.root.uses, output.set_inputs, strict=True):
+            if use.authority.historical_properties is not None:
+                valid = properties is use.authority.historical_properties
+            else:
+                valid = (
+                    isinstance(properties.output, ProjectCurrentMaterializedInput)
+                    and properties.output.authority is use.authority
+                    and properties.output.properties is properties
+                )
+            if not valid:
+                raise ValueError(
+                    "Set properties cannot borrow another operand producer."
+                )
+        origin = entry.row_domain.set_origin
+        if origin is None:
+            raise ValueError("Set materialization lost its exact grain origin.")
+        return transfer_set_properties(output, output.set_inputs, origin)
+    if output.set_inputs:
+        raise ValueError(
+            "SELECT materialization cannot acquire set operand properties."
+        )
     if (
         type(entry) is not ProjectCompletedEffectiveOutput
         or output.authority is not authority
@@ -1995,6 +2273,7 @@ class ProjectEffectiveOutputCompletion:
                 ProjectExistingEffectiveOutput,
                 ProjectEffectiveOutputTerminal,
                 ProjectCompletedEffectiveOutput,
+                ProjectCompletedSetOutput,
                 ProjectEffectiveOutputCompletionTerminal,
             }
             for entry in self.entries
@@ -2023,6 +2302,7 @@ class ProjectEffectiveOutputCompletion:
                 type(entry)
                 in {
                     ProjectCompletedEffectiveOutput,
+                    ProjectCompletedSetOutput,
                     ProjectEffectiveOutputCompletionTerminal,
                 }
                 and cast(
@@ -2248,7 +2528,7 @@ def _output_names(
 
 
 def _entry_schema(entry: ProjectConcreteEffectiveOutputEntry) -> ProjectRowSchema:
-    if type(entry) is ProjectCompletedEffectiveOutput:
+    if isinstance(entry, (ProjectCompletedEffectiveOutput, ProjectCompletedSetOutput)):
         return entry.schema
     if type(entry) is ProjectExistingEffectiveOutput:
         state = entry.fragment.semantic_facts.state
@@ -2266,7 +2546,7 @@ def _entry_schema(entry: ProjectConcreteEffectiveOutputEntry) -> ProjectRowSchem
 def _entry_row_domain(
     entry: ProjectConcreteEffectiveOutputEntry,
 ) -> ProjectPreservedRowDomainAuthority:
-    if type(entry) is ProjectCompletedEffectiveOutput:
+    if isinstance(entry, (ProjectCompletedEffectiveOutput, ProjectCompletedSetOutput)):
         return entry.row_domain
     if type(entry) is ProjectExistingEffectiveOutput:
         return entry.properties.grain
@@ -2363,6 +2643,13 @@ def _validate_completed_output_root(output: ProjectCompletedEffectiveOutput) -> 
         domain = distinct.input_domain
     _validate_projection_domain(output.owner, output.base_entry, root, domain)
     _validate_completed_output_sources(output)
+    for selected in output.fields:
+        if not _same_objects(
+            selected.type_sources, _selected_type_sources(output.root, selected)
+        ):
+            raise ValueError(
+                "Completed SELECT type images lost their exact input fields."
+            )
 
 
 def _validate_completed_output_sources(
@@ -2451,6 +2738,24 @@ def _entry_replay_root(
 def _validate_completion_overlay_membership(
     overlay: ProjectEffectiveOutputCompletion,
 ) -> None:
+    by_owner = {id(entry.owner): entry for entry in overlay.entries}
+    available = [by_owner[id(owner)] for owner in overlay.base.topology.blocked_owners]
+    for owner in overlay.schedule:
+        entry = by_owner[id(owner)]
+        scope = (
+            entry.root.scope
+            if isinstance(entry, ProjectCompletedSetOutput)
+            else entry.blocker.scope
+            if isinstance(entry, ProjectEffectiveOutputCompletionTerminal)
+            and isinstance(entry.blocker, ProjectSetFailure)
+            else None
+        )
+        if scope is not None and (
+            scope.completion is not overlay.base
+            or not _same_objects(scope.available, tuple(available))
+        ):
+            raise ValueError("Set scope must retain the exact current producer prefix.")
+        available.append(entry)
     current = _validate_current_inventory(overlay)
     expected_replay_roots = tuple(
         root
@@ -2467,6 +2772,29 @@ def _validate_completion_overlay_membership(
         overlay.base.entries,
         strict=True,
     ):
+        if isinstance(entry, ProjectCompletedSetOutput):
+            if (
+                entry.base_entry is not base_entry
+                or entry.root.scope.completion is not overlay.base
+            ):
+                raise ValueError(
+                    "Set output is detached from its exact completion root."
+                )
+            entry.validate()
+            continue
+        if (
+            isinstance(entry, ProjectEffectiveOutputCompletionTerminal)
+            and entry.reason
+            is ProjectEffectiveOutputCompletionTerminalReason.SET_NON_CONCRETE
+        ):
+            if (
+                type(entry.blocker) is not ProjectSetFailure
+                or entry.blocker.scope.completion is not overlay.base
+            ):
+                raise ValueError(
+                    "Set failure is detached from its exact completion root."
+                )
+            continue
         if (
             isinstance(entry, ProjectCompletedEffectiveOutput)
             and entry.row_domain.distinct is not None
@@ -2557,6 +2885,7 @@ def _validate_completion_overlay_membership(
             continue
         if type(entry) not in {
             ProjectCompletedEffectiveOutput,
+            ProjectCompletedSetOutput,
             ProjectEffectiveOutputCompletionTerminal,
         }:
             continue
@@ -2631,6 +2960,18 @@ def _field_from_value_type(
     )
 
 
+def _completed_field_identity(
+    owner: ProjectDeclarationOccurrence, position: int, name: str
+) -> ProjectModuleRowFieldIdentity:
+    """Shared canonical identity constructor for SELECT and non-SELECT outputs."""
+    return ProjectModuleRowFieldIdentity(
+        owner=_declaration_identity(owner),
+        kind=ProjectModuleRowFieldKind.RELATION_OUTPUT,
+        field_position=position,
+        name=name,
+    )
+
+
 def _completed_field(
     *,
     owner: ProjectDeclarationOccurrence,
@@ -2646,12 +2987,7 @@ def _completed_field(
         selected_output_ordinal=ordinal,
         item=select_fact.item,
         output_name=name,
-        identity=ProjectModuleRowFieldIdentity(
-            owner=_declaration_identity(owner),
-            kind=ProjectModuleRowFieldKind.RELATION_OUTPUT,
-            field_position=ordinal,
-            name=name,
-        ),
+        identity=_completed_field_identity(owner, ordinal, name),
         field=row_field,
         result_role=row_field.result_role,
         source=source,
@@ -3685,6 +4021,63 @@ def _no_join_terminal(
     )
 
 
+def _entry_type_sources(
+    entry: ProjectConcreteEffectiveOutputEntry, position: int
+) -> tuple[ProjectRowEquivalenceField, ...]:
+    if isinstance(entry, ProjectExistingEffectiveOutput):
+        return ()
+    return entry.fields[position].type_sources
+
+
+def _selected_type_sources(
+    root: ProjectFinalOutputRoot, selected: ProjectCompletedOutputField
+) -> tuple[ProjectRowEquivalenceField, ...]:
+    expression = selected.item.expression
+    if not isinstance(expression, (NameExpr, DottedNameExpr)):
+        return ()
+    source = selected.source
+    if isinstance(root, ProjectConcreteNoJoinReplay) and isinstance(
+        source, ProjectNoJoinScalarExpression
+    ):
+        name = (
+            expression.name
+            if isinstance(expression, NameExpr)
+            else expression.parts[-1]
+        )
+        if isinstance(expression, NameExpr) and name in root.let_scope.value_types:
+            return ()
+        member = root.input_schema.fields.get(name)
+        positions = tuple(
+            i
+            for i, field in enumerate(root.input_schema.fields.values())
+            if field is member
+        )
+        return (
+            _entry_type_sources(root.upstream_entry, positions[0])
+            if len(positions) == 1
+            else ()
+        )
+    if (
+        isinstance(root, ProjectConcreteJoinedQualify)
+        and isinstance(source, ProjectConcreteJoinedNamespaceExpression)
+        and len(source.resolutions) == 1
+    ):
+        resolution = source.resolutions[0]
+        if (
+            isinstance(resolution, ProjectScalarReferenceResolution)
+            and resolution.target is not None
+        ):
+            semantic = root.window_stage.input_aggregation.input_filter.joined_semantics.fields[
+                resolution.target.position
+            ]
+            current = semantic.current_input
+            if current is not None:
+                return _entry_type_sources(
+                    current.authority.entry, current.field_position
+                )
+    return ()
+
+
 def _projection_domain(
     entry: ProjectCompletedEffectiveOutput,
 ) -> ProjectCompletedRowDomain:
@@ -3791,6 +4184,21 @@ def _domain_is_global(domain: ProjectPreservedRowDomainAuthority) -> bool:
         return domain.state is ProjectGrainBasisState.GLOBAL
     if domain.kind is ProjectCompletedRowDomainKind.GLOBAL:
         return True
+    if domain.kind is ProjectCompletedRowDomainKind.SET:
+        origin = domain.set_origin
+        if origin is None or origin.factor is not None:
+            return False
+        definition = origin.witness.owner.definition
+        assert isinstance(definition, SetRelationDef)
+        domains = (
+            origin.input_domains
+            if definition.body.kind is SetOperationKind.INTERSECT
+            else origin.input_domains[:1]
+        )
+        return any(
+            _domain_is_global(cast(ProjectPreservedRowDomainAuthority, item))
+            for item in domains
+        )
     return domain.preserved is not None and _domain_is_global(domain.preserved)
 
 
@@ -3806,7 +4214,9 @@ def _distinct_global_input(
         upstream = root.upstream_entry
         if isinstance(upstream, ProjectCompletedEffectiveOutput):
             return upstream.limit is not None and upstream.limit.value <= 1
-        if isinstance(upstream.owner.definition, (TableDef, QueryDef)):
+        if isinstance(upstream, ProjectExistingEffectiveOutput) and isinstance(
+            upstream.owner.definition, (TableDef, QueryDef)
+        ):
             bound = _relation_limit(upstream.owner)
             operators = tuple(
                 operator
@@ -3962,6 +4372,12 @@ def _finish_completed_output(
     limit: ProjectRelationLimit | None,
     dependencies: tuple[ProjectCompletionDependency, ...],
 ) -> ProjectCompletedEffectiveOutput | ProjectEffectiveOutputCompletionTerminal:
+    sources = tuple(_selected_type_sources(root, selected) for selected in fields)
+    if any(sources):
+        fields = tuple(
+            replace(selected, type_sources=parents)
+            for selected, parents in zip(fields, sources, strict=True)
+        )
     clause = _derived_definition(owner).distinct_clause
     if clause is not None:
         _validate_distinct_projection(root, fields)
@@ -4032,6 +4448,184 @@ def _finish_completed_output(
         ordering=ordering,
         limit=limit,
         dependencies=dependencies,
+    )
+
+
+def _complete_set_output(
+    completion: ProjectCompletion,
+    base_entry: ProjectEffectiveOutputEntry,
+    available: tuple[ProjectEffectiveOutputCompletionEntry, ...],
+    current: _CurrentJoinBuild | None = None,
+) -> ProjectCompletedSetOutput | ProjectEffectiveOutputCompletionTerminal:
+    scope = ProjectSetInputScope(
+        completion=completion, base_entry=base_entry, available=available
+    )
+    definition = base_entry.owner.definition
+    assert isinstance(definition, SetRelationDef)
+    body = definition.body
+
+    def failed(
+        reason: ProjectSetFailureReason,
+        blockers: tuple[object, ...],
+        diagnostics: tuple[Diagnostic, ...],
+    ):
+        failure = ProjectSetFailure(
+            scope=scope, reason=reason, blockers=blockers, diagnostics=diagnostics
+        )
+        return _terminal(
+            base_entry=base_entry,
+            reason=ProjectEffectiveOutputCompletionTerminalReason.SET_NON_CONCRETE,
+            blocker=failure,
+            diagnostics=failure.diagnostics,
+        )
+
+    environment = scope.references[0].environment
+    owner_symbols = environment.find_relation_name(definition.name)
+    if (
+        len(owner_symbols) != 1
+        or owner_symbols[0].target_occurrence is not base_entry.owner
+    ):
+        issues = tuple(
+            issue for issue in environment.issues if issue.local_name == definition.name
+        )
+        owner_diagnostics = tuple(
+            d
+            for issue in issues
+            for d in (
+                (issue.diagnostic,)
+                if issue.diagnostic is not None
+                else issue.suppressing_diagnostics
+            )
+        )
+        return failed(
+            ProjectSetFailureReason.INPUT_UNAVAILABLE, issues, owner_diagnostics
+        )
+    if body.quantifier is None or len(body.operands) < 2:
+        reason = (
+            ProjectSetFailureReason.QUANTIFIER_REQUIRED
+            if body.quantifier is None
+            else ProjectSetFailureReason.OPERAND_ARITY
+        )
+        return failed(
+            reason,
+            (body,),
+            (
+                set_diagnostic(
+                    scope,
+                    "PIE-S2341",
+                    "Set operations require explicit ALL/DISTINCT and at least two authored operands.",
+                ),
+            ),
+        )
+    uses: list[ProjectSetOperandUse] = []
+    blockers: list[object] = []
+    diagnostics: list[Diagnostic] = []
+    for resolution in scope.references:
+        target = resolution.target_symbol
+        ordinal = resolution.reference.operand_ordinal
+        if target is None:
+            blockers.append(resolution)
+            diagnostics.extend(resolution.diagnostics)
+            continue
+        entries = tuple(e for e in available if e.owner is target.target_occurrence)
+        if len(entries) != 1 or not isinstance(
+            entries[0],
+            (
+                ProjectExistingEffectiveOutput,
+                ProjectCompletedEffectiveOutput,
+                ProjectCompletedSetOutput,
+            ),
+        ):
+            blockers.extend(entries or (resolution,))
+            diagnostics.append(
+                set_diagnostic(
+                    scope,
+                    "PIE-S2342",
+                    f"Set operand {ordinal + 1} has no concrete completed output.",
+                    ordinal,
+                )
+            )
+            continue
+        entry = entries[0]
+        dependencies = tuple(
+            d for d in base_entry.dependencies if d.evidence is resolution
+        )
+        if len(dependencies) != 1:
+            raise ValueError(
+                "Set operand must have one exact pre-scheduling dependency."
+            )
+        authority = (
+            current.provider(entry)
+            if current is not None
+            else ProjectEffectiveJoinInputAuthority(completion=completion, entry=entry)
+        )
+        uses.append(
+            ProjectSetOperandUse(
+                scope=scope,
+                resolution=resolution,
+                dependency=dependencies[0],
+                authority=authority,
+            )
+        )
+    if blockers:
+        return failed(
+            ProjectSetFailureReason.INPUT_UNAVAILABLE,
+            tuple(blockers),
+            tuple(diagnostics),
+        )
+    widths = tuple(len(use.fields) for use in uses)
+    if len(set(widths)) != 1:
+        return failed(
+            ProjectSetFailureReason.WIDTH_MISMATCH,
+            tuple(uses),
+            (
+                set_diagnostic(
+                    scope, "PIE-S2342", f"Set operand widths differ: {widths}."
+                ),
+            ),
+        )
+    for operand, use in enumerate(uses):
+        for position, (first, other) in enumerate(
+            zip(uses[0].fields, use.fields, strict=True)
+        ):
+            if not compatible_row_types(first, other):
+                blockers.extend((first, other))
+                diagnostics.append(
+                    set_diagnostic(
+                        scope,
+                        "PIE-S2343",
+                        f"Set operand {operand + 1}, field {position + 1} requires exact compatible types and validated identical Decimal precision/scale.",
+                        operand,
+                    )
+                )
+    if blockers:
+        return failed(
+            ProjectSetFailureReason.TYPE_MISMATCH, tuple(blockers), tuple(diagnostics)
+        )
+    if (
+        body.kind is not SetOperationKind.UNION
+        or body.quantifier is SetOperationQuantifier.DISTINCT
+    ):
+        for operand, use in enumerate(uses):
+            for position, fact in enumerate(use.fields):
+                if fact.reason is not None:
+                    blockers.append(fact)
+                    diagnostics.append(
+                        set_diagnostic(
+                            scope,
+                            "PIE-S2344",
+                            f"Set operand {operand + 1}, field {position + 1} of type '{fact.selected.field.resolved_type.name}' lacks required row equivalence: {fact.reason.value}.",
+                            operand,
+                        )
+                    )
+    if blockers:
+        return failed(
+            ProjectSetFailureReason.EQUIVALENCE_UNSUPPORTED,
+            tuple(blockers),
+            tuple(diagnostics),
+        )
+    return ProjectCompletedSetOutput(
+        root=ProjectSetOperation(scope=scope, uses=tuple(uses))
     )
 
 
@@ -4151,12 +4745,14 @@ def _complete_no_join_output(
         )
     input_schema = _entry_schema(upstream_entry)
     upstream_definition = resolution.target_symbol.target_occurrence.definition
-    if type(upstream_definition) not in {SourceDef, TableDef, QueryDef}:
+    if type(upstream_definition) not in {SourceDef, TableDef, QueryDef, SetRelationDef}:
         raise TypeError("No-JOIN replay upstream must produce rows.")
     let_scope = build_project_relation_let_scope_facts(
         definition=definition,
         input_schema=input_schema,
-        upstream_definition=cast(SourceDef | TableDef | QueryDef, upstream_definition),
+        upstream_definition=cast(
+            SourceDef | TableDef | QueryDef | SetRelationDef, upstream_definition
+        ),
     )
     if let_scope.status not in {
         ProjectLetScopeFactsStatus.ABSENT,
@@ -4196,7 +4792,7 @@ def _complete_no_join_output(
             source_schema=input_schema,
             source_symbol=upstream_symbol,
             upstream_definition=cast(
-                SourceDef | TableDef | QueryDef,
+                SourceDef | TableDef | QueryDef | SetRelationDef,
                 upstream_definition,
             ),
             fallback_path=owner.identity.module_path,
@@ -4646,7 +5242,8 @@ def _validate_current_inventory(overlay: ProjectEffectiveOutputCompletion):
             for region in overlay.current_regions
             for properties in region.input_properties
         ) or any(
-            other.incoming is not None and other.incoming.output is item
+            (other.incoming is not None and other.incoming.output is item)
+            or any(parent.output is item for parent in other.set_inputs)
             for other in materialized
         )
         if not consumed:
@@ -4769,13 +5366,23 @@ class _CurrentJoinBuild:
                 )
             return result.properties
         entry = authority.entry
-        if not isinstance(entry, ProjectCompletedEffectiveOutput):
+        if not isinstance(
+            entry, (ProjectCompletedEffectiveOutput, ProjectCompletedSetOutput)
+        ):
             raise TypeError("Materialization requires a completed producer.")
+        set_inputs = (
+            tuple(self.materialize(use.authority) for use in entry.root.uses)
+            if isinstance(entry, ProjectCompletedSetOutput)
+            else ()
+        )
         incoming = None
         if isinstance(entry.root, ProjectConcreteNoJoinReplay):
             incoming = self.materialize(self.provider(entry.root.upstream_entry))
         result = ProjectCurrentMaterializedInput(
-            authority=authority, starting_allocation=self.allocation, incoming=incoming
+            authority=authority,
+            starting_allocation=self.allocation,
+            incoming=incoming,
+            set_inputs=set_inputs,
         )
         self.materialized[key] = result
         self.events.append(result)
@@ -4837,7 +5444,11 @@ class _CurrentJoinBuild:
                 )
             if isinstance(
                 source,
-                (ProjectExistingEffectiveOutput, ProjectCompletedEffectiveOutput),
+                (
+                    ProjectExistingEffectiveOutput,
+                    ProjectCompletedEffectiveOutput,
+                    ProjectCompletedSetOutput,
+                ),
             ):
                 bindings.append(
                     ProjectCurrentBindingInput(
@@ -5041,7 +5652,8 @@ def build_project_effective_output_completion(
     required_current = {
         id(owner)
         for owner in completion.owners
-        if isinstance(owner.definition, (TableDef, QueryDef))
+        if isinstance(owner.definition, SetRelationDef)
+        or isinstance(owner.definition, (TableDef, QueryDef))
         and owner.definition.distinct_clause is not None
     }
     if join_conditions is not None:
@@ -5073,6 +5685,13 @@ def build_project_effective_output_completion(
             id(dependency.target) in changed_current
             for dependency in base_entry.dependencies
         )
+        if isinstance(definition, SetRelationDef):
+            entry = _complete_set_output(
+                completion, base_entry, tuple(built_by_owner.values()), current_state
+            )
+            built_by_owner[id(owner)] = entry
+            changed_current.add(id(owner))
+            continue
         current = (
             current_state.attempt(base_entry, tuple(built_by_owner.values()))
             if type(base_entry) is ProjectEffectiveOutputTerminal
@@ -5108,6 +5727,7 @@ def build_project_effective_output_completion(
                 if type(upstream) in {
                     ProjectExistingEffectiveOutput,
                     ProjectCompletedEffectiveOutput,
+                    ProjectCompletedSetOutput,
                 }:
                     entry = _complete_no_join_output(
                         completion=completion,
@@ -5163,6 +5783,7 @@ def build_project_effective_output_completion(
             if type(upstream) in {
                 ProjectExistingEffectiveOutput,
                 ProjectCompletedEffectiveOutput,
+                ProjectCompletedSetOutput,
             }:
                 entry = _complete_no_join_output(
                     completion=completion,
@@ -5223,3 +5844,25 @@ def _has_distinct(completed) -> bool:
         and owner.definition.distinct_clause is not None
         for owner in completed.effective_outputs.owners
     )
+
+
+def _has_set_outputs(completed) -> bool:
+    return any(
+        isinstance(owner.definition, SetRelationDef)
+        for owner in completed.effective_outputs.owners
+    )
+
+
+def completed_set_admission_diagnostics(
+    overlay: ProjectEffectiveOutputCompletion,
+) -> tuple[Diagnostic, ...]:
+    diagnostics: list[Diagnostic] = []
+    for entry in overlay.entries:
+        if isinstance(entry, ProjectCompletedSetOutput):
+            facts = _semantic_facts(overlay.base, entry.owner)
+            if facts.helper_diagnostics != syntax_diagnostics(entry.owner.definition):
+                raise ValueError(
+                    "Set admission requires its exact owner-held temporary cause."
+                )
+            diagnostics.extend(facts.helper_diagnostics)
+    return tuple(diagnostics)

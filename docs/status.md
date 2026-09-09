@@ -47,8 +47,9 @@ documentation does not supersede that evidence.
 | Phase 64 Slice 6 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 7 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 8 | `COMPLETED / PUBLISHED` |
-| Phase 64 Slice 9 | `NEXT / NOT IMPLEMENTED` |
-| Next | `Phase 64 Slice 9 — Set operations, explicit ALL/DISTINCT and output identity` |
+| Phase 64 Slice 9 | `COMPLETED / PUBLISHED` |
+| Phase 64 Slice 10 | `NEXT / NOT IMPLEMENTED` |
+| Next | `Phase 64 Slice 10 — Project IR composition, verification, invalidation, inspection and pure boundary` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -707,6 +708,21 @@ ORDER emits PIE-S2340. D07-FLOAT-DEFERRED excludes participating Float and alias
 with no finite-value exception; Float row-equivalence: DEFERRED -> Phase 72.
 Other Float operations and unaffected historical observer bytes remain unchanged.
 Named completed outputs support downstream replay/JOIN and import/reexport.
-Phase 64 Slice 9 is `NEXT / NOT IMPLEMENTED`; Slices 9–11 are `NOT IMPLEMENTED`.
-Set/non-SELECT construction, combined IR/verification/inspection, completion
-audit, SQL and runtime fulfillment retain their later owners.
+Phase 64 Slice 9 is `COMPLETED / PUBLISHED` only upon successful natural
+exact-head CI on its ordinary publication commit. The
+[set-operation contract](spec/phase64-slice9-set-operations-explicit-all-distinct-output-identity-v1.md)
+delivers E08 in its exact supported domain and the set portion of E09. All six
+explicit ALL/DISTINCT forms preserve authored left-fold order and repeated uses.
+S9-NAME-1 supplies labels from the first authored operand; positional result
+identities belong to the set owner, with complete field/type/provenance maps.
+Exact width/type and independently validated Decimal parameters are required;
+UNION ALL needs no row equivalence, while the other five forms retain the
+Slice-8 domain and D07-FLOAT-DEFERRED. Alternative/quotient/subset grain origins
+retain safe operation-specific properties without a representative or false
+GLOBAL proof. Dependencies precede scheduling; mixed SCCs and their blocked
+descendants allocate no output while independent branches remain available.
+Completed sets compose through named replay, both JOIN roles, DISTINCT, nested
+sets and imports/reexports. Single-match obligations and JSON v2 remain unchanged.
+Phase 64 Slice 10 is `NEXT / NOT IMPLEMENTED`; Slices 10–11 are `NOT IMPLEMENTED`.
+Combined IR/verification/invalidation/inspection and E05/E10 full closure remain
+Slice 10. Completion audit, SQL and runtime fulfillment retain their later owners.

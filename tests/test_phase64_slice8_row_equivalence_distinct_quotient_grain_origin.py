@@ -6,7 +6,10 @@ import json
 
 import pytest
 
-from pietto._project.project_final_outputs import ProjectCompletedEffectiveOutput
+from pietto._project.project_final_outputs import (
+    ProjectCompletedEffectiveOutput,
+    ProjectCompletedSetOutput,
+)
 from pietto._project.project_final_outputs import (
     ProjectEffectiveOutputCompletionTerminal,
     ProjectCompletedRowDomainKind,
@@ -797,17 +800,21 @@ def test_single_file_emit_never_omits_distinct(
 
 @pytest.mark.parametrize("operator", ("union", "intersect", "except"))
 @pytest.mark.parametrize("quantifier", ("all", "distinct"))
-def test_sets_stay_unavailable_even_with_distinct_inputs(
+def test_distinct_inputs_support_sets_but_combined_ir_stays_unavailable(
     tmp_path: Path, operator: str, quantifier: str
 ) -> None:
     source = _source().replace("query result:", "table dedup:")
     source += f"query unavailable:\n    {operator} {quantifier}:\n        from dedup\n        from dedup\n"
     result = _completed(tmp_path, source)
-    assert not result.ok
-    assert any(d.code == "PIE-S2334" for d in result.diagnostics)
+    assert result.ok, result.diagnostics
     assert _entry(result, "dedup").row_domain.distinct is not None
-    terminal = result.effective_outputs.entries[-1]
-    assert not isinstance(terminal, ProjectCompletedEffectiveOutput)
+    output = result.effective_outputs.entries[-1]
+    assert isinstance(output, ProjectCompletedSetOutput)
+    assert all(
+        use.authority.entry is _entry(result, "dedup") for use in output.root.uses
+    )
+    with pytest.raises(ValueError, match="Set operations"):
+        build_project_query_block_ir(result)
 
 
 def test_hidden_multihop_fields_do_not_enter_equivalence(tmp_path: Path) -> None:

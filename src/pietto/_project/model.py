@@ -2632,7 +2632,7 @@ def _project_direct_relation_row_schema(
     *,
     source_schema: ProjectRowSchema,
     source_symbol: ProjectSymbol,
-    upstream_definition: SourceDef | TableDef | QueryDef,
+    upstream_definition: SourceDef | TableDef | QueryDef | SetRelationDef,
     upstream_state: ProjectRelationRowSchemaState | None = None,
     fallback_path: str,
     let_scope_facts: ProjectRelationLetScopeFacts | None = None,

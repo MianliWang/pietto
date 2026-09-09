@@ -17,9 +17,9 @@ from pietto._project.project_relationship_uses import (
     ProjectNonConcreteJoinUse,
 )
 from pietto._project.project_completion import (
-    ProjectEffectiveOutputTerminal,
     ProjectExistingEffectiveOutput,
 )
+from pietto._project.project_final_outputs import ProjectCompletedSetOutput
 from pietto._project import project_join_conditions as conditions
 from pietto._project import project_relationship_match_guarantees as guarantees
 from pietto._project.project_relationship_paths import ProjectRelationshipJoinShapeIndex
@@ -510,14 +510,26 @@ def test_set_input_and_independent_valid_branches_survive(tmp_path: Path) -> Non
     source += "query valid:\n    from lhs\n    select:\n        id\n"
     result = _completed(tmp_path, source)
     fact = result.roots.join_conditions.entries[0]
-    assert not fact.ready and fact.references[1].state.value == "unavailable"
+    assert result.ok, result.diagnostics
+    assert fact.ready and fact.references[1].state.value == "resolved"
     entries = {
         entry.owner.definition.name: entry for entry in result.effective_outputs.entries
     }
     combined, valid = entries["combined"], entries["valid"]
-    assert isinstance(combined, ProjectEffectiveOutputTerminal)
+    assert isinstance(combined, ProjectCompletedSetOutput)
     assert isinstance(valid, ProjectExistingEffectiveOutput)
-    assert combined.output is None and combined.dependencies == ()
+    assert [d.target.definition.name for d in combined.dependencies] == ["lhs", "rhs"]
+    assert len(combined.root.uses) == 2
+    for ordinal, (use, dependency) in enumerate(
+        zip(combined.root.uses, combined.dependencies, strict=True)
+    ):
+        assert use.dependency is dependency
+        assert use.resolution is dependency.evidence
+        assert use.resolution.reference.operand_ordinal == ordinal
+        assert use.authority.entry is entries[dependency.target.definition.name]
+    assert fact.inputs is not None
+    right = fact.inputs.scope.bindings[1].authority
+    assert right is not None and right.entry is combined
     assert valid.output is not None
 
 

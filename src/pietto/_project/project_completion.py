@@ -18,6 +18,8 @@ from pietto._project.module_attribution import ProjectModuleAttributionFactSet
 from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project.module_relation_resolution import (
     ProjectResolvedModuleRelationReference,
+    ProjectResolvedSetOperand,
+    ProjectModuleSetOperandReference,
 )
 from pietto._project.project_ir_composition import ProjectIRProjectPlan
 from pietto._project.project_ir_construction import (
@@ -78,7 +80,9 @@ class ProjectCompletionDependency:
     )
     dependency_ordinal: int
     evidence: (
-        ProjectResolvedModuleRelationReference | ProjectRelationBindingOccurrence
+        ProjectResolvedModuleRelationReference
+        | ProjectRelationBindingOccurrence
+        | ProjectResolvedSetOperand
     ) = field(repr=False, compare=False, hash=False)
 
     def __post_init__(self) -> None:
@@ -96,6 +100,18 @@ class ProjectCompletionDependency:
                 or self.evidence.target_symbol.target_occurrence is not self.target
             ):
                 raise ValueError("Resolved completion dependency lost exact endpoints.")
+        elif type(self.evidence) is ProjectResolvedSetOperand:
+            target = self.evidence.target_symbol
+            reference = self.evidence.reference
+            if (
+                reference.owner is not self.consumer
+                or reference.operand_ordinal != self.dependency_ordinal
+                or target is None
+                or target.target_occurrence is not self.target
+            ):
+                raise ValueError(
+                    "Set dependency requires the exact operand use and target."
+                )
         elif type(self.evidence) is ProjectRelationBindingOccurrence:
             target = self.evidence.target
             if (
@@ -300,8 +316,8 @@ def _cycle_diagnostics(
     closing = witness[-1].evidence
     site = (
         closing.reference.from_clause
-        if type(closing) is ProjectResolvedModuleRelationReference
-        else cast(ProjectRelationBindingOccurrence, closing).site
+        if isinstance(closing, ProjectResolvedModuleRelationReference)
+        else closing.site
     )
     span = site.span
     cross_module = len({owner.identity.module_path for owner in members}) > 1
@@ -332,6 +348,7 @@ class ProjectCompletionTopology:
 
     verification: ProjectPhase62VerificationResult = field(repr=False)
     owners: tuple[ProjectDeclarationOccurrence, ...] = field(init=False)
+    set_operands: tuple[ProjectResolvedSetOperand, ...] = field(init=False, repr=False)
     dependencies: tuple[ProjectCompletionDependency, ...] = field(init=False)
     schedule: tuple[ProjectDeclarationOccurrence, ...] = field(init=False)
     cycles: tuple[ProjectCompletionCycle, ...] = field(init=False)
@@ -346,7 +363,8 @@ class ProjectCompletionTopology:
             fragment.semantic_facts.owner
             for fragment in self.verification.root.evaluation.project_plan.fragments
         )
-        dependencies = _dependencies(self.verification)
+        set_operands = _set_operand_resolutions(self.verification)
+        dependencies = _dependencies(self.verification, set_operands)
         schedule = _schedule(owners, dependencies)
         cycles = tuple(
             ProjectCompletionCycle(
@@ -362,6 +380,7 @@ class ProjectCompletionTopology:
         scheduled = {id(owner) for owner in schedule}
         for name, value in (
             ("owners", owners),
+            ("set_operands", set_operands),
             ("dependencies", dependencies),
             ("schedule", schedule),
             ("cycles", cycles),
@@ -383,7 +402,20 @@ class ProjectCompletionTopology:
             fragment.semantic_facts.owner
             for fragment in self.verification.root.evaluation.project_plan.fragments
         )
-        expected_dependencies = _dependencies(self.verification)
+        expected_operands = _set_operand_resolutions(self.verification)
+        if len(self.set_operands) != len(expected_operands) or any(
+            actual.environment is not expected.environment
+            or actual.reference.owner is not expected.reference.owner
+            or actual.reference.operand is not expected.reference.operand
+            or actual.reference.operand_ordinal != expected.reference.operand_ordinal
+            or not _same_objects(actual.candidates, expected.candidates)
+            or not _same_objects(actual.blockers, expected.blockers)
+            for actual, expected in zip(
+                self.set_operands, expected_operands, strict=True
+            )
+        ):
+            raise ValueError("Completion set operands lost exact resolution authority.")
+        expected_dependencies = _dependencies(self.verification, self.set_operands)
         if not _same_objects(self.owners, expected_owners) or (
             type(self.dependencies) is not tuple
             or len(self.dependencies) != len(expected_dependencies)
@@ -807,8 +839,35 @@ _RECOVERABLE_PENDING_REASONS = frozenset(
 )
 
 
+def _set_operand_resolutions(
+    verification: ProjectPhase62VerificationResult,
+) -> tuple[ProjectResolvedSetOperand, ...]:
+    """Bind actual set sites through the existing module-local relation authority."""
+    plan = verification.root.evaluation.project_plan
+    resolutions = plan.attribution._authority.relation_resolutions
+    result: list[ProjectResolvedSetOperand] = []
+    for fragment in plan.fragments:
+        owner = fragment.semantic_facts.owner
+        if not isinstance(owner.definition, SetRelationDef):
+            continue
+        environments = resolutions.find_module_path(owner.identity.module_path)
+        if len(environments) != 1:
+            raise ValueError("Set references require one exact module environment.")
+        result.extend(
+            ProjectResolvedSetOperand(
+                environment=environments[0],
+                reference=ProjectModuleSetOperandReference(
+                    owner=owner, operand_ordinal=i
+                ),
+            )
+            for i in range(len(owner.definition.body.operands))
+        )
+    return tuple(result)
+
+
 def _dependencies(
     verification: ProjectPhase62VerificationResult,
+    set_operands: tuple[ProjectResolvedSetOperand, ...] = (),
 ) -> tuple[ProjectCompletionDependency, ...]:
     plan = verification.root.evaluation.project_plan
     ledgers = verification.root.join_regions.uses.ledgers
@@ -816,7 +875,28 @@ def _dependencies(
     for fragment in plan.fragments:
         owner = fragment.semantic_facts.owner
         definition = owner.definition
-        if type(definition) in {SourceDef, SetRelationDef}:
+        if type(definition) is SetRelationDef:
+            resolutions = plan.attribution._authority.relation_resolutions
+            environments = resolutions.find_module_path(owner.identity.module_path)
+            if len(environments) != 1:
+                raise ValueError(
+                    "Set dependencies require the exact relation environment."
+                )
+            for operand in set_operands:
+                if (
+                    operand.reference.owner is owner
+                    and operand.target_symbol is not None
+                ):
+                    dependencies.append(
+                        ProjectCompletionDependency(
+                            consumer=owner,
+                            target=operand.target_symbol.target_occurrence,
+                            dependency_ordinal=operand.reference.operand_ordinal,
+                            evidence=operand,
+                        )
+                    )
+            continue
+        if type(definition) is SourceDef:
             continue
         if type(definition) not in {TableDef, QueryDef}:
             raise TypeError("Completion inventory requires relation-producing owners.")

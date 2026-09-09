@@ -38,6 +38,7 @@ from pietto._project.project_relationship_uses import (
 from pietto.ast_nodes import AuthoredJoinKind
 
 if TYPE_CHECKING:
+    from pietto._project.project_row_equivalence import ProjectRowEquivalenceField
     from pietto._project.project_completion import (
         ProjectCompletion,
         ProjectCompletionDependency,
@@ -75,6 +76,12 @@ class ProjectCurrentInputAuthority:
         incoming: ProjectIROutputRelationalProperties | None,
     ) -> ProjectIROutputRelationalProperties:
         raise NotImplementedError
+
+    def type_sources(
+        self, field_position: int
+    ) -> tuple[ProjectRowEquivalenceField, ...]:
+        """Already-retained exact type images; ordinary declared fields need none."""
+        return ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -193,6 +200,9 @@ class ProjectCurrentMaterializedInput(ProjectIRRelationalRowOutputExtension):
     starting_allocation: ProjectIRAllocationState
     incoming: ProjectIROutputRelationalProperties | None = field(
         default=None, repr=False
+    )
+    set_inputs: tuple[ProjectIROutputRelationalProperties, ...] = field(
+        default=(), repr=False
     )
     node: ProjectIRPlanNodeOccurrence = field(init=False)
     occurrence: ProjectIROutputValueOccurrence = field(init=False)

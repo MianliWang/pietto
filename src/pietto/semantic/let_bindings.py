@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import cast
 
 from pietto.ast_nodes import (
     BetweenExpr,
@@ -18,6 +19,7 @@ from pietto.ast_nodes import (
     NameExpr,
     QueryDef,
     SelectItem,
+    SetRelationDef,
     SourceDef,
     TableDef,
     UnaryExpr,
@@ -35,7 +37,11 @@ from pietto.semantic.model import (
 )
 
 DerivedRelation = TableDef | QueryDef
-RelationDefinition = SourceDef | TableDef | QueryDef
+RelationDefinition = SourceDef | TableDef | QueryDef | SetRelationDef
+RelationInputSchemas = (
+    Mapping[DerivedRelation, RowSchema]
+    | Mapping[DerivedRelation | SetRelationDef, RowSchema]
+)
 
 
 def analyze_relation_let_bindings(
@@ -43,7 +49,7 @@ def analyze_relation_let_bindings(
     *,
     from_resolutions: Mapping[FromClause, RelationDefinition],
     source_row_schemas: Mapping[SourceDef, RowSchema],
-    relation_row_schemas: Mapping[DerivedRelation, RowSchema],
+    relation_row_schemas: RelationInputSchemas,
     allow_unaliased_selected_let_outputs: bool = False,
 ) -> tuple[
     dict[DerivedRelation, LetScopeSemanticInfo],
@@ -305,13 +311,15 @@ def _input_schema(
     *,
     from_resolutions: Mapping[FromClause, RelationDefinition],
     source_row_schemas: Mapping[SourceDef, RowSchema],
-    relation_row_schemas: Mapping[DerivedRelation, RowSchema],
+    relation_row_schemas: RelationInputSchemas,
 ) -> RowSchema:
     target = from_resolutions.get(definition.from_clause)
     if isinstance(target, SourceDef):
         return source_row_schemas[target]
-    if isinstance(target, (TableDef, QueryDef)):
-        return relation_row_schemas[target]
+    if isinstance(target, (TableDef, QueryDef, SetRelationDef)):
+        return cast(
+            Mapping[DerivedRelation | SetRelationDef, RowSchema], relation_row_schemas
+        ).get(target, RowSchema(is_unknown=True))
     return RowSchema(is_unknown=True)
 
 

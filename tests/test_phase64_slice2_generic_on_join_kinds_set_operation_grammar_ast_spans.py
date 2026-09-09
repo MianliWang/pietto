@@ -33,17 +33,12 @@ from pietto._project.project_completion import (
     ProjectExistingEffectiveOutput,
 )
 from pietto._project.project_relationship_uses import ProjectNonConcreteJoinUse
+from pietto._project.project_final_outputs import (
+    ProjectCompletedSetOutput,
+    ProjectEffectiveOutputCompletionTerminal,
+)
 from pietto._project.project_query_block_ir import (
     build_project_query_block_ir,
-    ProjectIRQueryBlockTerminal,
-)
-from pietto._project.project_query_block_ir_verification import (
-    verify_project_query_block_ir,
-    ProjectIRQueryBlockVerificationStatus,
-    build_project_query_block_ir_analysis_bundle,
-)
-from pietto._project.project_query_block_ir_inspection import (
-    build_project_query_block_ir_inspection,
 )
 from pietto._project.project_query_block import (
     build_project_query_block_from_relation,
@@ -190,7 +185,7 @@ def test_project_forms_follow_current_owner_availability_without_traceback(
     result = (
         build_project_completed_semantic_result(semantic) if schema == 2 else semantic
     )
-    supported = schema == 2 and source in NEW_SOURCES[:4]
+    supported = schema == 2 and source in NEW_SOURCES[:5]
     assert result.ok is supported
     assert any(d.code == "PIE-S2334" for d in result.diagnostics) is not supported
 
@@ -284,36 +279,34 @@ query valid:
     entries = {
         item.owner.definition.name: item for item in result.effective_outputs.entries
     }
-    assert isinstance(entries["combined"], ProjectEffectiveOutputTerminal)
-    assert entries["combined"].fragment.semantic_facts.select_facts == ()
-    assert entries["combined"].fragment.semantic_facts.resolution is None
-    assert entries["combined"].dependencies == ()  # Set operands await Slice 9.
-    assert entries["combined"].output is None
+    terminal = entries["combined"]
+    assert isinstance(terminal, ProjectEffectiveOutputCompletionTerminal)
+    assert isinstance(terminal.base_entry, ProjectEffectiveOutputTerminal)
+    base = terminal.base_entry.fragment
+    assert base.semantic_facts.select_facts == ()
+    assert base.semantic_facts.resolution is None
+    assert len(terminal.dependencies) == 1
+    assert terminal.dependencies[0].target is entries["lhs"].owner
+    assert terminal.dependencies[0].dependency_ordinal == 0
+    assert terminal.output is None
+    assert any(d.code == "PIE-S2341" for d in result.diagnostics)
     downstream, valid = entries["downstream"], entries["valid"]
-    assert (
-        isinstance(downstream, ProjectEffectiveOutputTerminal)
-        and downstream.output is None
-    )
+    assert isinstance(downstream, ProjectEffectiveOutputCompletionTerminal)
+    assert downstream.output is None and downstream.upstream_entry is terminal
     assert (
         isinstance(valid, ProjectExistingEffectiveOutput) and valid.output is not None
     )
-    base = entries["combined"].fragment
     bridge = build_project_query_block_from_relation(
         compilation_mode=ProjectCompilationMode.EXPLICIT_MODULES,
         owner=base.semantic_facts.owner,
         fragment=base,
     )
     assert isinstance(bridge, ProjectNonConcreteQueryBlock)
-    snapshot = build_project_query_block_ir(result)
-    verification = verify_project_query_block_ir(snapshot)
-    assert verification.status is ProjectIRQueryBlockVerificationStatus.VERIFIED
-    product = build_project_query_block_ir_inspection(
-        build_project_query_block_ir_analysis_bundle(verification)
-    )
-    assert product.canonical_bytes
+    with pytest.raises(ValueError, match="Set operations"):
+        build_project_query_block_ir(result)
 
 
-def test_unsupported_set_and_old_cycles_preserve_partial_schedule(
+def test_supported_set_and_old_cycles_preserve_partial_schedule(
     tmp_path: Path,
 ) -> None:
     source = (
@@ -361,16 +354,17 @@ query valid:
         d for d in result.semantic_result.diagnostics if d.code == "PIE-S2302"
     )
     assert any(d is original for d in result.diagnostics)
-    assert any(d.code == "PIE-S2334" for d in result.diagnostics)
-    snapshot = build_project_query_block_ir(result)
-    assert (
-        verify_project_query_block_ir(snapshot).status
-        is ProjectIRQueryBlockVerificationStatus.VERIFIED
-    )
-    for entry in snapshot.entries:
-        if entry.owner.definition.name in {"combined", "a", "b", "blocked"}:
-            assert isinstance(entry, ProjectIRQueryBlockTerminal)
-            assert entry.output is None
+    assert not any(d.code == "PIE-S2334" for d in result.diagnostics)
+    current = {
+        entry.owner.definition.name: entry for entry in result.effective_outputs.entries
+    }
+    assert isinstance(current["combined"], ProjectCompletedSetOutput)
+    for name in ("a", "b", "blocked"):
+        entry = current[name]
+        assert isinstance(entry, ProjectEffectiveOutputTerminal)
+        assert entry.output is None
+    with pytest.raises(ValueError, match="Set operations"):
+        build_project_query_block_ir(result)
 
 
 @pytest.mark.parametrize(

@@ -7,6 +7,9 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from pietto._project.model import ProjectResolvedTypeKind
+from pietto._project.model import ProjectRowField, ProjectResolvedType
+from pietto._project.module_attribution import ProjectModuleRowFieldIdentity
+from pietto._project.project_current_join_inputs import ProjectCurrentInputAuthority
 from pietto._project.module_resolution import (
     ProjectResolvedModuleTypeReference,
     ProjectTypeSourceResolutionSet,
@@ -32,23 +35,106 @@ class ProjectRowEquivalenceReason(StrEnum):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectRowEquivalenceInput:
+    """A real visible input field; no SELECT AST or completed SELECT fabrication."""
+
+    authority: ProjectCurrentInputAuthority = field(repr=False)
+    field_position: int
+    identity: ProjectModuleRowFieldIdentity = field(init=False)
+    original: object = field(init=False, repr=False)
+    type_sources: tuple[ProjectRowEquivalenceField, ...] = field(init=False, repr=False)
+    field: ProjectRowField = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.authority.validate()
+        parts = self.authority.field_parts()
+        if type(self.field_position) is not int or not 0 <= self.field_position < len(
+            parts
+        ):
+            raise ValueError(
+                "Equivalence input requires exact visible-field membership."
+            )
+        identity, row_field, original = parts[self.field_position]
+        object.__setattr__(self, "identity", identity)
+        object.__setattr__(self, "field", row_field)
+        object.__setattr__(self, "original", original)
+        object.__setattr__(
+            self, "type_sources", self.authority.type_sources(self.field_position)
+        )
+
+
+def same_canonical_type(left: ProjectResolvedType, right: ProjectResolvedType) -> bool:
+    """Existing canonical scalar identity, keeping nominal terminals distinct."""
+    if (
+        left.kind is ProjectResolvedTypeKind.UNKNOWN
+        or right.kind is not left.kind
+        or left.name != right.name
+    ):
+        return False
+    if left.symbol is None or right.symbol is None:
+        return left.symbol is None and right.symbol is None
+    return (
+        left.symbol.definition is right.symbol.definition
+        and left.symbol.path == right.symbol.path
+    )
+
+
+def compatible_row_types(
+    left: ProjectRowEquivalenceField, right: ProjectRowEquivalenceField
+) -> bool:
+    """Type compatibility is independent of row-equivalence availability."""
+    if (
+        not left.type_concrete
+        or not right.type_concrete
+        or not same_canonical_type(
+            left.selected.field.resolved_type, right.selected.field.resolved_type
+        )
+    ):
+        return False
+    if left.decimal is None or right.decimal is None:
+        return left.decimal is None and right.decimal is None
+    return (
+        left.decimal.precision == right.decimal.precision
+        and left.decimal.scale == right.decimal.scale
+    )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectRowEquivalenceField:
     """Capability attached to one exact visible selected field and type root."""
 
-    selected: ProjectCompletedOutputField = field(repr=False)
+    selected: ProjectCompletedOutputField | ProjectRowEquivalenceInput = field(
+        repr=False
+    )
     types: ProjectTypeSourceResolutionSet = field(repr=False)
     resolution: ProjectResolvedModuleTypeReference | None = field(init=False)
     decimal_type_expr: TypeExpr | None = field(init=False)
     decimal: DecimalPrecisionScale | None = field(init=False)
     reason: ProjectRowEquivalenceReason | None = field(init=False)
+    parents: tuple[ProjectRowEquivalenceField, ...] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         if type(self.types) is not ProjectTypeSourceResolutionSet:
             raise TypeError("Row equivalence requires exact module type authority.")
         selected = self.selected
+        if (
+            isinstance(selected, ProjectRowEquivalenceInput)
+            and self.types
+            is not selected.authority.completion.plan.attribution._authority.type_source_resolutions
+        ):
+            raise ValueError(
+                "Input type evidence requires its exact completion type root."
+            )
         selected.__post_init__()
         resolved = selected.field.resolved_type
         definition = selected.field.field_def
+        parents = selected.type_sources
+        if type(parents) is not tuple or any(
+            type(parent) is not ProjectRowEquivalenceField
+            or parent.types is not self.types
+            for parent in parents
+        ):
+            raise ValueError("Type images require exact same-root parent evidence.")
         matches = (
             ()
             if definition is None
@@ -63,7 +149,16 @@ class ProjectRowEquivalenceField:
         decimal_expr = None
         decimal = None
         reason = None
-        if resolved.kind is ProjectResolvedTypeKind.UNKNOWN:
+        parent_mismatch = bool(parents) and (
+            any(
+                not same_canonical_type(resolved, parent.selected.field.resolved_type)
+                for parent in parents
+            )
+            or any(not compatible_row_types(parents[0], parent) for parent in parents)
+        )
+        if parent_mismatch:
+            reason = ProjectRowEquivalenceReason.TYPE_EVIDENCE_MISMATCH
+        elif resolved.kind is ProjectResolvedTypeKind.UNKNOWN:
             reason = ProjectRowEquivalenceReason.UNKNOWN_TYPE
         elif definition is not None and (
             resolution is None
@@ -78,7 +173,9 @@ class ProjectRowEquivalenceField:
             elif resolved.name in {"Any", "Bytes", "Json"}:
                 reason = ProjectRowEquivalenceReason.UNSUPPORTED_TYPE
             elif resolved.name == "Decimal":
-                if resolution is not None:
+                if parents:
+                    decimal = parents[0].decimal
+                elif resolution is not None:
                     decimal_expr = resolution.reference.type_expr
                     if resolution.alias_chain:
                         terminal = resolution.alias_chain[-1]
@@ -92,7 +189,9 @@ class ProjectRowEquivalenceField:
                             and item.direct_kind is ProjectResolvedTypeKind.BUILTIN
                         )
                         decimal_expr = bases[0] if len(bases) == 1 else None
-                if decimal_expr is None:
+                if decimal is not None:
+                    pass  # Exact compatible parents retain all parameter sources.
+                elif decimal_expr is None:
                     reason = ProjectRowEquivalenceReason.DECIMAL_PARAMETERS_MISSING
                 else:
                     decimal, diagnostic = _decimal_precision_scale_fact(decimal_expr)
@@ -115,6 +214,16 @@ class ProjectRowEquivalenceField:
         object.__setattr__(self, "decimal_type_expr", decimal_expr)
         object.__setattr__(self, "decimal", decimal)
         object.__setattr__(self, "reason", reason)
+        object.__setattr__(self, "parents", parents)
+
+    @property
+    def type_concrete(self) -> bool:
+        return self.reason not in {
+            ProjectRowEquivalenceReason.UNKNOWN_TYPE,
+            ProjectRowEquivalenceReason.TYPE_EVIDENCE_MISMATCH,
+            ProjectRowEquivalenceReason.DECIMAL_PARAMETERS_MISSING,
+            ProjectRowEquivalenceReason.DECIMAL_PARAMETERS_INVALID,
+        }
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)

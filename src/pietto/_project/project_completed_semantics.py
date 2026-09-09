@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pietto._project.project_set_operations import ProjectSetFailure
+from pietto._project.module_relation_resolution import ProjectResolvedSetOperand
+
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -36,6 +39,8 @@ from pietto._project.project_completion import (
     build_project_completion,
 )
 from pietto._project.project_final_outputs import (
+    ProjectCompletedSetOutput,
+    completed_set_admission_diagnostics,
     ProjectCompletedEffectiveOutput,
     ProjectEffectiveOutputCompletion,
     ProjectEffectiveOutputCompletionEntry,
@@ -188,10 +193,13 @@ class _ProjectCompletedSemanticRoots:
                 *_final_diagnostics(
                     self.semantic_result,
                     effective_outputs,
-                    retired=tuple(
-                        diagnostic
-                        for admission in effective_outputs.join_admissions
-                        for diagnostic in admission.diagnostics
+                    retired=(
+                        *(
+                            diagnostic
+                            for admission in effective_outputs.join_admissions
+                            for diagnostic in admission.diagnostics
+                        ),
+                        *completed_set_admission_diagnostics(effective_outputs),
                     ),
                 ),
                 *operative.diagnostics,
@@ -245,7 +253,11 @@ class ProjectConcreteCompletedSemanticResult:
         object.__setattr__(self, "single_matches", single_matches)
         entries_are_concrete = all(
             type(entry)
-            in {ProjectExistingEffectiveOutput, ProjectCompletedEffectiveOutput}
+            in {
+                ProjectExistingEffectiveOutput,
+                ProjectCompletedEffectiveOutput,
+                ProjectCompletedSetOutput,
+            }
             for entry in effective_outputs.entries
         )
         object.__setattr__(self, "semantic_result", semantic_result)
@@ -285,6 +297,14 @@ def _diagnostics_from_carrier(carrier: object | None) -> tuple[Diagnostic, ...]:
 
     if carrier is None:
         return ()
+    if isinstance(carrier, ProjectSetFailure):
+        return (
+            *carrier.diagnostics,
+            *_diagnostics_from_carrier(carrier.scope.base_entry),
+            *_diagnostics_from_carrier(carrier.blockers),
+        )
+    if isinstance(carrier, ProjectResolvedSetOperand):
+        return carrier.diagnostics
     if type(carrier) is ProjectCurrentJoinInputFailure:
         return _diagnostics_from_carrier(carrier.blockers)
     if type(carrier) is ProjectJoinCondition:
@@ -508,6 +528,7 @@ def _final_diagnostics(
         if type(entry) in {
             ProjectExistingEffectiveOutput,
             ProjectCompletedEffectiveOutput,
+            ProjectCompletedSetOutput,
         }:
             continue
         if type(entry) not in {

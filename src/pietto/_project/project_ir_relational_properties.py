@@ -18,6 +18,7 @@ from pietto._project.project_grain import (
     ProjectGrainFactorIdentity,
     ProjectGrainOriginAuthority,
     ProjectGrainOriginSet,
+    ProjectSetGrainOrigin,
 )
 from pietto._project.project_ir import (
     ProjectIROperatorFlowUseOccurrence,
@@ -34,7 +35,7 @@ from pietto._project.project_ir_properties import (
 )
 from pietto._project.project_ir_verification import ProjectIRAnalysisBundle
 from pietto._project.project_row_keys import ProjectRowUniquenessStrength
-from pietto.ast_nodes import DottedNameExpr, NameExpr
+from pietto.ast_nodes import DottedNameExpr, NameExpr, SetOperationKind
 
 __all__: tuple[str, ...] = ()
 
@@ -578,6 +579,7 @@ def _image_keys_and_fds(
     ],
     *,
     support: object | None = None,
+    coalesced: bool = False,
 ) -> tuple[
     tuple[ProjectIROutputCandidateKey, ...],
     tuple[ProjectIROutputValueFD, ...],
@@ -593,13 +595,20 @@ def _image_keys_and_fds(
     def retained_support(item: object) -> tuple[object, ...]:
         return (item,) if support is None else (item, support)
 
+    def mapped(values):
+        values = tuple(
+            image for value in values if (image := images[value]) is not None
+        )
+        if coalesced:
+            return tuple(
+                value for value in classes if any(value is image for image in values)
+            )
+        return values
+
     transferred = tuple(
         ProjectIROutputCandidateKey(
             output=output,
-            determinants=tuple(
-                cast(ProjectIROutputValueClass, images[item])
-                for item in key.determinants
-            ),
+            determinants=mapped(key.determinants),
             strength=(
                 ProjectRowUniquenessStrength.STRICT
                 if all(
@@ -624,21 +633,20 @@ def _image_keys_and_fds(
     mapped_fds = tuple(
         ProjectIROutputValueFD(
             output=output,
-            determinants=tuple(
-                cast(ProjectIROutputValueClass, images[item])
-                for item in fact.determinants
-            ),
+            determinants=mapped(fact.determinants),
             dependents=tuple(
-                cast(ProjectIROutputValueClass, images[item])
-                for item in fact.dependents
-                if images[item] is not None
+                item
+                for item in mapped(fact.dependents)
+                if not coalesced or item not in mapped(fact.determinants)
             ),
             strength=fact.strength,
             supports=retained_support(fact),
         )
         for fact in incoming.fds
         if all(images[item] is not None for item in fact.determinants)
-        and any(images[item] is not None for item in fact.dependents)
+        and any(
+            item not in mapped(fact.determinants) for item in mapped(fact.dependents)
+        )
     )
     return keys, _key_fds(output, classes, keys, mapped_fds)
 
@@ -1249,4 +1257,131 @@ def compare_project_ir_grain(left, right):
         left_to_right=left_to_right,
         right_to_left=right_to_left,
         status=status,
+    )
+
+
+def transfer_set_properties(
+    output: ProjectIRRelationalRowOutput,
+    inputs: tuple[ProjectIROutputRelationalProperties, ...],
+    origin: ProjectSetGrainOrigin,
+) -> ProjectIROutputRelationalProperties:
+    """Exact positional subset images in the existing property kernel."""
+    fields = _field_occurrences(output)
+    operation = origin.witness
+    from pietto.ast_nodes import SetRelationDef
+
+    definition = operation.owner.definition
+    if (
+        not isinstance(definition, SetRelationDef)
+        or len(inputs) != len(operation.uses)
+        or any(len(p.fields) != len(fields) for p in inputs)
+    ):
+        raise ValueError("Set property transfer requires every exact positional input.")
+    kind = definition.body.kind
+    subsets = (
+        ()
+        if kind is SetOperationKind.UNION
+        else inputs
+        if kind is SetOperationKind.INTERSECT
+        else inputs[:1]
+    )
+    # Merge only value-class images guaranteed by the retained subset inputs.
+    groups = [{i} for i in range(len(fields))]
+    for incoming in subsets:
+        for value in incoming.value_classes:
+            positions = {member.field_position for member in value.members}
+            overlaps = [group for group in groups if group & positions]
+            merged = set().union(*overlaps)
+            groups = [group for group in groups if not group & positions]
+            groups.append(merged)
+    groups.sort(key=min)
+    classes = tuple(
+        ProjectIROutputValueClass(
+            output=output,
+            members=tuple(fields[i] for i in range(len(fields)) if i in group),
+        )
+        for group in groups
+    )
+    keys: list[ProjectIROutputCandidateKey] = []
+    fds: list[ProjectIROutputValueFD] = []
+    for ordinal, incoming in enumerate(subsets):
+        images = {
+            old: next(
+                group
+                for group in classes
+                if any(
+                    member.field_position == old.members[0].field_position
+                    for member in group.members
+                )
+            )
+            for old in incoming.value_classes
+        }
+        mapped_keys, mapped_fds = _image_keys_and_fds(
+            incoming,
+            output,
+            classes,
+            images,
+            support=(operation, operation.uses[ordinal]),
+            coalesced=True,
+        )
+        keys.extend(mapped_keys)
+        fds.extend(mapped_fds)
+    retained_keys = _frontier(tuple(keys))
+    retained_fds = _key_fds(output, classes, retained_keys, tuple(fds))
+    factor = origin.factor
+    left = inputs[0].grain
+    if factor is not None:
+        grain = ProjectIRProvidedIntrinsicGrain(
+            output=output,
+            state=ProjectGrainBasisState.FACTORIZED,
+            factors=(ProjectGrainDomainFactor(identity=factor),),
+            active=(factor,),
+            dependencies=(),
+            origin_set=origin,
+            witness=operation,
+        )
+    elif left.state is ProjectGrainBasisState.GLOBAL or (
+        kind is SetOperationKind.INTERSECT
+        and any(p.grain.state is ProjectGrainBasisState.GLOBAL for p in inputs)
+    ):
+        grain = ProjectIRProvidedIntrinsicGrain(
+            output=output,
+            state=ProjectGrainBasisState.GLOBAL,
+            factors=(),
+            active=(),
+            dependencies=(),
+            origin_set=origin,
+            witness=operation,
+        )
+    elif left.state is ProjectGrainBasisState.FACTORIZED and any(
+        key.strength is ProjectRowUniquenessStrength.STRICT for key in inputs[0].keys
+    ):
+        # A strict key identifies each left row class uniquely; no duplicate winner.
+        grain = ProjectIRProvidedIntrinsicGrain(
+            output=output,
+            state=left.state,
+            factors=left.factors,
+            active=left.active,
+            dependencies=left.dependencies,
+            origin_set=origin,
+            witness=(operation, inputs[0]),
+        )
+    else:
+        grain = ProjectIRProvidedIntrinsicGrain(
+            output=output,
+            state=ProjectGrainBasisState.UNKNOWN,
+            factors=left.factors,
+            active=(),
+            dependencies=left.dependencies,
+            origin_set=origin,
+            witness=operation,
+        )
+    return ProjectIROutputRelationalProperties(
+        output=output,
+        fields=fields,
+        value_classes=classes,
+        keys=retained_keys,
+        fds=retained_fds,
+        fd_index=_compile_output_fd_index(output, classes, retained_fds),
+        grain=grain,
     )

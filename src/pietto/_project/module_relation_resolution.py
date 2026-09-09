@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pietto.ast_nodes import SetRelationDef
+from pietto.ast_nodes import SetRelationDef, SetOperand
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -220,6 +220,91 @@ class ProjectResolvedModuleRelationReference:
             or self.target_symbol.local_name != self.reference.from_clause.source_name
         ):
             raise ValueError("Resolved relation reference must use its local lookup.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectModuleSetOperandReference:
+    """One exact set operand occurrence, distinct from a FROM clause."""
+
+    owner: ProjectDeclarationOccurrence
+    operand_ordinal: int
+    operand: SetOperand = field(init=False)
+
+    def __post_init__(self) -> None:
+        definition = self.owner.definition
+        if (
+            type(definition) is not SetRelationDef
+            or type(self.operand_ordinal) is not int
+            or not 0 <= self.operand_ordinal < len(definition.body.operands)
+        ):
+            raise ValueError("Set reference requires its exact owner/operand ordinal.")
+        object.__setattr__(
+            self, "operand", definition.body.operands[self.operand_ordinal]
+        )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectResolvedSetOperand:
+    """Complete existing binding authority for one authored operand use."""
+
+    environment: ProjectModuleRelationResolutionEnvironment = field(repr=False)
+    reference: ProjectModuleSetOperandReference
+    candidates: tuple[ProjectResolvedModuleRelationSymbol, ...] = field(init=False)
+    blockers: tuple[ProjectModuleRelationResolutionIssue, ...] = field(init=False)
+    diagnostics: tuple[Diagnostic, ...] = field(init=False)
+
+    def __post_init__(self) -> None:
+        reference = self.reference
+        if type(reference) is not ProjectModuleSetOperandReference or not any(
+            f.owner is reference.owner for f in self.environment.row_facts
+        ):
+            raise ValueError(
+                "Set operand resolution requires its exact environment owner."
+            )
+        name = reference.operand.relation_name
+        candidates = self.environment.find_relation_name(name)
+        blockers = (
+            tuple(
+                issue for issue in self.environment.issues if issue.local_name == name
+            )
+            if not candidates
+            else ()
+        )
+        diagnostics = tuple(
+            d
+            for issue in blockers
+            for d in (
+                (issue.diagnostic,)
+                if issue.diagnostic is not None
+                else issue.suppressing_diagnostics
+            )
+        )
+        if not candidates and not diagnostics:
+            location = _location(
+                reference.operand.span, fallback_path=self.environment.module.path
+            )
+            diagnostics = (
+                _diagnostic(
+                    code="PIE-S2301",
+                    message=f"Unknown relation: {name}",
+                    location=location,
+                ),
+            )
+        object.__setattr__(self, "candidates", candidates)
+        object.__setattr__(self, "blockers", blockers)
+        object.__setattr__(self, "diagnostics", diagnostics)
+
+    @property
+    def site(self) -> SetOperand:
+        return self.reference.operand
+
+    @property
+    def target_symbol(self) -> ProjectResolvedModuleRelationSymbol | None:
+        return (
+            self.candidates[0]
+            if len(self.candidates) == 1 and not self.blockers
+            else None
+        )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -21,8 +21,8 @@ completion benchmark and Phase-64 readiness assurance, is
 `COMPLETED / PUBLISHED`, so the Validation/Test Performance Optimization
 Interlude II is `COMPLETED` with `Interlude II self-owned-open = 0`. Phase 64 is
 `ACTIVE`, its Slice 1 froze a fresh Product/Phase Initiation Gate v3 and a
-route of exactly 11 numbered Slices. Slices 1–8 are `COMPLETED / PUBLISHED`
-upon their successful natural exact-head CI; Slice 9 is `NEXT / NOT IMPLEMENTED`.
+route of exactly 11 numbered Slices. Slices 1–9 are `COMPLETED / PUBLISHED`
+upon their successful natural exact-head CI; Slice 10 is `NEXT / NOT IMPLEMENTED`.
 Project Explain v1 remains unchanged.
 
 The [unnumbered compilation-boundary repair](spec/pre-phase64-slice2-compilation-boundary-correctness-repair-v1.md)
@@ -2136,7 +2136,8 @@ Phase 64 **Flat Relational Algebra** is `ACTIVE`. Slice 1 is
 `COMPLETED / PUBLISHED`, Slice 4 is `COMPLETED / PUBLISHED`, Slice 5 is
 `COMPLETED / PUBLISHED`, Slice 6 is `COMPLETED / PUBLISHED`, Slice 7 is
 `COMPLETED / PUBLISHED`, Slice 8 is `COMPLETED / PUBLISHED`, Slice 9 is
-`NEXT / NOT IMPLEMENTED`, and the frozen route has exactly 11 numbered Slices.
+`COMPLETED / PUBLISHED`, Slice 10 is `NEXT / NOT IMPLEMENTED`, and the frozen
+route has exactly 11 numbered Slices.
 
 | Slice | Owner |
 | ---: | --- |
@@ -2257,8 +2258,18 @@ DISTINCT. D07-FLOAT-DEFERRED excludes participating Float and aliases, including
 finite literals; Float row-equivalence: DEFERRED -> Phase 72. Other Float
 operations remain unchanged. Any/Bytes/Json and unproved Decimal parameters
 remain fail-closed. UNION ALL requires no row equivalence; INTERSECT/EXCEPT ALL
-still require it. This is a Slice-9 handoff, not implemented set semantics.
-Slice 9 is NEXT / NOT IMPLEMENTED; Slices 9–11 remain NOT IMPLEMENTED.
+still require it. Slice 9 consumes this exact domain.
+The [Slice-9 set-operation contract](spec/phase64-slice9-set-operations-explicit-all-distinct-output-identity-v1.md)
+closes E08 and its set portion of E09 upon successful natural exact-head CI.
+Six explicit ALL/DISTINCT forms preserve authored left-fold order and repeated
+operand uses, exact types/Decimal and operation-specific NULL/property/grain
+facts. S9-NAME-1 supplies first-authored labels with new set-owned positional
+identities and complete operand provenance. Non-SELECT outputs share the final
+output owner and dependency-first schedule; cycles block only their dependents.
+Replay, either JOIN role, DISTINCT, nested sets and imports/reexports compose;
+UNION ALL admits exact concrete types without requiring row equivalence.
+No generic single-match proof or source-row representative is invented.
+Slice 10 is NEXT / NOT IMPLEMENTED; Slices 10–11 remain NOT IMPLEMENTED.
 Slice 10 still owns combined IR/analysis/inspection and final
 EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED closure; E05/E10 are not fully closed.
 No additional route row or product exit is introduced.

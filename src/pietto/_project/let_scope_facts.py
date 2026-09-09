@@ -164,9 +164,6 @@ def build_project_relation_let_scope_facts(
             binding_expressions=binding_expressions,
         )
 
-    if isinstance(upstream_definition, SetRelationDef):
-        raise ValueError("Set input cannot supply a concrete row schema.")
-
     row_schema = project_row_schema_to_semantic_row_schema(effective_input_schema)
     scopes, _expression_value_types, diagnostics = analyze_relation_let_bindings(
         (definition,),
@@ -274,8 +271,8 @@ def _source_row_schemas(
 def _relation_row_schemas(
     upstream_definition: _RelationDefinition,
     row_schema: RowSchema,
-) -> Mapping[_DerivedRelation, RowSchema]:
-    if isinstance(upstream_definition, (TableDef, QueryDef)):
+) -> Mapping[_DerivedRelation | SetRelationDef, RowSchema]:
+    if isinstance(upstream_definition, (TableDef, QueryDef, SetRelationDef)):
         return {upstream_definition: row_schema}
     return {}
 

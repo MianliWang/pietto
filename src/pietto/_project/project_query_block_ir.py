@@ -45,6 +45,7 @@ from pietto._project.project_completion import (
 )
 from pietto._project.project_final_outputs import (
     _has_distinct,
+    _has_set_outputs,
     ProjectCompletedEffectiveOutput,
     ProjectCompletedOutputField,
     ProjectConcreteNoJoinReplay,
@@ -1485,6 +1486,7 @@ class ProjectIRQueryBlockSnapshot:
         if type(self.completed) is not ProjectConcreteCompletedSemanticResult or (
             self.completed.single_match_requests
             or _has_distinct(self.completed)
+            or _has_set_outputs(self.completed)
             or self.completed.verification.root.evaluation.project_plan
             is not self.base_plan
             or self.completed.verification.root.join_regions is not self.join_stage
@@ -3453,6 +3455,8 @@ def build_project_query_block_ir(
 
     if type(completed) is not ProjectConcreteCompletedSemanticResult:
         raise TypeError("Query-block IR requires an exact concrete Slice-13 result.")
+    if _has_set_outputs(completed):
+        raise ValueError("Set operations require Slice-10 combined IR support.")
     if _has_distinct(completed):
         raise ValueError("DISTINCT requires Slice-10 combined IR support.")
     if completed.single_match_requests:
