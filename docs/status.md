@@ -50,8 +50,11 @@ documentation does not supersede that evidence.
 | Phase 64 Slice 9 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 10 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 11 | `COMPLETED / PUBLISHED` |
-| Phase 65 | `NEXT / NOT STARTED` |
-| Next | `Phase 65 — Product/architecture phase-start planning; no approved numbered route` |
+| Phase 65 | `ACTIVE` |
+| Phase 65 Slice 1 | `COMPLETED / PUBLISHED` |
+| Phase 65 Slice 2 | `NEXT / NOT IMPLEMENTED` |
+| Phase 65 Slices 3–16 | `NOT IMPLEMENTED` |
+| Next | `Phase 65 Slice 2 — Minimal selected scan/projection plan` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -756,9 +759,34 @@ D01–D08, D07-FLOAT-DEFERRED and S9-NAME-1: `Phase64 material exits = 12/12` an
 `Phase64 self-owned-open = 0`. This audit changes no production behavior.
 Check success, runtime IR VERIFIED, pure-document OK, backend lowerability and
 runtime fulfillment remain distinct; unproved single-match obligations persist.
-Phase 65 is `NEXT / NOT STARTED` with no approved numbered route. The next joint
-planning discussion covers result boundaries, parameter/placeholder identity,
+That audit left Phase 65 `NEXT / NOT STARTED` with no approved numbered route.
+The then-next joint planning discussion covers result boundaries, parameter/placeholder identity,
 alias scope, source-map ownership and legality/capability/obligation handling.
 Compare 14–16 real delivery Slices, with 16 the preferred initial candidate;
 this is a planning preference, not an approved N=16 route. Split by one principal
-invariant and a real first consumer. Phase 65 implementation has not started.
+invariant and a real first consumer. That handoff did not start Phase 65 implementation.
+
+Phase 65 is `ACTIVE`, and Slice 1 is `COMPLETED / PUBLISHED` only upon successful
+natural exact-head CI on its ordinary route-lock commit. The
+[reviewed v2 product gate and N16 route](spec/phase65-project-sql-plan-product-phase-initiation-gate-source-audit-architecture-route-lock-v1.md)
+adopts D65.01–D65.12 as this task's new decisions. It records all 30 gate answers,
+12 question groups, 8 cross-cutting checks, three exclusive ledgers, every
+Phase66–97 atom, 43 finite counterexample obligations, 11 primary-source records
+and P01–P10 future exits. The v1 repository suffix denotes first publication;
+it does not revive the superseded planning attachment v1.
+
+Slice 1 changes documentation/static assurance only. Whole-project semantic
+success remains required before selecting one exact TABLE/QUERY owner. Planned
+binding is fixed original-value literal transport, with closed eligibility and
+exact typed envelopes; no caller-rebindable query or public parameter syntax.
+Each future operator delivery must retain its origins/demands and extend its
+independent verifier/runtime view. Slice14 includes minimum real portable,
+standalone, acquisition, relocation and installed consumers; Slice15 broadens
+conformance. N16 costs two publication cycles over the compared N14 route.
+
+Phase 64 remains `COMPLETED`, including D07-FLOAT-DEFERRED and S9-NAME-1.
+Phase 65 Slice 2 is `NEXT / NOT IMPLEMENTED`; Slices 3–16 are `NOT IMPLEMENTED`.
+Slice 2 consumes exact completed.ok and a VERIFIED bundle plus the selected
+owner, and delivers minimal scan/projection blocks, exports, source descriptors,
+local origins/demands, independent verification and runtime inspection.
+No Phase65 production, SQL emission, execution or public API has been implemented.

@@ -294,10 +294,13 @@ EXPECTED_STATUS = (
     ("Phase 64 Slice 9", "`COMPLETED / PUBLISHED`"),
     ("Phase 64 Slice 10", "`COMPLETED / PUBLISHED`"),
     ("Phase 64 Slice 11", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65", "`NEXT / NOT STARTED`"),
+    ("Phase 65", "`ACTIVE`"),
+    ("Phase 65 Slice 1", "`COMPLETED / PUBLISHED`"),
+    ("Phase 65 Slice 2", "`NEXT / NOT IMPLEMENTED`"),
+    ("Phase 65 Slices 3–16", "`NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 65 — Product/architecture phase-start planning; no approved numbered route`",
+        "`Phase 65 Slice 2 — Minimal selected scan/projection plan`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1427,8 +1430,8 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
 EXPECTED_CURRENT_OWNER_SENTENCE = (
-    "The next owner is Phase 65, which is `NEXT / NOT STARTED` and has no "
-    "approved numbered route."
+    "The current owner is Phase 65, which is `ACTIVE`; Slice 1 is "
+    "`COMPLETED / PUBLISHED` and Slice 2 is `NEXT / NOT IMPLEMENTED`."
 )
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
@@ -1914,7 +1917,7 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "exact-head CI on its ordinary audit commit",
         "Phase64 material exits = 12/12",
         "Phase64 self-owned-open = 0",
-        "Phase 65 is `NEXT / NOT STARTED` with no approved numbered route",
+        "That audit left Phase 65 `NEXT / NOT STARTED` with no approved numbered route",
         "planning preference, not an approved N=16 route",
         "pietto.phase64-flat-relational-ir-inspection.v1",
         "explicit external producers and actual internal JOIN prefixes",
@@ -4838,7 +4841,7 @@ def test_phase64_route_section_is_exact() -> None:
         "CROSS has no condition or relationship discovery",
         "null-extend the whole accumulated left input",
         "degenerate FULL of two GLOBAL inputs retains UNKNOWN grain",
-        "Phase 65 is NEXT / NOT STARTED / no approved numbered route",
+        "At that handoff, Phase 65 was NEXT / NOT STARTED / no approved numbered route",
         "Phase64 material exits = 12/12",
         "Phase64 self-owned-open = 0",
         "not an approved N=16 route",
@@ -4908,4 +4911,54 @@ def test_phase64_slice1_changed_paths_are_exact() -> None:
             )
         )
         for path in paths
+    )
+
+
+EXPECTED_PHASE65_ROUTE = (
+    ("1", "Reviewed v2 phase gate, source audit and N16 route lock"),
+    ("2", "Minimal selected scan/projection plan, verifier and runtime view"),
+    ("3", "Named sources, repeated uses and scope-local symbols"),
+    ("4", "Scalar, LET and WHERE stage-value planning"),
+    ("5", "Seven JOIN kinds, matching scopes and local obligations"),
+    ("6", "GROUPED/GLOBAL/satisfying block boundaries"),
+    ("7", "Windows, named-window reuse and QUALIFY staging"),
+    ("8", "DISTINCT, scoped ORDER demands and static LIMIT"),
+    ("9", "Set query-expression bodies and positional ports"),
+    ("10", "Typed fixed-literal binding envelope and use layout"),
+    ("11", "Complete demand and obligation report"),
+    ("12", "Forward/reverse source-map queries"),
+    ("13", "Explicit target/profile requirement assessment"),
+    ("14", "Portable boundary and minimum real process/acquisition integration"),
+    ("15", "Full selected-plan real-source and differential conformance"),
+    ("16", "Completion audit and Phase66 handoff"),
+)
+
+
+def test_phase65_route_and_lifecycle_are_conditional_and_documentation_only() -> None:
+    roadmap = _section(_read(ROADMAP), "Phase 65 route")
+    assert _table_rows(roadmap)[1:] == EXPECTED_PHASE65_ROUTE
+    status = " ".join(_read(STATUS).split())
+    normalized = " ".join(roadmap.split())
+    for phrase in (
+        "Slices 3–16 are `NOT IMPLEMENTED`",
+        "D65.01–D65.12",
+        "only upon successful natural exact-head CI",
+    ):
+        assert phrase in normalized and phrase in status
+    for phrase in (
+        "documentation/static assurance only",
+        "not retroactive Phase64 authority",
+        "unsupported reached stages become typed terminals",
+        "not first capture",
+        "Slice16 is audit-only",
+        "new later-owner refinements",
+    ):
+        assert phrase in normalized
+    target = "spec/phase65-project-sql-plan-product-phase-initiation-gate-source-audit-architecture-route-lock-v1.md"
+    assert f"]({target})" in roadmap
+    assert f"]({target})" in _read(STATUS)
+    assert (ROADMAP.parent / target).is_file()
+    assert (
+        "No Phase65 production, SQL emission, execution or public API has been implemented"
+        in status
     )

@@ -7,8 +7,8 @@ invariants, compatibility boundary, and the smallest behavior that is actually
 needed.
 
 Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
-successful natural exact-head CI. The next owner is Phase 65, which is
-`NEXT / NOT STARTED` and has no approved numbered route. Phase 64 completion
+successful natural exact-head CI. The current owner is Phase 65, which is
+`ACTIVE`; Slice 1 is `COMPLETED / PUBLISHED` and Slice 2 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
 remains conditional on its Slice 11 natural exact-head CI; the
 Validation/Test Performance Optimization Interlude II is `COMPLETED`. Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -23,7 +23,7 @@ Interlude II is `COMPLETED` with `Interlude II self-owned-open = 0`. Phase 64 is
 `COMPLETED` upon successful natural exact-head CI on its Slice 11 audit commit.
 Its Slice 1 froze a fresh Product/Phase Initiation Gate v3 and a route of exactly
 11 numbered Slices; Slices 1–11 are `COMPLETED / PUBLISHED` upon their successful
-publication chains. Phase 65 planning is next, with no approved numbered route.
+publication chains. Phase 65 now has the conditional N16 route recorded below.
 Project Explain v1 remains unchanged.
 
 The [unnumbered compilation-boundary repair](spec/pre-phase64-slice2-compilation-boundary-correctness-repair-v1.md)
@@ -2287,14 +2287,73 @@ binds the full 13-publication first-parent chain, including successful Slice-1
 reconciliation, the unnumbered repair and PR #73 maintenance. It substantiates
 `Phase64 material exits = 12/12` within the approved domain and
 `Phase64 self-owned-open = 0` without production changes or a new product exit.
-Phase 65 is NEXT / NOT STARTED / no approved numbered route. Its next joint
-phase-start discussion owns planning result boundaries, parameter/placeholder
+At that handoff, Phase 65 was NEXT / NOT STARTED / no approved numbered route.
+Its then-next joint phase-start discussion owns planning result boundaries, parameter/placeholder
 identity, alias scope, source maps and legality/capability/obligation handling.
 The planning preference is to compare 14–16 real delivery Slices, with 16 the
 preferred initial candidate; this is not an approved N=16 route. One principal
 invariant plus a real first consumer should define each delivery; representation,
 verification and portable-consumer compatibility should close with that consumer.
 No Phase-65 syntax, carrier, algorithm or numbered route is frozen here.
+
+## Phase 65 route
+
+Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slice 1 is
+`COMPLETED / PUBLISHED` only upon successful natural exact-head CI on its ordinary
+commit. Slice 2 is `NEXT / NOT IMPLEMENTED`; Slices 3–16 are `NOT IMPLEMENTED`.
+The selected route has exactly 16 deliveries. Its controlling
+[reviewed v2 phase gate](spec/phase65-project-sql-plan-product-phase-initiation-gate-source-audit-architecture-route-lock-v1.md)
+is documentation/static assurance only; it does not authorize later implementation.
+
+| Slice | Owner |
+| --- | --- |
+| 1 | Reviewed v2 phase gate, source audit and N16 route lock |
+| 2 | Minimal selected scan/projection plan, verifier and runtime view |
+| 3 | Named sources, repeated uses and scope-local symbols |
+| 4 | Scalar, LET and WHERE stage-value planning |
+| 5 | Seven JOIN kinds, matching scopes and local obligations |
+| 6 | GROUPED/GLOBAL/satisfying block boundaries |
+| 7 | Windows, named-window reuse and QUALIFY staging |
+| 8 | DISTINCT, scoped ORDER demands and static LIMIT |
+| 9 | Set query-expression bodies and positional ports |
+| 10 | Typed fixed-literal binding envelope and use layout |
+| 11 | Complete demand and obligation report |
+| 12 | Forward/reverse source-map queries |
+| 13 | Explicit target/profile requirement assessment |
+| 14 | Portable boundary and minimum real process/acquisition integration |
+| 15 | Full selected-plan real-source and differential conformance |
+| 16 | Completion audit and Phase66 handoff |
+
+D65.01–D65.12 are newly adopted task decisions, not retroactive Phase64 authority.
+Exactly one TABLE/QUERY owner from an exact completed.ok/VERIFIED chain is selected;
+unrelated project ERROR still blocks admission. Only the selected closure's
+planning requirements are collected, while original project diagnostics remain
+complete. SQL blocks retain real source/use/port/clause structure and context-qualified
+expression sites; unsupported reached stages become typed terminals.
+
+`PRESERVE_LITERALS` is the default. `BIND_SAFE_LITERALS` transports exact eligible
+Bool/Int/Text/finite Float literal values in their original contexts; structural,
+function-argument and unknown-evidence sites remain classified and preserved.
+It adds no arbitrary query rebind or public parameters. Exact target representation,
+overload and collation demands survive binding. Hidden strict-FD ORDER requires an
+explicit scoped realization, never a new DISTINCT key or representative row.
+Source maps retain value/membership/type/generated roles and parser coordinate units;
+full private observation may contain authored constants and is not redacted.
+
+Every operator's first implementing Slice includes its own local demands/origins,
+verifier and runtime view. Slice11/12 integrate reports/queries, not first capture.
+Slice14 closes minimum real portable/probe/batch/acquisition/standalone/relocation/
+installed/direct-reader consumers; Slice15 broadens their corpus. Slice16 is audit-only.
+N15 would merge demand reporting with target assessment after source mapping;
+N14 would also merge portable integration and full conformance. N16 keeps those
+failure causes separate at the cost of two publications, with no measured speed claim.
+
+This task newly maps open caller-rebindable query parameters to Phase70, public
+entrypoints to Phase69/82, and any selected-owner compilation amid project semantic
+errors to a Phase69/70 policy decision. These are new later-owner refinements, not
+older roadmap wording. Phase66 retains SQL AST/text, actual placeholder order and
+realization; Phase68 retains resources and runtime single-match fulfillment;
+Phase72 retains Float row equivalence; no future feature is implemented here.
 
 ## Future Roadmap v6
 
