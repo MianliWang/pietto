@@ -37,7 +37,7 @@ documentation does not supersede that evidence.
 | Interlude II Slice 2 | `COMPLETED / PUBLISHED` |
 | Interlude II Slice 3 | `COMPLETED / PUBLISHED` |
 | Interlude II Slice 4 | `COMPLETED / PUBLISHED` |
-| Phase 64 | `ACTIVE` |
+| Phase 64 | `COMPLETED` |
 | Phase 64 Slice 1 | `COMPLETED / PUBLISHED` |
 | Unnumbered compilation-boundary repair | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 2 | `COMPLETED / PUBLISHED` |
@@ -49,8 +49,9 @@ documentation does not supersede that evidence.
 | Phase 64 Slice 8 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 9 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 10 | `COMPLETED / PUBLISHED` |
-| Phase 64 Slice 11 | `NEXT / NOT IMPLEMENTED` |
-| Next | `Phase 64 Slice 11 — Completion audit and Phase-65 handoff` |
+| Phase 64 Slice 11 | `COMPLETED / PUBLISHED` |
+| Phase 65 | `NEXT / NOT STARTED` |
+| Next | `Phase 65 — Product/architecture phase-start planning; no approved numbered route` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -569,7 +570,8 @@ are all closed. Every Interlude publication head, including the two preserved
 failed heads `d847132a...` and `4cfed753...` with their ordinary repair
 children, is retained exactly.
 
-Phase 64 **Flat Relational Algebra** is `ACTIVE`. Its Slice 1 is
+Phase 64 **Flat Relational Algebra** is `COMPLETED` only upon successful natural
+exact-head CI on its Slice 11 audit commit. Its Slice 1 is
 `COMPLETED / PUBLISHED` by live Git and successful natural exact-head CI. Slice
 1 freezes a fresh Product/Phase Initiation Gate v3, 13 reconciled live source
 findings, three exclusive ledgers, an atomic pull-forward classification for
@@ -740,5 +742,23 @@ links, including explicit external producers and actual internal JOIN prefixes.
 LEGAL_UNPROVED remains an enforcement obligation with PIE-S2337 WARNING;
 VERIFIED and pure OK do not establish runtime fulfillment or SQL capability.
 E12 provides concrete retained inputs for the later planning owner without
-freezing ProjectSQLPlan. Phase 64 remains ACTIVE. Phase 64 Slice 11 is
-`NEXT / NOT IMPLEMENTED`; completion audit and Phase-65 handoff remain its work.
+freezing ProjectSQLPlan. That publication left Phase 64 ACTIVE and Slice 11 NEXT.
+
+Phase 64 Slice 11 is `COMPLETED / PUBLISHED` only upon successful natural
+exact-head CI on its ordinary audit commit. The
+[completion audit and Phase-65 handoff](spec/phase64-completion-audit-phase65-handoff-v1.md)
+binds 13 first-parent publications to ten numbered terminals, the original
+successful Slice-1 publication, the unnumbered F01/F02 repair and Dependabot
+PR #73 maintenance. The original successful head remains successful; Ruff's
+lockfile update is maintenance, not a numbered product Slice.
+All E01–E12 have concrete producer/consumer and existing-test evidence within
+D01–D08, D07-FLOAT-DEFERRED and S9-NAME-1: `Phase64 material exits = 12/12` and
+`Phase64 self-owned-open = 0`. This audit changes no production behavior.
+Check success, runtime IR VERIFIED, pure-document OK, backend lowerability and
+runtime fulfillment remain distinct; unproved single-match obligations persist.
+Phase 65 is `NEXT / NOT STARTED` with no approved numbered route. The next joint
+planning discussion covers result boundaries, parameter/placeholder identity,
+alias scope, source-map ownership and legality/capability/obligation handling.
+Compare 14–16 real delivery Slices, with 16 the preferred initial candidate;
+this is a planning preference, not an approved N=16 route. Split by one principal
+invariant and a real first consumer. Phase 65 implementation has not started.

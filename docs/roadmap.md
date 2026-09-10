@@ -7,10 +7,10 @@ invariants, compatibility boundary, and the smallest behavior that is actually
 needed.
 
 Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
-successful natural exact-head CI. The current owner is Phase 64, which is
-`ACTIVE` after its own fresh Product/Phase Initiation Gate v3; the
-Validation/Test Performance Optimization Interlude II that preceded it
-is `COMPLETED`. Interlude II Slice 1, post-Phase-63 baseline profiling, cost
+successful natural exact-head CI. The next owner is Phase 65, which is
+`NEXT / NOT STARTED` and has no approved numbered route. Phase 64 completion
+remains conditional on its Slice 11 natural exact-head CI; the
+Validation/Test Performance Optimization Interlude II is `COMPLETED`. Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
 behavior. Interlude II Slice 2,
 differential probe and process acquisition optimization, is
@@ -20,9 +20,10 @@ heavy-file xdist scheduling and isolation decision, is
 completion benchmark and Phase-64 readiness assurance, is
 `COMPLETED / PUBLISHED`, so the Validation/Test Performance Optimization
 Interlude II is `COMPLETED` with `Interlude II self-owned-open = 0`. Phase 64 is
-`ACTIVE`, its Slice 1 froze a fresh Product/Phase Initiation Gate v3 and a
-route of exactly 11 numbered Slices. Slices 1–10 are `COMPLETED / PUBLISHED`
-upon their successful natural exact-head CI; Slice 11 is `NEXT / NOT IMPLEMENTED`.
+`COMPLETED` upon successful natural exact-head CI on its Slice 11 audit commit.
+Its Slice 1 froze a fresh Product/Phase Initiation Gate v3 and a route of exactly
+11 numbered Slices; Slices 1–11 are `COMPLETED / PUBLISHED` upon their successful
+publication chains. Phase 65 planning is next, with no approved numbered route.
 Project Explain v1 remains unchanged.
 
 The [unnumbered compilation-boundary repair](spec/pre-phase64-slice2-compilation-boundary-correctness-repair-v1.md)
@@ -2131,13 +2132,14 @@ subjects to the numbered route below.
 
 ## Phase 64 route
 
-Phase 64 **Flat Relational Algebra** is `ACTIVE`. Slice 1 is
+Phase 64 **Flat Relational Algebra** is `COMPLETED` upon successful natural
+exact-head CI on its Slice 11 audit commit. Slice 1 is
 `COMPLETED / PUBLISHED`, Slice 2 is `COMPLETED / PUBLISHED`, Slice 3 is
 `COMPLETED / PUBLISHED`, Slice 4 is `COMPLETED / PUBLISHED`, Slice 5 is
 `COMPLETED / PUBLISHED`, Slice 6 is `COMPLETED / PUBLISHED`, Slice 7 is
 `COMPLETED / PUBLISHED`, Slice 8 is `COMPLETED / PUBLISHED`, Slice 9 is
 `COMPLETED / PUBLISHED`, Slice 10 is `COMPLETED / PUBLISHED`, Slice 11 is
-`NEXT / NOT IMPLEMENTED`, and the frozen route has exactly 11 numbered Slices.
+`COMPLETED / PUBLISHED`, and the frozen route has exactly 11 numbered Slices.
 
 | Slice | Owner |
 | ---: | --- |
@@ -2279,9 +2281,20 @@ pure format preserve complete document-local correspondence, with explicit
 external producers and positively established internal JOIN prefixes.
 Unchanged historical inputs retain their old formats/bytes. E12 exposes
 concrete retained inputs to future planning; SQL, execution and single-match
-runtime fulfillment remain later work. Slice 11 is NEXT / NOT IMPLEMENTED.
-The completion audit and Phase-65 handoff remain unimplemented; Phase 64 stays
-ACTIVE. No additional route row or product exit is introduced.
+runtime fulfillment remain later work. The
+[Slice-11 completion audit](spec/phase64-completion-audit-phase65-handoff-v1.md)
+binds the full 13-publication first-parent chain, including successful Slice-1
+reconciliation, the unnumbered repair and PR #73 maintenance. It substantiates
+`Phase64 material exits = 12/12` within the approved domain and
+`Phase64 self-owned-open = 0` without production changes or a new product exit.
+Phase 65 is NEXT / NOT STARTED / no approved numbered route. Its next joint
+phase-start discussion owns planning result boundaries, parameter/placeholder
+identity, alias scope, source maps and legality/capability/obligation handling.
+The planning preference is to compare 14–16 real delivery Slices, with 16 the
+preferred initial candidate; this is not an approved N=16 route. One principal
+invariant plus a real first consumer should define each delivery; representation,
+verification and portable-consumer compatibility should close with that consumer.
+No Phase-65 syntax, carrier, algorithm or numbered route is frozen here.
 
 ## Future Roadmap v6
 
@@ -2292,7 +2305,7 @@ Phase-64+ Slice route or implementation.
 | Phase | Owner |
 | ---: | --- |
 | 63 | Joined Query Block semantic completion and QUALIFY |
-| 64 | Flat relational algebra: generic ON/refinement; CROSS/RIGHT/FULL/SEMI/ANTI; DISTINCT; UNION/INTERSECT/EXCEPT; single-match enforcement |
+| 64 | Flat relational algebra: generic ON/refinement; CROSS/RIGHT/FULL/SEMI/ANTI; DISTINCT; UNION/INTERSECT/EXCEPT; private single-match request/proof/obligation |
 | 65 | Target-neutral ProjectSQLPlan, parameters, source maps, legality and capability requirements |
 | 66 | PostgreSQL/MySQL baseline multi-relation SQL and Project emit-SQL |
 | 67 | Arrow interchange foundation and Pietto result contract |

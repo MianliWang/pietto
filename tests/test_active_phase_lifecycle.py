@@ -281,7 +281,7 @@ EXPECTED_STATUS = (
     ("Interlude II Slice 2", "`COMPLETED / PUBLISHED`"),
     ("Interlude II Slice 3", "`COMPLETED / PUBLISHED`"),
     ("Interlude II Slice 4", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64", "`ACTIVE`"),
+    ("Phase 64", "`COMPLETED`"),
     ("Phase 64 Slice 1", "`COMPLETED / PUBLISHED`"),
     ("Unnumbered compilation-boundary repair", "`COMPLETED / PUBLISHED`"),
     ("Phase 64 Slice 2", "`COMPLETED / PUBLISHED`"),
@@ -293,10 +293,11 @@ EXPECTED_STATUS = (
     ("Phase 64 Slice 8", "`COMPLETED / PUBLISHED`"),
     ("Phase 64 Slice 9", "`COMPLETED / PUBLISHED`"),
     ("Phase 64 Slice 10", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64 Slice 11", "`NEXT / NOT IMPLEMENTED`"),
+    ("Phase 64 Slice 11", "`COMPLETED / PUBLISHED`"),
+    ("Phase 65", "`NEXT / NOT STARTED`"),
     (
         "Next",
-        "`Phase 64 Slice 11 — Completion audit and Phase-65 handoff`",
+        "`Phase 65 — Product/architecture phase-start planning; no approved numbered route`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -553,7 +554,7 @@ EXPECTED_FUTURE_ROADMAP_V6 = (
     ("63", "Joined Query Block semantic completion and QUALIFY"),
     (
         "64",
-        "Flat relational algebra: generic ON/refinement; CROSS/RIGHT/FULL/SEMI/ANTI; DISTINCT; UNION/INTERSECT/EXCEPT; single-match enforcement",
+        "Flat relational algebra: generic ON/refinement; CROSS/RIGHT/FULL/SEMI/ANTI; DISTINCT; UNION/INTERSECT/EXCEPT; private single-match request/proof/obligation",
     ),
     (
         "65",
@@ -1426,9 +1427,8 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
 EXPECTED_CURRENT_OWNER_SENTENCE = (
-    "The current owner is Phase 64, which is `ACTIVE` after its own fresh "
-    "Product/Phase Initiation Gate v3; the Validation/Test Performance "
-    "Optimization Interlude II that preceded it is `COMPLETED`."
+    "The next owner is Phase 65, which is `NEXT / NOT STARTED` and has no "
+    "approved numbered route."
 )
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
@@ -1827,7 +1827,7 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
     assert "successful M2 evidence reconciliation" in normalized
     assert "Phase63 material exits = 15/15" in normalized
     assert "Phase63 self-owned-open = 0" in normalized
-    assert "Phase 64 **Flat Relational Algebra** is `ACTIVE`" in normalized
+    assert "Phase 64 **Flat Relational Algebra** is `COMPLETED`" in normalized
     assert "Slice 1 changes no production behavior" in normalized
     assert (
         "Validation/Test Performance Optimization Interlude II was `ACTIVE` after "
@@ -1910,7 +1910,12 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "all 15 transferred subjects are assigned to the numbered route",
         "Phase 64 Slice 10 is `COMPLETED / PUBLISHED` only upon successful natural "
         "exact-head CI on its ordinary publication commit",
-        "Phase 64 Slice 11 is `NEXT / NOT IMPLEMENTED`",
+        "Phase 64 Slice 11 is `COMPLETED / PUBLISHED` only upon successful natural "
+        "exact-head CI on its ordinary audit commit",
+        "Phase64 material exits = 12/12",
+        "Phase64 self-owned-open = 0",
+        "Phase 65 is `NEXT / NOT STARTED` with no approved numbered route",
+        "planning preference, not an approved N=16 route",
         "pietto.phase64-flat-relational-ir-inspection.v1",
         "explicit external producers and actual internal JOIN prefixes",
     ):
@@ -4804,13 +4809,13 @@ def test_phase64_route_section_is_exact() -> None:
     assert _table_rows(section)[1:] == EXPECTED_PHASE64_ROUTE
     normalized = " ".join(section.split())
     for evidence in (
-        "Phase 64 **Flat Relational Algebra** is `ACTIVE`",
+        "Phase 64 **Flat Relational Algebra** is `COMPLETED`",
         "Slice 1 is `COMPLETED / PUBLISHED`, Slice 2 is `COMPLETED / PUBLISHED`, "
         "Slice 3 is `COMPLETED / PUBLISHED`, Slice 4 is `COMPLETED / PUBLISHED`, "
         "Slice 5 is `COMPLETED / PUBLISHED`, Slice 6 is `COMPLETED / PUBLISHED`, "
         "Slice 7 is `COMPLETED / PUBLISHED`, Slice 8 is `COMPLETED / PUBLISHED`, "
         "Slice 9 is `COMPLETED / PUBLISHED`, Slice 10 is `COMPLETED / PUBLISHED`, "
-        "Slice 11 is `NEXT / NOT IMPLEMENTED`",
+        "Slice 11 is `COMPLETED / PUBLISHED`",
         "the frozen route has exactly 11 numbered Slices",
         "13 reconciled live source findings",
         "three exclusive ledgers",
@@ -4833,7 +4838,10 @@ def test_phase64_route_section_is_exact() -> None:
         "CROSS has no condition or relationship discovery",
         "null-extend the whole accumulated left input",
         "degenerate FULL of two GLOBAL inputs retains UNKNOWN grain",
-        "Slice 11 is NEXT / NOT IMPLEMENTED",
+        "Phase 65 is NEXT / NOT STARTED / no approved numbered route",
+        "Phase64 material exits = 12/12",
+        "Phase64 self-owned-open = 0",
+        "not an approved N=16 route",
         "closes the supported E05 IR boundary and E10",
         "explicit external producers and positively established internal JOIN prefixes",
         "D07-FLOAT-DEFERRED excludes participating Float and aliases",
