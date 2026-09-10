@@ -292,10 +292,11 @@ EXPECTED_STATUS = (
     ("Phase 64 Slice 7", "`COMPLETED / PUBLISHED`"),
     ("Phase 64 Slice 8", "`COMPLETED / PUBLISHED`"),
     ("Phase 64 Slice 9", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64 Slice 10", "`NEXT / NOT IMPLEMENTED`"),
+    ("Phase 64 Slice 10", "`COMPLETED / PUBLISHED`"),
+    ("Phase 64 Slice 11", "`NEXT / NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 64 Slice 10 — Project IR composition, verification, invalidation, inspection and pure boundary`",
+        "`Phase 64 Slice 11 — Completion audit and Phase-65 handoff`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1907,7 +1908,11 @@ def test_active_status_table_and_authority_prose_are_exact() -> None:
         "All 22 inherited assets remain available",
         "all 12 mandatory Phase-64 initiation questions are answered",
         "all 15 transferred subjects are assigned to the numbered route",
-        "Phase 64 Slice 10 is `NEXT / NOT IMPLEMENTED`; Slices 10–11 are `NOT IMPLEMENTED`",
+        "Phase 64 Slice 10 is `COMPLETED / PUBLISHED` only upon successful natural "
+        "exact-head CI on its ordinary publication commit",
+        "Phase 64 Slice 11 is `NEXT / NOT IMPLEMENTED`",
+        "pietto.phase64-flat-relational-ir-inspection.v1",
+        "explicit external producers and actual internal JOIN prefixes",
     ):
         assert evidence in normalized
     interlude_ii_target = (
@@ -4804,7 +4809,8 @@ def test_phase64_route_section_is_exact() -> None:
         "Slice 3 is `COMPLETED / PUBLISHED`, Slice 4 is `COMPLETED / PUBLISHED`, "
         "Slice 5 is `COMPLETED / PUBLISHED`, Slice 6 is `COMPLETED / PUBLISHED`, "
         "Slice 7 is `COMPLETED / PUBLISHED`, Slice 8 is `COMPLETED / PUBLISHED`, "
-        "Slice 9 is `COMPLETED / PUBLISHED`, Slice 10 is `NEXT / NOT IMPLEMENTED`",
+        "Slice 9 is `COMPLETED / PUBLISHED`, Slice 10 is `COMPLETED / PUBLISHED`, "
+        "Slice 11 is `NEXT / NOT IMPLEMENTED`",
         "the frozen route has exactly 11 numbered Slices",
         "13 reconciled live source findings",
         "three exclusive ledgers",
@@ -4827,7 +4833,9 @@ def test_phase64_route_section_is_exact() -> None:
         "CROSS has no condition or relationship discovery",
         "null-extend the whole accumulated left input",
         "degenerate FULL of two GLOBAL inputs retains UNKNOWN grain",
-        "Slice 10 is NEXT / NOT IMPLEMENTED",
+        "Slice 11 is NEXT / NOT IMPLEMENTED",
+        "closes the supported E05 IR boundary and E10",
+        "explicit external producers and positively established internal JOIN prefixes",
         "D07-FLOAT-DEFERRED excludes participating Float and aliases",
         "Float row-equivalence: DEFERRED -> Phase 72",
         "Slice 8 closes E07 and its part of E09",

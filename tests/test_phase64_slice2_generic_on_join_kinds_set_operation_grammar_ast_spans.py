@@ -302,8 +302,18 @@ query valid:
         fragment=base,
     )
     assert isinstance(bridge, ProjectNonConcreteQueryBlock)
-    with pytest.raises(ValueError, match="Set operations"):
-        build_project_query_block_ir(result)
+    from pietto._project.project_query_block_ir_verification import (
+        verify_project_query_block_ir,
+    )
+
+    snapshot = build_project_query_block_ir(result)
+    assert verify_project_query_block_ir(snapshot).verified
+    assert tuple(entry.owner for entry in snapshot.entries) == tuple(
+        entry.owner for entry in result.effective_outputs.entries
+    )
+    for entry in snapshot.entries:
+        if entry.output is None:
+            assert entry.starting_allocation is entry.ending_allocation
 
 
 def test_supported_set_and_old_cycles_preserve_partial_schedule(
@@ -363,8 +373,18 @@ query valid:
         entry = current[name]
         assert isinstance(entry, ProjectEffectiveOutputTerminal)
         assert entry.output is None
-    with pytest.raises(ValueError, match="Set operations"):
-        build_project_query_block_ir(result)
+    from pietto._project.project_query_block_ir_verification import (
+        verify_project_query_block_ir,
+    )
+
+    snapshot = build_project_query_block_ir(result)
+    assert verify_project_query_block_ir(snapshot).verified
+    assert tuple(entry.owner for entry in snapshot.entries) == tuple(
+        entry.owner for entry in result.effective_outputs.entries
+    )
+    for entry in snapshot.entries:
+        if entry.output is None:
+            assert entry.starting_allocation is entry.ending_allocation
 
 
 @pytest.mark.parametrize(

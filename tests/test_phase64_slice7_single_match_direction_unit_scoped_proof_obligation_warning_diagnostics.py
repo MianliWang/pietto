@@ -464,7 +464,7 @@ def test_hop_and_whole_path_keep_their_exact_units_and_complete_authority(
     assert all_checked.single_matches.entries[0].proofs[0].roots[0] is all_path
 
 
-def test_request_roots_are_unavailable_to_combined_ir_and_cannot_graft_verified_snapshot(
+def test_request_roots_are_retained_and_cannot_graft_an_unrelated_snapshot(
     tmp_path: Path,
 ) -> None:
     from pietto._project.project_query_block_ir import build_project_query_block_ir
@@ -481,9 +481,12 @@ def test_request_roots_are_unavailable_to_combined_ir_and_cannot_graft_verified_
     )
     checked = with_project_single_match_requests(original, (_request(original),))
     assert checked.ok
-    with pytest.raises(ValueError, match="Slice-10"):
-        build_project_query_block_ir(checked)
-    with pytest.raises(ValueError, match="roots"):
+    retained = build_project_query_block_ir(checked)
+    assert verify_project_query_block_ir(retained).verified
+    assert len(retained.requirements) == 1
+    assert retained.requirements[0].assessment is checked.single_matches.entries[0]
+    assert retained.requirements[0].boundaries
+    with pytest.raises(ValueError, match="every exact request occurrence"):
         replace(snapshot, completed=checked)
     object.__setattr__(snapshot, "completed", checked)
     assert (

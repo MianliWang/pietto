@@ -416,7 +416,7 @@ def test_null_bag_and_hidden_field_oracle(tmp_path: Path) -> None:
     assert len(rows) == 3
 
 
-def test_legacy_ir_and_combined_ir_fail_closed(tmp_path: Path) -> None:
+def test_legacy_ir_rejects_and_combined_ir_retains_distinct(tmp_path: Path) -> None:
     parsed = parse_source(_source())
     assert parsed.ast is not None
     semantic = analyze(parsed.ast)
@@ -424,8 +424,21 @@ def test_legacy_ir_and_combined_ir_fail_closed(tmp_path: Path) -> None:
     ir = build_ir(parsed.ast, semantic.model)
     assert ir.ir is None and [d.code for d in ir.diagnostics] == ["PIE-I1000"]
     result = _completed(tmp_path, _source())
-    with pytest.raises(ValueError, match="DISTINCT"):
-        build_project_query_block_ir(result)
+    from pietto._project.project_query_block_ir_verification import (
+        verify_project_query_block_ir,
+    )
+    from pietto._project.project_query_block_ir import (
+        ProjectIRCompletedQueryBlockOutput,
+        ProjectIRDistinctComparison,
+    )
+
+    snapshot = build_project_query_block_ir(result)
+    assert verify_project_query_block_ir(snapshot).verified
+    entry = next(e for e in snapshot.entries if e.owner is _entry(result).owner)
+    assert isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+    operator = next(op for op in entry.operators if op.kind.value == "distinct")
+    assert isinstance(operator.evidence, ProjectIRDistinctComparison)
+    assert operator.evidence.semantic is _entry(result).row_domain.distinct
 
 
 def test_foreign_and_equal_looking_authority_cannot_graft(tmp_path: Path) -> None:
@@ -800,7 +813,7 @@ def test_single_file_emit_never_omits_distinct(
 
 @pytest.mark.parametrize("operator", ("union", "intersect", "except"))
 @pytest.mark.parametrize("quantifier", ("all", "distinct"))
-def test_distinct_inputs_support_sets_but_combined_ir_stays_unavailable(
+def test_distinct_inputs_and_repeated_set_uses_are_retained(
     tmp_path: Path, operator: str, quantifier: str
 ) -> None:
     source = _source().replace("query result:", "table dedup:")
@@ -813,8 +826,21 @@ def test_distinct_inputs_support_sets_but_combined_ir_stays_unavailable(
     assert all(
         use.authority.entry is _entry(result, "dedup") for use in output.root.uses
     )
-    with pytest.raises(ValueError, match="Set operations"):
-        build_project_query_block_ir(result)
+    from pietto._project.project_query_block_ir_verification import (
+        verify_project_query_block_ir,
+    )
+    from pietto._project.project_query_block_ir import (
+        ProjectIRCompletedSetOperationOutput,
+    )
+
+    snapshot = build_project_query_block_ir(result)
+    assert verify_project_query_block_ir(snapshot).verified
+    entry = next(e for e in snapshot.entries if e.owner is output.owner)
+    assert isinstance(entry, ProjectIRCompletedSetOperationOutput)
+    assert entry.semantic_entry is output
+    assert len(entry.operands) == 2
+    assert entry.operands[0].producer is entry.operands[1].producer
+    assert entry.uses[0] is not entry.uses[1]
 
 
 def test_hidden_multihop_fields_do_not_enter_equivalence(tmp_path: Path) -> None:

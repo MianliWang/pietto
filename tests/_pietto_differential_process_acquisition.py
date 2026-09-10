@@ -31,7 +31,15 @@ TESTS_ROOT = REPO_ROOT / "tests"
 BATCH_CHILD = TESTS_ROOT / "_pietto_differential_probe_batch.py"
 SEEDS = ("0", "1", "7", "4294967295")
 SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
-FAMILY_ORDER = ("phase58", "phase59", "phase60", "phase61", "phase62", "phase63")
+FAMILY_ORDER = (
+    "phase58",
+    "phase59",
+    "phase60",
+    "phase61",
+    "phase62",
+    "phase63",
+    "phase64",
+)
 MODES = ("checkout", "relocated", "installed")
 # Every file a relocated or installed batch cell may import outside the
 # checkout. This manifest is frozen; nothing else is copied.
@@ -44,6 +52,7 @@ RELOCATION_SUPPORT_MANIFEST = (
     "_pietto_phase61_project_ir_differential_probe.py",
     "_pietto_phase62_join_differential_probe.py",
     "_pietto_phase63_query_block_ir_differential_probe.py",
+    "_pietto_phase64_flat_ir_differential_probe.py",
 )
 COMBINED_RELOCATED_CELLS = (((3, 12), "1"), ((3, 13), "4294967295"))
 ACQUISITION_TIMEOUT_SECONDS = 900.0
@@ -211,7 +220,7 @@ def family_requests(
         return _explain_family_requests(family, interpreters, combined=False)
     if family in {"phase59", "phase60", "phase61"}:
         return _explain_family_requests(family, interpreters, combined=True)
-    if family in {"phase62", "phase63"}:
+    if family in {"phase62", "phase63", "phase64"}:
         return _matrix_family_requests(family, interpreters)
     raise KeyError(f"Unknown differential family: {family!r}")
 

@@ -449,8 +449,8 @@ SCENARIO_MANIFEST = (
         "completed",
         ("relation_input", "window_evaluation", "qualify", "final_projection"),
     ),
-    ("stale_join", "terminal", ()),
-    ("downstream_stale", "terminal", ()),
+    ("stale_join", "completed", ("final_projection",)),
+    ("downstream_stale", "completed", ("relation_input", "final_projection")),
     ("details", "reused", ()),
     ("multi_join", "completed", ("final_projection",)),
     (
@@ -745,7 +745,13 @@ def _metamorphics(inspection: ProjectIRQueryBlockInspection) -> dict[str, object
     rebound_one = _active_entry(_entry(inspection, "rebound_one"))
     rebound_two = _active_entry(_entry(inspection, "rebound_two"))
     plain = _active_entry(_entry(inspection, "plain"))
-    stale_join = cast(ProjectIRQueryBlockTerminal, _entry(inspection, "stale_join"))
+    stale_join = _active_entry(_entry(inspection, "stale_join"))
+    downstream_stale = _active_entry(_entry(inspection, "downstream_stale"))
+    qualified_events = _active_entry(_entry(inspection, "qualified_events"))
+    assert isinstance(stale_join, ProjectIRCompletedQueryBlockOutput)
+    assert stale_join.join_prefix is not None
+    assert isinstance(downstream_stale, ProjectIRCompletedQueryBlockOutput)
+    assert downstream_stale.relation_input is not None
     if (
         type(replay) is not ProjectIRCompletedQueryBlockOutput
         or replay.relation_input is None
@@ -844,15 +850,15 @@ def _metamorphics(inspection: ProjectIRQueryBlockInspection) -> dict[str, object
             rebound_one.rebuilt_fragment is not rebound_one.semantic_entry.fragment,
         ],
         "effective_join": [
-            stale_join.reason.value,
-            cast(
-                ProjectIRQueryBlockTerminal, _entry(inspection, "downstream_stale")
-            ).reason.value,
-            stale_join.starting_allocation is stale_join.ending_allocation,
-            not any(
-                node.anchor.identity == _declaration_identity(stale_join.owner)
-                for node in inspection.slice14_nodes
+            type(stale_join).__name__,
+            type(downstream_stale).__name__,
+            any(
+                image.use.output is qualified_events.active_output.occurrence
+                for joined in stale_join.join_prefix.joins
+                for image in joined.inputs
             ),
+            downstream_stale.relation_input.use.output
+            is stale_join.active_output.occurrence,
         ],
         "inner_left": [
             [
@@ -1003,7 +1009,7 @@ def _negative_observation(
                     ProjectIRQueryBlockTerminal, _entry(primary.inspection, name)
                 ).reason.value,
             ]
-            for name in ("semantic_bad", "downstream_stale", "stale_join")
+            for name in ("semantic_bad", "semantic_bad_downstream")
         ],
         "pure_rejections": pure_rejections,
     }

@@ -48,8 +48,9 @@ documentation does not supersede that evidence.
 | Phase 64 Slice 7 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 8 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 9 | `COMPLETED / PUBLISHED` |
-| Phase 64 Slice 10 | `NEXT / NOT IMPLEMENTED` |
-| Next | `Phase 64 Slice 10 — Project IR composition, verification, invalidation, inspection and pure boundary` |
+| Phase 64 Slice 10 | `COMPLETED / PUBLISHED` |
+| Phase 64 Slice 11 | `NEXT / NOT IMPLEMENTED` |
+| Next | `Phase 64 Slice 11 — Completion audit and Phase-65 handoff` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -723,6 +724,21 @@ GLOBAL proof. Dependencies precede scheduling; mixed SCCs and their blocked
 descendants allocate no output while independent branches remain available.
 Completed sets compose through named replay, both JOIN roles, DISTINCT, nested
 sets and imports/reexports. Single-match obligations and JSON v2 remain unchanged.
-Phase 64 Slice 10 is `NEXT / NOT IMPLEMENTED`; Slices 10–11 are `NOT IMPLEMENTED`.
-Combined IR/verification/invalidation/inspection and E05/E10 full closure remain
-Slice 10. Completion audit, SQL and runtime fulfillment retain their later owners.
+Phase 64 Slice 10 is `COMPLETED / PUBLISHED` only upon successful natural
+exact-head CI on its ordinary publication commit. Its
+[combined IR contract](spec/phase64-slice10-project-ir-composition-verification-invalidation-inspection-pure-boundary-v1.md)
+closes E10 and the remaining supported-input E05 IR boundary. Dependency-first
+composition binds explicit active producers, preserves ordered repeated uses,
+remaps JOIN/nulling/grain coordinates and retains complete typed terminals.
+Independent verification checks original semantic evidence, fields, properties
+and direct/hop/path obligations; invalidation requires rebuild and fresh
+verification for changed semantic roots. VERIFIED-only private inspection
+retains all matching, DISTINCT/set, ORDER/Decimal and obligation evidence in
+`pietto.phase64-flat-relational-ir-inspection.v1`; unchanged historical inputs
+keep their old formats and bytes. The pure decoder checks closed document-local
+links, including explicit external producers and actual internal JOIN prefixes.
+LEGAL_UNPROVED remains an enforcement obligation with PIE-S2337 WARNING;
+VERIFIED and pure OK do not establish runtime fulfillment or SQL capability.
+E12 provides concrete retained inputs for the later planning owner without
+freezing ProjectSQLPlan. Phase 64 remains ACTIVE. Phase 64 Slice 11 is
+`NEXT / NOT IMPLEMENTED`; completion audit and Phase-65 handoff remain its work.

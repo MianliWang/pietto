@@ -229,7 +229,8 @@ def test_acquisition_invariants_hold_under_the_candidate_scheduler() -> None:
     two_interpreters = {(3, 13): "python3.13", (3, 12): "python3.12"}
     plan = acquisition.cell_plan(two_interpreters)
     assert len(plan) == 16
-    assert sum(len(requests) for requests in plan.values()) == 62
+    assert sum(len(requests) for requests in plan.values()) == 74
+    assert sum(r.family != "phase64" for rs in plan.values() for r in rs) == 62
     assert acquisition.FAMILY_ORDER == tuple(batch.FAMILY_MODULES)
 
     # The recorded per-mode origin counts must partition the plan exactly. The

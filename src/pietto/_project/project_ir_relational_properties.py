@@ -19,6 +19,7 @@ from pietto._project.project_grain import (
     ProjectGrainOriginAuthority,
     ProjectGrainOriginSet,
     ProjectSetGrainOrigin,
+    ProjectDistinctGrainOrigin,
 )
 from pietto._project.project_ir import (
     ProjectIROperatorFlowUseOccurrence,
@@ -1384,4 +1385,25 @@ def transfer_set_properties(
         fds=retained_fds,
         fd_index=_compile_output_fd_index(output, classes, retained_fds),
         grain=grain,
+    )
+
+
+def distinct_output_grain(
+    output: ProjectIRRelationalRowOutput,
+    origin: ProjectDistinctGrainOrigin,
+    *,
+    witness: object,
+) -> ProjectIRProvidedIntrinsicGrain:
+    """The existing DISTINCT quotient posture for semantic and combined outputs."""
+    factor = origin.factor
+    return ProjectIRProvidedIntrinsicGrain(
+        output=output,
+        state=ProjectGrainBasisState.GLOBAL
+        if factor is None
+        else ProjectGrainBasisState.FACTORIZED,
+        factors=() if factor is None else (ProjectGrainDomainFactor(identity=factor),),
+        active=() if factor is None else (factor,),
+        dependencies=(),
+        origin_set=origin,
+        witness=witness,
     )

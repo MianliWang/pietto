@@ -2,6 +2,29 @@
 
 from __future__ import annotations
 
+from pietto._project.project_query_block_ir_algebra import ProjectIRComposedJoinPrefix
+from pietto._project.project_final_outputs import (
+    ProjectDistinct,
+    ProjectCompletedSetOutput,
+)
+
+from pietto._project.project_current_join_inputs import ProjectCurrentMaterializedInput
+from pietto._project.project_current_joins import (
+    ProjectCurrentJoinRegion,
+    ProjectCurrentBinaryJoin,
+)
+from pietto._project.project_single_match import (
+    ProjectSingleMatchProof,
+    ProjectSingleMatchProofKind,
+    ProjectSingleMatchState,
+)
+
+from pietto._project.project_ir_joins import (
+    ProjectIRConcreteJoinRegion,
+    ProjectIRBinaryJoinOccurrence,
+)
+
+
 from dataclasses import dataclass, field
 from enum import StrEnum
 from heapq import heappop, heappush
@@ -17,8 +40,6 @@ from pietto._project.module_semantic_fact_preservation import (
 )
 from pietto._project.project_completion import ProjectExistingEffectiveOutput
 from pietto._project.project_final_outputs import (
-    _has_distinct,
-    _has_set_outputs,
     ProjectCompletedEffectiveOutput,
     ProjectCompletedOutputField,
     ProjectConcreteNoJoinReplay,
@@ -31,11 +52,14 @@ from pietto._project.project_grain import (
     ProjectGrainBasisState,
     ProjectGrainOriginKind,
     ProjectGroupedGrainFactorIdentity,
+    ProjectJoinGrainFactorIdentity,
 )
 from pietto._project.project_ir import (
+    _declaration_identity,
     ProjectIRInputSlotOccurrence,
     ProjectIRInputSlotRef,
     ProjectIRJoinInputUseOccurrence,
+    ProjectIRSetInputUseOccurrence,
     ProjectIROperatorFlowUseOccurrence,
     ProjectIROutputValueOccurrence,
     ProjectIROutputValueRef,
@@ -85,7 +109,13 @@ from pietto._project.project_joined_windows import (
     ProjectSelectedWindowResultBinding,
 )
 from pietto._project.project_query_block_ir import (
+    ProjectIRDistinctComparison,
+    ProjectIRSingleMatchRetention,
+    ProjectIRSingleMatchProofImage,
+    ProjectIRQueryBlockGrainOrigin,
+    ProjectIRQueryBlockRowDomainOrigin,
     ProjectIRCompletedQueryBlockOutput,
+    ProjectIRCompletedSetOperationOutput,
     ProjectIRQueryBlockAggregateEvaluationContext,
     ProjectIRQueryBlockEffectEvidence,
     ProjectIRQueryBlockEntry,
@@ -188,11 +218,18 @@ class ProjectIRQueryBlockVerificationResult:
             self.issues
         ):
             raise ValueError("Query-block verification status and issues disagree.")
-        if (
-            self.root.completed.effective_outputs.current_regions
-            and self.status is ProjectIRQueryBlockVerificationStatus.VERIFIED
+        if self.status is ProjectIRQueryBlockVerificationStatus.VERIFIED and any(
+            isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+            and entry.join_prefix is None
+            and any(
+                region.ledger.owner is entry.owner
+                for region in self.root.completed.effective_outputs.current_regions
+            )
+            for entry in self.root.entries
         ):
-            raise ValueError("Current JOIN composition is unavailable, not VERIFIED.")
+            raise ValueError(
+                "Current JOIN requires retained composition before VERIFIED."
+            )
 
     @property
     def verified(self) -> bool:
@@ -219,7 +256,9 @@ def _coordinate(
         return subject.ref
     if type(subject) is ProjectIROperatorFlowUseOccurrence:
         return subject.ref
-    if type(subject) is ProjectIRJoinInputUseOccurrence:
+    if isinstance(
+        subject, (ProjectIRJoinInputUseOccurrence, ProjectIRSetInputUseOccurrence)
+    ):
         return subject.ref
     if type(subject) is ProjectIRQueryBlockOperatorOccurrence:
         return subject.node.ref
@@ -251,6 +290,7 @@ type ProjectIRQueryBlockCombinedUse = (
     ProjectIRUseOccurrence
     | ProjectIROperatorFlowUseOccurrence
     | ProjectIRJoinInputUseOccurrence
+    | ProjectIRSetInputUseOccurrence
 )
 
 
@@ -372,7 +412,10 @@ def _active_output(
         return entry.active_output.occurrence
     if type(entry) is ProjectIRReboundExistingOutput:
         return entry.active_output.occurrence
-    if type(entry) is ProjectIRCompletedQueryBlockOutput:
+    if isinstance(
+        entry,
+        (ProjectIRCompletedQueryBlockOutput, ProjectIRCompletedSetOperationOutput),
+    ):
         return entry.active_output.occurrence
     return None
 
@@ -387,6 +430,16 @@ def _completed_active_operator(
     elif semantic.ordering is not None:
         kind = ProjectIRLogicalOperatorKind.RELATION_ORDERING
         evidence = semantic.ordering
+    elif semantic.row_domain.distinct is not None:
+        kind = ProjectIRQueryBlockOperatorExtensionKind.DISTINCT
+        matches = tuple(
+            operator
+            for operator in entry.operators
+            if operator.kind is kind
+            and isinstance(operator.evidence, ProjectIRDistinctComparison)
+            and operator.evidence.semantic is semantic.row_domain.distinct
+        )
+        return matches[0] if len(matches) == 1 else None
     else:
         kind = ProjectIRLogicalOperatorKind.FINAL_PROJECTION
         evidence = semantic
@@ -466,6 +519,13 @@ def _verify_active_roots(
                 )
                 == 1
             )
+        elif type(entry) is ProjectIRCompletedSetOperationOutput:
+            valid = (
+                entry.active_output.row_shape.operator is entry.operator
+                and entry.operator.evidence is entry.semantic_entry
+                and entry.active_properties.output is entry.active_output
+                and entry.active_output.occurrence.producer is entry.operator.node
+            )
         elif type(entry) is ProjectIRQueryBlockTerminal:
             continue
         else:
@@ -492,6 +552,7 @@ def _verify_active_roots(
             ProjectIRReusedEffectiveOutput,
             ProjectIRReboundExistingOutput,
             ProjectIRCompletedQueryBlockOutput,
+            ProjectIRCompletedSetOperationOutput,
         }:
             _record(
                 issues,
@@ -502,7 +563,8 @@ def _verify_active_roots(
         concrete_upstream = cast(
             ProjectIRReusedEffectiveOutput
             | ProjectIRReboundExistingOutput
-            | ProjectIRCompletedQueryBlockOutput,
+            | ProjectIRCompletedQueryBlockOutput
+            | ProjectIRCompletedSetOperationOutput,
             upstream,
         )
         if (
@@ -524,10 +586,7 @@ def _verify_root_continuity(
     completed = root.completed
     verification = completed.verification
     valid = (
-        not completed.single_match_requests
-        and not _has_distinct(completed)
-        and not _has_set_outputs(completed)
-        and completed.roots.verification is verification
+        completed.roots.verification is verification
         and completed.roots.completion is completed.completion
         and completed.roots.effective_outputs is completed.effective_outputs
         and completed.effective_outputs.base is completed.completion
@@ -565,7 +624,7 @@ def _new_entry_parts(
     tuple[ProjectIRPlanNodeOccurrence, ...],
     tuple[ProjectIROutputValueOccurrence, ...],
     tuple[ProjectIRInputSlotOccurrence, ...],
-    tuple[ProjectIRUseOccurrence | ProjectIROperatorFlowUseOccurrence, ...],
+    tuple[ProjectIRQueryBlockCombinedUse, ...],
 ]:
     if type(entry) is ProjectIRReboundExistingOutput:
         fragment = entry.rebuilt_fragment
@@ -579,9 +638,17 @@ def _new_entry_parts(
         return (
             entry.nodes,
             entry.output_occurrences,
-            entry.input_slots,
-            entry.uses,
+            (
+                *(() if entry.join_prefix is None else entry.join_prefix.slots),
+                *entry.input_slots,
+            ),
+            (
+                *(() if entry.join_prefix is None else entry.join_prefix.uses),
+                *entry.uses,
+            ),
         )
+    if isinstance(entry, ProjectIRCompletedSetOperationOutput):
+        return entry.nodes, entry.output_occurrences, entry.input_slots, entry.uses
     return (), (), (), ()
 
 
@@ -644,7 +711,10 @@ def _verify_allocation(
                 entry.starting_allocation.scope is start.scope
                 and entry.ending_allocation.scope is start.scope
             )
-        elif type(entry) is ProjectIRCompletedQueryBlockOutput:
+        elif isinstance(
+            entry,
+            (ProjectIRCompletedQueryBlockOutput, ProjectIRCompletedSetOperationOutput),
+        ):
             valid = valid and (
                 entry.starting_allocation.scope is start.scope
                 and entry.ending_allocation.scope is start.scope
@@ -823,23 +893,23 @@ def _verify_join_reuse(
     root: ProjectIRQueryBlockSnapshot,
     issues: list[ProjectIRQueryBlockVerificationIssue],
 ) -> None:
-    if root.completed.effective_outputs.current_regions:
-        if any(
-            type(entry) is not ProjectIRQueryBlockTerminal
-            or entry.reason
-            is not ProjectIRQueryBlockTerminalReason.CURRENT_JOIN_COMPOSITION_UNSUPPORTED
-            or entry.blocker is not root.completed.effective_outputs.current_regions
-            for entry in root.entries
-            if type(entry.semantic_entry) is ProjectCompletedEffectiveOutput
-        ):
-            _record(issues, ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE)
-        return
     for entry in root.entries:
         semantic = entry.semantic_entry
         if (
             type(semantic) is not ProjectCompletedEffectiveOutput
             or type(semantic.root) is not ProjectConcreteJoinedQualify
         ):
+            continue
+        if (
+            isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+            and entry.join_prefix is not None
+        ):
+            continue
+        if isinstance(entry, ProjectIRQueryBlockTerminal) and entry.reason in {
+            ProjectIRQueryBlockTerminalReason.INVALID_SINGLE_MATCH,
+            ProjectIRQueryBlockTerminalReason.ACTIVE_INPUTS_IR_NON_CONCRETE,
+            ProjectIRQueryBlockTerminalReason.ACTIVE_UPSTREAM_IR_NON_CONCRETE,
+        }:
             continue
         stale = _stale_external_uses(root, semantic)
         if type(entry) is ProjectIRCompletedQueryBlockOutput:
@@ -922,6 +992,13 @@ def _expected_operator_specs(
     else:
         raise TypeError("Completed operator sequence requires a closed root.")
     values.append((ProjectIRLogicalOperatorKind.FINAL_PROJECTION, semantic))
+    if semantic.row_domain.distinct is not None:
+        values.append(
+            (
+                ProjectIRQueryBlockOperatorExtensionKind.DISTINCT,
+                semantic.row_domain.distinct,
+            )
+        )
     if semantic.ordering is not None:
         values.append(
             (ProjectIRLogicalOperatorKind.RELATION_ORDERING, semantic.ordering)
@@ -936,6 +1013,13 @@ def _evidence_matches(
     semantic: ProjectCompletedEffectiveOutput,
     expected: object,
 ) -> bool:
+    if type(expected) is ProjectDistinct:
+        evidence = operator.evidence
+        return (
+            isinstance(evidence, ProjectIRDistinctComparison)
+            and evidence.semantic is expected
+            and expected is semantic.row_domain.distinct
+        )
     if type(expected) is tuple:
         evidence = operator.evidence
         return (
@@ -1064,6 +1148,40 @@ def _verify_semantic_evidence(
             )
             return
         for operator in entry.operators:
+            if operator.kind is ProjectIRQueryBlockOperatorExtensionKind.DISTINCT:
+                comparison = operator.evidence
+                incoming = tuple(
+                    use.output
+                    for use in entry.uses
+                    if use.slot.consumer is operator.node
+                )
+                if (
+                    not isinstance(comparison, ProjectIRDistinctComparison)
+                    or len(incoming) != 1
+                    or incoming[0] is not comparison.input_output.occurrence
+                    or not any(
+                        output is comparison.input_output
+                        for output in entry.row_outputs
+                    )
+                    or comparison.input_output.row_shape.operator.kind
+                    is not ProjectIRLogicalOperatorKind.FINAL_PROJECTION
+                    or comparison.input_output.row_shape.operator.evidence
+                    is not entry.semantic_entry
+                    or len(comparison.fields) != len(entry.semantic_entry.fields)
+                    or any(
+                        field.semantic_source is not selected
+                        or field.final_identity is not selected.identity
+                        for field, selected in zip(
+                            comparison.fields, entry.semantic_entry.fields, strict=True
+                        )
+                    )
+                ):
+                    _record(
+                        issues,
+                        ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE,
+                        operator,
+                    )
+                    return
             owned = tuple(
                 scalar
                 for scalar in entry.scalar_outputs
@@ -1651,6 +1769,7 @@ def _expected_imaged_key_fd_signatures(
     incoming: ProjectIROutputRelationalProperties,
     output: ProjectIROutputRelationalProperties,
     images: tuple[tuple[int, ...] | None, ...],
+    coalesced: bool = False,
 ) -> tuple[tuple[_KeySignature, ...], tuple[_FDSignature, ...]]:
     class_signatures = _class_signatures(output)
     target_positions = {
@@ -1670,6 +1789,12 @@ def _expected_imaged_key_fd_signatures(
         if any(position is None for position in mapped):
             continue
         determinants = tuple(cast(int, position) for position in mapped)
+        if coalesced:
+            determinants = tuple(
+                position
+                for position in range(len(output.value_classes))
+                if position in determinants
+            )
         strength = (
             ProjectRowUniquenessStrength.STRICT
             if all(
@@ -1695,6 +1820,17 @@ def _expected_imaged_key_fd_signatures(
             for item in fact.dependents
             if image_positions[incoming_positions[item]] is not None
         )
+        if coalesced:
+            determinants = tuple(
+                position
+                for position in range(len(output.value_classes))
+                if position in determinants
+            )
+            dependents = tuple(
+                position
+                for position in range(len(output.value_classes))
+                if position in dependents and position not in determinants
+            )
         if dependents:
             facts.append(
                 (
@@ -1752,7 +1888,10 @@ def _group_properties_valid(
     if type(context) is not ProjectIRQueryBlockAggregateEvaluationContext:
         return False
     origin_matches = tuple(
-        origin for origin in root.grain_origins.origins if origin.context is context
+        origin
+        for origin in root.grain_origins.origins
+        if isinstance(origin, ProjectIRQueryBlockGrainOrigin)
+        and origin.context is context
     )
     if len(origin_matches) != 1:
         return False
@@ -1875,13 +2014,41 @@ def _properties_are_imaged(
         output=output,
         images=images,
     )
-    return (
-        _actual_key_signatures(output) == expected_keys
-        and _actual_fd_signatures(output) == expected_fds
-        and output.grain.state is incoming.grain.state
+    grain_valid = (
+        output.grain.state is incoming.grain.state
         and output.grain.factors == incoming.grain.factors
         and output.grain.active == incoming.grain.active
         and output.grain.dependencies == incoming.grain.dependencies
+    )
+    if kind is ProjectIRQueryBlockOperatorExtensionKind.DISTINCT:
+        if not isinstance(entry, ProjectIRCompletedQueryBlockOutput):
+            return False
+        distinct = entry.semantic_entry.row_domain.distinct
+        if distinct is None:
+            return False
+        factor = distinct.origin.factor
+        comparison = output.grain.witness
+        grain_valid = (
+            isinstance(comparison, ProjectIRDistinctComparison)
+            and comparison.semantic is distinct
+            and comparison.input_output is incoming.output
+            and not output.grain.dependencies
+            and output.grain.state
+            is (
+                ProjectGrainBasisState.GLOBAL
+                if factor is None
+                else ProjectGrainBasisState.FACTORIZED
+            )
+            and _same_objects(output.grain.active, () if factor is None else (factor,))
+            and _same_objects(
+                tuple(f.identity for f in output.grain.factors),
+                () if factor is None else (factor,),
+            )
+        )
+    return (
+        _actual_key_signatures(output) == expected_keys
+        and _actual_fd_signatures(output) == expected_fds
+        and grain_valid
     )
 
 
@@ -2003,9 +2170,53 @@ def _verify_grain_origins(
             contexts.extend(entry.aggregate_contexts)
         elif type(entry) is ProjectIRReboundExistingOutput:
             contexts.extend(entry.aggregate_contexts)
-    origins = root.grain_origins.origins
+    origins = tuple(
+        origin
+        for origin in root.grain_origins.origins
+        if isinstance(origin, ProjectIRQueryBlockGrainOrigin)
+    )
+    domain_origins = tuple(
+        origin
+        for origin in root.grain_origins.origins
+        if isinstance(origin, ProjectIRQueryBlockRowDomainOrigin)
+    )
+    expected_domains = tuple(
+        operator
+        for owner in root.schedule
+        for entry in root.find_owner(owner)
+        for operator in (
+            (entry.operator,)
+            if isinstance(entry, ProjectIRCompletedSetOperationOutput)
+            else entry.operators
+            if isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+            else ()
+        )
+        if isinstance(
+            operator.evidence, (ProjectIRDistinctComparison, ProjectCompletedSetOutput)
+        )
+    )
     valid = (
-        root.grain_origins.base
+        len(root.grain_origins.origins) == len(origins) + len(domain_origins)
+        and len(domain_origins) == len(expected_domains)
+        and all(
+            origin.occurrence is operator
+            and origin.origin
+            is (
+                operator.evidence.semantic.origin
+                if isinstance(operator.evidence, ProjectIRDistinctComparison)
+                else operator.evidence.row_domain.set_origin
+                if isinstance(operator.evidence, ProjectCompletedSetOutput)
+                else None
+            )
+            for origin, operator in zip(domain_origins, expected_domains, strict=True)
+        )
+        and tuple(origin.operator.ref.position for origin in root.grain_origins.origins)
+        == tuple(
+            sorted(
+                origin.operator.ref.position for origin in root.grain_origins.origins
+            )
+        )
+        and root.grain_origins.base
         is root.completed.verification.root.base_relational.origins
         and len(origins) == len(contexts)
         and all(
@@ -2047,6 +2258,9 @@ def verify_project_query_block_ir(
         _verify_active_roots,
         _verify_historical_reuse,
         _verify_join_reuse,
+        _verify_composed_joins,
+        _verify_set_operations,
+        _verify_single_match_retention,
         _verify_operator_sequence,
         _verify_semantic_evidence,
         _verify_structural_endpoints,
@@ -2070,6 +2284,9 @@ def verify_project_query_block_ir(
                         ProjectIRQueryBlockVerificationIssueKind.HISTORICAL_REUSE
                     ),
                     _verify_join_reuse: ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE,
+                    _verify_composed_joins: ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE,
+                    _verify_set_operations: ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE,
+                    _verify_single_match_retention: ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE,
                     _verify_operator_sequence: (
                         ProjectIRQueryBlockVerificationIssueKind.OPERATOR_SEQUENCE
                     ),
@@ -2090,11 +2307,6 @@ def verify_project_query_block_ir(
             _record(
                 issues,
                 ProjectIRQueryBlockVerificationIssueKind.COMBINED_ACTUAL_USE_CYCLE,
-            )
-        if root.completed.effective_outputs.current_regions:
-            _record(
-                issues,
-                ProjectIRQueryBlockVerificationIssueKind.CURRENT_JOIN_COMPOSITION_UNSUPPORTED,
             )
     issue_tuple = tuple(issues)
     return ProjectIRQueryBlockVerificationResult(
@@ -2131,6 +2343,7 @@ class ProjectIRQueryBlockReverseUseEntry:
                 ProjectIRUseOccurrence,
                 ProjectIROperatorFlowUseOccurrence,
                 ProjectIRJoinInputUseOccurrence,
+                ProjectIRSetInputUseOccurrence,
             }
             or use.output is not self.output
             for use in self.uses
@@ -2221,13 +2434,6 @@ def build_project_query_block_ir_analysis_bundle(
 ) -> ProjectIRQueryBlockAnalysisBundle:
     """Freshly derive all combined topology analyses from one VERIFIED root."""
 
-    if (
-        type(verification) is ProjectIRQueryBlockVerificationResult
-        and verification.root.completed.effective_outputs.current_regions
-    ):
-        raise ValueError(
-            "Current JOIN combined analysis is unavailable until composition."
-        )
     if type(verification) is not ProjectIRQueryBlockVerificationResult or (
         not verification.verified
     ):
@@ -2342,3 +2548,737 @@ def assess_project_query_block_ir_invalidation(
             else ProjectIRQueryBlockOverlayRequirement.PRESERVED
         ),
     )
+
+
+def _verify_composed_joins(
+    root: ProjectIRQueryBlockSnapshot,
+    issues: list[ProjectIRQueryBlockVerificationIssue],
+) -> None:
+    """Independently check semantic membership and every composed binary image."""
+    prefixes = tuple(
+        entry.join_prefix
+        for entry in root.entries
+        if isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+        and entry.join_prefix is not None
+    )
+    image_pairs = tuple(pair for prefix in prefixes for pair in prefix.ref_images)
+    ref_images = {id(source): target for source, target in image_pairs}
+    use_images = {
+        id(item.source): item.use
+        for prefix in prefixes
+        for join in prefix.joins
+        for item in join.inputs
+    }
+    historical_uses = root.join_stage.structural.uses
+    expected_historical = tuple(
+        join
+        for entry in root.entries
+        if isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+        and entry.join_prefix is None
+        and isinstance(entry.semantic_entry.root, ProjectConcreteJoinedQualify)
+        for join in entry.semantic_entry.root.window_stage.input_aggregation.input_filter.joined_semantics.row_source.region.joins
+    )
+    if len(root.retained_joins) != len(expected_historical) or any(
+        item.source is not original
+        or item.node is not original.node
+        or item.output is not original.output
+        or not _same_objects(
+            tuple(image.source for image in item.inputs), original.input_uses
+        )
+        or not _same_objects(item.input_uses, original.input_uses)
+        for item, original in zip(root.retained_joins, expected_historical, strict=True)
+    ):
+        _record(issues, ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE)
+    operative = root.completed.effective_outputs.operative_conditions
+    for item, original in zip(root.retained_joins, expected_historical, strict=True):
+        conditions = (
+            ()
+            if operative is None
+            else tuple(
+                condition
+                for condition in operative.entries
+                if condition.effective_use is original.use
+            )
+        )
+        properties = tuple(
+            value.relational
+            for value in root.join_stage.properties.outputs
+            if value.join is original
+        )
+        valid = _same_objects(conditions, (item.condition,)) and _same_objects(
+            properties, (item.source_properties,)
+        )
+        for image, source in zip(
+            item.inputs, (original.left_input, original.right_input), strict=True
+        ):
+            producers = tuple(
+                entry.owner
+                for entry in root.entries
+                if not isinstance(entry, ProjectIRQueryBlockTerminal)
+                and entry.active_output.occurrence is image.use.output
+            )
+            internal = any(
+                image.use.output is join.output.occurrence
+                and join.node.ref.position < original.node.ref.position
+                for join in expected_historical
+            )
+            valid = (
+                valid
+                and image.source_properties is source
+                and (
+                    (len(producers) == 1 and image.producer is producers[0])
+                    or (not producers and internal and image.producer is None)
+                )
+            )
+        if not valid:
+            _record(issues, ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE)
+    historical_refs = tuple(
+        item.ref
+        for items in (
+            root.base_plan.structural_stage.nodes,
+            root.base_plan.structural_stage.uses,
+            root.join_stage.structural.nodes,
+            historical_uses,
+        )
+        for item in items
+    )
+    operative = root.completed.effective_outputs.operative_conditions
+    if operative is None:
+        if prefixes:
+            _record(issues, ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE)
+        return
+    for entry in root.entries:
+        if not isinstance(entry, ProjectIRCompletedQueryBlockOutput):
+            continue
+        prefix = entry.join_prefix
+        semantic = entry.semantic_entry
+        regions = tuple(
+            region
+            for region in root.completed.effective_outputs.current_regions
+            if region.ledger.owner is semantic.owner
+        )
+        if prefix is None:
+            if regions:
+                _record(issues, ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE)
+            continue
+        if (
+            type(prefix) is not ProjectIRComposedJoinPrefix
+            or prefix.semantic_entry is not semantic
+            or prefix.starting_allocation is not entry.starting_allocation
+        ):
+            _record(issues, ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE)
+            continue
+        available_regions = regions or tuple(
+            region
+            for region in root.join_stage.regions
+            if isinstance(region, ProjectIRConcreteJoinRegion)
+            and region.ledger.owner is semantic.owner
+        )
+        valid = (
+            len(available_regions) == 1
+            and prefix.region is available_regions[0]
+            and len(prefix.joins)
+            == len(prefix.region.joins)
+            == len(entry.join_properties)
+            and isinstance(semantic.root, ProjectConcreteJoinedQualify)
+            and any(join is prefix.final_join for join in prefix.joins)
+            and prefix.final_join.source.output
+            is semantic.root.window_stage.input_aggregation.input_filter.joined_semantics.final_output
+            and entry.source_properties.output is prefix.final_join.output
+        )
+        expected_pairs: list[tuple[object, object]] = []
+        factor_images: dict[int, object] = {}
+        for joined in prefix.joins:
+            for image in joined.inputs:
+                if image.producer is not None:
+                    producer_entry = _entry_for_owner(root, image.producer)
+                    if producer_entry is None or isinstance(
+                        producer_entry, ProjectIRQueryBlockTerminal
+                    ):
+                        valid = False
+                        continue
+                    old_factors = image.source_properties.grain.factors
+                    new_factors = (
+                        producer_entry.active_properties.relational.grain.factors
+                    )
+                    valid = valid and len(old_factors) == len(new_factors)
+                    for old, new in zip(old_factors, new_factors, strict=True):
+                        prior = factor_images.get(id(old.identity))
+                        if prior is not None and prior is not new.identity:
+                            valid = False
+                        factor_images[id(old.identity)] = new.identity
+
+        def factor_matches(old, new):
+            known = factor_images.get(id(old))
+            if known is not None:
+                return known is new
+            if isinstance(old, ProjectJoinGrainFactorIdentity):
+                if not isinstance(new, ProjectJoinGrainFactorIdentity):
+                    return False
+                introduction = ref_images.get(
+                    id(old.introduction_use),
+                    old.introduction_use
+                    if any(old.introduction_use is ref for ref in historical_refs)
+                    else None,
+                )
+                nulling = tuple(
+                    ref_images.get(
+                        id(ref),
+                        ref if any(ref is item for item in historical_refs) else None,
+                    )
+                    for ref in old.nulling_joins
+                )
+                return (
+                    new.introduction_use is introduction
+                    and _same_objects(new.nulling_joins, nulling)
+                    and factor_matches(old.base, new.base)
+                    and (
+                        (old.source_factor is None and new.source_factor is None)
+                        or old.source_factor is not None
+                        and new.source_factor is not None
+                        and factor_matches(old.source_factor, new.source_factor)
+                    )
+                )
+            return old is new
+
+        def factor_tuple_matches(old, new):
+            return len(old) == len(new) and all(
+                factor_matches(a, b) for a, b in zip(old, new, strict=True)
+            )
+
+        previous: dict[int, ProjectIRJoinRowOutput] = {}
+        for joined, original, result_properties in zip(
+            prefix.joins, prefix.region.joins, entry.join_properties, strict=True
+        ):
+            properties = result_properties.relational
+            conditions = tuple(
+                c
+                for c in operative.entries
+                if c.ledger is prefix.region.ledger
+                and (c.use is original.use or c.effective_use is original.use)
+            )
+            sources = (
+                tuple(
+                    p.relational
+                    for p in prefix.region.join_properties
+                    if p.join is original
+                )
+                if isinstance(prefix.region, ProjectCurrentJoinRegion)
+                else tuple(
+                    p.relational
+                    for p in root.join_stage.properties.outputs
+                    if p.join is original
+                )
+            )
+            valid = (
+                valid
+                and joined.source is original
+                and len(conditions) == 1
+                and joined.condition is conditions[0]
+                and len(sources) == 1
+                and joined.source_properties is sources[0]
+            )
+            valid = (
+                valid
+                and len(joined.inputs) == 2
+                and properties.output is joined.output
+                and joined.output.occurrence.producer is joined.node
+            )
+            expected_pairs.append((original.node.ref, joined.node.ref))
+            for ordinal, image in enumerate(joined.inputs):
+                source = (original.left_input, original.right_input)[ordinal]
+                valid = (
+                    valid
+                    and image.source is original.input_uses[ordinal]
+                    and image.source_properties is source
+                    and image.use.slot.input_ordinal == ordinal
+                    and image.use.slot.consumer is joined.node
+                )
+                local = previous.get(id(source.output))
+                if local is not None:
+                    valid = (
+                        valid
+                        and image.producer is None
+                        and image.use.output is local.occurrence
+                    )
+                else:
+                    anchor = source.output.occurrence.anchor
+                    if isinstance(source.output, ProjectCurrentMaterializedInput):
+                        expected_owners = (source.output.authority.owner,)
+                    elif isinstance(anchor, ProjectIRRelationAnchor):
+                        expected_owners = tuple(
+                            owner
+                            for owner in root.owners
+                            if _declaration_identity(owner) == anchor.identity
+                        )
+                    else:
+                        expected_owners = ()
+                    valid = (
+                        valid
+                        and len(expected_owners) == 1
+                        and image.producer is expected_owners[0]
+                    )
+                    producer = (
+                        None
+                        if image.producer is None
+                        else _entry_for_owner(root, image.producer)
+                    )
+                    output = None if producer is None else _active_output(producer)
+                    valid = valid and output is not None and image.use.output is output
+                expected_pairs.extend(
+                    (
+                        (image.source.ref, image.use.ref),
+                        (image.source.slot.ref, image.use.slot.ref),
+                    )
+                )
+            expected_pairs.append(
+                (original.output.occurrence.ref, joined.output.occurrence.ref)
+            )
+            valid = valid and len(joined.output.row_shape.fields) == len(
+                original.output.row_shape.fields
+            )
+            for old, new in zip(
+                original.output.row_shape.fields,
+                joined.output.row_shape.fields,
+                strict=True,
+            ):
+                introduction = use_images.get(id(old.introduction_use))
+                if introduction is None and any(
+                    old.introduction_use is use for use in historical_uses
+                ):
+                    introduction = old.introduction_use
+                nulling = tuple(
+                    ref_images.get(
+                        id(ref),
+                        ref
+                        if any(ref is retained for retained in historical_refs)
+                        else None,
+                    )
+                    for ref in old.nulling_joins
+                )
+                valid = (
+                    valid
+                    and new.field_position == old.field_position
+                    and new.evidence is old.evidence
+                    and new.effective_nullability is old.effective_nullability
+                    and new.introduction_use is introduction
+                    and _same_objects(new.nulling_joins, nulling)
+                )
+            valid = (
+                valid
+                and _property_shape_valid(properties)
+                and _fd_index_valid(properties)
+                and _class_signatures(properties)
+                == _class_signatures(joined.source_properties)
+                and _actual_key_signatures(properties)
+                == _actual_key_signatures(joined.source_properties)
+                and _actual_fd_signatures(properties)
+                == _actual_fd_signatures(joined.source_properties)
+                and properties.grain.state is joined.source_properties.grain.state
+                and properties.grain.origin_set is root.grain_origins
+                and properties.grain.witness is joined.source_properties
+            )
+            old_grain = joined.source_properties.grain
+            new_grain = properties.grain
+            valid = (
+                valid
+                and factor_tuple_matches(
+                    tuple(f.identity for f in old_grain.factors),
+                    tuple(f.identity for f in new_grain.factors),
+                )
+                and factor_tuple_matches(old_grain.active, new_grain.active)
+                and len(old_grain.dependencies) == len(new_grain.dependencies)
+                and all(
+                    factor_tuple_matches(a.determinants, b.determinants)
+                    and factor_tuple_matches(a.dependents, b.dependents)
+                    for a, b in zip(
+                        old_grain.dependencies, new_grain.dependencies, strict=True
+                    )
+                )
+            )
+            previous[id(original.output)] = joined.output
+        valid = (
+            valid
+            and len(expected_pairs) == len(prefix.ref_images)
+            and all(
+                a is c and b is d
+                for (a, b), (c, d) in zip(
+                    expected_pairs, prefix.ref_images, strict=True
+                )
+            )
+        )
+        if not valid:
+            _record(issues, ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE)
+
+
+def _verify_set_operations(
+    root: ProjectIRQueryBlockSnapshot,
+    issues: list[ProjectIRQueryBlockVerificationIssue],
+) -> None:
+    """Check N-ary authored uses and subset/alternative images, without building IR."""
+    for entry in root.entries:
+        if not isinstance(entry, ProjectIRCompletedSetOperationOutput):
+            continue
+        semantic = entry.semantic_entry
+        operation = semantic.root
+        origin = semantic.row_domain.set_origin
+        result = entry.active_properties.relational
+        witness = result.grain.witness
+        witness_valid = (
+            witness is operation
+            or type(witness) is tuple
+            and len(witness) == 2
+            and witness[0] is operation
+            and witness[1] is entry.operands[0].producer.active_properties.relational
+        )
+        valid = (
+            entry.operator.evidence is semantic
+            and entry.operator.kind
+            is ProjectIRQueryBlockOperatorExtensionKind.SET_OPERATION
+            and len(entry.operands) == len(operation.uses)
+            and len(entry.active_output.row_shape.fields) == len(semantic.fields)
+            and _property_shape_valid(result)
+            and _fd_index_valid(result)
+            and result.grain.origin_set is root.grain_origins
+            and witness_valid
+        )
+        inputs: list[ProjectIROutputRelationalProperties] = []
+        for ordinal, (image, source) in enumerate(
+            zip(entry.operands, operation.uses, strict=True)
+        ):
+            producer = _entry_for_owner(root, source.authority.owner)
+            valid = (
+                valid
+                and image.source is source
+                and image.producer is producer
+                and producer is not None
+                and producer.semantic_entry is source.authority.entry
+                and image.use.output is _active_output(producer)
+                and image.use.slot.consumer is entry.operator.node
+                and image.use.slot.input_ordinal == ordinal
+                and type(image.use) is ProjectIRSetInputUseOccurrence
+            )
+            inputs.append(image.producer.active_properties.relational)
+        for position, (actual, expected) in enumerate(
+            zip(entry.active_output.row_shape.fields, semantic.fields, strict=True)
+        ):
+            valid = (
+                valid
+                and actual.semantic_source is expected
+                and actual.evidence is expected.field
+                and actual.final_identity is expected.identity
+                and actual.field_position == position
+                and actual.effective_nullability is expected.field.nullability
+                and actual.introduction_use is None
+                and not actual.nulling_joins
+            )
+        kind = operation.multiplicity.value.split("_", 1)[0]
+        subsets = (
+            ()
+            if kind == "union"
+            else tuple(inputs)
+            if kind == "intersect"
+            else tuple(inputs[:1])
+        )
+        groups = [set((i,)) for i in range(len(result.fields))]
+        for incoming in subsets:
+            for value_class in incoming.value_classes:
+                members = {field.field_position for field in value_class.members}
+                overlap = tuple(group for group in groups if group & members)
+                if not overlap:
+                    valid = False
+                    continue
+                combined = set().union(*overlap)
+                groups = [group for group in groups if not group & members]
+                groups.append(combined)
+        signatures = tuple(tuple(sorted(group)) for group in sorted(groups, key=min))
+        valid = valid and _class_signatures(result) == signatures
+        keys: list[_KeySignature] = []
+        facts: list[_FDSignature] = []
+        for incoming in subsets:
+            images = tuple(
+                next(
+                    (
+                        signature
+                        for signature in signatures
+                        if all(
+                            member.field_position in signature
+                            for member in value_class.members
+                        )
+                    ),
+                    None,
+                )
+                for value_class in incoming.value_classes
+            )
+            imaged_keys, imaged_fds = _expected_imaged_key_fd_signatures(
+                incoming=incoming, output=result, images=images, coalesced=True
+            )
+            keys.extend(imaged_keys)
+            facts.extend(imaged_fds)
+        expected_keys = _frontier_key_signatures(tuple(keys))
+        for determinants, strength in expected_keys:
+            dependents = tuple(
+                i for i in range(len(result.value_classes)) if i not in determinants
+            )
+            if dependents:
+                facts.append((determinants, dependents, strength))
+        expected_fds: list[_FDSignature] = []
+        for fact in facts:
+            if fact not in expected_fds:
+                expected_fds.append(fact)
+        valid = (
+            valid
+            and _actual_key_signatures(result) == expected_keys
+            and _actual_fd_signatures(result) == tuple(expected_fds)
+        )
+        if origin is None:
+            valid = False
+        elif origin.factor is not None:
+            valid = (
+                valid
+                and result.grain.state is ProjectGrainBasisState.FACTORIZED
+                and _same_objects(result.grain.active, (origin.factor,))
+                and _same_objects(
+                    tuple(factor.identity for factor in result.grain.factors),
+                    (origin.factor,),
+                )
+                and not result.grain.dependencies
+            )
+        else:
+            left = inputs[0].grain
+            global_input = (
+                left.state is ProjectGrainBasisState.GLOBAL
+                or kind == "intersect"
+                and any(p.grain.state is ProjectGrainBasisState.GLOBAL for p in inputs)
+            )
+            retained = left.state is ProjectGrainBasisState.FACTORIZED and any(
+                key.strength is ProjectRowUniquenessStrength.STRICT
+                for key in inputs[0].keys
+            )
+            expected_state = (
+                ProjectGrainBasisState.GLOBAL
+                if global_input
+                else ProjectGrainBasisState.FACTORIZED
+                if retained
+                else ProjectGrainBasisState.UNKNOWN
+            )
+            valid = valid and result.grain.state is expected_state
+            if global_input:
+                valid = (
+                    valid
+                    and not result.grain.factors
+                    and not result.grain.active
+                    and not result.grain.dependencies
+                )
+            else:
+                valid = (
+                    valid
+                    and _same_objects(result.grain.factors, left.factors)
+                    and _same_objects(
+                        result.grain.active, left.active if retained else ()
+                    )
+                    and _same_objects(result.grain.dependencies, left.dependencies)
+                )
+        if not valid:
+            _record(
+                issues,
+                ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE,
+                entry.operator,
+            )
+
+
+def _verify_single_match_retention(
+    root: ProjectIRQueryBlockSnapshot,
+    issues: list[ProjectIRQueryBlockVerificationIssue],
+) -> None:
+    source = root.completed.single_matches
+    if source.root is not root.completed.effective_outputs or len(
+        root.requirements
+    ) != len(source.entries):
+        _record(issues, ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE)
+        return
+    historical = tuple(
+        join
+        for region in root.join_stage.regions
+        if isinstance(region, ProjectIRConcreteJoinRegion)
+        for join in region.joins
+    )
+    for position, (retained, assessment) in enumerate(
+        zip(root.requirements, source.entries, strict=True)
+    ):
+        owner = _entry_for_owner(root, assessment.request.owner)
+        valid = (
+            type(retained) is ProjectIRSingleMatchRetention
+            and retained.position == position
+            and retained.assessment is assessment
+            and retained.owner_entry is owner
+            and owner is not None
+        )
+        represented = (
+            owner is not None
+            and not isinstance(owner, ProjectIRQueryBlockTerminal)
+            and assessment.state is not ProjectSingleMatchState.INVALID
+        )
+        if assessment.state is ProjectSingleMatchState.INVALID:
+            valid = (
+                valid
+                and isinstance(owner, ProjectIRQueryBlockTerminal)
+                and owner.reason
+                in {
+                    ProjectIRQueryBlockTerminalReason.INVALID_SINGLE_MATCH,
+                    ProjectIRQueryBlockTerminalReason.SEMANTIC_OUTPUT_NON_CONCRETE,
+                }
+            )
+        expected_boundaries: list[object] = []
+        if represented:
+            for original in assessment.joins:
+                candidates = (
+                    tuple(
+                        join
+                        for join in owner.join_prefix.joins
+                        if join.source is original
+                    )
+                    if isinstance(owner, ProjectIRCompletedQueryBlockOutput)
+                    and owner.join_prefix is not None
+                    else ()
+                )
+                if len(candidates) == 1:
+                    expected_boundaries.append(candidates[0])
+                elif not candidates and any(original is join for join in historical):
+                    expected_boundaries.append(original)
+                else:
+                    valid = False
+        valid = (
+            valid
+            and _same_objects(retained.boundaries, tuple(expected_boundaries))
+            and len(retained.proofs) == len(assessment.proofs)
+        )
+
+        def check_proof(
+            image: ProjectIRSingleMatchProofImage, proof: ProjectSingleMatchProof
+        ) -> bool:
+            if (
+                type(image) is not ProjectIRSingleMatchProofImage
+                or image.source is not proof
+            ):
+                return False
+            selected = ()
+            if represented:
+                if proof.kind is ProjectSingleMatchProofKind.WHOLE_PATH:
+                    selected = tuple(expected_boundaries)
+                else:
+                    selected = tuple(
+                        mapped
+                        for original, mapped in zip(
+                            assessment.joins, expected_boundaries, strict=True
+                        )
+                        if any(
+                            item is original.input_uses[1]
+                            or isinstance(original, ProjectIRBinaryJoinOccurrence)
+                            and item is original.path_step
+                            or isinstance(original, ProjectCurrentBinaryJoin)
+                            and item is original.condition
+                            for item in proof.roots
+                        )
+                    )
+                    if len(selected) != 1:
+                        return False
+            producers = tuple(
+                entry
+                for item in proof.roots
+                for entry in root.entries
+                if entry.semantic_entry is item
+            )
+            nodes: list[ProjectIRPlanNodeOccurrence] = []
+            for producer in producers:
+                if isinstance(producer, ProjectIRCompletedQueryBlockOutput):
+                    nodes.extend(
+                        operator.node
+                        for operator in producer.operators
+                        if any(operator.evidence is item for item in proof.roots)
+                    )
+                elif isinstance(producer, ProjectIRReusedEffectiveOutput):
+                    nodes.extend(
+                        operator.node
+                        for operator in producer.semantic_entry.fragment.logical_stage.operators
+                        if any(operator is item for item in proof.roots)
+                    )
+                elif isinstance(producer, ProjectIRReboundExistingOutput):
+                    original_ops = (
+                        producer.semantic_entry.fragment.logical_stage.operators
+                    )
+                    rebuilt_ops = producer.rebuilt_fragment.logical_stage.operators
+                    if len(original_ops) != len(rebuilt_ops):
+                        return False
+                    nodes.extend(
+                        rebuilt_ops[i].node
+                        for i, operator in enumerate(original_ops)
+                        if any(operator is item for item in proof.roots)
+                    )
+            children = tuple(
+                item
+                for item in proof.roots
+                if isinstance(item, ProjectSingleMatchProof)
+            )
+            return (
+                _same_objects(image.boundaries, selected)
+                and _same_objects(image.producers, producers)
+                and _same_objects(image.premise_nodes, tuple(nodes))
+                and len(image.children) == len(children)
+                and all(
+                    check_proof(child, original)
+                    for child, original in zip(image.children, children, strict=True)
+                )
+            )
+
+        valid = valid and all(
+            check_proof(image, proof)
+            for image, proof in zip(retained.proofs, assessment.proofs, strict=True)
+        )
+        if assessment.diagnostic is not None:
+            valid = valid and any(
+                assessment.diagnostic is diagnostic
+                for diagnostic in root.completed.diagnostics
+            )
+        if not valid:
+            _record(issues, ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE)
+    for entry in root.entries:
+        invalid = tuple(
+            item
+            for item in source.entries
+            if item.request.owner is entry.owner
+            and item.state is ProjectSingleMatchState.INVALID
+        )
+        if (
+            isinstance(entry, ProjectIRQueryBlockTerminal)
+            and entry.reason is ProjectIRQueryBlockTerminalReason.INVALID_SINGLE_MATCH
+        ):
+            if (
+                not invalid
+                or type(entry.blocker) is not tuple
+                or not _same_objects(entry.blocker, invalid)
+            ):
+                _record(
+                    issues, ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE
+                )
+        if (
+            isinstance(entry, ProjectIRQueryBlockTerminal)
+            and entry.reason
+            is ProjectIRQueryBlockTerminalReason.ACTIVE_INPUTS_IR_NON_CONCRETE
+        ):
+            expected = tuple(
+                target
+                for dependency in entry.semantic_entry.dependencies
+                if isinstance(
+                    target := _entry_for_owner(root, dependency.target),
+                    ProjectIRQueryBlockTerminal,
+                )
+            )
+            if (
+                not expected
+                or type(entry.blocker) is not tuple
+                or not _same_objects(entry.blocker, expected)
+            ):
+                _record(
+                    issues, ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE
+                )

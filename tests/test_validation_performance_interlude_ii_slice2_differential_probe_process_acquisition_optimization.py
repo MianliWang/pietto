@@ -21,6 +21,7 @@ import _pietto_phase60_window_differential_probe as phase60_probe
 import _pietto_phase61_project_ir_differential_probe as phase61_probe
 import _pietto_phase62_join_differential_probe as phase62_probe
 import _pietto_phase63_query_block_ir_differential_probe as phase63_probe
+import _pietto_phase64_flat_ir_differential_probe as phase64_probe
 import _pietto_project_explain_differential_probe as phase58_probe
 import _pietto_project_explain_scenarios as scenarios
 
@@ -39,6 +40,7 @@ DIFFERENTIAL_TESTS = (
     "tests/test_phase61_slice11_differential_compatibility.py",
     "tests/test_phase62_slice15_real_authored_e2e_python_differential_metamorphic_join_assurance.py",
     "tests/test_phase63_slice15_inspection_pure_boundary_real_e2e_differential_metamorphic_assurance.py",
+    "tests/test_phase64_slice10_ir_observation_and_differential.py",
 )
 PROBES = {
     "phase58": phase58_probe,
@@ -47,6 +49,7 @@ PROBES = {
     "phase61": phase61_probe,
     "phase62": phase62_probe,
     "phase63": phase63_probe,
+    "phase64": phase64_probe,
 }
 TWO_INTERPRETERS = {(3, 13): "python3.13", (3, 12): "python3.12"}
 EXPECTED_FAMILY_REQUEST_COUNTS = {
@@ -56,9 +59,10 @@ EXPECTED_FAMILY_REQUEST_COUNTS = {
     "phase61": 10,
     "phase62": 12,
     "phase63": 12,
+    "phase64": 12,
 }
 EXPECTED_CELL_COUNT = 16
-EXPECTED_LOGICAL_REQUESTS = 62
+EXPECTED_LOGICAL_REQUESTS = 74
 EXPECTED_GATES = (
     ("lockfile", ("uv", "lock", "--check")),
     ("format", ("uv", "run", "ruff", "format", "--check", ".")),
@@ -210,7 +214,7 @@ def test_process_cells_never_merge_incompatible_environment_facts() -> None:
     shared = [cell for cell, requests in plan.items() if len(requests) > 1]
     assert len(shared) == EXPECTED_CELL_COUNT
     largest = max(plan.items(), key=lambda item: len(item[1]))
-    assert len(largest[1]) == 10
+    assert len(largest[1]) == 11
     assert {item.family for item in largest[1]} == set(acquisition.FAMILY_ORDER)
 
 
@@ -463,7 +467,16 @@ def test_specification_records_the_measured_optimization_and_closure() -> None:
         "101274743571",
     ):
         assert value in authority
-    for family in acquisition.FAMILY_ORDER:
+    # This published audit predates the Phase64 family in the live registry.
+    historical_families = (
+        "phase58",
+        "phase59",
+        "phase60",
+        "phase61",
+        "phase62",
+        "phase63",
+    )
+    for family in historical_families:
         assert family in audit
     assert "total = 62 logical outer requests" in audit
     for rule in (
@@ -523,7 +536,15 @@ def test_specification_records_the_measured_optimization_and_closure() -> None:
     for path in (*added, *modified):
         assert (REPO_ROOT / path).is_file()
         assert not path.startswith((".github/", "src/", "scripts/", "grammar/"))
-    assert all(name in modified for name in DIFFERENTIAL_TESTS)
+    historical_differential_tests = (
+        "tests/test_phase58_slice16_pure_differential_compatibility_assurance.py",
+        "tests/test_phase59_slice11_differential_compatibility_assurance.py",
+        "tests/test_phase60_slice12_differential_compatibility.py",
+        "tests/test_phase61_slice11_differential_compatibility.py",
+        "tests/test_phase62_slice15_real_authored_e2e_python_differential_metamorphic_join_assurance.py",
+        "tests/test_phase63_slice15_inspection_pure_boundary_real_e2e_differential_metamorphic_assurance.py",
+    )
+    assert all(name in modified for name in historical_differential_tests)
     assert "production Python `179` unchanged" in " ".join(closure.split())
     assert "`423 -> 426`" in " ".join(closure.split())
     assert "sole mutable lifecycle-document reader" in " ".join(closure.split())

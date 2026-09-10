@@ -419,6 +419,8 @@ def test_exact_authored_operator_sequences_cover_joined_replay_and_full_mixed_ta
     )
     assert tuple(ProjectIRQueryBlockOperatorExtensionKind) == (
         ProjectIRQueryBlockOperatorExtensionKind.QUALIFY,
+        ProjectIRQueryBlockOperatorExtensionKind.DISTINCT,
+        ProjectIRQueryBlockOperatorExtensionKind.SET_OPERATION,
     )
 
 
@@ -751,22 +753,22 @@ def test_active_root_authority_has_no_negative_one_subscript() -> None:
         assert forbidden == ()
 
 
-def test_stale_join_and_upstream_terminals_allocate_no_fake_ir(built: _Built) -> None:
-    stale = _entry(built, "stale_join")
+def test_effective_join_rebinds_and_semantic_terminals_allocate_no_fake_ir(
+    built: _Built,
+) -> None:
+    stale = _completed(built, "stale_join")
     downstream = _entry(built, "downstream_stale")
-    assert type(stale) is ProjectIRQueryBlockTerminal
-    assert stale.reason is (
-        ProjectIRQueryBlockTerminalReason.EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED
+    assert stale.join_prefix is not None
+    source = _completed(built, "qualified_events")
+    assert any(
+        image.use.output is source.active_output.occurrence
+        for joined in stale.join_prefix.joins
+        for image in joined.inputs
     )
-    assert stale.starting_allocation is stale.ending_allocation
-    assert stale.output is None
-    assert stale.blocker
-    assert type(downstream) is ProjectIRQueryBlockTerminal
-    assert downstream.reason is (
-        ProjectIRQueryBlockTerminalReason.ACTIVE_UPSTREAM_IR_NON_CONCRETE
-    )
-    assert downstream.blocker is stale
-    assert downstream.starting_allocation is downstream.ending_allocation
+    assert isinstance(downstream, ProjectIRCompletedQueryBlockOutput)
+    assert downstream.relation_input is not None
+    assert downstream.relation_input.use.output is stale.active_output.occurrence
+    assert verify_project_query_block_ir(built.snapshot).verified
 
     for name in ("semantic_bad", "semantic_bad_downstream"):
         terminal = _entry(built, name)

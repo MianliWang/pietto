@@ -34,7 +34,6 @@ from pietto._project.project_final_outputs import (
 from pietto._project.project_query_block_ir import (
     build_project_query_block_ir,
     ProjectIRQueryBlockTerminal,
-    ProjectIRQueryBlockTerminalReason,
 )
 from pietto._project.project_join_conditions import ProjectJoinConditionCompletion
 from pietto._project.project_current_join_inputs import ProjectCurrentPreMatchInputs
@@ -778,7 +777,7 @@ def test_real_explicit_project_check_and_unchanged_json_shape(
 
 
 @pytest.mark.parametrize("kind", ("semi", "anti"))
-def test_single_file_legacy_ir_and_combined_current_ir_stay_negative(
+def test_legacy_ir_rejects_while_combined_ir_retains_existence_inputs(
     tmp_path: Path, kind: str
 ) -> None:
     source = _source("true", kind=kind)
@@ -790,17 +789,26 @@ def test_single_file_legacy_ir_and_combined_current_ir_stay_negative(
     assert lowered.ir is None
     assert any(d.code == "PIE-I1000" for d in lowered.diagnostics)
     completed = _completed(tmp_path, source)
+    from pietto._project.project_query_block_ir_verification import (
+        verify_project_query_block_ir,
+    )
+    from pietto._project.project_query_block_ir import (
+        ProjectIRCompletedQueryBlockOutput,
+    )
+
     snapshot = build_project_query_block_ir(completed)
-    assert snapshot.ending_allocation is snapshot.starting_allocation
-    assert not snapshot.structural.nodes
-    terminals = tuple(
-        e for e in snapshot.entries if isinstance(e, ProjectIRQueryBlockTerminal)
-    )
-    assert len(terminals) == 1
-    assert (
-        terminals[0].reason
-        is ProjectIRQueryBlockTerminalReason.CURRENT_JOIN_COMPOSITION_UNSUPPORTED
-    )
+    assert verify_project_query_block_ir(snapshot).verified
+    entry = next(e for e in snapshot.entries if e.owner.definition.name == "result")
+    assert isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+    assert entry.join_prefix is not None
+    joined = entry.join_prefix.final_join
+    assert joined.source is completed.effective_outputs.current_regions[0].joins[0]
+    assert tuple(image.source for image in joined.inputs) == joined.source.input_uses
+    assert len(joined.inputs) == 2
+    for image in joined.inputs:
+        producer = next(e for e in snapshot.entries if e.owner is image.producer)
+        assert not isinstance(producer, ProjectIRQueryBlockTerminal)
+        assert image.use.output is producer.active_output.occurrence
 
 
 @pytest.mark.parametrize("kind", ("semi", "anti"))

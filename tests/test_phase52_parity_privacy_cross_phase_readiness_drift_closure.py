@@ -3,12 +3,18 @@ from __future__ import annotations
 import ast
 from collections import Counter
 from dataclasses import replace
+from importlib.util import resolve_name
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any, cast
 
 import pytest
 
-from _pietto_repository_facts import REPOSITORY_FACTS
+from _pietto_repository_facts import (
+    PythonSourceFacts,
+    REPOSITORY_FACTS,
+    RepositoryFactIndex,
+)
 import pietto.semantic.capability_aggregates as capability_aggregates
 import pietto.semantic.capability_composition as capability_composition
 import pietto.semantic.capability_contexts as capability_contexts
@@ -66,6 +72,68 @@ MODULE_RELS = (
     PROVIDER_REL,
     COMPOSITION_REL,
 )
+SEMANTIC_CAPABILITY_MODULES = frozenset(
+    ".".join(Path(path).with_suffix("").parts[1:]) for path in MODULE_RELS
+)
+COMPILER_CAPABILITY_MODULES = SEMANTIC_CAPABILITY_MODULES | {
+    "pietto._project.capability_availability",
+    "pietto._project.capability_checking",
+    "pietto._project.capability_matrix",
+    "pietto._project.capability_inspection",
+    "pietto._project.capability_pure_boundary",
+    "pietto._project.package_capability_requirements",
+    "pietto._project.project_capability_environment",
+}
+COMPILER_CAPABILITY_LOOKUPS = frozenset(
+    {
+        "inventory_lookup_inputs",
+        "signature_lookup_inputs",
+        "stage_clause_lookup_inputs",
+        "aggregate_lookup_inputs",
+        "window_lookup_inputs",
+        "lookup_capability",
+        "canonical_capability_provider_inputs",
+    }
+)
+
+
+def _compiler_capability_references(
+    facts: PythonSourceFacts,
+    package: str,
+    protected: frozenset[str] = COMPILER_CAPABILITY_MODULES,
+) -> tuple[str, ...]:
+    modules = set(facts.imported_modules)
+    stems = {module.rsplit(".", 1)[-1] for module in protected}
+    # Shared facts omit ImportFrom.level and the module imported from its parent.
+    if stems & (facts.identifiers | {module.rsplit(".", 1)[-1] for module in modules}):
+        for node in ast.walk(ast.parse(facts.text, filename=str(facts.path))):
+            if isinstance(node, ast.ImportFrom):
+                parent = node.module or ""
+                if node.level:
+                    parent = resolve_name("." * node.level + parent, package)
+                modules.add(parent)
+                modules.update(f"{parent}.{alias.name}" for alias in node.names)
+    references = {
+        f"lookup: {name}" for name in COMPILER_CAPABILITY_LOOKUPS & facts.identifiers
+    }
+    for module in protected:
+        parent, stem = module.rsplit(".", 1)
+        root, namespace = parent.rsplit(".", 1)
+        if (
+            module in modules
+            or stem in facts.identifiers
+            and (
+                parent in modules or root in modules and namespace in facts.identifiers
+            )
+        ):
+            references.add(f"module: {module}")
+        spellings = {module, module.removeprefix("pietto."), stem}
+        for literal in facts.string_literals:
+            if literal.lstrip(".") in spellings:
+                references.add(f"module literal: {literal}")
+    return tuple(sorted(references))
+
+
 EVIDENCE_SOURCE_COUNTS = {
     CapabilityEvidenceSource.GRAMMAR_AST: 267,
     CapabilityEvidenceSource.SEMANTIC_CATALOG: 90,
@@ -861,6 +929,7 @@ def test_only_private_window_strategy_is_new_compiler_capability_consumer() -> N
     project_environment_rel = "src/pietto/_project/project_capability_environment.py"
     runtime_builder_rel = "src/pietto/_project_explain/runtime_builder.py"
     window_strategy_rel = "src/pietto/sql/window_strategy.py"
+    violations: list[tuple[str, str]] = []
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
         relative = path.relative_to(REPO_ROOT).as_posix()
         if (
@@ -891,18 +960,31 @@ def test_only_private_window_strategy_is_new_compiler_capability_consumer() -> N
             or "generated" in path.parts
         ):
             continue
-        source = REPOSITORY_FACTS.python(path).text
-        assert all(name not in source for name in forbidden_names)
-        assert all(f"semantic.{stem}" not in source for stem in module_stems)
+        facts = REPOSITORY_FACTS.python(path)
+        violations.extend(
+            (relative, f"lookup token: {name}")
+            for name in sorted(forbidden_names)
+            if name in facts.text
+        )
+        violations.extend(
+            (relative, f"qualified module: semantic.{stem}")
+            for stem in sorted(module_stems)
+            if f"semantic.{stem}" in facts.text
+        )
+        violations.extend(
+            (relative, reference)
+            for reference in _compiler_capability_references(
+                facts,
+                ".".join(path.relative_to(REPO_ROOT / "src").parts[:-1]),
+                SEMANTIC_CAPABILITY_MODULES,
+            )
+        )
     for directory in ("_project", "sql", "metadata"):
         root = REPO_ROOT / "src/pietto" / directory
         if root.exists():
-            assert all(
-                "capability_" not in REPOSITORY_FACTS.python(path).text
-                for path in root.rglob("*.py")
-                if "generated" not in path.parts
-                and path.relative_to(REPO_ROOT).as_posix()
-                not in {
+            for path in root.rglob("*.py"):
+                relative = path.relative_to(REPO_ROOT).as_posix()
+                if "generated" in path.parts or relative in {
                     preservation_rel,
                     availability_rel,
                     checking_rel,
@@ -921,8 +1003,16 @@ def test_only_private_window_strategy_is_new_compiler_capability_consumer() -> N
                     EXTENSION_INSPECTION_REL,
                     EXTENSION_INSPECTION_PURE_REL,
                     window_strategy_rel,
-                }
-            )
+                }:
+                    continue
+                violations.extend(
+                    (relative, reference)
+                    for reference in _compiler_capability_references(
+                        REPOSITORY_FACTS.python(path),
+                        ".".join(path.relative_to(REPO_ROOT / "src").parts[:-1]),
+                    )
+                )
+    assert not violations, violations
     window_strategy_source = REPOSITORY_FACTS.python(
         REPO_ROOT / window_strategy_rel
     ).text
@@ -1012,3 +1102,128 @@ def test_only_private_window_strategy_is_new_compiler_capability_consumer() -> N
     assert "canonical_capability_provider_inputs" in preservation_source
     assert all(name not in preservation_source for name in forbidden_names)
     assert "__all__: tuple[str, ...] = ()" in preservation_source
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        (
+            "def _capability_data(x): return x\n"
+            "def _capability_field(x): return _capability_data(x)\n"
+            "def _capability_records(x): return _capability_field(x)\n"
+            "def _capability_field_matches(x): return _capability_records(x)\n"
+            "def _capability_key(x): return _capability_field_matches(x)\n"
+            "def _type_capability_key(x): return _capability_key(x)\n"
+            "_type_capability_key(1)\n",
+            (),
+        ),
+        ("# capability_ is descriptive here\nNOTE = 'capability_ helper'\n", ()),
+        ("import unrelated.capability_facts\n", ()),
+        (
+            "import pietto.semantic.capability_facts\n",
+            ("module: pietto.semantic.capability_facts",),
+        ),
+        (
+            "import pietto.semantic.capability_contexts as contexts\n",
+            ("module: pietto.semantic.capability_contexts",),
+        ),
+        (
+            "from pietto.semantic import capability_facts as facts\n",
+            ("module: pietto.semantic.capability_facts",),
+        ),
+        (
+            "from pietto.semantic.capability_lookup import lookup_capability as lookup\n",
+            ("lookup: lookup_capability", "module: pietto.semantic.capability_lookup"),
+        ),
+        (
+            "import pietto._project.capability_availability as availability\n",
+            ("module: pietto._project.capability_availability",),
+        ),
+        (
+            "from pietto._project import capability_matrix as matrix\n",
+            ("module: pietto._project.capability_matrix",),
+        ),
+        (
+            "from . import capability_checking as checking\n",
+            ("module: pietto._project.capability_checking",),
+        ),
+        (
+            "from .capability_inspection import CapabilityInspection\n",
+            ("module: pietto._project.capability_inspection",),
+        ),
+        (
+            "from ..semantic import capability_facts as facts\n",
+            ("module: pietto.semantic.capability_facts",),
+        ),
+        (
+            "from ..semantic.capability_facts import CapabilityKey\n",
+            ("module: pietto.semantic.capability_facts",),
+        ),
+        (
+            "import pietto.semantic as semantic\nsemantic.capability_facts.CapabilityKey\n",
+            ("module: pietto.semantic.capability_facts",),
+        ),
+        (
+            "import pietto as p\np.semantic.capability_facts.CapabilityKey\n",
+            ("module: pietto.semantic.capability_facts",),
+        ),
+        (
+            "from pietto import semantic as s\ns.capability_facts.CapabilityKey\n",
+            ("module: pietto.semantic.capability_facts",),
+        ),
+        (
+            "from .. import semantic as s\ns.capability_facts.CapabilityKey\n",
+            ("module: pietto.semantic.capability_facts",),
+        ),
+        ("inventory_lookup_inputs(key)\n", ("lookup: inventory_lookup_inputs",)),
+        ("provider.lookup_capability(key)\n", ("lookup: lookup_capability",)),
+        (
+            "canonical_capability_provider_inputs(key)\n",
+            ("lookup: canonical_capability_provider_inputs",),
+        ),
+        (
+            "from importlib import import_module as load\nload('pietto.semantic.capability_facts')\n",
+            ("module literal: pietto.semantic.capability_facts",),
+        ),
+        (
+            "__import__('pietto._project.project_capability_environment')\n",
+            ("module literal: pietto._project.project_capability_environment",),
+        ),
+        (
+            "import importlib\nimportlib.import_module('.capability_checking', 'pietto._project')\n",
+            ("module literal: .capability_checking",),
+        ),
+        (
+            "import pietto.semantic.capability_facts\n"
+            "from pietto._project import package_capability_requirements\n"
+            "provider.lookup_capability(key)\n",
+            (
+                "lookup: lookup_capability",
+                "module: pietto._project.package_capability_requirements",
+                "module: pietto.semantic.capability_facts",
+            ),
+        ),
+    ),
+)
+def test_compiler_capability_guard_uses_exact_source_facts(
+    tmp_path: Path, source: str, expected: tuple[str, ...]
+) -> None:
+    with NamedTemporaryFile(dir=tmp_path, suffix=".py") as snippet:
+        snippet.write(source.encode("utf-8"))
+        snippet.flush()
+        facts = RepositoryFactIndex.snapshot(tmp_path).python(Path(snippet.name))
+        assert _compiler_capability_references(facts, "pietto._project") == expected
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "src/pietto/_project/project_query_block_ir_inspection.py",
+        "src/pietto/_project/project_query_block_ir_pure_boundary.py",
+    ),
+)
+def test_row_equivalence_helpers_are_not_compiler_capability_consumers(
+    relative: str,
+) -> None:
+    facts = REPOSITORY_FACTS.python(REPO_ROOT / relative)
+    assert not _compiler_capability_references(facts, "pietto._project")

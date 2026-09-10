@@ -57,9 +57,9 @@ EXPECTED_REVIEW_SUMMARY: dict[str, object] = {
     "observation_format": "pietto.phase63-query-block-ir-differential.v1",
     "package_version": "0.1.0",
     "owner_count": 35,
-    "record_count": 1952,
-    "canonical_size": 311950,
-    "canonical_sha256": "e3ae8967f8fd5ae19e89d00706f5df859a5b12c4208a92f1d77eb980e7e2d9aa",
+    "record_count": 2118,
+    "canonical_size": 351210,
+    "canonical_sha256": "51fa61c749ad59a1aa12d4978796d36a5540b97a0eddadfd160c22ab8922b8de",
     "phase61_size": 90142,
     "phase61_sha256": "b01e22a5c6fc603b99da93267ce4f4f5e90a6ccb06e692e3690ca878cc464144",
     "phase62_size": 204055,
@@ -92,8 +92,8 @@ EXPECTED_REVIEW_SUMMARY: dict[str, object] = {
             True,
         ],
         "effective_join": [
-            "effective_join_input_rebind_unsupported",
-            "active_upstream_ir_non_concrete",
+            "ProjectIRCompletedQueryBlockOutput",
+            "ProjectIRCompletedQueryBlockOutput",
             True,
             True,
         ],
@@ -110,13 +110,12 @@ EXPECTED_REVIEW_SUMMARY: dict[str, object] = {
         "cross_snapshot_ref": "rejected",
         "terminals": [
             ["semantic_bad", "semantic_output_non_concrete"],
-            ["downstream_stale", "active_upstream_ir_non_concrete"],
-            ["stale_join", "effective_join_input_rebind_unsupported"],
+            ["semantic_bad_downstream", "semantic_output_non_concrete"],
         ],
         "pure_rejections": [
             ["unknown_format", "unknown_format", 0, 0],
             ["section_order", "invalid_section_order", 0, 0],
-            ["dangling_ref", "dangling_ref", 501, 1],
+            ["dangling_ref", "dangling_ref", 516, 1],
         ],
     },
 }
@@ -584,8 +583,12 @@ def test_gate_b_private_stdlib_owner_single_encoder_and_additive_marker() -> Non
         for node in ast.walk(tree)
         if isinstance(node, (ast.Import, ast.ImportFrom))
         and (
-            isinstance(node, ast.Import)
-            or node.module
+            (
+                isinstance(node, ast.Import)
+                and any(alias.name != "json" for alias in node.names)
+            )
+            or isinstance(node, ast.ImportFrom)
+            and node.module
             not in {"__future__", "dataclasses", "enum", "heapq", "typing"}
         )
     )
@@ -597,7 +600,7 @@ def test_gate_b_private_stdlib_owner_single_encoder_and_additive_marker() -> Non
         )
         == 1
     )
-    assert "import json" not in source
+    assert "import json" in source
     assert "hashlib" not in source
     assert "ProjectIRSnapshotScope" not in source
 
@@ -614,7 +617,7 @@ def test_gate_b_document_observes_explicit_roots_properties_windows_and_analyses
         == product.canonical_bytes
     )
     assert product.canonical_bytes.startswith(
-        b"header\tformat=t:pietto.phase63-query-block-ir-inspection.v1"
+        b"header\tformat=t:pietto.phase64-flat-relational-ir-inspection.v1"
     )
     assert str(REPO_ROOT).encode() not in product.canonical_bytes
     assert b"0x" not in product.canonical_bytes
@@ -998,8 +1001,8 @@ def test_gate_c_real_authored_manifest_full_records_and_metamorphics_are_frozen(
     ]
     assert metamorphics["downstream"] == [True, True]
     assert metamorphics["effective_join"] == [
-        "effective_join_input_rebind_unsupported",
-        "active_upstream_ir_non_concrete",
+        "ProjectIRCompletedQueryBlockOutput",
+        "ProjectIRCompletedQueryBlockOutput",
         True,
         True,
     ]
@@ -1165,3 +1168,95 @@ def test_authority_closure_matrix_precedes_production_and_freezes_roots() -> Non
         "Slice 16 is `NEXT / NOT IMPLEMENTED`",
     ):
         assert phrase in document
+
+
+def test_unchanged_published_positive_fixture_keeps_phase63_v1_bytes(
+    tmp_path: Path,
+) -> None:
+    completed = slice14.slice13._build(
+        tmp_path, slice14.slice13.POSITIVE_SOURCE
+    ).completed
+    snapshot = slice14.build_project_query_block_ir(completed)
+    verified = verify_project_query_block_ir(snapshot)
+    assert verified.verified
+    product = inspection.build_project_query_block_ir_inspection(
+        build_project_query_block_ir_analysis_bundle(verified)
+    )
+    assert (
+        product.document.format_marker == pure.PROJECT_QUERY_BLOCK_IR_INSPECTION_FORMAT
+    )
+    assert len(product.canonical_bytes) == 52134
+    assert (
+        hashlib.sha256(product.canonical_bytes).hexdigest()
+        == "19cc5868cbfb6450c453dd03a05c614c7fe165811a10e45f6a1e8950fd3ea76f"
+    )
+    assert (
+        pure.evaluate_project_query_block_ir_document(product.document).canonical_bytes
+        == product.canonical_bytes
+    )
+
+
+def test_lifted_fixture_active_final_fields_keep_exact_projection_authority(
+    product: inspection.ProjectIRQueryBlockInspectionProduct,
+) -> None:
+    observed = product.inspection
+    field_records = tuple(
+        record
+        for record in product.document.records
+        if record.kind is pure.ProjectQueryBlockIRRecordKind.ROW_FIELD
+    )
+    for entry in observed.completed_entries:
+        properties = entry.active_properties
+        property_position = next(
+            i
+            for i, value in enumerate(observed.result_properties)
+            if value is properties
+        )
+        projections = tuple(
+            output
+            for output in entry.row_outputs
+            if output.row_shape.operator.kind.value == "final_projection"
+        )
+        assert len(projections) == 1
+        for position, selected in enumerate(entry.semantic_entry.fields):
+            assert (
+                entry.active_output.row_shape.fields[position].semantic_source
+                is selected
+            )
+            assert (
+                projections[0].row_shape.fields[position].final_identity
+                is selected.identity
+            )
+            records = tuple(
+                record
+                for record in field_records
+                if record.fields[_field_position(record, "property")].value.ref
+                == pure.ProjectQueryBlockIRPortableRef(
+                    domain=pure.ProjectQueryBlockIRPortableRefDomain.RELATIONAL_PROPERTY,
+                    position=property_position,
+                )
+                and record.fields[
+                    _field_position(record, "field_position")
+                ].value.integer
+                == position
+            )
+            assert len(records) == 1
+            record = records[0]
+            owner_ref = record.fields[_field_position(record, "final_owner")].value.ref
+            assert (
+                owner_ref is not None
+                and observed.owners[owner_ref.position] is entry.owner
+            )
+            assert (
+                record.fields[_field_position(record, "final_kind")].value.enumeration
+                == selected.identity.kind.value
+                == "relation_output"
+            )
+            assert (
+                record.fields[_field_position(record, "final_position")].value.integer
+                == selected.identity.field_position
+            )
+            assert (
+                record.fields[_field_position(record, "final_name")].value.text
+                == selected.identity.name
+            )

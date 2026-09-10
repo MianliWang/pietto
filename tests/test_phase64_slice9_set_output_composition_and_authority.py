@@ -367,8 +367,29 @@ def test_legacy_and_combined_ir_do_not_drop_set_or_replay(
     completed = _completed(tmp_path, source)
     assert completed.ok
     assert not completed.effective_outputs.current_regions
-    with pytest.raises(ValueError, match="Set operations"):
-        build_project_query_block_ir(completed)
+    from pietto._project.project_query_block_ir_verification import (
+        verify_project_query_block_ir,
+    )
+    from pietto._project.project_query_block_ir import (
+        ProjectIRCompletedSetOperationOutput,
+    )
+
+    snapshot = build_project_query_block_ir(completed)
+    assert verify_project_query_block_ir(snapshot).verified
+    entries = tuple(
+        e
+        for e in snapshot.entries
+        if isinstance(e, ProjectIRCompletedSetOperationOutput)
+    )
+    assert entries
+    for entry in entries:
+        assert (
+            tuple(op.source for op in entry.operands) == entry.semantic_entry.root.uses
+        )
+        assert all(
+            op.use.output is op.producer.active_output.occurrence
+            for op in entry.operands
+        )
     assert cli.main(["explain", "--project", str(tmp_path), "--format", "json"]) == 2
     capsys.readouterr()
     assert (

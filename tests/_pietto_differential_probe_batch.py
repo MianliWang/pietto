@@ -25,6 +25,7 @@ FAMILY_MODULES: dict[str, str] = {
     "phase61": "_pietto_phase61_project_ir_differential_probe",
     "phase62": "_pietto_phase62_join_differential_probe",
     "phase63": "_pietto_phase63_query_block_ir_differential_probe",
+    "phase64": "_pietto_phase64_flat_ir_differential_probe",
 }
 FAMILY_AMBIENT: dict[str, str] = {
     "phase58": "PIETTO_SLICE16_IRRELEVANT",
@@ -33,6 +34,7 @@ FAMILY_AMBIENT: dict[str, str] = {
     "phase61": "PIETTO_SLICE11_IRRELEVANT",
     "phase62": "PIETTO_SLICE15_IRRELEVANT",
     "phase63": "PIETTO_PHASE63_SLICE15_AMBIENT",
+    "phase64": "PIETTO_PHASE64_SLICE10_AMBIENT",
 }
 # Only these families reach the CLI through `_run_cli_pair`, so only these may
 # be served by one explicit CLI worker session.

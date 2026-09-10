@@ -407,6 +407,28 @@ class ProjectIRJoinInputUseOccurrence:
             raise ValueError("JOIN input must flow from an earlier plan node.")
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectIRSetInputUseOccurrence:
+    """One authored set operand use in the existing snapshot/ref/slot domains."""
+
+    ref: ProjectIRUseRef
+    output: ProjectIROutputValueOccurrence
+    slot: ProjectIRInputSlotOccurrence
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.ref) is not ProjectIRUseRef
+            or type(self.output) is not ProjectIROutputValueOccurrence
+            or type(self.slot) is not ProjectIRInputSlotOccurrence
+            or not (self.ref.scope is self.output.ref.scope is self.slot.ref.scope)
+            or type(self.output.anchor) is not ProjectIRRelationAnchor
+            or self.output.producer.ref.position >= self.slot.consumer.ref.position
+        ):
+            raise ValueError(
+                "Set operand requires exact earlier row/slot/use endpoints."
+            )
+
+
 type ProjectIRStructuralUseOccurrence = (
     ProjectIRUseOccurrence | ProjectIROperatorFlowUseOccurrence
 )

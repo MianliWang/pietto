@@ -108,6 +108,7 @@ from pietto._project.project_ir_relational_properties import (
     ProjectIROutputDeterminationResult,
     strictly_determines_output,
     transfer_set_properties,
+    distinct_output_grain,
 )
 from pietto._project.project_ir import (
     ProjectIRPlanNodeOccurrence,
@@ -2151,20 +2152,7 @@ def _current_input_properties(
             witness=origins,
         )
     if distinct is not None:
-        factor = distinct.origin.factor
-        grain = ProjectIRProvidedIntrinsicGrain(
-            output=output,
-            state=ProjectGrainBasisState.GLOBAL
-            if factor is None
-            else ProjectGrainBasisState.FACTORIZED,
-            factors=()
-            if factor is None
-            else (ProjectGrainDomainFactor(identity=factor),),
-            active=() if factor is None else (factor,),
-            dependencies=(),
-            origin_set=distinct.origin,
-            witness=authority,
-        )
+        grain = distinct_output_grain(output, distinct.origin, witness=authority)
     return ProjectIROutputRelationalProperties(
         output=output,
         fields=fields,

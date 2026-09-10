@@ -161,8 +161,8 @@ fanout, coverage or ordering claim; UNKNOWN right grain alone does not make left
 grain UNKNOWN. This retention rule does not prove at-most-one right match.
 Single-file/LEGACY_FLAT/PACKAGE_ROOT and legacy IR/SQL retain their existing
 rejection boundaries; a successful project check is not SQL capability.
-Current JOIN roots also remain unavailable to combined query-block IR and its
-inspection until Slice 10. Project Explain keeps its separate schema boundary.
+Current JOIN roots are retained in private combined query-block IR and its
+VERIFIED-only inspection. Project Explain keeps its separate schema boundary.
 
 An alternate complete table/query body retains named set operands:
 
@@ -206,8 +206,9 @@ quotients and subsets retain separate grain origins. UNKNOWN grain alone is
 legal; UNION of GLOBAL inputs does not prove GLOBAL. No source occurrence is
 chosen as a representative. Named set outputs compose through replay, either
 JOIN role, DISTINCT, nested sets and imports/reexports. Sets do not discharge
-single-match obligations. Combined IR/verification/inspection remains Slice 10;
-legacy IR/SQL/Explain retain their negative boundaries.
+single-match obligations. Private combined IR retains every operand occurrence,
+active producer and value/membership map for independent verification and
+inspection; legacy IR/SQL/Explain retain their negative boundaries.
 
 EXPLICIT_MODULES project check accepts both ordinary `select:` and
 `select distinct:`. DISTINCT compares exactly the final visible selected row,
@@ -235,8 +236,9 @@ equivalence emits PIE-S2339 ERROR in all check modes, with no successful quotien
 
 Named DISTINCT outputs compose through imports/reexports, replay and supported
 JOIN inputs. Single-file/LEGACY_FLAT/PACKAGE_ROOT, Project Explain and old IR/SQL
-keep their existing availability boundaries. Combined DISTINCT Project IR,
-verification and inspection remain Slice 10; no DISTINCT SQL is emitted here.
+keep their existing availability boundaries. Private combined DISTINCT IR
+retains the exact visible comparison, quotient origin and ORDER/type proofs
+for independent verification and inspection; no DISTINCT SQL is emitted here.
 
 Single-match semantic checking is available through explicit private requests on
 completed EXPLICIT_MODULES roots. Ordinary authored compilation supplies no
@@ -250,8 +252,22 @@ Grain, post-JOIN LIMIT/WHERE, source keys or estimates alone do not prove it.
 Legal unproved requests retain a private enforcement obligation and emit
 PIE-S2337 WARNING in all three modes; invalid requests emit PIE-S2338 ERROR.
 Proved requests emit neither. Successful checks include the exact warning in
-existing text/JSON diagnostics. Nonempty private requests remain unavailable to
-combined Project IR/inspection until Slice 10; no execution or data repair occurs.
+existing text/JSON diagnostics. Combined Project IR retains every valid request,
+its exact direct/hop/path boundary, input pair and proof roots. LEGAL_UNPROVED
+may have correctly VERIFIED IR while still requiring downstream enforcement;
+INVALID keeps its owner non-concrete. No execution or data repair occurs.
+
+The [private combined IR boundary](spec/phase64-slice10-project-ir-composition-verification-invalidation-inspection-pure-boundary-v1.md)
+uses explicit active outputs and existing occurrence/allocation domains.
+Inspection requires an exact VERIFIED analysis bundle. Its Phase64 format is
+`pietto.phase64-flat-relational-ir-inspection.v1`; unchanged historical inputs
+retain their prior formats and bytes. The standard-library pure evaluator
+checks closed document-local structure and evidence links, returning a
+normalized rejection without bytes for malformed inputs. External JOIN inputs
+must retain their producer; internal accumulated inputs must link to the
+actual same-owner preceding JOIN output. Pure OK proves document consistency,
+not database semantics, single-match fulfillment or execution capability.
+Changed semantic roots require rebuilding the overlay and fresh verification.
 
 Historical Project row facts and single-relation IR retain
 `AUTHORED_JOIN_DEFERRED`. The completed EXPLICIT_MODULES path adds combined JOIN

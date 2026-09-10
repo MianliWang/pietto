@@ -21,8 +21,8 @@ completion benchmark and Phase-64 readiness assurance, is
 `COMPLETED / PUBLISHED`, so the Validation/Test Performance Optimization
 Interlude II is `COMPLETED` with `Interlude II self-owned-open = 0`. Phase 64 is
 `ACTIVE`, its Slice 1 froze a fresh Product/Phase Initiation Gate v3 and a
-route of exactly 11 numbered Slices. Slices 1–9 are `COMPLETED / PUBLISHED`
-upon their successful natural exact-head CI; Slice 10 is `NEXT / NOT IMPLEMENTED`.
+route of exactly 11 numbered Slices. Slices 1–10 are `COMPLETED / PUBLISHED`
+upon their successful natural exact-head CI; Slice 11 is `NEXT / NOT IMPLEMENTED`.
 Project Explain v1 remains unchanged.
 
 The [unnumbered compilation-boundary repair](spec/pre-phase64-slice2-compilation-boundary-correctness-repair-v1.md)
@@ -2136,8 +2136,8 @@ Phase 64 **Flat Relational Algebra** is `ACTIVE`. Slice 1 is
 `COMPLETED / PUBLISHED`, Slice 4 is `COMPLETED / PUBLISHED`, Slice 5 is
 `COMPLETED / PUBLISHED`, Slice 6 is `COMPLETED / PUBLISHED`, Slice 7 is
 `COMPLETED / PUBLISHED`, Slice 8 is `COMPLETED / PUBLISHED`, Slice 9 is
-`COMPLETED / PUBLISHED`, Slice 10 is `NEXT / NOT IMPLEMENTED`, and the frozen
-route has exactly 11 numbered Slices.
+`COMPLETED / PUBLISHED`, Slice 10 is `COMPLETED / PUBLISHED`, Slice 11 is
+`NEXT / NOT IMPLEMENTED`, and the frozen route has exactly 11 numbered Slices.
 
 | Slice | Owner |
 | ---: | --- |
@@ -2269,10 +2269,19 @@ output owner and dependency-first schedule; cycles block only their dependents.
 Replay, either JOIN role, DISTINCT, nested sets and imports/reexports compose;
 UNION ALL admits exact concrete types without requiring row equivalence.
 No generic single-match proof or source-row representative is invented.
-Slice 10 is NEXT / NOT IMPLEMENTED; Slices 10–11 remain NOT IMPLEMENTED.
-Slice 10 still owns combined IR/analysis/inspection and final
-EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED closure; E05/E10 are not fully closed.
-No additional route row or product exit is introduced.
+The [Slice-10 combined IR contract](spec/phase64-slice10-project-ir-composition-verification-invalidation-inspection-pure-boundary-v1.md)
+closes the supported E05 IR boundary and E10 upon successful natural exact-head
+CI. It composes exact active inputs in the existing allocation/schedule,
+retains every operation/field/nulling/grain/ORDER/Decimal/obligation fact and
+independently verifies the graph. Changed semantic roots require rebuild and
+fresh verification. Private VERIFIED-only inspection and its distinct Phase64
+pure format preserve complete document-local correspondence, with explicit
+external producers and positively established internal JOIN prefixes.
+Unchanged historical inputs retain their old formats/bytes. E12 exposes
+concrete retained inputs to future planning; SQL, execution and single-match
+runtime fulfillment remain later work. Slice 11 is NEXT / NOT IMPLEMENTED.
+The completion audit and Phase-65 handoff remain unimplemented; Phase 64 stays
+ACTIVE. No additional route row or product exit is introduced.
 
 ## Future Roadmap v6
 

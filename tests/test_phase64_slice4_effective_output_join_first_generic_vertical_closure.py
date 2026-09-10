@@ -28,12 +28,10 @@ from pietto._project.project_relationship_match_guarantees import (
 )
 from pietto._project.project_completion import ProjectEffectiveOutputTerminal
 from pietto._project.project_query_block_ir import (
-    ProjectIRQueryBlockTerminal,
-    ProjectIRQueryBlockTerminalReason,
+    ProjectIRCompletedQueryBlockOutput,
     build_project_query_block_ir,
 )
 from pietto._project.project_query_block_ir_verification import (
-    ProjectIRQueryBlockVerificationIssueKind,
     ProjectIRQueryBlockVerificationStatus,
     build_project_query_block_ir_analysis_bundle,
     verify_project_query_block_ir,
@@ -83,38 +81,26 @@ def test_minimal_generic_and_refined_vertical_completion(
     assert result.roots.join_conditions.entries[0].ready
 
 
-def test_current_join_check_does_not_claim_combined_ir_or_inspection(
-    tmp_path: Path,
-) -> None:
+def test_current_join_retains_verified_combined_ir(tmp_path: Path) -> None:
     completed = _completed(tmp_path, _source("lhs.id == r.id"))
     assert completed.ok
     snapshot = build_project_query_block_ir(completed)
-    assert snapshot.ending_allocation is snapshot.starting_allocation
-    assert not snapshot.structural.nodes
-    terminals = tuple(
-        entry
-        for entry in snapshot.entries
-        if isinstance(entry, ProjectIRQueryBlockTerminal)
+    entries = tuple(
+        entry for entry in snapshot.entries if entry.owner.definition.name == "result"
     )
-    assert len(terminals) == 1
-    assert (
-        terminals[0].reason
-        is ProjectIRQueryBlockTerminalReason.CURRENT_JOIN_COMPOSITION_UNSUPPORTED
-    )
-    assert terminals[0].blocker is completed.effective_outputs.current_regions
+    assert len(entries) == 1
+    entry = entries[0]
+    assert isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+    assert entry.join_prefix is not None
+    assert entry.join_prefix.region is completed.effective_outputs.current_regions[0]
+    assert entry.source_properties.output is entry.join_prefix.final_join.output
+    assert entry.join_prefix.final_join.source is entry.join_prefix.region.joins[0]
     verification = verify_project_query_block_ir(snapshot)
-    assert verification.status is ProjectIRQueryBlockVerificationStatus.INVALID
-    assert tuple(issue.kind for issue in verification.issues) == (
-        ProjectIRQueryBlockVerificationIssueKind.CURRENT_JOIN_COMPOSITION_UNSUPPORTED,
-    )
-    with pytest.raises(ValueError, match="unavailable"):
-        build_project_query_block_ir_analysis_bundle(verification)
-    with pytest.raises(ValueError, match="not VERIFIED"):
-        replace(
-            verification,
-            status=ProjectIRQueryBlockVerificationStatus.VERIFIED,
-            issues=(),
-        )
+    assert verification.status is ProjectIRQueryBlockVerificationStatus.VERIFIED
+    assert not verification.issues
+    assert build_project_query_block_ir_analysis_bundle(verification).root is snapshot
+    with pytest.raises(ValueError, match="dense allocation"):
+        replace(entry, join_prefix=None, join_properties=())
 
 
 def test_retirement_preserves_unrelated_same_code_errors(tmp_path: Path) -> None:

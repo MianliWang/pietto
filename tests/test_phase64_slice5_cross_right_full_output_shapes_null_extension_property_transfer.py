@@ -25,9 +25,8 @@ from pietto._project.project_join_conditions import ProjectJoinConditionCompleti
 from pietto._project.project_row_keys import ProjectRowUniquenessStrength
 from pietto._project.project_completion import ProjectEffectiveOutputTerminal
 from pietto._project.project_query_block_ir import (
-    ProjectIRQueryBlockTerminal,
-    ProjectIRQueryBlockTerminalReason,
     build_project_query_block_ir,
+    ProjectIRQueryBlockTerminal,
 )
 from pietto import cli
 from pietto.ast_nodes import AuthoredJoinKind
@@ -725,7 +724,7 @@ def test_real_project_check_json_succeeds_for_each_kind_and_mode(
 
 
 @pytest.mark.parametrize("kind", ("cross", "right", "full"))
-def test_single_file_legacy_ir_and_combined_current_ir_remain_negative(
+def test_legacy_ir_rejects_while_combined_ir_retains_current_joins(
     tmp_path: Path, kind: str
 ) -> None:
     predicate = None if kind == "cross" else "lhs.id == r.id"
@@ -739,18 +738,26 @@ def test_single_file_legacy_ir_and_combined_current_ir_remain_negative(
     assert any(diagnostic.code == "PIE-I1000" for diagnostic in lowered.diagnostics)
     completed = _completed(tmp_path, source)
     assert completed.ok
+    from pietto._project.project_query_block_ir_verification import (
+        verify_project_query_block_ir,
+    )
+    from pietto._project.project_query_block_ir import (
+        ProjectIRCompletedQueryBlockOutput,
+    )
+
     snapshot = build_project_query_block_ir(completed)
-    terminals = tuple(
-        entry
-        for entry in snapshot.entries
-        if isinstance(entry, ProjectIRQueryBlockTerminal)
-    )
-    assert len(terminals) == 1
-    assert (
-        terminals[0].reason
-        is ProjectIRQueryBlockTerminalReason.CURRENT_JOIN_COMPOSITION_UNSUPPORTED
-    )
-    assert terminals[0].blocker is completed.effective_outputs.current_regions
+    assert verify_project_query_block_ir(snapshot).verified
+    entry = next(e for e in snapshot.entries if e.owner.definition.name == "result")
+    assert isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+    assert entry.join_prefix is not None
+    joined = entry.join_prefix.final_join
+    assert joined.source is completed.effective_outputs.current_regions[0].joins[0]
+    assert tuple(image.source for image in joined.inputs) == joined.source.input_uses
+    assert len(joined.inputs) == 2
+    for image in joined.inputs:
+        producer = next(e for e in snapshot.entries if e.owner is image.producer)
+        assert not isinstance(producer, ProjectIRQueryBlockTerminal)
+        assert image.use.output is producer.active_output.occurrence
 
 
 @pytest.mark.parametrize("kind", ("semi", "anti"))
