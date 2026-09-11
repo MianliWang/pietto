@@ -23,6 +23,25 @@ from pietto.ast_nodes import (
     SelectItem,
     WhereClause,
 )
+from pietto.ast_nodes import JoinOnClause
+from pietto._project.project_join_conditions import (
+    ProjectJoinCondition,
+    ProjectJoinConditionReference,
+)
+from pietto._project.project_scalar_namespaces import (
+    ProjectJoinedLetValue,
+    ProjectJoinedLetOccurrence,
+    ProjectJoinedScalarNamespace,
+    ProjectConcreteJoinedNamespaceExpression,
+    ProjectConcreteJoinedLetNamespaces,
+    ProjectJoinedNamespaceReferenceResolution,
+    ProjectJoinedLetReferenceResolution,
+)
+from pietto._project.project_scalar_references import ProjectScalarEnvironmentField
+from pietto._project.project_scalar_bindings import (
+    ProjectJoinedScalarBindingEnvironment,
+)
+from pietto._project.project_joined_qualify import ProjectConcreteJoinedQualify
 from pietto._project.model import ProjectRowSchema, ProjectRowField
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
@@ -55,15 +74,22 @@ if TYPE_CHECKING:
 __all__: tuple[str, ...] = ()
 
 
-type ProjectSQLScalarEvidence = (
+type ProjectSQLOrdinaryEvidence = (
     ProjectModuleLetBindingFact
     | ProjectModuleSelectExpressionFact
     | ProjectModuleWhereFact
     | ProjectNoJoinScalarExpression
 )
+type ProjectSQLScalarEvidence = (
+    ProjectSQLOrdinaryEvidence
+    | ProjectJoinedLetValue
+    | ProjectConcreteJoinedNamespaceExpression
+    | ProjectJoinCondition
+)
 
 
 class ProjectSQLExpressionRole(StrEnum):
+    MATCH = "match"
     LET = "let"
     WHERE = "where"
     SELECT = "select"
@@ -96,9 +122,39 @@ class ProjectSQLExpressionSite:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLJoinedSite:
+    ref: ProjectSQLPlanRef
+    owner: ProjectDeclarationOccurrence
+    block: ProjectSQLPlanRef
+    role: ProjectSQLExpressionRole
+    ordinal: int
+    occurrence: LetBinding | WhereClause | SelectItem
+    namespace: ProjectJoinedScalarNamespace
+    evidence: ProjectJoinedLetValue | ProjectConcreteJoinedNamespaceExpression
+    references: tuple[ProjectJoinedNamespaceReferenceResolution, ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLMatchSite:
+    ref: ProjectSQLPlanRef
+    owner: ProjectDeclarationOccurrence
+    block: ProjectSQLPlanRef
+    role: ProjectSQLExpressionRole
+    ordinal: int
+    occurrence: JoinOnClause
+    evidence: ProjectJoinCondition
+    references: tuple[ProjectJoinConditionReference, ...]
+
+
+type ProjectSQLSite = (
+    ProjectSQLExpressionSite | ProjectSQLJoinedSite | ProjectSQLMatchSite
+)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSQLExpressionBase:
     ref: ProjectSQLPlanRef
-    site: ProjectSQLExpressionSite
+    site: ProjectSQLSite
     value_type: ValueType
 
 
@@ -111,6 +167,22 @@ class ProjectSQLLiteral(ProjectSQLExpressionBase):
 class ProjectSQLReference(ProjectSQLExpressionBase):
     expression: NameExpr | DottedNameExpr
     reference: ProjectModuleExpressionReferenceFact
+    port: ProjectSQLPlanRef
+    symbol: ProjectSQLSymbol
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLJoinedReference(ProjectSQLExpressionBase):
+    expression: NameExpr | DottedNameExpr
+    reference: ProjectJoinedNamespaceReferenceResolution
+    port: ProjectSQLPlanRef
+    symbol: ProjectSQLSymbol
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLMatchReference(ProjectSQLExpressionBase):
+    expression: NameExpr | DottedNameExpr
+    reference: ProjectJoinConditionReference
     port: ProjectSQLPlanRef
     symbol: ProjectSQLSymbol
 
@@ -152,6 +224,8 @@ class ProjectSQLBetween(ProjectSQLExpressionBase):
 type ProjectSQLExpression = (
     ProjectSQLLiteral
     | ProjectSQLReference
+    | ProjectSQLJoinedReference
+    | ProjectSQLMatchReference
     | ProjectSQLUnary
     | ProjectSQLBinary
     | ProjectSQLComparison
@@ -163,7 +237,7 @@ type ProjectSQLExpression = (
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSQLExpressionOperand:
     ref: ProjectSQLPlanRef
-    site: ProjectSQLExpressionSite
+    site: ProjectSQLSite
     parent: ProjectSQLPlanRef
     position: int
     child: ProjectSQLPlanRef
@@ -176,7 +250,12 @@ class ProjectSQLStagePort:
     ref: ProjectSQLPlanRef
     block: ProjectSQLPlanRef
     kind: ProjectSQLStagePortKind
-    key: ProjectRowField | LetBinding
+    key: (
+        ProjectRowField
+        | LetBinding
+        | ProjectScalarEnvironmentField
+        | ProjectJoinedLetOccurrence
+    )
     source: ProjectSQLPlanRef
     type_evidence: ProjectRowField | ValueType
 
@@ -226,7 +305,7 @@ class ProjectSQLStageContext:
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSQLLetValue:
     ref: ProjectSQLPlanRef
-    site: ProjectSQLExpressionSite
+    site: ProjectSQLExpressionSite | ProjectSQLJoinedSite
     expression: ProjectSQLPlanRef
     port: ProjectSQLPlanRef
 
@@ -234,7 +313,7 @@ class ProjectSQLLetValue:
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSQLFilter:
     ref: ProjectSQLPlanRef
-    site: ProjectSQLExpressionSite
+    site: ProjectSQLExpressionSite | ProjectSQLJoinedSite
     predicate: ProjectSQLPlanRef
     retention_effects: tuple[ProjectJoinedRowRetentionEffect, ...]
 
@@ -243,7 +322,7 @@ class ProjectSQLFilter:
 class ProjectSQLExpressionDemand:
     ref: ProjectSQLPlanRef
     subject: ProjectSQLPlanRef
-    site: ProjectSQLExpressionSite
+    site: ProjectSQLSite
     expression: Expression
     value_type: ValueType
     operand_types: tuple[ValueType, ...]
@@ -263,7 +342,7 @@ class ProjectSQLStageValueDemand:
 class ProjectSQLFilterDemand:
     ref: ProjectSQLPlanRef
     subject: ProjectSQLPlanRef
-    site: ProjectSQLExpressionSite
+    site: ProjectSQLExpressionSite | ProjectSQLJoinedSite
     value_type: ValueType
     retention_effects: tuple[ProjectJoinedRowRetentionEffect, ...]
     origin: ProjectSQLPlanRef
@@ -295,10 +374,24 @@ class ProjectSQLRowAuthority:
     where_references: tuple[ProjectModuleExpressionReferenceFact, ...]
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLJoinedRowAuthority:
+    binding_environment: ProjectJoinedScalarBindingEnvironment
+    namespaces: ProjectConcreteJoinedLetNamespaces
+    lets: tuple[ProjectJoinedLetValue, ...]
+    selections: tuple[ProjectModuleSelectFact, ...]
+    selected_evidence: tuple[ProjectConcreteJoinedNamespaceExpression, ...]
+    selected_references: tuple[
+        tuple[ProjectJoinedNamespaceReferenceResolution, ...], ...
+    ]
+    where: ProjectConcreteJoinedNamespaceExpression | None
+    where_references: tuple[ProjectJoinedNamespaceReferenceResolution, ...]
+
+
 def row_authority(
     completed: ProjectConcreteCompletedSemanticResult,
     entry: ProjectIRConcreteQueryBlockEntry,
-) -> ProjectSQLRowAuthority | None:
+) -> ProjectSQLRowAuthority | ProjectSQLJoinedRowAuthority | None:
     if isinstance(
         entry, (ProjectIRReusedEffectiveOutput, ProjectIRReboundExistingOutput)
     ):
@@ -328,6 +421,29 @@ def row_authority(
             where_references=()
             if facts.where_fact is None
             else facts.where_fact.references,
+        )
+    if isinstance(entry, ProjectIRCompletedQueryBlockOutput) and isinstance(
+        entry.semantic_entry.root, ProjectConcreteJoinedQualify
+    ):
+        semantic = entry.semantic_entry
+        tail = entry.semantic_entry.root.window_stage.input_aggregation.input_filter
+        namespaces = tail.joined_semantics.namespaces
+        joined_selected: list[ProjectConcreteJoinedNamespaceExpression] = []
+        for output in semantic.fields:
+            if not isinstance(output.source, ProjectConcreteJoinedNamespaceExpression):
+                return None
+            joined_selected.append(output.source)
+        return ProjectSQLJoinedRowAuthority(
+            binding_environment=namespaces.binding_environment,
+            namespaces=namespaces,
+            lets=namespaces.values,
+            selections=tuple(f.select_fact for f in semantic.fields),
+            selected_evidence=tuple(joined_selected),
+            selected_references=tuple(value.resolutions for value in joined_selected),
+            where=tail.expression_analysis,
+            where_references=()
+            if tail.expression_analysis is None
+            else tail.expression_analysis.resolutions,
         )
     if isinstance(entry, ProjectIRCompletedQueryBlockOutput) and isinstance(
         entry.semantic_entry.root, ProjectConcreteNoJoinReplay
@@ -364,9 +480,45 @@ def evidence_types(
 ) -> Mapping[Expression, ValueType]:
     if isinstance(evidence, ProjectModuleLetBindingFact):
         return evidence.scope_facts.expression_value_types
-    if isinstance(evidence, ProjectNoJoinScalarExpression):
+    if isinstance(
+        evidence,
+        (
+            ProjectNoJoinScalarExpression,
+            ProjectJoinedLetValue,
+            ProjectConcreteJoinedNamespaceExpression,
+            ProjectJoinCondition,
+        ),
+    ):
         return evidence.value_types
     return evidence.expression_value_types
+
+
+def reference_expression(reference):
+    if isinstance(
+        reference, (ProjectModuleExpressionReferenceFact, ProjectJoinConditionReference)
+    ):
+        return reference.expression
+    return reference.reference.expression
+
+
+def reference_key(reference):
+    if isinstance(reference, ProjectModuleExpressionReferenceFact):
+        if reference.input_field is not None:
+            return reference.input_field
+        return (
+            reference.let_candidates[0] if len(reference.let_candidates) == 1 else None
+        )
+    if isinstance(reference, ProjectJoinedLetReferenceResolution):
+        return reference.target.occurrence
+    return reference.target
+
+
+def stage_key_label(key):
+    if isinstance(key, ProjectScalarEnvironmentField):
+        return key.evidence.name
+    if isinstance(key, ProjectJoinedLetOccurrence):
+        return key.binding.name
+    return key.name
 
 
 def scalar_children(expression: Expression) -> tuple[Expression, ...]:

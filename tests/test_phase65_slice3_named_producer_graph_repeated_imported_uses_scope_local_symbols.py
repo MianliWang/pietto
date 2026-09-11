@@ -1,4 +1,4 @@
-"""Real named graphs and use-local binding witnesses without JOIN/SET planning."""
+"""Real named graphs, use-local bindings and distinct whole-plan verification."""
 
 from pathlib import Path
 from pietto.ast_nodes import LiteralExpr
@@ -170,7 +170,6 @@ def test_real_join_repeated_or_mixed_inputs_have_distinct_scoped_symbols(
         _source as join_source,
     )
     from pietto._project.project_sql_plan import (
-        ProjectSQLPlanUnavailable,
         ProjectSQLSymbolNamespace,
     )
 
@@ -207,8 +206,15 @@ def test_real_join_repeated_or_mixed_inputs_have_distinct_scoped_symbols(
         assert left_literal.value == right_literal.value
         assert view.sources[0].declaration is not view.sources[1].declaration
     result = build_project_sql_plan(*roots)
-    assert isinstance(result, ProjectSQLPlanUnavailable)
-    assert any(b.kind.value == "join" for b in result.blockers)
+    assert isinstance(result, ProjectSQLPlan)
+    checked = verify_project_sql_plan(result, *roots)
+    assert checked.verified, checked.issues
+    planned = inspect_project_sql_plan(checked)
+    assert len(planned.joins) == 1 and len(planned.join_inputs) == 2
+    left, right = planned.join_inputs
+    assert (left.producer is right.producer) is not mixed
+    assert left.ports[0] is not right.ports[0]
+    assert left.source is lhs.edge and right.source is rhs.edge
 
 
 def test_imported_reexported_producer_keeps_defining_module_and_exact_trail(
@@ -575,6 +581,7 @@ def test_full_plan_preserves_selected_exports_and_rejects_internal_omissions(
     definitions = {d.ref: d for d in plan.bindings.definitions}
     ports = {p.ref: p for p in plan.input_ports}
     for projection in plan.projections:
+        assert projection.input_use is not None
         use = uses[projection.input_use]
         producer = definitions[use.producer]
         assert projection.input_port is not None

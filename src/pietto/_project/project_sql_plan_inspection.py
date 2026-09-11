@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from collections.abc import Mapping
 from types import MappingProxyType
 from pietto._project import project_sql_plan_expressions as row
+from pietto._project import project_sql_plan_joins as joining
 
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.project_sql_plan import (
@@ -49,6 +50,9 @@ class ProjectSQLPlanInspection:
     _expressions: Mapping[ProjectSQLPlanRef, row.ProjectSQLExpression] = field(
         init=False, repr=False
     )
+    _matches: Mapping[ProjectSQLPlanRef, joining.ProjectSQLMatchContext] = field(
+        init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         verification = self.verification
@@ -81,7 +85,8 @@ class ProjectSQLPlanInspection:
         for port in self.plan.stage_ports:
             ports[port.block].append(port)
         for symbol in self.plan.symbols[len(self.plan.bindings.symbols) :]:
-            symbols[symbol.scope].append(symbol)
+            if symbol.scope in symbols:
+                symbols[symbol.scope].append(symbol)
         object.__setattr__(
             self,
             "_stages",
@@ -101,9 +106,33 @@ class ProjectSQLPlanInspection:
             "_expressions",
             MappingProxyType({e.ref: e for e in self.plan.expressions}),
         )
+        match_ports = {j.ref: [] for j in self.plan.joins}
+        match_symbols = {j.ref: [] for j in self.plan.joins}
+        subjects = set()
+        for port in self.plan.join_ports:
+            if port.kind is joining.ProjectSQLJoinPortKind.MATCH:
+                match_ports[port.block].append(port)
+                subjects.add(port.ref)
+        for symbol in self.plan.symbols:
+            if symbol.subject in subjects:
+                match_symbols[symbol.scope].append(symbol)
+        object.__setattr__(
+            self,
+            "_matches",
+            MappingProxyType(
+                {
+                    join.ref: joining.ProjectSQLMatchContext(
+                        join=join.ref,
+                        ports=tuple(match_ports[join.ref]),
+                        symbols=tuple(match_symbols[join.ref]),
+                    )
+                    for join in self.plan.joins
+                }
+            ),
+        )
 
     @property
-    def expression_sites(self) -> tuple[row.ProjectSQLExpressionSite, ...]:
+    def expression_sites(self) -> tuple[row.ProjectSQLSite, ...]:
         return self.plan.expression_sites
 
     @property
@@ -145,13 +174,82 @@ class ProjectSQLPlanInspection:
             raise ValueError("Expression-site reference does not belong to this plan.")
         return tuple(e for e in self.expressions if e.site.ref is ref)
 
-    def uses_of(self, ref: ProjectSQLPlanRef) -> tuple[row.ProjectSQLReference, ...]:
-        if not any(port.ref is ref for port in self.stage_ports):
+    def uses_of(
+        self, ref: ProjectSQLPlanRef
+    ) -> tuple[
+        row.ProjectSQLReference
+        | row.ProjectSQLJoinedReference
+        | row.ProjectSQLMatchReference,
+        ...,
+    ]:
+        if not any(port.ref is ref for port in (*self.stage_ports, *self.join_ports)):
             raise ValueError("Stage-port reference does not belong to this plan.")
         return tuple(
             e
             for e in self.expressions
-            if isinstance(e, row.ProjectSQLReference) and e.port is ref
+            if isinstance(
+                e,
+                (
+                    row.ProjectSQLReference,
+                    row.ProjectSQLJoinedReference,
+                    row.ProjectSQLMatchReference,
+                ),
+            )
+            and e.port is ref
+        )
+
+    @property
+    def joins(self) -> tuple[joining.ProjectSQLJoin, ...]:
+        return self.plan.joins
+
+    @property
+    def join_inputs(self) -> tuple[joining.ProjectSQLJoinInput, ...]:
+        return self.plan.join_inputs
+
+    @property
+    def join_ports(self) -> tuple[joining.ProjectSQLJoinPort, ...]:
+        return self.plan.join_ports
+
+    @property
+    def relationship_matches(self) -> tuple[joining.ProjectSQLRelationshipMatch, ...]:
+        return self.plan.relationship_matches
+
+    @property
+    def join_tails(self) -> tuple[joining.ProjectSQLJoinTail, ...]:
+        return self.plan.join_tails
+
+    @property
+    def single_matches(self) -> tuple[joining.ProjectSQLSingleMatch, ...]:
+        return self.plan.single_matches
+
+    @property
+    def single_match_proofs(self) -> tuple[joining.ProjectSQLSingleMatchProof, ...]:
+        return self.plan.single_match_proofs
+
+    def match_context(self, ref: ProjectSQLPlanRef) -> joining.ProjectSQLMatchContext:
+        result = self._matches.get(ref)
+        if result is None or result.join is not ref:
+            raise ValueError("JOIN reference does not belong to this plan.")
+        return result
+
+    def join_outputs(
+        self, ref: ProjectSQLPlanRef
+    ) -> tuple[joining.ProjectSQLJoinPort, ...]:
+        self.match_context(ref)
+        return tuple(
+            port
+            for port in self.join_ports
+            if port.block is ref and port.kind is joining.ProjectSQLJoinPortKind.OUTPUT
+        )
+
+    def obligations_for_join(
+        self, ref: ProjectSQLPlanRef
+    ) -> tuple[joining.ProjectSQLSingleMatch, ...]:
+        self.match_context(ref)
+        return tuple(
+            value
+            for value in self.single_matches
+            if any(ref is join for join in value.joins)
         )
 
     @property

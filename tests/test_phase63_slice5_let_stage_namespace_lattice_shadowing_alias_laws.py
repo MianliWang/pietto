@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 import re
 from typing import cast
@@ -413,6 +413,24 @@ def test_namespace_chain_retains_exact_root_occurrences_and_prefixes(
         value.namespace is result.binding_namespaces[position]
         for position, value in enumerate(result.values)
     )
+    for value in result.values:
+        leaves = scalar_references.scalar_field_reference_leaves(
+            value.occurrence.expression
+        )
+        assert len(value.resolutions) == len(leaves)
+        for resolution, leaf in zip(value.resolutions, leaves, strict=True):
+            assert resolution.reference.expression is leaf
+            assert resolution.reference.environment is environment.scalar_environment
+            assert resolution.target is not None
+            assert value.value_types[leaf] is resolution.target.value_type
+            if isinstance(
+                resolution, scalar_namespaces.ProjectJoinedLetReferenceResolution
+            ):
+                assert resolution.namespace is value.namespace
+                assert any(
+                    resolution.target is earlier
+                    for earlier in value.namespace.let_values
+                )
     with pytest.raises(FrozenInstanceError):
         setattr(
             result.post_let,
@@ -425,6 +443,35 @@ def test_namespace_chain_retains_exact_root_occurrences_and_prefixes(
     assert no_let.occurrences == ()
     assert no_let.binding_namespaces == ()
     assert no_let.post_let.let_values == ()
+
+
+def test_retained_let_resolutions_are_complete_and_validation_does_not_resolve(
+    environments: dict[str, scalar_bindings.ProjectJoinedScalarBindingEnvironment],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _analyze(environments, "let_chain_join")
+    assert isinstance(result, scalar_namespaces.ProjectConcreteJoinedLetNamespaces)
+    value = result.values[1]
+    assert len(value.resolutions) == 2
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Retention checks must not resolve or infer")
+
+    monkeypatch.setattr(
+        scalar_namespaces, "resolve_project_joined_namespace_reference", forbidden
+    )
+    monkeypatch.setattr(scalar_namespaces, "infer_row_expression", forbidden)
+    copied = replace(value)
+    assert copied.resolutions is value.resolutions
+    for resolutions in (
+        (),
+        value.resolutions[:1],
+        tuple(reversed(value.resolutions)),
+        (value.resolutions[0], value.resolutions[0]),
+        result.values[0].resolutions,
+    ):
+        with pytest.raises(ValueError):
+            replace(value, resolutions=resolutions)
 
 
 def test_post_let_lookup_keeps_bare_let_and_qualified_field_domains_distinct(

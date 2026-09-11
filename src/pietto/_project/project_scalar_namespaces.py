@@ -213,6 +213,9 @@ class ProjectJoinedLetValue:
         compare=False,
         hash=False,
     )
+    resolutions: tuple[ProjectJoinedNamespaceReferenceResolution, ...] = field(
+        repr=False, compare=False, hash=False
+    )
     diagnostics: tuple[Diagnostic, ...] = ()
 
     def __post_init__(self) -> None:
@@ -230,6 +233,29 @@ class ProjectJoinedLetValue:
             raise ValueError("Admitted LET value requires a known type.")
         if self.value_types.get(self.occurrence.expression) is not self.value_type:
             raise ValueError("LET value must retain its exact kernel root type.")
+        _require_expression_resolution_coverage(
+            self.namespace, self.occurrence.expression, self.resolutions
+        )
+        for resolution in self.resolutions:
+            target = resolution.target
+            if (
+                target is None
+                or (
+                    type(resolution) is ProjectScalarReferenceResolution
+                    and not any(
+                        target is item for item in self.namespace.visible_fields
+                    )
+                )
+                or (
+                    type(resolution) is ProjectJoinedLetReferenceResolution
+                    and not any(target is item for item in self.namespace.let_values)
+                )
+                or self.value_types.get(resolution.reference.expression)
+                is not target.value_type
+            ):
+                raise ValueError(
+                    "LET resolution must retain its exact available target/type."
+                )
         if type(self.diagnostics) is not tuple or any(
             type(diagnostic) is not Diagnostic for diagnostic in self.diagnostics
         ):
@@ -824,6 +850,7 @@ def build_project_joined_let_namespaces(
         )
         blocked_dependencies.extend(blocked)
         value_types: dict[Expression, ValueType] = {}
+        resolutions: list[ProjectJoinedNamespaceReferenceResolution] = []
         local_blockers: list[ProjectScalarReferenceResolution] = []
         for leaf in leaves:
             if any(leaf is item for item in blocked):
@@ -835,6 +862,7 @@ def build_project_joined_let_namespaces(
                     expression=leaf,
                 ),
             )
+            resolutions.append(resolution)
             if type(resolution) is ProjectScalarReferenceResolution:
                 if resolution.target is None:
                     local_blockers.append(resolution)
@@ -874,6 +902,7 @@ def build_project_joined_let_namespaces(
                     namespace=namespace,
                     value_type=root_type,
                     value_types=value_types,
+                    resolutions=tuple(resolutions),
                     diagnostics=tuple(local_diagnostics),
                 )
             )

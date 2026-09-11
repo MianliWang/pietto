@@ -12,6 +12,13 @@ from typing import Never, cast
 from collections.abc import Mapping
 from types import MappingProxyType
 from pietto._project import project_sql_plan_expressions as row
+from pietto._project.project_scalar_namespaces import ProjectScalarNamespaceStage
+from pietto._project.project_scalar_references import ProjectScalarReferenceResolution
+from pietto._project.project_join_conditions import (
+    ProjectJoinReferenceState,
+    ProjectJoinConditionState,
+)
+from pietto._project import project_sql_plan_joins as joining
 from pietto._project.let_scope_facts import ProjectLetScopeFactsStatus
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleLetBindingFact,
@@ -77,6 +84,8 @@ from pietto._project.project_query_block_ir_verification import (
     ProjectIRQueryBlockAnalysisBundle,
 )
 from pietto.ast_nodes import (
+    AuthoredJoinKind,
+    JoinOnClause,
     Expression,
     UnaryExpr,
     BinaryExpr,
@@ -186,6 +195,7 @@ def _closure(
             raise ValueError("ProjectSQLPlan dependency has foreign endpoints.")
         incoming[consumer].append(dependency)
     pending = [(selected.module_position, selected.declaration_position)]
+    entries_by_owner = {_owner_key(e.owner): e for e in root.entries}
     reached: set[tuple[int, int]] = set()
     while pending:
         key = pending.pop()
@@ -195,6 +205,16 @@ def _closure(
                 (d.target.module_position, d.target.declaration_position)
                 for d in incoming[key]
             )
+            for join in joining.join_images(root, entries_by_owner[key]):
+                for image in join.inputs:
+                    producer = image.producer
+                    if producer is not None:
+                        producer_key = _owner_key(producer)
+                        if owners.get(producer_key) is not producer:
+                            raise ValueError(
+                                "JOIN evidence closure has a foreign producer."
+                            )
+                        pending.append(producer_key)
     return tuple(
         e
         for e in root.entries
@@ -222,6 +242,7 @@ class ProjectSQLPlanBlockerKind(StrEnum):
 
 type ProjectSQLBlockedStage = (
     JoinClause
+    | JoinOnClause
     | LetBinding
     | WhereClause
     | GroupByClause
@@ -319,8 +340,16 @@ def _blockers(
         elif isinstance(definition, SetRelationDef):
             add(K.SET_OPERATION, owner, entry)
         elif isinstance(definition, (TableDef, QueryDef)):
-            for clause in definition.join_clauses:
-                add(K.JOIN, owner, entry, clause)
+            if joining.joined_tail(entry) is None:
+                for clause in definition.join_clauses:
+                    add(K.JOIN, owner, entry, clause)
+            else:
+                for image in joining.join_images(bundle.root, entry):
+                    condition = image.condition
+                    if condition.expression is not None:
+                        blocker = _match_blocker(condition)
+                        if blocker is not None:
+                            add(blocker, owner, entry, condition.use.clause.on_clause)
             for present, kind in (
                 (definition.group_by_clause, K.GROUP),
                 (definition.satisfying_clause, K.SATISFYING),
@@ -356,6 +385,8 @@ def _row_blockers(completed, entry):
     K = ProjectSQLPlanBlockerKind
     authority = row.row_authority(completed, entry)
     definition = entry.owner.definition
+    if isinstance(authority, row.ProjectSQLJoinedRowAuthority):
+        return _joined_row_blockers(entry, authority)
     if authority is None or authority.let_scope.status not in {
         ProjectLetScopeFactsStatus.ABSENT,
         ProjectLetScopeFactsStatus.CONCRETE,
@@ -378,7 +409,7 @@ def _row_blockers(completed, entry):
     sites: list[
         tuple[
             LetBinding | WhereClause | SelectItem,
-            row.ProjectSQLScalarEvidence | None,
+            row.ProjectSQLOrdinaryEvidence | None,
             tuple[ProjectModuleExpressionReferenceFact, ...],
         ]
     ] = [(f.binding, f, f.references) for f in authority.lets]
@@ -487,6 +518,192 @@ def _row_blockers(completed, entry):
     return tuple(blockers)
 
 
+def _joined_row_blockers(entry, authority):
+    K = ProjectSQLPlanBlockerKind
+    definition = entry.owner.definition
+    bindings = () if definition.let_clause is None else definition.let_clause.bindings
+    if (
+        authority.binding_environment.ledger.owner is not entry.owner
+        or authority.namespaces.binding_environment is not authority.binding_environment
+        or len(authority.lets) != len(bindings)
+        or len(authority.namespaces.binding_namespaces) != len(bindings)
+        or len(authority.namespaces.occurrences) != len(bindings)
+        or any(
+            value.occurrence is not occurrence or occurrence.binding is not binding
+            for value, occurrence, binding in zip(
+                authority.lets, authority.namespaces.occurrences, bindings
+            )
+        )
+        or len(authority.selections) != len(definition.select_items)
+        or len(authority.selected_evidence) != len(authority.selections)
+        or len(authority.selected_references) != len(authority.selections)
+        or any(
+            fact.item is not item
+            for fact, item in zip(authority.selections, definition.select_items)
+        )
+    ):
+        return ((K.EXPRESSION_EVIDENCE, None),)
+    if any(
+        type(value.occurrence.source_ordinal) is not int
+        or value.occurrence.source_ordinal != i
+        or type(value.namespace.binding_ordinal) is not int
+        or value.namespace.binding_ordinal != i
+        or value.namespace is not authority.namespaces.binding_namespaces[i]
+        or value.namespace.stage is not ProjectScalarNamespaceStage.LET_BINDING
+        or len(value.namespace.let_values) != i
+        or any(
+            a is not b for a, b in zip(value.namespace.let_values, authority.lets[:i])
+        )
+        for i, value in enumerate(authority.lets)
+    ) or any(
+        type(f.selected_output_ordinal) is not int or f.selected_output_ordinal != i
+        for i, f in enumerate(authority.selections)
+    ):
+        return ((K.EXPRESSION_EVIDENCE, None),)
+    sites = [
+        (value.occurrence.binding, value, value.resolutions) for value in authority.lets
+    ]
+    if definition.where_clause is not None:
+        sites.append(
+            (definition.where_clause, authority.where, authority.where_references)
+        )
+    sites.extend(
+        (fact.item, evidence, references)
+        for fact, evidence, references in zip(
+            authority.selections,
+            authority.selected_evidence,
+            authority.selected_references,
+            strict=True,
+        )
+    )
+    result = []
+    for site, evidence, references in sites:
+        if evidence is None:
+            result.append((K.EXPRESSION_EVIDENCE, site))
+            continue
+        namespace = evidence.namespace
+        if not isinstance(evidence, row.ProjectJoinedLetValue) and (
+            namespace is not authority.namespaces.post_let
+            or namespace.stage is not ProjectScalarNamespaceStage.POST_LET
+            or namespace.binding_ordinal is not None
+            or len(namespace.let_values) != len(authority.lets)
+            or any(a is not b for a, b in zip(namespace.let_values, authority.lets))
+        ):
+            result.append((K.EXPRESSION_EVIDENCE, site))
+            continue
+        leaves = tuple(
+            node
+            for node in row.scalar_nodes(site.expression)
+            if isinstance(node, (NameExpr, DottedNameExpr))
+        )
+        if (
+            namespace.binding_environment is not authority.binding_environment
+            or len(leaves) != len(references)
+            or any(
+                row.reference_expression(reference) is not leaf
+                or row.reference_key(reference) is None
+                for reference, leaf in zip(references, leaves)
+            )
+        ):
+            result.append((K.EXPRESSION_EVIDENCE, site))
+            continue
+        references_valid = True
+        for resolution in references:
+            target = resolution.target
+            references_valid &= (
+                resolution.reference.environment
+                is namespace.binding_environment.scalar_environment
+                and target is not None
+                and evidence.value_types.get(resolution.reference.expression)
+                is target.value_type
+            )
+            if isinstance(resolution, row.ProjectJoinedLetReferenceResolution):
+                references_valid &= resolution.namespace is namespace and any(
+                    target is value for value in namespace.let_values
+                )
+            elif isinstance(resolution, ProjectScalarReferenceResolution):
+                references_valid &= (
+                    resolution.status is ProjectModuleCandidateBucketStatus.CONCRETE
+                    and type(resolution.candidates) is tuple
+                    and len(resolution.candidates) == 1
+                    and resolution.candidates[0] is target
+                    and any(target is field for field in namespace.visible_fields)
+                )
+            else:
+                references_valid = False
+        if not references_valid:
+            result.append((K.EXPRESSION_EVIDENCE, site))
+            continue
+        kind = _scalar_blocker(site.expression, evidence)
+        if kind is not None:
+            result.append((kind, site))
+    return tuple(result)
+
+
+def _match_blocker(condition):
+    leaves = tuple(
+        node
+        for node in row.scalar_nodes(condition.expression)
+        if isinstance(node, (NameExpr, DottedNameExpr))
+    )
+    if (
+        condition.ready is not True
+        or condition.state is not ProjectJoinConditionState.READY
+        or type(condition.use.identity.join_position) is not int
+        or len(condition.references) != len(leaves)
+        or any(
+            type(field.position) is not int or field.position != i
+            for i, field in enumerate(condition.environment.fields)
+        )
+        or any(
+            type(reference.position) is not int
+            or reference.position != i
+            or reference.state is not ProjectJoinReferenceState.RESOLVED
+            or reference.expression is not leaf
+            or reference.environment is not condition.environment
+            or reference.target is None
+            or type(reference.candidates) is not tuple
+            or len(reference.candidates) != 1
+            or reference.candidates[0] is not reference.target
+            or condition.value_types.get(leaf) is not reference.target.value_type
+            or not any(
+                reference.target is field for field in condition.environment.fields
+            )
+            for i, (reference, leaf) in enumerate(zip(condition.references, leaves))
+        )
+    ):
+        return ProjectSQLPlanBlockerKind.EXPRESSION_EVIDENCE
+    return _scalar_blocker(condition.expression, condition)
+
+
+def _scalar_blocker(expression, evidence):
+    nodes = row.scalar_nodes(expression)
+    if any(isinstance(node, CallExpr) for node in nodes):
+        return ProjectSQLPlanBlockerKind.CALL_AUTHORITY
+    supported = {
+        LiteralExpr,
+        NameExpr,
+        DottedNameExpr,
+        UnaryExpr,
+        BinaryExpr,
+        ComparisonExpr,
+        IsNullExpr,
+        BetweenExpr,
+    }
+    values = {
+        id(node): (node, value) for node, value in row.evidence_types(evidence).items()
+    }
+    if any(
+        type(node) not in supported
+        or id(node) not in values
+        or values[id(node)][0] is not node
+        or values[id(node)][1].kind is not ValueTypeKind.KNOWN
+        for node in nodes
+    ):
+        return ProjectSQLPlanBlockerKind.EXPRESSION_EVIDENCE
+    return None
+
+
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSQLPlanUnavailable:
     completed: ProjectConcreteCompletedSemanticResult
@@ -508,6 +725,13 @@ class ProjectSQLPlanUnavailable:
 
 
 class ProjectSQLPlanRefKind(StrEnum):
+    JOIN = "join"
+    JOIN_INPUT = "join_input"
+    JOIN_PORT = "join_port"
+    RELATIONSHIP_MATCH = "relationship_match"
+    JOIN_TAIL = "join_tail"
+    SINGLE_MATCH = "single_match"
+    SINGLE_MATCH_PROOF = "single_match_proof"
     SELECT_BLOCK = "select_block"
     EXPRESSION_SITE = "expression_site"
     EXPRESSION = "expression"
@@ -628,24 +852,31 @@ class ProjectSQLSelectBlock:
     operators: tuple[
         ProjectIRLogicalOperatorOccurrence | ProjectIRQueryBlockOperatorOccurrence, ...
     ]
-    boundary: ProjectSQLBoundary
+    boundary: ProjectSQLBoundary | joining.ProjectSQLJoinTail
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSQLProjection:
     ref: ProjectSQLPlanRef
     block: ProjectSQLPlanRef
-    input_use: ProjectSQLPlanRef
+    input_use: ProjectSQLPlanRef | None
     source_port: ProjectSQLPlanRef | None
     input_port: ProjectSQLPlanRef | None
     export: ProjectSQLPlanRef
     semantic: ProjectModuleSelectFact
     symbol: ProjectSQLSymbol | None
     expression: ProjectSQLPlanRef
-    site: row.ProjectSQLExpressionSite
+    site: row.ProjectSQLExpressionSite | row.ProjectSQLJoinedSite
 
 
 class ProjectSQLOriginRole(StrEnum):
+    JOIN = "join"
+    JOIN_INPUT = "join_input"
+    JOIN_PORT = "join_port"
+    RELATIONSHIP_MATCH = "relationship_match"
+    JOIN_TAIL = "join_tail"
+    SINGLE_MATCH = "single_match"
+    SINGLE_MATCH_PROOF = "single_match_proof"
     EXPRESSION_SITE = "expression_site"
     EXPRESSION = "expression"
     OPERAND = "operand"
@@ -675,7 +906,8 @@ class ProjectSQLOriginProvenance(StrEnum):
 
 
 type ProjectSQLCause = (
-    SourceDef
+    JoinOnClause
+    | SourceDef
     | TableDef
     | QueryDef
     | SetRelationDef
@@ -689,7 +921,9 @@ type ProjectSQLCause = (
 )
 
 type ProjectSQLOriginEvidence = (
-    ProjectDeclarationOccurrence
+    row.ProjectSQLScalarEvidence
+    | joining.ProjectSQLJoinWitness
+    | ProjectDeclarationOccurrence
     | ProjectIRQueryBlockEntry
     | ProjectCompletionDependency
     | ProjectModuleSelectFact
@@ -740,6 +974,7 @@ type ProjectSQLDemand = (
     | row.ProjectSQLStageValueDemand
     | row.ProjectSQLFilterDemand
     | row.ProjectSQLScopeDemand
+    | joining.ProjectSQLJoinDemand
 )
 
 
@@ -777,12 +1012,19 @@ class ProjectSQLPlan:
     symbols: tuple[ProjectSQLSymbol, ...]
     origins: tuple[ProjectSQLOrigin, ...]
     demands: tuple[ProjectSQLDemand, ...]
-    expression_sites: tuple[row.ProjectSQLExpressionSite, ...]
+    expression_sites: tuple[row.ProjectSQLSite, ...]
     expressions: tuple[row.ProjectSQLExpression, ...]
     operands: tuple[row.ProjectSQLExpressionOperand, ...]
     stage_ports: tuple[row.ProjectSQLStagePort, ...]
     let_values: tuple[row.ProjectSQLLetValue, ...]
     filters: tuple[row.ProjectSQLFilter, ...]
+    joins: tuple[joining.ProjectSQLJoin, ...]
+    join_inputs: tuple[joining.ProjectSQLJoinInput, ...]
+    join_ports: tuple[joining.ProjectSQLJoinPort, ...]
+    relationship_matches: tuple[joining.ProjectSQLRelationshipMatch, ...]
+    join_tails: tuple[joining.ProjectSQLJoinTail, ...]
+    single_matches: tuple[joining.ProjectSQLSingleMatch, ...]
+    single_match_proofs: tuple[joining.ProjectSQLSingleMatchProof, ...]
 
     def __init__(self) -> Never:
         raise TypeError("ProjectSQLPlan is closed; use build_project_sql_plan.")
@@ -946,47 +1188,65 @@ def _root_inventory(
             ):
                 raise ValueError("Rebound input must use its active relation edge.")
             images[(key, deps[0].dependency_ordinal)] = entry.relation_input
-        elif (
-            isinstance(entry, ProjectIRCompletedQueryBlockOutput)
-            and entry.join_prefix is not None
-        ):
-            prefix = entry.join_prefix
+        elif joining.joined_tail(entry) is not None:
+            joined_images = joining.join_images(root, entry)
+            tail = joining.joined_tail(entry)
+            assert tail is not None
+            visible_bindings = (
+                tail.joined_semantics.namespaces.binding_environment.bindings
+            )
             external = tuple(
-                i for j in prefix.joins for i in j.inputs if i.producer is not None
+                i for j in joined_images for i in j.inputs if i.producer is not None
             )
             selected: list[ProjectIRJoinInputCorrespondence] = []
-            right_inputs: dict[
-                JoinClause, list[tuple[JoinClause, ProjectIRJoinInputCorrespondence]]
-            ] = {}
-            for joined in prefix.joins:
-                clause = joined.condition.use.clause
-                right_inputs.setdefault(clause, []).append((clause, joined.inputs[1]))
             for dep in deps:
                 binding = dep.evidence
                 if not isinstance(binding, ProjectRelationBindingOccurrence):
                     raise ValueError(
                         "JOIN input requires the original binding occurrence."
                     )
-                matches = (
-                    (prefix.joins[0].inputs[0],)
-                    if binding.identity.binding_position == 0
-                    else tuple(
-                        image
-                        for clause, image in right_inputs.get(
-                            cast(JoinClause, binding.site), ()
-                        )
-                        if clause is binding.site and image.producer is dep.target
-                    )
+                visible = _one(
+                    tuple(v for v in visible_bindings if v.binding is binding),
+                    "authored JOIN binding",
+                )
+                matches = tuple(
+                    image
+                    for image in external
+                    if image.source is visible.introduction_use
                 )
                 image = _one(matches, "authored JOIN input image")
                 if image.producer is not dep.target:
                     raise ValueError("JOIN input image has a different named producer.")
                 selected.append(image)
                 images[(key, dep.dependency_ordinal)] = image
-            if len(selected) != len(external) or any(
-                a is not b for a, b in zip(selected, external, strict=True)
-            ):
-                raise ValueError("Binding seam requires complete external JOIN images.")
+            # Hidden path hops have real external inputs, but no authored alias/use.
+            # They are retained by JOIN input images, never forged dependencies.
+            hidden = tuple(
+                image
+                for image in external
+                if not any(image is item for item in selected)
+            )
+            for image in hidden:
+                matches = tuple(j for j in joined_images if j.inputs[1] is image)
+                joined = _one(matches, "hidden path input")
+                source = joined.source
+                from pietto._project.project_ir_joins import (
+                    ProjectIRBinaryJoinOccurrence,
+                )
+
+                if (
+                    not isinstance(source, ProjectIRBinaryJoinOccurrence)
+                    or source.path_step is source.use.path.steps[-1]
+                ):
+                    raise ValueError(
+                        "Unbound external input requires a nonterminal path hop."
+                    )
+            if tuple(
+                id(image)
+                for image in external
+                if any(image is item for item in selected)
+            ) != tuple(id(image) for image in selected):
+                raise ValueError("Authored JOIN input images lost their order.")
         else:
             raise ValueError("Active input correspondence is unavailable.")
     return (
@@ -1431,7 +1691,7 @@ def build_project_sql_plan(
     K, R, P = ProjectSQLPlanRefKind, ProjectSQLOriginRole, ProjectSQLOriginProvenance
     blocks: list[ProjectSQLSelectBlock] = []
     projections: list[ProjectSQLProjection] = []
-    sites: list[row.ProjectSQLExpressionSite] = []
+    sites: list[row.ProjectSQLSite] = []
     expressions: list[row.ProjectSQLExpression] = []
     operands: list[row.ProjectSQLExpressionOperand] = []
     ports: list[row.ProjectSQLStagePort] = []
@@ -1444,6 +1704,17 @@ def build_project_sql_plan(
     boundaries = {b.use.consumer: b for b in bindings.boundaries}
     binding_symbols = {s.subject: s for s in bindings.symbols}
     uses_by_owner = {u.consumer: u for u in bindings.input_uses}
+    joins: list[joining.ProjectSQLJoin] = []
+    join_inputs: list[joining.ProjectSQLJoinInput] = []
+    join_ports: list[joining.ProjectSQLJoinPort] = []
+    relationship_matches: list[joining.ProjectSQLRelationshipMatch] = []
+    join_tails: list[joining.ProjectSQLJoinTail] = []
+    obligations: list[joining.ProjectSQLSingleMatch] = []
+    proof_images: list[joining.ProjectSQLSingleMatchProof] = []
+    definitions_by_owner = {id(d.entry.owner): d for d in bindings.definitions}
+    uses_by_image = {id(u.edge): u for u in bindings.input_uses}
+    joins_by_image = {}
+    join_ports_by_ref = {}
 
     def ref(kind):
         position = counters.get(kind, 0)
@@ -1466,7 +1737,7 @@ def build_project_sql_plan(
             namespace=ProjectSQLSymbolNamespace.FIELD_PORT,
             position=len(local_symbols),
             subject=port.ref,
-            label=key.name,
+            label=row.stage_key_label(key),
         )
         symbols.append(symbol)
         local_symbols[port.ref] = symbol
@@ -1480,7 +1751,7 @@ def build_project_sql_plan(
                 "One authored expression site must retain distinct tree occurrences."
             )
         types = {id(n): (n, v) for n, v in row.evidence_types(site.evidence).items()}
-        references = {id(r.expression): r for r in site.references}
+        references = {id(row.reference_expression(r)): r for r in site.references}
         for node in nodes:
             children = tuple(
                 node_refs[id(child)] for child in row.scalar_children(node)
@@ -1492,9 +1763,7 @@ def build_project_sql_plan(
                 )
             elif isinstance(node, (NameExpr, DottedNameExpr)):
                 reference = references[id(node)]
-                key = reference.input_field
-                if key is None:
-                    key = _one(reference.let_candidates, "established LET reference")
+                key = row.reference_key(reference)
                 port = local_ports.get(id(key))
                 if port is None or port.key is not key:
                     raise ValueError(
@@ -1505,7 +1774,14 @@ def build_project_sql_plan(
                     raise ValueError(
                         "Expression symbol is outside its exact SELECT scope."
                     )
-                value = row.ProjectSQLReference(
+                reference_type = (
+                    row.ProjectSQLMatchReference
+                    if isinstance(site, row.ProjectSQLMatchSite)
+                    else row.ProjectSQLJoinedReference
+                    if isinstance(site, row.ProjectSQLJoinedSite)
+                    else row.ProjectSQLReference
+                )
+                value = reference_type(
                     ref=node_ref,
                     site=site,
                     expression=node,
@@ -1573,6 +1849,250 @@ def build_project_sql_plan(
                 )
         return node_refs[id(site.occurrence.expression)]
 
+    def join_body(definition, authority):
+        entry = definition.entry
+        images = joining.join_images(analysis_bundle.root, entry)
+        local_joins = []
+        for position, image in enumerate(images):
+            join_ref = ref(K.JOIN)
+            local_symbols = {}
+            input_values = []
+            matching_ports = []
+            keys = joining.condition_field_keys(image)
+            for ordinal, source in enumerate(image.inputs):
+                previous = joining.input_predecessor(source, images[:position])
+                producer = (
+                    None
+                    if source.producer is None
+                    else definitions_by_owner[id(source.producer)]
+                )
+                previous_join = (
+                    None if previous is None else joins_by_image[id(previous)]
+                )
+                if producer is not None:
+                    if source.use.output is not producer.entry.active_output.occurrence:
+                        raise ValueError(
+                            "External JOIN input must use its exact active producer."
+                        )
+                    upstream_ports = producer.exports
+                else:
+                    assert previous_join is not None
+                    upstream_ports = tuple(
+                        join_ports_by_ref[p] for p in previous_join.outputs
+                    )
+                if len(upstream_ports) != len(source.source_properties.fields):
+                    raise ValueError(
+                        "JOIN input must preserve every current field image."
+                    )
+                input_ref = ref(K.JOIN_INPUT)
+                local = []
+                for index, (port, original, key) in enumerate(
+                    zip(
+                        upstream_ports,
+                        source.source_properties.fields,
+                        keys[ordinal],
+                        strict=True,
+                    )
+                ):
+                    field = port.field
+                    value = joining.ProjectSQLJoinPort(
+                        ref=ref(K.JOIN_PORT),
+                        block=join_ref,
+                        kind=joining.ProjectSQLJoinPortKind.MATCH,
+                        position=index,
+                        input=input_ref,
+                        source=port.ref,
+                        original=original,
+                        field=field,
+                        key=field if key is None else key,
+                        nulling=field.nulling_joins
+                        if isinstance(field, joining.ProjectIRJoinedRowField)
+                        else (),
+                    )
+                    join_ports.append(value)
+                    local.append(value)
+                    matching_ports.append(value)
+                    join_ports_by_ref[value.ref] = value
+                    symbol = ProjectSQLSymbol(
+                        ref=ref(K.SYMBOL),
+                        scope=join_ref,
+                        namespace=ProjectSQLSymbolNamespace.FIELD_PORT,
+                        position=len(local_symbols),
+                        subject=value.ref,
+                        label=field.evidence.name,
+                    )
+                    local_symbols[value.ref] = symbol
+                    symbols.append(symbol)
+                bound_use = uses_by_image.get(id(source))
+                value = joining.ProjectSQLJoinInput(
+                    ref=input_ref,
+                    join=join_ref,
+                    ordinal=ordinal,
+                    source=source,
+                    producer=None if producer is None else producer.ref,
+                    predecessor=None if previous_join is None else previous_join.ref,
+                    binding_use=None if bound_use is None else bound_use.ref,
+                    ports=tuple(p.ref for p in local),
+                )
+                join_inputs.append(value)
+                input_values.append(value)
+            context = joining.ProjectSQLMatchContext(
+                join=join_ref,
+                ports=tuple(matching_ports),
+                symbols=tuple(local_symbols.values()),
+            )
+            current_site = None
+            on = None
+            condition = image.condition
+            if condition.expression is not None:
+                clause = condition.use.clause.on_clause
+                assert clause is not None
+                current_site = row.ProjectSQLMatchSite(
+                    ref=ref(K.EXPRESSION_SITE),
+                    owner=entry.owner,
+                    block=join_ref,
+                    role=row.ProjectSQLExpressionRole.MATCH,
+                    ordinal=condition.use.identity.join_position,
+                    occurrence=clause,
+                    evidence=condition,
+                    references=condition.references,
+                )
+                sites.append(current_site)
+                on = expression(
+                    current_site,
+                    {id(p.key): p for p in matching_ports},
+                    local_symbols,
+                    context,
+                )
+            equalities = []
+            for source, guarantee, left, right in joining.base_matches(image):
+                correspondence = (
+                    source.correspondence
+                    if isinstance(source, joining.ProjectIRJoinMatchFieldPair)
+                    else source
+                )
+                left_ref, right_ref = (
+                    input_values[0].ports[left],
+                    input_values[1].ports[right],
+                )
+                authored_operands = (
+                    (left_ref, right_ref)
+                    if correspondence.authored_left.endpoint
+                    is guarantee.direction.source
+                    else (right_ref, left_ref)
+                )
+                value = joining.ProjectSQLRelationshipMatch(
+                    ref=ref(K.RELATIONSHIP_MATCH),
+                    join=join_ref,
+                    source=source,
+                    guarantee=guarantee,
+                    left=left_ref,
+                    right=right_ref,
+                    authored_operands=authored_operands,
+                )
+                relationship_matches.append(value)
+                equalities.append(value.ref)
+            output_ports = []
+            original_fields = image.source.output.row_shape.fields
+            for index, (field, original) in enumerate(
+                zip(image.output.row_shape.fields, original_fields, strict=True)
+            ):
+                value = joining.ProjectSQLJoinPort(
+                    ref=ref(K.JOIN_PORT),
+                    block=join_ref,
+                    kind=joining.ProjectSQLJoinPortKind.OUTPUT,
+                    position=index,
+                    input=None,
+                    source=matching_ports[index].ref,
+                    original=original,
+                    field=field,
+                    key=field,
+                    nulling=field.nulling_joins,
+                )
+                join_ports.append(value)
+                output_ports.append(value)
+                join_ports_by_ref[value.ref] = value
+                symbol = ProjectSQLSymbol(
+                    ref=ref(K.SYMBOL),
+                    scope=join_ref,
+                    namespace=ProjectSQLSymbolNamespace.FIELD_PORT,
+                    position=len(local_symbols),
+                    subject=value.ref,
+                    label=field.evidence.name,
+                )
+                local_symbols[value.ref] = symbol
+                symbols.append(symbol)
+            rows = {
+                AuthoredJoinKind.INNER: joining.ProjectSQLJoinRows.MATCHED_PAIRS,
+                AuthoredJoinKind.LEFT: joining.ProjectSQLJoinRows.LEFT_PRESERVED,
+                AuthoredJoinKind.CROSS: joining.ProjectSQLJoinRows.CARTESIAN_PAIRS,
+                AuthoredJoinKind.RIGHT: joining.ProjectSQLJoinRows.RIGHT_PRESERVED,
+                AuthoredJoinKind.FULL: joining.ProjectSQLJoinRows.BOTH_PRESERVED,
+                AuthoredJoinKind.SEMI: joining.ProjectSQLJoinRows.LEFT_EXISTS,
+                AuthoredJoinKind.ANTI: joining.ProjectSQLJoinRows.LEFT_NOT_EXISTS,
+            }[image.source.use.kind]
+            properties = (
+                image.source_properties
+                if entry.join_prefix is None
+                else _one(
+                    tuple(
+                        p.relational
+                        for p in entry.join_properties
+                        if p.output is image.output
+                    ),
+                    "JOIN properties",
+                )
+            )
+            value = joining.ProjectSQLJoin(
+                ref=join_ref,
+                definition=definition.ref,
+                position=position,
+                source=image,
+                kind=image.source.use.kind,
+                rows=rows,
+                inputs=(input_values[0].ref, input_values[1].ref),
+                outputs=tuple(p.ref for p in output_ports),
+                equalities=tuple(equalities),
+                on=on,
+                site=current_site,
+                properties=properties,
+            )
+            joins.append(value)
+            local_joins.append(value)
+            joins_by_image[id(image)] = value
+        final = _one(
+            tuple(
+                join
+                for join in local_joins
+                if join.source.source.output
+                is authority.binding_environment.row_source.final_output
+            ),
+            "post-JOIN output",
+        )
+        fields = authority.binding_environment.visible_fields
+        images_by_source = {
+            id(source): join_ports_by_ref[port]
+            for source, port in zip(
+                final.source.source.output.row_shape.fields, final.outputs, strict=True
+            )
+        }
+        outputs = tuple(images_by_source[id(field.source_field)] for field in fields)
+        tail_source = joining.joined_tail(entry)
+        assert tail_source is not None
+        boundary = joining.ProjectSQLJoinTail(
+            ref=ref(K.JOIN_TAIL),
+            definition=definition.ref,
+            join=final.ref,
+            source=tail_source,
+            fields=fields,
+            ports=tuple(p.ref for p in outputs),
+        )
+        join_tails.append(boundary)
+        return boundary, [
+            (field, port.ref, field.value_type)
+            for field, port in zip(fields, outputs, strict=True)
+        ]
+
     for definition in bindings.definitions:
         entry = definition.entry
         authored = entry.owner.definition
@@ -1582,17 +2102,21 @@ def build_project_sql_plan(
         authority = row.row_authority(completed, entry)
         assert authority is not None
         context = authority
-        use = uses_by_owner[definition.ref]
-        original_ports = {id(p.field.evidence): p for p in use.ports}
-        # Carries are exact endpoints, not names or reconstructed canonical fields.
-        carried = [(p.field.evidence, p.ref, p.field.evidence) for p in use.ports]
-        stages = [
-            (row.ProjectSQLStageKind.LET, f.binding_ordinal) for f in authority.lets
-        ]
+        if isinstance(authority, row.ProjectSQLJoinedRowAuthority):
+            boundary, carried = join_body(definition, authority)
+            use = None
+            original_ports = {}
+            predecessor = boundary.join
+        else:
+            use = uses_by_owner[definition.ref]
+            boundary = boundaries[definition.ref]
+            original_ports = {id(p.field.evidence): p for p in use.ports}
+            carried = [(p.field.evidence, p.ref, p.field.evidence) for p in use.ports]
+            predecessor = use.ref
+        stages = [(row.ProjectSQLStageKind.LET, i) for i in range(len(authority.lets))]
         if authored.where_clause is not None:
             stages.append((row.ProjectSQLStageKind.WHERE, 0))
         stages.append((row.ProjectSQLStageKind.PROJECTION, 0))
-        predecessor = use.ref
         for position, (kind, ordinal) in enumerate(stages):
             block_ref = ref(K.SELECT_BLOCK)
             local_symbols = {}
@@ -1615,21 +2139,34 @@ def build_project_sql_plan(
             )
 
             def site(role, index, occurrence, evidence, references):
-                result = row.ProjectSQLExpressionSite(
-                    ref=ref(K.EXPRESSION_SITE),
-                    owner=entry.owner,
-                    block=block_ref,
-                    role=role,
-                    ordinal=index,
-                    occurrence=occurrence,
-                    input_schema=context.input_schema,
-                    let_scope=context.let_scope,
-                    let_prefix=context.let_scope.bindings[:index]
-                    if role is row.ProjectSQLExpressionRole.LET
-                    else context.let_scope.bindings,
-                    evidence=evidence,
-                    references=references,
-                )
+                if isinstance(context, row.ProjectSQLJoinedRowAuthority):
+                    result = row.ProjectSQLJoinedSite(
+                        ref=ref(K.EXPRESSION_SITE),
+                        owner=entry.owner,
+                        block=block_ref,
+                        role=role,
+                        ordinal=index,
+                        occurrence=occurrence,
+                        namespace=evidence.namespace,
+                        evidence=evidence,
+                        references=references,
+                    )
+                else:
+                    result = row.ProjectSQLExpressionSite(
+                        ref=ref(K.EXPRESSION_SITE),
+                        owner=entry.owner,
+                        block=block_ref,
+                        role=role,
+                        ordinal=index,
+                        occurrence=occurrence,
+                        input_schema=context.input_schema,
+                        let_scope=context.let_scope,
+                        let_prefix=context.let_scope.bindings[:index]
+                        if role is row.ProjectSQLExpressionRole.LET
+                        else context.let_scope.bindings,
+                        evidence=evidence,
+                        references=references,
+                    )
                 sites.append(result)
                 return result
 
@@ -1640,9 +2177,13 @@ def build_project_sql_plan(
                 current_site = site(
                     row.ProjectSQLExpressionRole.LET,
                     ordinal,
-                    fact.binding,
+                    fact.occurrence.binding
+                    if isinstance(fact, row.ProjectJoinedLetValue)
+                    else fact.binding,
                     fact,
-                    fact.references,
+                    fact.resolutions
+                    if isinstance(fact, row.ProjectJoinedLetValue)
+                    else fact.references,
                 )
                 produced = expression(
                     current_site, local_ports, local_symbols, stage_context
@@ -1689,15 +2230,21 @@ def build_project_sql_plan(
                     )
                     direct = None
                     if (
-                        isinstance(semantic.item.expression, (NameExpr, DottedNameExpr))
+                        not isinstance(authority, row.ProjectSQLJoinedRowAuthority)
+                        and isinstance(
+                            semantic.item.expression, (NameExpr, DottedNameExpr)
+                        )
                         and len(references) == 1
+                        and isinstance(
+                            references[0], ProjectModuleExpressionReferenceFact
+                        )
                     ):
                         direct = original_ports.get(id(references[0].input_field))
                     projections.append(
                         ProjectSQLProjection(
                             ref=ref(K.PROJECTION),
                             block=block_ref,
-                            input_use=use.ref,
+                            input_use=None if use is None else use.ref,
                             source_port=None
                             if direct is None
                             else direct.producer_port,
@@ -1732,7 +2279,9 @@ def build_project_sql_plan(
                     port = stage_port(
                         block_ref,
                         row.ProjectSQLStagePortKind.EXPORT,
-                        fact.binding,
+                        fact.occurrence
+                        if isinstance(fact, row.ProjectJoinedLetValue)
+                        else fact.binding,
                         produced,
                         fact.value_type,
                         local_symbols,
@@ -1776,16 +2325,93 @@ def build_project_sql_plan(
                             is ProjectIRLogicalOperatorKind.FINAL_PROJECTION
                         )
                     ),
-                    boundary=boundaries[definition.ref],
+                    boundary=boundary,
                 )
             )
             predecessor = block_ref
+
+    def retained_join(boundary):
+        return _one(
+            tuple(
+                j for j in joins if j.source is boundary or j.source.source is boundary
+            ),
+            "retained matching boundary",
+        )
+
+    for retained in analysis_bundle.root.requirements:
+        if (
+            retained.owner_entry is None
+            or id(retained.owner_entry.owner) not in definitions_by_owner
+        ):
+            continue
+        if (
+            definitions_by_owner[id(retained.owner_entry.owner)].entry
+            is not retained.owner_entry
+        ):
+            raise ValueError("Applicable obligation lost its exact owner entry.")
+        obligation_ref = ref(K.SINGLE_MATCH)
+        boundaries_for_request = tuple(
+            retained_join(boundary) for boundary in retained.boundaries
+        )
+        proof_nodes = []
+        pending: list[
+            tuple[
+                tuple[int, ...],
+                tuple[int, ...] | None,
+                joining.ProjectIRSingleMatchProofImage,
+            ]
+        ] = [
+            ((i,), None, source)
+            for i, source in reversed(tuple(enumerate(retained.proofs)))
+        ]
+        while pending:
+            path, parent_path, source = pending.pop()
+            proof_nodes.append((path, parent_path, source))
+            pending.extend(
+                ((*path, i), path, child)
+                for i, child in reversed(tuple(enumerate(source.children)))
+            )
+        proof_refs = {path: ref(K.SINGLE_MATCH_PROOF) for path, _, _ in proof_nodes}
+        for path, parent_path, source in proof_nodes:
+            proof_images.append(
+                joining.ProjectSQLSingleMatchProof(
+                    ref=proof_refs[path],
+                    obligation=obligation_ref,
+                    parent=None if parent_path is None else proof_refs[parent_path],
+                    source=source,
+                    joins=tuple(
+                        retained_join(boundary).ref for boundary in source.boundaries
+                    ),
+                    producers=tuple(
+                        definitions_by_owner[id(producer.owner)].ref
+                        for producer in source.producers
+                    ),
+                    children=tuple(
+                        proof_refs[(*path, i)] for i in range(len(source.children))
+                    ),
+                )
+            )
+        assessment = retained.assessment
+        obligations.append(
+            joining.ProjectSQLSingleMatch(
+                ref=obligation_ref,
+                source=retained,
+                request=assessment.request,
+                assessment=assessment,
+                joins=tuple(join.ref for join in boundaries_for_request),
+                input_pairs=tuple(join.inputs for join in boundaries_for_request),
+                proofs=tuple(proof_refs[(i,)] for i in range(len(retained.proofs))),
+                diagnostic=assessment.diagnostic,
+                downstream_enforcement_required=assessment.downstream_enforcement_required,
+            )
+        )
 
     block_by_ref = {b.ref: b for b in blocks}
     expression_by_ref = {e.ref: e for e in expressions}
     port_by_ref = {p.ref: p for p in ports}
     export_by_ref = {p.ref: p for p in bindings.all_exports}
     origin_by_subject = {}
+    join_by_ref = {j.ref: j for j in joins}
 
     def origin(subject, role, provenance, owner, cause, evidence, antecedents=()):
         value = ProjectSQLOrigin(
@@ -1810,12 +2436,16 @@ def build_project_sql_plan(
             block.selected.owner,
             block.selected.owner.definition,
             block.selected,
-            (block.predecessor,),
+            (block.predecessor, block.boundary.ref)
+            if isinstance(block.boundary, joining.ProjectSQLJoinTail)
+            else (block.predecessor,),
         )
     for port in ports:
         owner = block_by_ref[port.block].selected.owner
         cause = (
-            port.key
+            port.key.binding
+            if isinstance(port.key, row.ProjectJoinedLetOccurrence)
+            else port.key
             if isinstance(port.key, LetBinding)
             else cast(TableDef | QueryDef, owner.definition).from_clause
         )
@@ -1836,11 +2466,22 @@ def build_project_sql_plan(
             current_site.owner,
             current_site.occurrence,
             current_site.evidence,
-            (current_site.block,),
+            join_by_ref[current_site.block].inputs
+            if isinstance(current_site, row.ProjectSQLMatchSite)
+            else (current_site.block,),
         )
     for value in expressions:
         dependencies = (
-            (value.port,) if isinstance(value, row.ProjectSQLReference) else ()
+            (value.port,)
+            if isinstance(
+                value,
+                (
+                    row.ProjectSQLReference,
+                    row.ProjectSQLJoinedReference,
+                    row.ProjectSQLMatchReference,
+                ),
+            )
+            else ()
         )
         origin(
             value.ref,
@@ -1903,6 +2544,8 @@ def build_project_sql_plan(
             (projection.ref,),
         )
     for symbol in symbols[len(bindings.symbols) :]:
+        if symbol.subject not in port_by_ref:
+            continue
         port = port_by_ref[symbol.subject]
         block = block_by_ref[port.block]
         origin(
@@ -2006,6 +2649,143 @@ def build_project_sql_plan(
                 origin=demand_origin,
             )
         )
+    join_by_ref = {j.ref: j for j in joins}
+    obligation_by_ref = {o.ref: o for o in obligations}
+    witnesses = (
+        *joins,
+        *join_inputs,
+        *join_ports,
+        *relationship_matches,
+        *join_tails,
+        *obligations,
+        *proof_images,
+    )
+    for witness in witnesses:
+        if isinstance(witness, joining.ProjectSQLJoin):
+            kind, role, provenance = (
+                joining.ProjectSQLJoinDemandKind.JOIN_ROWS,
+                R.JOIN,
+                P.MEMBERSHIP,
+            )
+            owner, cause = (
+                witness.source.condition.use.owner,
+                witness.source.condition.use.clause,
+            )
+            antecedents = (
+                *witness.inputs,
+                *witness.equalities,
+                *(() if witness.on is None else (witness.on,)),
+            )
+        elif isinstance(witness, joining.ProjectSQLJoinInput):
+            kind, role, provenance = (
+                joining.ProjectSQLJoinDemandKind.MATCH_INPUT,
+                R.JOIN_INPUT,
+                P.MEMBERSHIP,
+            )
+            join = join_by_ref[witness.join]
+            owner, cause = (
+                join.source.condition.use.owner,
+                join.source.condition.use.clause,
+            )
+            antecedents = (
+                (witness.producer,)
+                if witness.producer is not None
+                else (witness.predecessor,)
+            )
+        elif isinstance(witness, joining.ProjectSQLJoinPort):
+            matching = witness.kind is joining.ProjectSQLJoinPortKind.MATCH
+            kind = (
+                joining.ProjectSQLJoinDemandKind.MATCH_FIELD
+                if matching
+                else joining.ProjectSQLJoinDemandKind.OUTPUT_FIELD
+            )
+            role, provenance = R.JOIN_PORT, P.MEMBERSHIP if matching else P.VALUE
+            join = join_by_ref[witness.block]
+            owner, cause = (
+                join.source.condition.use.owner,
+                join.source.condition.use.clause,
+            )
+            antecedents = (
+                (witness.source, witness.input)
+                if matching
+                else (witness.source, witness.block)
+            )
+        elif isinstance(witness, joining.ProjectSQLRelationshipMatch):
+            kind, role, provenance = (
+                joining.ProjectSQLJoinDemandKind.RELATIONSHIP_EQUALITY,
+                R.RELATIONSHIP_MATCH,
+                P.MEMBERSHIP,
+            )
+            join = join_by_ref[witness.join]
+            source = (
+                witness.source.correspondence
+                if isinstance(witness.source, joining.ProjectIRJoinMatchFieldPair)
+                else witness.source
+            )
+            owner, cause, antecedents = (
+                join.source.condition.use.owner,
+                source.comparison,
+                witness.authored_operands,
+            )
+        elif isinstance(witness, joining.ProjectSQLJoinTail):
+            kind, role, provenance = (
+                joining.ProjectSQLJoinDemandKind.POST_MATCH_SCOPE,
+                R.JOIN_TAIL,
+                P.GENERATED_STRUCTURE,
+            )
+            owner = join_by_ref[witness.join].source.condition.use.owner
+            cause, antecedents = owner.definition, (witness.join, *witness.ports)
+        elif isinstance(witness, joining.ProjectSQLSingleMatch):
+            kind, role, provenance = (
+                joining.ProjectSQLJoinDemandKind.SINGLE_MATCH,
+                R.SINGLE_MATCH,
+                P.TYPE_PROOF,
+            )
+            owner, cause, antecedents = (
+                witness.request.owner,
+                witness.request.use.clause,
+                (*witness.joins, *witness.proofs),
+            )
+        else:
+            kind, role, provenance = (
+                joining.ProjectSQLJoinDemandKind.PROOF_CONTEXT,
+                R.SINGLE_MATCH_PROOF,
+                P.TYPE_PROOF,
+            )
+            obligation = obligation_by_ref[witness.obligation]
+            owner, cause = obligation.request.owner, obligation.request.use.clause
+            antecedents = (*witness.joins, *witness.producers, *witness.children)
+        witness_origin = origin(
+            witness.ref, role, provenance, owner, cause, witness, antecedents
+        )
+        demand_ref = ref(K.DEMAND)
+        demand_origin = origin(
+            demand_ref, R.DEMAND, provenance, owner, cause, witness, (witness_origin,)
+        )
+        demands.append(
+            joining.ProjectSQLJoinDemand(
+                ref=demand_ref,
+                subject=witness.ref,
+                kind=kind,
+                witness=witness,
+                origin=demand_origin,
+            )
+        )
+    for symbol in symbols[len(bindings.symbols) :]:
+        port = join_ports_by_ref.get(symbol.subject)
+        if port is None:
+            continue
+        join = join_by_ref[port.block]
+        origin(
+            symbol.ref,
+            R.SYMBOL,
+            P.GENERATED_STRUCTURE,
+            join.source.condition.use.owner,
+            join.source.condition.use.clause,
+            port,
+            (port.ref,),
+        )
+
     selected = _one(
         tuple(d for d in bindings.definitions if d.entry.owner is selected_owner),
         "selected SQL definition",
@@ -2032,6 +2812,13 @@ def build_project_sql_plan(
         stage_ports=tuple(ports),
         let_values=tuple(lets),
         filters=tuple(filters),
+        joins=tuple(joins),
+        join_inputs=tuple(join_inputs),
+        join_ports=tuple(join_ports),
+        relationship_matches=tuple(relationship_matches),
+        join_tails=tuple(join_tails),
+        single_matches=tuple(obligations),
+        single_match_proofs=tuple(proof_images),
     ).items():
         object.__setattr__(plan, name, value)
     return plan

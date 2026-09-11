@@ -385,6 +385,7 @@ def test_root_and_selection_are_explicit_and_never_name_resolved(plans) -> None:
 
 
 SUPPORTED_BODIES = {
+    "join": "    from rows\n    cross join other as r:\n        from rows\n    select:\n        id = rows.id\n",
     "where": "    from rows\n    where id > 0\n    select:\n        id\n",
     "let": "    from rows\n    let:\n        x = id\n    select:\n        id\n",
     "scalar": "    from rows\n    select:\n        x = id + 1\n",
@@ -392,7 +393,6 @@ SUPPORTED_BODIES = {
 
 FUTURE_BODIES = {
     "order": "    from rows\n    select:\n        id\n    order by:\n        id\n",
-    "join": "    from rows\n    cross join other as r:\n        from rows\n    select:\n        id = rows.id\n",
     "group": "    from rows\n    group by:\n        id\n    select:\n        id\n        total = count(id)\n    satisfying:\n        total > 0\n",
     "global": "    from rows\n    select:\n        total = count(id)\n",
     "window": "    from rows\n    select:\n        id\n        ranked = row_number() window:\n            order by:\n                id\n    qualify:\n        ranked <= 3\n",
@@ -651,12 +651,11 @@ def test_completed_semantic_authority_cannot_be_replaced_inside_verified_roots(
 
 
 @pytest.mark.parametrize("family", tuple(SUPPORTED_BODIES))
-def test_scalar_let_where_temporary_negatives_are_now_positive(
-    tmp_path: Path, family: str
-) -> None:
+def test_lifted_row_and_join_families_are_positive(tmp_path: Path, family: str) -> None:
     roots = _roots(
         tmp_path,
         _source().split("query result:", 1)[0]
+        + 'source other: Row is postgres.table("other")\n'
         + "query result:\n"
         + SUPPORTED_BODIES[family],
     )
@@ -668,4 +667,5 @@ def test_scalar_let_where_temporary_negatives_are_now_positive(
     view = inspect_project_sql_plan(checked)
     assert bool(view.filters) is (family == "where")
     assert bool(view.let_values) is (family == "let")
+    assert bool(view.joins) is (family == "join")
     assert view.expressions and view.exports

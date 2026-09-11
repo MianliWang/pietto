@@ -55,9 +55,10 @@ documentation does not supersede that evidence.
 | Phase 65 Slice 2 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 3 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 4 | `COMPLETED / PUBLISHED` |
-| Phase 65 Slice 5 | `NEXT / NOT IMPLEMENTED` |
-| Phase 65 Slices 6–16 | `NOT IMPLEMENTED` |
-| Next | `Phase 65 Slice 5 — Seven JOIN kinds, matching scopes and local obligations` |
+| Phase 65 Slice 5 | `COMPLETED / PUBLISHED` |
+| Phase 65 Slice 6 | `NEXT / NOT IMPLEMENTED` |
+| Phase 65 Slices 7–16 | `NOT IMPLEMENTED` |
+| Next | `Phase 65 Slice 6 — GROUPED/GLOBAL/satisfying block boundaries` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -843,7 +844,33 @@ promise physical evaluation once, purity, target support or executable SQL.
 Unary `+`/`-`, binary `+`/`-`/`*`/`%`/`and`/`or`, comparisons, IS NULL and BETWEEN follow existing
 known evidence. Division keeps its unknown-type boundary; unsupported NOT syntax
 and unknown callables remain rejected. Known calls without retained callable
-binding authority remain typed planning limitations. JOIN, grouping, windows,
-DISTINCT/ORDER/LIMIT and SET remain whole-plan unavailable, including ancestors.
-Binding-level depth12 sharing/lookup remains intact. Phase65 stays `ACTIVE`;
-Slice5 is `NEXT / NOT IMPLEMENTED`; Slices 6–16 are `NOT IMPLEMENTED`; N16 is unchanged.
+binding authority remain typed planning limitations. At Slice4 publication, JOIN,
+grouping, windows, DISTINCT/ORDER/LIMIT and SET remained whole-plan unavailable.
+That publication preserved depth12 binding sharing and left Slice5 next.
+
+
+Phase 65 Slice 5 is `COMPLETED / PUBLISHED` only upon successful natural
+exact-head CI on its ordinary commit. Its [JOIN matching and obligation contract](spec/phase65-slice5-seven-join-kinds-match-scopes-obligation-retention-v1.md)
+transports INNER/LEFT/CROSS/RIGHT/FULL/SEMI/ANTI through exact pre-match inputs,
+relationship base/refinement and authored ON, complete output/nulling images,
+and joined LET/WHERE/scalar tails. Historical retained JOIN images and composed
+prefixes share the current binding/plan seam, including hidden path producers.
+Internal input requires an exact earlier JOIN output; repeated uses stay distinct.
+
+Joined LET retains already-computed resolutions in its original namespace and
+prefix without additional inference. Matching and post-JOIN scopes remain distinct.
+RIGHT nulls the entire accumulated left; SEMI/ANTI right fields remain matching
+and membership inputs only. Canonical named outputs and selected visible exports
+stay separate from helper ports. Named/imported consumers use immediate exports.
+
+Applicable single-match request/assessment/proof images preserve their scope,
+BAG-occurrence unit, input pairs and original diagnostics. PROVED remains scoped
+static evidence; LEGAL_UNPROVED retains PIE-S2337 and downstream enforcement
+required. Verification does not fulfill that requirement. Origins/demands and
+exact-ref inspection cover all matching and obligation inventories.
+
+GROUP/GLOBAL/satisfying, windows/QUALIFY, DISTINCT/ORDER/LIMIT and SET bodies,
+missing call/type evidence and unsupported upstream combinations remain typed
+unavailable. No SQL emission/execution, backend strategy or evaluation-once promise
+is added. Phase65 stays `ACTIVE`; Slice6 is `NEXT / NOT IMPLEMENTED`;
+Slices 7–16 are `NOT IMPLEMENTED`; N16 is unchanged.

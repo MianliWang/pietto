@@ -252,10 +252,12 @@ def test_closed_scalar_domain_preserves_occurrences(
     assert first_value.expression is not second_value.expression
     assert view.input_uses and not view.filters and not view.let_values
     assert view.blocks[0].predecessor is view.input_uses[0].ref
-    assert all(
-        e.site.input_schema is view.expression_sites[0].input_schema
-        for e in view.expressions
-    )
+    first_site = view.expression_sites[0]
+    assert isinstance(first_site, row.ProjectSQLExpressionSite)
+    for value in view.expressions:
+        assert isinstance(value.site, row.ProjectSQLExpressionSite)
+        assert value.site.input_schema is first_site.input_schema
+
     assert plan.diagnostics is roots[0].diagnostics
 
 
@@ -271,6 +273,9 @@ def test_nullable_where_and_hidden_dependencies(tmp_path: Path) -> None:
     assert [p.identity.name for p in view.exports] == ["constant"]
     port = view.stage_context(predicate.site.block).lookup(predicate.port)
     assert port.key is predicate.reference.input_field
+    from pietto._project.model import ProjectRowField
+
+    assert isinstance(port.key, ProjectRowField)
     assert port.key.name == "flag"
     assert len(view.input_uses) == len(view.sources) == 1
     assert [e.truth.value for e in view.filters[0].retention_effects] == [
@@ -744,7 +749,8 @@ query result:
     replay = entry.semantic_entry.root
     assert isinstance(replay, ProjectConcreteNoJoinReplay)
     authority = row.row_authority(roots[0], entry)
-    assert authority is not None and authority.input_schema is replay.input_schema
+    assert isinstance(authority, row.ProjectSQLRowAuthority)
+    assert authority.input_schema is replay.input_schema
     assert authority.let_scope is replay.let_scope
     assert replay.semantic_facts.let_scope_facts is not authority.let_scope
     assert authority.where is replay.where.expression_analysis

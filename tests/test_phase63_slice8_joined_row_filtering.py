@@ -319,6 +319,19 @@ def test_generic_adapter_retains_exact_post_let_fields_lets_and_function_identit
         if type(resolution) is namespaces.ProjectJoinedLetReferenceResolution
     ) == ("adjusted", "floor")
     assert let_analysis.namespace.let_values is let_result.joined_semantics.let_values
+    for resolution in let_analysis.resolutions:
+        assert isinstance(resolution, namespaces.ProjectJoinedLetReferenceResolution)
+        value = resolution.target
+        leaves = references.scalar_field_reference_leaves(value.occurrence.expression)
+        assert len(value.resolutions) == len(leaves)
+        assert all(
+            retained.reference.expression is leaf
+            and retained.reference.environment
+            is value.namespace.binding_environment.scalar_environment
+            and retained.target is not None
+            and value.value_types[leaf] is retained.target.value_type
+            for retained, leaf in zip(value.resolutions, leaves, strict=True)
+        )
     rebuilt = namespaces.build_project_joined_let_namespaces(
         let_analysis.namespace.binding_environment
     )

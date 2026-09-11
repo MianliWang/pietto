@@ -73,6 +73,17 @@ from pietto.ast_nodes import (
 from pietto.errors import Severity
 
 from pietto._project import project_sql_plan_expressions as row
+from pietto._project.project_scalar_namespaces import ProjectScalarNamespaceStage
+from pietto._project import project_sql_plan_joins as joining
+from pietto.ast_nodes import AuthoredJoinKind
+from pietto._project.project_join_conditions import (
+    ProjectJoinReferenceState,
+    ProjectJoinConditionState,
+)
+from pietto._project.project_scalar_references import ProjectScalarReferenceResolution
+from pietto._project.module_semantic_fact_preservation import (
+    ProjectModuleExpressionReferenceFact,
+)
 from pietto._project.let_scope_facts import ProjectLetScopeFactsStatus
 from pietto._project.project_final_outputs import ProjectNoJoinScalarExpression
 from pietto._project.project_sql_plan import _operators
@@ -132,7 +143,8 @@ def _ref(ref, scope, kind, position) -> bool:
 
 def _inventory(values, cls, scope, kind) -> bool:
     return type(values) is tuple and all(
-        type(value) is cls and _ref(value.ref, scope, kind, i)
+        (type(value) in cls if isinstance(cls, tuple) else type(value) is cls)
+        and _ref(value.ref, scope, kind, i)
         for i, value in enumerate(values)
     )
 
@@ -624,7 +636,6 @@ def _projection_shape(entry) -> bool:
     definition = entry.owner.definition
     if not isinstance(definition, (TableDef, QueryDef)) or any(
         (
-            definition.join_clauses,
             definition.group_by_clause,
             definition.satisfying_clause,
             definition.named_windows,
@@ -635,11 +646,451 @@ def _projection_shape(entry) -> bool:
         )
     ):
         return False
-    expected = [ProjectIRLogicalOperatorKind.RELATION_INPUT]
+    expected = (
+        [] if definition.join_clauses else [ProjectIRLogicalOperatorKind.RELATION_INPUT]
+    )
     if definition.where_clause is not None:
         expected.append(ProjectIRLogicalOperatorKind.ROW_FILTER)
     expected.append(ProjectIRLogicalOperatorKind.FINAL_PROJECTION)
     return tuple(o.kind for o in _operators(entry)) == tuple(expected)
+
+
+def _join_structure(plan) -> bool:
+    K = ProjectSQLPlanRefKind
+    for values, cls, kind in (
+        (plan.joins, joining.ProjectSQLJoin, K.JOIN),
+        (plan.join_inputs, joining.ProjectSQLJoinInput, K.JOIN_INPUT),
+        (plan.join_ports, joining.ProjectSQLJoinPort, K.JOIN_PORT),
+        (
+            plan.relationship_matches,
+            joining.ProjectSQLRelationshipMatch,
+            K.RELATIONSHIP_MATCH,
+        ),
+        (plan.join_tails, joining.ProjectSQLJoinTail, K.JOIN_TAIL),
+        (plan.single_matches, joining.ProjectSQLSingleMatch, K.SINGLE_MATCH),
+        (
+            plan.single_match_proofs,
+            joining.ProjectSQLSingleMatchProof,
+            K.SINGLE_MATCH_PROOF,
+        ),
+    ):
+        if not _inventory(values, cls, plan.scope, kind):
+            return False
+    root = plan.scope.analysis_bundle.root
+    definitions = {id(d.entry.owner): d for d in plan.bindings.definitions}
+    bindings = {id(use.edge): use for use in plan.bindings.input_uses}
+    rows = {
+        AuthoredJoinKind.INNER: joining.ProjectSQLJoinRows.MATCHED_PAIRS,
+        AuthoredJoinKind.LEFT: joining.ProjectSQLJoinRows.LEFT_PRESERVED,
+        AuthoredJoinKind.CROSS: joining.ProjectSQLJoinRows.CARTESIAN_PAIRS,
+        AuthoredJoinKind.RIGHT: joining.ProjectSQLJoinRows.RIGHT_PRESERVED,
+        AuthoredJoinKind.FULL: joining.ProjectSQLJoinRows.BOTH_PRESERVED,
+        AuthoredJoinKind.SEMI: joining.ProjectSQLJoinRows.LEFT_EXISTS,
+        AuthoredJoinKind.ANTI: joining.ProjectSQLJoinRows.LEFT_NOT_EXISTS,
+    }
+    by_image = {}
+    ports_by_ref = {p.ref: p for p in plan.join_ports}
+    joins_position = input_position = port_position = equality_position = (
+        tail_position
+    ) = 0
+    for definition in plan.bindings.definitions:
+        images = joining.join_images(root, definition.entry)
+        if not images:
+            continue
+        for position, image in enumerate(images):
+            value = plan.joins[joins_position]
+            joins_position += 1
+            if (
+                value.source is not image
+                or value.definition is not definition.ref
+                or type(value.position) is not int
+                or value.position != position
+                or value.kind is not image.source.use.kind
+                or value.rows is not rows[value.kind]
+            ):
+                return False
+            local_inputs = plan.join_inputs[input_position : input_position + 2]
+            input_position += 2
+            if len(local_inputs) != 2 or not _same(
+                value.inputs, tuple(item.ref for item in local_inputs)
+            ):
+                return False
+            match_ports = []
+            keys = joining.condition_field_keys(image)
+            for ordinal, (given, source) in enumerate(
+                zip(local_inputs, image.inputs, strict=True)
+            ):
+                previous = joining.input_predecessor(source, images[:position])
+                if source.producer is not None:
+                    producer = definitions[id(source.producer)]
+                    if source.use.output is not producer.entry.active_output.occurrence:
+                        return False
+                    upstream = producer.exports
+                    producer_ref, previous_ref = producer.ref, None
+                else:
+                    previous_plan = by_image[id(previous)]
+                    upstream = tuple(ports_by_ref[ref] for ref in previous_plan.outputs)
+                    producer_ref, previous_ref = None, previous_plan.ref
+                bound = bindings.get(id(source))
+                if (
+                    given.join is not value.ref
+                    or given.source is not source
+                    or type(given.ordinal) is not int
+                    or given.ordinal != ordinal
+                    or given.producer is not producer_ref
+                    or given.predecessor is not previous_ref
+                    or given.binding_use is not (None if bound is None else bound.ref)
+                    or len(upstream) != len(source.source_properties.fields)
+                ):
+                    return False
+                expected_ports = plan.join_ports[
+                    port_position : port_position + len(upstream)
+                ]
+                port_position += len(upstream)
+                if len(expected_ports) != len(upstream) or not _same(
+                    given.ports, tuple(p.ref for p in expected_ports)
+                ):
+                    return False
+                for i, (port, previous_port, original, key) in enumerate(
+                    zip(
+                        expected_ports,
+                        upstream,
+                        source.source_properties.fields,
+                        keys[ordinal],
+                        strict=True,
+                    )
+                ):
+                    field = previous_port.field
+                    nulling = (
+                        field.nulling_joins
+                        if isinstance(field, joining.ProjectIRJoinedRowField)
+                        else ()
+                    )
+                    if (
+                        port.block is not value.ref
+                        or port.kind is not joining.ProjectSQLJoinPortKind.MATCH
+                        or type(port.position) is not int
+                        or port.position != i
+                        or port.input is not given.ref
+                        or port.source is not previous_port.ref
+                        or port.original is not original
+                        or port.field is not field
+                        or port.key is not (field if key is None else key)
+                        or not _same(port.nulling, nulling)
+                    ):
+                        return False
+                match_ports.extend(expected_ports)
+            matches = joining.base_matches(image)
+            provided_matches = plan.relationship_matches[
+                equality_position : equality_position + len(matches)
+            ]
+            equality_position += len(matches)
+            if len(provided_matches) != len(matches) or not _same(
+                value.equalities, tuple(m.ref for m in provided_matches)
+            ):
+                return False
+            for equality, (source, guarantee, left, right) in zip(
+                provided_matches, matches, strict=True
+            ):
+                comparison = (
+                    source.correspondence
+                    if isinstance(source, joining.ProjectIRJoinMatchFieldPair)
+                    else source
+                )
+                left_ref, right_ref = (
+                    local_inputs[0].ports[left],
+                    local_inputs[1].ports[right],
+                )
+                authored = (
+                    (left_ref, right_ref)
+                    if comparison.authored_left.endpoint is guarantee.direction.source
+                    else (right_ref, left_ref)
+                )
+                if (
+                    equality.join is not value.ref
+                    or equality.source is not source
+                    or equality.guarantee is not guarantee
+                    or equality.left is not left_ref
+                    or equality.right is not right_ref
+                    or not _same(equality.authored_operands, authored)
+                ):
+                    return False
+            condition = image.condition
+            if (
+                condition.ready is not True
+                or condition.state is not ProjectJoinConditionState.READY
+                or type(condition.use.identity.join_position) is not int
+                or any(
+                    type(field.position) is not int or field.position != i
+                    for i, field in enumerate(condition.environment.fields)
+                )
+            ):
+                return False
+            if condition.expression is None:
+                if value.on is not None or value.site is not None:
+                    return False
+            else:
+                site = value.site
+                if (
+                    type(site) is not row.ProjectSQLMatchSite
+                    or site.owner is not definition.entry.owner
+                    or site.block is not value.ref
+                    or site.role is not row.ProjectSQLExpressionRole.MATCH
+                    or type(site.ordinal) is not int
+                    or site.ordinal != condition.use.identity.join_position
+                    or site.occurrence is not condition.use.clause.on_clause
+                    or site.evidence is not condition
+                    or not _same(site.references, condition.references)
+                    or value.on is None
+                ):
+                    return False
+            outputs = plan.join_ports[
+                port_position : port_position + len(image.output.row_shape.fields)
+            ]
+            port_position += len(outputs)
+            if len(outputs) != len(image.output.row_shape.fields) or not _same(
+                value.outputs, tuple(p.ref for p in outputs)
+            ):
+                return False
+            for i, (port, original, current) in enumerate(
+                zip(
+                    outputs,
+                    image.source.output.row_shape.fields,
+                    image.output.row_shape.fields,
+                    strict=True,
+                )
+            ):
+                if (
+                    port.block is not value.ref
+                    or port.kind is not joining.ProjectSQLJoinPortKind.OUTPUT
+                    or type(port.position) is not int
+                    or port.position != i
+                    or port.input is not None
+                    or port.source is not match_ports[i].ref
+                    or port.original is not original
+                    or port.field is not current
+                    or port.key is not current
+                    or not _same(port.nulling, current.nulling_joins)
+                ):
+                    return False
+            entry = definition.entry
+            properties = (
+                image.source_properties
+                if entry.join_prefix is None
+                else next(
+                    (
+                        p.relational
+                        for p in entry.join_properties
+                        if p.output is image.output
+                    ),
+                    None,
+                )
+            )
+            if value.properties is not properties:
+                return False
+            by_image[id(image)] = value
+        tail = plan.join_tails[tail_position]
+        tail_position += 1
+        source = joining.joined_tail(definition.entry)
+        if source is None:
+            return False
+        finals = tuple(
+            image
+            for image in images
+            if image.source.output is source.joined_semantics.final_output
+        )
+        if len(finals) != 1:
+            return False
+        final = by_image[id(finals[0])]
+        fields = source.joined_semantics.namespaces.binding_environment.visible_fields
+        field_ports = {
+            id(old): ref
+            for old, ref in zip(
+                final.source.source.output.row_shape.fields, final.outputs, strict=True
+            )
+        }
+        if (
+            tail.definition is not definition.ref
+            or tail.source is not source
+            or tail.join is not final.ref
+            or not _same(tail.fields, fields)
+            or not _same(
+                tail.ports,
+                tuple(field_ports[id(field.source_field)] for field in fields),
+            )
+        ):
+            return False
+    if (
+        joins_position,
+        input_position,
+        port_position,
+        equality_position,
+        tail_position,
+    ) != (
+        len(plan.joins),
+        len(plan.join_inputs),
+        len(plan.join_ports),
+        len(plan.relationship_matches),
+        len(plan.join_tails),
+    ):
+        return False
+    return _single_matches(plan)
+
+
+def _single_matches(plan) -> bool:
+    expected = tuple(
+        source
+        for source in plan.scope.analysis_bundle.root.requirements
+        if source.owner_entry is not None
+        and any(source.owner_entry is d.entry for d in plan.bindings.definitions)
+    )
+    if len(expected) != len(plan.single_matches):
+        return False
+    definitions = {id(d.entry): d.ref for d in plan.bindings.definitions}
+    proofs = {p.ref: p for p in plan.single_match_proofs}
+    visited = []
+
+    def join_for(source):
+        matches = tuple(
+            j for j in plan.joins if j.source is source or j.source.source is source
+        )
+        if len(matches) != 1:
+            raise ValueError("Obligation requires one retained matching boundary.")
+        return matches[0]
+
+    for value, retained in zip(plan.single_matches, expected, strict=True):
+        assessment = retained.assessment
+        joins = tuple(join_for(source) for source in retained.boundaries)
+        if (
+            value.source is not retained
+            or value.request is not assessment.request
+            or value.assessment is not assessment
+            or value.diagnostic is not assessment.diagnostic
+            or value.downstream_enforcement_required
+            is not assessment.downstream_enforcement_required
+            or not _same(value.joins, tuple(j.ref for j in joins))
+            or type(value.input_pairs) is not tuple
+            or len(value.input_pairs) != len(joins)
+            or any(
+                not _same(pair, join.inputs)
+                for pair, join in zip(value.input_pairs, joins, strict=True)
+            )
+            or type(value.proofs) is not tuple
+            or len(value.proofs) != len(retained.proofs)
+        ):
+            return False
+        pending = [
+            (source, ref, None)
+            for source, ref in reversed(
+                tuple(zip(retained.proofs, value.proofs, strict=True))
+            )
+        ]
+        while pending:
+            source, ref, parent = pending.pop()
+            proof = proofs[ref]
+            visited.append(proof)
+            if (
+                proof.source is not source
+                or proof.obligation is not value.ref
+                or proof.parent is not parent
+                or not _same(
+                    proof.joins,
+                    tuple(join_for(boundary).ref for boundary in source.boundaries),
+                )
+                or not _same(
+                    proof.producers,
+                    tuple(definitions[id(entry)] for entry in source.producers),
+                )
+                or type(proof.children) is not tuple
+                or len(proof.children) != len(source.children)
+            ):
+                return False
+            pending.extend(
+                (child, ref, proof.ref)
+                for child, ref in reversed(
+                    tuple(zip(source.children, proof.children, strict=True))
+                )
+            )
+    return _same(tuple(visited), plan.single_match_proofs)
+
+
+def _row_site(
+    site,
+    entry,
+    authority,
+    block,
+    role,
+    ordinal,
+    occurrence,
+    evidence,
+    references,
+    bindings,
+) -> bool:
+    if (
+        site.owner is not entry.owner
+        or site.block is not block.ref
+        or site.role is not role
+        or type(site.ordinal) is not int
+        or site.ordinal != ordinal
+        or site.occurrence is not occurrence
+        or site.evidence is not evidence
+        or not _same(site.references, references)
+    ):
+        return False
+    if isinstance(authority, row.ProjectSQLJoinedRowAuthority):
+        if (
+            type(site) is not row.ProjectSQLJoinedSite
+            or site.namespace is not evidence.namespace
+            or site.namespace.binding_environment is not authority.binding_environment
+        ):
+            return False
+        if isinstance(evidence, row.ProjectJoinedLetValue):
+            return (
+                evidence.occurrence is authority.namespaces.occurrences[ordinal]
+                and evidence.namespace
+                is authority.namespaces.binding_namespaces[ordinal]
+                and evidence.occurrence.binding is occurrence
+                and type(site.namespace.binding_ordinal) is int
+                and site.namespace.binding_ordinal == ordinal
+                and site.namespace.stage is ProjectScalarNamespaceStage.LET_BINDING
+                and _same(site.namespace.let_values, authority.lets[:ordinal])
+            )
+        return (
+            evidence.namespace is authority.namespaces.post_let
+            and site.namespace.stage is ProjectScalarNamespaceStage.POST_LET
+            and site.namespace.binding_ordinal is None
+            and _same(site.namespace.let_values, authority.lets)
+            and evidence.expression is occurrence.expression
+        )
+    if type(site) is not row.ProjectSQLExpressionSite:
+        return False
+    prefix = (
+        bindings[:ordinal] if role is row.ProjectSQLExpressionRole.LET else bindings
+    )
+    if (
+        site.input_schema is not authority.input_schema
+        or site.let_scope is not authority.let_scope
+        or not _same(site.let_prefix, prefix)
+    ):
+        return False
+    if isinstance(evidence, ProjectNoJoinScalarExpression):
+        return (
+            evidence.owner is entry.owner
+            and evidence.input_schema is authority.input_schema
+            and evidence.let_scope is authority.let_scope
+            and evidence.expression is occurrence.expression
+        )
+    if isinstance(evidence, ProjectModuleLetBindingFact):
+        return (
+            evidence.scope_facts is authority.let_scope
+            and evidence.value_type
+            is authority.let_scope.value_types.get(occurrence.name)
+        )
+    return (
+        evidence.owner is entry.owner
+        and evidence.input_schema is authority.input_schema
+        and evidence.let_scope is authority.let_scope
+    )
 
 
 def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, ...]:
@@ -671,7 +1122,15 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
         return (Issue.PORTS_AND_PROJECTIONS,)
     for values, cls, kind in (
         (plan.blocks, ProjectSQLSelectBlock, K.SELECT_BLOCK),
-        (plan.expression_sites, row.ProjectSQLExpressionSite, K.EXPRESSION_SITE),
+        (
+            plan.expression_sites,
+            (
+                row.ProjectSQLExpressionSite,
+                row.ProjectSQLJoinedSite,
+                row.ProjectSQLMatchSite,
+            ),
+            K.EXPRESSION_SITE,
+        ),
         (plan.stage_ports, row.ProjectSQLStagePort, K.STAGE_PORT),
         (plan.let_values, row.ProjectSQLLetValue, K.LET_VALUE),
         (plan.filters, row.ProjectSQLFilter, K.FILTER),
@@ -685,6 +1144,12 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
         for i, e in enumerate(plan.expressions)
     ):
         return (Issue.STRUCTURE,)
+    if not _join_structure(plan):
+        return (Issue.STRUCTURE,)
+    join_by_definition = {d.ref: [] for d in definitions}
+    for joined in plan.joins:
+        join_by_definition[joined.definition].append(joined)
+    tails = {tail.definition: tail for tail in plan.join_tails}
     boundaries = {b.use.consumer: b for b in bindings.boundaries}
     uses = {d.ref: [] for d in definitions}
     for use in plan.input_uses:
@@ -706,43 +1171,84 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
         if not isinstance(authored, (TableDef, QueryDef)):
             return (Issue.UNSUPPORTED_SHAPE,)
         authority = row.row_authority(plan.scope.completed, entry)
-        if authority is None or authority.let_scope.status not in {
-            ProjectLetScopeFactsStatus.ABSENT,
-            ProjectLetScopeFactsStatus.CONCRETE,
-        }:
+        if authority is None:
             return (Issue.UNSUPPORTED_SHAPE,)
         expected_bindings = (
             () if authored.let_clause is None else authored.let_clause.bindings
         )
         if (
-            not _same(authority.let_scope.bindings, expected_bindings)
-            or authority.let_scope.definition is not authored
-            or authority.let_scope.input_schema is not authority.input_schema
-            or not _same(tuple(f.binding for f in authority.lets), expected_bindings)
-            or any(
-                type(f.binding_ordinal) is not int or f.binding_ordinal != i
-                for i, f in enumerate(authority.lets)
+            len(authority.selections) != len(definition.exports)
+            or len(authority.selected_evidence) != len(authority.selections)
+            or len(authority.selected_references) != len(authority.selections)
+            or not _same(
+                tuple(f.item for f in authority.selections), authored.select_items
             )
             or any(
                 type(f.selected_output_ordinal) is not int
                 or f.selected_output_ordinal != i
                 for i, f in enumerate(authority.selections)
             )
-            or not _same(
-                tuple(f.item for f in authority.selections), authored.select_items
-            )
-            or len(authority.selections) != len(definition.exports)
-            or len(authority.selected_evidence) != len(authority.selections)
-            or len(authority.selected_references) != len(authority.selections)
-            or len(uses[definition.ref]) != 1
         ):
             return (Issue.STRUCTURE,)
-        use = uses[definition.ref][0]
-        original = {id(p.field.evidence): p for p in use.ports}
-        if {id(f) for f in authority.input_schema.fields.values()} != set(original):
-            return (Issue.PORTS_AND_PROJECTIONS,)
-        carries = [(p.ref, p.field.evidence, p.field.evidence) for p in use.ports]
-        predecessor = use.ref
+        if isinstance(authority, row.ProjectSQLJoinedRowAuthority):
+            if not _same(
+                tuple(value.occurrence.binding for value in authority.lets),
+                expected_bindings,
+            ) or any(
+                type(value.occurrence.source_ordinal) is not int
+                or value.occurrence.source_ordinal != i
+                for i, value in enumerate(authority.lets)
+            ):
+                return (Issue.STRUCTURE,)
+            boundary = tails[definition.ref]
+            use = None
+            original = {}
+            carries = [
+                (port, field, field.value_type)
+                for port, field in zip(boundary.ports, boundary.fields, strict=True)
+            ]
+            predecessor = boundary.join
+            for joined in join_by_definition[definition.ref]:
+                site = joined.site
+                if site is not None:
+                    if plan.expression_sites[site_position] is not site:
+                        return (Issue.STRUCTURE,)
+                    site_position += 1
+                    inputs = tuple(
+                        p
+                        for p in plan.join_ports
+                        if p.block is joined.ref
+                        and p.kind is joining.ProjectSQLJoinPortKind.MATCH
+                    )
+                    site_specs.append((site, inputs))
+                    root_by_site[site.ref] = joined.on
+        else:
+            if (
+                authority.let_scope.status
+                not in {
+                    ProjectLetScopeFactsStatus.ABSENT,
+                    ProjectLetScopeFactsStatus.CONCRETE,
+                }
+                or not _same(authority.let_scope.bindings, expected_bindings)
+                or authority.let_scope.definition is not authored
+                or authority.let_scope.input_schema is not authority.input_schema
+                or not _same(
+                    tuple(f.binding for f in authority.lets), expected_bindings
+                )
+                or any(
+                    type(f.binding_ordinal) is not int or f.binding_ordinal != i
+                    for i, f in enumerate(authority.lets)
+                )
+                or len(uses[definition.ref]) != 1
+            ):
+                return (Issue.STRUCTURE,)
+            use = uses[definition.ref][0]
+            boundary = boundaries[definition.ref]
+            original = {id(p.field.evidence): p for p in use.ports}
+            if {id(f) for f in authority.input_schema.fields.values()} != set(original):
+                return (Issue.PORTS_AND_PROJECTIONS,)
+            carries = [(p.ref, p.field.evidence, p.field.evidence) for p in use.ports]
+            predecessor = use.ref
         stage_kinds = [row.ProjectSQLStageKind.LET] * len(expected_bindings)
         if authored.where_clause is not None:
             stage_kinds.append(row.ProjectSQLStageKind.WHERE)
@@ -757,7 +1263,7 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                 or block.position != local_position
                 or block.kind is not kind
                 or block.predecessor is not predecessor
-                or block.boundary is not boundaries[definition.ref]
+                or block.boundary is not boundary
                 or not _same(
                     block.operators,
                     tuple(
@@ -799,21 +1305,44 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                     return (Issue.PORTS_AND_PROJECTIONS,)
             if kind is row.ProjectSQLStageKind.LET:
                 fact = authority.lets[local_position]
-                if (
-                    fact.owner is not entry.owner
-                    or fact.scope_facts is not authority.let_scope
-                    or fact.binding_ordinal != local_position
+                if isinstance(fact, row.ProjectJoinedLetValue) and isinstance(
+                    authority, row.ProjectSQLJoinedRowAuthority
                 ):
+                    if (
+                        fact.occurrence.owner is not entry.owner
+                        or fact.namespace
+                        is not authority.namespaces.binding_namespaces[local_position]
+                    ):
+                        return (Issue.STRUCTURE,)
+                    specs = [
+                        (
+                            row.ProjectSQLExpressionRole.LET,
+                            local_position,
+                            fact.occurrence.binding,
+                            fact,
+                            fact.resolutions,
+                        )
+                    ]
+                elif isinstance(fact, ProjectModuleLetBindingFact) and isinstance(
+                    authority, row.ProjectSQLRowAuthority
+                ):
+                    if (
+                        fact.owner is not entry.owner
+                        or fact.scope_facts is not authority.let_scope
+                        or fact.binding_ordinal != local_position
+                    ):
+                        return (Issue.STRUCTURE,)
+                    specs = [
+                        (
+                            row.ProjectSQLExpressionRole.LET,
+                            local_position,
+                            fact.binding,
+                            fact,
+                            fact.references,
+                        )
+                    ]
+                else:
                     return (Issue.STRUCTURE,)
-                specs = [
-                    (
-                        row.ProjectSQLExpressionRole.LET,
-                        local_position,
-                        fact.binding,
-                        fact,
-                        fact.references,
-                    )
-                ]
             elif kind is row.ProjectSQLStageKind.WHERE:
                 if authority.where is None or authored.where_clause is None:
                     return (Issue.STRUCTURE,)
@@ -842,49 +1371,18 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
             for role, ordinal, occurrence, evidence, references in specs:
                 site = plan.expression_sites[site_position]
                 site_position += 1
-                prefix = (
-                    expected_bindings[:ordinal]
-                    if role is row.ProjectSQLExpressionRole.LET
-                    else expected_bindings
-                )
-                if (
-                    site.owner is not entry.owner
-                    or site.block is not block.ref
-                    or site.role is not role
-                    or type(site.ordinal) is not int
-                    or site.ordinal != ordinal
-                    or site.occurrence is not occurrence
-                    or site.input_schema is not authority.input_schema
-                    or site.let_scope is not authority.let_scope
-                    or not _same(site.let_prefix, prefix)
-                    or site.evidence is not evidence
-                    or not _same(site.references, references)
+                if not _row_site(
+                    site,
+                    entry,
+                    authority,
+                    block,
+                    role,
+                    ordinal,
+                    occurrence,
+                    evidence,
+                    references,
+                    expected_bindings,
                 ):
-                    return (Issue.STRUCTURE,)
-                if isinstance(evidence, ProjectNoJoinScalarExpression):
-                    context_valid = (
-                        evidence.owner is entry.owner
-                        and evidence.input_schema is authority.input_schema
-                        and evidence.let_scope is authority.let_scope
-                        and evidence.expression is occurrence.expression
-                    )
-                elif isinstance(evidence, ProjectModuleLetBindingFact) and isinstance(
-                    occurrence, LetBinding
-                ):
-                    context_valid = (
-                        evidence.scope_facts is authority.let_scope
-                        and evidence.value_type
-                        is authority.let_scope.value_types.get(occurrence.name)
-                    )
-                elif not isinstance(evidence, ProjectModuleLetBindingFact):
-                    context_valid = (
-                        evidence.owner is entry.owner
-                        and evidence.input_schema is authority.input_schema
-                        and evidence.let_scope is authority.let_scope
-                    )
-                else:
-                    context_valid = False
-                if not context_valid:
                     return (Issue.STRUCTURE,)
                 site_specs.append((site, incoming))
                 local_sites.append(site)
@@ -899,7 +1397,8 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                     root_by_site[site.ref] = projection.expression
                     direct = None
                     if (
-                        isinstance(
+                        isinstance(site, row.ProjectSQLExpressionSite)
+                        and isinstance(
                             site.occurrence.expression, (NameExpr, DottedNameExpr)
                         )
                         and len(site.references) == 1
@@ -914,7 +1413,8 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                     if (
                         projection.site is not site
                         or projection.block is not block.ref
-                        or projection.input_use is not use.ref
+                        or projection.input_use
+                        is not (None if use is None else use.ref)
                         or projection.export is not export.ref
                         or projection.semantic is not semantic
                         or export.field.evidence is not field
@@ -954,7 +1454,13 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                         or value.port is not port.ref
                         or port.block is not block.ref
                         or port.kind is not row.ProjectSQLStagePortKind.EXPORT
-                        or port.key is not site.occurrence
+                        or port.key
+                        is not (
+                            site.evidence.occurrence
+                            if isinstance(site, row.ProjectSQLJoinedSite)
+                            and isinstance(site.evidence, row.ProjectJoinedLetValue)
+                            else site.occurrence
+                        )
                         or port.source is not value.expression
                         or port.type_evidence
                         is not authority.lets[local_position].value_type
@@ -1022,6 +1528,14 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
         row.ProjectSQLExpressionRole.WHERE: ProjectModuleWhereReferenceRole.WHERE_VALUE,
     }
     for site, incoming in site_specs:
+        reference_type = (
+            row.ProjectSQLMatchReference
+            if isinstance(site, row.ProjectSQLMatchSite)
+            else row.ProjectSQLJoinedReference
+            if isinstance(site, row.ProjectSQLJoinedSite)
+            else row.ProjectSQLReference
+        )
+        variants[NameExpr] = variants[DottedNameExpr] = reference_type
         # Traverse actual source independently of the expression allocator.
         pending, nodes = [site.occurrence.expression], []
         while pending:
@@ -1044,9 +1558,9 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
         position += len(nodes)
         if len(values) != len(nodes) or root_by_site[site.ref] is not values[0].ref:
             return False
-        if isinstance(site.evidence, ProjectModuleLetBindingFact) and (
-            values[0].value_type is not site.evidence.value_type
-        ):
+        if isinstance(
+            site.evidence, (ProjectModuleLetBindingFact, row.ProjectJoinedLetValue)
+        ) and (values[0].value_type is not site.evidence.value_type):
             return False
         local = {id(n): value for n, value in zip(nodes, values, strict=True)}
         if len(local) != len(nodes):
@@ -1066,31 +1580,96 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 or value.value_type.kind is not ValueTypeKind.KNOWN
             ):
                 return False
-            if isinstance(value, row.ProjectSQLReference):
+            if isinstance(
+                value,
+                (
+                    row.ProjectSQLReference,
+                    row.ProjectSQLJoinedReference,
+                    row.ProjectSQLMatchReference,
+                ),
+            ):
                 reference = next(references, None)
-                if reference is None or (
-                    value.reference is not reference
-                    or reference.expression is not node
-                    or reference.owner is not site.owner
-                    or reference.role is not roles[site.role]
-                    or type(reference.container_ordinal) is not int
-                    or reference.container_ordinal != site.ordinal
-                    or type(reference.dependency_ordinal) is not int
-                    or reference.dependency_ordinal != reference_position
-                    or reference.status
-                    is not ProjectModuleCandidateBucketStatus.CONCRETE
-                    or reference.selected_output_candidates
-                    or any(
-                        not any(binding is b for b in site.let_prefix)
-                        for binding in reference.let_candidates
-                    )
+                if (
+                    reference is None
+                    or value.reference is not reference
+                    or row.reference_expression(reference) is not node
                 ):
                     return False
-                key = reference.input_field
-                if key is None:
-                    if len(reference.let_candidates) != 1:
+                if isinstance(site, row.ProjectSQLExpressionSite):
+                    if not isinstance(reference, ProjectModuleExpressionReferenceFact):
                         return False
-                    key = reference.let_candidates[0]
+                    if (
+                        reference.owner is not site.owner
+                        or reference.role is not roles[site.role]
+                        or type(reference.container_ordinal) is not int
+                        or reference.container_ordinal != site.ordinal
+                        or type(reference.dependency_ordinal) is not int
+                        or reference.dependency_ordinal != reference_position
+                        or reference.status
+                        is not ProjectModuleCandidateBucketStatus.CONCRETE
+                        or reference.selected_output_candidates
+                        or any(
+                            not any(binding is b for b in site.let_prefix)
+                            for binding in reference.let_candidates
+                        )
+                    ):
+                        return False
+                elif isinstance(site, row.ProjectSQLMatchSite):
+                    if (
+                        type(reference) is not row.ProjectJoinConditionReference
+                        or reference.environment is not site.evidence.environment
+                        or type(reference.position) is not int
+                        or reference.position != reference_position
+                        or reference.state is not ProjectJoinReferenceState.RESOLVED
+                        or reference.target is None
+                        or not _same(reference.candidates, (reference.target,))
+                        or not any(
+                            reference.target is field
+                            for field in site.evidence.environment.fields
+                        )
+                        or value.value_type is not reference.target.value_type
+                    ):
+                        return False
+                else:
+                    if not isinstance(
+                        reference,
+                        (
+                            row.ProjectJoinedLetReferenceResolution,
+                            ProjectScalarReferenceResolution,
+                        ),
+                    ):
+                        return False
+                    namespace = site.namespace
+                    if (
+                        reference.reference.environment
+                        is not namespace.binding_environment.scalar_environment
+                    ):
+                        return False
+                    if isinstance(reference, row.ProjectJoinedLetReferenceResolution):
+                        if reference.namespace is not namespace or not any(
+                            reference.target is v for v in namespace.let_values
+                        ):
+                            return False
+                    elif isinstance(reference, ProjectScalarReferenceResolution):
+                        if (
+                            reference.target is None
+                            or reference.status
+                            is not ProjectModuleCandidateBucketStatus.CONCRETE
+                            or not _same(reference.candidates, (reference.target,))
+                            or not any(
+                                reference.target is field
+                                for field in namespace.visible_fields
+                            )
+                        ):
+                            return False
+                    else:
+                        return False
+                    if (
+                        reference.target is None
+                        or value.value_type is not reference.target.value_type
+                    ):
+                        return False
+                key = row.reference_key(reference)
                 port = environment.get(id(key))
                 if (
                     port is None
@@ -1146,14 +1725,33 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
 
 def _row_symbols(plan) -> bool:
     prefix = len(plan.bindings.symbols)
-    if not _same(plan.symbols[:prefix], plan.bindings.symbols) or len(
-        plan.symbols
-    ) != prefix + len(plan.stage_ports):
+    if not _same(plan.symbols[:prefix], plan.bindings.symbols):
         return False
-    positions = {b.ref: 0 for b in plan.blocks}
+    expected_ports = []
+    for definition in plan.bindings.definitions:
+        for join in plan.joins:
+            if join.definition is definition.ref:
+                expected_ports.extend(
+                    port for port in plan.join_ports if port.block is join.ref
+                )
+        for block in plan.blocks:
+            if block.definition is definition.ref:
+                expected_ports.extend(
+                    port for port in plan.stage_ports if port.block is block.ref
+                )
+    if len(expected_ports) != len(plan.stage_ports) + len(plan.join_ports) or len(
+        plan.symbols
+    ) != prefix + len(expected_ports):
+        return False
+    positions = {scope.ref: 0 for scope in (*plan.blocks, *plan.joins)}
     for i, (symbol, port) in enumerate(
-        zip(plan.symbols[prefix:], plan.stage_ports, strict=True)
+        zip(plan.symbols[prefix:], expected_ports, strict=True)
     ):
+        label = (
+            port.field.evidence.name
+            if isinstance(port, joining.ProjectSQLJoinPort)
+            else row.stage_key_label(port.key)
+        )
         if (
             type(symbol) is not ProjectSQLSymbol
             or not _ref(
@@ -1165,7 +1763,7 @@ def _row_symbols(plan) -> bool:
             or type(symbol.position) is not int
             or symbol.position != positions[port.block]
             or type(symbol.label) is not str
-            or symbol.label != port.key.name
+            or symbol.label != label
         ):
             return False
         positions[port.block] += 1
@@ -1180,6 +1778,7 @@ def _row_origins_and_demands(plan):
         ProjectSQLPlanRefKind,
     )
     bindings = plan.bindings
+    join_by_ref = {j.ref: j for j in plan.joins}
     blocks = {b.ref: b for b in plan.blocks}
     expressions = {e.ref: e for e in plan.expressions}
     ports = {p.ref: p for p in plan.stage_ports}
@@ -1194,13 +1793,17 @@ def _row_origins_and_demands(plan):
                 block.selected.owner,
                 block.selected.owner.definition,
                 block.selected,
-                (block.predecessor,),
+                (block.predecessor, block.boundary.ref)
+                if isinstance(block.boundary, joining.ProjectSQLJoinTail)
+                else (block.predecessor,),
             )
         )
     for port in plan.stage_ports:
         owner = blocks[port.block].selected.owner
         cause = (
-            port.key
+            port.key.binding
+            if isinstance(port.key, row.ProjectJoinedLetOccurrence)
+            else port.key
             if isinstance(port.key, LetBinding)
             else owner.definition.from_clause
         )
@@ -1224,12 +1827,23 @@ def _row_origins_and_demands(plan):
                 site.owner,
                 site.occurrence,
                 site.evidence,
-                (site.block,),
+                join_by_ref[site.block].inputs
+                if isinstance(site, row.ProjectSQLMatchSite)
+                else (site.block,),
             )
         )
     for value in plan.expressions:
         dependencies = (
-            (value.port,) if isinstance(value, row.ProjectSQLReference) else ()
+            (value.port,)
+            if isinstance(
+                value,
+                (
+                    row.ProjectSQLReference,
+                    row.ProjectSQLJoinedReference,
+                    row.ProjectSQLMatchReference,
+                ),
+            )
+            else ()
         )
         specs.append(
             (
@@ -1302,6 +1916,8 @@ def _row_origins_and_demands(plan):
             )
         )
     for symbol in plan.symbols[len(bindings.symbols) :]:
+        if symbol.subject not in ports:
+            continue
         port = ports[symbol.subject]
         block = blocks[port.block]
         specs.append(
@@ -1328,9 +1944,21 @@ def _row_origins_and_demands(plan):
     if not _same(plan.demands[:demand_prefix], bindings.demands):
         return (Issue.DEMANDS,)
     subjects = (*plan.expressions, *plan.stage_ports, *plan.filters, *plan.blocks)
-    if len(plan.demands) != demand_prefix + len(subjects) or len(
+    join_count = sum(
+        len(values)
+        for values in (
+            plan.joins,
+            plan.join_inputs,
+            plan.join_ports,
+            plan.relationship_matches,
+            plan.join_tails,
+            plan.single_matches,
+            plan.single_match_proofs,
+        )
+    )
+    if len(plan.demands) != demand_prefix + len(subjects) + join_count or len(
         plan.origins
-    ) != prefix + len(specs) + len(subjects):
+    ) != prefix + len(specs) + len(subjects) + 2 * join_count + len(plan.join_ports):
         return (Issue.DEMANDS,)
     operand_types = {e.ref: [] for e in plan.expressions}
     for operand in plan.operands:
@@ -1414,6 +2042,174 @@ def _row_origins_and_demands(plan):
         if not valid:
             return (Issue.DEMANDS,)
         if not _origin_matches(origin, spec, plan.scope, origin_position):
+            return (Issue.ORIGINS,)
+    return _join_origins_and_demands(
+        plan, prefix + len(specs) + len(subjects), demand_prefix + len(subjects)
+    )
+
+
+def _join_origins_and_demands(plan, origin_start, demand_start):
+    Issue, R, P, K = (
+        ProjectSQLPlanVerificationIssue,
+        ProjectSQLOriginRole,
+        ProjectSQLOriginProvenance,
+        ProjectSQLPlanRefKind,
+    )
+    joins = {join.ref: join for join in plan.joins}
+    ports = {port.ref: port for port in plan.join_ports}
+    obligations = {value.ref: value for value in plan.single_matches}
+    witnesses = (
+        *plan.joins,
+        *plan.join_inputs,
+        *plan.join_ports,
+        *plan.relationship_matches,
+        *plan.join_tails,
+        *plan.single_matches,
+        *plan.single_match_proofs,
+    )
+    for i, witness in enumerate(witnesses):
+        if isinstance(witness, joining.ProjectSQLJoin):
+            kind, role, provenance = (
+                joining.ProjectSQLJoinDemandKind.JOIN_ROWS,
+                R.JOIN,
+                P.MEMBERSHIP,
+            )
+            owner, cause = (
+                witness.source.condition.use.owner,
+                witness.source.condition.use.clause,
+            )
+            antecedents = (
+                *witness.inputs,
+                *witness.equalities,
+                *(() if witness.on is None else (witness.on,)),
+            )
+        elif isinstance(witness, joining.ProjectSQLJoinInput):
+            kind, role, provenance = (
+                joining.ProjectSQLJoinDemandKind.MATCH_INPUT,
+                R.JOIN_INPUT,
+                P.MEMBERSHIP,
+            )
+            join = joins[witness.join]
+            owner, cause = (
+                join.source.condition.use.owner,
+                join.source.condition.use.clause,
+            )
+            antecedents = (
+                (witness.producer,)
+                if witness.producer is not None
+                else (witness.predecessor,)
+            )
+        elif isinstance(witness, joining.ProjectSQLJoinPort):
+            matching = witness.kind is joining.ProjectSQLJoinPortKind.MATCH
+            kind = (
+                joining.ProjectSQLJoinDemandKind.MATCH_FIELD
+                if matching
+                else joining.ProjectSQLJoinDemandKind.OUTPUT_FIELD
+            )
+            role, provenance = R.JOIN_PORT, P.MEMBERSHIP if matching else P.VALUE
+            join = joins[witness.block]
+            owner, cause = (
+                join.source.condition.use.owner,
+                join.source.condition.use.clause,
+            )
+            antecedents = (
+                (witness.source, witness.input)
+                if matching
+                else (witness.source, witness.block)
+            )
+        elif isinstance(witness, joining.ProjectSQLRelationshipMatch):
+            kind, role, provenance = (
+                joining.ProjectSQLJoinDemandKind.RELATIONSHIP_EQUALITY,
+                R.RELATIONSHIP_MATCH,
+                P.MEMBERSHIP,
+            )
+            join = joins[witness.join]
+            source = (
+                witness.source.correspondence
+                if isinstance(witness.source, joining.ProjectIRJoinMatchFieldPair)
+                else witness.source
+            )
+            owner, cause, antecedents = (
+                join.source.condition.use.owner,
+                source.comparison,
+                witness.authored_operands,
+            )
+        elif isinstance(witness, joining.ProjectSQLJoinTail):
+            kind, role, provenance = (
+                joining.ProjectSQLJoinDemandKind.POST_MATCH_SCOPE,
+                R.JOIN_TAIL,
+                P.GENERATED_STRUCTURE,
+            )
+            owner = joins[witness.join].source.condition.use.owner
+            cause, antecedents = owner.definition, (witness.join, *witness.ports)
+        elif isinstance(witness, joining.ProjectSQLSingleMatch):
+            kind, role, provenance = (
+                joining.ProjectSQLJoinDemandKind.SINGLE_MATCH,
+                R.SINGLE_MATCH,
+                P.TYPE_PROOF,
+            )
+            owner, cause, antecedents = (
+                witness.request.owner,
+                witness.request.use.clause,
+                (*witness.joins, *witness.proofs),
+            )
+        else:
+            kind, role, provenance = (
+                joining.ProjectSQLJoinDemandKind.PROOF_CONTEXT,
+                R.SINGLE_MATCH_PROOF,
+                P.TYPE_PROOF,
+            )
+            request = obligations[witness.obligation].request
+            owner, cause, antecedents = (
+                request.owner,
+                request.use.clause,
+                (*witness.joins, *witness.producers, *witness.children),
+            )
+        offset = origin_start + 2 * i
+        origin, demand_origin = plan.origins[offset : offset + 2]
+        demand = plan.demands[demand_start + i]
+        if not _origin_matches(
+            origin,
+            (witness.ref, role, provenance, owner, cause, witness, antecedents),
+            plan.scope,
+            offset,
+        ):
+            return (Issue.ORIGINS,)
+        if (
+            type(demand) is not joining.ProjectSQLJoinDemand
+            or not _ref(demand.ref, plan.scope, K.DEMAND, demand_start + i)
+            or demand.subject is not witness.ref
+            or demand.kind is not kind
+            or demand.witness is not witness
+            or demand.origin is not demand_origin.ref
+        ):
+            return (Issue.DEMANDS,)
+        if not _origin_matches(
+            demand_origin,
+            (demand.ref, R.DEMAND, provenance, owner, cause, witness, (origin.ref,)),
+            plan.scope,
+            offset + 1,
+        ):
+            return (Issue.ORIGINS,)
+    offset = origin_start + 2 * len(witnesses)
+    symbols = tuple(
+        symbol
+        for symbol in plan.symbols[len(plan.bindings.symbols) :]
+        if symbol.subject in ports
+    )
+    for i, symbol in enumerate(symbols):
+        port = ports[symbol.subject]
+        join = joins[port.block]
+        spec = (
+            symbol.ref,
+            R.SYMBOL,
+            P.GENERATED_STRUCTURE,
+            join.source.condition.use.owner,
+            join.source.condition.use.clause,
+            port,
+            (port.ref,),
+        )
+        if not _origin_matches(plan.origins[offset + i], spec, plan.scope, offset + i):
             return (Issue.ORIGINS,)
     return ()
 
