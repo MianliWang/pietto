@@ -53,9 +53,10 @@ documentation does not supersede that evidence.
 | Phase 65 | `ACTIVE` |
 | Phase 65 Slice 1 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 2 | `COMPLETED / PUBLISHED` |
-| Phase 65 Slice 3 | `NEXT / NOT IMPLEMENTED` |
-| Phase 65 Slices 4–16 | `NOT IMPLEMENTED` |
-| Next | `Phase 65 Slice 3 — Named producer graph and use-scoped symbols` |
+| Phase 65 Slice 3 | `COMPLETED / PUBLISHED` |
+| Phase 65 Slice 4 | `NEXT / NOT IMPLEMENTED` |
+| Phase 65 Slices 5–16 | `NOT IMPLEMENTED` |
+| Next | `Phase 65 Slice 4 — Scalar, LET and WHERE stage-value planning` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -787,8 +788,8 @@ conformance. N16 costs two publication cycles over the compared N14 route.
 
 Phase 64 remains `COMPLETED`, including D07-FLOAT-DEFERRED and S9-NAME-1.
 Phase 65 Slice 2 is `COMPLETED / PUBLISHED` only upon successful natural
-exact-head CI on its ordinary commit. Phase 65 Slice 3 is
-`NEXT / NOT IMPLEMENTED`; Slices 4–16 are `NOT IMPLEMENTED`.
+exact-head CI on its ordinary commit. That publication left Phase 65 Slice 3
+`NEXT / NOT IMPLEMENTED` and Slices 4–16 unimplemented.
 Slice 2 consumes exact completed.ok and a VERIFIED bundle plus the selected
 owner, and delivers minimal scan/projection blocks, exports, source descriptors,
 local origins/demands, independent verification and runtime inspection.
@@ -802,3 +803,22 @@ whitespace locators are retained without normalization. A semantically accepted
 nonliteral PostgreSQL argument has typed static-source planning unavailability;
 the planner does not evaluate it. Source-realization demands remain required,
 and descriptor acceptance does not certify a database object or executable SQL.
+
+Phase 65 Slice 3 is `COMPLETED / PUBLISHED` only upon successful natural
+exact-head CI on its ordinary commit. Its [named producer and scoped binding
+contract](spec/phase65-slice3-named-producer-graph-repeated-imported-uses-scope-local-symbols-v1.md)
+adds named direct-projection chains and imported/reexported sources/producers.
+Each definition is retained once; each actual input use retains its own ports,
+binding/origin path and scope-local symbols. Immediate producer exports remain
+explicit across rename/reorder/duplicate projections. Intermediate exports,
+origins and representation demands remain complete; selected visible exports
+are separate. Actual block-context lookup rejects foreign scopes and roles.
+
+Binding-level verification and inspection cover real repeated JOIN/SET inputs,
+including the depth12 UNION ALL subgraph with 13 definitions and 24 uses, plus
+its two wrapper definitions and two wrapper edges. This is not JOIN/SET SQL
+planning: unsupported operator bodies still produce complete typed terminals,
+with no concrete partial plan. Sharing does not promise evaluation once.
+The Slice2 upstream source validation and exact empty/whitespace locator rules
+remain unchanged. Phase65 stays `ACTIVE`; Slice4 is `NEXT / NOT IMPLEMENTED`;
+Slices 5–16 are `NOT IMPLEMENTED`, and N16 is unchanged.

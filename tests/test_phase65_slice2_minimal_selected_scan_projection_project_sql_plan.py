@@ -20,12 +20,13 @@ from test_phase64_slice3_generic_on_condition_semantics_authority_separation imp
 from pietto._project.project_sql_plan import (
     ProjectSQLPlan,
     ProjectSQLPlanUnavailable,
-    ProjectSQLPlanScope,
     ProjectSQLPlanRefKind,
     ProjectSQLOriginRole,
     ProjectSQLSourceRealizationDemand,
     ProjectSQLExportRepresentationDemand,
     build_project_sql_plan,
+    build_project_sql_bindings,
+    ProjectSQLBindings,
 )
 from pietto._project.project_sql_plan_verification import verify_project_sql_plan
 from pietto._project.project_sql_plan_inspection import inspect_project_sql_plan
@@ -538,10 +539,8 @@ def test_named_producer_retains_transitive_blockers(tmp_path: Path) -> None:
     result = build_project_sql_plan(*roots)
     assert isinstance(result, ProjectSQLPlanUnavailable)
     assert [(b.owner.definition.name, b.kind.value) for b in result.blockers] == [
-        ("filtered", "named_producer"),
         ("filtered", "where"),
         ("filtered", "ir_stage"),
-        ("result", "named_producer"),
     ]
 
 
@@ -557,10 +556,9 @@ def test_concrete_looking_terminal_cannot_bypass_supported_shape(
     )
     terminal = build_project_sql_plan(*roots)
     assert isinstance(terminal, ProjectSQLPlanUnavailable)
-    scope = ProjectSQLPlanScope(
-        completed=roots[0], analysis_bundle=roots[1], selected_owner=roots[2]
-    )
-    forged = _graft(plan, scope=scope)
+    bindings = build_project_sql_bindings(*roots)
+    assert isinstance(bindings, ProjectSQLBindings)
+    forged = _graft(plan, scope=bindings.scope, bindings=bindings)
     checked = verify_project_sql_plan(forged, *roots)
     assert [i.value for i in checked.issues] == ["unsupported_shape"]
 
@@ -609,7 +607,7 @@ def test_verifier_and_inspection_never_call_construction(
     assert inspect_project_sql_plan(checked).plan is plan
 
 
-def test_imported_source_remains_a_slice3_terminal(tmp_path: Path) -> None:
+def test_imported_source_has_current_positive_planning(tmp_path: Path) -> None:
     (tmp_path / "source.pietto").write_text(
         _source().split("query result:", 1)[0] + "export:\n    source rows\n"
     )
@@ -620,9 +618,10 @@ def test_imported_source_remains_a_slice3_terminal(tmp_path: Path) -> None:
     )
     assert roots[0].ok, roots[0].diagnostics
     result = build_project_sql_plan(*roots)
-    assert isinstance(result, ProjectSQLPlanUnavailable)
-    assert [b.kind.value for b in result.blockers] == ["named_producer"]
-    assert not verify_project_sql_plan(result, *roots).verified
+    assert isinstance(result, ProjectSQLPlan)
+    assert verify_project_sql_plan(result, *roots).verified
+    assert result.sources[0].module.path == "source.pietto"
+    assert len(result.input_uses[0].origin_path.hops) == 1
 
 
 def test_inspection_rejects_a_grafted_positive_verification(plans) -> None:

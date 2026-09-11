@@ -8,7 +8,7 @@ needed.
 
 Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. The current owner is Phase 65, which is
-`ACTIVE`; Slices 1–2 are `COMPLETED / PUBLISHED` and Slice 3 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
+`ACTIVE`; Slices 1–3 are `COMPLETED / PUBLISHED` and Slice 4 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
 remains conditional on its Slice 11 natural exact-head CI; the
 Validation/Test Performance Optimization Interlude II is `COMPLETED`. Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -2298,10 +2298,10 @@ No Phase-65 syntax, carrier, algorithm or numbered route is frozen here.
 
 ## Phase 65 route
 
-Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slice 1 is
-`COMPLETED / PUBLISHED`, and Slice 2 is `COMPLETED / PUBLISHED` only upon
-successful natural exact-head CI on its ordinary commit. Slice 3 is
-`NEXT / NOT IMPLEMENTED`; Slices 4–16 are `NOT IMPLEMENTED`.
+Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slices 1–2 are
+`COMPLETED / PUBLISHED`, and Slice 3 is `COMPLETED / PUBLISHED` only upon
+successful natural exact-head CI on its ordinary commit. Slice 4 is
+`NEXT / NOT IMPLEMENTED`; Slices 5–16 are `NOT IMPLEMENTED`.
 The selected route has exactly 16 deliveries. Its controlling
 [reviewed v2 phase gate](spec/phase65-project-sql-plan-product-phase-initiation-gate-source-audit-architecture-route-lock-v1.md)
 is documentation/static assurance only; it does not authorize later implementation.
@@ -2356,6 +2356,16 @@ the completed semantic boundary. Source ERROR prevents a concrete plan;
 `postgres.table("")` and valid whitespace locators retain their exact literal
 values, while accepted nonliteral PostgreSQL arguments remain typed static-source
 unavailability. Descriptor acceptance does not certify executable SQL.
+
+The [Slice3 named producer contract](spec/phase65-slice3-named-producer-graph-repeated-imported-uses-scope-local-symbols-v1.md)
+extends direct projections through named/imported/reexported producers. Shared
+definitions retain distinct input uses, immediate export images, binding trails
+and block-local relation-use/field-port symbols. Intermediate exports, origins
+and demands remain separate from the selected result. Binding-level verification
+and inspection of repeated JOIN/SET inputs do not implement their SQL bodies;
+those whole-plan shapes remain typed unavailable. The real depth12 UNION ALL
+binding subgraph has 13 definitions and 24 uses, without expanding leaf copies.
+Slice4 owns scalar, LET and WHERE stage-value planning next.
 
 This task newly maps open caller-rebindable query parameters to Phase70, public
 entrypoints to Phase69/82, and any selected-owner compilation amid project semantic

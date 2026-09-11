@@ -9,13 +9,27 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Never, cast
+from collections.abc import Mapping
+from types import MappingProxyType
 
 from pietto._project.model import (
     ProjectResolvedType,
     ProjectRowFieldNullability,
     ProjectSymbolKind,
 )
-from pietto._project.module_attribution import ProjectModuleRowFieldIdentity
+from pietto._project.module_attribution import (
+    ProjectModuleRowFieldIdentity,
+    ProjectModuleOriginPath,
+)
+from pietto._project.module_relation_resolution import (
+    ProjectResolvedModuleRelationReference,
+    ProjectResolvedModuleRelationSymbol,
+    ProjectResolvedSetOperand,
+)
+from pietto._project.project_relationship_uses import ProjectRelationBindingOccurrence
+from pietto._project.project_query_block_ir_algebra import (
+    ProjectIRJoinInputCorrespondence,
+)
 from pietto._project.module_carrier import ProjectCompilationMode, ProjectLogicalModule
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.module_semantic_fact_preservation import ProjectModuleSelectFact
@@ -28,12 +42,16 @@ from pietto._project.project_ir_operators import (
     ProjectIRLogicalOperatorKind,
     ProjectIRLogicalOperatorOccurrence,
 )
-from pietto._project.project_ir_properties import ProjectIRRowField
 from pietto._project.project_ir_relational_properties import (
     ProjectIROutputFieldOccurrence,
 )
 from pietto._project.project_query_block_ir import (
     ProjectIRQueryBlockEntry,
+    ProjectIRConcreteQueryBlockEntry,
+    ProjectIRCompletedSetOperationOutput,
+    ProjectIRQueryBlockRelationInputEdge,
+    ProjectIRSetOperandInput,
+    _active_output_identities,
     ProjectIRQueryBlockTerminal,
     ProjectIRReusedEffectiveOutput,
     ProjectIRReboundExistingOutput,
@@ -52,6 +70,7 @@ from pietto.ast_nodes import (
     QueryDef,
     SelectItem,
     SetRelationDef,
+    SetOperand,
     SourceDef,
     TableDef,
     JoinClause,
@@ -165,7 +184,6 @@ def _closure(
 class ProjectSQLPlanBlockerKind(StrEnum):
     SEMANTIC_RESULT_UNSUCCESSFUL = "semantic_result_unsuccessful"
     ACTIVE_OUTPUT_UNAVAILABLE = "active_output_unavailable"
-    NAMED_PRODUCER = "named_producer"
     STATIC_SOURCE_UNAVAILABLE = "static_source_unavailable"
     LET = "let"
     JOIN = "join"
@@ -269,26 +287,12 @@ def _blockers(
         )
 
     K = ProjectSQLPlanBlockerKind
-    dependencies: dict[tuple[int, int], list[ProjectCompletionDependency]] = {}
-    for dependency in bundle.root.dependencies:
-        owner = dependency.consumer
-        dependencies.setdefault(
-            (owner.module_position, owner.declaration_position), []
-        ).append(dependency)
     if not completed.ok:
         add(K.SEMANTIC_RESULT_UNSUCCESSFUL, selected, completed)
     for entry in _closure(bundle, selected):
         owner, definition = entry.owner, entry.owner.definition
         if isinstance(entry, ProjectIRQueryBlockTerminal):
             add(K.ACTIVE_OUTPUT_UNAVAILABLE, owner, entry)
-        for dependency in dependencies.get(
-            (owner.module_position, owner.declaration_position), ()
-        ):
-            if (
-                not isinstance(dependency.target.definition, SourceDef)
-                or dependency.target.module_position != owner.module_position
-            ):
-                add(K.NAMED_PRODUCER, owner, dependency)
         if isinstance(definition, SourceDef):
             if _static_connector(definition) is None:
                 add(K.STATIC_SOURCE_UNAVAILABLE, owner, entry)
@@ -352,13 +356,14 @@ class ProjectSQLPlanUnavailable:
 
 
 class ProjectSQLPlanRefKind(StrEnum):
-    SOURCE = "source"
-    BLOCK = "block"
+    DEFINITION = "definition"
     INPUT_USE = "input_use"
     SOURCE_PORT = "source_port"
     INPUT_PORT = "input_port"
     EXPORT = "export"
     PROJECTION = "projection"
+    BOUNDARY = "boundary"
+    SYMBOL = "symbol"
     ORIGIN = "origin"
     DEMAND = "demand"
 
@@ -378,6 +383,24 @@ class ProjectSQLPlanRef:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLPort:
+    ref: ProjectSQLPlanRef
+    owner: ProjectSQLPlanRef
+    field: ProjectIROutputFieldOccurrence
+    identity: ProjectModuleRowFieldIdentity
+    producer_port: ProjectSQLPlanRef | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLDefinition:
+    """An upstream named value, not an assertion of a SQL SELECT body."""
+
+    ref: ProjectSQLPlanRef
+    entry: ProjectIRConcreteQueryBlockEntry
+    exports: tuple[ProjectSQLPort, ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSQLSourceBinding:
     ref: ProjectSQLPlanRef
     source: ProjectIRReusedEffectiveOutput
@@ -386,11 +409,12 @@ class ProjectSQLSourceBinding:
     connector: CallExpr
 
 
-@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
-class ProjectSQLSelectBlock:
-    ref: ProjectSQLPlanRef
-    selected: ProjectIRReusedEffectiveOutput
-    operators: tuple[ProjectIRLogicalOperatorOccurrence, ...]
+type ProjectSQLInputEdge = (
+    ProjectIRCrossRelationEdge
+    | ProjectIRQueryBlockRelationInputEdge
+    | ProjectIRSetOperandInput
+    | ProjectIRJoinInputCorrespondence
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -398,16 +422,46 @@ class ProjectSQLInputUse:
     ref: ProjectSQLPlanRef
     producer: ProjectSQLPlanRef
     consumer: ProjectSQLPlanRef
-    edge: ProjectIRCrossRelationEdge
+    edge: ProjectSQLInputEdge
     dependency: ProjectCompletionDependency
+    binding: ProjectResolvedModuleRelationSymbol
+    origin_path: ProjectModuleOriginPath
+    ports: tuple[ProjectSQLPort, ...]
+
+
+class ProjectSQLBoundaryReason(StrEnum):
+    SOURCE_INPUT = "source_input"
+    NAMED_INPUT = "named_input"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
-class ProjectSQLPort:
+class ProjectSQLBoundary:
     ref: ProjectSQLPlanRef
-    owner: ProjectSQLPlanRef
-    field: ProjectIROutputFieldOccurrence
-    identity: ProjectModuleRowFieldIdentity
+    use: ProjectSQLInputUse
+    reason: ProjectSQLBoundaryReason
+
+
+class ProjectSQLSymbolNamespace(StrEnum):
+    RELATION_USE = "relation_use"
+    FIELD_PORT = "field_port"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLSymbol:
+    ref: ProjectSQLPlanRef
+    scope: ProjectSQLPlanRef
+    namespace: ProjectSQLSymbolNamespace
+    position: int
+    subject: ProjectSQLPlanRef
+    label: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLSelectBlock:
+    ref: ProjectSQLPlanRef
+    selected: ProjectIRReusedEffectiveOutput
+    operators: tuple[ProjectIRLogicalOperatorOccurrence, ...]
+    boundary: ProjectSQLBoundary
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -419,24 +473,50 @@ class ProjectSQLProjection:
     input_port: ProjectSQLPlanRef
     export: ProjectSQLPlanRef
     semantic: ProjectModuleSelectFact
+    symbol: ProjectSQLSymbol
 
 
 class ProjectSQLOriginRole(StrEnum):
     SELECTED_OWNER = "selected_owner"
+    DEFINITION = "definition"
     SOURCE_DESCRIPTOR = "source_descriptor"
     INPUT_USE = "input_use"
     SELECT_BLOCK = "select_block"
     SOURCE_PORT = "source_port"
     INPUT_PORT = "input_port"
+    STAGE_EXPORT = "stage_export"
     PROJECTION = "projection"
     EXPORT = "export"
+    BOUNDARY = "boundary"
+    SYMBOL = "symbol"
     DEMAND = "demand"
 
 
 class ProjectSQLOriginProvenance(StrEnum):
     VALUE = "value"
+    MEMBERSHIP = "membership"
     TYPE_PROOF = "type_proof"
     GENERATED_STRUCTURE = "generated_structure"
+
+
+type ProjectSQLCause = (
+    SourceDef
+    | TableDef
+    | QueryDef
+    | SetRelationDef
+    | FromClause
+    | JoinClause
+    | SetOperand
+    | SelectItem
+)
+
+type ProjectSQLOriginEvidence = (
+    ProjectDeclarationOccurrence
+    | ProjectIRQueryBlockEntry
+    | ProjectCompletionDependency
+    | ProjectModuleSelectFact
+    | ProjectIROutputFieldOccurrence
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -446,13 +526,8 @@ class ProjectSQLOrigin:
     role: ProjectSQLOriginRole
     provenance: ProjectSQLOriginProvenance
     owner: ProjectDeclarationOccurrence
-    cause: SourceDef | TableDef | QueryDef | FromClause | SelectItem
-    evidence: (
-        ProjectDeclarationOccurrence
-        | ProjectIRCrossRelationEdge
-        | ProjectModuleSelectFact
-        | ProjectIROutputFieldOccurrence
-    )
+    cause: ProjectSQLCause
+    evidence: ProjectSQLOriginEvidence
     antecedents: tuple[ProjectSQLPlanRef, ...] = ()
 
 
@@ -480,15 +555,37 @@ type ProjectSQLDemand = (
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False, init=False)
+class ProjectSQLBindings:
+    scope: ProjectSQLPlanScope
+    definitions: tuple[ProjectSQLDefinition, ...]
+    sources: tuple[ProjectSQLSourceBinding, ...]
+    input_uses: tuple[ProjectSQLInputUse, ...]
+    source_ports: tuple[ProjectSQLPort, ...]
+    input_ports: tuple[ProjectSQLPort, ...]
+    all_exports: tuple[ProjectSQLPort, ...]
+    boundaries: tuple[ProjectSQLBoundary, ...]
+    symbols: tuple[ProjectSQLSymbol, ...]
+    origins: tuple[ProjectSQLOrigin, ...]
+    demands: tuple[ProjectSQLDemand, ...]
+
+    def __init__(self) -> Never:
+        raise TypeError("SQL bindings are closed; use build_project_sql_bindings.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False, init=False)
 class ProjectSQLPlan:
     scope: ProjectSQLPlanScope
+    bindings: ProjectSQLBindings
     sources: tuple[ProjectSQLSourceBinding, ...]
     blocks: tuple[ProjectSQLSelectBlock, ...]
     input_uses: tuple[ProjectSQLInputUse, ...]
     source_ports: tuple[ProjectSQLPort, ...]
     input_ports: tuple[ProjectSQLPort, ...]
+    all_exports: tuple[ProjectSQLPort, ...]
     exports: tuple[ProjectSQLPort, ...]
     projections: tuple[ProjectSQLProjection, ...]
+    boundaries: tuple[ProjectSQLBoundary, ...]
+    symbols: tuple[ProjectSQLSymbol, ...]
     origins: tuple[ProjectSQLOrigin, ...]
     demands: tuple[ProjectSQLDemand, ...]
 
@@ -500,139 +597,428 @@ class ProjectSQLPlan:
         return self.scope.completed.diagnostics
 
 
-def build_project_sql_plan(
+def _owner_key(owner: ProjectDeclarationOccurrence) -> tuple[int, int]:
+    return owner.module_position, owner.declaration_position
+
+
+def _dependency_symbol(
+    dependency: ProjectCompletionDependency,
+) -> ProjectResolvedModuleRelationSymbol:
+    evidence = dependency.evidence
+    symbol = (
+        evidence.target
+        if isinstance(evidence, ProjectRelationBindingOccurrence)
+        else evidence.target_symbol
+    )
+    if symbol is None or symbol.target_occurrence is not dependency.target:
+        raise ValueError("Input binding requires an exact resolved target.")
+    return symbol
+
+
+def _dependency_site(
+    dependency: ProjectCompletionDependency,
+) -> FromClause | JoinClause | SetOperand:
+    evidence = dependency.evidence
+    if isinstance(evidence, ProjectRelationBindingOccurrence):
+        return evidence.site
+    if isinstance(evidence, ProjectResolvedSetOperand):
+        return evidence.reference.operand
+    return evidence.reference.from_clause
+
+
+def _binding_label(dependency: ProjectCompletionDependency) -> str:
+    evidence = dependency.evidence
+    return (
+        evidence.name
+        if isinstance(evidence, ProjectRelationBindingOccurrence)
+        else _dependency_symbol(dependency).local_name
+    )
+
+
+def _origin_index(
+    scope: ProjectSQLPlanScope,
+) -> dict[tuple[str, int, int], ProjectModuleOriginPath]:
+    """Index existing complete origin paths; no path construction or name lookup."""
+    result: dict[tuple[str, int, int], ProjectModuleOriginPath] = {}
+    attribution = scope.analysis_bundle.root.base_plan.attribution
+    for origin in attribution.origins:
+        if origin.import_occurrence is not None:
+            occurrence = origin.import_occurrence
+            key = (
+                origin.owning_module_path,
+                occurrence.module_statement_position,
+                occurrence.item_position,
+            )
+        else:
+            assert origin.local_occurrence is not None
+            occurrence = origin.local_occurrence
+            key = (origin.owning_module_path, -1, occurrence.declaration_position)
+        if key in result:
+            raise ValueError("Origin occurrence index must not choose a winner.")
+        result[key] = origin
+    return result
+
+
+def _binding_origin(
+    symbol: ProjectResolvedModuleRelationSymbol,
+    index: Mapping[tuple[str, int, int], ProjectModuleOriginPath],
+) -> ProjectModuleOriginPath:
+    imported = symbol.imported_binding
+    key = (
+        (
+            imported.identity.owning_module_path,
+            imported.request.module_statement_position,
+            imported.request.item_position,
+        )
+        if imported is not None
+        else (
+            symbol.owning_module_path,
+            -1,
+            symbol.target_occurrence.declaration_position,
+        )
+    )
+    origin = index.get(key)
+    if (
+        origin is None
+        or origin.target_occurrence.identity is not symbol.target_occurrence.identity
+    ):
+        raise ValueError("Resolved binding requires its retained defining origin path.")
+    return origin
+
+
+def _root_inventory(
+    scope: ProjectSQLPlanScope,
+) -> tuple[
+    tuple[ProjectIRConcreteQueryBlockEntry, ...],
+    tuple[ProjectCompletionDependency, ...],
+    tuple[ProjectSQLInputEdge, ...],
+]:
+    """Read exact upstream ledgers/active edges, without allocating plan records."""
+    root = scope.analysis_bundle.root
+    reached = {
+        _owner_key(e.owner): e
+        for e in _closure(scope.analysis_bundle, scope.selected_owner)
+    }
+    entries = tuple(
+        reached[_owner_key(o)] for o in root.schedule if _owner_key(o) in reached
+    )
+    if len(entries) != len(reached) or any(
+        isinstance(e, ProjectIRQueryBlockTerminal) for e in entries
+    ):
+        raise ValueError("Bindings require every exact active upstream entry.")
+    concrete = cast(tuple[ProjectIRConcreteQueryBlockEntry, ...], entries)
+    dependencies = tuple(
+        d for d in root.dependencies if _owner_key(d.consumer) in reached
+    )
+    historical: dict[tuple[int, int], list[ProjectIRCrossRelationEdge]] = {}
+    for edge in root.base_plan.cross_relation_edges:
+        historical.setdefault(
+            _owner_key(edge.consumer.semantic_facts.owner), []
+        ).append(edge)
+    by_owner = {_owner_key(e.owner): e for e in concrete}
+    per_owner: dict[tuple[int, int], list[ProjectCompletionDependency]] = {}
+    for dep in dependencies:
+        dep.__post_init__()
+        per_owner.setdefault(_owner_key(dep.consumer), []).append(dep)
+    images: dict[tuple[tuple[int, int], int], ProjectSQLInputEdge] = {}
+    for entry in concrete:
+        key = _owner_key(entry.owner)
+        deps = per_owner.get(key, ())
+        if isinstance(entry.owner.definition, SourceDef):
+            if deps:
+                raise ValueError("A source definition cannot have relation inputs.")
+            continue
+        if isinstance(entry, ProjectIRReusedEffectiveOutput):
+            edge = _one(tuple(historical.get(key, ())), "historical cross edge")
+            if len(deps) != 1 or edge.consumer is not entry.semantic_entry.fragment:
+                raise ValueError("Historical consumer requires one exact cross edge.")
+            images[(key, deps[0].dependency_ordinal)] = edge
+        elif isinstance(entry, ProjectIRCompletedSetOperationOutput):
+            if len(deps) != len(entry.operands):
+                raise ValueError("Set bindings must retain every operand occurrence.")
+            for dep, operand in zip(deps, entry.operands, strict=True):
+                if operand.source.resolution is not dep.evidence:
+                    raise ValueError(
+                        "Set binding lost its original operand resolution."
+                    )
+                images[(key, dep.dependency_ordinal)] = operand
+        elif entry.relation_input is not None:
+            if (
+                len(deps) != 1
+                or entry.relation_input.dependency is not deps[0]
+                or entry.relation_input.producer
+                is not by_owner[_owner_key(deps[0].target)].active_properties
+            ):
+                raise ValueError("Rebound input must use its active relation edge.")
+            images[(key, deps[0].dependency_ordinal)] = entry.relation_input
+        elif (
+            isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+            and entry.join_prefix is not None
+        ):
+            prefix = entry.join_prefix
+            external = tuple(
+                i for j in prefix.joins for i in j.inputs if i.producer is not None
+            )
+            selected: list[ProjectIRJoinInputCorrespondence] = []
+            right_inputs: dict[
+                JoinClause, list[tuple[JoinClause, ProjectIRJoinInputCorrespondence]]
+            ] = {}
+            for joined in prefix.joins:
+                clause = joined.condition.use.clause
+                right_inputs.setdefault(clause, []).append((clause, joined.inputs[1]))
+            for dep in deps:
+                binding = dep.evidence
+                if not isinstance(binding, ProjectRelationBindingOccurrence):
+                    raise ValueError(
+                        "JOIN input requires the original binding occurrence."
+                    )
+                matches = (
+                    (prefix.joins[0].inputs[0],)
+                    if binding.identity.binding_position == 0
+                    else tuple(
+                        image
+                        for clause, image in right_inputs.get(
+                            cast(JoinClause, binding.site), ()
+                        )
+                        if clause is binding.site and image.producer is dep.target
+                    )
+                )
+                image = _one(matches, "authored JOIN input image")
+                if image.producer is not dep.target:
+                    raise ValueError("JOIN input image has a different named producer.")
+                selected.append(image)
+                images[(key, dep.dependency_ordinal)] = image
+            if len(selected) != len(external) or any(
+                a is not b for a, b in zip(selected, external, strict=True)
+            ):
+                raise ValueError("Binding seam requires complete external JOIN images.")
+        else:
+            raise ValueError("Active input correspondence is unavailable.")
+    return (
+        concrete,
+        dependencies,
+        tuple(
+            images[(_owner_key(d.consumer), d.dependency_ordinal)] for d in dependencies
+        ),
+    )
+
+
+def _field_site(
+    entry: ProjectIRConcreteQueryBlockEntry, position: int
+) -> SourceDef | TableDef | QueryDef | SetRelationDef | SelectItem:
+    definition = entry.owner.definition
+    if isinstance(definition, (TableDef, QueryDef)) and len(
+        definition.select_items
+    ) == len(entry.active_properties.relational.fields):
+        return definition.select_items[position]
+    if isinstance(definition, (SourceDef, TableDef, QueryDef, SetRelationDef)):
+        return definition
+    raise ValueError("Only relation definitions own exported fields.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLBlockContext:
+    """Invocation-local lookup indexes; labels are never lookup authority."""
+
+    definition: ProjectSQLDefinition
+    symbols: Mapping[ProjectSQLPlanRef, ProjectSQLSymbol]
+    subjects: Mapping[ProjectSQLPlanRef, ProjectSQLInputUse | ProjectSQLPort]
+
+    def lookup(
+        self, reference: ProjectSQLPlanRef
+    ) -> ProjectSQLInputUse | ProjectSQLPort:
+        symbol = self.symbols.get(reference)
+        if (
+            symbol is None
+            or symbol.ref is not reference
+            or symbol.scope is not self.definition.ref
+        ):
+            raise ValueError("Symbol does not belong to this block scope.")
+        subject = self.subjects.get(symbol.subject)
+        if subject is None or subject.ref is not symbol.subject:
+            raise ValueError("Symbol subject is not a member of this block scope.")
+        if type(symbol.namespace) is not ProjectSQLSymbolNamespace or (
+            symbol.namespace is ProjectSQLSymbolNamespace.RELATION_USE
+        ) is not isinstance(subject, ProjectSQLInputUse):
+            raise ValueError("Symbol namespace does not match its subject role.")
+        return subject
+
+
+def _binding_contexts(
+    bindings: ProjectSQLBindings,
+) -> dict[ProjectSQLPlanRef, ProjectSQLBlockContext]:
+    subjects: dict[
+        ProjectSQLPlanRef, dict[ProjectSQLPlanRef, ProjectSQLInputUse | ProjectSQLPort]
+    ] = {d.ref: {p.ref: p for p in d.exports} for d in bindings.definitions}
+    symbols: dict[ProjectSQLPlanRef, dict[ProjectSQLPlanRef, ProjectSQLSymbol]] = {
+        d.ref: {} for d in bindings.definitions
+    }
+    for use in bindings.input_uses:
+        bucket = subjects[use.consumer]
+        bucket[use.ref] = use
+        bucket.update((p.ref, p) for p in use.ports)
+    for symbol in bindings.symbols:
+        symbols[symbol.scope][symbol.ref] = symbol
+    return {
+        d.ref: ProjectSQLBlockContext(
+            definition=d,
+            symbols=MappingProxyType(symbols[d.ref]),
+            subjects=MappingProxyType(subjects[d.ref]),
+        )
+        for d in bindings.definitions
+    }
+
+
+def build_project_sql_bindings(
     completed: ProjectConcreteCompletedSemanticResult,
     analysis_bundle: ProjectIRQueryBlockAnalysisBundle,
     selected_owner: ProjectDeclarationOccurrence,
-) -> ProjectSQLPlan | ProjectSQLPlanUnavailable:
-    selected = _require_roots(completed, analysis_bundle, selected_owner)
-    if _blockers(completed, analysis_bundle, selected_owner):
+) -> ProjectSQLBindings | ProjectSQLPlanUnavailable:
+    """The real planner's binding seam; binding success never certifies SQL bodies."""
+    _require_roots(completed, analysis_bundle, selected_owner)
+    prerequisites = {
+        ProjectSQLPlanBlockerKind.SEMANTIC_RESULT_UNSUCCESSFUL,
+        ProjectSQLPlanBlockerKind.ACTIVE_OUTPUT_UNAVAILABLE,
+        ProjectSQLPlanBlockerKind.STATIC_SOURCE_UNAVAILABLE,
+    }
+    if any(
+        b.kind in prerequisites
+        for b in _blockers(completed, analysis_bundle, selected_owner)
+    ):
         return ProjectSQLPlanUnavailable(
             completed=completed,
             analysis_bundle=analysis_bundle,
             selected_owner=selected_owner,
         )
-    if type(selected) is not ProjectIRReusedEffectiveOutput:
-        raise ValueError(
-            "Minimal direct planning requires exact historical output authority."
-        )
-    dependency = _one(
-        tuple(
-            d for d in analysis_bundle.root.dependencies if d.consumer is selected_owner
-        ),
-        "source dependency",
-    )
-    source = _one(analysis_bundle.root.find_owner(dependency.target), "source entry")
-    if (
-        type(source) is not ProjectIRReusedEffectiveOutput
-        or type(source.owner.definition) is not SourceDef
-    ):
-        raise ValueError("Minimal source authority is unavailable.")
-    definition = cast(TableDef | QueryDef, selected_owner.definition)
-    source_def = source.owner.definition
-    connector = _static_connector(source_def)
-    if connector is None:
-        raise ValueError("Static source authority is unavailable.")
-    fragment = selected.semantic_entry.fragment
-    edge = _one(
-        tuple(
-            e
-            for e in analysis_bundle.root.base_plan.cross_relation_edges
-            if e.consumer is fragment and e.producer is source.semantic_entry.fragment
-        ),
-        "source input use",
-    )
-    module = _one(
-        tuple(
-            c.module
-            for c in analysis_bundle.root.base_plan.semantic_facts.authority.catalogs.catalogs
-            if any(o is source.owner for o in c.occurrences)
-        ),
-        "source module",
-    )
     scope = ProjectSQLPlanScope(
         completed=completed,
         analysis_bundle=analysis_bundle,
         selected_owner=selected_owner,
     )
-
-    def ref(kind: ProjectSQLPlanRefKind, position: int = 0) -> ProjectSQLPlanRef:
-        return ProjectSQLPlanRef(scope=scope, kind=kind, position=position)
-
+    entries, dependencies, edges = _root_inventory(scope)
     K = ProjectSQLPlanRefKind
-    binding = ProjectSQLSourceBinding(
-        ref=ref(K.SOURCE),
-        source=source,
-        module=module,
-        declaration=source_def,
-        connector=connector,
-    )
-    block = ProjectSQLSelectBlock(
-        ref=ref(K.BLOCK), selected=selected, operators=fragment.logical_stage.operators
-    )
-    use = ProjectSQLInputUse(
-        ref=ref(K.INPUT_USE),
-        producer=binding.ref,
-        consumer=block.ref,
-        edge=edge,
-        dependency=dependency,
-    )
+    counters = {kind: 0 for kind in K}
 
-    def ports(
-        entry: ProjectIRReusedEffectiveOutput,
-        kind: ProjectSQLPlanRefKind,
-        owner: ProjectSQLPlanRef,
-    ) -> tuple[ProjectSQLPort, ...]:
-        return tuple(
+    def ref(kind: ProjectSQLPlanRefKind) -> ProjectSQLPlanRef:
+        value = ProjectSQLPlanRef(scope=scope, kind=kind, position=counters[kind])
+        counters[kind] += 1
+        return value
+
+    definitions: list[ProjectSQLDefinition] = []
+    sources: list[ProjectSQLSourceBinding] = []
+    for entry in entries:
+        definition_ref = ref(K.DEFINITION)
+        is_source = isinstance(entry.owner.definition, SourceDef)
+        identities = _active_output_identities(entry.active_output)
+        ports = tuple(
             ProjectSQLPort(
-                ref=ref(kind, i),
-                owner=owner,
+                ref=ref(K.SOURCE_PORT if is_source else K.EXPORT),
+                owner=definition_ref,
                 field=f,
-                identity=cast(
-                    ProjectIRRowField, entry.active_output.row_shape.fields[i]
-                ).anchor.identity,
+                identity=identity,
             )
-            for i, f in enumerate(entry.active_properties.relational.fields)
+            for f, identity in zip(
+                entry.active_properties.relational.fields, identities, strict=True
+            )
         )
-
-    source_ports = ports(source, K.SOURCE_PORT, binding.ref)
-    input_ports = ports(source, K.INPUT_PORT, use.ref)
-    exports = ports(selected, K.EXPORT, block.ref)
-    # The source schema has unique labels; labels index candidates, never prove identity.
-    source_positions = {
-        port.field.evidence.name: i for i, port in enumerate(source_ports)
+        definitions.append(
+            ProjectSQLDefinition(ref=definition_ref, entry=entry, exports=ports)
+        )
+        if is_source:
+            source_def = cast(SourceDef, entry.owner.definition)
+            connector = _static_connector(source_def)
+            if (
+                not isinstance(entry, ProjectIRReusedEffectiveOutput)
+                or connector is None
+            ):
+                raise ValueError("Static source binding lacks exact authority.")
+            module = completed.semantic_result.modules[entry.owner.module_position]
+            sources.append(
+                ProjectSQLSourceBinding(
+                    ref=definition_ref,
+                    source=entry,
+                    module=module,
+                    declaration=source_def,
+                    connector=connector,
+                )
+            )
+    by_owner = {_owner_key(d.entry.owner): d for d in definitions}
+    uses: list[ProjectSQLInputUse] = []
+    origin_index = _origin_index(scope)
+    for dependency, edge in zip(dependencies, edges, strict=True):
+        producer, consumer = (
+            by_owner[_owner_key(dependency.target)],
+            by_owner[_owner_key(dependency.consumer)],
+        )
+        if edge.use.output is not producer.entry.active_output.occurrence:
+            raise ValueError("Binding must consume the actual active producer output.")
+        use_ref = ref(K.INPUT_USE)
+        ports = tuple(
+            ProjectSQLPort(
+                ref=ref(K.INPUT_PORT),
+                owner=use_ref,
+                field=p.field,
+                identity=p.identity,
+                producer_port=p.ref,
+            )
+            for p in producer.exports
+        )
+        binding = _dependency_symbol(dependency)
+        uses.append(
+            ProjectSQLInputUse(
+                ref=use_ref,
+                producer=producer.ref,
+                consumer=consumer.ref,
+                edge=edge,
+                dependency=dependency,
+                binding=binding,
+                origin_path=_binding_origin(binding, origin_index),
+                ports=ports,
+            )
+        )
+    by_ref = {d.ref: d for d in definitions}
+    boundaries = tuple(
+        ProjectSQLBoundary(
+            ref=ref(K.BOUNDARY),
+            use=u,
+            reason=ProjectSQLBoundaryReason.SOURCE_INPUT
+            if isinstance(by_ref[u.producer].entry.owner.definition, SourceDef)
+            else ProjectSQLBoundaryReason.NAMED_INPUT,
+        )
+        for u in uses
+    )
+    per_consumer: dict[ProjectSQLPlanRef, list[ProjectSQLInputUse]] = {
+        d.ref: [] for d in definitions
     }
-    projections: list[ProjectSQLProjection] = []
-    for i, semantic in enumerate(fragment.semantic_facts.select_facts):
-        reference = _one(semantic.references, "direct projection reference")
-        position = (
-            source_positions.get(reference.input_field.name)
-            if reference.input_field is not None
-            else None
-        )
-        if position is None:
-            raise ValueError("Direct projection lacks an exact source field image.")
-        source_port, input_port = source_ports[position], input_ports[position]
-        if (
-            semantic.field is not exports[i].field.evidence
-            or reference.expression is not semantic.item.expression
-            or source_port.field.evidence is not reference.input_field
-            or input_port.field is not source_port.field
+    for use in uses:
+        per_consumer[use.consumer].append(use)
+    symbols: list[ProjectSQLSymbol] = []
+    for definition in definitions:
+        local_uses = per_consumer[definition.ref]
+        for i, use in enumerate(local_uses):
+            symbols.append(
+                ProjectSQLSymbol(
+                    ref=ref(K.SYMBOL),
+                    scope=definition.ref,
+                    namespace=ProjectSQLSymbolNamespace.RELATION_USE,
+                    position=i,
+                    subject=use.ref,
+                    label=_binding_label(use.dependency),
+                )
+            )
+        for i, port in enumerate(
+            (*[p for u in local_uses for p in u.ports], *definition.exports)
         ):
-            raise ValueError(
-                "Direct projection lacks exact final/source correspondence."
+            symbols.append(
+                ProjectSQLSymbol(
+                    ref=ref(K.SYMBOL),
+                    scope=definition.ref,
+                    namespace=ProjectSQLSymbolNamespace.FIELD_PORT,
+                    position=i,
+                    subject=port.ref,
+                    label=port.identity.name,
+                )
             )
-        projections.append(
-            ProjectSQLProjection(
-                ref=ref(K.PROJECTION, i),
-                block=block.ref,
-                input_use=use.ref,
-                source_port=source_port.ref,
-                input_port=input_port.ref,
-                export=exports[i].ref,
-                semantic=semantic,
-            )
-        )
     origins: list[ProjectSQLOrigin] = []
     R, P = ProjectSQLOriginRole, ProjectSQLOriginProvenance
 
@@ -641,15 +1027,12 @@ def build_project_sql_plan(
         role: ProjectSQLOriginRole,
         provenance: ProjectSQLOriginProvenance,
         owner: ProjectDeclarationOccurrence,
-        cause: SourceDef | TableDef | QueryDef | FromClause | SelectItem,
-        evidence: ProjectDeclarationOccurrence
-        | ProjectIRCrossRelationEdge
-        | ProjectModuleSelectFact
-        | ProjectIROutputFieldOccurrence,
+        cause: ProjectSQLCause,
+        evidence: ProjectSQLOriginEvidence,
         antecedents: tuple[ProjectSQLPlanRef, ...] = (),
     ) -> ProjectSQLPlanRef:
         value = ProjectSQLOrigin(
-            ref=ref(K.ORIGIN, len(origins)),
+            ref=ref(K.ORIGIN),
             subject=subject,
             role=role,
             provenance=provenance,
@@ -666,124 +1049,316 @@ def build_project_sql_plan(
         R.SELECTED_OWNER,
         P.GENERATED_STRUCTURE,
         selected_owner,
-        definition,
+        cast(TableDef | QueryDef | SetRelationDef, selected_owner.definition),
         selected_owner,
     )
-    origin(
-        binding.ref,
-        R.SOURCE_DESCRIPTOR,
-        P.GENERATED_STRUCTURE,
-        source.owner,
-        source_def,
-        source.owner,
-    )
-    origin(
-        use.ref,
-        R.INPUT_USE,
-        P.GENERATED_STRUCTURE,
-        selected_owner,
-        definition.from_clause,
-        edge,
-        (binding.ref,),
-    )
-    origin(
-        block.ref,
-        R.SELECT_BLOCK,
-        P.GENERATED_STRUCTURE,
-        selected_owner,
-        definition,
-        selected_owner,
-        (use.ref,),
-    )
-    for port in source_ports:
+    for definition in definitions:
+        entry = definition.entry
         origin(
-            port.ref,
-            R.SOURCE_PORT,
-            P.VALUE,
-            source.owner,
-            source_def,
-            port.field,
-            (binding.ref,),
+            definition.ref,
+            R.DEFINITION,
+            P.GENERATED_STRUCTURE,
+            entry.owner,
+            cast(
+                SourceDef | TableDef | QueryDef | SetRelationDef, entry.owner.definition
+            ),
+            entry,
         )
-    for port, source_port in zip(input_ports, source_ports, strict=True):
+        for i, port in enumerate(definition.exports):
+            origin(
+                port.ref,
+                R.SOURCE_PORT
+                if isinstance(entry.owner.definition, SourceDef)
+                else R.STAGE_EXPORT,
+                P.VALUE,
+                entry.owner,
+                _field_site(entry, i),
+                port.field,
+                (definition.ref,),
+            )
+    for source in sources:
         origin(
-            port.ref,
-            R.INPUT_PORT,
-            P.VALUE,
-            selected_owner,
-            definition.from_clause,
-            port.field,
-            (use.ref, source_port.ref),
+            source.ref,
+            R.SOURCE_DESCRIPTOR,
+            P.GENERATED_STRUCTURE,
+            source.source.owner,
+            source.declaration,
+            source.source.owner,
         )
-    for projection, export in zip(projections, exports, strict=True):
-        origin(
-            projection.ref,
-            R.PROJECTION,
-            P.VALUE,
-            selected_owner,
-            projection.semantic.item,
-            projection.semantic,
-            (projection.input_port,),
+    input_by_ref = {u.ref: u for u in uses}
+    for use in uses:
+        dep = use.dependency
+        provenance = (
+            P.GENERATED_STRUCTURE
+            if isinstance(dep.evidence, ProjectResolvedModuleRelationReference)
+            else P.MEMBERSHIP
         )
         origin(
-            export.ref,
-            R.EXPORT,
-            P.VALUE,
-            selected_owner,
-            projection.semantic.item,
-            export.field,
-            (projection.ref,),
+            use.ref,
+            R.INPUT_USE,
+            provenance,
+            dep.consumer,
+            _dependency_site(dep),
+            dep,
+            (use.producer,),
+        )
+        for port in use.ports:
+            assert port.producer_port is not None
+            origin(
+                port.ref,
+                R.INPUT_PORT,
+                P.VALUE,
+                dep.consumer,
+                _dependency_site(dep),
+                port.field,
+                (use.ref, port.producer_port),
+            )
+    for boundary in boundaries:
+        dep = boundary.use.dependency
+        origin(
+            boundary.ref,
+            R.BOUNDARY,
+            P.GENERATED_STRUCTURE,
+            dep.consumer,
+            _dependency_site(dep),
+            dep,
+            (boundary.use.ref,),
+        )
+    ports_by_ref = {p.ref: p for d in definitions for p in d.exports} | {
+        p.ref: p for u in uses for p in u.ports
+    }
+    for symbol in symbols:
+        owner = by_ref[symbol.scope].entry.owner
+        if symbol.namespace is ProjectSQLSymbolNamespace.RELATION_USE:
+            dep = input_by_ref[symbol.subject].dependency
+            cause, evidence = _dependency_site(dep), dep
+        else:
+            port = ports_by_ref[symbol.subject]
+            cause = (
+                _dependency_site(input_by_ref[port.owner].dependency)
+                if port.owner in input_by_ref
+                else _field_site(by_ref[port.owner].entry, port.field.field_position)
+            )
+            evidence = port.field
+        origin(
+            symbol.ref,
+            R.SYMBOL,
+            P.GENERATED_STRUCTURE,
+            owner,
+            cause,
+            evidence,
+            (symbol.subject,),
         )
     demands: list[ProjectSQLDemand] = []
-    demand_ref = ref(K.DEMAND)
-    demand_origin = origin(
-        demand_ref,
-        R.DEMAND,
-        P.GENERATED_STRUCTURE,
-        source.owner,
-        source_def,
-        source.owner,
-        (binding.ref,),
-    )
-    demands.append(
-        ProjectSQLSourceRealizationDemand(
-            ref=demand_ref, subject=binding.ref, source=binding, origin=demand_origin
-        )
-    )
-    for i, (export, projection) in enumerate(zip(exports, projections, strict=True), 1):
-        demand_ref = ref(K.DEMAND, i)
+    for source in sources:
+        demand_ref = ref(K.DEMAND)
         demand_origin = origin(
             demand_ref,
             R.DEMAND,
-            P.TYPE_PROOF,
-            selected_owner,
-            projection.semantic.item,
-            export.field,
-            (export.ref,),
+            P.GENERATED_STRUCTURE,
+            source.source.owner,
+            source.declaration,
+            source.source.owner,
+            (source.ref,),
         )
         demands.append(
-            ProjectSQLExportRepresentationDemand(
-                ref=demand_ref,
-                subject=export.ref,
-                field=export.field,
-                logical_type=export.field.evidence.resolved_type,
-                nullability=export.field.effective_nullability,
-                origin=demand_origin,
+            ProjectSQLSourceRealizationDemand(
+                ref=demand_ref, subject=source.ref, source=source, origin=demand_origin
             )
         )
-    # Allocate only after every mandatory correspondence has been established.
+    for definition in definitions:
+        if isinstance(definition.entry.owner.definition, SourceDef):
+            continue
+        for i, port in enumerate(definition.exports):
+            demand_ref = ref(K.DEMAND)
+            demand_origin = origin(
+                demand_ref,
+                R.DEMAND,
+                P.TYPE_PROOF,
+                definition.entry.owner,
+                _field_site(definition.entry, i),
+                port.field,
+                (port.ref,),
+            )
+            demands.append(
+                ProjectSQLExportRepresentationDemand(
+                    ref=demand_ref,
+                    subject=port.ref,
+                    field=port.field,
+                    logical_type=port.field.evidence.resolved_type,
+                    nullability=port.field.effective_nullability,
+                    origin=demand_origin,
+                )
+            )
+    bindings = object.__new__(ProjectSQLBindings)
+    for name, value in dict(
+        scope=scope,
+        definitions=tuple(definitions),
+        sources=tuple(sources),
+        input_uses=tuple(uses),
+        source_ports=tuple(
+            p
+            for d in definitions
+            if isinstance(d.entry.owner.definition, SourceDef)
+            for p in d.exports
+        ),
+        input_ports=tuple(p for u in uses for p in u.ports),
+        all_exports=tuple(
+            p
+            for d in definitions
+            if not isinstance(d.entry.owner.definition, SourceDef)
+            for p in d.exports
+        ),
+        boundaries=boundaries,
+        symbols=tuple(symbols),
+        origins=tuple(origins),
+        demands=tuple(demands),
+    ).items():
+        object.__setattr__(bindings, name, value)
+    return bindings
+
+
+def build_project_sql_plan(
+    completed: ProjectConcreteCompletedSemanticResult,
+    analysis_bundle: ProjectIRQueryBlockAnalysisBundle,
+    selected_owner: ProjectDeclarationOccurrence,
+) -> ProjectSQLPlan | ProjectSQLPlanUnavailable:
+    _require_roots(completed, analysis_bundle, selected_owner)
+    if _blockers(completed, analysis_bundle, selected_owner):
+        return ProjectSQLPlanUnavailable(
+            completed=completed,
+            analysis_bundle=analysis_bundle,
+            selected_owner=selected_owner,
+        )
+    bindings = build_project_sql_bindings(completed, analysis_bundle, selected_owner)
+    if isinstance(bindings, ProjectSQLPlanUnavailable):
+        return bindings
+    contexts = _binding_contexts(bindings)
+    boundary_by_consumer = {b.use.consumer: b for b in bindings.boundaries}
+    symbol_by_subject = {s.subject: s for s in bindings.symbols}
+    blocks: list[ProjectSQLSelectBlock] = []
+    projections: list[ProjectSQLProjection] = []
+    origins = list(bindings.origins)
+    K, R, P = ProjectSQLPlanRefKind, ProjectSQLOriginRole, ProjectSQLOriginProvenance
+
+    def origin(subject, role, owner, cause, evidence, antecedents):
+        origins.append(
+            ProjectSQLOrigin(
+                ref=ProjectSQLPlanRef(
+                    scope=bindings.scope, kind=K.ORIGIN, position=len(origins)
+                ),
+                subject=subject,
+                role=role,
+                provenance=P.GENERATED_STRUCTURE if role is R.SELECT_BLOCK else P.VALUE,
+                owner=owner,
+                cause=cause,
+                evidence=evidence,
+                antecedents=antecedents,
+            )
+        )
+
+    for definition in bindings.definitions:
+        entry = definition.entry
+        if isinstance(entry.owner.definition, SourceDef):
+            continue
+        if not isinstance(entry, ProjectIRReusedEffectiveOutput):
+            raise ValueError(
+                "Direct named projection requires its current exact fragment."
+            )
+        context = contexts[definition.ref]
+        local_uses = tuple(
+            s for s in context.subjects.values() if isinstance(s, ProjectSQLInputUse)
+        )
+        use = _one(local_uses, "direct projection input use")
+        boundary = boundary_by_consumer[definition.ref]
+        block = ProjectSQLSelectBlock(
+            ref=definition.ref,
+            selected=entry,
+            operators=entry.semantic_entry.fragment.logical_stage.operators,
+            boundary=boundary,
+        )
+        blocks.append(block)
+        origin(
+            block.ref,
+            R.SELECT_BLOCK,
+            entry.owner,
+            entry.owner.definition,
+            entry,
+            (boundary.ref,),
+        )
+        input_by_label = {p.field.evidence.name: p for p in use.ports}
+        for semantic, export in zip(
+            entry.semantic_entry.fragment.semantic_facts.select_facts,
+            definition.exports,
+            strict=True,
+        ):
+            reference = _one(semantic.references, "direct projection reference")
+            port = (
+                input_by_label.get(reference.input_field.name)
+                if reference.input_field is not None
+                else None
+            )
+            if (
+                port is None
+                or port.field.evidence is not reference.input_field
+                or semantic.field is not export.field.evidence
+                or port.producer_port is None
+            ):
+                raise ValueError(
+                    "Projection must reference the immediate producer field."
+                )
+            symbol = symbol_by_subject[port.ref]
+            if context.lookup(symbol.ref) is not port:
+                raise ValueError("Projection input is outside its block context.")
+            projection = ProjectSQLProjection(
+                ref=ProjectSQLPlanRef(
+                    scope=bindings.scope, kind=K.PROJECTION, position=len(projections)
+                ),
+                block=block.ref,
+                input_use=use.ref,
+                source_port=port.producer_port,
+                input_port=port.ref,
+                export=export.ref,
+                semantic=semantic,
+                symbol=symbol,
+            )
+            projections.append(projection)
+            origin(
+                projection.ref,
+                R.PROJECTION,
+                entry.owner,
+                semantic.item,
+                semantic,
+                (port.ref,),
+            )
+            origin(
+                export.ref,
+                R.EXPORT,
+                entry.owner,
+                semantic.item,
+                export.field,
+                (projection.ref,),
+            )
+    selected = _one(
+        tuple(d for d in bindings.definitions if d.entry.owner is selected_owner),
+        "selected definition",
+    )
     plan = object.__new__(ProjectSQLPlan)
-    for name, value in (
-        ("scope", scope),
-        ("sources", (binding,)),
-        ("blocks", (block,)),
-        ("input_uses", (use,)),
-        ("source_ports", source_ports),
-        ("input_ports", input_ports),
-        ("exports", exports),
-        ("projections", tuple(projections)),
-        ("origins", tuple(origins)),
-        ("demands", tuple(demands)),
-    ):
+    for name, value in dict(
+        scope=bindings.scope,
+        bindings=bindings,
+        sources=bindings.sources,
+        blocks=tuple(blocks),
+        input_uses=bindings.input_uses,
+        source_ports=bindings.source_ports,
+        input_ports=bindings.input_ports,
+        all_exports=bindings.all_exports,
+        exports=selected.exports,
+        projections=tuple(projections),
+        boundaries=bindings.boundaries,
+        symbols=bindings.symbols,
+        origins=tuple(origins),
+        demands=bindings.demands,
+    ).items():
         object.__setattr__(plan, name, value)
     return plan
