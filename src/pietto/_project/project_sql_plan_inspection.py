@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from collections.abc import Mapping
 from types import MappingProxyType
+from pietto._project import project_sql_plan_expressions as row
 
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.project_sql_plan import (
@@ -42,6 +43,12 @@ class ProjectSQLPlanInspection:
     _contexts: Mapping[ProjectSQLPlanRef, ProjectSQLBlockContext] = field(
         init=False, repr=False
     )
+    _stages: Mapping[ProjectSQLPlanRef, row.ProjectSQLStageContext] = field(
+        init=False, repr=False
+    )
+    _expressions: Mapping[ProjectSQLPlanRef, row.ProjectSQLExpression] = field(
+        init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         verification = self.verification
@@ -68,6 +75,83 @@ class ProjectSQLPlanInspection:
             self,
             "_contexts",
             MappingProxyType(_binding_contexts(verification.plan.bindings)),
+        )
+        ports = {b.ref: [] for b in self.plan.blocks}
+        symbols = {b.ref: [] for b in self.plan.blocks}
+        for port in self.plan.stage_ports:
+            ports[port.block].append(port)
+        for symbol in self.plan.symbols[len(self.plan.bindings.symbols) :]:
+            symbols[symbol.scope].append(symbol)
+        object.__setattr__(
+            self,
+            "_stages",
+            MappingProxyType(
+                {
+                    b.ref: row.ProjectSQLStageContext(
+                        block=b.ref,
+                        ports=tuple(ports[b.ref]),
+                        symbols=tuple(symbols[b.ref]),
+                    )
+                    for b in self.plan.blocks
+                }
+            ),
+        )
+        object.__setattr__(
+            self,
+            "_expressions",
+            MappingProxyType({e.ref: e for e in self.plan.expressions}),
+        )
+
+    @property
+    def expression_sites(self) -> tuple[row.ProjectSQLExpressionSite, ...]:
+        return self.plan.expression_sites
+
+    @property
+    def expressions(self) -> tuple[row.ProjectSQLExpression, ...]:
+        return self.plan.expressions
+
+    @property
+    def operands(self) -> tuple[row.ProjectSQLExpressionOperand, ...]:
+        return self.plan.operands
+
+    @property
+    def stage_ports(self) -> tuple[row.ProjectSQLStagePort, ...]:
+        return self.plan.stage_ports
+
+    @property
+    def let_values(self) -> tuple[row.ProjectSQLLetValue, ...]:
+        return self.plan.let_values
+
+    @property
+    def filters(self) -> tuple[row.ProjectSQLFilter, ...]:
+        return self.plan.filters
+
+    def stage_context(self, ref: ProjectSQLPlanRef) -> row.ProjectSQLStageContext:
+        context = self._stages.get(ref)
+        if context is None or context.block is not ref:
+            raise ValueError("SELECT-block reference does not belong to this plan.")
+        return context
+
+    def expression(self, ref: ProjectSQLPlanRef) -> row.ProjectSQLExpression:
+        expression = self._expressions.get(ref)
+        if expression is None or expression.ref is not ref:
+            raise ValueError("Expression reference does not belong to this plan.")
+        return expression
+
+    def expressions_for_site(
+        self, ref: ProjectSQLPlanRef
+    ) -> tuple[row.ProjectSQLExpression, ...]:
+        if not any(site.ref is ref for site in self.expression_sites):
+            raise ValueError("Expression-site reference does not belong to this plan.")
+        return tuple(e for e in self.expressions if e.site.ref is ref)
+
+    def uses_of(self, ref: ProjectSQLPlanRef) -> tuple[row.ProjectSQLReference, ...]:
+        if not any(port.ref is ref for port in self.stage_ports):
+            raise ValueError("Stage-port reference does not belong to this plan.")
+        return tuple(
+            e
+            for e in self.expressions
+            if isinstance(e, row.ProjectSQLReference) and e.port is ref
         )
 
     @property

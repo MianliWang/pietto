@@ -58,7 +58,8 @@ def test_named_chain_uses_immediate_exports(
     assert [p.identity.name for p in view.exports] == ["id", "value"]
     assert len(view.all_exports) == 7
     assert len(view.input_uses) == 3
-    assert len(view.demands) == 8
+    assert len(plan.bindings.demands) == 8
+    assert len(view.demands) == 25
 
 
 def _binding_product(roots):
@@ -313,16 +314,16 @@ def test_labels_do_not_create_cross_scope_or_namespace_identity(tmp_path: Path) 
     assert isinstance(plan, ProjectSQLPlan)
     view = inspect_project_sql_plan(verify_project_sql_plan(plan, *roots))
     first, second = view.blocks[:2]
-    own = tuple(s for s in view.symbols if s.scope is first.ref)
-    foreign = tuple(s for s in view.symbols if s.scope is second.ref)
+    own = tuple(s for s in view.symbols if s.scope is first.definition)
+    foreign = tuple(s for s in view.symbols if s.scope is second.definition)
     assert any(s.label == "A" for s in own) and any(s.label == "a" for s in own)
     for symbol in own:
-        subject = view.context(first.ref).lookup(symbol.ref)
+        subject = view.context(first.definition).lookup(symbol.ref)
         assert subject.ref is symbol.subject
     for symbol in foreign:
         with pytest.raises(ValueError, match="scope"):
-            view.context(first.ref).lookup(symbol.ref)
-    for scope in (first.ref, second.ref):
+            view.context(first.definition).lookup(symbol.ref)
+    for scope in (first.definition, second.definition):
         for namespace in ProjectSQLSymbolNamespace:
             selected = tuple(
                 s for s in view.symbols if s.scope is scope and s.namespace is namespace
@@ -576,12 +577,19 @@ def test_full_plan_preserves_selected_exports_and_rejects_internal_omissions(
     for projection in plan.projections:
         use = uses[projection.input_use]
         producer = definitions[use.producer]
+        assert projection.input_port is not None
         port = ports[projection.input_port]
         assert any(
             projection.source_port is p.ref and port.field is p.field
             for p in producer.exports
         )
-        assert projection.symbol.scope is projection.block
+        assert projection.symbol is not None
+        assert projection.symbol.scope is use.consumer
+        expression = next(e for e in plan.expressions if e.ref is projection.expression)
+        from pietto._project.project_sql_plan_expressions import ProjectSQLReference
+
+        assert isinstance(expression, ProjectSQLReference)
+        assert expression.symbol.scope is projection.block
     assert plan.exports is plan.bindings.definitions[-1].exports
 
 
@@ -594,11 +602,13 @@ def test_unsupported_named_ancestor_and_unrelated_sibling_are_distinguished(
         source = _chain()
         if reached:
             source = source.replace(
-                "    from rows\n    select:",
-                "    from rows\n    where id > 0\n    select:",
+                "        key = id\n",
+                "        key = id\n    limit 2\n",
             )
         else:
-            source += "query unused:\n    from rows\n    where id > 0\n    select:\n        id\n"
+            source += (
+                "query unused:\n    from rows\n    select:\n        id\n    limit 2\n"
+            )
         roots = _roots(tmp_path / str(reached), source)
         assert roots[0].ok
         result = build_project_sql_plan(*roots)
@@ -606,7 +616,7 @@ def test_unsupported_named_ancestor_and_unrelated_sibling_are_distinguished(
             assert isinstance(result, ProjectSQLPlanUnavailable)
             assert [
                 (b.owner.definition.name, b.kind.value) for b in result.blockers
-            ] == [("first", "where"), ("first", "ir_stage")]
+            ] == [("first", "limit"), ("first", "ir_stage")]
         else:
             assert isinstance(result, ProjectSQLPlan)
             assert verify_project_sql_plan(result, *roots).verified

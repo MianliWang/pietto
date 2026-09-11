@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import pytest
 
-from pietto.ast_nodes import LiteralExpr, QueryDef, TableDef
+from pietto.ast_nodes import LiteralExpr
 from pietto.errors import Severity
 
 from pietto._project.project_query_block_ir import build_project_query_block_ir
@@ -71,7 +71,8 @@ def test_real_minimal_vertical(tmp_path: Path, kind: str, family: str) -> None:
     assert len(view.sources) == len(view.blocks) == len(view.input_uses) == 1
     assert [p.identity.name for p in view.exports] == ["label", "id"]
     assert len(view.projections) == 2
-    assert len(view.demands) == 3
+    assert len(plan.bindings.demands) == 3
+    assert len(view.demands) == 8
     assert view.origins
     source, block, use = view.sources[0], view.blocks[0], view.input_uses[0]
     assert [o.kind.value for o in block.operators] == [
@@ -84,7 +85,7 @@ def test_real_minimal_vertical(tmp_path: Path, kind: str, family: str) -> None:
     assert locator.value == "public.users"
     assert source.module.path == source.declaration.span.path == "main.pietto"
     assert use.edge.use.output is source.source.active_output.occurrence
-    assert use.producer is source.ref and use.consumer is block.ref
+    assert use.producer is source.ref and use.consumer is block.definition
     assert use.dependency.target is source.source.owner
     assert plan.diagnostics is completed.diagnostics
     for i, projection in enumerate(view.projections):
@@ -199,6 +200,8 @@ def test_coherent_looking_field_level_grafts(plans, mutation: str) -> None:
         plan.origins,
         plan.demands,
     )
+    assert isinstance(demands[1], ProjectSQLExportRepresentationDemand)
+    assert isinstance(demands[2], ProjectSQLExportRepresentationDemand)
     changes = {
         "source_declaration": (
             "sources",
@@ -289,14 +292,14 @@ def test_coherent_looking_field_level_grafts(plans, mutation: str) -> None:
         ),
         "demand_subject": (
             "demands",
-            (demands[0], _graft(demands[1], subject=exports[1].ref), demands[2]),
+            (demands[0], _graft(demands[1], subject=exports[1].ref), *demands[2:]),
         ),
         "demand_type": (
             "demands",
             (
                 demands[0],
                 _graft(demands[1], logical_type=replace(demands[1].logical_type)),
-                demands[2],
+                *demands[2:],
             ),
         ),
         "demand_nullability": (
@@ -304,7 +307,7 @@ def test_coherent_looking_field_level_grafts(plans, mutation: str) -> None:
             (
                 demands[0],
                 _graft(demands[1], nullability=demands[2].nullability),
-                demands[2],
+                *demands[2:],
             ),
         ),
         "demand_origin": (
@@ -381,10 +384,14 @@ def test_root_and_selection_are_explicit_and_never_name_resolved(plans) -> None:
         view.projections_for_input(foreign.input_ports[0].ref)
 
 
-FUTURE_BODIES = {
+SUPPORTED_BODIES = {
     "where": "    from rows\n    where id > 0\n    select:\n        id\n",
     "let": "    from rows\n    let:\n        x = id\n    select:\n        id\n",
     "scalar": "    from rows\n    select:\n        x = id + 1\n",
+}
+
+FUTURE_BODIES = {
+    "order": "    from rows\n    select:\n        id\n    order by:\n        id\n",
     "join": "    from rows\n    cross join other as r:\n        from rows\n    select:\n        id = rows.id\n",
     "group": "    from rows\n    group by:\n        id\n    select:\n        id\n        total = count(id)\n    satisfying:\n        total > 0\n",
     "global": "    from rows\n    select:\n        total = count(id)\n",
@@ -483,20 +490,11 @@ def test_every_future_family_is_a_typed_terminal(tmp_path: Path, family: str) ->
     assert all(b.owner is roots[2] for b in result.blockers)
     if family == "multiple":
         assert [b.kind.value for b in result.blockers] == [
-            "where",
-            "scalar",
-            "scalar",
             "order",
             "limit",
             "ir_stage",
             "ir_stage",
-            "ir_stage",
         ]
-        scalar = tuple(b for b in result.blockers if b.kind.value == "scalar")
-        selected = roots[2].definition
-        assert isinstance(selected, (TableDef, QueryDef))
-        assert scalar[0].site is selected.select_items[0]
-        assert scalar[1].site is selected.select_items[1]
     checked = verify_project_sql_plan(result, *roots)
     assert not checked.verified
     with pytest.raises(ValueError, match="VERIFIED"):
@@ -511,7 +509,7 @@ def test_selected_closure_distinguishes_unrelated_limitation_and_error(
         source = (
             _source()
             + "query unrelated:\n"
-            + FUTURE_BODIES["where"].replace(
+            + FUTURE_BODIES["order"].replace(
                 "        id\n", "        nope\n" if error else "        id\n"
             )
         )
@@ -532,14 +530,16 @@ def test_selected_closure_distinguishes_unrelated_limitation_and_error(
 
 def test_named_producer_retains_transitive_blockers(tmp_path: Path) -> None:
     source = _source().replace("query result:", "table upstream:")
-    source += "table filtered:\n    from upstream\n    where id > 0\n    select:\n        id\n"
+    source += (
+        "table filtered:\n    from upstream\n    select:\n        id\n    limit 2\n"
+    )
     source += "query result:\n    from filtered\n    select:\n        id\n"
     roots = _roots(tmp_path, source)
     assert roots[0].ok, roots[0].diagnostics
     result = build_project_sql_plan(*roots)
     assert isinstance(result, ProjectSQLPlanUnavailable)
     assert [(b.owner.definition.name, b.kind.value) for b in result.blockers] == [
-        ("filtered", "where"),
+        ("filtered", "limit"),
         ("filtered", "ir_stage"),
     ]
 
@@ -552,8 +552,9 @@ def test_concrete_looking_terminal_cannot_bypass_supported_shape(
         tmp_path,
         _source().split("query result:")[0]
         + "query result:\n"
-        + FUTURE_BODIES["where"],
+        + FUTURE_BODIES["order"],
     )
+    assert roots[0].ok, roots[0].diagnostics
     terminal = build_project_sql_plan(*roots)
     assert isinstance(terminal, ProjectSQLPlanUnavailable)
     bindings = build_project_sql_bindings(*roots)
@@ -647,3 +648,24 @@ def test_completed_semantic_authority_cannot_be_replaced_inside_verified_roots(
         assert not verify_project_sql_plan(plan, completed, bundle, owner).verified
     finally:
         object.__setattr__(completed, "semantic_result", semantic)
+
+
+@pytest.mark.parametrize("family", tuple(SUPPORTED_BODIES))
+def test_scalar_let_where_temporary_negatives_are_now_positive(
+    tmp_path: Path, family: str
+) -> None:
+    roots = _roots(
+        tmp_path,
+        _source().split("query result:", 1)[0]
+        + "query result:\n"
+        + SUPPORTED_BODIES[family],
+    )
+    assert roots[0].ok, roots[0].diagnostics
+    result = build_project_sql_plan(*roots)
+    assert isinstance(result, ProjectSQLPlan)
+    checked = verify_project_sql_plan(result, *roots)
+    assert checked.verified, checked.issues
+    view = inspect_project_sql_plan(checked)
+    assert bool(view.filters) is (family == "where")
+    assert bool(view.let_values) is (family == "let")
+    assert view.expressions and view.exports

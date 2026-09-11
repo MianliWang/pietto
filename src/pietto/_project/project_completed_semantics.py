@@ -87,6 +87,85 @@ from pietto._project.project_single_match import (
 __all__: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectCompletedRowReferenceFacts:
+    """References retained once in the effective replay's actual environment."""
+
+    entry: ProjectCompletedEffectiveOutput
+    let_bindings: tuple[
+        module_semantic_fact_preservation.ProjectModuleLetBindingFact, ...
+    ]
+    selections: tuple[
+        tuple[
+            module_semantic_fact_preservation.ProjectModuleExpressionReferenceFact, ...
+        ],
+        ...,
+    ]
+    where: tuple[
+        module_semantic_fact_preservation.ProjectModuleExpressionReferenceFact, ...
+    ]
+
+
+def _completed_row_references(
+    effective: ProjectEffectiveOutputCompletion,
+) -> tuple[ProjectCompletedRowReferenceFacts, ...]:
+    facts = module_semantic_fact_preservation
+    result: list[ProjectCompletedRowReferenceFacts] = []
+    for entry in effective.entries:
+        if not isinstance(entry, ProjectCompletedEffectiveOutput) or not isinstance(
+            entry.root, project_final_outputs.ProjectConcreteNoJoinReplay
+        ):
+            continue
+        root = entry.root
+        definition = root.owner.definition
+        assert isinstance(definition, (TableDef, QueryDef))
+
+        qualifier = definition.from_clause.source_name
+
+        def references(expression, role, ordinal):
+            return facts._expression_reference_facts(
+                owner=root.owner,
+                role=role,
+                container_ordinal=ordinal,
+                expression=expression,
+                relation_qualifier=qualifier,
+                input_schema=root.input_schema,
+                input_status=facts.ProjectModuleCandidateBucketStatus.CONCRETE,
+                let_scope=root.let_scope,
+                let_candidates=root.let_scope.bindings,
+                selected_items=(),
+            )
+
+        result.append(
+            ProjectCompletedRowReferenceFacts(
+                entry=entry,
+                let_bindings=facts._let_binding_facts(
+                    owner=root.owner,
+                    definition=definition,
+                    input_schema=root.input_schema,
+                    input_status=facts.ProjectModuleCandidateBucketStatus.CONCRETE,
+                    let_scope=root.let_scope,
+                ),
+                selections=tuple(
+                    references(
+                        item.expression,
+                        facts.ProjectModuleFactOccurrenceRole.SELECT_VALUE,
+                        i,
+                    )
+                    for i, item in enumerate(definition.select_items)
+                ),
+                where=()
+                if definition.where_clause is None
+                else references(
+                    definition.where_clause.expression,
+                    facts.ProjectModuleWhereReferenceRole.WHERE_VALUE,
+                    0,
+                ),
+            )
+        )
+    return tuple(result)
+
+
 class ProjectCompletedSemanticNonConcreteReason(StrEnum):
     """Closed direct-builder mode terminals."""
 
@@ -166,6 +245,9 @@ class _ProjectCompletedSemanticRoots:
         compare=False,
         hash=False,
     )
+    row_references: tuple[ProjectCompletedRowReferenceFacts, ...] = field(
+        init=False, repr=False
+    )
     verification: ProjectPhase62VerificationResult = field(
         init=False,
         repr=False,
@@ -211,6 +293,9 @@ class _ProjectCompletedSemanticRoots:
         object.__setattr__(self, "verification", verification)
         object.__setattr__(self, "completion", completion)
         object.__setattr__(self, "effective_outputs", effective_outputs)
+        object.__setattr__(
+            self, "row_references", _completed_row_references(effective_outputs)
+        )
         operative = effective_outputs.operative_conditions
         if operative is None:
             raise ValueError(
@@ -378,6 +463,7 @@ def _diagnostics_from_carrier(carrier: object | None) -> tuple[Diagnostic, ...]:
     ):
         return (
             *carrier.helper_diagnostics,
+            *_ordinary_row_diagnostics(carrier),
             *_diagnostics_from_carrier(carrier.window_outputs),
             *_diagnostics_from_carrier(carrier.aggregate_grouped_clause_readiness),
         )
@@ -506,10 +592,12 @@ def _diagnostics_from_carrier(carrier: object | None) -> tuple[Diagnostic, ...]:
         )
     if type(carrier) is project_final_outputs.ProjectNonConcreteRelationLimit:
         return carrier.diagnostics
-    if type(carrier) in {
-        aggregate_grouped_clause_facts.ProjectAggregateGroupedClauseReadiness,
-        let_scope_facts.ProjectRelationLetScopeFacts,
-    }:
+    if type(carrier) is let_scope_facts.ProjectRelationLetScopeFacts:
+        return carrier.diagnostics
+    if (
+        type(carrier)
+        is aggregate_grouped_clause_facts.ProjectAggregateGroupedClauseReadiness
+    ):
         return ()
     return ()
 
@@ -543,6 +631,20 @@ def _fallback_diagnostic(
     )
 
 
+def _ordinary_row_diagnostics(
+    facts: module_semantic_fact_preservation.ProjectModuleRelationSemanticFacts,
+) -> tuple[Diagnostic, ...]:
+    return (
+        *(() if facts.let_scope_facts is None else facts.let_scope_facts.diagnostics),
+        *(() if facts.where_fact is None else facts.where_fact.diagnostics),
+        *(
+            diagnostic
+            for selected in facts.select_expressions
+            for diagnostic in selected.diagnostics
+        ),
+    )
+
+
 def _final_diagnostics(
     semantic_result: ProjectSemanticResult,
     effective_outputs: ProjectEffectiveOutputCompletion,
@@ -557,8 +659,13 @@ def _final_diagnostics(
     ]
     retained_ids = {id(diagnostic) for diagnostic in retained}
     for entry in effective_outputs.entries:
+        if type(entry) is ProjectExistingEffectiveOutput:
+            for diagnostic in _ordinary_row_diagnostics(entry.fragment.semantic_facts):
+                if id(diagnostic) not in retained_ids:
+                    retained.append(diagnostic)
+                    retained_ids.add(id(diagnostic))
+            continue
         if type(entry) in {
-            ProjectExistingEffectiveOutput,
             ProjectCompletedEffectiveOutput,
             ProjectCompletedSetOutput,
         }:

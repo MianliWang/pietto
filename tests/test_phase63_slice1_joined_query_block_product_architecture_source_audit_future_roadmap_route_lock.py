@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 import re
 import subprocess
@@ -377,14 +378,78 @@ def test_current_identity_schema_and_occurrence_ledgers_match_the_audit() -> Non
     assert "fields: Mapping[str, RowField]" in semantic_model
     assert "fields: Mapping[str, ProjectRowField]" in project_model
     assert "fields: tuple[ProjectIRJoinedRowField, ...]" in joined
-    assert "class ProjectModuleExpressionReferenceFact:" in preservation
-    assert "container_ordinal: int" in preservation
-    assert "dependency_ordinal: int" in preservation
-    assert "let_candidates: tuple[LetBinding, ...]" in preservation
-    assert "selected_output_candidates: tuple[SelectItem, ...]" in preservation
-    assert "class ProjectModuleSelectFact:" in preservation
-    assert "selected_output_ordinal: int" in preservation
-    assert "Select references must retain the exact source ledger." in preservation
+    tree = ast.parse(preservation)
+    for class_name, required in (
+        (
+            "ProjectModuleExpressionReferenceFact",
+            {
+                "owner": "ProjectDeclarationOccurrence",
+                "container_ordinal": "int",
+                "dependency_ordinal": "int",
+                "expression": "NameExpr | DottedNameExpr",
+                "local_name": "str",
+                "input_field": "ProjectRowField | None",
+                "let_candidates": "tuple[LetBinding, ...]",
+                "selected_output_candidates": "tuple[SelectItem, ...]",
+                "status": "ProjectModuleCandidateBucketStatus",
+            },
+        ),
+        (
+            "ProjectModuleSelectFact",
+            {
+                "owner": "ProjectDeclarationOccurrence",
+                "selected_output_ordinal": "int",
+                "item": "SelectItem",
+                "output_name": "str | None",
+                "expression_schema": "ProjectExpressionSchemaResult | None",
+                "field": "ProjectRowField | None",
+                "aggregate_result_fact": "ProjectAggregateResultFact | None",
+                "references": "tuple[ProjectModuleExpressionReferenceFact[ProjectModuleFactOccurrenceRole], ...]",
+            },
+        ),
+    ):
+        classes = tuple(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == class_name
+        )
+        assert len(classes) == 1
+        declaration = classes[0]
+        members = tuple(
+            node
+            for node in declaration.body
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+        )
+        annotations = {
+            node.target.id: node.annotation
+            for node in members
+            if isinstance(node.target, ast.Name)
+        }
+        assert len(annotations) == len(members)
+        for name, annotation in required.items():
+            assert ast.unparse(annotations[name]) == annotation
+        if class_name == "ProjectModuleExpressionReferenceFact":
+            role = annotations["role"]
+            assert isinstance(role, ast.Name)
+            parameters = tuple(
+                parameter
+                for parameter in declaration.type_params
+                if isinstance(parameter, ast.TypeVar) and parameter.name == role.id
+            )
+            assert len(parameters) == 1
+            bound = parameters[0].bound
+            assert isinstance(bound, ast.Tuple)
+            assert tuple(ast.unparse(item) for item in bound.elts) == (
+                "ProjectModuleFactOccurrenceRole",
+                "ProjectModuleWhereReferenceRole",
+            )
+        else:
+            assert any(
+                isinstance(node, ast.Constant)
+                and node.value
+                == "Select references must retain the exact source ledger."
+                for node in ast.walk(declaration)
+            )
 
     source_paths = tuple((REPO_ROOT / "src/pietto").rglob("*.py"))
     assert (

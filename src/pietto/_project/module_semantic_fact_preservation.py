@@ -6,7 +6,8 @@ from pietto.ast_nodes import SetRelationDef
 from pietto._flat_relational_admission import syntax_diagnostics
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
+from dataclasses import replace
 from enum import StrEnum
 from types import MappingProxyType
 from typing import cast
@@ -100,10 +101,14 @@ from pietto.ast_nodes import (
     Span,
     TableDef,
     UnaryExpr,
+    WhereClause,
     WindowExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
+    contains_semantic_aggregate,
+    child_expressions,
+    invalid_context_diagnostic,
     aggregate_argument_can_use_let_scope,
     effective_semantic_aggregate_argument_expression,
     semantic_aggregate_call_name,
@@ -127,6 +132,8 @@ from pietto.semantic.capability_windows import _WINDOW_CAPABILITY_FACTS
 from pietto.semantic.generic_compatibility import GenericSignature
 from pietto.semantic.model import RowSchema as SemanticRowSchema
 from pietto.semantic.model import ValueType
+from pietto.semantic.expressions import infer_row_expression
+from pietto.semantic.predicate_checks import _check_bool_expression
 from pietto.semantic.nullability_formulas import SignatureResultFormula
 from pietto.semantic.window_analysis import (
     _CUME_DIST_RESULT_FORMULA,
@@ -186,6 +193,10 @@ class ProjectModuleFactOccurrenceRole(StrEnum):
     WINDOW_ORDER = "window_order"
     WINDOW_ARGUMENT = "window_argument"
     WINDOW_DEFAULT = "window_default"
+
+
+class ProjectModuleWhereReferenceRole(StrEnum):
+    WHERE_VALUE = "where_value"
 
 
 class ProjectModuleCandidateBucketStatus(StrEnum):
@@ -470,11 +481,13 @@ class ProjectModuleCapabilityFactInventory:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ProjectModuleExpressionReferenceFact:
+class ProjectModuleExpressionReferenceFact[
+    Role: (ProjectModuleFactOccurrenceRole, ProjectModuleWhereReferenceRole)
+]:
     """One exact expression leaf and every retained local candidate."""
 
     owner: ProjectDeclarationOccurrence
-    role: ProjectModuleFactOccurrenceRole
+    role: Role
     container_ordinal: int
     dependency_ordinal: int
     expression: NameExpr | DottedNameExpr
@@ -489,7 +502,10 @@ class ProjectModuleExpressionReferenceFact:
     def __post_init__(self) -> None:
         if type(self.owner) is not ProjectDeclarationOccurrence:
             raise TypeError("Expression reference requires an exact owner.")
-        if type(self.role) is not ProjectModuleFactOccurrenceRole:
+        if type(self.role) not in {
+            ProjectModuleFactOccurrenceRole,
+            ProjectModuleWhereReferenceRole,
+        }:
             raise TypeError("Expression reference requires an exact role.")
         if type(self.container_ordinal) is not int or self.container_ordinal < 0:
             raise ValueError("Expression reference container ordinal is invalid.")
@@ -535,7 +551,9 @@ class ProjectModuleLetBindingFact:
     binding: LetBinding
     scope_facts: ProjectRelationLetScopeFacts
     value_type: ValueType | None
-    references: tuple[ProjectModuleExpressionReferenceFact, ...] = ()
+    references: tuple[
+        ProjectModuleExpressionReferenceFact[ProjectModuleFactOccurrenceRole], ...
+    ] = ()
 
     def __post_init__(self) -> None:
         if type(self.owner) is not ProjectDeclarationOccurrence:
@@ -578,7 +596,9 @@ class ProjectModuleSelectFact:
     expression_schema: ProjectExpressionSchemaResult | None
     field: ProjectRowField | None
     aggregate_result_fact: ProjectAggregateResultFact | None
-    references: tuple[ProjectModuleExpressionReferenceFact, ...] = ()
+    references: tuple[
+        ProjectModuleExpressionReferenceFact[ProjectModuleFactOccurrenceRole], ...
+    ] = ()
 
     def __post_init__(self) -> None:
         if type(self.owner) is not ProjectDeclarationOccurrence:
@@ -627,6 +647,68 @@ class ProjectModuleSelectFact:
             )
         ):
             raise ValueError("Select references must retain the exact source ledger.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectModuleSelectExpressionFact:
+    """Contextual type graph for one exact preserved selection occurrence."""
+
+    selection: ProjectModuleSelectFact
+    input_schema: ProjectRowSchema | None
+    let_scope: ProjectRelationLetScopeFacts
+    expression_value_types: Mapping[Expression, ValueType]
+    diagnostics: tuple[Diagnostic, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "expression_value_types",
+            MappingProxyType(dict(self.expression_value_types)),
+        )
+        if self.expression_value_types and self.input_schema is None:
+            raise ValueError("Select expression types require their input context.")
+
+    @property
+    def owner(self) -> ProjectDeclarationOccurrence:
+        return self.selection.owner
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectModuleWhereFact:
+    """An ordinary no-JOIN predicate checked in its actual input/LET environment."""
+
+    owner: ProjectDeclarationOccurrence
+    clause: WhereClause
+    input_schema: ProjectRowSchema
+    let_scope: ProjectRelationLetScopeFacts
+    expression_value_types: Mapping[Expression, ValueType]
+    references: tuple[
+        ProjectModuleExpressionReferenceFact[ProjectModuleWhereReferenceRole], ...
+    ]
+    diagnostics: tuple[Diagnostic, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "expression_value_types",
+            MappingProxyType(dict(self.expression_value_types)),
+        )
+        definition = self.owner.definition
+        if (
+            not isinstance(definition, (TableDef, QueryDef))
+            or definition.where_clause is not self.clause
+        ):
+            raise ValueError("WHERE fact requires its exact authored owner/clause.")
+        leaves = _direct_name_leaves(self.clause.expression)
+        if len(leaves) != len(self.references) or any(
+            ref.owner is not self.owner
+            or ref.expression is not leaf
+            or ref.role is not ProjectModuleWhereReferenceRole.WHERE_VALUE
+            or ref.container_ordinal != 0
+            or ref.dependency_ordinal != i
+            for i, (ref, leaf) in enumerate(zip(self.references, leaves, strict=True))
+        ):
+            raise ValueError("WHERE references must retain the exact source ledger.")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -1132,6 +1214,8 @@ class ProjectModuleRelationSemanticFacts:
         ResolvedNamedWindowNamespace | NamedWindowResolutionFailure | None
     ) = None
     helper_diagnostics: tuple[Diagnostic, ...] = ()
+    where_fact: ProjectModuleWhereFact | None = None
+    select_expressions: tuple[ProjectModuleSelectExpressionFact, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.owner) is not ProjectDeclarationOccurrence:
@@ -1162,6 +1246,18 @@ class ProjectModuleRelationSemanticFacts:
             raise TypeError("Relation semantic let scope must be exact.")
         _require_tuple(self.let_bindings, ProjectModuleLetBindingFact, "Let facts")
         _require_tuple(self.select_facts, ProjectModuleSelectFact, "Select facts")
+        _require_tuple(
+            self.select_expressions,
+            ProjectModuleSelectExpressionFact,
+            "Select expression facts",
+        )
+        if self.where_fact is not None and (
+            self.where_fact.owner is not self.owner
+            or self.input_state is None
+            or self.where_fact.input_schema is not self.input_state.schema
+            or self.where_fact.let_scope is not self.let_scope_facts
+        ):
+            raise ValueError("WHERE fact must retain the exact relation context.")
         _require_tuple(self.group_key_occurrences, GroupByItem, "Group-key occurrences")
         if (
             self.aggregate_grouped_clause_readiness is not None
@@ -2348,6 +2444,19 @@ class ProjectModuleSemanticFactSet:
                     "Semantic relations must retain their exact existing relation "
                     "projection."
                 )
+            if fact.select_expressions and (
+                len(fact.select_expressions) != len(fact.select_facts)
+                or any(
+                    context.selection is not selection
+                    or context.let_scope is not fact.let_scope_facts
+                    for context, selection in zip(
+                        fact.select_expressions, fact.select_facts
+                    )
+                )
+            ):
+                raise ValueError(
+                    "Select expression contexts must retain the exact selection ledger."
+                )
         object.__setattr__(
             self,
             "_environments_by_path",
@@ -2882,7 +2991,7 @@ def _build_derived_relation_facts(
         if state.status is ProjectRelationRowSchemaStatus.CONCRETE
         else ()
     )
-    select_facts = _select_facts(
+    select_facts, select_expressions = _select_facts(
         owner=owner,
         definition=definition,
         input_schema=input_schema,
@@ -2902,6 +3011,7 @@ def _build_derived_relation_facts(
             let_scope_facts=let_scope,
             let_bindings=let_bindings,
             select_facts=select_facts,
+            select_expressions=select_expressions,
             group_key_occurrences=group_key_occurrences,
             aggregate_grouped_clause_readiness=readiness,
             clause_dependencies=clause_dependencies,
@@ -2909,6 +3019,7 @@ def _build_derived_relation_facts(
             window_outputs=window_outputs,
             named_window_namespace=named_window_namespace,
             helper_diagnostics=helper_diagnostics,
+            where_fact=_where_fact(owner, input_schema, let_scope),
         ),
         base_state,
     )
@@ -2939,7 +3050,7 @@ def _nonconcrete_relation_facts(
         input_status=input_status,
         let_scope=let_scope,
     )
-    select_facts = _select_facts(
+    select_facts, select_expressions = _select_facts(
         owner=owner,
         definition=definition,
         input_schema=None,
@@ -2971,6 +3082,7 @@ def _nonconcrete_relation_facts(
         let_scope_facts=let_scope,
         let_bindings=let_bindings,
         select_facts=select_facts,
+        select_expressions=select_expressions,
         group_key_occurrences=group_key_occurrences,
         clause_dependencies=_clause_dependency_facts(
             owner=owner,
@@ -3081,7 +3193,9 @@ def _select_facts(
     state: ProjectRelationRowSchemaState,
     let_scope: ProjectRelationLetScopeFacts,
     aggregate_result_facts: tuple[ProjectAggregateResultFact, ...],
-) -> tuple[ProjectModuleSelectFact, ...]:
+) -> tuple[
+    tuple[ProjectModuleSelectFact, ...], tuple[ProjectModuleSelectExpressionFact, ...]
+]:
     let_values = (
         let_scope.value_types
         if let_scope.status is ProjectLetScopeFactsStatus.CONCRETE
@@ -3109,7 +3223,30 @@ def _select_facts(
         () if definition.let_clause is None else tuple(definition.let_clause.bindings)
     )
     facts: list[ProjectModuleSelectFact] = []
+    contexts: list[ProjectModuleSelectExpressionFact] = []
     for ordinal, item in enumerate(definition.select_items):
+        expression_diagnostics: list[Diagnostic] = []
+        retained_types = expression_types
+        if (
+            input_schema is not None
+            and not input_schema.is_unknown
+            and type(item.expression) not in {WindowExpr, NameExpr, DottedNameExpr}
+            and not contains_semantic_aggregate(item.expression)
+            and item.expression not in expression_types
+        ):
+            # The schema helper omits failed analyses. Retain the existing-rule
+            # failure as well, so completion cannot replace it with success.
+            failed_types: dict[Expression, ValueType] = {}
+            infer_row_expression(
+                item.expression,
+                project_row_schema_to_semantic_row_schema(input_schema),
+                failed_types,
+                expression_diagnostics,
+                report_unknown_name=True,
+                field_qualifier=definition.from_clause.source_name,
+                bare_value_types=let_values,
+            )
+            retained_types = failed_types
         output_name = _projection_output_name(item)
         expression_schema = None
         if output_name is not None and type(item.expression) is not WindowExpr:
@@ -3156,13 +3293,89 @@ def _select_facts(
                 ),
             )
         )
-    return tuple(facts)
+        # Keep only this occurrence's subtree; sibling SELECT graphs are not copied.
+        selected_nodes: set[int] = set()
+        pending = [item.expression]
+        while pending:
+            node = pending.pop()
+            selected_nodes.add(id(node))
+            pending.extend(reversed(child_expressions(node)))
+        contexts.append(
+            ProjectModuleSelectExpressionFact(
+                selection=facts[-1],
+                input_schema=input_schema,
+                let_scope=let_scope,
+                expression_value_types={
+                    node: value
+                    for node, value in retained_types.items()
+                    if id(node) in selected_nodes
+                },
+                diagnostics=tuple(expression_diagnostics),
+            )
+        )
+    return tuple(facts), tuple(contexts)
 
 
-def _expression_reference_facts(
+def _where_fact(
+    owner: ProjectDeclarationOccurrence,
+    input_schema: ProjectRowSchema,
+    let_scope: ProjectRelationLetScopeFacts,
+) -> ProjectModuleWhereFact | None:
+    definition = cast(_DerivedRelation, owner.definition)
+    clause = definition.where_clause
+    if clause is None or let_scope.status not in {
+        ProjectLetScopeFactsStatus.ABSENT,
+        ProjectLetScopeFactsStatus.CONCRETE,
+    }:
+        return None
+    value_types: dict[Expression, ValueType] = {}
+    diagnostics: list[Diagnostic] = []
+    if contains_semantic_aggregate(clause.expression):
+        diagnostics.append(
+            invalid_context_diagnostic(clause.expression, context="where clause")
+        )
+    infer_row_expression(
+        clause.expression,
+        project_row_schema_to_semantic_row_schema(input_schema),
+        value_types,
+        diagnostics,
+        report_unknown_name=True,
+        field_qualifier=definition.from_clause.source_name,
+        bare_value_types=let_scope.value_types,
+    )
+    diagnostic = _check_bool_expression(
+        clause.expression, context="where clause", expression_value_types=value_types
+    )
+    if diagnostic is not None:
+        diagnostics.append(diagnostic)
+    return ProjectModuleWhereFact(
+        owner=owner,
+        clause=clause,
+        input_schema=input_schema,
+        let_scope=let_scope,
+        expression_value_types=value_types,
+        diagnostics=tuple(diagnostics),
+        references=_expression_reference_facts(
+            owner=owner,
+            role=ProjectModuleWhereReferenceRole.WHERE_VALUE,
+            container_ordinal=0,
+            expression=clause.expression,
+            relation_qualifier=definition.from_clause.source_name,
+            input_schema=input_schema,
+            input_status=ProjectModuleCandidateBucketStatus.CONCRETE,
+            let_scope=let_scope,
+            let_candidates=let_scope.bindings,
+            selected_items=(),
+        ),
+    )
+
+
+def _expression_reference_facts[
+    Role: (ProjectModuleFactOccurrenceRole, ProjectModuleWhereReferenceRole)
+](
     *,
     owner: ProjectDeclarationOccurrence,
-    role: ProjectModuleFactOccurrenceRole,
+    role: Role,
     container_ordinal: int,
     expression: Expression,
     relation_qualifier: str,
@@ -3171,8 +3384,8 @@ def _expression_reference_facts(
     let_scope: ProjectRelationLetScopeFacts,
     let_candidates: tuple[LetBinding, ...],
     selected_items: tuple[SelectItem, ...],
-) -> tuple[ProjectModuleExpressionReferenceFact, ...]:
-    facts: list[ProjectModuleExpressionReferenceFact] = []
+) -> tuple[ProjectModuleExpressionReferenceFact[Role], ...]:
+    facts: list[ProjectModuleExpressionReferenceFact[Role]] = []
     for dependency_ordinal, leaf in enumerate(_direct_name_leaves(expression)):
         local_name, qualifier_valid = _local_reference_name(
             leaf,

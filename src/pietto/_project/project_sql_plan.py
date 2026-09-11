@@ -1,4 +1,4 @@
-"""Private selected static scan/direct-projection SQL planning.
+"""Private selected static-source and contextual row SQL planning.
 
 Names are presentation. References belong to one immutable planning scope;
 semantic fields, producer definitions and input uses remain distinct.
@@ -11,6 +11,21 @@ from enum import StrEnum
 from typing import Never, cast
 from collections.abc import Mapping
 from types import MappingProxyType
+from pietto._project import project_sql_plan_expressions as row
+from pietto._project.let_scope_facts import ProjectLetScopeFactsStatus
+from pietto._project.module_semantic_fact_preservation import (
+    ProjectModuleLetBindingFact,
+    ProjectModuleWhereReferenceRole,
+    ProjectModuleSelectExpressionFact,
+    ProjectModuleWhereFact,
+    ProjectModuleCandidateBucketStatus,
+    ProjectModuleExpressionReferenceFact,
+    ProjectModuleFactOccurrenceRole,
+)
+from pietto._project.project_final_outputs import ProjectNoJoinScalarExpression
+from pietto._project.project_joined_row_filter import _SQL_ROW_RETENTION_EFFECTS
+from pietto._project.model import ProjectRowField
+from pietto.semantic.model import ValueType, ValueTypeKind
 
 from pietto._project.model import (
     ProjectResolvedType,
@@ -62,6 +77,12 @@ from pietto._project.project_query_block_ir_verification import (
     ProjectIRQueryBlockAnalysisBundle,
 )
 from pietto.ast_nodes import (
+    Expression,
+    UnaryExpr,
+    BinaryExpr,
+    ComparisonExpr,
+    BetweenExpr,
+    IsNullExpr,
     CallExpr,
     DottedNameExpr,
     FromClause,
@@ -182,17 +203,16 @@ def _closure(
 
 
 class ProjectSQLPlanBlockerKind(StrEnum):
+    EXPRESSION_EVIDENCE = "expression_evidence_unavailable"
+    CALL_AUTHORITY = "call_authority_unavailable"
     SEMANTIC_RESULT_UNSUCCESSFUL = "semantic_result_unsuccessful"
     ACTIVE_OUTPUT_UNAVAILABLE = "active_output_unavailable"
     STATIC_SOURCE_UNAVAILABLE = "static_source_unavailable"
-    LET = "let"
     JOIN = "join"
-    WHERE = "where"
     GROUP = "group"
     SATISFYING = "satisfying"
     WINDOW = "window"
     QUALIFY = "qualify"
-    SCALAR = "scalar"
     DISTINCT = "distinct"
     ORDER = "order"
     LIMIT = "limit"
@@ -301,11 +321,7 @@ def _blockers(
         elif isinstance(definition, (TableDef, QueryDef)):
             for clause in definition.join_clauses:
                 add(K.JOIN, owner, entry, clause)
-            if definition.let_clause is not None:
-                for binding in definition.let_clause.bindings:
-                    add(K.LET, owner, entry, binding)
             for present, kind in (
-                (definition.where_clause, K.WHERE),
                 (definition.group_by_clause, K.GROUP),
                 (definition.satisfying_clause, K.SATISFYING),
             ):
@@ -315,9 +331,6 @@ def _blockers(
                 add(K.WINDOW, owner, entry, window)
             if definition.qualify_clause is not None:
                 add(K.QUALIFY, owner, entry, definition.qualify_clause)
-            for item in definition.select_items:
-                if type(item.expression) not in {NameExpr, DottedNameExpr}:
-                    add(K.SCALAR, owner, entry, item)
             for present, kind in (
                 (definition.distinct_clause, K.DISTINCT),
                 (definition.order_by_clause, K.ORDER),
@@ -329,10 +342,149 @@ def _blockers(
             for operator in _operators(entry):
                 if operator.kind not in {
                     ProjectIRLogicalOperatorKind.RELATION_INPUT,
+                    ProjectIRLogicalOperatorKind.ROW_FILTER,
                     ProjectIRLogicalOperatorKind.FINAL_PROJECTION,
                 }:
                     add(K.IR_STAGE, owner, entry, operator)
+            if not isinstance(entry, ProjectIRQueryBlockTerminal):
+                for kind, site in _row_blockers(completed, entry):
+                    add(kind, owner, entry, site)
     return tuple(result)
+
+
+def _row_blockers(completed, entry):
+    K = ProjectSQLPlanBlockerKind
+    authority = row.row_authority(completed, entry)
+    definition = entry.owner.definition
+    if authority is None or authority.let_scope.status not in {
+        ProjectLetScopeFactsStatus.ABSENT,
+        ProjectLetScopeFactsStatus.CONCRETE,
+    }:
+        return ((K.EXPRESSION_EVIDENCE, None),)
+    if (
+        authority.let_scope.definition is not definition
+        or authority.let_scope.input_schema is not authority.input_schema
+        or any(
+            type(fact.binding_ordinal) is not int or fact.binding_ordinal != ordinal
+            for ordinal, fact in enumerate(authority.lets)
+        )
+        or any(
+            type(fact.selected_output_ordinal) is not int
+            or fact.selected_output_ordinal != ordinal
+            for ordinal, fact in enumerate(authority.selections)
+        )
+    ):
+        return ((K.EXPRESSION_EVIDENCE, None),)
+    sites: list[
+        tuple[
+            LetBinding | WhereClause | SelectItem,
+            row.ProjectSQLScalarEvidence | None,
+            tuple[ProjectModuleExpressionReferenceFact, ...],
+        ]
+    ] = [(f.binding, f, f.references) for f in authority.lets]
+    if definition.where_clause is not None:
+        sites.append(
+            (definition.where_clause, authority.where, authority.where_references)
+        )
+    sites.extend(
+        (f.item, evidence, refs)
+        for f, evidence, refs in zip(
+            authority.selections,
+            authority.selected_evidence,
+            authority.selected_references,
+            strict=True,
+        )
+    )
+    blockers = []
+    input_fields = {id(f): f for f in authority.input_schema.fields.values()}
+    binding_ordinals = {id(f.binding): i for i, f in enumerate(authority.lets)}
+    selection_ordinals = {id(f.item): i for i, f in enumerate(authority.selections)}
+    supported = {
+        LiteralExpr,
+        NameExpr,
+        DottedNameExpr,
+        UnaryExpr,
+        BinaryExpr,
+        ComparisonExpr,
+        IsNullExpr,
+        BetweenExpr,
+    }
+    for site, evidence, references in sites:
+        nodes = row.scalar_nodes(site.expression)
+        if any(isinstance(n, CallExpr) for n in nodes):
+            blockers.append((K.CALL_AUTHORITY, site))
+        elif evidence is None or any(type(n) not in supported for n in nodes):
+            blockers.append((K.EXPRESSION_EVIDENCE, site))
+        else:
+            if isinstance(site, LetBinding):
+                ordinal = binding_ordinals[id(site)]
+                role = ProjectModuleFactOccurrenceRole.LET_VALUE
+                prefix = authority.let_scope.bindings[:ordinal]
+            elif isinstance(site, WhereClause):
+                ordinal, role = 0, ProjectModuleWhereReferenceRole.WHERE_VALUE
+                prefix = authority.let_scope.bindings
+            else:
+                ordinal, role = (
+                    selection_ordinals[id(site)],
+                    ProjectModuleFactOccurrenceRole.SELECT_VALUE,
+                )
+                prefix = authority.let_scope.bindings
+            leaves = tuple(
+                n for n in nodes if isinstance(n, (NameExpr, DottedNameExpr))
+            )
+            references_valid = len(leaves) == len(references) and all(
+                r.owner is entry.owner
+                and r.expression is leaf
+                and r.role is role
+                and type(r.container_ordinal) is int
+                and r.container_ordinal == ordinal
+                and type(r.dependency_ordinal) is int
+                and r.dependency_ordinal == i
+                and not r.selected_output_candidates
+                and all(any(b is p for p in prefix) for b in r.let_candidates)
+                and (
+                    input_fields.get(id(r.input_field)) is r.input_field
+                    if r.input_field is not None
+                    else len(r.let_candidates) == 1
+                )
+                for i, (r, leaf) in enumerate(zip(references, leaves))
+            )
+            if isinstance(evidence, ProjectModuleLetBindingFact):
+                contextual = (
+                    evidence.owner is entry.owner
+                    and evidence.scope_facts is authority.let_scope
+                )
+            else:
+                contextual = (
+                    evidence.owner is entry.owner
+                    and evidence.input_schema is authority.input_schema
+                    and evidence.let_scope is authority.let_scope
+                )
+            values = {id(n): (n, v) for n, v in row.evidence_types(evidence).items()}
+            if isinstance(evidence, ProjectModuleLetBindingFact):
+                contextual = contextual and (
+                    evidence.binding_ordinal == ordinal
+                    and evidence.value_type
+                    is authority.let_scope.value_types.get(evidence.binding.name)
+                    and id(site.expression) in values
+                    and values[id(site.expression)][1] is evidence.value_type
+                )
+            if (
+                not contextual
+                or not references_valid
+                or any(
+                    id(n) not in values
+                    or values[id(n)][0] is not n
+                    or values[id(n)][1].kind is not ValueTypeKind.KNOWN
+                    for n in nodes
+                )
+                or any(
+                    r.status is not ProjectModuleCandidateBucketStatus.CONCRETE
+                    for r in references
+                )
+            ):
+                blockers.append((K.EXPRESSION_EVIDENCE, site))
+    return tuple(blockers)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -356,6 +508,13 @@ class ProjectSQLPlanUnavailable:
 
 
 class ProjectSQLPlanRefKind(StrEnum):
+    SELECT_BLOCK = "select_block"
+    EXPRESSION_SITE = "expression_site"
+    EXPRESSION = "expression"
+    OPERAND = "operand"
+    STAGE_PORT = "stage_port"
+    LET_VALUE = "let_value"
+    FILTER = "filter"
     DEFINITION = "definition"
     INPUT_USE = "input_use"
     SOURCE_PORT = "source_port"
@@ -459,8 +618,16 @@ class ProjectSQLSymbol:
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSQLSelectBlock:
     ref: ProjectSQLPlanRef
-    selected: ProjectIRReusedEffectiveOutput
-    operators: tuple[ProjectIRLogicalOperatorOccurrence, ...]
+    definition: ProjectSQLPlanRef
+    position: int
+    kind: row.ProjectSQLStageKind
+    predecessor: ProjectSQLPlanRef
+    inputs: tuple[ProjectSQLPlanRef, ...]
+    exports: tuple[ProjectSQLPlanRef, ...]
+    selected: ProjectIRConcreteQueryBlockEntry
+    operators: tuple[
+        ProjectIRLogicalOperatorOccurrence | ProjectIRQueryBlockOperatorOccurrence, ...
+    ]
     boundary: ProjectSQLBoundary
 
 
@@ -469,14 +636,22 @@ class ProjectSQLProjection:
     ref: ProjectSQLPlanRef
     block: ProjectSQLPlanRef
     input_use: ProjectSQLPlanRef
-    source_port: ProjectSQLPlanRef
-    input_port: ProjectSQLPlanRef
+    source_port: ProjectSQLPlanRef | None
+    input_port: ProjectSQLPlanRef | None
     export: ProjectSQLPlanRef
     semantic: ProjectModuleSelectFact
-    symbol: ProjectSQLSymbol
+    symbol: ProjectSQLSymbol | None
+    expression: ProjectSQLPlanRef
+    site: row.ProjectSQLExpressionSite
 
 
 class ProjectSQLOriginRole(StrEnum):
+    EXPRESSION_SITE = "expression_site"
+    EXPRESSION = "expression"
+    OPERAND = "operand"
+    STAGE_PORT = "stage_port"
+    LET_VALUE = "let_value"
+    FILTER = "filter"
     SELECTED_OWNER = "selected_owner"
     DEFINITION = "definition"
     SOURCE_DESCRIPTOR = "source_descriptor"
@@ -508,6 +683,9 @@ type ProjectSQLCause = (
     | JoinClause
     | SetOperand
     | SelectItem
+    | LetBinding
+    | WhereClause
+    | Expression
 )
 
 type ProjectSQLOriginEvidence = (
@@ -516,6 +694,12 @@ type ProjectSQLOriginEvidence = (
     | ProjectCompletionDependency
     | ProjectModuleSelectFact
     | ProjectIROutputFieldOccurrence
+    | ProjectModuleLetBindingFact
+    | ProjectModuleWhereFact
+    | ProjectModuleSelectExpressionFact
+    | ProjectNoJoinScalarExpression
+    | ValueType
+    | ProjectRowField
 )
 
 
@@ -550,7 +734,12 @@ class ProjectSQLExportRepresentationDemand:
 
 
 type ProjectSQLDemand = (
-    ProjectSQLSourceRealizationDemand | ProjectSQLExportRepresentationDemand
+    ProjectSQLSourceRealizationDemand
+    | ProjectSQLExportRepresentationDemand
+    | row.ProjectSQLExpressionDemand
+    | row.ProjectSQLStageValueDemand
+    | row.ProjectSQLFilterDemand
+    | row.ProjectSQLScopeDemand
 )
 
 
@@ -588,6 +777,12 @@ class ProjectSQLPlan:
     symbols: tuple[ProjectSQLSymbol, ...]
     origins: tuple[ProjectSQLOrigin, ...]
     demands: tuple[ProjectSQLDemand, ...]
+    expression_sites: tuple[row.ProjectSQLExpressionSite, ...]
+    expressions: tuple[row.ProjectSQLExpression, ...]
+    operands: tuple[row.ProjectSQLExpressionOperand, ...]
+    stage_ports: tuple[row.ProjectSQLStagePort, ...]
+    let_values: tuple[row.ProjectSQLLetValue, ...]
+    filters: tuple[row.ProjectSQLFilter, ...]
 
     def __init__(self) -> Never:
         raise TypeError("ProjectSQLPlan is closed; use build_project_sql_plan.")
@@ -1233,115 +1428,587 @@ def build_project_sql_plan(
     bindings = build_project_sql_bindings(completed, analysis_bundle, selected_owner)
     if isinstance(bindings, ProjectSQLPlanUnavailable):
         return bindings
-    contexts = _binding_contexts(bindings)
-    boundary_by_consumer = {b.use.consumer: b for b in bindings.boundaries}
-    symbol_by_subject = {s.subject: s for s in bindings.symbols}
+    K, R, P = ProjectSQLPlanRefKind, ProjectSQLOriginRole, ProjectSQLOriginProvenance
     blocks: list[ProjectSQLSelectBlock] = []
     projections: list[ProjectSQLProjection] = []
+    sites: list[row.ProjectSQLExpressionSite] = []
+    expressions: list[row.ProjectSQLExpression] = []
+    operands: list[row.ProjectSQLExpressionOperand] = []
+    ports: list[row.ProjectSQLStagePort] = []
+    lets: list[row.ProjectSQLLetValue] = []
+    filters: list[row.ProjectSQLFilter] = []
+    symbols = list(bindings.symbols)
     origins = list(bindings.origins)
-    K, R, P = ProjectSQLPlanRefKind, ProjectSQLOriginRole, ProjectSQLOriginProvenance
+    demands = list(bindings.demands)
+    counters = {K.SYMBOL: len(symbols), K.ORIGIN: len(origins), K.DEMAND: len(demands)}
+    boundaries = {b.use.consumer: b for b in bindings.boundaries}
+    binding_symbols = {s.subject: s for s in bindings.symbols}
+    uses_by_owner = {u.consumer: u for u in bindings.input_uses}
 
-    def origin(subject, role, owner, cause, evidence, antecedents):
-        origins.append(
-            ProjectSQLOrigin(
-                ref=ProjectSQLPlanRef(
-                    scope=bindings.scope, kind=K.ORIGIN, position=len(origins)
-                ),
-                subject=subject,
-                role=role,
-                provenance=P.GENERATED_STRUCTURE if role is R.SELECT_BLOCK else P.VALUE,
-                owner=owner,
-                cause=cause,
-                evidence=evidence,
-                antecedents=antecedents,
-            )
+    def ref(kind):
+        position = counters.get(kind, 0)
+        counters[kind] = position + 1
+        return ProjectSQLPlanRef(scope=bindings.scope, kind=kind, position=position)
+
+    def stage_port(block, kind, key, source, evidence, local_symbols):
+        port = row.ProjectSQLStagePort(
+            ref=ref(K.STAGE_PORT),
+            block=block,
+            kind=kind,
+            key=key,
+            source=source,
+            type_evidence=evidence,
         )
+        ports.append(port)
+        symbol = ProjectSQLSymbol(
+            ref=ref(K.SYMBOL),
+            scope=block,
+            namespace=ProjectSQLSymbolNamespace.FIELD_PORT,
+            position=len(local_symbols),
+            subject=port.ref,
+            label=key.name,
+        )
+        symbols.append(symbol)
+        local_symbols[port.ref] = symbol
+        return port
+
+    def expression(site, local_ports, local_symbols, stage_context):
+        nodes = row.scalar_nodes(site.occurrence.expression)
+        node_refs = {id(n): ref(K.EXPRESSION) for n in nodes}
+        if len(node_refs) != len(nodes):
+            raise ValueError(
+                "One authored expression site must retain distinct tree occurrences."
+            )
+        types = {id(n): (n, v) for n, v in row.evidence_types(site.evidence).items()}
+        references = {id(r.expression): r for r in site.references}
+        for node in nodes:
+            children = tuple(
+                node_refs[id(child)] for child in row.scalar_children(node)
+            )
+            node_ref, value_type = node_refs[id(node)], types[id(node)][1]
+            if isinstance(node, LiteralExpr):
+                value = row.ProjectSQLLiteral(
+                    ref=node_ref, site=site, expression=node, value_type=value_type
+                )
+            elif isinstance(node, (NameExpr, DottedNameExpr)):
+                reference = references[id(node)]
+                key = reference.input_field
+                if key is None:
+                    key = _one(reference.let_candidates, "established LET reference")
+                port = local_ports.get(id(key))
+                if port is None or port.key is not key:
+                    raise ValueError(
+                        "Expression reference is outside its exact stage context."
+                    )
+                symbol = local_symbols[port.ref]
+                if stage_context.lookup(symbol.ref) is not port:
+                    raise ValueError(
+                        "Expression symbol is outside its exact SELECT scope."
+                    )
+                value = row.ProjectSQLReference(
+                    ref=node_ref,
+                    site=site,
+                    expression=node,
+                    value_type=value_type,
+                    reference=reference,
+                    port=port.ref,
+                    symbol=symbol,
+                )
+            elif isinstance(node, UnaryExpr):
+                value = row.ProjectSQLUnary(
+                    ref=node_ref,
+                    site=site,
+                    expression=node,
+                    value_type=value_type,
+                    operand=children[0],
+                )
+            elif isinstance(node, BinaryExpr):
+                value = row.ProjectSQLBinary(
+                    ref=node_ref,
+                    site=site,
+                    expression=node,
+                    value_type=value_type,
+                    left=children[0],
+                    right=children[1],
+                )
+            elif isinstance(node, ComparisonExpr):
+                value = row.ProjectSQLComparison(
+                    ref=node_ref,
+                    site=site,
+                    expression=node,
+                    value_type=value_type,
+                    left=children[0],
+                    right=children[1],
+                )
+            elif isinstance(node, IsNullExpr):
+                value = row.ProjectSQLIsNull(
+                    ref=node_ref,
+                    site=site,
+                    expression=node,
+                    value_type=value_type,
+                    value=children[0],
+                )
+            elif isinstance(node, BetweenExpr):
+                value = row.ProjectSQLBetween(
+                    ref=node_ref,
+                    site=site,
+                    expression=node,
+                    value_type=value_type,
+                    value=children[0],
+                    lower=children[1],
+                    upper=children[2],
+                )
+            else:
+                raise ValueError("Unsupported contextual expression variant.")
+            expressions.append(value)
+            for position, child in enumerate(children):
+                operands.append(
+                    row.ProjectSQLExpressionOperand(
+                        ref=ref(K.OPERAND),
+                        site=site,
+                        parent=value.ref,
+                        position=position,
+                        child=child,
+                    )
+                )
+        return node_refs[id(site.occurrence.expression)]
 
     for definition in bindings.definitions:
         entry = definition.entry
-        if isinstance(entry.owner.definition, SourceDef):
+        authored = entry.owner.definition
+        if isinstance(authored, SourceDef):
             continue
-        if not isinstance(entry, ProjectIRReusedEffectiveOutput):
-            raise ValueError(
-                "Direct named projection requires its current exact fragment."
+        assert isinstance(authored, (TableDef, QueryDef))
+        authority = row.row_authority(completed, entry)
+        assert authority is not None
+        context = authority
+        use = uses_by_owner[definition.ref]
+        original_ports = {id(p.field.evidence): p for p in use.ports}
+        # Carries are exact endpoints, not names or reconstructed canonical fields.
+        carried = [(p.field.evidence, p.ref, p.field.evidence) for p in use.ports]
+        stages = [
+            (row.ProjectSQLStageKind.LET, f.binding_ordinal) for f in authority.lets
+        ]
+        if authored.where_clause is not None:
+            stages.append((row.ProjectSQLStageKind.WHERE, 0))
+        stages.append((row.ProjectSQLStageKind.PROJECTION, 0))
+        predecessor = use.ref
+        for position, (kind, ordinal) in enumerate(stages):
+            block_ref = ref(K.SELECT_BLOCK)
+            local_symbols = {}
+            local_inputs = tuple(
+                stage_port(
+                    block_ref,
+                    row.ProjectSQLStagePortKind.INPUT,
+                    key,
+                    source,
+                    value_type,
+                    local_symbols,
+                )
+                for key, source, value_type in carried
             )
-        context = contexts[definition.ref]
-        local_uses = tuple(
-            s for s in context.subjects.values() if isinstance(s, ProjectSQLInputUse)
+            local_ports = {id(p.key): p for p in local_inputs}
+            stage_context = row.ProjectSQLStageContext(
+                block=block_ref,
+                ports=local_inputs,
+                symbols=tuple(local_symbols.values()),
+            )
+
+            def site(role, index, occurrence, evidence, references):
+                result = row.ProjectSQLExpressionSite(
+                    ref=ref(K.EXPRESSION_SITE),
+                    owner=entry.owner,
+                    block=block_ref,
+                    role=role,
+                    ordinal=index,
+                    occurrence=occurrence,
+                    input_schema=context.input_schema,
+                    let_scope=context.let_scope,
+                    let_prefix=context.let_scope.bindings[:index]
+                    if role is row.ProjectSQLExpressionRole.LET
+                    else context.let_scope.bindings,
+                    evidence=evidence,
+                    references=references,
+                )
+                sites.append(result)
+                return result
+
+            produced = None
+            current_site = None
+            if kind is row.ProjectSQLStageKind.LET:
+                fact = authority.lets[ordinal]
+                current_site = site(
+                    row.ProjectSQLExpressionRole.LET,
+                    ordinal,
+                    fact.binding,
+                    fact,
+                    fact.references,
+                )
+                produced = expression(
+                    current_site, local_ports, local_symbols, stage_context
+                )
+            elif kind is row.ProjectSQLStageKind.WHERE:
+                assert authored.where_clause is not None and authority.where is not None
+                current_site = site(
+                    row.ProjectSQLExpressionRole.WHERE,
+                    0,
+                    authored.where_clause,
+                    authority.where,
+                    authority.where_references,
+                )
+                predicate = expression(
+                    current_site, local_ports, local_symbols, stage_context
+                )
+                filters.append(
+                    row.ProjectSQLFilter(
+                        ref=ref(K.FILTER),
+                        site=current_site,
+                        predicate=predicate,
+                        retention_effects=_SQL_ROW_RETENTION_EFFECTS,
+                    )
+                )
+            else:
+                for index, (semantic, evidence, references, export) in enumerate(
+                    zip(
+                        authority.selections,
+                        authority.selected_evidence,
+                        authority.selected_references,
+                        definition.exports,
+                        strict=True,
+                    )
+                ):
+                    current_site = site(
+                        row.ProjectSQLExpressionRole.SELECT,
+                        index,
+                        semantic.item,
+                        evidence,
+                        references,
+                    )
+                    root_expression = expression(
+                        current_site, local_ports, local_symbols, stage_context
+                    )
+                    direct = None
+                    if (
+                        isinstance(semantic.item.expression, (NameExpr, DottedNameExpr))
+                        and len(references) == 1
+                    ):
+                        direct = original_ports.get(id(references[0].input_field))
+                    projections.append(
+                        ProjectSQLProjection(
+                            ref=ref(K.PROJECTION),
+                            block=block_ref,
+                            input_use=use.ref,
+                            source_port=None
+                            if direct is None
+                            else direct.producer_port,
+                            input_port=None if direct is None else direct.ref,
+                            export=export.ref,
+                            semantic=semantic,
+                            symbol=None
+                            if direct is None
+                            else binding_symbols[direct.ref],
+                            expression=root_expression,
+                            site=current_site,
+                        )
+                    )
+            if kind is row.ProjectSQLStageKind.PROJECTION:
+                exports = tuple(p.ref for p in definition.exports)
+            else:
+                outgoing = [
+                    stage_port(
+                        block_ref,
+                        row.ProjectSQLStagePortKind.EXPORT,
+                        p.key,
+                        p.ref,
+                        p.type_evidence,
+                        local_symbols,
+                    )
+                    for p in local_inputs
+                ]
+                if kind is row.ProjectSQLStageKind.LET:
+                    assert produced is not None and current_site is not None
+                    fact = authority.lets[ordinal]
+                    assert fact.value_type is not None
+                    port = stage_port(
+                        block_ref,
+                        row.ProjectSQLStagePortKind.EXPORT,
+                        fact.binding,
+                        produced,
+                        fact.value_type,
+                        local_symbols,
+                    )
+                    outgoing.append(port)
+                    lets.append(
+                        row.ProjectSQLLetValue(
+                            ref=ref(K.LET_VALUE),
+                            site=current_site,
+                            expression=produced,
+                            port=port.ref,
+                        )
+                    )
+                carried = [(p.key, p.ref, p.type_evidence) for p in outgoing]
+                exports = tuple(p.ref for p in outgoing)
+            blocks.append(
+                ProjectSQLSelectBlock(
+                    ref=block_ref,
+                    definition=definition.ref,
+                    position=position,
+                    kind=kind,
+                    predecessor=predecessor,
+                    inputs=tuple(p.ref for p in local_inputs),
+                    exports=exports,
+                    selected=entry,
+                    operators=tuple(
+                        operator
+                        for operator in _operators(entry)
+                        if (
+                            position == 0
+                            and operator.kind
+                            is ProjectIRLogicalOperatorKind.RELATION_INPUT
+                        )
+                        or (
+                            kind is row.ProjectSQLStageKind.WHERE
+                            and operator.kind is ProjectIRLogicalOperatorKind.ROW_FILTER
+                        )
+                        or (
+                            kind is row.ProjectSQLStageKind.PROJECTION
+                            and operator.kind
+                            is ProjectIRLogicalOperatorKind.FINAL_PROJECTION
+                        )
+                    ),
+                    boundary=boundaries[definition.ref],
+                )
+            )
+            predecessor = block_ref
+
+    block_by_ref = {b.ref: b for b in blocks}
+    expression_by_ref = {e.ref: e for e in expressions}
+    port_by_ref = {p.ref: p for p in ports}
+    export_by_ref = {p.ref: p for p in bindings.all_exports}
+    origin_by_subject = {}
+
+    def origin(subject, role, provenance, owner, cause, evidence, antecedents=()):
+        value = ProjectSQLOrigin(
+            ref=ref(K.ORIGIN),
+            subject=subject,
+            role=role,
+            provenance=provenance,
+            owner=owner,
+            cause=cause,
+            evidence=evidence,
+            antecedents=antecedents,
         )
-        use = _one(local_uses, "direct projection input use")
-        boundary = boundary_by_consumer[definition.ref]
-        block = ProjectSQLSelectBlock(
-            ref=definition.ref,
-            selected=entry,
-            operators=entry.semantic_entry.fragment.logical_stage.operators,
-            boundary=boundary,
-        )
-        blocks.append(block)
+        origins.append(value)
+        origin_by_subject[subject] = value.ref
+        return value.ref
+
+    for block in blocks:
         origin(
             block.ref,
             R.SELECT_BLOCK,
-            entry.owner,
-            entry.owner.definition,
-            entry,
-            (boundary.ref,),
+            P.GENERATED_STRUCTURE,
+            block.selected.owner,
+            block.selected.owner.definition,
+            block.selected,
+            (block.predecessor,),
         )
-        input_by_label = {p.field.evidence.name: p for p in use.ports}
-        for semantic, export in zip(
-            entry.semantic_entry.fragment.semantic_facts.select_facts,
-            definition.exports,
-            strict=True,
-        ):
-            reference = _one(semantic.references, "direct projection reference")
-            port = (
-                input_by_label.get(reference.input_field.name)
-                if reference.input_field is not None
-                else None
+    for port in ports:
+        owner = block_by_ref[port.block].selected.owner
+        cause = (
+            port.key
+            if isinstance(port.key, LetBinding)
+            else cast(TableDef | QueryDef, owner.definition).from_clause
+        )
+        origin(
+            port.ref,
+            R.STAGE_PORT,
+            P.VALUE,
+            owner,
+            cause,
+            port.type_evidence,
+            (port.source,),
+        )
+    for current_site in sites:
+        origin(
+            current_site.ref,
+            R.EXPRESSION_SITE,
+            P.TYPE_PROOF,
+            current_site.owner,
+            current_site.occurrence,
+            current_site.evidence,
+            (current_site.block,),
+        )
+    for value in expressions:
+        dependencies = (
+            (value.port,) if isinstance(value, row.ProjectSQLReference) else ()
+        )
+        origin(
+            value.ref,
+            R.EXPRESSION,
+            P.VALUE,
+            value.site.owner,
+            value.expression,
+            value.value_type,
+            (value.site.ref, *dependencies),
+        )
+    for operand in operands:
+        parent = expression_by_ref[operand.parent]
+        origin(
+            operand.ref,
+            R.OPERAND,
+            P.VALUE,
+            operand.site.owner,
+            parent.expression,
+            expression_by_ref[operand.child].value_type,
+            (operand.parent, operand.child),
+        )
+    for value in lets:
+        origin(
+            value.ref,
+            R.LET_VALUE,
+            P.VALUE,
+            value.site.owner,
+            value.site.occurrence,
+            value.site.evidence,
+            (value.expression, value.port),
+        )
+    for item in filters:
+        origin(
+            item.ref,
+            R.FILTER,
+            P.MEMBERSHIP,
+            item.site.owner,
+            item.site.occurrence,
+            item.site.evidence,
+            (item.site.block, item.predicate),
+        )
+    for projection in projections:
+        origin(
+            projection.ref,
+            R.PROJECTION,
+            P.VALUE,
+            projection.site.owner,
+            projection.semantic.item,
+            projection.semantic,
+            (projection.expression,),
+        )
+        export = export_by_ref[projection.export]
+        origin(
+            export.ref,
+            R.EXPORT,
+            P.VALUE,
+            projection.site.owner,
+            projection.semantic.item,
+            export.field,
+            (projection.ref,),
+        )
+    for symbol in symbols[len(bindings.symbols) :]:
+        port = port_by_ref[symbol.subject]
+        block = block_by_ref[port.block]
+        origin(
+            symbol.ref,
+            R.SYMBOL,
+            P.GENERATED_STRUCTURE,
+            block.selected.owner,
+            block.selected.owner.definition,
+            port.type_evidence,
+            (port.ref,),
+        )
+
+    children_by_parent = {e.ref: [] for e in expressions}
+    for operand in operands:
+        children_by_parent[operand.parent].append(
+            expression_by_ref[operand.child].value_type
+        )
+    for value in expressions:
+        demand_ref = ref(K.DEMAND)
+        demand_origin = origin(
+            demand_ref,
+            R.DEMAND,
+            P.TYPE_PROOF,
+            value.site.owner,
+            value.expression,
+            value.value_type,
+            (origin_by_subject[value.ref],),
+        )
+        demands.append(
+            row.ProjectSQLExpressionDemand(
+                ref=demand_ref,
+                subject=value.ref,
+                site=value.site,
+                expression=value.expression,
+                value_type=value.value_type,
+                operand_types=tuple(children_by_parent[value.ref]),
+                origin=demand_origin,
             )
-            if (
-                port is None
-                or port.field.evidence is not reference.input_field
-                or semantic.field is not export.field.evidence
-                or port.producer_port is None
-            ):
-                raise ValueError(
-                    "Projection must reference the immediate producer field."
-                )
-            symbol = symbol_by_subject[port.ref]
-            if context.lookup(symbol.ref) is not port:
-                raise ValueError("Projection input is outside its block context.")
-            projection = ProjectSQLProjection(
-                ref=ProjectSQLPlanRef(
-                    scope=bindings.scope, kind=K.PROJECTION, position=len(projections)
-                ),
-                block=block.ref,
-                input_use=use.ref,
-                source_port=port.producer_port,
-                input_port=port.ref,
-                export=export.ref,
-                semantic=semantic,
-                symbol=symbol,
+        )
+    for port in ports:
+        block = block_by_ref[port.block]
+        demand_ref = ref(K.DEMAND)
+        demand_origin = origin(
+            demand_ref,
+            R.DEMAND,
+            P.TYPE_PROOF,
+            block.selected.owner,
+            block.selected.owner.definition,
+            port.type_evidence,
+            (origin_by_subject[port.ref],),
+        )
+        demands.append(
+            row.ProjectSQLStageValueDemand(
+                ref=demand_ref,
+                subject=port.ref,
+                block=port.block,
+                type_evidence=port.type_evidence,
+                origin=demand_origin,
             )
-            projections.append(projection)
-            origin(
-                projection.ref,
-                R.PROJECTION,
-                entry.owner,
-                semantic.item,
-                semantic,
-                (port.ref,),
+        )
+    for item in filters:
+        value_type = expression_by_ref[item.predicate].value_type
+        demand_ref = ref(K.DEMAND)
+        demand_origin = origin(
+            demand_ref,
+            R.DEMAND,
+            P.MEMBERSHIP,
+            item.site.owner,
+            item.site.occurrence,
+            item.site.evidence,
+            (origin_by_subject[item.ref],),
+        )
+        demands.append(
+            row.ProjectSQLFilterDemand(
+                ref=demand_ref,
+                subject=item.ref,
+                site=item.site,
+                value_type=value_type,
+                retention_effects=item.retention_effects,
+                origin=demand_origin,
             )
-            origin(
-                export.ref,
-                R.EXPORT,
-                entry.owner,
-                semantic.item,
-                export.field,
-                (projection.ref,),
+        )
+    for block in blocks:
+        demand_ref = ref(K.DEMAND)
+        demand_origin = origin(
+            demand_ref,
+            R.DEMAND,
+            P.GENERATED_STRUCTURE,
+            block.selected.owner,
+            block.selected.owner.definition,
+            block.selected,
+            (origin_by_subject[block.ref],),
+        )
+        demands.append(
+            row.ProjectSQLScopeDemand(
+                ref=demand_ref,
+                subject=block.ref,
+                predecessor=block.predecessor,
+                inputs=block.inputs,
+                exports=block.exports,
+                origin=demand_origin,
             )
+        )
     selected = _one(
         tuple(d for d in bindings.definitions if d.entry.owner is selected_owner),
-        "selected definition",
+        "selected SQL definition",
     )
     plan = object.__new__(ProjectSQLPlan)
     for name, value in dict(
@@ -1356,9 +2023,15 @@ def build_project_sql_plan(
         exports=selected.exports,
         projections=tuple(projections),
         boundaries=bindings.boundaries,
-        symbols=bindings.symbols,
+        symbols=tuple(symbols),
         origins=tuple(origins),
-        demands=bindings.demands,
+        demands=tuple(demands),
+        expression_sites=tuple(sites),
+        expressions=tuple(expressions),
+        operands=tuple(operands),
+        stage_ports=tuple(ports),
+        let_values=tuple(lets),
+        filters=tuple(filters),
     ).items():
         object.__setattr__(plan, name, value)
     return plan

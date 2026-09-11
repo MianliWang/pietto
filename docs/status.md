@@ -54,9 +54,10 @@ documentation does not supersede that evidence.
 | Phase 65 Slice 1 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 2 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 3 | `COMPLETED / PUBLISHED` |
-| Phase 65 Slice 4 | `NEXT / NOT IMPLEMENTED` |
-| Phase 65 Slices 5–16 | `NOT IMPLEMENTED` |
-| Next | `Phase 65 Slice 4 — Scalar, LET and WHERE stage-value planning` |
+| Phase 65 Slice 4 | `COMPLETED / PUBLISHED` |
+| Phase 65 Slice 5 | `NEXT / NOT IMPLEMENTED` |
+| Phase 65 Slices 6–16 | `NOT IMPLEMENTED` |
+| Next | `Phase 65 Slice 5 — Seven JOIN kinds, matching scopes and local obligations` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -820,5 +821,29 @@ its two wrapper definitions and two wrapper edges. This is not JOIN/SET SQL
 planning: unsupported operator bodies still produce complete typed terminals,
 with no concrete partial plan. Sharing does not promise evaluation once.
 The Slice2 upstream source validation and exact empty/whitespace locator rules
-remain unchanged. Phase65 stays `ACTIVE`; Slice4 is `NEXT / NOT IMPLEMENTED`;
-Slices 5–16 are `NOT IMPLEMENTED`, and N16 is unchanged.
+remain unchanged. That publication left Slice4 next and Slices 5–16 unimplemented.
+
+
+Phase 65 Slice 4 is `COMPLETED / PUBLISHED` only upon successful natural
+exact-head CI on its ordinary commit. The [row scalar/LET/WHERE contract](spec/phase65-slice4-row-scalar-let-where-stage-value-planning-v1.md)
+extends the same selected graph through typed scalar expressions, ordered LET
+values and WHERE filters. Ordinary SELECT/LET retain existing expression type
+maps; ordinary WHERE uses the existing row typer and Bool checker. Newly retained
+row ERROR diagnostics reach completed.ok. Replay keeps its own input/LET context
+and scalar evidence, with references retained once at the completed boundary.
+
+Generated SELECT-block scopes are distinct from named definitions. Private
+stage-value ports carry predecessor values and never enter selected visible
+exports. WHERE retains SQL TRUE-only membership, nullable Bool and hidden input
+dependencies; literal projections still consume their source BAG. Every expression,
+operand, helper, filter and scope has mandatory origins/demands and independent
+verification. Runtime queries require exact local refs. These structures do not
+promise physical evaluation once, purity, target support or executable SQL.
+
+Unary `+`/`-`, binary `+`/`-`/`*`/`%`/`and`/`or`, comparisons, IS NULL and BETWEEN follow existing
+known evidence. Division keeps its unknown-type boundary; unsupported NOT syntax
+and unknown callables remain rejected. Known calls without retained callable
+binding authority remain typed planning limitations. JOIN, grouping, windows,
+DISTINCT/ORDER/LIMIT and SET remain whole-plan unavailable, including ancestors.
+Binding-level depth12 sharing/lookup remains intact. Phase65 stays `ACTIVE`;
+Slice5 is `NEXT / NOT IMPLEMENTED`; Slices 6–16 are `NOT IMPLEMENTED`; N16 is unchanged.

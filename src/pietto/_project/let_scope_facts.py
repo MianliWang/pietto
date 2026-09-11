@@ -28,6 +28,7 @@ from pietto.ast_nodes import (
 )
 from pietto.semantic.let_bindings import analyze_relation_let_bindings
 from pietto.semantic.model import RowSchema, ValueType, ValueTypeKind
+from pietto.errors import Diagnostic
 
 _Key = TypeVar("_Key")
 _Value = TypeVar("_Value")
@@ -78,6 +79,14 @@ class ProjectRelationLetScopeFacts:
     value_types: Mapping[str, ValueType] = field(
         default_factory=lambda: _readonly_mapping()
     )
+    definition: _DerivedRelation | None = None
+    input_schema: ProjectRowSchema | None = None
+    upstream_definition: _RelationDefinition | None = None
+    input_state: ProjectRelationRowSchemaState | None = None
+    expression_value_types: Mapping[Expression, ValueType] = field(
+        default_factory=lambda: _readonly_mapping()
+    )
+    diagnostics: tuple[Diagnostic, ...] = ()
 
     def __post_init__(self) -> None:
         """Copy fact maps into immutable containers and validate invariants."""
@@ -93,6 +102,26 @@ class ProjectRelationLetScopeFacts:
         object.__setattr__(self, "bindings", bindings)
         object.__setattr__(self, "binding_expressions", binding_expressions)
         object.__setattr__(self, "value_types", value_types)
+        object.__setattr__(
+            self,
+            "expression_value_types",
+            _readonly_mapping(self.expression_value_types),
+        )
+        object.__setattr__(self, "diagnostics", tuple(self.diagnostics))
+        if self.expression_value_types or self.diagnostics:
+            if (
+                self.definition is None
+                or self.definition.let_clause is not self.clause
+                or self.input_schema is None
+                or self.upstream_definition is None
+                or any(
+                    type(value) is not ValueType
+                    for value in self.expression_value_types.values()
+                )
+            ):
+                raise ValueError(
+                    "LET analysis requires its exact definition/input context"
+                )
 
         if self.status is ProjectLetScopeFactsStatus.ABSENT:
             if (
@@ -130,6 +159,12 @@ def build_project_relation_let_scope_facts(
         return ProjectRelationLetScopeFacts(
             status=ProjectLetScopeFactsStatus.ABSENT,
             reason=ProjectLetScopeFactsReason.NO_LET_CLAUSE,
+            definition=definition,
+            input_schema=_effective_input_schema(
+                input_schema, upstream_state=upstream_state
+            ),
+            upstream_definition=upstream_definition,
+            input_state=upstream_state,
         )
 
     bindings = tuple(definition.let_clause.bindings)
@@ -165,7 +200,7 @@ def build_project_relation_let_scope_facts(
         )
 
     row_schema = project_row_schema_to_semantic_row_schema(effective_input_schema)
-    scopes, _expression_value_types, diagnostics = analyze_relation_let_bindings(
+    scopes, expression_value_types, diagnostics = analyze_relation_let_bindings(
         (definition,),
         from_resolutions={definition.from_clause: upstream_definition},
         source_row_schemas=_source_row_schemas(upstream_definition, row_schema),
@@ -179,6 +214,12 @@ def build_project_relation_let_scope_facts(
             clause=definition.let_clause,
             bindings=bindings,
             binding_expressions=binding_expressions,
+            definition=definition,
+            input_schema=effective_input_schema,
+            upstream_definition=upstream_definition,
+            input_state=upstream_state,
+            expression_value_types=expression_value_types,
+            diagnostics=tuple(diagnostics),
         )
 
     scope = scopes.get(definition)
@@ -189,6 +230,12 @@ def build_project_relation_let_scope_facts(
             clause=definition.let_clause,
             bindings=bindings,
             binding_expressions=binding_expressions,
+            definition=definition,
+            input_schema=effective_input_schema,
+            upstream_definition=upstream_definition,
+            input_state=upstream_state,
+            expression_value_types=expression_value_types,
+            diagnostics=tuple(diagnostics),
         )
 
     known_values = {
@@ -203,6 +250,12 @@ def build_project_relation_let_scope_facts(
             clause=definition.let_clause,
             bindings=bindings,
             binding_expressions=binding_expressions,
+            definition=definition,
+            input_schema=effective_input_schema,
+            upstream_definition=upstream_definition,
+            input_state=upstream_state,
+            expression_value_types=expression_value_types,
+            diagnostics=tuple(diagnostics),
         )
 
     return ProjectRelationLetScopeFacts(
@@ -212,6 +265,11 @@ def build_project_relation_let_scope_facts(
         bindings=bindings,
         binding_expressions=binding_expressions,
         value_types=known_values,
+        definition=definition,
+        input_schema=effective_input_schema,
+        upstream_definition=upstream_definition,
+        input_state=upstream_state,
+        expression_value_types=expression_value_types,
     )
 
 

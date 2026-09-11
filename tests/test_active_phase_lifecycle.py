@@ -298,11 +298,12 @@ EXPECTED_STATUS = (
     ("Phase 65 Slice 1", "`COMPLETED / PUBLISHED`"),
     ("Phase 65 Slice 2", "`COMPLETED / PUBLISHED`"),
     ("Phase 65 Slice 3", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 4", "`NEXT / NOT IMPLEMENTED`"),
-    ("Phase 65 Slices 5–16", "`NOT IMPLEMENTED`"),
+    ("Phase 65 Slice 4", "`COMPLETED / PUBLISHED`"),
+    ("Phase 65 Slice 5", "`NEXT / NOT IMPLEMENTED`"),
+    ("Phase 65 Slices 6–16", "`NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 65 Slice 4 — Scalar, LET and WHERE stage-value planning`",
+        "`Phase 65 Slice 5 — Seven JOIN kinds, matching scopes and local obligations`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1432,8 +1433,8 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
 EXPECTED_CURRENT_OWNER_SENTENCE = (
-    "The current owner is Phase 65, which is `ACTIVE`; Slices 1–3 are "
-    "`COMPLETED / PUBLISHED` and Slice 4 is `NEXT / NOT IMPLEMENTED`."
+    "The current owner is Phase 65, which is `ACTIVE`; Slices 1–4 are "
+    "`COMPLETED / PUBLISHED` and Slice 5 is `NEXT / NOT IMPLEMENTED`."
 )
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
@@ -4942,7 +4943,7 @@ def test_phase65_route_and_lifecycle_are_conditional() -> None:
     status = " ".join(_read(STATUS).split())
     normalized = " ".join(roadmap.split())
     for phrase in (
-        "Slices 5–16 are `NOT IMPLEMENTED`",
+        "Slices 6–16 are `NOT IMPLEMENTED`",
         "D65.01–D65.12",
         "only upon successful natural exact-head CI",
     ):
@@ -4992,4 +4993,21 @@ def test_phase65_slice3_current_binding_and_whole_plan_boundary() -> None:
         assert phrase in status and phrase in roadmap
     assert "This is not JOIN/SET SQL planning" in status
     assert "those whole-plan shapes remain typed unavailable" in roadmap
-    assert "Slice4 owns scalar, LET and WHERE" in roadmap
+    assert "Slice5 owns Seven JOIN kinds" in roadmap
+
+
+def test_phase65_slice4_current_stage_boundary() -> None:
+    status = " ".join(_read(STATUS).split())
+    roadmap = " ".join(_section(_read(ROADMAP), "Phase 65 route").split())
+    target = "spec/phase65-slice4-row-scalar-let-where-stage-value-planning-v1.md"
+    assert f"]({target})" in status and f"]({target})" in roadmap
+    assert (STATUS.parent / target).is_file()
+    for phrase in (
+        "Generated SELECT-block scopes",
+        "stage-value ports",
+        "selected visible",
+        "SQL TRUE-only membership",
+    ):
+        assert phrase in status and phrase in roadmap
+    assert "never enter selected visible exports" in status
+    assert "Slice5 is `NEXT / NOT IMPLEMENTED`" in status

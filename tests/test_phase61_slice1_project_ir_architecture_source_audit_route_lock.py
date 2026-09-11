@@ -151,7 +151,7 @@ def _normalized(section: str) -> str:
     return " ".join(section.split())
 
 
-def _class_fields(path: Path, class_name: str) -> tuple[str, ...]:
+def _class_annotations(path: Path, class_name: str) -> dict[str, ast.expr]:
     tree = ast.parse(_read(path), filename=str(path))
     classes = tuple(
         node
@@ -159,11 +159,22 @@ def _class_fields(path: Path, class_name: str) -> tuple[str, ...]:
         if isinstance(node, ast.ClassDef) and node.name == class_name
     )
     assert len(classes) == 1
-    return tuple(
-        node.target.id
+    members = tuple(
+        node
         for node in classes[0].body
         if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
     )
+    annotations = {
+        node.target.id: node.annotation
+        for node in members
+        if isinstance(node.target, ast.Name)
+    }
+    assert len(annotations) == len(members)
+    return annotations
+
+
+def _class_fields(path: Path, class_name: str) -> tuple[str, ...]:
+    return tuple(_class_annotations(path, class_name))
 
 
 def _enum_members(path: Path, class_name: str) -> tuple[str, ...]:
@@ -266,7 +277,8 @@ def test_live_pietto_authority_is_classified_and_relation_ir_is_unchanged() -> N
         "result_predicate",
         "named_windows",
     )
-    assert _class_fields(SEMANTIC_FACTS, "ProjectModuleRelationSemanticFacts") == (
+    semantic = _class_annotations(SEMANTIC_FACTS, "ProjectModuleRelationSemanticFacts")
+    required_fields = (
         "owner",
         "base_row_fact",
         "resolution",
@@ -284,6 +296,21 @@ def test_live_pietto_authority_is_classified_and_relation_ir_is_unchanged() -> N
         "named_window_namespace",
         "helper_diagnostics",
     )
+    # Preserve the required ledger and its relative order, not a historical cap
+    # on the carrier. Slice4's real-source tests validate the contextual payloads.
+    assert (
+        tuple(name for name in semantic if name in required_fields) == required_fields
+    )
+    for name, annotation in {
+        "owner": "ProjectDeclarationOccurrence",
+        "input_state": "ProjectRelationRowSchemaState | None",
+        "let_scope_facts": "ProjectRelationLetScopeFacts | None",
+        "let_bindings": "tuple[ProjectModuleLetBindingFact, ...]",
+        "select_facts": "tuple[ProjectModuleSelectFact, ...]",
+        "where_fact": "ProjectModuleWhereFact | None",
+        "select_expressions": "tuple[ProjectModuleSelectExpressionFact, ...]",
+    }.items():
+        assert ast.unparse(semantic[name]) == annotation
     assert "Validate relation-local let clauses and return private value scopes." in (
         _read(LET_BINDINGS)
     )
