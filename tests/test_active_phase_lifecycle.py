@@ -296,11 +296,12 @@ EXPECTED_STATUS = (
     ("Phase 64 Slice 11", "`COMPLETED / PUBLISHED`"),
     ("Phase 65", "`ACTIVE`"),
     ("Phase 65 Slice 1", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 2", "`NEXT / NOT IMPLEMENTED`"),
-    ("Phase 65 Slices 3–16", "`NOT IMPLEMENTED`"),
+    ("Phase 65 Slice 2", "`COMPLETED / PUBLISHED`"),
+    ("Phase 65 Slice 3", "`NEXT / NOT IMPLEMENTED`"),
+    ("Phase 65 Slices 4–16", "`NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 65 Slice 2 — Minimal selected scan/projection plan`",
+        "`Phase 65 Slice 3 — Named producer graph and use-scoped symbols`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1430,8 +1431,8 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
 EXPECTED_CURRENT_OWNER_SENTENCE = (
-    "The current owner is Phase 65, which is `ACTIVE`; Slice 1 is "
-    "`COMPLETED / PUBLISHED` and Slice 2 is `NEXT / NOT IMPLEMENTED`."
+    "The current owner is Phase 65, which is `ACTIVE`; Slices 1–2 are "
+    "`COMPLETED / PUBLISHED` and Slice 3 is `NEXT / NOT IMPLEMENTED`."
 )
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
@@ -4934,13 +4935,13 @@ EXPECTED_PHASE65_ROUTE = (
 )
 
 
-def test_phase65_route_and_lifecycle_are_conditional_and_documentation_only() -> None:
+def test_phase65_route_and_lifecycle_are_conditional() -> None:
     roadmap = _section(_read(ROADMAP), "Phase 65 route")
     assert _table_rows(roadmap)[1:] == EXPECTED_PHASE65_ROUTE
     status = " ".join(_read(STATUS).split())
     normalized = " ".join(roadmap.split())
     for phrase in (
-        "Slices 3–16 are `NOT IMPLEMENTED`",
+        "Slices 4–16 are `NOT IMPLEMENTED`",
         "D65.01–D65.12",
         "only upon successful natural exact-head CI",
     ):
@@ -4958,7 +4959,19 @@ def test_phase65_route_and_lifecycle_are_conditional_and_documentation_only() ->
     assert f"]({target})" in roadmap
     assert f"]({target})" in _read(STATUS)
     assert (ROADMAP.parent / target).is_file()
-    assert (
-        "No Phase65 production, SQL emission, execution or public API has been implemented"
-        in status
+    assert "It adds three private production modules." in status
+    assert "No SQL emission, execution or public API has been implemented" in status
+    slice2_target = (
+        "spec/phase65-slice2-minimal-selected-scan-projection-project-sql-plan-v1.md"
     )
+    assert f"]({slice2_target})" in roadmap
+    assert f"]({slice2_target})" in _read(STATUS)
+    assert (ROADMAP.parent / slice2_target).is_file()
+    for phrase in (
+        '`postgres.table("")`',
+        "whitespace locators",
+        "nonliteral PostgreSQL argument",
+        "does not certify",
+    ):
+        assert phrase in status and phrase in normalized
+    assert "empty connector literal is unplannable" not in status

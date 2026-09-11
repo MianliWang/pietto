@@ -77,6 +77,8 @@ from pietto._project.project_phase62_verification import (
 )
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.semantic.expressions import type_source_connector_arguments
+from pietto.semantic.source_connectors import check_source_connectors
 from pietto._project.project_single_match import (
     ProjectSingleMatchRequest,
     ProjectSingleMatchSet,
@@ -90,6 +92,34 @@ class ProjectCompletedSemanticNonConcreteReason(StrEnum):
 
     LEGACY_FLAT_MODE = "legacy_flat_mode"
     PACKAGE_ROOT_MODE = "package_root_mode"
+
+
+def _source_connector_diagnostics(
+    semantic_result: ProjectSemanticResult,
+) -> tuple[Diagnostic, ...]:
+    """Validate every retained defining script once, before publishing its root."""
+    catalogs = semantic_result.module_catalogs
+    modules = semantic_result.modules
+    if (
+        catalogs is None
+        or len(catalogs.catalogs) != len(modules)
+        or any(
+            catalog.module is not module
+            for catalog, module in zip(catalogs.catalogs, modules, strict=True)
+        )
+    ):
+        raise ValueError("Completed source validation requires exact module evidence.")
+    diagnostics: list[Diagnostic] = []
+    for module in modules:
+        if module.parsed_input is None:
+            raise ValueError(
+                "Completed source validation requires every module script."
+            )
+        script = module.parsed_input.script
+        value_types, expression_diagnostics = type_source_connector_arguments(script)
+        diagnostics.extend(expression_diagnostics)
+        diagnostics.extend(check_source_connectors(script, value_types))
+    return tuple(diagnostics)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -165,6 +195,7 @@ class _ProjectCompletedSemanticRoots:
             is not ProjectCompilationMode.EXPLICIT_MODULES
         ):
             raise TypeError("Completed Project semantics require exact concrete roots.")
+        source_diagnostics = _source_connector_diagnostics(self.semantic_result)
         verification = _build_phase62_verification(self.semantic_result)
         join_conditions = build_project_join_conditions(
             verification.root.join_regions.uses
@@ -203,6 +234,7 @@ class _ProjectCompletedSemanticRoots:
                     ),
                 ),
                 *operative.diagnostics,
+                *source_diagnostics,
             ),
         )
 

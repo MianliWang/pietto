@@ -8,7 +8,7 @@ needed.
 
 Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. The current owner is Phase 65, which is
-`ACTIVE`; Slice 1 is `COMPLETED / PUBLISHED` and Slice 2 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
+`ACTIVE`; Slices 1–2 are `COMPLETED / PUBLISHED` and Slice 3 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
 remains conditional on its Slice 11 natural exact-head CI; the
 Validation/Test Performance Optimization Interlude II is `COMPLETED`. Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -2299,8 +2299,9 @@ No Phase-65 syntax, carrier, algorithm or numbered route is frozen here.
 ## Phase 65 route
 
 Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slice 1 is
-`COMPLETED / PUBLISHED` only upon successful natural exact-head CI on its ordinary
-commit. Slice 2 is `NEXT / NOT IMPLEMENTED`; Slices 3–16 are `NOT IMPLEMENTED`.
+`COMPLETED / PUBLISHED`, and Slice 2 is `COMPLETED / PUBLISHED` only upon
+successful natural exact-head CI on its ordinary commit. Slice 3 is
+`NEXT / NOT IMPLEMENTED`; Slices 4–16 are `NOT IMPLEMENTED`.
 The selected route has exactly 16 deliveries. Its controlling
 [reviewed v2 phase gate](spec/phase65-project-sql-plan-product-phase-initiation-gate-source-audit-architecture-route-lock-v1.md)
 is documentation/static assurance only; it does not authorize later implementation.
@@ -2348,12 +2349,20 @@ N15 would merge demand reporting with target assessment after source mapping;
 N14 would also merge portable integration and full conformance. N16 keeps those
 failure causes separate at the cost of two publications, with no measured speed claim.
 
+The [Slice2 minimal plan contract](spec/phase65-slice2-minimal-selected-scan-projection-project-sql-plan-v1.md)
+delivers the direct static source/projection vertical and its own verifier,
+runtime view, origins and demands. It integrates existing connector checks at
+the completed semantic boundary. Source ERROR prevents a concrete plan;
+`postgres.table("")` and valid whitespace locators retain their exact literal
+values, while accepted nonliteral PostgreSQL arguments remain typed static-source
+unavailability. Descriptor acceptance does not certify executable SQL.
+
 This task newly maps open caller-rebindable query parameters to Phase70, public
 entrypoints to Phase69/82, and any selected-owner compilation amid project semantic
 errors to a Phase69/70 policy decision. These are new later-owner refinements, not
 older roadmap wording. Phase66 retains SQL AST/text, actual placeholder order and
 realization; Phase68 retains resources and runtime single-match fulfillment;
-Phase72 retains Float row equivalence; no future feature is implemented here.
+Phase72 retains Float row equivalence; these future features remain unimplemented.
 
 ## Future Roadmap v6
 

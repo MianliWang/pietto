@@ -3,17 +3,207 @@ from __future__ import annotations
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import fields, is_dataclass
+from pathlib import Path
 
 import pytest
 from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
 from pietto.ast_nodes import CallExpr, Script, ShapeDef, SourceDef
-from pietto.errors import Severity
+from pietto.errors import Diagnostic, Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import CheckMode, SemanticResult, ValueTypeKind, analyze
 
 SHAPE = "shape UserRow:\n    id: UUID not null\n    email: Text not null\n"
+
+
+@pytest.mark.parametrize(
+    ("connector", "codes"),
+    [
+        ('postgres.table("public.users")', ()),
+        ('mysql.table("app.users")', ()),
+        ('postgres.table("")', ()),
+        ('postgres.table("   ")', ()),
+        ('mysql.table("   ")', ()),
+        ('postgres.table(trim("users"))', ()),
+        ("postgres.table(123)", ("PIE-S2306",)),
+        ('mysql.table("")', ("PIE-S2306",)),
+        ('unknown.table("rows")', ("PIE-S2306",)),
+        ("postgres.table()", ("PIE-S2306",)),
+        ('postgres.table("users", "extra")', ("PIE-S2306",)),
+        ("mysql.table()", ("PIE-S2306",)),
+        ('mysql.table("users", "extra")', ("PIE-S2306",)),
+        ('mysql.table(trim("users"))', ("PIE-S2306",)),
+        ('mysql.Table("users")', ("PIE-S2306",)),
+        ("42", ("PIE-S2306",)),
+        ("postgres.table(missing)", ("PIE-S2102",)),
+        ("mysql.table(missing)", ("PIE-S2102",)),
+        ("unknown.table(missing)", ("PIE-S2102",)),
+    ],
+)
+def test_completed_source_rules_preserve_single_file_diagnostics(
+    tmp_path: Path, connector: str, codes: tuple[str, ...]
+) -> None:
+    from test_phase64_slice3_generic_on_condition_semantics_authority_separation import (
+        _completed,
+    )
+
+    text = SHAPE + f"source users: UserRow is {connector}\n"
+    expected = analyze(_parse(text, path="main.pietto")).diagnostics
+    completed = _completed(tmp_path, text)
+    assert tuple(d.code for d in expected) == codes
+    assert completed.diagnostics == expected
+    assert completed.ok is (not codes)
+    assert all(d.severity is Severity.ERROR for d in completed.diagnostics)
+
+
+def test_completed_checks_defining_modules_once_and_reuses_diagnostics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pietto._project import project_completed_semantics as boundary
+    from test_phase64_slice3_generic_on_condition_semantics_authority_separation import (
+        _completed,
+        _source as joined_source,
+    )
+    from test_phase64_slice7_single_match_direction_unit_scoped_proof_obligation_warning_diagnostics import (
+        _request,
+    )
+
+    (tmp_path / "a.pietto").write_text(
+        SHAPE + 'source users: UserRow is mysql.table("")\nexport:\n    source users\n'
+    )
+    (tmp_path / "b.pietto").write_text(
+        'import "a.pietto":\n    source users as Public\nexport:\n    source Public\n'
+    )
+    (tmp_path / "c.pietto").write_text(
+        'import "a.pietto":\n    source users as Again\n'
+        + SHAPE
+        + "source users: UserRow is postgres.table(missing)\n"
+        + 'source second: UserRow is mysql.table("")\n'
+    )
+    typed_scripts: list[Script] = []
+    checked_scripts: list[Script] = []
+    emitted: list[Diagnostic] = []
+    type_arguments = boundary.type_source_connector_arguments
+    check_connectors = boundary.check_source_connectors
+
+    def capture_types(script):
+        typed_scripts.append(script)
+        types, diagnostics = type_arguments(script)
+        emitted.extend(diagnostics)
+        return types, diagnostics
+
+    def capture_checks(script, types):
+        checked_scripts.append(script)
+        diagnostics = check_connectors(script, types)
+        emitted.extend(diagnostics)
+        return diagnostics
+
+    monkeypatch.setattr(boundary, "type_source_connector_arguments", capture_types)
+    monkeypatch.setattr(boundary, "check_source_connectors", capture_checks)
+    completed = _completed(
+        tmp_path,
+        'import "b.pietto":\n    source Public as Imported\n' + joined_source("true"),
+    )
+    modules = completed.semantic_result.modules
+    scripts = tuple(
+        m.parsed_input.script for m in modules if m.parsed_input is not None
+    )
+    assert len(scripts) == len(modules) == 4
+    assert len(typed_scripts) == len(checked_scripts) == len(scripts)
+    assert all(
+        a is b is c
+        for a, b, c in zip(scripts, typed_scripts, checked_scripts, strict=True)
+    )
+    assert [(d.code, d.location.path) for d in completed.diagnostics] == [
+        ("PIE-S2306", "a.pietto"),
+        ("PIE-S2102", "c.pietto"),
+        ("PIE-S2306", "c.pietto"),
+    ]
+    assert len(completed.diagnostics) == len(emitted)
+    assert all(a is b for a, b in zip(completed.diagnostics, emitted, strict=True))
+    request = _request(completed)
+    for requests in ((), (request,), (request,)):
+        wrapped = boundary.with_project_single_match_requests(completed, requests)
+        assert wrapped.roots is completed.roots and not wrapped.ok
+        assert all(
+            a is b for a, b in zip(wrapped.diagnostics[:3], emitted, strict=True)
+        )
+        assert len(typed_scripts) == len(checked_scripts) == 4
+        if requests:
+            assert wrapped.diagnostics[-1].code == "PIE-S2337"
+
+
+def test_completed_preserves_prior_diagnostics_and_cli_semantic_caller(
+    tmp_path: Path,
+) -> None:
+    from pietto import cli
+    from test_phase64_slice3_generic_on_condition_semantics_authority_separation import (
+        _completed,
+    )
+
+    completed = _completed(
+        tmp_path,
+        SHAPE
+        + 'source users: UserRow is mysql.table("")\n'
+        + "query broken:\n    from absent\n    select:\n        id\n",
+    )
+    semantic = completed.semantic_result
+    prior = semantic.diagnostics
+    assert prior and all(d.severity is Severity.ERROR for d in prior)
+    assert all(
+        a is b for a, b in zip(completed.diagnostics[: len(prior)], prior, strict=True)
+    )
+    assert completed.diagnostics[-1].code == "PIE-S2306"
+    diagnostics, ok = cli._project_semantic_boundary(semantic)
+    assert not ok
+    assert all(a is b for a, b in zip(diagnostics[: len(prior)], prior, strict=True))
+    assert diagnostics == completed.diagnostics
+
+
+def test_completed_source_scan_rejects_missing_module_script(tmp_path: Path) -> None:
+    from pietto._project.project_completed_semantics import (
+        build_project_completed_semantic_result,
+    )
+    from test_phase64_slice3_generic_on_condition_semantics_authority_separation import (
+        _completed,
+    )
+
+    completed = _completed(
+        tmp_path, SHAPE + 'source users: UserRow is postgres.table("users")\n'
+    )
+    module = completed.semantic_result.modules[0]
+    parsed = module.parsed_input
+    # Deliberately corrupt one retained root; restore it before the test exits.
+    object.__setattr__(module, "parsed_input", None)
+    try:
+        with pytest.raises(ValueError, match="every module script"):
+            build_project_completed_semantic_result(completed.semantic_result)
+    finally:
+        object.__setattr__(module, "parsed_input", parsed)
+
+
+@pytest.mark.parametrize("mode", ("legacy_flat", "package_root"))
+def test_completed_nonpositive_modes_do_not_run_source_scan(
+    mode: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pietto._project import project_completed_semantics as boundary
+    from pietto._project.model import ProjectSemanticResult
+    from pietto._project.module_carrier import ProjectCompilationMode
+
+    def forbidden(script):
+        raise AssertionError("nonpositive modes must not enter source validation")
+
+    monkeypatch.setattr(boundary, "type_source_connector_arguments", forbidden)
+    semantic = ProjectSemanticResult(
+        root=None,
+        config_path=None,
+        model=None,
+        compilation_mode=ProjectCompilationMode(mode),
+    )
+    result = boundary.build_project_completed_semantic_result(semantic)
+    assert isinstance(result, boundary.ProjectNonConcreteCompletedSemanticResult)
+    assert result.diagnostics is semantic.diagnostics and not result.ok
 
 
 def test_postgres_table_with_text_argument_passes() -> None:
