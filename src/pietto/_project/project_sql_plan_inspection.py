@@ -11,6 +11,7 @@ from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_joins as joining
 from pietto._project import project_sql_plan_results as results
 from pietto._project import project_sql_plan_sets as sets
+from pietto._project import project_sql_plan_literals as literals
 
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.project_sql_plan import (
@@ -67,16 +68,16 @@ class ProjectSQLPlanInspection:
             type(verification) is not ProjectSQLPlanVerification
             or not verification.verified
             or type(verification.plan) is not ProjectSQLPlan
-            or verification.plan.scope.completed is not verification.completed
-            or verification.plan.scope.analysis_bundle
-            is not verification.analysis_bundle
-            or verification.plan.scope.selected_owner is not verification.selected_owner
             or not verify_project_sql_plan(
                 verification.plan,
                 verification.completed,
                 verification.analysis_bundle,
                 verification.selected_owner,
+                literal_policy=verification.literal_policy,
+                envelope=verification.envelope,
             ).verified
+            or verification.envelope is not verification.plan.fixed_envelope
+            or verification.literal_policy is not verification.plan.literal_policy
         ):
             raise ValueError(
                 "Runtime inspection requires an exact VERIFIED ProjectSQLPlan."
@@ -346,6 +347,70 @@ class ProjectSQLPlanInspection:
         if expression is None or expression.ref is not ref:
             raise ValueError("Expression reference does not belong to this plan.")
         return expression
+
+    @property
+    def literal_policy(self) -> literals.ProjectSQLLiteralPolicy:
+        return self.plan.literal_policy
+
+    @property
+    def literal_sites(self) -> tuple[literals.ProjectSQLLiteralSite, ...]:
+        return self.plan.literal_sites
+
+    @property
+    def literal_slots(self) -> tuple[literals.ProjectSQLLiteralSlot, ...]:
+        return self.plan.literal_slots
+
+    @property
+    def fixed_envelope(self) -> literals.ProjectSQLFixedEnvelope:
+        return self.plan.fixed_envelope
+
+    @property
+    def bind_uses(self) -> tuple[literals.ProjectSQLBindUse, ...]:
+        return self.plan.bind_uses
+
+    def literal_site(self, ref: ProjectSQLPlanRef) -> literals.ProjectSQLLiteralSite:
+        matches = tuple(site for site in self.literal_sites if site.ref is ref)
+        if len(matches) != 1:
+            raise ValueError("Literal site does not belong to this plan.")
+        return matches[0]
+
+    def fixed_value(
+        self, slot: ProjectSQLPlanRef
+    ) -> literals.ProjectSQLFixedLiteralValue:
+        matches = tuple(
+            value for value in self.fixed_envelope.values if value.slot.ref is slot
+        )
+        if len(matches) != 1:
+            raise ValueError("Fixed slot does not belong to this plan.")
+        return matches[0]
+
+    def literal_value(
+        self, expression: ProjectSQLPlanRef
+    ) -> row.ProjectSQLLiteral | literals.ProjectSQLFixedLiteralValue:
+        """Consume the expression's actual transport; a bind cannot fall back."""
+        value = self.expression(expression)
+        if type(value) is row.ProjectSQLLiteral:
+            return value
+        if type(value) is row.ProjectSQLBoundLiteral:
+            return self.fixed_value(value.use.slot.ref)
+        raise ValueError("Expression is not a literal transport.")
+
+    def uses_for_slot(
+        self, slot: ProjectSQLPlanRef
+    ) -> tuple[literals.ProjectSQLBindUse, ...]:
+        self.fixed_value(slot)
+        return tuple(use for use in self.bind_uses if use.slot.ref is slot)
+
+    def literal_requirements(
+        self, slot: ProjectSQLPlanRef
+    ) -> tuple[literals.ProjectSQLLiteralDemand, ...]:
+        self.fixed_value(slot)
+        return tuple(
+            demand
+            for demand in self.demands
+            if isinstance(demand, literals.ProjectSQLLiteralDemand)
+            and demand.use.slot.ref is slot
+        )
 
     def expressions_for_site(
         self, ref: ProjectSQLPlanRef

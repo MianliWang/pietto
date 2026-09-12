@@ -60,9 +60,10 @@ documentation does not supersede that evidence.
 | Phase 65 Slice 7 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 8 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 9 | `COMPLETED / PUBLISHED` |
-| Phase 65 Slice 10 | `NEXT / NOT IMPLEMENTED` |
-| Phase 65 Slices 11–16 | `NOT IMPLEMENTED` |
-| Next | `Phase 65 Slice 10 — Typed fixed-literal binding envelope and use layout` |
+| Phase 65 Slice 10 | `COMPLETED / PUBLISHED` |
+| Phase 65 Slice 11 | `NEXT / NOT IMPLEMENTED` |
+| Phase 65 Slices 12–16 | `NOT IMPLEMENTED` |
+| Next | `Phase 65 Slice 11 — Complete demand and obligation report` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -939,5 +940,17 @@ Independent verification and exact-ref inspection preserve binding-level claims
 as a distinct product. Direct SET aggregation keeps its existing upstream limits;
 admitted JOIN/SELECT-bridge aggregation paths remain available. No target support,
 physical evaluation order/count or runtime fulfillment is certified.
-Phase65 stays `ACTIVE`; Slice10 is `NEXT / NOT IMPLEMENTED`;
-Slices 11–16 are `NOT IMPLEMENTED`; N16 is unchanged.
+That publication left Slice10 next; N16 stayed unchanged.
+
+Phase 65 Slice 10 is `COMPLETED / PUBLISHED` only upon successful natural
+exact-head CI on its ordinary commit. Its [fixed-literal contract](spec/phase65-slice10-typed-fixed-literal-envelope-bind-use-layout-v1.md)
+adds explicit PRESERVE_LITERALS / BIND_SAFE_LITERALS policy, complete contextual
+literal dispositions, typed fixed-value envelope and actual slot-backed expression uses.
+Original decoded values, exact numeric tags and signed zero are retained.
+Structural type/connector/window/ORDER/LIMIT literals remain preserved with reasons.
+Independent fixed-envelope verification checks rooted source values; fresh inspection
+rejects stale policy/envelope identities and exposes mandatory representation demands.
+Shared definitions and stage ports retain their existing multiplicity and obligations;
+no caller rebind, SQL placeholder, target support or execution is supplied.
+Phase65 stays `ACTIVE`; Slice11 is `NEXT / NOT IMPLEMENTED`;
+Slices 12–16 are `NOT IMPLEMENTED`; N16 is unchanged.

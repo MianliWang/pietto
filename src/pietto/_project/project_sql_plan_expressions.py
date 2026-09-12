@@ -68,6 +68,7 @@ from pietto._project.project_joined_row_filter import ProjectJoinedRowRetentionE
 from pietto.semantic.model import ValueType
 
 if TYPE_CHECKING:
+    from pietto._project.project_sql_plan_literals import ProjectSQLBindUse
     from pietto._project.project_completed_semantics import (
         ProjectConcreteCompletedSemanticResult,
     )
@@ -179,6 +180,12 @@ class ProjectSQLLiteral(ProjectSQLExpressionBase):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLBoundLiteral(ProjectSQLExpressionBase):
+    expression: LiteralExpr
+    use: ProjectSQLBindUse
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSQLReference(ProjectSQLExpressionBase):
     expression: NameExpr | DottedNameExpr
     reference: ProjectModuleExpressionReferenceFact
@@ -238,6 +245,7 @@ class ProjectSQLBetween(ProjectSQLExpressionBase):
 
 type ProjectSQLExpression = (
     ProjectSQLLiteral
+    | ProjectSQLBoundLiteral
     | ProjectSQLReference
     | ProjectSQLJoinedReference
     | ProjectSQLMatchReference

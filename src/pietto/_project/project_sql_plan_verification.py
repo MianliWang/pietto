@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from math import isfinite
+from pietto.semantic.model import TypeKind, ValueType
+from pietto._project import project_sql_plan_literals as literals
+
 from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_results as results
@@ -134,6 +138,7 @@ type _OriginSpec = tuple[
 
 
 class ProjectSQLPlanVerificationIssue(StrEnum):
+    LITERAL_TRANSPORT = "literal_transport"
     NON_CONCRETE = "non_concrete"
     ROOT_CONTINUITY = "root_continuity"
     UNSUPPORTED_SHAPE = "unsupported_shape"
@@ -2525,6 +2530,11 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
         environment = {id(port.key): port for port in incoming}
         reference_position = 0
         for node, value in zip(nodes, values, strict=True):
+            variants[LiteralExpr] = (
+                row.ProjectSQLBoundLiteral
+                if type(value) is row.ProjectSQLBoundLiteral
+                else row.ProjectSQLLiteral
+            )
             if (
                 type(value)
                 is not (
@@ -2782,7 +2792,7 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 children = tuple(local[id(argument)].ref for argument in node.arguments)
                 if not _same(value.arguments, children):
                     return False
-            elif isinstance(value, row.ProjectSQLLiteral):
+            elif isinstance(value, (row.ProjectSQLLiteral, row.ProjectSQLBoundLiteral)):
                 children = ()
             elif isinstance(value, row.ProjectSQLUnary):
                 children = (local[id(node.operand)].ref,)
@@ -3106,29 +3116,19 @@ def _row_origins_and_demands(plan):
         + len(plan.set_bodies)
         + sum(body.requires_equivalence for body in plan.set_bodies)
     )
-    if (
-        len(plan.demands)
-        != demand_prefix
-        + len(subjects)
-        + join_count
-        + aggregate_count
-        + window_count
-        + result_count
-        + set_demands
-        or len(plan.origins)
-        != prefix
-        + len(specs)
-        + len(subjects)
-        + 2 * join_count
-        + len(plan.join_ports)
-        + 2 * aggregate_count
-        + len(plan.aggregate_projections)
-        + 2 * window_count
-        + len(plan.window_projections)
-        + 2 * result_count
-        + set_count
-        + set_demands
-    ):
+    if len(plan.demands) != demand_prefix + len(
+        subjects
+    ) + join_count + aggregate_count + window_count + result_count + set_demands + len(
+        plan.bind_uses
+    ) or len(plan.origins) != prefix + len(specs) + len(
+        subjects
+    ) + 2 * join_count + len(plan.join_ports) + 2 * aggregate_count + len(
+        plan.aggregate_projections
+    ) + 2 * window_count + len(
+        plan.window_projections
+    ) + 2 * result_count + set_count + set_demands + len(plan.literal_sites) + len(
+        plan.literal_slots
+    ) + len(plan.fixed_envelope.values) + 2 * len(plan.bind_uses):
         return (Issue.DEMANDS,)
     operand_types = {e.ref: [] for e in plan.expressions}
     for operand in plan.operands:
@@ -5107,6 +5107,279 @@ def _set_origins_and_demands(plan, origin_position, demand_position):
                 return (Issue.ORIGINS,)
             origin_position += 1
             demand_position += 1
+    return _literal_origins_and_demands(plan, origin_position, demand_position)
+
+
+def _literal_schema(plan, policy):
+    """Independently check roles/types/transport against pure retained traversal."""
+    L, K = literals, ProjectSQLPlanRefKind
+    if (
+        type(policy) is not L.ProjectSQLLiteralPolicy
+        or plan.scope is not plan.bindings.scope
+        or plan.literal_policy is not policy
+        or not _inventory(
+            plan.literal_sites, L.ProjectSQLLiteralSite, plan.scope, K.LITERAL_SITE
+        )
+        or not _inventory(
+            plan.literal_slots, L.ProjectSQLLiteralSlot, plan.scope, K.LITERAL_SLOT
+        )
+        or not _inventory(plan.bind_uses, L.ProjectSQLBindUse, plan.scope, K.BIND_USE)
+    ):
+        return False
+    expected = tuple(L.positions(plan))
+    if len(expected) != len(plan.literal_sites):
+        return False
+    bound = []
+    transports = {}
+    for site, position in zip(plan.literal_sites, expected, strict=True):
+        actual = site.position
+        if (
+            type(actual) is not L.ProjectSQLLiteralPosition
+            or any(
+                getattr(actual, name) is not getattr(position, name)
+                for name in (
+                    "definition",
+                    "owner",
+                    "context",
+                    "context_ref",
+                    "role",
+                    "literal",
+                    "value_type",
+                    "evidence",
+                    "expression",
+                )
+            )
+            or site.span is not position.literal.span
+        ):
+            return False
+        if type(actual.ancestry) is not tuple or len(actual.ancestry) != len(
+            position.ancestry
+        ):
+            return False
+        for supplied, original in zip(actual.ancestry, position.ancestry, strict=True):
+            if (
+                type(supplied) is not tuple
+                or len(supplied) != 2
+                or supplied[0] is not original[0]
+                or type(supplied[1]) is not int
+                or supplied[1] != original[1]
+            ):
+                return False
+        # Do not use the builder's classifier, type solver or host-value typing.
+        R, Why = L.ProjectSQLLiteralRole, L.ProjectSQLLiteralReason
+        value_type, value = position.value_type, position.literal.value
+        if policy is L.ProjectSQLLiteralPolicy.PRESERVE_LITERALS:
+            reason = Why.POLICY
+        elif position.role in (
+            R.AGGREGATE_ARGUMENT,
+            R.SATISFYING,
+            R.QUALIFY,
+            R.WINDOW_ARGUMENT,
+            R.WINDOW_PARTITION,
+            R.WINDOW_ORDER,
+            R.FRAME,
+            R.ORDER,
+            R.LIMIT,
+            R.CONNECTOR,
+            R.TYPE,
+        ):
+            reason = Why.SPECIALIZED
+        elif (
+            position.role not in (R.SELECT, R.LET, R.WHERE, R.ON)
+            or position.expression is None
+        ):
+            reason = Why.UNKNOWN_CONTEXT
+        elif any(type(parent) is CallExpr for parent, _ in position.ancestry):
+            reason = Why.CALL_ARGUMENT
+        elif any(
+            type(parent)
+            not in (UnaryExpr, BinaryExpr, ComparisonExpr, IsNullExpr, BetweenExpr)
+            for parent, _ in position.ancestry
+        ):
+            reason = Why.UNKNOWN_CONTEXT
+        elif value is None:
+            reason = Why.NULL
+        elif (
+            type(value_type) is not ValueType
+            or value_type.kind is not ValueTypeKind.KNOWN
+        ):
+            reason = Why.TYPE_UNAVAILABLE
+        elif (
+            value_type.resolved_type.kind is not TypeKind.BUILTIN
+            or value_type.resolved_type.definition is not None
+            or value_type.resolved_type.name not in ("Bool", "Int", "Text", "Float")
+        ):
+            reason = Why.NON_BUILTIN
+        elif (
+            value_type.resolved_type.name == "Float"
+            and type(value) is float
+            and not isfinite(value)
+        ):
+            reason = Why.NONFINITE
+        elif not L.same_value(
+            L.ProjectSQLLiteralTag(value_type.resolved_type.name), value, value
+        ):
+            reason = Why.VALUE_REPRESENTATION
+        else:
+            reason = None
+        disposition = (
+            L.ProjectSQLLiteralDisposition.BOUND
+            if reason is None
+            else L.ProjectSQLLiteralDisposition.PRESERVED_WITH_REASON
+        )
+        if site.reason is not reason or site.disposition is not disposition:
+            return False
+        if position.expression is not None:
+            if position.expression in transports:
+                return False
+            transports[position.expression] = site
+        if reason is None:
+            bound.append(site)
+    if len(bound) != len(plan.literal_slots) or len(bound) != len(plan.bind_uses):
+        return False
+    uses = {}
+    for site, slot, use in zip(bound, plan.literal_slots, plan.bind_uses, strict=True):
+        if (
+            slot.site is not site
+            or slot.value_type is not site.position.value_type
+            or type(slot.tag) is not L.ProjectSQLLiteralTag
+            or slot.tag.value != slot.value_type.resolved_type.name
+            or use.slot is not slot
+            or use.expression is not site.position.expression
+        ):
+            return False
+        uses[use.expression] = use
+    seen = set()
+    for expression in plan.expressions:
+        if not isinstance(expression.expression, LiteralExpr):
+            continue
+        site = transports.get(expression.ref)
+        if site is None:
+            return False
+        use = uses.get(expression.ref)
+        if use is None:
+            if type(expression) is not row.ProjectSQLLiteral:
+                return False
+        elif (
+            type(expression) is not row.ProjectSQLBoundLiteral
+            or expression.use is not use
+        ):
+            return False
+        seen.add(expression.ref)
+    return seen == set(transports)
+
+
+def verify_fixed_literal_envelope(
+    plan: ProjectSQLPlan,
+    envelope: literals.ProjectSQLFixedEnvelope,
+    *,
+    literal_policy: literals.ProjectSQLLiteralPolicy = literals.ProjectSQLLiteralPolicy.PRESERVE_LITERALS,
+) -> bool:
+    """Check a supplied immutable envelope against the rooted fixed schema/source.
+
+    Whole-plan verification separately owns all pre-existing plan/semantic/IR
+    invariants. This checker never accepts caller replacements or constructs types.
+    """
+    L, K = literals, ProjectSQLPlanRefKind
+    try:
+        if (
+            type(plan) is not ProjectSQLPlan
+            or not _literal_schema(plan, literal_policy)
+            or type(envelope) is not L.ProjectSQLFixedEnvelope
+            or envelope.scope is not plan.scope
+            or envelope.policy is not literal_policy
+            or not _same(envelope.slots, plan.literal_slots)
+            or not _inventory(
+                envelope.values,
+                L.ProjectSQLFixedLiteralValue,
+                plan.scope,
+                K.FIXED_LITERAL_VALUE,
+            )
+            or len(envelope.values) != len(plan.literal_slots)
+        ):
+            return False
+        return all(
+            value.slot is slot
+            and value.tag is slot.tag
+            and L.same_value(value.tag, value.value, slot.site.position.literal.value)
+            for slot, value in zip(plan.literal_slots, envelope.values, strict=True)
+        )
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+        return False
+
+
+def _literal_origins_and_demands(plan, origin_position, demand_position):
+    L, Issue, K, R, P = (
+        literals,
+        ProjectSQLPlanVerificationIssue,
+        ProjectSQLPlanRefKind,
+        ProjectSQLOriginRole,
+        ProjectSQLOriginProvenance,
+    )
+    original_refs = {}
+    for witness in (
+        *plan.literal_sites,
+        *plan.literal_slots,
+        *plan.fixed_envelope.values,
+        *plan.bind_uses,
+    ):
+        site, antecedents, provenance = L.origin_parts(witness)
+        original = plan.origins[origin_position]
+        if not _origin_matches(
+            original,
+            (
+                witness.ref,
+                R(witness.ref.kind.value),
+                provenance,
+                site.position.owner,
+                site.position.literal,
+                witness,
+                antecedents,
+            ),
+            plan.scope,
+            origin_position,
+        ):
+            return (Issue.ORIGINS,)
+        original_refs[witness.ref] = original.ref
+        origin_position += 1
+    if len(plan.bind_uses) != len(plan.fixed_envelope.values):
+        return (Issue.LITERAL_TRANSPORT,)
+    contexts = L.context_index(plan)
+    for use, value in zip(plan.bind_uses, plan.fixed_envelope.values, strict=True):
+        demand, origin = plan.demands[demand_position], plan.origins[origin_position]
+        site = use.slot.site
+        if (
+            type(demand) is not L.ProjectSQLLiteralDemand
+            or not _ref(demand.ref, plan.scope, K.DEMAND, demand_position)
+            or demand.subject is not use.ref
+            or demand.use is not use
+            or demand.value is not value
+            or not _same(demand.contexts, L.demand_contexts(site, contexts))
+            or not _same(demand.requirements, tuple(L.ProjectSQLLiteralRequirement))
+            or demand.origin is not origin.ref
+        ):
+            return (Issue.DEMANDS,)
+        if not _origin_matches(
+            origin,
+            (
+                demand.ref,
+                R.DEMAND,
+                P.TYPE_PROOF,
+                site.position.owner,
+                site.position.literal,
+                use,
+                (
+                    original_refs[use.ref],
+                    original_refs[use.slot.ref],
+                    original_refs[value.ref],
+                ),
+            ),
+            plan.scope,
+            origin_position,
+        ):
+            return (Issue.ORIGINS,)
+        origin_position += 1
+        demand_position += 1
     return (
         ()
         if origin_position == len(plan.origins) and demand_position == len(plan.demands)
@@ -5114,7 +5387,7 @@ def _set_origins_and_demands(plan, origin_position, demand_position):
     )
 
 
-def _verify(plan, completed, bundle, selected):
+def _verify(plan, completed, bundle, selected, policy, envelope):
     Issue = ProjectSQLPlanVerificationIssue
     if type(plan) is not ProjectSQLPlan:
         return (Issue.NON_CONCRETE,)
@@ -5122,7 +5395,14 @@ def _verify(plan, completed, bundle, selected):
         issues = _verify_bindings(plan.bindings, completed, bundle, selected)
         if issues:
             return issues
-        return _whole_plan(plan)
+        issues = _whole_plan(plan)
+        if issues:
+            return issues
+        if envelope is not plan.fixed_envelope or not verify_fixed_literal_envelope(
+            plan, envelope, literal_policy=policy
+        ):
+            return (Issue.LITERAL_TRANSPORT,)
+        return ()
     except (AttributeError, IndexError, KeyError, TypeError, ValueError):
         return (Issue.STRUCTURE,)
 
@@ -5133,14 +5413,27 @@ class ProjectSQLPlanVerification:
     completed: ProjectConcreteCompletedSemanticResult
     analysis_bundle: ProjectIRQueryBlockAnalysisBundle
     selected_owner: ProjectDeclarationOccurrence
+    literal_policy: literals.ProjectSQLLiteralPolicy = (
+        literals.ProjectSQLLiteralPolicy.PRESERVE_LITERALS
+    )
+    envelope: literals.ProjectSQLFixedEnvelope | None = None
     issues: tuple[ProjectSQLPlanVerificationIssue, ...] = field(init=False)
 
     def __post_init__(self) -> None:
+        if self.envelope is None and type(self.plan) is ProjectSQLPlan:
+            object.__setattr__(
+                self, "envelope", getattr(self.plan, "fixed_envelope", None)
+            )
         object.__setattr__(
             self,
             "issues",
             _verify(
-                self.plan, self.completed, self.analysis_bundle, self.selected_owner
+                self.plan,
+                self.completed,
+                self.analysis_bundle,
+                self.selected_owner,
+                self.literal_policy,
+                self.envelope,
             ),
         )
 
@@ -5154,10 +5447,15 @@ def verify_project_sql_plan(
     completed: ProjectConcreteCompletedSemanticResult,
     analysis_bundle: ProjectIRQueryBlockAnalysisBundle,
     selected_owner: ProjectDeclarationOccurrence,
+    *,
+    literal_policy: literals.ProjectSQLLiteralPolicy = literals.ProjectSQLLiteralPolicy.PRESERVE_LITERALS,
+    envelope: literals.ProjectSQLFixedEnvelope | None = None,
 ) -> ProjectSQLPlanVerification:
     return ProjectSQLPlanVerification(
         plan=plan,
         completed=completed,
         analysis_bundle=analysis_bundle,
         selected_owner=selected_owner,
+        literal_policy=literal_policy,
+        envelope=envelope,
     )

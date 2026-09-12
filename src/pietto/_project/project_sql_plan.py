@@ -10,6 +10,7 @@ from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_results as results
 from pietto._project import project_sql_plan_sets as sets
+from pietto._project import project_sql_plan_literals as literals
 
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -916,6 +917,10 @@ class ProjectSQLPlanUnavailable:
 
 
 class ProjectSQLPlanRefKind(StrEnum):
+    LITERAL_SITE = "literal_site"
+    LITERAL_SLOT = "literal_slot"
+    FIXED_LITERAL_VALUE = "fixed_literal_value"
+    BIND_USE = "bind_use"
     SET_BODY = "set_body"
     SET_OPERAND = "set_operand"
     SET_INPUT = "set_input"
@@ -1086,6 +1091,10 @@ class ProjectSQLProjection:
 
 
 class ProjectSQLOriginRole(StrEnum):
+    LITERAL_SITE = "literal_site"
+    LITERAL_SLOT = "literal_slot"
+    FIXED_LITERAL_VALUE = "fixed_literal_value"
+    BIND_USE = "bind_use"
     SET_BODY = "set_body"
     SET_OPERAND = "set_operand"
     SET_INPUT = "set_input"
@@ -1168,7 +1177,8 @@ type ProjectSQLCause = (
 )
 
 type ProjectSQLOriginEvidence = (
-    sets.Witness
+    literals.Witness
+    | sets.Witness
     | results.Witness
     | windows.Witness
     | windows.Qualify
@@ -1224,7 +1234,8 @@ class ProjectSQLExportRepresentationDemand:
 
 
 type ProjectSQLDemand = (
-    sets.ProjectSQLSetDemand
+    literals.ProjectSQLLiteralDemand
+    | sets.ProjectSQLSetDemand
     | results.ProjectSQLResultDemand
     | ProjectSQLSourceRealizationDemand
     | ProjectSQLExportRepresentationDemand
@@ -1258,6 +1269,11 @@ class ProjectSQLBindings:
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False, init=False)
 class ProjectSQLPlan:
+    literal_policy: literals.ProjectSQLLiteralPolicy
+    literal_sites: tuple[literals.ProjectSQLLiteralSite, ...]
+    literal_slots: tuple[literals.ProjectSQLLiteralSlot, ...]
+    bind_uses: tuple[literals.ProjectSQLBindUse, ...]
+    fixed_envelope: literals.ProjectSQLFixedEnvelope
     scope: ProjectSQLPlanScope
     bindings: ProjectSQLBindings
     sources: tuple[ProjectSQLSourceBinding, ...]
@@ -1962,7 +1978,11 @@ def build_project_sql_plan(
     completed: ProjectConcreteCompletedSemanticResult,
     analysis_bundle: ProjectIRQueryBlockAnalysisBundle,
     selected_owner: ProjectDeclarationOccurrence,
+    *,
+    literal_policy: literals.ProjectSQLLiteralPolicy = literals.ProjectSQLLiteralPolicy.PRESERVE_LITERALS,
 ) -> ProjectSQLPlan | ProjectSQLPlanUnavailable:
+    if type(literal_policy) is not literals.ProjectSQLLiteralPolicy:
+        raise TypeError("Literal policy must be an exact ProjectSQLLiteralPolicy.")
     _require_roots(completed, analysis_bundle, selected_owner)
     if _blockers(completed, analysis_bundle, selected_owner):
         return ProjectSQLPlanUnavailable(
@@ -3880,6 +3900,54 @@ def build_project_sql_plan(
                     origin=demand_origin,
                 )
             )
+    object.__setattr__(plan, "origins", tuple(origins))
+    object.__setattr__(plan, "demands", tuple(demands))
+    for name, collection in literals.build(plan, literal_policy, ref).items():
+        object.__setattr__(plan, name, collection)
+    for witness in (
+        *plan.literal_sites,
+        *plan.literal_slots,
+        *plan.fixed_envelope.values,
+        *plan.bind_uses,
+    ):
+        literal_site, antecedents, provenance = literals.origin_parts(witness)
+        origin(
+            witness.ref,
+            R(witness.ref.kind.value),
+            provenance,
+            literal_site.position.owner,
+            literal_site.position.literal,
+            witness,
+            antecedents,
+        )
+    contexts = literals.context_index(plan)
+    for use, value in zip(plan.bind_uses, plan.fixed_envelope.values, strict=True):
+        demand_ref = ref(K.DEMAND)
+        literal_site = use.slot.site
+        demand_origin = origin(
+            demand_ref,
+            R.DEMAND,
+            P.TYPE_PROOF,
+            literal_site.position.owner,
+            literal_site.position.literal,
+            use,
+            (
+                origin_by_subject[use.ref],
+                origin_by_subject[use.slot.ref],
+                origin_by_subject[value.ref],
+            ),
+        )
+        demands.append(
+            literals.ProjectSQLLiteralDemand(
+                ref=demand_ref,
+                subject=use.ref,
+                use=use,
+                value=value,
+                contexts=literals.demand_contexts(literal_site, contexts),
+                requirements=tuple(literals.ProjectSQLLiteralRequirement),
+                origin=demand_origin,
+            )
+        )
     object.__setattr__(plan, "origins", tuple(origins))
     object.__setattr__(plan, "demands", tuple(demands))
     return plan
