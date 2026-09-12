@@ -59,9 +59,10 @@ documentation does not supersede that evidence.
 | Phase 65 Slice 6 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 7 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 8 | `COMPLETED / PUBLISHED` |
-| Phase 65 Slice 9 | `NEXT / NOT IMPLEMENTED` |
-| Phase 65 Slices 10–16 | `NOT IMPLEMENTED` |
-| Next | `Phase 65 Slice 9 — Set query-expression bodies and positional ports` |
+| Phase 65 Slice 9 | `COMPLETED / PUBLISHED` |
+| Phase 65 Slice 10 | `NEXT / NOT IMPLEMENTED` |
+| Phase 65 Slices 11–16 | `NOT IMPLEMENTED` |
+| Next | `Phase 65 Slice 10 — Typed fixed-literal binding envelope and use layout` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -923,5 +924,20 @@ RIGHT_LIMIT proof transport uses the actual limited right producer; LIMIT0 retai
 all applicable single-match requirements and project errors. Independent verification
 and exact-ref inspection require complete result boundaries, origins/demands and
 canonical terminal images. No representative, target support or execution is supplied.
-Phase65 stays `ACTIVE`; Slice9 is `NEXT / NOT IMPLEMENTED`;
-Slices 10–16 are `NOT IMPLEMENTED`; N16 is unchanged.
+That publication left Slice9 next; N16 stayed unchanged.
+
+Phase 65 Slice 9 is `COMPLETED / PUBLISHED` only upon successful natural
+exact-head CI on its ordinary commit. Its [SET-body contract](spec/phase65-slice9-set-query-expression-bodies-positional-ports-v1.md)
+adds real non-SELECT SET bodies for all six explicit forms, ordered operands and
+positional input/output maps. Canonical identities belong to each SET owner;
+complete terminal export mappings preserve operand-local result boundaries.
+UNION ALL retains compatible Float without an equality requirement. Exact Decimal
+parent chains and EXCEPT right-side membership remain visible, together with
+original source/risk/single-match requirements. Depth12 full-plan sharing keeps
+13 definitions and 24 uses plus the separately counted source/result wrappers.
+Independent verification and exact-ref inspection preserve binding-level claims
+as a distinct product. Direct SET aggregation keeps its existing upstream limits;
+admitted JOIN/SELECT-bridge aggregation paths remain available. No target support,
+physical evaluation order/count or runtime fulfillment is certified.
+Phase65 stays `ACTIVE`; Slice10 is `NEXT / NOT IMPLEMENTED`;
+Slices 11–16 are `NOT IMPLEMENTED`; N16 is unchanged.

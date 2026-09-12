@@ -5,6 +5,7 @@ from __future__ import annotations
 from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_results as results
+from pietto._project import project_sql_plan_sets as sets
 
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -18,6 +19,7 @@ from pietto._project.project_query_block_ir_verification import (
     ProjectIRQueryBlockAnalysisBundle,
 )
 from pietto._project.project_query_block_ir import (
+    ProjectIRCompletedSetOperationOutput,
     ProjectIRCompletedQueryBlockOutput,
     ProjectIRReboundExistingOutput,
     ProjectIRQueryBlockOperatorExtensionKind,
@@ -70,6 +72,7 @@ from pietto._project.project_sql_plan import (
 from pietto.ast_nodes import SelectItem, WindowExpr
 from pietto.ast_nodes import (
     SourceDef,
+    SetRelationDef,
     TableDef,
     QueryDef,
     CallExpr,
@@ -1857,6 +1860,7 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
             windows.authority(d.entry),
         )
         for d in definitions
+        if not isinstance(d.entry.owner.definition, SetRelationDef)
     ):
         return (Issue.UNSUPPORTED_SHAPE,)
     if plan.scope is not bindings.scope or any(
@@ -1907,6 +1911,7 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
         or not _aggregate_structure(plan)
         or not _window_structure(plan)
         or not _result_structure(plan)
+        or not _set_structure(plan)
     ):
         return (Issue.STRUCTURE,)
     join_by_definition = {d.ref: [] for d in definitions}
@@ -1931,6 +1936,8 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
     root_by_site = {}
     for definition in definitions:
         entry, authored = definition.entry, definition.entry.owner.definition
+        if isinstance(authored, SetRelationDef):
+            continue
         if not isinstance(authored, (TableDef, QueryDef)):
             return (Issue.UNSUPPORTED_SHAPE,)
         authority = row.row_authority(plan.scope.completed, entry)
@@ -3088,6 +3095,17 @@ def _row_origins_and_demands(plan):
             plan.result_exports,
         )
     )
+    set_count = (
+        len(plan.set_bodies)
+        + len(plan.set_operands)
+        + len(plan.set_inputs)
+        + len(plan.set_columns)
+    )
+    set_demands = (
+        set_count
+        + len(plan.set_bodies)
+        + sum(body.requires_equivalence for body in plan.set_bodies)
+    )
     if (
         len(plan.demands)
         != demand_prefix
@@ -3096,6 +3114,7 @@ def _row_origins_and_demands(plan):
         + aggregate_count
         + window_count
         + result_count
+        + set_demands
         or len(plan.origins)
         != prefix
         + len(specs)
@@ -3107,6 +3126,8 @@ def _row_origins_and_demands(plan):
         + 2 * window_count
         + len(plan.window_projections)
         + 2 * result_count
+        + set_count
+        + set_demands
     ):
         return (Issue.DEMANDS,)
     operand_types = {e.ref: [] for e in plan.expressions}
@@ -4051,8 +4072,53 @@ def _result_structure(plan):
         if b.kind is row.ProjectSQLStageKind.PROJECTION
     }
     stage_ports = {p.ref: p for p in plan.stage_ports}
+    set_bodies = {body.definition: body for body in plan.set_bodies}
+    set_columns = {column.ref: column for column in plan.set_columns}
     for definition in plan.bindings.definitions:
         entry, authored = definition.entry, definition.entry.owner.definition
+        if isinstance(authored, SetRelationDef):
+            if not isinstance(entry, ProjectIRCompletedSetOperationOutput):
+                return False
+            body = set_bodies[definition.ref]
+            outputs = take("result_ports", len(definition.exports))
+            if not _same(body.outputs, tuple(port.ref for port in outputs)) or len(
+                body.columns
+            ) != len(outputs):
+                return False
+            for i, (port, canonical, column_ref, semantic) in enumerate(
+                zip(
+                    outputs,
+                    definition.exports,
+                    body.columns,
+                    entry.semantic_entry.fields,
+                    strict=True,
+                )
+            ):
+                column = set_columns[column_ref]
+                if (
+                    port.definition is not definition.ref
+                    or port.boundary is not body.ref
+                    or port.role is not results.ProjectSQLResultPortRole.OUTPUT
+                    or type(port.position) is not int
+                    or port.position != i
+                    or port.canonical is not canonical
+                    or port.key is not semantic
+                    or port.type_evidence is not semantic.field
+                    or port.source is not column.ref
+                    or column.output is not port.ref
+                ):
+                    return False
+            exports = take("result_exports", len(outputs))
+            if any(
+                image.definition is not definition.ref
+                or image.canonical is not canonical
+                or image.port is not port.ref
+                for image, canonical, port in zip(
+                    exports, definition.exports, outputs, strict=True
+                )
+            ):
+                return False
+            continue
         if not isinstance(authored, (TableDef, QueryDef)):
             continue
         expected_kinds = []
@@ -4062,8 +4128,6 @@ def _result_structure(plan):
             expected_kinds.append("relation_ordering")
         if authored.limit_clause is not None:
             expected_kinds.append("limit")
-        if not expected_kinds:
-            continue
         operators = tuple(
             op
             for op in _operators(entry)
@@ -4546,6 +4610,503 @@ def _result_origins_and_demands(plan, origin_position, demand_position):
             return (Issue.ORIGINS,)
         origin_position += 2
         demand_position += 1
+    return _set_origins_and_demands(plan, origin_position, demand_position)
+
+
+def _set_type_evidence(evidence, completed, entries, identities, resolutions, checked):
+    """Check retained type-parent links iteratively, including UNION ALL's non-equality cases."""
+    from pietto._project.project_final_outputs import (
+        ProjectCompletedOutputField,
+        ProjectEffectiveJoinInputAuthority,
+    )
+
+    pending = [(evidence, False)]
+    active = set()
+    types = completed.semantic_result.module_type_source_resolutions
+    while pending:
+        value, closing = pending.pop()
+        if closing:
+            active.remove(id(value))
+            checked.add(id(value))
+            continue
+        if id(value) in active:
+            return False
+        if id(value) in checked:
+            continue
+        if (
+            type(value) is not results.ProjectRowEquivalenceField
+            or value.types is not types
+            or not value.type_concrete
+        ):
+            return False
+        selected = value.selected
+        if isinstance(selected, ProjectRowEquivalenceInput):
+            authority = selected.authority
+            if (
+                type(authority) is not ProjectEffectiveJoinInputAuthority
+                or authority.completion is not completed.completion
+                or entries.get(id(authority.entry)) is not authority.entry
+            ):
+                return False
+            source = authority.entry
+            original_fields = (
+                source.properties.fields
+                if isinstance(source, results.ProjectExistingEffectiveOutput)
+                else source.fields
+            )
+            position = selected.field_position
+            if type(position) is not int or not 0 <= position < len(original_fields):
+                return False
+            if isinstance(source, results.ProjectExistingEffectiveOutput):
+                original = source.properties.fields[position]
+                original_field = original.evidence
+                parents = ()
+            else:
+                original = source.fields[position]
+                original_field = original.field
+                parents = original.type_sources
+            if (
+                selected.original is not original
+                or selected.field is not original_field
+                or selected.identity is not identities[(id(source), position)]
+                or not _same(selected.type_sources, parents)
+            ):
+                return False
+        elif isinstance(selected, ProjectCompletedOutputField):
+            source = entries.get(id(selected.owner))
+            if source is None or not any(selected is field for field in source.fields):
+                return False
+        else:
+            return False
+        if (
+            type(value.parents) is not tuple
+            or value.parents is not selected.type_sources
+        ):
+            return False
+        resolution = value.resolution
+        if resolution is not None and resolutions.get(id(resolution)) is not resolution:
+            return False
+        field_def = selected.field.field_def
+        if field_def is not None and (
+            resolution is None
+            or resolution.reference.type_expr is not field_def.type_expr
+        ):
+            return False
+        if value.decimal is not None:
+            if (
+                type(value.decimal.precision) is not int
+                or type(value.decimal.scale) is not int
+            ):
+                return False
+            if value.parents and value.decimal is not value.parents[0].decimal:
+                return False
+            if not value.parents and value.decimal_type_expr is None:
+                return False
+        active.add(id(value))
+        pending.append((value, True))
+        pending.extend((parent, False) for parent in reversed(value.parents))
+    return True
+
+
+def _set_structure(plan):
+    from pietto._project.project_final_outputs import (
+        ProjectCompletedSetOutput,
+        ProjectEffectiveJoinInputAuthority,
+    )
+    from pietto._project.project_set_operations import (
+        ProjectSetInputScope,
+        ProjectSetOperandUse,
+        ProjectSetOperation,
+        ProjectSetColumn,
+        ProjectSetMultiplicityLaw,
+    )
+    from pietto._project.model import ProjectRowResultRole
+    from pietto._project.project_row_equivalence import compatible_row_types
+    from pietto.ast_nodes import SetOperationKind, SetOperationQuantifier
+
+    K = ProjectSQLPlanRefKind
+    for values, cls, kind in (
+        (plan.set_bodies, sets.ProjectSQLSetBody, K.SET_BODY),
+        (plan.set_operands, sets.ProjectSQLSetOperand, K.SET_OPERAND),
+        (plan.set_inputs, sets.ProjectSQLSetInput, K.SET_INPUT),
+        (plan.set_columns, sets.ProjectSQLSetColumn, K.SET_COLUMN),
+    ):
+        if not _inventory(values, cls, plan.scope, kind):
+            return False
+    definitions = tuple(
+        d
+        for d in plan.bindings.definitions
+        if isinstance(d.entry.owner.definition, SetRelationDef)
+    )
+    if len(plan.set_bodies) != len(definitions):
+        return False
+    completed = plan.scope.completed
+    by_entry = {id(d.entry): d for d in plan.bindings.definitions}
+    uses = {id(use.edge): use for use in plan.input_uses}
+    terminals = results.terminal_index(plan)
+    result_ports = {port.ref: port for port in plan.result_ports}
+    entries = {id(entry): entry for entry in completed.effective_outputs.entries}
+    entries.update(
+        (id(entry.owner), entry) for entry in completed.effective_outputs.entries
+    )
+    identities = {
+        (id(d.entry.semantic_entry), i): port.identity
+        for d in plan.bindings.definitions
+        for i, port in enumerate(d.exports)
+    }
+    type_root = completed.semantic_result.module_type_source_resolutions
+    if type_root is None:
+        return False
+    resolutions = {
+        id(value): value
+        for environment in type_root.environments
+        for value in environment.type_resolutions
+    }
+    checked_types = set()
+    scheduled = (
+        tuple(completed.completion.topology.blocked_owners)
+        + completed.completion.schedule
+    )
+    positions = {id(owner): i for i, owner in enumerate(scheduled)}
+    actual_by_owner = {
+        id(entry.owner): entry for entry in completed.effective_outputs.entries
+    }
+    operand_cursor = input_cursor = column_cursor = 0
+    for body, definition in zip(plan.set_bodies, definitions, strict=True):
+        entry = definition.entry
+        if not isinstance(entry, ProjectIRCompletedSetOperationOutput):
+            return False
+        semantic = entry.semantic_entry
+        if type(semantic) is not ProjectCompletedSetOutput:
+            return False
+        operation = semantic.root
+        authored = definition.entry.owner.definition
+        if (
+            not isinstance(authored, SetRelationDef)
+            or type(operation) is not ProjectSetOperation
+        ):
+            return False
+        ast_body = authored.body
+        scope = operation.scope
+        if (
+            body.definition is not definition.ref
+            or body.source is not entry
+            or body.operation is not operation
+            or operation.owner is not entry.owner
+            or type(scope) is not ProjectSetInputScope
+            or scope.completion is not completed.completion
+            or scope.base_entry is not semantic.base_entry
+            or not any(
+                scope.base_entry is candidate
+                for candidate in completed.completion.entries
+            )
+            or type(body.kind) is not SetOperationKind
+            or body.kind is not ast_body.kind
+            or type(body.quantifier) is not SetOperationQuantifier
+            or body.quantifier is not ast_body.quantifier
+            or type(body.multiplicity) is not ProjectSetMultiplicityLaw
+            or body.multiplicity is not operation.multiplicity
+            or body.multiplicity.value != f"{body.kind.value}_{body.quantifier.value}"
+            or type(body.fold) is not str
+            or body.fold != "source_order_left_fold"
+            or type(body.requires_equivalence) is not bool
+            or body.requires_equivalence is not operation.requires_equivalence
+            or body.requires_equivalence
+            is not (
+                (body.kind, body.quantifier)
+                != (SetOperationKind.UNION, SetOperationQuantifier.ALL)
+            )
+            or type(body.full_row_unique) is not bool
+            or body.full_row_unique is not operation.full_row_unique
+            or body.full_row_unique
+            is not (body.quantifier is SetOperationQuantifier.DISTINCT)
+            or body.row_domain is not semantic.row_domain
+            or body.properties is not entry.active_properties
+            or body.uniqueness is not semantic.uniqueness
+            or (body.uniqueness is None) is body.full_row_unique
+            or semantic.ordering is not None
+            or semantic.limit is not None
+            or entry.active_properties.ordering is not None
+            or entry.active_properties.cardinality is not None
+            or entry.active_properties.output is not entry.active_output
+            or entry.operator.evidence is not semantic
+            or entry.operator.kind.value != "set_operation"
+            or entry.active_output.row_shape.operator is not entry.operator
+        ):
+            return False
+        if body.uniqueness is not None and (
+            body.uniqueness.output is not semantic
+            or body.uniqueness.nulls_equal is not True
+        ):
+            return False
+        origin = body.row_domain.set_origin
+        if (
+            origin is None
+            or origin.witness is not operation
+            or body.row_domain.kind.value != "set"
+        ):
+            return False
+        expected_available = tuple(
+            actual_by_owner[id(owner)]
+            for owner in scheduled[: positions[id(entry.owner)]]
+        )
+        if not _same(scope.available, expected_available) or not _same(
+            scope.references, tuple(use.resolution for use in operation.uses)
+        ):
+            return False
+        arity, width = len(ast_body.operands), len(definition.exports)
+        if (
+            arity < 2
+            or len(operation.uses) != arity
+            or len(entry.operands) != arity
+            or len(semantic.dependencies) != arity
+            or len(operation.columns) != width
+            or len(semantic.fields) != width
+            or len(body.columns) != width
+            or len(body.outputs) != width
+        ):
+            return False
+        operands = plan.set_operands[operand_cursor : operand_cursor + arity]
+        operand_cursor += arity
+        if len(operands) != arity or not _same(
+            body.operands, tuple(operand.ref for operand in operands)
+        ):
+            return False
+        input_rows = []
+        for i, (operand, image, original, source_ast, dependency) in enumerate(
+            zip(
+                operands,
+                entry.operands,
+                operation.uses,
+                ast_body.operands,
+                semantic.dependencies,
+                strict=True,
+            )
+        ):
+            if (
+                type(image) is not sets.ProjectIRSetOperandInput
+                or type(original) is not ProjectSetOperandUse
+            ):
+                return False
+            use = uses.get(id(image))
+            producer = by_entry.get(id(image.producer))
+            authority = original.authority
+            reference = original.resolution.reference
+            if (
+                use is None
+                or producer is None
+                or operand.body is not body.ref
+                or type(operand.position) is not int
+                or operand.position != i
+                or operand.source is not image
+                or operand.use is not use
+                or operand.producer is not producer.ref
+                or use.producer is not producer.ref
+                or use.consumer is not definition.ref
+                or use.dependency is not dependency
+                or use.edge is not image
+                or image.source is not original
+                or original.scope is not scope
+                or original.dependency is not dependency
+                or dependency.evidence is not original.resolution
+                or type(dependency.dependency_ordinal) is not int
+                or dependency.dependency_ordinal != i
+                or reference.owner is not entry.owner
+                or reference.operand is not source_ast
+                or type(reference.operand_ordinal) is not int
+                or reference.operand_ordinal != i
+                or type(authority) is not ProjectEffectiveJoinInputAuthority
+                or authority.entry is not image.producer.semantic_entry
+                or authority.owner is not image.producer.owner
+                or authority.completion is not completed.completion
+                or original.resolution.target_symbol is not use.binding
+                or use.binding.target_occurrence is not image.producer.owner
+                or image.use.output is not image.producer.active_output.occurrence
+                or image.use.slot.consumer is not entry.operator.node
+                or type(image.use.slot.input_ordinal) is not int
+                or image.use.slot.input_ordinal != i
+                or len(original.fields) != width
+                or len(use.ports) != width
+                or len(producer.exports) != width
+            ):
+                return False
+            local = plan.set_inputs[input_cursor : input_cursor + width]
+            input_cursor += width
+            if len(local) != width or not _same(
+                operand.fields, tuple(field_image.ref for field_image in local)
+            ):
+                return False
+            for j, (field_image, binding, canonical, evidence) in enumerate(
+                zip(local, use.ports, producer.exports, original.fields, strict=True)
+            ):
+                selected = evidence.selected
+                if (
+                    field_image.operand is not operand.ref
+                    or type(field_image.position) is not int
+                    or field_image.position != j
+                    or field_image.binding is not binding
+                    or binding.producer_port is not canonical.ref
+                    or field_image.terminal is not terminals.get(canonical.ref)
+                    or field_image.evidence is not evidence
+                    or type(selected) is not ProjectRowEquivalenceInput
+                    or selected.authority is not authority
+                    or type(selected.field_position) is not int
+                    or selected.field_position != j
+                    or selected.identity is not canonical.identity
+                    or selected.field is not canonical.field.evidence
+                    or (body.requires_equivalence and evidence.reason is not None)
+                    or not _set_type_evidence(
+                        evidence,
+                        completed,
+                        entries,
+                        identities,
+                        resolutions,
+                        checked_types,
+                    )
+                ):
+                    return False
+            input_rows.append(local)
+        columns = plan.set_columns[column_cursor : column_cursor + width]
+        column_cursor += width
+        if len(columns) != width or not _same(
+            body.columns, tuple(column.ref for column in columns)
+        ):
+            return False
+        for i, (column, source, field_image, canonical, ir_field) in enumerate(
+            zip(
+                columns,
+                operation.columns,
+                semantic.fields,
+                definition.exports,
+                entry.active_output.row_shape.fields,
+                strict=True,
+            )
+        ):
+            members = tuple(fields[i].ref for fields in input_rows)
+            evidence = tuple(use.fields[i] for use in operation.uses)
+            output = result_ports[column.output]
+            if (
+                column.body is not body.ref
+                or type(column.position) is not int
+                or column.position != i
+                or type(source) is not ProjectSetColumn
+                or column.source is not source
+                or type(source.position) is not int
+                or source.position != i
+                or source.kind is not body.kind
+                or source.uses is not operation.uses
+                or not _same(source.inputs, evidence)
+                or column.semantic is not field_image
+                or column.field is not canonical.field
+                or not _same(column.inputs, members)
+                or not _same(
+                    column.value_inputs,
+                    members[:1] if body.kind is SetOperationKind.EXCEPT else members,
+                )
+                or output.canonical is not canonical
+                or output.key is not field_image
+                or output.source is not column.ref
+                or output.boundary is not body.ref
+                or body.outputs[i] is not output.ref
+                or field_image.root is not operation
+                or field_image.source is not source
+                or field_image.owner is not entry.owner
+                or type(field_image.output_position) is not int
+                or field_image.output_position != i
+                or field_image.identity is not canonical.identity
+                or field_image.identity is evidence[0].selected.identity
+                or field_image.output_name != evidence[0].selected.identity.name
+                or field_image.identity.owner.identity is not entry.owner.identity
+                or field_image.field is not canonical.field.evidence
+                or field_image.field.resolved_type is not source.resolved_type
+                or field_image.field.nullability is not source.nullability
+                or canonical.field.effective_nullability is not source.nullability
+                or field_image.field.result_role
+                is not ProjectRowResultRole.ORDINARY_ROW_VALUE
+                or field_image.type_sources is not source.inputs
+                or ir_field.semantic_source is not field_image
+                or ir_field.final_identity is not field_image.identity
+                or ir_field.evidence is not field_image.field
+                or any(not compatible_row_types(evidence[0], item) for item in evidence)
+            ):
+                return False
+    return (
+        operand_cursor == len(plan.set_operands)
+        and input_cursor == len(plan.set_inputs)
+        and column_cursor == len(plan.set_columns)
+    )
+
+
+def _set_origins_and_demands(plan, origin_position, demand_position):
+    Issue, R, P, K = (
+        ProjectSQLPlanVerificationIssue,
+        ProjectSQLOriginRole,
+        ProjectSQLOriginProvenance,
+        ProjectSQLPlanRefKind,
+    )
+    context = sets.origin_context(plan)
+    owners = {
+        definition.ref: definition.entry.owner
+        for definition in plan.bindings.definitions
+    }
+    for witness in (
+        *plan.set_bodies,
+        *plan.set_operands,
+        *plan.set_inputs,
+        *plan.set_columns,
+    ):
+        definition, cause, antecedents, provenance, kinds = sets.origin_parts(
+            witness, context
+        )
+        owner = owners[definition]
+        origin = plan.origins[origin_position]
+        if not _origin_matches(
+            origin,
+            (
+                witness.ref,
+                R(witness.ref.kind.value),
+                provenance,
+                owner,
+                cause,
+                witness,
+                antecedents,
+            ),
+            plan.scope,
+            origin_position,
+        ):
+            return (Issue.ORIGINS,)
+        origin_position += 1
+        for kind in kinds:
+            demand, demand_origin = (
+                plan.demands[demand_position],
+                plan.origins[origin_position],
+            )
+            if (
+                type(demand) is not sets.ProjectSQLSetDemand
+                or not _ref(demand.ref, plan.scope, K.DEMAND, demand_position)
+                or demand.subject is not witness.ref
+                or demand.kind is not kind
+                or demand.witness is not witness
+                or demand.origin is not demand_origin.ref
+            ):
+                return (Issue.DEMANDS,)
+            if not _origin_matches(
+                demand_origin,
+                (
+                    demand.ref,
+                    R.DEMAND,
+                    P.TYPE_PROOF,
+                    owner,
+                    cause,
+                    witness,
+                    (origin.ref,),
+                ),
+                plan.scope,
+                origin_position,
+            ):
+                return (Issue.ORIGINS,)
+            origin_position += 1
+            demand_position += 1
     return (
         ()
         if origin_position == len(plan.origins) and demand_position == len(plan.demands)

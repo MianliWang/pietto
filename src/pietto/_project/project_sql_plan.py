@@ -9,6 +9,7 @@ from __future__ import annotations
 from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_results as results
+from pietto._project import project_sql_plan_sets as sets
 
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -105,6 +106,7 @@ from pietto.ast_nodes import (
     QueryDef,
     SelectItem,
     SetRelationDef,
+    SetOperationBody,
     SetOperand,
     SourceDef,
     TableDef,
@@ -345,7 +347,11 @@ def _blockers(
             if _static_connector(definition) is None:
                 add(K.STATIC_SOURCE_UNAVAILABLE, owner, entry)
         elif isinstance(definition, SetRelationDef):
-            add(K.SET_OPERATION, owner, entry)
+            if not isinstance(
+                entry,
+                (ProjectIRCompletedSetOperationOutput, ProjectIRQueryBlockTerminal),
+            ):
+                raise ValueError("SET body requires its exact completed SET IR entry")
         elif isinstance(definition, (TableDef, QueryDef)):
             if joining.joined_tail(entry) is None:
                 for clause in definition.join_clauses:
@@ -910,6 +916,10 @@ class ProjectSQLPlanUnavailable:
 
 
 class ProjectSQLPlanRefKind(StrEnum):
+    SET_BODY = "set_body"
+    SET_OPERAND = "set_operand"
+    SET_INPUT = "set_input"
+    SET_COLUMN = "set_column"
     RESULT_BOUNDARY = "result_boundary"
     RESULT_PORT = "result_port"
     DISTINCT = "distinct"
@@ -1076,6 +1086,10 @@ class ProjectSQLProjection:
 
 
 class ProjectSQLOriginRole(StrEnum):
+    SET_BODY = "set_body"
+    SET_OPERAND = "set_operand"
+    SET_INPUT = "set_input"
+    SET_COLUMN = "set_column"
     RESULT_BOUNDARY = "result_boundary"
     RESULT_PORT = "result_port"
     DISTINCT = "distinct"
@@ -1133,7 +1147,8 @@ class ProjectSQLOriginProvenance(StrEnum):
 
 
 type ProjectSQLCause = (
-    DistinctClause
+    SetOperationBody
+    | DistinctClause
     | OrderByClause
     | LimitClause
     | JoinOnClause
@@ -1153,7 +1168,8 @@ type ProjectSQLCause = (
 )
 
 type ProjectSQLOriginEvidence = (
-    results.Witness
+    sets.Witness
+    | results.Witness
     | windows.Witness
     | windows.Qualify
     | aggregation.Witness
@@ -1208,7 +1224,8 @@ class ProjectSQLExportRepresentationDemand:
 
 
 type ProjectSQLDemand = (
-    results.ProjectSQLResultDemand
+    sets.ProjectSQLSetDemand
+    | results.ProjectSQLResultDemand
     | ProjectSQLSourceRealizationDemand
     | ProjectSQLExportRepresentationDemand
     | row.ProjectSQLExpressionDemand
@@ -1289,6 +1306,10 @@ class ProjectSQLPlan:
     hidden_order_requirements: tuple[results.ProjectSQLHiddenOrderRequirement, ...]
     result_limits: tuple[results.ProjectSQLResultLimit, ...]
     result_exports: tuple[results.ProjectSQLResultExport, ...]
+    set_bodies: tuple[sets.ProjectSQLSetBody, ...]
+    set_operands: tuple[sets.ProjectSQLSetOperand, ...]
+    set_inputs: tuple[sets.ProjectSQLSetInput, ...]
+    set_columns: tuple[sets.ProjectSQLSetColumn, ...]
 
     def __init__(self) -> Never:
         raise TypeError("ProjectSQLPlan is closed; use build_project_sql_plan.")
@@ -2467,7 +2488,7 @@ def build_project_sql_plan(
     for definition in bindings.definitions:
         entry = definition.entry
         authored = entry.owner.definition
-        if isinstance(authored, SourceDef):
+        if isinstance(authored, (SourceDef, SetRelationDef)):
             continue
         assert isinstance(authored, (TableDef, QueryDef))
         authority = row.row_authority(completed, entry)
@@ -3801,6 +3822,8 @@ def build_project_sql_plan(
     result_context = results.origin_context(plan)
     owners_by_definition = {d.ref: d.entry.owner for d in bindings.definitions}
     for name, values in result_collections.items():
+        if name.startswith("set_"):
+            continue
         for witness in values:
             definition_ref, cause, antecedents, demand_kind, provenance = (
                 results.origin_parts(witness, result_context)
@@ -3819,6 +3842,40 @@ def build_project_sql_plan(
                     ref=demand_ref,
                     subject=witness.ref,
                     kind=demand_kind,
+                    witness=witness,
+                    origin=demand_origin,
+                )
+            )
+    set_context = sets.origin_context(plan)
+    for witness in (
+        *plan.set_bodies,
+        *plan.set_operands,
+        *plan.set_inputs,
+        *plan.set_columns,
+    ):
+        definition_ref, cause, antecedents, provenance, kinds = sets.origin_parts(
+            witness, set_context
+        )
+        owner = owners_by_definition[definition_ref]
+        original = origin(
+            witness.ref,
+            R(witness.ref.kind.value),
+            provenance,
+            owner,
+            cause,
+            witness,
+            antecedents,
+        )
+        for kind in kinds:
+            demand_ref = ref(K.DEMAND)
+            demand_origin = origin(
+                demand_ref, R.DEMAND, P.TYPE_PROOF, owner, cause, witness, (original,)
+            )
+            demands.append(
+                sets.ProjectSQLSetDemand(
+                    ref=demand_ref,
+                    subject=witness.ref,
+                    kind=kind,
                     witness=witness,
                     origin=demand_origin,
                 )

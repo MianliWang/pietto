@@ -72,7 +72,7 @@ def test_real_minimal_vertical(tmp_path: Path, kind: str, family: str) -> None:
     assert [p.identity.name for p in view.exports] == ["label", "id"]
     assert len(view.projections) == 2
     assert len(plan.bindings.demands) == 3
-    assert len(view.demands) == 8
+    assert len(view.demands) == 12
     assert view.origins
     source, block, use = view.sources[0], view.blocks[0], view.input_uses[0]
     assert [o.kind.value for o in block.operators] == [
@@ -385,6 +385,7 @@ def test_root_and_selection_are_explicit_and_never_name_resolved(plans) -> None:
 
 
 SUPPORTED_BODIES = {
+    "set": "    union all:\n        from rows\n        from other\n",
     "join": "    from rows\n    cross join other as r:\n        from rows\n    select:\n        id = rows.id\n",
     "where": "    from rows\n    where id > 0\n    select:\n        id\n",
     "let": "    from rows\n    let:\n        x = id\n    select:\n        id\n",
@@ -398,8 +399,8 @@ SUPPORTED_BODIES = {
 }
 
 FUTURE_BODIES = {
-    "set": "    union all:\n        from rows\n        from other\n",
-    "multiple": "    union all:\n        from nested\n        from other\n",
+    "call": '    from rows\n    select:\n        id = len("x")\n',
+    "multiple": '    from nested\n    select:\n        id = len("y")\n',
 }
 
 
@@ -483,7 +484,7 @@ def test_every_future_family_is_a_typed_terminal(tmp_path: Path, family: str) ->
         + 'source other: Row is postgres.table("other")\n'
     )
     if family == "multiple":
-        base += "table nested:\n" + FUTURE_BODIES["set"]
+        base += "table nested:\n" + FUTURE_BODIES["call"]
     roots = _roots(tmp_path, base + "query result:\n" + FUTURE_BODIES[family])
     assert roots[0].ok, roots[0].diagnostics
     result = build_project_sql_plan(*roots)
@@ -492,11 +493,12 @@ def test_every_future_family_is_a_typed_terminal(tmp_path: Path, family: str) ->
     assert [b.position for b in result.blockers] == list(range(len(result.blockers)))
     if family == "multiple":
         assert [(b.owner.definition.name, b.kind.value) for b in result.blockers] == [
-            ("nested", "set_operation"),
-            ("result", "set_operation"),
+            ("nested", "call_authority_unavailable"),
+            ("result", "call_authority_unavailable"),
         ]
     else:
         assert all(b.owner is roots[2] for b in result.blockers)
+        assert [b.kind.value for b in result.blockers] == ["call_authority_unavailable"]
     checked = verify_project_sql_plan(result, *roots)
     assert not checked.verified
     with pytest.raises(ValueError, match="VERIFIED"):
@@ -514,7 +516,7 @@ def test_selected_closure_distinguishes_unrelated_limitation_and_error(
             + (
                 "    from rows\n    select:\n        nope\n"
                 if error
-                else "    union all:\n        from rows\n        from rows\n"
+                else '    from rows\n    select:\n        id = len("x")\n'
             )
         )
         roots = _roots(tmp_path / str(error), source)
@@ -530,6 +532,16 @@ def test_selected_closure_distinguishes_unrelated_limitation_and_error(
         else:
             assert isinstance(result, ProjectSQLPlan)
             assert verify_project_sql_plan(result, *roots).verified
+            unrelated = next(
+                owner
+                for owner in roots[1].root.owners
+                if owner.definition.name == "unrelated"
+            )
+            blocked = build_project_sql_plan(roots[0], roots[1], unrelated)
+            assert isinstance(blocked, ProjectSQLPlanUnavailable)
+            assert [b.kind.value for b in blocked.blockers] == [
+                "call_authority_unavailable"
+            ]
 
 
 def test_named_limited_producer_and_remaining_transitive_blockers(
@@ -553,10 +565,19 @@ def test_named_limited_producer_and_remaining_transitive_blockers(
     )
     roots = _roots(tmp_path / "set", source)
     assert roots[0].ok
+    set_plan = build_project_sql_plan(*roots)
+    assert isinstance(set_plan, ProjectSQLPlan)
+    assert inspect_project_sql_plan(
+        verify_project_sql_plan(set_plan, *roots)
+    ).set_bodies
+    roots = _roots(
+        tmp_path / "call", source.replace("label = name", "label = trim(name)", 1)
+    )
+    assert roots[0].ok
     unavailable = build_project_sql_plan(*roots)
     assert isinstance(unavailable, ProjectSQLPlanUnavailable)
     assert [(b.owner.definition.name, b.kind.value) for b in unavailable.blockers] == [
-        ("filtered", "set_operation")
+        ("upstream", "call_authority_unavailable")
     ]
 
 
@@ -566,18 +587,17 @@ def test_concrete_looking_terminal_cannot_bypass_supported_shape(
     _, (plan, _) = plans
     roots = _roots(
         tmp_path,
-        _source().split("query result:")[0]
-        + "query result:\n"
-        + "    union all:\n        from rows\n        from rows\n",
+        _source().replace("label = name", "label = trim(name)"),
     )
     assert roots[0].ok, roots[0].diagnostics
     terminal = build_project_sql_plan(*roots)
     assert isinstance(terminal, ProjectSQLPlanUnavailable)
+    assert [b.kind.value for b in terminal.blockers] == ["call_authority_unavailable"]
     bindings = build_project_sql_bindings(*roots)
     assert isinstance(bindings, ProjectSQLBindings)
     forged = _graft(plan, scope=bindings.scope, bindings=bindings)
     checked = verify_project_sql_plan(forged, *roots)
-    assert [i.value for i in checked.issues] == ["unsupported_shape"]
+    assert [i.value for i in checked.issues] == ["structure"]
 
 
 def test_repeated_field_uses_and_unicode_origins(tmp_path: Path) -> None:
@@ -686,4 +706,6 @@ def test_lifted_row_and_join_families_are_positive(tmp_path: Path, family: str) 
     assert bool(view.let_values) is (family == "let")
     assert bool(view.joins) is (family == "join")
     assert bool(view.windows) is (family == "window")
-    assert view.expressions and view.exports
+    assert bool(view.set_bodies) is (family == "set")
+    assert bool(view.expressions) is (family != "set")
+    assert view.exports

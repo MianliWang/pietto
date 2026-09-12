@@ -60,6 +60,9 @@ from pietto._project.project_scalar_namespaces import (
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_aggregation as aggregation
+from pietto._project import project_sql_plan_sets as sets
+from pietto.ast_nodes import SourceDef
+from pietto._project.project_query_block_ir import ProjectIRCompletedSetOperationOutput
 
 if TYPE_CHECKING:
     from pietto._project.project_sql_plan import ProjectSQLPlanRef, ProjectSQLPort
@@ -463,6 +466,17 @@ def origin_context(plan):
     }
 
 
+def terminal_index(plan):
+    """Canonical source/result identities map to their actual available ports."""
+    ports = {port.ref: port for port in plan.result_ports}
+    terminals = {port.ref: port for port in plan.source_ports}
+    for image in plan.result_exports:
+        if image.canonical.ref in terminals or image.port not in ports:
+            raise ValueError("Terminal exports must have one exact value image")
+        terminals[image.canonical.ref] = ports[image.port]
+    return terminals
+
+
 def origin_parts(witness, context):
     """Pure role/link interpretation, shared with the independent inventory check."""
     from pietto._project.project_sql_plan import ProjectSQLOriginProvenance as P
@@ -607,11 +621,17 @@ def build(plan, ref):
             "hidden_order_requirements",
             "result_limits",
             "result_exports",
+            "set_bodies",
+            "set_operands",
+            "set_inputs",
+            "set_columns",
         )
     }
     ports = collections["result_ports"]
     orderings = order_index(plan.scope.completed)
     class_indexes = {}
+    terminals = {}
+    binding_uses = {id(use.edge): use for use in plan.input_uses}
     local_stage = {p.ref: p for p in plan.stage_ports}
     projections = {
         p.export: p
@@ -645,14 +665,34 @@ def build(plan, ref):
     for definition in plan.bindings.definitions:
         entry = definition.entry
         authored = entry.owner.definition
+        if isinstance(authored, SourceDef):
+            terminals.update((value.ref, value) for value in definition.exports)
+            continue
+        if isinstance(entry, ProjectIRCompletedSetOperationOutput):
+            body, operands, inputs, columns, outputs = sets.build_body(
+                definition, binding_uses, terminals, ref, port
+            )
+            collections["set_bodies"].append(body)
+            collections["set_operands"].extend(operands)
+            collections["set_inputs"].extend(inputs)
+            collections["set_columns"].extend(columns)
+            for canonical, output in zip(definition.exports, outputs, strict=True):
+                collections["result_exports"].append(
+                    ProjectSQLResultExport(
+                        ref=ref(K.RESULT_EXPORT),
+                        definition=definition.ref,
+                        canonical=canonical,
+                        port=output.ref,
+                    )
+                )
+                terminals[canonical.ref] = output
+            continue
         projection = blocks.get(definition.ref)
         if projection is None:
             continue
         operators = tuple(
             op for op in _operators(entry) if op.kind.value in set(ProjectSQLResultKind)
         )
-        if not operators:
-            continue
         order = ordering(entry, orderings)
         quotient = distinct(entry)
         aggregate = aggregation.authority(plan.scope.completed, entry)
@@ -938,4 +978,5 @@ def build(plan, ref):
                     port=value.ref,
                 )
             )
+            terminals[canonical.ref] = value
     return {name: tuple(values) for name, values in collections.items()}

@@ -59,7 +59,7 @@ def test_named_chain_uses_immediate_exports(
     assert len(view.all_exports) == 7
     assert len(view.input_uses) == 3
     assert len(plan.bindings.demands) == 8
-    assert len(view.demands) == 25
+    assert len(view.demands) == 39
 
 
 def _binding_product(roots):
@@ -96,12 +96,11 @@ table p0:
     return text + f"query result:\n    from p{depth}\n    select:\n        id\n"
 
 
-def test_depth12_repeated_set_binding_is_not_whole_plan(
+def test_depth12_repeated_set_has_complete_body_and_binding_graph(
     tmp_path: Path, record_property
 ) -> None:
     from time import perf_counter
     from pietto._project.project_sql_plan import (
-        ProjectSQLPlanUnavailable,
         ProjectSQLSymbolNamespace,
     )
     from pietto._project.project_query_block_ir import (
@@ -154,12 +153,19 @@ def test_depth12_repeated_set_binding_is_not_whole_plan(
         assert tuple(context.lookup(s.ref) for s in symbols) == pair
     assert bindings.scope.analysis_bundle is roots[1]
     result = build_project_sql_plan(*roots)
-    assert isinstance(result, ProjectSQLPlanUnavailable)
-    assert sum(b.kind.value == "set_operation" for b in result.blockers) == 12
+    assert isinstance(result, ProjectSQLPlan)
     checked = verify_project_sql_plan(result, *roots)
-    assert not checked.verified
-    with pytest.raises(ValueError, match="VERIFIED"):
-        inspect_project_sql_plan(checked)
+    assert checked.verified, checked.issues
+    complete = inspect_project_sql_plan(checked)
+    assert len(complete.set_bodies) == 12 and len(complete.set_operands) == 24
+    assert len(complete.result_exports) == 14
+    assert len(complete.definitions) == 15 and len(complete.input_uses) == 26
+    for body in complete.set_bodies:
+        assert complete.result_stages(body.definition) == (body,)
+        assert (
+            tuple(port.ref for port in complete.terminal_exports(body.definition))
+            == body.outputs
+        )
 
 
 @pytest.mark.parametrize("mixed", (False, True))
@@ -272,8 +278,6 @@ query result:
 
 
 def test_two_import_paths_share_definition_but_not_binding(tmp_path: Path) -> None:
-    from pietto._project.project_sql_plan import ProjectSQLPlanUnavailable
-
     (tmp_path / "a.pietto").write_text(
         _chain().split("table second:", 1)[0] + "export:\n    table first\n"
     )
@@ -303,7 +307,10 @@ query result:
         u.origin_path.hops[0].facade_occurrence.owning_module_path for u in pair
     ] == ["b.pietto", "c.pietto"]
     assert len(view.definitions) == 3
-    assert isinstance(build_project_sql_plan(*roots), ProjectSQLPlanUnavailable)
+    plan = build_project_sql_plan(*roots)
+    assert isinstance(plan, ProjectSQLPlan)
+    complete = inspect_project_sql_plan(verify_project_sql_plan(plan, *roots))
+    assert len(complete.set_bodies) == 1 and len(complete.set_operands) == 2
 
 
 def test_labels_do_not_create_cross_scope_or_namespace_identity(tmp_path: Path) -> None:
@@ -619,11 +626,11 @@ def test_unsupported_named_ancestor_and_unrelated_sibling_are_distinguished(
         if reached:
             source = source.replace(
                 "table first:\n    from rows\n",
-                "table blocked:\n    union all:\n        from rows\n        from rows\ntable first:\n    from blocked\n",
+                'table blocked:\n    from rows\n    select:\n        id = len("x")\n        name\ntable first:\n    from blocked\n',
             )
         else:
             source += (
-                "query unused:\n    union all:\n        from rows\n        from rows\n"
+                'query unused:\n    from rows\n    select:\n        id = len("x")\n'
             )
         roots = _roots(tmp_path / str(reached), source)
         assert roots[0].ok
@@ -632,10 +639,20 @@ def test_unsupported_named_ancestor_and_unrelated_sibling_are_distinguished(
             assert isinstance(result, ProjectSQLPlanUnavailable)
             assert [
                 (b.owner.definition.name, b.kind.value) for b in result.blockers
-            ] == [("blocked", "set_operation")]
+            ] == [("blocked", "call_authority_unavailable")]
         else:
             assert isinstance(result, ProjectSQLPlan)
             assert verify_project_sql_plan(result, *roots).verified
+            owner = next(
+                owner
+                for owner in roots[1].root.owners
+                if owner.definition.name == "unused"
+            )
+            unavailable = build_project_sql_plan(roots[0], roots[1], owner)
+            assert isinstance(unavailable, ProjectSQLPlanUnavailable)
+            assert [blocker.kind.value for blocker in unavailable.blockers] == [
+                "call_authority_unavailable"
+            ]
 
 
 def test_binding_verifier_and_context_do_not_call_allocators(
@@ -699,6 +716,9 @@ query result:
         assert view.context(use.consumer).lookup(symbol.ref) is use
     with pytest.raises(ValueError, match="scope"):
         view.context(pair[0].consumer).lookup(symbols[1].ref)
+    plan = build_project_sql_plan(*roots)
+    assert isinstance(plan, ProjectSQLPlan)
+    assert inspect_project_sql_plan(verify_project_sql_plan(plan, *roots)).set_bodies
 
 
 def test_binding_verification_is_invalidated_by_grafts(bound_graphs) -> None:

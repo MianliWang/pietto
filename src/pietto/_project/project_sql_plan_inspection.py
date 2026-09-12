@@ -10,6 +10,7 @@ from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_joins as joining
 from pietto._project import project_sql_plan_results as results
+from pietto._project import project_sql_plan_sets as sets
 
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.project_sql_plan import (
@@ -56,6 +57,9 @@ class ProjectSQLPlanInspection:
     _matches: Mapping[ProjectSQLPlanRef, joining.ProjectSQLMatchContext] = field(
         init=False, repr=False
     )
+    _terminals: Mapping[
+        ProjectSQLPlanRef, ProjectSQLPort | results.ProjectSQLResultPort
+    ] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         verification = self.verification
@@ -78,6 +82,11 @@ class ProjectSQLPlanInspection:
                 "Runtime inspection requires an exact VERIFIED ProjectSQLPlan."
             )
         object.__setattr__(self, "plan", verification.plan)
+        object.__setattr__(
+            self,
+            "_terminals",
+            MappingProxyType(results.terminal_index(verification.plan)),
+        )
         object.__setattr__(
             self,
             "_contexts",
@@ -186,6 +195,11 @@ class ProjectSQLPlanInspection:
 
     def result_stages(self, definition: ProjectSQLPlanRef):
         self.context(definition)
+        bodies = tuple(
+            body for body in self.plan.set_bodies if body.definition is definition
+        )
+        if bodies:
+            return bodies
         return (
             *tuple(block for block in self.blocks if block.definition is definition),
             *tuple(
@@ -193,6 +207,69 @@ class ProjectSQLPlanInspection:
                 for boundary in self.result_boundaries
                 if boundary.definition is definition
             ),
+        )
+
+    def terminal_exports(
+        self, definition: ProjectSQLPlanRef
+    ) -> tuple[ProjectSQLPort | results.ProjectSQLResultPort, ...]:
+        context = self.context(definition)
+        return tuple(
+            self._terminals[canonical.ref] for canonical in context.definition.exports
+        )
+
+    def input_terminals(
+        self, use: ProjectSQLPlanRef
+    ) -> tuple[ProjectSQLPort | results.ProjectSQLResultPort, ...]:
+        matches = tuple(item for item in self.input_uses if item.ref is use)
+        if len(matches) != 1:
+            raise ValueError("Input use does not belong to this plan.")
+        return self.terminal_exports(matches[0].producer)
+
+    @property
+    def set_bodies(self) -> tuple[sets.ProjectSQLSetBody, ...]:
+        return self.plan.set_bodies
+
+    @property
+    def set_operands(self) -> tuple[sets.ProjectSQLSetOperand, ...]:
+        return self.plan.set_operands
+
+    @property
+    def set_inputs(self) -> tuple[sets.ProjectSQLSetInput, ...]:
+        return self.plan.set_inputs
+
+    @property
+    def set_columns(self) -> tuple[sets.ProjectSQLSetColumn, ...]:
+        return self.plan.set_columns
+
+    def set_body(self, ref: ProjectSQLPlanRef) -> sets.ProjectSQLSetBody:
+        matches = tuple(body for body in self.set_bodies if body.ref is ref)
+        if len(matches) != 1:
+            raise ValueError("SET body does not belong to this plan.")
+        return matches[0]
+
+    def operands_for_set(
+        self, ref: ProjectSQLPlanRef
+    ) -> tuple[sets.ProjectSQLSetOperand, ...]:
+        self.set_body(ref)
+        return tuple(operand for operand in self.set_operands if operand.body is ref)
+
+    def fields_for_set_operand(
+        self, ref: ProjectSQLPlanRef
+    ) -> tuple[sets.ProjectSQLSetInput, ...]:
+        if not any(operand.ref is ref for operand in self.set_operands):
+            raise ValueError("SET operand does not belong to this plan.")
+        return tuple(field for field in self.set_inputs if field.operand is ref)
+
+    def set_requirements(
+        self, ref: ProjectSQLPlanRef
+    ) -> tuple[sets.ProjectSQLSetDemand, ...]:
+        body = self.set_body(ref)
+        context = sets.origin_context(self.plan)
+        return tuple(
+            demand
+            for demand in self.demands
+            if isinstance(demand, sets.ProjectSQLSetDemand)
+            and sets.origin_parts(demand.witness, context)[0] is body.definition
         )
 
     def result_port(

@@ -303,11 +303,12 @@ EXPECTED_STATUS = (
     ("Phase 65 Slice 6", "`COMPLETED / PUBLISHED`"),
     ("Phase 65 Slice 7", "`COMPLETED / PUBLISHED`"),
     ("Phase 65 Slice 8", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 9", "`NEXT / NOT IMPLEMENTED`"),
-    ("Phase 65 Slices 10–16", "`NOT IMPLEMENTED`"),
+    ("Phase 65 Slice 9", "`COMPLETED / PUBLISHED`"),
+    ("Phase 65 Slice 10", "`NEXT / NOT IMPLEMENTED`"),
+    ("Phase 65 Slices 11–16", "`NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 65 Slice 9 — Set query-expression bodies and positional ports`",
+        "`Phase 65 Slice 10 — Typed fixed-literal binding envelope and use layout`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1437,8 +1438,8 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
 EXPECTED_CURRENT_OWNER_SENTENCE = (
-    "The current owner is Phase 65, which is `ACTIVE`; Slices 1–8 are "
-    "`COMPLETED / PUBLISHED` and Slice 9 is `NEXT / NOT IMPLEMENTED`."
+    "The current owner is Phase 65, which is `ACTIVE`; Slices 1–9 are "
+    "`COMPLETED / PUBLISHED` and Slice 10 is `NEXT / NOT IMPLEMENTED`."
 )
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
@@ -4947,7 +4948,7 @@ def test_phase65_route_and_lifecycle_are_conditional() -> None:
     status = " ".join(_read(STATUS).split())
     normalized = " ".join(roadmap.split())
     for phrase in (
-        "Slices 10–16 are `NOT IMPLEMENTED`",
+        "Slices 11–16 are `NOT IMPLEMENTED`",
         "D65.01–D65.12",
         "only upon successful natural exact-head CI",
     ):
@@ -4996,7 +4997,10 @@ def test_phase65_slice3_current_binding_and_whole_plan_boundary() -> None:
     ):
         assert phrase in status and phrase in roadmap
     assert "This is not JOIN/SET SQL planning" in status
-    assert "SET whole-plan bodies remain typed unavailable" in roadmap
+    assert (
+        "At Slice3 publication SET whole-plan bodies remained typed unavailable"
+        in roadmap
+    )
     assert "adds GROUPED/GLOBAL/satisfying" in roadmap
 
 
@@ -5014,7 +5018,7 @@ def test_phase65_slice4_current_stage_boundary() -> None:
     ):
         assert phrase in status and phrase in roadmap
     assert "never enter selected visible exports" in status
-    assert "Slice9 is `NEXT / NOT IMPLEMENTED`" in status
+    assert "Slice10 is `NEXT / NOT IMPLEMENTED`" in status
 
 
 def test_phase65_slice5_current_matching_and_obligation_boundary() -> None:
@@ -5034,7 +5038,7 @@ def test_phase65_slice5_current_matching_and_obligation_boundary() -> None:
     ):
         assert phrase in status and phrase in roadmap
     assert "INNER/LEFT/CROSS/RIGHT/FULL/SEMI/ANTI" in status
-    assert "Slices 10–16 are `NOT IMPLEMENTED`" in status
+    assert "Slices 11–16 are `NOT IMPLEMENTED`" in status
 
 
 def test_phase65_slice6_current_aggregate_boundary() -> None:
@@ -5050,8 +5054,8 @@ def test_phase65_slice6_current_aggregate_boundary() -> None:
         "exact-ref inspection",
     ):
         assert phrase in status and phrase in roadmap
-    assert "Slice9 is `NEXT / NOT IMPLEMENTED`" in status
-    assert "Slices 10–16 are `NOT IMPLEMENTED`" in status
+    assert "Slice10 is `NEXT / NOT IMPLEMENTED`" in status
+    assert "Slices 11–16 are `NOT IMPLEMENTED`" in status
 
 
 def test_phase65_slice7_current_window_and_qualify_boundary() -> None:
@@ -5069,8 +5073,8 @@ def test_phase65_slice7_current_window_and_qualify_boundary() -> None:
         "origins/demands",
     ):
         assert phrase in status and phrase in roadmap
-    assert "Slice9 is `NEXT / NOT IMPLEMENTED`" in status
-    assert "Slices 10–16 are `NOT IMPLEMENTED`" in status
+    assert "Slice10 is `NEXT / NOT IMPLEMENTED`" in status
+    assert "Slices 11–16 are `NOT IMPLEMENTED`" in status
 
 
 def test_phase65_slice8_current_result_boundary() -> None:
@@ -5089,5 +5093,24 @@ def test_phase65_slice8_current_result_boundary() -> None:
         "canonical terminal images",
     ):
         assert phrase in status and phrase in roadmap
-    assert "Slice9 is `NEXT / NOT IMPLEMENTED`" in status
-    assert "Slices 10–16 are `NOT IMPLEMENTED`" in status
+    assert "Slice10 is `NEXT / NOT IMPLEMENTED`" in status
+    assert "Slices 11–16 are `NOT IMPLEMENTED`" in status
+
+
+def test_phase65_slice9_current_set_body_boundary() -> None:
+    status = " ".join(_read(STATUS).split())
+    roadmap = " ".join(_section(_read(ROADMAP), "Phase 65 route").split())
+    target = "spec/phase65-slice9-set-query-expression-bodies-positional-ports-v1.md"
+    assert f"]({target})" in status and f"]({target})" in roadmap
+    assert (STATUS.parent / target).is_file()
+    for phrase in (
+        "non-SELECT SET bodies",
+        "terminal export mappings",
+        "compatible Float",
+        "Decimal parent chains",
+        "EXCEPT right-side membership",
+        "Depth12 full-plan sharing",
+    ):
+        assert phrase in status and phrase in roadmap
+    assert "Slice10 is `NEXT / NOT IMPLEMENTED`" in status
+    assert "Slices 11–16 are `NOT IMPLEMENTED`" in status

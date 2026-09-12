@@ -407,7 +407,7 @@ def test_unrelated_row_error_versus_valid_later_stage(
     extra += (
         "    from rows\n    where missing\n    select:\n        id\n"
         if error
-        else "    union all:\n        from rows\n        from rows\n"
+        else '    from rows\n    select:\n        id = len("x")\n'
     )
     roots = _roots(tmp_path, _source(ROW_BODY) + extra)
     assert roots[0].ok is not error
@@ -420,6 +420,14 @@ def test_unrelated_row_error_versus_valid_later_stage(
     else:
         assert isinstance(result, ProjectSQLPlan)
         assert verify_project_sql_plan(result, *roots).verified
+        owner = next(
+            owner for owner in roots[1].root.owners if owner.definition.name == "unused"
+        )
+        unavailable = build_project_sql_plan(roots[0], roots[1], owner)
+        assert isinstance(unavailable, ProjectSQLPlanUnavailable)
+        assert [blocker.kind.value for blocker in unavailable.blockers] == [
+            "call_authority_unavailable"
+        ]
 
 
 @pytest.mark.parametrize(
@@ -717,7 +725,7 @@ def test_division_and_unknown_call_preserve_current_nonpositive_rules(
     assert parsed.diagnostics and all(d.code == "PIE-P1000" for d in parsed.diagnostics)
 
 
-def test_replay_context_is_retained_separately_and_set_ancestor_stays_unavailable(
+def test_replay_context_is_retained_separately_with_set_ancestor(
     tmp_path: Path,
 ) -> None:
     from pietto._project.project_query_block_ir import (
@@ -764,9 +772,14 @@ query result:
     bindings, view = _binding_product(roots)
     assert len(bindings.input_uses) == 3
     assert len(view.definitions) == 3
-    terminal = build_project_sql_plan(*roots)
-    assert isinstance(terminal, ProjectSQLPlanUnavailable)
-    assert [b.kind.value for b in terminal.blockers] == ["set_operation"]
+    plan = build_project_sql_plan(*roots)
+    assert isinstance(plan, ProjectSQLPlan)
+    full = inspect_project_sql_plan(verify_project_sql_plan(plan, *roots))
+    assert (
+        len(full.set_bodies) == 1
+        and len(full.let_values) == 2
+        and len(full.filters) == 1
+    )
 
 
 @pytest.mark.parametrize("where", ("id", "missing > 0"))
@@ -858,9 +871,11 @@ query result:
         assert left.producer_port is right.producer_port is export.ref
         assert left.field is right.field is export.field
     assert len(bindings.definitions) == len(bindings.input_uses) == 4
-    terminal = build_project_sql_plan(*roots)
-    assert isinstance(terminal, ProjectSQLPlanUnavailable)
-    assert [b.kind.value for b in terminal.blockers] == ["set_operation"]
+    plan = build_project_sql_plan(*roots)
+    assert isinstance(plan, ProjectSQLPlan)
+    full = inspect_project_sql_plan(verify_project_sql_plan(plan, *roots))
+    assert len(full.set_bodies) == 1 and len(full.set_operands) == 2
+    assert full.let_values and full.filters
 
 
 def test_generated_blocks_partition_the_logical_operator_ledger(row_plans) -> None:

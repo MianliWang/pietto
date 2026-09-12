@@ -746,7 +746,7 @@ query result:
     )
 
 
-def test_set_parent_decimal_evidence_stays_available_while_body_is_unavailable(
+def test_set_parent_decimal_evidence_reaches_complete_plan(
     tmp_path,
 ):
     from test_phase64_slice10_ir_observation_and_differential import _decimal_source
@@ -760,10 +760,15 @@ def test_set_parent_decimal_evidence_stays_available_while_body_is_unavailable(
     (evidence,) = distinct.equivalence.evidence
     assert evidence.parents is evidence.selected.type_sources and evidence.parents
     assert evidence.decimal is evidence.parents[0].decimal
-    unavailable = build_project_sql_plan(*roots)
-    assert isinstance(unavailable, ProjectSQLPlanUnavailable)
-    assert any(
-        blocker.kind.value == "set_operation" for blocker in unavailable.blockers
+    plan = build_project_sql_plan(*roots)
+    assert isinstance(plan, ProjectSQLPlan)
+    view = inspect_project_sql_plan(verify_project_sql_plan(plan, *roots))
+    assert view.set_bodies and view.quotient_fields[-1].equivalence is evidence
+    assert all(
+        parent is original
+        for parent, original in zip(
+            evidence.parents, view.set_columns[0].source.inputs, strict=True
+        )
     )
 
 
