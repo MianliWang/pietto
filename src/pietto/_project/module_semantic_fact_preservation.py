@@ -80,6 +80,8 @@ from pietto._project.window_semantics import (
     WindowResultProjectFact,
     _build_window_result_project_fact,
     _project_window_analysis_boundary,
+    window_dependency_sources,
+    retained_window_computation_input,
 )
 from pietto._window_identity import WindowFunctionIdentity
 from pietto.ast_nodes import (
@@ -148,7 +150,11 @@ from pietto.semantic.window_analysis import (
     _RANKING_SIGNATURE,
     analyze_window_expression,
 )
-from pietto.semantic.window_input_analysis import build_window_input_scope
+from pietto.semantic.window_input_analysis import (
+    WindowInputScope,
+    WindowInputOriginKind,
+    build_window_input_scope,
+)
 from pietto.semantic.window_navigation_analysis import (
     _BOUNDARY_RESULT_FORMULA,
     _FRAME_VALUE_IDENTITIES,
@@ -1904,44 +1910,7 @@ def _project_symbol_matches_resolution(
 def _window_dependency_source_ledger(
     expression: WindowExpr,
 ) -> tuple[tuple[WindowDependencyRole, Expression], ...]:
-    arguments = expression.call.arguments
-    value_dependent = expression.identity.name in {
-        "lag",
-        "lead",
-        "first_value",
-        "last_value",
-        "nth_value",
-    }
-    offset_navigation = expression.identity.name in {"lag", "lead"}
-    argument_sources = (
-        (arguments[0],)
-        if value_dependent and type(arguments[0]) in {NameExpr, DottedNameExpr}
-        else ()
-    )
-    default_sources = (
-        (arguments[2],)
-        if offset_navigation
-        and len(arguments) == 3
-        and type(arguments[2]) in {NameExpr, DottedNameExpr}
-        else ()
-    )
-    relation_sources = () if argument_sources or default_sources else (expression.call,)
-    return (
-        *((WindowDependencyRole.RELATION_INPUT, source) for source in relation_sources),
-        *(
-            (WindowDependencyRole.WINDOW_ARGUMENT, source)
-            for source in argument_sources
-        ),
-        *((WindowDependencyRole.WINDOW_DEFAULT, source) for source in default_sources),
-        *(
-            (WindowDependencyRole.WINDOW_PARTITION, source)
-            for source in expression.spec.partition_by
-        ),
-        *(
-            (WindowDependencyRole.WINDOW_ORDER, item.expression)
-            for item in expression.spec.order_by
-        ),
-    )
+    return window_dependency_sources(expression)
 
 
 def _grouped_window_dependency_target(
@@ -2168,6 +2137,16 @@ def _validate_window_dependency_source_ledger(
             raise ValueError(
                 "Window dependencies must retain exact source and target authority."
             )
+
+    context = retained_window_computation_input(project_fact)
+    if any(
+        item.computation is not None for item in project_fact.dependency_occurrences
+    ) and (
+        context is None
+        or context.definition is not relation.owner.definition
+        or context.item is not output.item
+    ):
+        raise ValueError("Retained window input context requires its exact owner.")
 
 
 def _validate_relation_window_fact_set_closure(
@@ -3915,6 +3894,53 @@ def _satisfying_candidates(
     return tuple(candidates), None
 
 
+def _window_project_targets(
+    definition: _DerivedRelation,
+    scope: WindowInputScope,
+    input_schema: ProjectRowSchema,
+    let_scope: ProjectRelationLetScopeFacts,
+    base_schema: ProjectRowSchema,
+) -> tuple[ProjectRowField | LetBinding | SelectItem, ...]:
+    """Translate original binding decisions to Project objects, without resolving AST."""
+    lets: dict[str, list[LetBinding]] = {}
+    outputs: dict[str | None, list[SelectItem]] = {}
+    for binding in let_scope.bindings:
+        lets.setdefault(binding.name, []).append(binding)
+    for item in definition.select_items:
+        if type(item.expression) is not WindowExpr:
+            outputs.setdefault(_projection_output_name(item), []).append(item)
+    targets: list[ProjectRowField | LetBinding | SelectItem] = []
+    for binding in scope.bindings:
+        if binding.origin is WindowInputOriginKind.UPSTREAM_FIELD:
+            targets.append(input_schema.fields[binding.target_name])
+        elif binding.origin is WindowInputOriginKind.LET_BINDING:
+            candidates = lets[binding.target_name]
+            if len(candidates) != 1:
+                raise ValueError(
+                    "Original window LET decision requires one Project target"
+                )
+            targets.append(candidates[0])
+        else:
+            candidates = outputs[binding.target_name]
+            if len(candidates) != 1:
+                raise ValueError(
+                    "Original grouped window decision requires one Project target"
+                )
+            target = candidates[0]
+            field = base_schema.fields[binding.target_name]
+            expected_role = (
+                ProjectRowResultRole.GROUP_KEY
+                if binding.origin is WindowInputOriginKind.GROUP_KEY
+                else ProjectRowResultRole.AGGREGATE_RESULT
+            )
+            if field.result_role is not expected_role:
+                raise ValueError(
+                    "Window input translation lost its grouped result role"
+                )
+            targets.append(target)
+    return tuple(targets)
+
+
 def _window_output_facts(
     *,
     owner: ProjectDeclarationOccurrence,
@@ -4003,6 +4029,10 @@ def _window_output_facts(
                 item=item,
                 upstream_symbol=upstream_symbol,
                 input_scope=input_scope,
+                project_schema=input_schema,
+                project_targets=_window_project_targets(
+                    definition, input_scope, input_schema, let_scope, base_schema
+                ),
             )
             if type(project_result) is not WindowResultProjectFact:
                 raise AssertionError("eligible inline window project fact was deferred")

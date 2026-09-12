@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import InitVar, dataclass, field, replace
 from enum import StrEnum
 
 from pietto._window_identity import WindowFunctionIdentity
 from pietto._project.model import (
     ProjectRowSchema,
+    ProjectRowField,
     ProjectRowFieldProvenance,
     ProjectRowFieldProvenanceKind,
     ProjectRowResultRole,
@@ -21,6 +22,7 @@ from pietto._project.row_dependency_graph import (
 from pietto.ast_nodes import (
     DottedNameExpr,
     Expression,
+    LetBinding,
     NameExpr,
     QueryDef,
     SelectItem,
@@ -48,6 +50,7 @@ from pietto.semantic.window_semantics import (
 from pietto.semantic.model import ValueType
 from pietto.semantic.window_input_analysis import (
     WindowInputOriginKind,
+    WindowInputBinding,
     WindowInputScope,
     build_window_input_scope,
 )
@@ -91,6 +94,51 @@ class WindowDependencyRole(StrEnum):
     WINDOW_ORDER = "window_order"
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False, repr=False)
+class WindowComputationInput:
+    """Original translation environment shared only by one selected computation."""
+
+    definition: TableDef | QueryDef
+    item: SelectItem
+    analysis: WindowExpressionAnalysis
+    scope: WindowInputScope
+    upstream_symbol: ProjectSymbol
+    project_schema: ProjectRowSchema | None = None
+    project_targets: tuple[ProjectRowField | LetBinding | SelectItem, ...] = ()
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.definition) not in {TableDef, QueryDef}
+            or type(self.item) is not SelectItem
+            or type(self.analysis) is not WindowExpressionAnalysis
+            or type(self.scope) is not WindowInputScope
+            or type(self.upstream_symbol) is not ProjectSymbol
+        ):
+            raise TypeError("Window computation input requires exact authorities")
+        ordinal = self.analysis.semantic_fact.occurrence.selected_output_ordinal
+        if (
+            type(ordinal) is not int
+            or not 0 <= ordinal < len(self.definition.select_items)
+            or self.definition.select_items[ordinal] is not self.item
+            or self.item.expression is not self.analysis.authored_expression
+        ):
+            raise ValueError("Window computation input lost its authored occurrence")
+        if type(self.project_targets) is not tuple:
+            raise TypeError("Window project targets must be an exact tuple")
+        if self.project_schema is None:
+            if self.project_targets:
+                raise ValueError("Window project targets require their input schema")
+        elif (
+            type(self.project_schema) is not ProjectRowSchema
+            or len(self.project_targets) != len(self.scope.bindings)
+            or any(
+                type(target) not in {ProjectRowField, LetBinding, SelectItem}
+                for target in self.project_targets
+            )
+        ):
+            raise ValueError("Window project input correspondence must be complete")
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class WindowDependencyOccurrence:
     """One duplicate-preserving resolved dependency occurrence."""
@@ -101,8 +149,30 @@ class WindowDependencyOccurrence:
     target: ProjectRowDependencyNode
     location: SourceLocation
     target_result_role: ProjectRowResultRole | None = None
+    computation: WindowComputationInput | None = field(
+        default=None, init=False, compare=False, hash=False, repr=False
+    )
+    expression: Expression | None = field(
+        default=None, init=False, compare=False, hash=False, repr=False
+    )
+    binding: WindowInputBinding | None = field(
+        default=None, init=False, compare=False, hash=False, repr=False
+    )
 
-    def __post_init__(self) -> None:
+    _construction: InitVar[
+        tuple[WindowComputationInput, Expression, WindowInputBinding | None] | None
+    ] = None
+
+    def __post_init__(self, _construction) -> None:
+        if _construction is not None:
+            if type(_construction) is not tuple or len(_construction) != 3:
+                raise TypeError(
+                    "Window retention requires its complete construction tuple"
+                )
+            for name, value in zip(
+                ("computation", "expression", "binding"), _construction, strict=True
+            ):
+                object.__setattr__(self, name, value)
         if type(self.global_ordinal) is not int:
             raise TypeError("global_ordinal must be an exact integer")
         if self.global_ordinal < 0:
@@ -129,6 +199,59 @@ class WindowDependencyOccurrence:
                 "window expression dependencies require bounded field targets"
             )
         _validate_target_result_role(self.target, self.target_result_role)
+        if self.computation is None:
+            if self.expression is not None or self.binding is not None:
+                raise ValueError("Partial window dependency retention is invalid")
+            return
+        if type(self.computation) is not WindowComputationInput:
+            raise TypeError("Window dependency requires an exact computation input")
+        expression = self.computation.analysis.semantic_fact.expression
+        sources = window_dependency_sources(expression)
+        if (
+            self.global_ordinal >= len(sources)
+            or sources[self.global_ordinal][0] is not self.role
+            or sources[self.global_ordinal][1] is not self.expression
+            or self.role_ordinal
+            != sum(role is self.role for role, _ in sources[: self.global_ordinal])
+            or self.expression is None
+            or self.location != _source_location(self.expression.span)
+        ):
+            raise ValueError("Window dependency lost its exact source occurrence")
+        if self.role is WindowDependencyRole.RELATION_INPUT:
+            if self.binding is not None:
+                raise ValueError("Relation input cannot invent a field binding")
+            return
+        if type(self.binding) is not WindowInputBinding or not any(
+            self.binding is candidate for candidate in self.computation.scope.bindings
+        ):
+            raise ValueError("Window dependency binding must belong to its exact scope")
+        binding = self.binding
+        if isinstance(self.expression, NameExpr):
+            source_name = self.expression.name
+        elif (
+            isinstance(self.expression, DottedNameExpr)
+            and self.computation.scope.allows_qualified_fields
+            and len(self.expression.parts) == 2
+            and self.expression.parts[0]
+            == self.computation.definition.from_clause.source_name
+        ):
+            source_name = self.expression.parts[1]
+        else:
+            raise ValueError("Window binding requires its admitted direct expression")
+        target_name = {
+            WindowInputOriginKind.UPSTREAM_FIELD: self.target.field_name,
+            WindowInputOriginKind.LET_BINDING: self.target.binding_name,
+            WindowInputOriginKind.GROUP_KEY: self.target.output_name,
+            WindowInputOriginKind.AGGREGATE_RESULT: self.target.output_name,
+        }[binding.origin]
+        if source_name != binding.name or target_name != binding.target_name:
+            raise ValueError("Window binding lost its original source and target")
+        expected_role = {
+            WindowInputOriginKind.GROUP_KEY: ProjectRowResultRole.GROUP_KEY,
+            WindowInputOriginKind.AGGREGATE_RESULT: ProjectRowResultRole.AGGREGATE_RESULT,
+        }.get(self.binding.origin)
+        if self.target_result_role is not expected_role:
+            raise ValueError("Window dependency lost its original result role")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -452,6 +575,25 @@ class WindowResultProjectFact:
             raise ValueError("provenance location must match occurrence location")
 
 
+def retained_window_computation_input(
+    fact: WindowResultProjectFact,
+) -> WindowComputationInput | None:
+    """Read positive retention only for its exact original computation owner."""
+    occurrences = fact.dependency_occurrences
+    context = occurrences[0].computation if occurrences else None
+    if (
+        context is None
+        or any(item.computation is not context for item in occurrences)
+        or context.analysis is not fact.analysis
+        or context.definition is not fact.result_identity.definition
+        or context.upstream_symbol is not fact.provenance.symbol
+        or context.item.expression is not fact.analysis.authored_expression
+        or fact.result_identity.occurrence is not fact.semantic_fact.occurrence
+    ):
+        return None
+    return context
+
+
 def build_window_result_project_fact(
     *,
     definition: TableDef | QueryDef,
@@ -584,6 +726,49 @@ def build_row_number_window_result_project_fact(
     )
 
 
+def window_dependency_sources(
+    expression: WindowExpr,
+) -> tuple[tuple[WindowDependencyRole, Expression], ...]:
+    arguments = expression.call.arguments
+    value_dependent = expression.identity.name in {
+        "lag",
+        "lead",
+        "first_value",
+        "last_value",
+        "nth_value",
+    }
+    offset_navigation = expression.identity.name in {"lag", "lead"}
+    argument_sources = (
+        (arguments[0],)
+        if value_dependent and type(arguments[0]) in {NameExpr, DottedNameExpr}
+        else ()
+    )
+    default_sources = (
+        (arguments[2],)
+        if offset_navigation
+        and len(arguments) == 3
+        and type(arguments[2]) in {NameExpr, DottedNameExpr}
+        else ()
+    )
+    relation_sources = () if argument_sources or default_sources else (expression.call,)
+    return (
+        *((WindowDependencyRole.RELATION_INPUT, source) for source in relation_sources),
+        *(
+            (WindowDependencyRole.WINDOW_ARGUMENT, source)
+            for source in argument_sources
+        ),
+        *((WindowDependencyRole.WINDOW_DEFAULT, source) for source in default_sources),
+        *(
+            (WindowDependencyRole.WINDOW_PARTITION, source)
+            for source in expression.spec.partition_by
+        ),
+        *(
+            (WindowDependencyRole.WINDOW_ORDER, item.expression)
+            for item in expression.spec.order_by
+        ),
+    )
+
+
 def _build_window_result_project_fact(
     *,
     analysis: WindowExpressionAnalysis,
@@ -591,6 +776,8 @@ def _build_window_result_project_fact(
     item: SelectItem,
     upstream_symbol: ProjectSymbol,
     input_scope: WindowInputScope,
+    project_schema: ProjectRowSchema | None = None,
+    project_targets: tuple[ProjectRowField | LetBinding | SelectItem, ...] = (),
 ) -> WindowResultProjectFact:
     """Convert one exact validated window analysis into Project evidence."""
 
@@ -666,88 +853,44 @@ def _build_window_result_project_fact(
         for default_expression in navigation_defaults
     )
 
-    role_inputs: tuple[
-        tuple[
-            WindowDependencyRole,
-            tuple[
-                tuple[
-                    Expression,
-                    ProjectRowDependencyNode,
-                    ProjectRowResultRole | None,
-                ],
-                ...,
-            ],
-        ],
-        ...,
-    ] = (
-        (
-            WindowDependencyRole.RELATION_INPUT,
-            ()
-            if argument_fields or default_fields
-            else ((expression.call, relation_input, None),),
+    computation = WindowComputationInput(
+        definition=definition,
+        item=item,
+        analysis=analysis,
+        scope=input_scope,
+        upstream_symbol=upstream_symbol,
+        project_schema=project_schema,
+        project_targets=project_targets,
+    )
+    translated = (
+        *(
+            ((relation_input, None, None),)
+            if not argument_fields and not default_fields
+            else ()
         ),
-        (
-            WindowDependencyRole.WINDOW_ARGUMENT,
-            tuple(
-                (source, target, target_role)
-                for source, (target, target_role) in zip(
-                    navigation_arguments,
-                    argument_fields,
-                    strict=True,
-                )
-            ),
-        ),
-        (
-            WindowDependencyRole.WINDOW_DEFAULT,
-            tuple(
-                (source, target, target_role)
-                for source, (target, target_role) in zip(
-                    navigation_defaults,
-                    default_fields,
-                    strict=True,
-                )
-            ),
-        ),
-        (
-            WindowDependencyRole.WINDOW_PARTITION,
-            tuple(
-                (source, target, target_role)
-                for source, (target, target_role) in zip(
-                    partition_expressions,
-                    partition_fields,
-                    strict=True,
-                )
-            ),
-        ),
-        (
-            WindowDependencyRole.WINDOW_ORDER,
-            tuple(
-                (source, target, target_role)
-                for source, (target, target_role) in zip(
-                    order_expressions,
-                    order_fields,
-                    strict=True,
-                )
-            ),
-        ),
+        *argument_fields,
+        *default_fields,
+        *partition_fields,
+        *order_fields,
     )
     occurrences_list: list[WindowDependencyOccurrence] = []
-    for role, inputs in role_inputs:
-        for role_ordinal, (
-            source_expression,
-            target,
-            target_result_role,
-        ) in enumerate(inputs):
-            occurrences_list.append(
-                WindowDependencyOccurrence(
-                    global_ordinal=len(occurrences_list),
-                    role_ordinal=role_ordinal,
-                    role=role,
-                    target=target,
-                    location=_source_location(source_expression.span),
-                    target_result_role=target_result_role,
-                )
+    role_ordinals: dict[WindowDependencyRole, int] = {}
+    for (role, source_expression), (target, target_result_role, binding) in zip(
+        window_dependency_sources(expression), translated, strict=True
+    ):
+        role_ordinal = role_ordinals.get(role, 0)
+        role_ordinals[role] = role_ordinal + 1
+        occurrences_list.append(
+            WindowDependencyOccurrence(
+                global_ordinal=len(occurrences_list),
+                role_ordinal=role_ordinal,
+                role=role,
+                target=target,
+                location=_source_location(source_expression.span),
+                target_result_role=target_result_role,
+                _construction=(computation, source_expression, binding),
             )
+        )
     occurrences = tuple(occurrences_list)
     return WindowResultProjectFact(
         semantic_fact=semantic_fact,
@@ -795,7 +938,7 @@ def _window_input_dependency(
     definition: TableDef | QueryDef,
     upstream_symbol: ProjectSymbol,
     input_scope: WindowInputScope,
-) -> tuple[ProjectRowDependencyNode, ProjectRowResultRole | None]:
+) -> tuple[ProjectRowDependencyNode, ProjectRowResultRole | None, WindowInputBinding]:
     """Translate one validated transient origin to a project dependency."""
 
     binding = input_scope.resolve(
@@ -812,7 +955,7 @@ def _window_input_dependency(
             source_name=upstream_symbol.name,
             field_name=binding.target_name,
         )
-        return node, None
+        return node, None, binding
     if binding.origin is WindowInputOriginKind.LET_BINDING:
         node = ProjectRowDependencyNode(
             kind=ProjectRowDependencyNodeKind.LET_BINDING,
@@ -820,7 +963,7 @@ def _window_input_dependency(
             relation_name=definition.name,
             binding_name=binding.target_name,
         )
-        return node, None
+        return node, None, binding
 
     target_result_role = (
         ProjectRowResultRole.GROUP_KEY
@@ -833,7 +976,7 @@ def _window_input_dependency(
         relation_name=definition.name,
         output_name=binding.target_name,
     )
-    return node, target_result_role
+    return node, target_result_role, binding
 
 
 def _source_location(span: Span) -> SourceLocation:

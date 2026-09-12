@@ -301,11 +301,12 @@ EXPECTED_STATUS = (
     ("Phase 65 Slice 4", "`COMPLETED / PUBLISHED`"),
     ("Phase 65 Slice 5", "`COMPLETED / PUBLISHED`"),
     ("Phase 65 Slice 6", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 7", "`NEXT / NOT IMPLEMENTED`"),
-    ("Phase 65 Slices 8–16", "`NOT IMPLEMENTED`"),
+    ("Phase 65 Slice 7", "`COMPLETED / PUBLISHED`"),
+    ("Phase 65 Slice 8", "`NEXT / NOT IMPLEMENTED`"),
+    ("Phase 65 Slices 9–16", "`NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 65 Slice 7 — Windows, named-window reuse and QUALIFY staging`",
+        "`Phase 65 Slice 8 — DISTINCT, scoped ORDER demands and static LIMIT`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1435,8 +1436,8 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
 EXPECTED_CURRENT_OWNER_SENTENCE = (
-    "The current owner is Phase 65, which is `ACTIVE`; Slices 1–6 are "
-    "`COMPLETED / PUBLISHED` and Slice 7 is `NEXT / NOT IMPLEMENTED`."
+    "The current owner is Phase 65, which is `ACTIVE`; Slices 1–7 are "
+    "`COMPLETED / PUBLISHED` and Slice 8 is `NEXT / NOT IMPLEMENTED`."
 )
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
@@ -4945,7 +4946,7 @@ def test_phase65_route_and_lifecycle_are_conditional() -> None:
     status = " ".join(_read(STATUS).split())
     normalized = " ".join(roadmap.split())
     for phrase in (
-        "Slices 8–16 are `NOT IMPLEMENTED`",
+        "Slices 9–16 are `NOT IMPLEMENTED`",
         "D65.01–D65.12",
         "only upon successful natural exact-head CI",
     ):
@@ -5012,7 +5013,7 @@ def test_phase65_slice4_current_stage_boundary() -> None:
     ):
         assert phrase in status and phrase in roadmap
     assert "never enter selected visible exports" in status
-    assert "Slice7 is `NEXT / NOT IMPLEMENTED`" in status
+    assert "Slice8 is `NEXT / NOT IMPLEMENTED`" in status
 
 
 def test_phase65_slice5_current_matching_and_obligation_boundary() -> None:
@@ -5032,7 +5033,7 @@ def test_phase65_slice5_current_matching_and_obligation_boundary() -> None:
     ):
         assert phrase in status and phrase in roadmap
     assert "INNER/LEFT/CROSS/RIGHT/FULL/SEMI/ANTI" in status
-    assert "Slices 8–16 are `NOT IMPLEMENTED`" in status
+    assert "Slices 9–16 are `NOT IMPLEMENTED`" in status
 
 
 def test_phase65_slice6_current_aggregate_boundary() -> None:
@@ -5048,5 +5049,24 @@ def test_phase65_slice6_current_aggregate_boundary() -> None:
         "exact-ref inspection",
     ):
         assert phrase in status and phrase in roadmap
-    assert "Slice7 is `NEXT / NOT IMPLEMENTED`" in status
-    assert "Slices 8–16 are `NOT IMPLEMENTED`" in status
+    assert "Slice8 is `NEXT / NOT IMPLEMENTED`" in status
+    assert "Slices 9–16 are `NOT IMPLEMENTED`" in status
+
+
+def test_phase65_slice7_current_window_and_qualify_boundary() -> None:
+    status = " ".join(_read(STATUS).split())
+    roadmap = " ".join(_section(_read(ROADMAP), "Phase 65 route").split())
+    target = "spec/phase65-slice7-windows-named-window-qualify-staging-v1.md"
+    assert f"]({target})" in status and f"]({target})" in roadmap
+    assert (STATUS.parent / target).is_file()
+    for phrase in (
+        "selected/hidden window computations",
+        "named-window provenance",
+        "SQL TRUE-only membership",
+        "NEW construction-time hidden binding preparation",
+        "immediate active exports",
+        "origins/demands",
+    ):
+        assert phrase in status and phrase in roadmap
+    assert "Slice8 is `NEXT / NOT IMPLEMENTED`" in status
+    assert "Slices 9–16 are `NOT IMPLEMENTED`" in status

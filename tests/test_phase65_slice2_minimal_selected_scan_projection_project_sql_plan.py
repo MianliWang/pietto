@@ -391,11 +391,11 @@ SUPPORTED_BODIES = {
     "scalar": "    from rows\n    select:\n        x = id + 1\n",
     "group": "    from rows\n    group by:\n        id\n    select:\n        id\n        total = count(id)\n    satisfying:\n        total > 0\n",
     "global": "    from rows\n    select:\n        total = count(id)\n",
+    "window": "    from rows\n    select:\n        id\n        ranked = row_number() window:\n            order by:\n                id\n    qualify:\n        ranked <= 3\n",
 }
 
 FUTURE_BODIES = {
     "order": "    from rows\n    select:\n        id\n    order by:\n        id\n",
-    "window": "    from rows\n    select:\n        id\n        ranked = row_number() window:\n            order by:\n                id\n    qualify:\n        ranked <= 3\n",
     "distinct": "    from rows\n    select distinct:\n        id\n    order by:\n        id\n    limit 2\n",
     "set": "    union all:\n        from rows\n        from other\n",
     "multiple": "    from rows\n    where id > 0\n    select:\n        a = id + 1\n        b = id + 2\n    order by:\n        a\n    limit 2\n",
@@ -665,8 +665,9 @@ def test_lifted_row_and_join_families_are_positive(tmp_path: Path, family: str) 
     checked = verify_project_sql_plan(result, *roots)
     assert checked.verified, checked.issues
     view = inspect_project_sql_plan(checked)
-    assert bool(view.filters) is (family in {"where", "group"})
+    assert bool(view.filters) is (family in {"where", "group", "window"})
     assert bool(view.aggregations) is (family in {"group", "global"})
     assert bool(view.let_values) is (family == "let")
     assert bool(view.joins) is (family == "join")
+    assert bool(view.windows) is (family == "window")
     assert view.expressions and view.exports

@@ -57,9 +57,10 @@ documentation does not supersede that evidence.
 | Phase 65 Slice 4 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 5 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 6 | `COMPLETED / PUBLISHED` |
-| Phase 65 Slice 7 | `NEXT / NOT IMPLEMENTED` |
-| Phase 65 Slices 8–16 | `NOT IMPLEMENTED` |
-| Next | `Phase 65 Slice 7 — Windows, named-window reuse and QUALIFY staging` |
+| Phase 65 Slice 7 | `COMPLETED / PUBLISHED` |
+| Phase 65 Slice 8 | `NEXT / NOT IMPLEMENTED` |
+| Phase 65 Slices 9–16 | `NOT IMPLEMENTED` |
+| Next | `Phase 65 Slice 8 — DISTINCT, scoped ORDER demands and static LIMIT` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -893,6 +894,20 @@ Named/imported producers feed immediate active exports into admitted consumers.
 Origins/demands and independent verification cover every aggregate boundary;
 exact-ref inspection exposes its ports, uses and requirements. No new semantic
 rules, arbitrary scalar calls, target support or SQL execution is claimed.
-Windows/QUALIFY, DISTINCT/ORDER/LIMIT and SET bodies remain unavailable.
-Phase65 stays `ACTIVE`; Slice7 is `NEXT / NOT IMPLEMENTED`;
-Slices 8–16 are `NOT IMPLEMENTED`; N16 is unchanged.
+At Slice6 publication, windows/QUALIFY, DISTINCT/ORDER/LIMIT and SET bodies remained unavailable.
+That publication left Slice7 next; N16 stayed unchanged.
+
+Phase 65 Slice 7 is `COMPLETED / PUBLISHED` only upon successful natural
+exact-head CI on its ordinary commit. Its [window/QUALIFY contract](spec/phase65-slice7-windows-named-window-qualify-staging-v1.md)
+adds contextual selected/hidden window computations, named-window provenance,
+private results and post-window QUALIFY with SQL TRUE-only membership.
+Original selected binding retention and NEW construction-time hidden binding
+preparation remain distinct. Hidden values never enter canonical exports;
+rebound consumers use original IR compatibility to consume immediate active exports.
+Frame/modifier/order policies and unknown IR effects retain their original objects.
+Independent verification and exact-ref inspection cover bindings, scope crossings,
+complete origins/demands and unchanged single-match obligations. Logical reuse
+makes no physical evaluation-once or materialization claim. No SQL emission,
+execution or target support is implemented.
+Phase65 stays `ACTIVE`; Slice8 is `NEXT / NOT IMPLEMENTED`;
+Slices 9–16 are `NOT IMPLEMENTED`; N16 is unchanged.

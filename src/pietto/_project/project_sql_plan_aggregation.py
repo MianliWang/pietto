@@ -11,6 +11,7 @@ from pietto.ast_nodes import (
     Expression,
     CallExpr,
     SelectItem,
+    WindowExpr,
     TableDef,
     QueryDef,
     SatisfyingClause,
@@ -244,6 +245,8 @@ def authority(
     output_keys = []
     outputs = []
     for selection, references in zip(selections, selected_references, strict=True):
+        if isinstance(selection.item.expression, WindowExpr):
+            continue
         matched = results_by_item.get(id(selection.item))
         if matched is None or matched[0] is not selection.item:
             return None

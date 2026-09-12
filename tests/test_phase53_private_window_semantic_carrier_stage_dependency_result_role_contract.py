@@ -422,7 +422,21 @@ def test_project_private_module_enum_carrier_and_privacy_shapes_are_exact() -> N
     for carrier, names in expected.items():
         assert is_dataclass(carrier)
         assert hasattr(carrier, "__slots__")
-        assert tuple(field.name for field in fields(carrier)) == names
+        actual_names = tuple(field.name for field in fields(carrier))
+        if carrier is WindowDependencyOccurrence:
+            assert set(names) <= set(actual_names)
+            assert tuple(name for name in actual_names if name in names) == names
+            for retained in fields(carrier):
+                if retained.name not in names:
+                    assert (
+                        not retained.compare
+                        and not retained.hash
+                        and not retained.repr
+                        and not retained.init
+                    )
+        else:
+            assert actual_names == names
+        assert cast(Any, carrier).__dataclass_params__.frozen
         assert all(
             parameter.kind is inspect.Parameter.KEYWORD_ONLY
             for parameter in inspect.signature(cast(Any, carrier)).parameters.values()

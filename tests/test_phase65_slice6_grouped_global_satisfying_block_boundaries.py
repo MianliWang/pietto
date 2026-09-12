@@ -852,6 +852,17 @@ def test_ir_rebound_group_projection_retains_complete_determinant(
     assert isinstance(entry, ir.ProjectIRReboundExistingOutput)
     assert len(entry.aggregate_contexts[0].group_keys) == 2
     assert bool(entry.active_properties.relational.keys) is ("v = value" in visible)
+    from pietto._project.project_query_block_ir_verification import (
+        build_project_query_block_ir_analysis_bundle,
+    )
+
+    bundle = build_project_query_block_ir_analysis_bundle(checked)
+    plan = build_project_sql_plan(completed, bundle, entry.owner)
+    assert isinstance(plan, ProjectSQLPlan)
+    verified = verify_project_sql_plan(plan, completed, bundle, entry.owner)
+    assert verified.verified, verified.issues
+    view = inspect_project_sql_plan(verified)
+    assert view.windows and view.aggregations
 
 
 def test_hidden_group_ir_inspection_keeps_visible_shape(tmp_path: Path):

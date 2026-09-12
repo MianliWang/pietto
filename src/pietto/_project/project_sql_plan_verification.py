@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pietto._project import project_sql_plan_aggregation as aggregation
+from pietto._project import project_sql_plan_windows as windows
 
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -17,6 +18,8 @@ from pietto._project.project_query_block_ir_verification import (
 )
 from pietto._project.project_query_block_ir import (
     ProjectIRCompletedQueryBlockOutput,
+    ProjectIRReboundExistingOutput,
+    ProjectIRQueryBlockOperatorExtensionKind,
     _active_output_identities,
 )
 from pietto._project.project_ir_operators import ProjectIRLogicalOperatorKind
@@ -63,7 +66,7 @@ from pietto._project.project_sql_plan import (
     _origin_index,
     _field_site,
 )
-from pietto.ast_nodes import SelectItem
+from pietto.ast_nodes import SelectItem, WindowExpr
 from pietto.ast_nodes import (
     SourceDef,
     TableDef,
@@ -635,21 +638,19 @@ def verify_project_sql_bindings(
     )
 
 
-def _projection_shape(entry, aggregate=None) -> bool:
+def _projection_shape(entry, aggregate=None, window=None) -> bool:
     definition = entry.owner.definition
     if not isinstance(definition, (TableDef, QueryDef)) or any(
         (
-            definition.named_windows,
-            definition.qualify_clause,
             definition.distinct_clause,
             definition.order_by_clause,
             definition.limit_clause,
         )
     ):
         return False
-    expected = (
-        [] if definition.join_clauses else [ProjectIRLogicalOperatorKind.RELATION_INPUT]
-    )
+    expected: list[
+        ProjectIRLogicalOperatorKind | ProjectIRQueryBlockOperatorExtensionKind
+    ] = [] if definition.join_clauses else [ProjectIRLogicalOperatorKind.RELATION_INPUT]
     if definition.where_clause is not None:
         expected.append(ProjectIRLogicalOperatorKind.ROW_FILTER)
     if aggregate is not None:
@@ -661,6 +662,14 @@ def _projection_shape(entry, aggregate=None) -> bool:
         or definition.satisfying_clause is not None
     ):
         return False
+    if window is not None:
+        expected.append(ProjectIRLogicalOperatorKind.WINDOW_EVALUATION)
+        if window.qualify is not None:
+            from pietto._project.project_query_block_ir import (
+                ProjectIRQueryBlockOperatorExtensionKind,
+            )
+
+            expected.append(ProjectIRQueryBlockOperatorExtensionKind.QUALIFY)
     expected.append(ProjectIRLogicalOperatorKind.FINAL_PROJECTION)
     return tuple(o.kind for o in _operators(entry)) == tuple(expected)
 
@@ -1047,6 +1056,30 @@ def _row_site(
         or not _same(site.references, references)
     ):
         return False
+    if isinstance(site, windows.ProjectSQLQualifySite):
+        view = windows.authority(entry)
+        if isinstance(evidence, windows.ProjectNoJoinQualify):
+            context = evidence.input_context
+            if (
+                view is None
+                or not isinstance(view.root, windows.ProjectConcreteNoJoinReplay)
+                or context is None
+                or context.owner is not entry.owner
+                or context.scope is not view.root.window_scope
+                or context.input_schema is not view.root.input_schema
+                or context.let_scope is not view.root.let_scope
+                or context.base_schema is not view.root.base_state.schema
+                or not windows.project_targets_valid(context)
+            ):
+                return False
+        return (
+            role is row.ProjectSQLExpressionRole.QUALIFY
+            and view is not None
+            and view.qualify is evidence
+            and occurrence is entry.owner.definition.qualify_clause
+            and (site.aggregate is None)
+            is (aggregation.authority(block.ref.scope.completed, entry) is None)
+        )
     if isinstance(site, aggregation.ProjectSQLAggregateSite):
         if role is row.ProjectSQLExpressionRole.AGGREGATE_ARGUMENT:
             if (
@@ -1354,18 +1387,26 @@ def _aggregate_structure(plan):
         ]
         projection_count += len(original.outputs)
         rows = row.row_authority(plan.scope.completed, definition.entry)
-        if (
-            rows is None
-            or len(projections) != len(definition.exports)
-            or len(rows.selections) != len(projections)
+        if rows is None or len(projections) != sum(
+            not isinstance(f.item.expression, WindowExpr) for f in rows.selections
         ):
             return False
         for projection, source, key, export, semantic in zip(
             projections,
             original.outputs,
             original.output_keys,
-            definition.exports,
-            rows.selections,
+            tuple(
+                export
+                for export, semantic in zip(
+                    definition.exports, rows.selections, strict=True
+                )
+                if not isinstance(semantic.item.expression, WindowExpr)
+            ),
+            tuple(
+                semantic
+                for semantic in rows.selections
+                if not isinstance(semantic.item.expression, WindowExpr)
+            ),
             strict=True,
         ):
             port = ports.get(projection.input)
@@ -1409,6 +1450,386 @@ def _aggregate_structure(plan):
     )
 
 
+def _window_structure(plan):
+    K = ProjectSQLPlanRefKind
+    for values, cls, kind in (
+        (plan.windows, windows.ProjectSQLWindow, K.WINDOW),
+        (plan.window_uses, windows.ProjectSQLWindowUse, K.WINDOW_USE),
+        (plan.window_arguments, windows.ProjectSQLWindowArgument, K.WINDOW_ARGUMENT),
+        (plan.window_policies, windows.ProjectSQLWindowPolicy, K.WINDOW_POLICY),
+        (
+            plan.window_projections,
+            windows.ProjectSQLWindowProjection,
+            K.WINDOW_PROJECTION,
+        ),
+    ):
+        if not _inventory(values, cls, plan.scope, kind):
+            return False
+    ports = {p.ref: p for p in plan.stage_ports}
+    blocks = {b.ref: b for b in plan.blocks}
+    window_position = use_position = argument_position = policy_position = (
+        projection_position
+    ) = 0
+    for definition in plan.bindings.definitions:
+        view = windows.authority(definition.entry)
+        if view is None:
+            continue
+        aggregate = aggregation.authority(plan.scope.completed, definition.entry)
+        selected = {id(windows.selected_source(item)): item for item in view.selected}
+        local_windows = {}
+        for position, source in enumerate(windows.sources(view)):
+            value = plan.windows[window_position]
+            window_position += 1
+            block = blocks.get(value.block)
+            original_analysis = windows.analysis(source)
+            context = windows.input_context(source)
+            effective = windows.effective(source)
+            if (
+                block is None
+                or block.definition is not definition.ref
+                or block.kind is not row.ProjectSQLStageKind.WINDOW
+                or value.definition is not definition.ref
+                or type(value.position) is not int
+                or value.position != position
+                or value.source is not source
+                or value.context is not context
+                or value.selected is not selected.get(id(source))
+                or value.authored is not windows.authored(source)
+                or value.effective is not effective
+                or value.function is not effective.identity
+                or value.value_type is not windows.result_type(source)
+                or not _same(value.inputs, block.inputs)
+            ):
+                return False
+            if isinstance(source, windows.ProjectModuleWindowOutputFact):
+                if (
+                    not isinstance(context, windows.WindowComputationInput)
+                    or source.owner is not definition.entry.owner
+                    or context.analysis is not source.analysis
+                ):
+                    return False
+                rows = row.row_authority(plan.scope.completed, definition.entry)
+                if (
+                    not isinstance(rows, row.ProjectSQLRowAuthority)
+                    or context.project_schema is not rows.input_schema
+                ):
+                    return False
+                if (
+                    context.item is not source.item
+                    or context.definition is not definition.entry.owner.definition
+                ):
+                    return False
+            elif isinstance(source, windows.ProjectNoJoinHiddenWindowComputation):
+                if (
+                    not isinstance(view.root, windows.ProjectConcreteNoJoinReplay)
+                    or not isinstance(context, windows.ProjectNoJoinWindowInput)
+                    or not isinstance(
+                        source.analysis, windows.WindowComputationAnalysis
+                    )
+                    or context.owner is not definition.entry.owner
+                    or context.scope is not view.root.window_scope
+                    or context.input_schema is not view.root.input_schema
+                    or context.let_scope is not view.root.let_scope
+                    or context.base_schema is not view.root.base_state.schema
+                    or source.expression is not effective
+                    or source.analysis.expression is not effective
+                ):
+                    return False
+            elif (
+                not isinstance(view.root, windows.ProjectConcreteJoinedQualify)
+                or source.input_namespace is not view.root.window_stage.pre_window
+            ):
+                return False
+            result = ports.get(value.result)
+            if (
+                result is None
+                or result.block is not block.ref
+                or result.kind is not row.ProjectSQLStagePortKind.EXPORT
+                or result.source is not value.ref
+                or result.key is not source
+                or result.type_evidence is not value.value_type
+            ):
+                return False
+            # Independently enumerate admitted direct source roles, not the builder ledger.
+            call = effective.call
+            value_dependent = effective.identity.name in {
+                "lag",
+                "lead",
+                "first_value",
+                "last_value",
+                "nth_value",
+            }
+            arguments = (
+                (call.arguments[0],)
+                if value_dependent
+                and isinstance(call.arguments[0], (NameExpr, DottedNameExpr))
+                else ()
+            )
+            defaults = (
+                (call.arguments[2],)
+                if effective.identity.name in {"lag", "lead"}
+                and len(call.arguments) == 3
+                and isinstance(call.arguments[2], (NameExpr, DottedNameExpr))
+                else ()
+            )
+            R = windows.WindowDependencyRole
+            expected = (
+                *(
+                    (R.RELATION_INPUT, e)
+                    for e in (() if arguments or defaults else (call,))
+                ),
+                *((R.WINDOW_ARGUMENT, e) for e in arguments),
+                *((R.WINDOW_DEFAULT, e) for e in defaults),
+                *((R.WINDOW_PARTITION, e) for e in effective.spec.partition_by),
+                *(
+                    (R.WINDOW_ORDER, item.expression)
+                    for item in effective.spec.order_by
+                ),
+            )
+            originals = windows.input_uses(source)
+            uses = plan.window_uses[use_position : use_position + len(expected)]
+            use_position += len(expected)
+            if (
+                len(originals) != len(expected)
+                or len(uses) != len(expected)
+                or not _same(value.uses, tuple(use.ref for use in uses))
+            ):
+                return False
+            role_positions = {}
+            for ordinal, (use, original, (role, expression)) in enumerate(
+                zip(uses, originals, expected, strict=True)
+            ):
+                role_position = role_positions.get(role, 0)
+                role_positions[role] = role_position + 1
+                if (
+                    use.window is not value.ref
+                    or use.source is not original
+                    or use.expression is not expression
+                    or original.expression is not expression
+                    or use.role is not role
+                    or original.role is not role
+                    or type(use.position) is not int
+                    or use.position != ordinal
+                    or type(original.global_ordinal) is not int
+                    or original.global_ordinal != ordinal
+                    or type(use.role_position) is not int
+                    or use.role_position != role_position
+                    or type(original.role_ordinal) is not int
+                    or original.role_ordinal != role_position
+                    or use.value_type is not windows.use_type(source, original)
+                ):
+                    return False
+                binding = (
+                    original.target
+                    if isinstance(original, windows.ProjectWindowDependencyOccurrence)
+                    and role is not R.RELATION_INPUT
+                    else None
+                    if isinstance(original, windows.ProjectWindowDependencyOccurrence)
+                    else original.binding
+                )
+                if isinstance(original, windows.WindowDependencyOccurrence):
+                    expected_result_role = (
+                        None
+                        if original.binding is None
+                        else {
+                            windows.WindowInputOriginKind.GROUP_KEY: windows.ProjectRowResultRole.GROUP_KEY,
+                            windows.WindowInputOriginKind.AGGREGATE_RESULT: windows.ProjectRowResultRole.AGGREGATE_RESULT,
+                        }.get(original.binding.origin)
+                    )
+                    if original.target_result_role is not expected_result_role:
+                        return False
+                if use.binding is not binding:
+                    return False
+                if role is R.RELATION_INPUT:
+                    if (
+                        use.binding is not None
+                        or use.input is not None
+                        or use.value_type is not None
+                    ):
+                        return False
+                    if (
+                        isinstance(original, windows.ProjectWindowDependencyOccurrence)
+                        and original.target is not context
+                    ):
+                        return False
+                    continue
+                if (
+                    not isinstance(
+                        binding,
+                        (
+                            windows.WindowInputBinding,
+                            windows.ProjectJoinedWindowInputBinding,
+                        ),
+                    )
+                    or use.value_type is None
+                    or binding.value_type != use.value_type
+                ):
+                    return False
+                if isinstance(original, windows.ProjectWindowDependencyOccurrence):
+                    if not isinstance(
+                        source, windows.ProjectConcreteWindowComputation
+                    ) or not isinstance(
+                        context, windows.ProjectJoinedWindowInputNamespace
+                    ):
+                        return False
+                    if original.site is not source.site or not any(
+                        binding is candidate for candidate in context.bindings
+                    ):
+                        return False
+                elif isinstance(original, windows.ProjectNoJoinHiddenWindowInputUse):
+                    if not isinstance(
+                        source, windows.ProjectNoJoinHiddenWindowComputation
+                    ) or not isinstance(context, windows.ProjectNoJoinWindowInput):
+                        return False
+                    if (
+                        original.context is not context
+                        or original.hidden is not source.expression
+                    ):
+                        return False
+                    pairs = tuple(
+                        target
+                        for candidate, target in zip(
+                            context.scope.bindings, context.targets, strict=True
+                        )
+                        if candidate is binding
+                    )
+                    if len(pairs) != 1 or pairs[0] is not original.target:
+                        return False
+                elif (
+                    not isinstance(context, windows.WindowComputationInput)
+                    or original.computation is not context
+                    or not any(
+                        binding is candidate for candidate in context.scope.bindings
+                    )
+                ):
+                    return False
+                key = windows.input_target(source, original, aggregate)
+                port = ports.get(use.input)
+                if (
+                    port is None
+                    or port.block is not block.ref
+                    or port.kind is not row.ProjectSQLStagePortKind.INPUT
+                    or port.key is not key
+                    or not any(port.ref is ref for ref in block.inputs)
+                ):
+                    return False
+            arguments = plan.window_arguments[
+                argument_position : argument_position + len(call.arguments)
+            ]
+            argument_position += len(call.arguments)
+            if not _same(
+                value.arguments, tuple(argument.ref for argument in arguments)
+            ) or len(arguments) != len(call.arguments):
+                return False
+            for ordinal, (argument, expression) in enumerate(
+                zip(arguments, call.arguments, strict=True)
+            ):
+                matched = tuple(use for use in uses if use.expression is expression)
+                if (
+                    argument.window is not value.ref
+                    or type(argument.position) is not int
+                    or argument.position != ordinal
+                    or argument.expression is not expression
+                    or argument.role is not windows.argument_role(source, ordinal)
+                    or argument.value_type is not windows.argument_type(source, ordinal)
+                    or len(matched) > 1
+                    or argument.use is not (None if not matched else matched[0].ref)
+                ):
+                    return False
+            policy = plan.window_policies[policy_position]
+            policy_position += 1
+            ir_operator, ir_policy, ir_effect = windows.ir_evidence(
+                source, definition.entry
+            )
+            _, _, ranking, distribution, bucket, navigation, frame_value, modifiers = (
+                windows.components(source)
+            )
+            partitions, orders, *_ = windows.components(source)
+            if (
+                policy.ref is not value.policy
+                or policy.ir_operator is not ir_operator
+                or policy.ir_policy is not ir_policy
+                or policy.ir_effect is not ir_effect
+                or not any(ir_operator is operator for operator in block.operators)
+                or policy.window is not value.ref
+                or policy.specification is not original_analysis.validated_specification
+                or not _same(policy.partitions, partitions)
+                or not _same(policy.orders, orders)
+                or policy.modifiers is not modifiers
+                or policy.named_use is not original_analysis.resolved_named_use
+                or policy.namespace is not view.named
+                or policy.ranking is not ranking
+                or policy.distribution is not distribution
+                or policy.bucket_count != bucket
+                or (
+                    policy.bucket_count is not None
+                    and type(policy.bucket_count) is not int
+                )
+                or policy.navigation is not navigation
+                or policy.frame_value is not frame_value
+                or policy.specification.argument_expressions is not call.arguments
+            ):
+                return False
+            if policy.named_use is not None:
+                if (
+                    policy.namespace is None
+                    or policy.named_use.composed.expression is not value.authored
+                ):
+                    return False
+                template = policy.named_use.composed.target_template
+                if not any(template is item for item in policy.namespace.templates):
+                    return False
+            local_windows[id(source)] = value
+        rows = row.row_authority(plan.scope.completed, definition.entry)
+        if rows is None:
+            return False
+        selected_by_item = {id(item.item): item for item in view.selected}
+        for semantic, export in zip(rows.selections, definition.exports, strict=True):
+            selected_result = selected_by_item.get(id(semantic.item))
+            if selected_result is None:
+                continue
+            projection = plan.window_projections[projection_position]
+            projection_position += 1
+            value = local_windows[id(windows.selected_source(selected_result))]
+            port = ports.get(projection.input)
+            block = blocks.get(projection.block)
+            field = (
+                definition.entry.semantic_entry.fields[
+                    semantic.selected_output_ordinal
+                ].field
+                if isinstance(definition.entry, ProjectIRCompletedQueryBlockOutput)
+                else semantic.field
+            )
+            if (
+                projection.window is not value.ref
+                or projection.source is not selected_result
+                or projection.semantic is not semantic
+                or projection.export is not export.ref
+                or export.field.evidence is not field
+                or block is None
+                or block.kind is not row.ProjectSQLStageKind.PROJECTION
+                or block.definition is not definition.ref
+                or port is None
+                or port.block is not block.ref
+                or port.kind is not row.ProjectSQLStagePortKind.INPUT
+                or port.key is not value.source
+            ):
+                return False
+    return (
+        window_position,
+        use_position,
+        argument_position,
+        policy_position,
+        projection_position,
+    ) == (
+        len(plan.windows),
+        len(plan.window_uses),
+        len(plan.window_arguments),
+        len(plan.window_policies),
+        len(plan.window_projections),
+    )
+
+
 def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, ...]:
     Issue, K = ProjectSQLPlanVerificationIssue, ProjectSQLPlanRefKind
     bindings = plan.bindings
@@ -1419,7 +1840,9 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
     )
     if any(
         not _projection_shape(
-            d.entry, aggregation.authority(plan.scope.completed, d.entry)
+            d.entry,
+            aggregation.authority(plan.scope.completed, d.entry),
+            windows.authority(d.entry),
         )
         for d in definitions
     ):
@@ -1450,6 +1873,7 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                 row.ProjectSQLJoinedSite,
                 row.ProjectSQLMatchSite,
                 aggregation.ProjectSQLAggregateSite,
+                windows.ProjectSQLQualifySite,
             ),
             K.EXPRESSION_SITE,
         ),
@@ -1466,7 +1890,11 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
         for i, e in enumerate(plan.expressions)
     ):
         return (Issue.STRUCTURE,)
-    if not _join_structure(plan) or not _aggregate_structure(plan):
+    if (
+        not _join_structure(plan)
+        or not _aggregate_structure(plan)
+        or not _window_structure(plan)
+    ):
         return (Issue.STRUCTURE,)
     join_by_definition = {d.ref: [] for d in definitions}
     for joined in plan.joins:
@@ -1496,6 +1924,7 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
         if authority is None:
             return (Issue.UNSUPPORTED_SHAPE,)
         aggregate = aggregation.authority(plan.scope.completed, entry)
+        window_view = windows.authority(entry)
         aggregate_stage = next(
             (a for a in plan.aggregations if a.definition is definition.ref), None
         )
@@ -1576,10 +2005,34 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                 return (Issue.STRUCTURE,)
             use = uses[definition.ref][0]
             boundary = boundaries[definition.ref]
-            original = {id(p.field.evidence): p for p in use.ports}
+            keys = tuple(port.field.evidence for port in use.ports)
+            if isinstance(entry, ProjectIRReboundExistingOutput):
+                compatibility = entry.relation_input.compatibility
+                if (
+                    use.edge is not entry.relation_input
+                    or not compatibility.satisfied
+                    or compatibility.output is not use.edge.producer.output
+                    or not _same(
+                        compatibility.required_fields,
+                        tuple(authority.input_schema.fields.values()),
+                    )
+                    or len(compatibility.required_fields) != len(use.ports)
+                    or any(
+                        port.field.output is not compatibility.output
+                        for port in use.ports
+                    )
+                ):
+                    return (Issue.PORTS_AND_PROJECTIONS,)
+                keys = compatibility.required_fields
+            original = {
+                id(key): port for key, port in zip(keys, use.ports, strict=True)
+            }
             if {id(f) for f in authority.input_schema.fields.values()} != set(original):
                 return (Issue.PORTS_AND_PROJECTIONS,)
-            carries = [(p.ref, p.field.evidence, p.field.evidence) for p in use.ports]
+            carries = [
+                (port.ref, key, port.field.evidence)
+                for key, port in zip(keys, use.ports, strict=True)
+            ]
             predecessor = use.ref
         stage_kinds = [row.ProjectSQLStageKind.LET] * len(expected_bindings)
         if authored.where_clause is not None:
@@ -1588,6 +2041,10 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
             stage_kinds.append(row.ProjectSQLStageKind.AGGREGATE)
             if aggregate.satisfying is not None:
                 stage_kinds.append(row.ProjectSQLStageKind.SATISFYING)
+        if window_view is not None:
+            stage_kinds.append(row.ProjectSQLStageKind.WINDOW)
+            if window_view.qualify is not None:
+                stage_kinds.append(row.ProjectSQLStageKind.QUALIFY)
         stage_kinds.append(row.ProjectSQLStageKind.PROJECTION)
         for local_position, kind in enumerate(stage_kinds):
             block = plan.blocks[block_position]
@@ -1621,6 +2078,14 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                         or (
                             operator.kind is ProjectIRLogicalOperatorKind.RESULT_FILTER
                             and kind is row.ProjectSQLStageKind.SATISFYING
+                        )
+                        or (
+                            kind is row.ProjectSQLStageKind.WINDOW
+                            and operator.kind.value == "window_evaluation"
+                        )
+                        or (
+                            kind is row.ProjectSQLStageKind.QUALIFY
+                            and operator.kind.value == "qualify"
                         )
                         or (
                             operator.kind
@@ -1730,6 +2195,19 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                         aggregate.satisfying_references,
                     )
                 ]
+            elif kind is row.ProjectSQLStageKind.WINDOW:
+                specs = []
+            elif kind is row.ProjectSQLStageKind.QUALIFY:
+                assert window_view is not None and window_view.qualify is not None
+                specs = [
+                    (
+                        row.ProjectSQLExpressionRole.QUALIFY,
+                        0,
+                        authored.qualify_clause,
+                        window_view.qualify,
+                        windows.qualifier_references(window_view.qualify),
+                    )
+                ]
             elif aggregate is not None:
                 specs = []
             else:
@@ -1743,6 +2221,7 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                             strict=True,
                         )
                     )
+                    if not isinstance(fact.item.expression, WindowExpr)
                 ]
             local_sites = []
             for role, ordinal, occurrence, evidence, references in specs:
@@ -1761,18 +2240,20 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                     expected_bindings,
                 ):
                     return (Issue.STRUCTURE,)
+                if isinstance(
+                    site, windows.ProjectSQLQualifySite
+                ) and site.aggregate is not (
+                    None if aggregate_stage is None else aggregate_stage.authority
+                ):
+                    return (Issue.STRUCTURE,)
                 site_specs.append((site, incoming))
                 local_sites.append(site)
             if kind is row.ProjectSQLStageKind.PROJECTION:
                 if not _same(block.exports, tuple(p.ref for p in definition.exports)):
                     return (Issue.PORTS_AND_PROJECTIONS,)
-                for i, (site, export) in enumerate(
-                    zip(
-                        local_sites,
-                        () if aggregate is not None else definition.exports,
-                        strict=True,
-                    )
-                ):
+                for site in local_sites:
+                    i = site.ordinal
+                    export = definition.exports[i]
                     projection = plan.projections[projection_position]
                     projection_position += 1
                     root_by_site[site.ref] = projection.expression
@@ -1869,13 +2350,31 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                     ):
                         return (Issue.PORTS_AND_PROJECTIONS,)
                     outgoing = (*outgoing, port)
+                elif kind is row.ProjectSQLStageKind.WINDOW:
+                    local_windows = tuple(
+                        value for value in plan.windows if value.block is block.ref
+                    )
+                    results = plan.stage_ports[
+                        port_position : port_position + len(local_windows)
+                    ]
+                    port_position += len(local_windows)
+                    if not _same(
+                        tuple(port.ref for port in results),
+                        tuple(value.result for value in local_windows),
+                    ):
+                        return (Issue.STRUCTURE,)
+                    outgoing = (*outgoing, *results)
                 else:
                     item = plan.filters[filter_position]
                     filter_position += 1
                     site = local_sites[0]
                     root_by_site[site.ref] = item.predicate
                     if item.site is not site or item.retention_effects is not (
-                        aggregation.satisfying_effects(aggregate)
+                        windows.qualify_effects(window_view.qualify)
+                        if kind is row.ProjectSQLStageKind.QUALIFY
+                        and window_view is not None
+                        and window_view.qualify is not None
+                        else aggregation.satisfying_effects(aggregate)
                         if aggregate is not None
                         and kind is row.ProjectSQLStageKind.SATISFYING
                         else _SQL_ROW_RETENTION_EFFECTS
@@ -1933,16 +2432,19 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
     }
     for site, incoming in site_specs:
         aggregate_site = isinstance(site, aggregation.ProjectSQLAggregateSite)
+        qualify_site = isinstance(site, windows.ProjectSQLQualifySite)
         result_site = (
             aggregate_site and site.role is row.ProjectSQLExpressionRole.SATISFYING
         )
         atomic = (
             {id(row.reference_expression(r)) for r in site.references}
-            if result_site
+            if result_site or qualify_site
             else set()
         )
         reference_type = (
-            aggregation.ProjectSQLResultReference
+            windows.ProjectSQLWindowReference
+            if qualify_site
+            else aggregation.ProjectSQLResultReference
             if result_site
             else row.ProjectSQLMatchReference
             if isinstance(site, row.ProjectSQLMatchSite)
@@ -2006,9 +2508,7 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
             if (
                 type(value)
                 is not (
-                    aggregation.ProjectSQLResultReference
-                    if id(node) in atomic
-                    else variants.get(type(node))
+                    reference_type if id(node) in atomic else variants.get(type(node))
                 )
                 or value.site is not site
                 or value.expression is not node
@@ -2025,6 +2525,7 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                     row.ProjectSQLJoinedReference,
                     row.ProjectSQLMatchReference,
                     aggregation.ProjectSQLResultReference,
+                    windows.ProjectSQLWindowReference,
                 ),
             ):
                 reference = next(references, None)
@@ -2034,7 +2535,30 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                     or row.reference_expression(reference) is not node
                 ):
                     return False
-                if result_site:
+                if qualify_site:
+                    if not _same(
+                        site.references, windows.qualifier_references(site.evidence)
+                    ):
+                        return False
+                    if isinstance(
+                        reference,
+                        (
+                            windows.ProjectNoJoinHiddenWindowComputation,
+                            windows.ProjectConcreteWindowComputation,
+                        ),
+                    ):
+                        hidden = (
+                            site.evidence.hidden_attempts
+                            if isinstance(site.evidence, windows.ProjectNoJoinQualify)
+                            else site.evidence.hidden_computations
+                        )
+                        if not any(reference is value for value in hidden):
+                            return False
+                    elif not any(
+                        reference is value for value in site.evidence.references
+                    ):
+                        return False
+                elif result_site:
                     assert isinstance(site, aggregation.ProjectSQLAggregateSite)
                     original = site.authority.source
                     if isinstance(
@@ -2201,11 +2725,26 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                         or value.value_type is not reference.target.value_type
                     ):
                         return False
-                if result_site:
+                if qualify_site:
+                    assert isinstance(
+                        reference,
+                        (
+                            windows.ProjectNoJoinQualifyReferenceResolution,
+                            windows.ProjectQualifyReferenceResolution,
+                            windows.ProjectNoJoinHiddenWindowComputation,
+                            windows.ProjectConcreteWindowComputation,
+                        ),
+                    )
+                    key = windows.qualify_target(
+                        site.evidence, reference, site.aggregate
+                    )
+                elif result_site:
                     assert isinstance(site, aggregation.ProjectSQLAggregateSite)
                     if isinstance(reference, row.ProjectJoinConditionReference):
                         return False
-                    key = aggregation.result_key(site, reference)
+                    key = aggregation.result_key(
+                        site, cast(aggregation.Reference, reference)
+                    )
                 else:
                     key = row.reference_key(reference)
                 port = environment.get(id(key))
@@ -2384,6 +2923,7 @@ def _row_origins_and_demands(plan):
                     row.ProjectSQLJoinedReference,
                     row.ProjectSQLMatchReference,
                     aggregation.ProjectSQLResultReference,
+                    windows.ProjectSQLWindowReference,
                 ),
             )
             else ()
@@ -2509,12 +3049,24 @@ def _row_origins_and_demands(plan):
             plan.aggregate_risks,
         )
     )
+    window_count = sum(
+        len(values)
+        for values in (
+            plan.windows,
+            plan.window_uses,
+            plan.window_arguments,
+            plan.window_policies,
+            plan.window_projections,
+        )
+    )
     if len(plan.demands) != demand_prefix + len(
         subjects
-    ) + join_count + aggregate_count or len(plan.origins) != prefix + len(specs) + len(
-        subjects
-    ) + 2 * join_count + len(plan.join_ports) + 2 * aggregate_count + len(
-        plan.aggregate_projections
+    ) + join_count + aggregate_count + window_count or len(
+        plan.origins
+    ) != prefix + len(specs) + len(subjects) + 2 * join_count + len(
+        plan.join_ports
+    ) + 2 * aggregate_count + len(plan.aggregate_projections) + 2 * window_count + len(
+        plan.window_projections
     ):
         return (Issue.DEMANDS,)
     operand_types = {e.ref: [] for e in plan.expressions}
@@ -2868,6 +3420,121 @@ def _aggregate_origins_and_demands(plan, origin_position, demand_position):
         origin_position += 2
         demand_position += 1
         if isinstance(witness, aggregation.ProjectSQLAggregateProjection):
+            if not _origin_matches(
+                plan.origins[origin_position],
+                (
+                    witness.export,
+                    R.EXPORT,
+                    P.VALUE,
+                    owner,
+                    witness.semantic.item,
+                    exports[witness.export].field,
+                    (witness.ref,),
+                ),
+                plan.scope,
+                origin_position,
+            ):
+                return (Issue.ORIGINS,)
+            origin_position += 1
+    return _window_origins_and_demands(plan, origin_position, demand_position)
+
+
+def _window_origins_and_demands(plan, origin_position, demand_position):
+    Issue, R, P, K = (
+        ProjectSQLPlanVerificationIssue,
+        ProjectSQLOriginRole,
+        ProjectSQLOriginProvenance,
+        ProjectSQLPlanRefKind,
+    )
+    values = {value.ref: value for value in plan.windows}
+    blocks = {block.ref: block for block in plan.blocks}
+    exports = {export.ref: export for export in plan.all_exports}
+    for witness in (
+        *plan.windows,
+        *plan.window_uses,
+        *plan.window_arguments,
+        *plan.window_policies,
+        *plan.window_projections,
+    ):
+        value = (
+            witness
+            if isinstance(witness, windows.ProjectSQLWindow)
+            else values[witness.window]
+        )
+        owner = blocks[value.block].selected.owner
+        if isinstance(witness, windows.ProjectSQLWindow):
+            kind, role, provenance = (
+                windows.ProjectSQLWindowDemandKind.INPUT_BAG_AND_RESULT,
+                R.WINDOW,
+                P.MEMBERSHIP,
+            )
+            cause, antecedents = witness.authored, (witness.block, *witness.inputs)
+        elif isinstance(witness, windows.ProjectSQLWindowUse):
+            kind, role, provenance = (
+                windows.ProjectSQLWindowDemandKind.INPUT_USE,
+                R.WINDOW_USE,
+                P.VALUE,
+            )
+            cause, antecedents = (
+                witness.expression,
+                (witness.window,)
+                if witness.input is None
+                else (witness.window, witness.input),
+            )
+        elif isinstance(witness, windows.ProjectSQLWindowArgument):
+            kind, role, provenance = (
+                windows.ProjectSQLWindowDemandKind.ARGUMENT,
+                R.WINDOW_ARGUMENT,
+                P.VALUE,
+            )
+            cause, antecedents = (
+                witness.expression,
+                (witness.window,)
+                if witness.use is None
+                else (witness.window, witness.use),
+            )
+        elif isinstance(witness, windows.ProjectSQLWindowPolicy):
+            kind, role, provenance = (
+                windows.ProjectSQLWindowDemandKind.POLICY,
+                R.WINDOW_POLICY,
+                P.TYPE_PROOF,
+            )
+            cause, antecedents = value.authored, (witness.window,)
+        else:
+            kind, role, provenance = (
+                windows.ProjectSQLWindowDemandKind.PROJECTION,
+                R.WINDOW_PROJECTION,
+                P.VALUE,
+            )
+            cause, antecedents = witness.semantic.item, (witness.window, witness.input)
+        original, demand_origin = plan.origins[origin_position : origin_position + 2]
+        demand = plan.demands[demand_position]
+        if not _origin_matches(
+            original,
+            (witness.ref, role, provenance, owner, cause, witness, antecedents),
+            plan.scope,
+            origin_position,
+        ):
+            return (Issue.ORIGINS,)
+        if (
+            type(demand) is not windows.ProjectSQLWindowDemand
+            or not _ref(demand.ref, plan.scope, K.DEMAND, demand_position)
+            or demand.subject is not witness.ref
+            or demand.kind is not kind
+            or demand.witness is not witness
+            or demand.origin is not demand_origin.ref
+        ):
+            return (Issue.DEMANDS,)
+        if not _origin_matches(
+            demand_origin,
+            (demand.ref, R.DEMAND, provenance, owner, cause, witness, (original.ref,)),
+            plan.scope,
+            origin_position + 1,
+        ):
+            return (Issue.ORIGINS,)
+        origin_position += 2
+        demand_position += 1
+        if isinstance(witness, windows.ProjectSQLWindowProjection):
             if not _origin_matches(
                 plan.origins[origin_position],
                 (

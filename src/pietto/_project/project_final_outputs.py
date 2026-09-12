@@ -5,7 +5,7 @@ from __future__ import annotations
 from pietto._flat_relational_admission import syntax_diagnostics
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import InitVar, dataclass, field, replace
 from enum import StrEnum
 from types import MappingProxyType
 from typing import cast
@@ -53,6 +53,7 @@ from pietto._project.module_semantic_fact_preservation import (
     _clause_dependency_facts,
     _project_symbol_for_resolution,
     _window_output_facts,
+    _window_project_targets,
 )
 from pietto._project.project_completion import (
     ProjectCompletion,
@@ -247,6 +248,12 @@ from pietto.semantic.window_semantics import (
     WindowComputationAnalysis,
     WindowComputationUnsupported,
 )
+
+from pietto._project.window_semantics import (
+    WindowDependencyRole,
+    window_dependency_sources,
+)
+from pietto.ast_nodes import LetBinding
 
 __all__: tuple[str, ...] = ()
 
@@ -642,6 +649,99 @@ class ProjectNoJoinGroupedOutput:
             raise ValueError("No-JOIN grouped output requires exact helper authority.")
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False, repr=False)
+class ProjectNoJoinWindowInput:
+    """Construction-time correspondence shared by hidden inputs and outer QUALIFY."""
+
+    owner: ProjectDeclarationOccurrence
+    scope: WindowInputScope
+    input_schema: ProjectRowSchema
+    let_scope: ProjectRelationLetScopeFacts
+    base_schema: ProjectRowSchema
+    targets: tuple[ProjectRowField | LetBinding | SelectItem, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.owner) is not ProjectDeclarationOccurrence
+            or type(self.scope) is not WindowInputScope
+            or type(self.input_schema) is not ProjectRowSchema
+            or type(self.let_scope) is not ProjectRelationLetScopeFacts
+            or type(self.base_schema) is not ProjectRowSchema
+            or self.let_scope.definition is not self.owner.definition
+            or self.let_scope.input_schema is not self.input_schema
+            or type(self.targets) is not tuple
+            or len(self.targets) != len(self.scope.bindings)
+        ):
+            raise ValueError(
+                "No-JOIN window input requires its exact construction roots."
+            )
+        for binding, target in zip(self.scope.bindings, self.targets, strict=True):
+            if binding.origin is WindowInputOriginKind.UPSTREAM_FIELD:
+                members = self.input_schema.fields.values()
+            elif binding.origin is WindowInputOriginKind.LET_BINDING:
+                members = self.let_scope.bindings
+            else:
+                members = _derived_definition(self.owner).select_items
+            if not any(target is member for member in members):
+                raise ValueError("No-JOIN window target is outside its Project input.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectNoJoinHiddenWindowInputUse:
+    """One preparation lookup, including a retained unresolved attempt."""
+
+    context: ProjectNoJoinWindowInput = field(repr=False)
+    hidden: WindowExpr = field(repr=False)
+    expression: Expression = field(repr=False)
+    role: WindowDependencyRole
+    global_ordinal: int
+    role_ordinal: int
+    binding: WindowInputBinding | None = field(repr=False)
+    target: ProjectRowField | LetBinding | SelectItem | None = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.context) is not ProjectNoJoinWindowInput
+            or type(self.hidden) is not WindowExpr
+            or type(self.role) is not WindowDependencyRole
+            or type(self.global_ordinal) is not int
+            or self.global_ordinal < 0
+            or type(self.role_ordinal) is not int
+            or self.role_ordinal < 0
+        ):
+            raise ValueError(
+                "Hidden window input use requires exact roots and ordinals."
+            )
+        if self.role is WindowDependencyRole.RELATION_INPUT:
+            if (
+                self.expression is not self.hidden.call
+                or self.binding is not None
+                or self.target is not None
+            ):
+                raise ValueError(
+                    "Hidden relation membership cannot invent a field binding."
+                )
+        elif type(self.expression) not in {NameExpr, DottedNameExpr}:
+            raise ValueError("Hidden field preparation requires a direct reference.")
+        elif self.binding is None:
+            if self.target is not None:
+                raise ValueError(
+                    "An unresolved hidden input cannot have a Project target."
+                )
+        else:
+            matches = tuple(
+                target
+                for binding, target in zip(
+                    self.context.scope.bindings, self.context.targets, strict=True
+                )
+                if binding is self.binding
+            )
+            if len(matches) != 1 or matches[0] is not self.target:
+                raise ValueError(
+                    "Hidden binding requires its original Project correspondence."
+                )
+
+
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectNoJoinHiddenWindowComputation:
     """One occurrence-neutral hidden inline window attempt."""
@@ -657,7 +757,21 @@ class ProjectNoJoinHiddenWindowComputation:
     )
     diagnostics: tuple[Diagnostic, ...] = ()
 
-    def __post_init__(self) -> None:
+    input_context: ProjectNoJoinWindowInput | None = field(
+        default=None, init=False, repr=False
+    )
+    input_uses: tuple[ProjectNoJoinHiddenWindowInputUse, ...] | None = field(
+        default=None, init=False, repr=False
+    )
+    _construction: InitVar[
+        tuple[
+            ProjectNoJoinWindowInput,
+            tuple[ProjectNoJoinHiddenWindowInputUse, ...] | None,
+        ]
+        | None
+    ] = None
+
+    def __post_init__(self, _construction) -> None:
         if type(self.scope) is not WindowInputScope or type(self.expression) is not (
             WindowExpr
         ):
@@ -687,6 +801,27 @@ class ProjectNoJoinHiddenWindowComputation:
             or self.analysis.result.value_type is None
         ):
             raise ValueError("Concrete hidden window lost its exact result type.")
+
+        if _construction is not None:
+            context, uses = _construction
+            if context.scope is not self.scope or (
+                uses is not None
+                and (
+                    type(uses) is not tuple
+                    or any(
+                        use.context is not context
+                        or use.hidden is not self.expression
+                        or use.global_ordinal != i
+                        or type(use.global_ordinal) is not int
+                        for i, use in enumerate(uses)
+                    )
+                )
+            ):
+                raise ValueError(
+                    "Hidden preparation must retain its original scope and use."
+                )
+            object.__setattr__(self, "input_context", context)
+            object.__setattr__(self, "input_uses", uses)
 
     @property
     def value_type(self) -> ValueType | None:
@@ -790,7 +925,21 @@ class ProjectNoJoinQualify:
         hash=False,
     )
 
-    def __post_init__(self) -> None:
+    input_context: ProjectNoJoinWindowInput | None = field(
+        default=None, init=False, repr=False
+    )
+    _construction: InitVar[ProjectNoJoinWindowInput | None] = None
+
+    def __post_init__(self, _construction) -> None:
+        if _construction is not None:
+            if (
+                _construction.owner is not self.owner
+                or _construction.scope is not self.scope
+            ):
+                raise ValueError(
+                    "QUALIFY input correspondence requires its original scope."
+                )
+            object.__setattr__(self, "input_context", _construction)
         definition = _derived_definition(self.owner)
         if (
             type(self.kind) is not ProjectNoJoinQualifyKind
@@ -3576,21 +3725,64 @@ def _hidden_no_join_window(
     mode: ProjectJoinedAggregationMode,
     scope: WindowInputScope,
     expression: WindowExpr,
+    input_context: ProjectNoJoinWindowInput,
 ) -> ProjectNoJoinHiddenWindowComputation:
     if expression.use_kind is not WindowUseKind.INLINE:
         return ProjectNoJoinHiddenWindowComputation(
             scope=scope,
             expression=expression,
             analysis=None,
+            _construction=(input_context, None),
         )
     value_types: dict[Expression, ValueType] = {}
     diagnostics: list[Diagnostic] = []
+    input_uses: tuple[ProjectNoJoinHiddenWindowInputUse, ...] | None = None
+    targets = {
+        id(binding): target
+        for binding, target in zip(scope.bindings, input_context.targets, strict=True)
+    }
+
+    def prepare_inputs(effective: WindowExpr) -> None:
+        nonlocal input_uses
+        uses: list[ProjectNoJoinHiddenWindowInputUse] = []
+        ordinals: dict[WindowDependencyRole, int] = {}
+        for role, source in window_dependency_sources(effective):
+            if role is not WindowDependencyRole.RELATION_INPUT and type(source) not in {
+                NameExpr,
+                DottedNameExpr,
+            }:
+                continue
+            binding = (
+                None
+                if role is WindowDependencyRole.RELATION_INPUT
+                else scope.resolve(
+                    source,
+                    field_qualifier=_derived_definition(owner).from_clause.source_name,
+                )
+            )
+            ordinal = ordinals.get(role, 0)
+            ordinals[role] = ordinal + 1
+            uses.append(
+                ProjectNoJoinHiddenWindowInputUse(
+                    context=input_context,
+                    hidden=effective,
+                    expression=source,
+                    role=role,
+                    global_ordinal=len(uses),
+                    role_ordinal=ordinal,
+                    binding=binding,
+                    target=None if binding is None else targets[id(binding)],
+                )
+            )
+        input_uses = tuple(uses)
+
     analysis = analyze_window_computation(
         expression=expression,
         input_schema=scope.row_schema,
         field_qualifier=_derived_definition(owner).from_clause.source_name,
         value_types=value_types,
         diagnostics=diagnostics,
+        prepare_inputs=prepare_inputs,
         bare_value_types=scope.bare_value_types,
         allow_qualified_fields=scope.allows_qualified_fields,
         admission_failure=(
@@ -3611,6 +3803,7 @@ def _hidden_no_join_window(
         analysis=analysis,
         value_types=value_types,
         diagnostics=tuple(diagnostics),
+        _construction=(input_context, input_uses),
     )
 
 
@@ -3620,6 +3813,7 @@ def _no_join_qualify(
     mode: ProjectJoinedAggregationMode,
     scope: WindowInputScope,
     selected_windows: tuple[ProjectModuleWindowOutputFact, ...],
+    input_context: ProjectNoJoinWindowInput,
 ) -> ProjectNoJoinQualify:
     definition = _derived_definition(owner)
     clause = definition.qualify_clause
@@ -3630,6 +3824,7 @@ def _no_join_qualify(
             mode=mode,
             scope=scope,
             selected_windows=selected_windows,
+            _construction=input_context,
         )
     references: list[ProjectNoJoinQualifyReferenceResolution] = []
     hidden: list[ProjectNoJoinHiddenWindowComputation] = []
@@ -3641,6 +3836,7 @@ def _no_join_qualify(
                 mode=mode,
                 scope=scope,
                 expression=operand,
+                input_context=input_context,
             )
             hidden.append(attempt)
             diagnostics.extend(attempt.diagnostics)
@@ -3703,6 +3899,7 @@ def _no_join_qualify(
         references=tuple(references),
         hidden_attempts=tuple(hidden),
         predicate=predicate,
+        _construction=input_context,
     )
 
 
@@ -4924,6 +5121,16 @@ def _complete_no_join_output(
         mode=mode,
         scope=window_scope,
         selected_windows=window_outputs,
+        input_context=ProjectNoJoinWindowInput(
+            owner=owner,
+            scope=window_scope,
+            input_schema=input_schema,
+            let_scope=let_scope,
+            base_schema=base_schema,
+            targets=_window_project_targets(
+                definition, window_scope, input_schema, let_scope, base_schema
+            ),
+        ),
     )
     if not qualify.concrete:
         predicate = qualify.predicate

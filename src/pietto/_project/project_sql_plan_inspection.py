@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project import project_sql_plan_aggregation as aggregation
+from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_joins as joining
 
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
@@ -181,7 +182,8 @@ class ProjectSQLPlanInspection:
         row.ProjectSQLReference
         | row.ProjectSQLJoinedReference
         | row.ProjectSQLMatchReference
-        | aggregation.ProjectSQLResultReference,
+        | aggregation.ProjectSQLResultReference
+        | windows.ProjectSQLWindowReference,
         ...,
     ]:
         if not any(port.ref is ref for port in (*self.stage_ports, *self.join_ports)):
@@ -196,9 +198,88 @@ class ProjectSQLPlanInspection:
                     row.ProjectSQLJoinedReference,
                     row.ProjectSQLMatchReference,
                     aggregation.ProjectSQLResultReference,
+                    windows.ProjectSQLWindowReference,
                 ),
             )
             and e.port is ref
+        )
+
+    @property
+    def windows(self) -> tuple[windows.ProjectSQLWindow, ...]:
+        return self.plan.windows
+
+    @property
+    def window_uses(self) -> tuple[windows.ProjectSQLWindowUse, ...]:
+        return self.plan.window_uses
+
+    @property
+    def window_arguments(self) -> tuple[windows.ProjectSQLWindowArgument, ...]:
+        return self.plan.window_arguments
+
+    @property
+    def window_policies(self) -> tuple[windows.ProjectSQLWindowPolicy, ...]:
+        return self.plan.window_policies
+
+    @property
+    def window_projections(self) -> tuple[windows.ProjectSQLWindowProjection, ...]:
+        return self.plan.window_projections
+
+    @property
+    def qualify_sites(self) -> tuple[windows.ProjectSQLQualifySite, ...]:
+        return tuple(
+            site
+            for site in self.expression_sites
+            if isinstance(site, windows.ProjectSQLQualifySite)
+        )
+
+    def window(self, ref: ProjectSQLPlanRef) -> windows.ProjectSQLWindow:
+        matches = tuple(value for value in self.windows if value.ref is ref)
+        if len(matches) != 1:
+            raise ValueError("Window reference does not belong to this plan.")
+        return matches[0]
+
+    def inputs_for_window(
+        self, ref: ProjectSQLPlanRef
+    ) -> tuple[windows.ProjectSQLWindowUse, ...]:
+        self.window(ref)
+        return tuple(use for use in self.window_uses if use.window is ref)
+
+    def arguments_for_window(
+        self, ref: ProjectSQLPlanRef
+    ) -> tuple[windows.ProjectSQLWindowArgument, ...]:
+        self.window(ref)
+        return tuple(
+            argument for argument in self.window_arguments if argument.window is ref
+        )
+
+    def policy_for_window(
+        self, ref: ProjectSQLPlanRef
+    ) -> windows.ProjectSQLWindowPolicy:
+        value = self.window(ref)
+        return next(
+            policy for policy in self.window_policies if policy.ref is value.policy
+        )
+
+    def window_requirements(
+        self, ref: ProjectSQLPlanRef
+    ) -> tuple[windows.ProjectSQLWindowDemand, ...]:
+        value = self.window(ref)
+        subjects = (
+            value.ref,
+            *value.uses,
+            *value.arguments,
+            value.policy,
+            *(
+                projection.ref
+                for projection in self.window_projections
+                if projection.window is ref
+            ),
+        )
+        return tuple(
+            demand
+            for demand in self.demands
+            if isinstance(demand, windows.ProjectSQLWindowDemand)
+            and any(demand.subject is subject for subject in subjects)
         )
 
     @property

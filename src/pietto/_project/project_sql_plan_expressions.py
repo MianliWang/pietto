@@ -9,6 +9,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from pietto._project import project_sql_plan_aggregation as aggregation
+from pietto._project import project_sql_plan_windows as windows
 from pietto.ast_nodes import (
     Expression,
     LiteralExpr,
@@ -87,6 +88,7 @@ type ProjectSQLScalarEvidence = (
     | ProjectConcreteJoinedNamespaceExpression
     | ProjectJoinCondition
     | aggregation.Evidence
+    | windows.Qualify
 )
 
 
@@ -97,6 +99,7 @@ class ProjectSQLExpressionRole(StrEnum):
     SELECT = "select"
     AGGREGATE_ARGUMENT = "aggregate_argument"
     SATISFYING = "satisfying"
+    QUALIFY = "qualify"
 
 
 class ProjectSQLStageKind(StrEnum):
@@ -105,6 +108,8 @@ class ProjectSQLStageKind(StrEnum):
     PROJECTION = "projection"
     AGGREGATE = "aggregate"
     SATISFYING = "satisfying"
+    WINDOW = "window"
+    QUALIFY = "qualify"
 
 
 class ProjectSQLStagePortKind(StrEnum):
@@ -157,6 +162,7 @@ type ProjectSQLSite = (
     | ProjectSQLJoinedSite
     | ProjectSQLMatchSite
     | aggregation.ProjectSQLAggregateSite
+    | windows.ProjectSQLQualifySite
 )
 
 
@@ -241,6 +247,7 @@ type ProjectSQLExpression = (
     | ProjectSQLIsNull
     | ProjectSQLBetween
     | aggregation.ProjectSQLResultReference
+    | windows.ProjectSQLWindowReference
     | aggregation.ProjectSQLAggregateArgumentCall
 )
 
@@ -267,6 +274,7 @@ class ProjectSQLStagePort:
         | ProjectScalarEnvironmentField
         | ProjectJoinedLetOccurrence
         | aggregation.ResultKey
+        | windows.Source
     )
     source: ProjectSQLPlanRef
     type_evidence: ProjectRowField | ValueType
@@ -329,6 +337,8 @@ class ProjectSQLFilter:
         ProjectSQLExpressionSite
         | ProjectSQLJoinedSite
         | aggregation.ProjectSQLAggregateSite
+        | windows.ProjectSQLQualifySite
+        | windows.ProjectSQLQualifySite
     )
     predicate: ProjectSQLPlanRef
     retention_effects: tuple[ProjectJoinedRowRetentionEffect, ...]
@@ -362,6 +372,8 @@ class ProjectSQLFilterDemand:
         ProjectSQLExpressionSite
         | ProjectSQLJoinedSite
         | aggregation.ProjectSQLAggregateSite
+        | windows.ProjectSQLQualifySite
+        | windows.ProjectSQLQualifySite
     )
     value_type: ValueType
     retention_effects: tuple[ProjectJoinedRowRetentionEffect, ...]
@@ -387,7 +399,7 @@ class ProjectSQLRowAuthority:
     lets: tuple[ProjectModuleLetBindingFact, ...]
     selections: tuple[ProjectModuleSelectFact, ...]
     selected_evidence: tuple[
-        ProjectModuleSelectExpressionFact | ProjectNoJoinScalarExpression, ...
+        ProjectModuleSelectExpressionFact | ProjectNoJoinScalarExpression | None, ...
     ]
     selected_references: tuple[tuple[ProjectModuleExpressionReferenceFact, ...], ...]
     where: ProjectModuleWhereFact | ProjectNoJoinScalarExpression | None
@@ -400,7 +412,7 @@ class ProjectSQLJoinedRowAuthority:
     namespaces: ProjectConcreteJoinedLetNamespaces
     lets: tuple[ProjectJoinedLetValue, ...]
     selections: tuple[ProjectModuleSelectFact, ...]
-    selected_evidence: tuple[ProjectConcreteJoinedNamespaceExpression, ...]
+    selected_evidence: tuple[ProjectConcreteJoinedNamespaceExpression | None, ...]
     selected_references: tuple[
         tuple[ProjectJoinedNamespaceReferenceResolution, ...], ...
     ]
@@ -448,22 +460,21 @@ def row_authority(
         semantic = entry.semantic_entry
         tail = entry.semantic_entry.root.window_stage.input_aggregation.input_filter
         namespaces = tail.joined_semantics.namespaces
-        joined_selected: list[ProjectConcreteJoinedNamespaceExpression] = []
+        joined_selected: list[ProjectConcreteJoinedNamespaceExpression | None] = []
         for output in semantic.fields:
             if isinstance(output.source, ProjectConcreteJoinedNamespaceExpression):
                 joined_selected.append(output.source)
-            elif (
-                entry.semantic_entry.root.window_stage.input_aggregation.mode
-                is aggregation.ProjectJoinedAggregationMode.ABSENT
-            ):
-                return None
+            else:
+                joined_selected.append(None)
         return ProjectSQLJoinedRowAuthority(
             binding_environment=namespaces.binding_environment,
             namespaces=namespaces,
             lets=namespaces.values,
             selections=tuple(f.select_fact for f in semantic.fields),
             selected_evidence=tuple(joined_selected),
-            selected_references=tuple(value.resolutions for value in joined_selected),
+            selected_references=tuple(
+                () if value is None else value.resolutions for value in joined_selected
+            ),
             where=tail.expression_analysis,
             where_references=()
             if tail.expression_analysis is None
@@ -477,18 +488,14 @@ def row_authority(
         retained = tuple(
             r for r in completed.roots.row_references if r.entry is semantic
         )
-        if len(retained) != 1 or (
-            root.mode is aggregation.ProjectJoinedAggregationMode.ABSENT
-            and any(
-                not isinstance(f.source, ProjectNoJoinScalarExpression)
-                for f in semantic.fields
-            )
-        ):
+        if len(retained) != 1:
             return None
-        selected: list[ProjectNoJoinScalarExpression] = []
-        for output in semantic.fields:
-            if isinstance(output.source, ProjectNoJoinScalarExpression):
-                selected.append(output.source)
+        selected = tuple(
+            output.source
+            if isinstance(output.source, ProjectNoJoinScalarExpression)
+            else None
+            for output in semantic.fields
+        )
         return ProjectSQLRowAuthority(
             input_schema=root.input_schema,
             let_scope=root.let_scope,
@@ -502,9 +509,37 @@ def row_authority(
     return None
 
 
+def input_keys(
+    entry, authority: ProjectSQLRowAuthority, ports
+) -> tuple[ProjectRowField, ...]:
+    """Use the original ordered IR compatibility proof for a rebound consumer."""
+    if isinstance(entry, ProjectIRReboundExistingOutput):
+        compatibility = entry.relation_input.compatibility
+        required = tuple(authority.input_schema.fields.values())
+        if (
+            not compatibility.satisfied
+            or len(compatibility.required_fields) != len(required)
+            or any(
+                a is not b
+                for a, b in zip(compatibility.required_fields, required, strict=True)
+            )
+            or len(ports) != len(required)
+            or any(port.field.output is not compatibility.output for port in ports)
+        ):
+            raise ValueError(
+                "Rebound input lost its original field compatibility proof"
+            )
+        return compatibility.required_fields
+    return tuple(port.field.evidence for port in ports)
+
+
 def evidence_types(
     evidence: ProjectSQLScalarEvidence,
 ) -> Mapping[Expression, ValueType]:
+    if isinstance(
+        evidence, (windows.ProjectNoJoinQualify, windows.ProjectConcreteJoinedQualify)
+    ):
+        return windows.qualify_types(evidence)
     if isinstance(evidence, aggregation.ProjectAggregateExpressionAnalysis):
         return evidence.argument_value_types
     if isinstance(evidence, aggregation.ProjectJoinedSatisfyingAnalysis):
@@ -525,6 +560,16 @@ def evidence_types(
 
 
 def reference_expression(reference) -> Expression:
+    if isinstance(
+        reference,
+        (
+            windows.ProjectNoJoinQualifyReferenceResolution,
+            windows.ProjectQualifyReferenceResolution,
+            windows.ProjectNoJoinHiddenWindowComputation,
+            windows.ProjectConcreteWindowComputation,
+        ),
+    ):
+        return windows.reference_expression(reference)
     if isinstance(reference, aggregation.ProjectRelationClauseDependencyFact):
         if not isinstance(reference.source_occurrence, Expression):
             raise ValueError("Expression reference requires an expression occurrence")
@@ -557,6 +602,18 @@ def reference_key(reference):
 
 
 def stage_key_label(key):
+    if isinstance(key, windows.ProjectModuleWindowOutputFact):
+        if key.output_name is None:
+            raise ValueError("Selected window port lost its authored output name")
+        return key.output_name
+    if isinstance(
+        key,
+        (
+            windows.ProjectNoJoinHiddenWindowComputation,
+            windows.ProjectConcreteWindowComputation,
+        ),
+    ):
+        return "window_result"
     if isinstance(key, SelectItem):
         if key.alias is None:
             raise ValueError("Aggregate result ports require an authored alias")
