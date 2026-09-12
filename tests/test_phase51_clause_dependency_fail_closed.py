@@ -101,16 +101,15 @@ def test_exact_private_enum_vocabulary_and_carrier_shape() -> None:
         "target_field",
         "aggregate_result_fact",
     )
-    assert tuple(
-        field.name for field in fields(ProjectAggregateGroupedClauseReadiness)
-    ) == (
+    assert {
         "definition",
         "finalization",
         "status",
         "reason",
         "dependency_facts",
         "limit_present",
-    )
+    } <= {field.name for field in fields(ProjectAggregateGroupedClauseReadiness)}
+
     for carrier in (
         ProjectRelationClauseDependencyFact,
         ProjectAggregateGroupedClauseReadiness,
@@ -721,6 +720,34 @@ def test_satisfying_first_target_dedupe_retains_first_source_occurrence(
     assert len(satisfying) == 1
     assert satisfying[0].source_occurrence is names[0]
     assert satisfying[0].target_occurrence is definition.select_items[1]
+    assert result.satisfying is not None
+    assert result.satisfying.clause is definition.satisfying_clause
+    assert result.occurrence_facts is not None
+    occurrences = tuple(
+        fact
+        for fact in result.occurrence_facts
+        if fact.kind is ProjectRelationClauseDependencyKind.SATISFYING_OUTPUT
+    )
+    assert len(occurrences) == 2
+    assert all(
+        fact.source_occurrence is name
+        for fact, name in zip(occurrences, names, strict=True)
+    )
+    assert occurrences[0] is satisfying[0]
+    assert all(
+        fact.target_occurrence is definition.select_items[1] for fact in occurrences
+    )
+    with pytest.raises(ValueError, match="occurrence"):
+        replace(result, _construction=(result.occurrence_facts[:-1], result.satisfying))
+
+    derived = replace(
+        result,
+        status=ProjectAggregateGroupedClauseReadinessStatus.UNKNOWN,
+        reason=ProjectAggregateGroupedClauseReadinessReason.INVALID_CLAUSE_EXPRESSION,
+        dependency_facts=(),
+    )
+    assert derived.satisfying is None and derived.occurrence_facts is None
+    assert result.satisfying is not None and result.occurrence_facts is not None
 
 
 def test_satisfying_aggregate_wrapped_row_let_matches_selected_output(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass, field as dataclass_field
 from enum import StrEnum
 
 from pietto._project.aggregate_grouped_schema import (
@@ -60,7 +60,7 @@ from pietto.semantic.aggregates import (
 )
 from pietto.semantic.expressions import infer_row_expression
 from pietto.semantic.let_bindings import admitted_relation_let_expressions
-from pietto.semantic.model import RowSchema, ValueType
+from pietto.semantic.model import RowSchema, ValueType, SatisfyingResultPredicateInfo
 from pietto.semantic.relation_limits import MAX_RELATION_LIMIT
 from pietto.semantic.satisfying import check_satisfying_clauses
 
@@ -179,10 +179,34 @@ class ProjectAggregateGroupedClauseReadiness:
     reason: ProjectAggregateGroupedClauseReadinessReason
     dependency_facts: tuple[ProjectRelationClauseDependencyFact, ...]
     limit_present: bool
+    occurrence_facts: tuple[ProjectRelationClauseDependencyFact, ...] | None = (
+        dataclass_field(default=None, init=False)
+    )
+    satisfying: SatisfyingResultPredicateInfo | None = dataclass_field(
+        default=None, init=False
+    )
+    _construction: InitVar[
+        tuple[
+            tuple[ProjectRelationClauseDependencyFact, ...],
+            SatisfyingResultPredicateInfo | None,
+        ]
+        | None
+    ] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(
+        self,
+        _construction: tuple[
+            tuple[ProjectRelationClauseDependencyFact, ...],
+            SatisfyingResultPredicateInfo | None,
+        ]
+        | None = None,
+    ) -> None:
         """Defensively freeze facts and enforce cross-carrier coherence."""
 
+        if _construction is not None:
+            occurrences, satisfying = _construction
+            object.__setattr__(self, "occurrence_facts", occurrences)
+            object.__setattr__(self, "satisfying", satisfying)
         if not isinstance(self.definition, (TableDef, QueryDef)):
             raise ValueError("Clause readiness requires a derived relation")
         if not isinstance(
@@ -205,6 +229,47 @@ class ProjectAggregateGroupedClauseReadiness:
         ):
             raise ValueError("Clause readiness requires dependency facts")
 
+        if self.occurrence_facts is not None:
+            if (
+                type(self.occurrence_facts) is not tuple
+                or self.status
+                is not ProjectAggregateGroupedClauseReadinessStatus.CONCRETE
+            ):
+                raise ValueError("Complete clause occurrences require ready authority")
+            summary = _dedupe_facts(self.occurrence_facts)
+            if len(summary) != len(dependency_facts) or any(
+                a is not b for a, b in zip(summary, dependency_facts)
+            ):
+                raise ValueError(
+                    "Clause occurrence ledger must retain the exact summary"
+                )
+            expected = (
+                ()
+                if self.definition.satisfying_clause is None
+                else _satisfying_dependency_occurrences(
+                    self.definition.satisfying_clause.expression
+                )
+            )
+            actual = tuple(
+                fact.source_occurrence
+                for fact in self.occurrence_facts
+                if fact.kind is ProjectRelationClauseDependencyKind.SATISFYING_OUTPUT
+            )
+            if len(actual) != len(expected) or any(
+                a is not b for a, b in zip(actual, expected)
+            ):
+                raise ValueError(
+                    "Satisfying references must retain every authored occurrence"
+                )
+            if bool(expected) and self.satisfying is None:
+                raise ValueError(
+                    "Satisfying occurrence evidence requires original typing"
+                )
+        if self.satisfying is not None and (
+            self.status is not ProjectAggregateGroupedClauseReadinessStatus.CONCRETE
+            or self.satisfying.clause is not self.definition.satisfying_clause
+        ):
+            raise ValueError("Satisfying typing requires its exact ready clause")
         nested_status = self.finalization.state.status
         if nested_status is not ProjectRelationRowSchemaStatus.CONCRETE:
             expected = _readiness_status(nested_status)
@@ -333,17 +398,20 @@ def build_project_aggregate_grouped_clause_readiness(
             ProjectAggregateGroupedClauseReadinessReason.CONFLICTING_CLAUSE_FACTS,
         )
 
+    satisfying: SatisfyingResultPredicateInfo | None = None
     satisfying_facts: tuple[ProjectRelationClauseDependencyFact, ...] = ()
     satisfying_status: ProjectAggregateGroupedClauseReadinessStatus | None = None
     satisfying_reason: ProjectAggregateGroupedClauseReadinessReason | None = None
     if definition.satisfying_clause is not None:
-        satisfying_facts, satisfying_status, satisfying_reason = _satisfying_facts(
-            definition=definition,
-            input_schema=input_schema,
-            upstream_symbol=upstream_symbol,
-            finalization=finalization,
-            outputs=evidence.outputs,
-            let_scope_facts=let_scope_facts,
+        satisfying_facts, satisfying_status, satisfying_reason, satisfying = (
+            _satisfying_facts(
+                definition=definition,
+                input_schema=input_schema,
+                upstream_symbol=upstream_symbol,
+                finalization=finalization,
+                outputs=evidence.outputs,
+                let_scope_facts=let_scope_facts,
+            )
         )
 
     order_facts: tuple[ProjectRelationClauseDependencyFact, ...] = ()
@@ -447,6 +515,7 @@ def build_project_aggregate_grouped_clause_readiness(
         reason=ProjectAggregateGroupedClauseReadinessReason.CLAUSES_READY,
         dependency_facts=_dedupe_facts(facts),
         limit_present=definition.limit_clause is not None,
+        _construction=(tuple(facts), satisfying),
     )
 
 
@@ -600,12 +669,14 @@ def _satisfying_facts(
     tuple[ProjectRelationClauseDependencyFact, ...],
     ProjectAggregateGroupedClauseReadinessStatus | None,
     ProjectAggregateGroupedClauseReadinessReason | None,
+    SatisfyingResultPredicateInfo | None,
 ]:
     if definition.group_by_clause is None:
         return (
             (),
             ProjectAggregateGroupedClauseReadinessStatus.UNKNOWN,
             ProjectAggregateGroupedClauseReadinessReason.INVALID_CLAUSE_EXPRESSION,
+            None,
         )
     output_schema = finalization.state.schema
     assert output_schema is not None
@@ -617,6 +688,7 @@ def _satisfying_facts(
             (),
             ProjectAggregateGroupedClauseReadinessStatus.UNKNOWN,
             ProjectAggregateGroupedClauseReadinessReason.UNAVAILABLE_CLAUSE_DEPENDENCY,
+            None,
         )
 
     source_row_schemas: dict[SourceDef, RowSchema] = {}
@@ -653,12 +725,13 @@ def _satisfying_facts(
             reason = (
                 ProjectAggregateGroupedClauseReadinessReason.INVALID_CLAUSE_EXPRESSION
             )
-        return (), ProjectAggregateGroupedClauseReadinessStatus.UNKNOWN, reason
+        return ((), ProjectAggregateGroupedClauseReadinessStatus.UNKNOWN, reason, None)
     if definition not in result_predicates:
         return (
             (),
             ProjectAggregateGroupedClauseReadinessStatus.UNKNOWN,
             ProjectAggregateGroupedClauseReadinessReason.INVALID_CLAUSE_EXPRESSION,
+            None,
         )
 
     assert definition.satisfying_clause is not None
@@ -697,14 +770,16 @@ def _satisfying_facts(
             (),
             ProjectAggregateGroupedClauseReadinessStatus.BLOCKED,
             ProjectAggregateGroupedClauseReadinessReason.MISSING_REQUIRED_CLAUSE_FACT,
+            None,
         )
     if conflicting:
         return (
             (),
             ProjectAggregateGroupedClauseReadinessStatus.BLOCKED,
             ProjectAggregateGroupedClauseReadinessReason.CONFLICTING_CLAUSE_FACTS,
+            None,
         )
-    return tuple(facts), None, None
+    return (tuple(facts), None, None, result_predicates[definition])
 
 
 def _satisfying_dependency_occurrences(

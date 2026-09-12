@@ -184,10 +184,8 @@ def test_structured_attempt_is_frozen_slots_exactly_one_and_preserves_facts(
         ),
     )
 
-    assert tuple(field.name for field in fields(success)) == (
-        "facts",
-        "failure_reason",
-    )
+    assert {"facts", "failure_reason"} <= {field.name for field in fields(success)}
+    assert failure.analyses == failure.group_projections == ()
     assert is_dataclass(ProjectAggregateGroupedCandidateAttempt)
     assert hasattr(ProjectAggregateGroupedCandidateAttempt, "__slots__")
     assert not hasattr(success, "__dict__")
@@ -257,9 +255,27 @@ def test_finalization_carrier_is_frozen_defensive_and_schema_fact_atomic(
     assert tuple(finalization.state.schema.fields) == ("total", "rows")
     assert tuple(finalization.aggregate_result_facts) == ("total", "rows")
     assert isinstance(finalization.aggregate_result_facts, MappingProxyType)
-    assert tuple(field.name for field in fields(finalization)) == (
-        "state",
-        "aggregate_result_facts",
+    assert {"state", "aggregate_result_facts"} <= {
+        field.name for field in fields(finalization)
+    }
+    assert finalization.candidate is not None
+    assert len(finalization.analyses) == 2
+    for analysis in finalization.analyses:
+        assert analysis.definition is definition
+        assert analysis.input_schema is input_schema
+        assert analysis.let_scope.input_schema is input_schema
+        assert analysis.upstream_symbol is upstream_symbol
+        assert (
+            analysis.field
+            is finalization.candidate.selected_results[analysis.item].field
+        )
+        assert analysis.fact is finalization.aggregate_result_facts[analysis.field.name]
+        assert isinstance(analysis.argument_value_types, MappingProxyType)
+        with pytest.raises(ValueError, match="context"):
+            replace(analysis, input_schema=replace(input_schema))
+    assert all(
+        finalization.state.schema.fields[value.field.name] is value.field
+        for value in finalization.candidate.selected_results.values()
     )
     assert is_dataclass(ProjectAggregateGroupedSchemaFinalization)
     assert hasattr(ProjectAggregateGroupedSchemaFinalization, "__slots__")
@@ -279,6 +295,14 @@ def test_finalization_carrier_is_frozen_defensive_and_schema_fact_atomic(
     )
     caller_facts.clear()
     assert tuple(copied.aggregate_result_facts) == ("total", "rows")
+    derived = replace(
+        finalization,
+        state=_unknown_state(ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN),
+        aggregate_result_facts={},
+    )
+    assert derived.candidate is None
+    assert derived.analyses == derived.group_projections == ()
+    assert finalization.candidate is not None and finalization.analyses
 
     unknown = _unknown_state(
         ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT

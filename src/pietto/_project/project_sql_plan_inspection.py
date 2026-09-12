@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from collections.abc import Mapping
 from types import MappingProxyType
 from pietto._project import project_sql_plan_expressions as row
+from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_joins as joining
 
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
@@ -179,7 +180,8 @@ class ProjectSQLPlanInspection:
     ) -> tuple[
         row.ProjectSQLReference
         | row.ProjectSQLJoinedReference
-        | row.ProjectSQLMatchReference,
+        | row.ProjectSQLMatchReference
+        | aggregation.ProjectSQLResultReference,
         ...,
     ]:
         if not any(port.ref is ref for port in (*self.stage_ports, *self.join_ports)):
@@ -193,6 +195,7 @@ class ProjectSQLPlanInspection:
                     row.ProjectSQLReference,
                     row.ProjectSQLJoinedReference,
                     row.ProjectSQLMatchReference,
+                    aggregation.ProjectSQLResultReference,
                 ),
             )
             and e.port is ref
@@ -250,6 +253,64 @@ class ProjectSQLPlanInspection:
             value
             for value in self.single_matches
             if any(ref is join for join in value.joins)
+        )
+
+    @property
+    def aggregations(self) -> tuple[aggregation.ProjectSQLAggregation, ...]:
+        return self.plan.aggregations
+
+    @property
+    def group_keys(self) -> tuple[aggregation.ProjectSQLGroupKey, ...]:
+        return self.plan.group_keys
+
+    @property
+    def aggregates(self) -> tuple[aggregation.ProjectSQLAggregate, ...]:
+        return self.plan.aggregates
+
+    @property
+    def aggregate_projections(
+        self,
+    ) -> tuple[aggregation.ProjectSQLAggregateProjection, ...]:
+        return self.plan.aggregate_projections
+
+    @property
+    def aggregate_risks(self) -> tuple[aggregation.ProjectSQLAggregateRisk, ...]:
+        return self.plan.aggregate_risks
+
+    def aggregation(self, ref: ProjectSQLPlanRef) -> aggregation.ProjectSQLAggregation:
+        values = tuple(a for a in self.aggregations if a.ref is ref)
+        if len(values) != 1:
+            raise ValueError("Aggregation reference does not belong to this plan.")
+        return values[0]
+
+    def arguments_for_aggregate(
+        self, ref: ProjectSQLPlanRef
+    ) -> tuple[row.ProjectSQLExpression, ...]:
+        values = tuple(a for a in self.aggregates if a.ref is ref)
+        if len(values) != 1:
+            raise ValueError("Aggregate reference does not belong to this plan.")
+        return tuple(self.expression(argument) for argument in values[0].arguments)
+
+    def satisfying_uses(
+        self, ref: ProjectSQLPlanRef
+    ) -> tuple[aggregation.ProjectSQLResultReference, ...]:
+        self.aggregation(ref)
+        return tuple(
+            e
+            for e in self.expressions
+            if isinstance(e, aggregation.ProjectSQLResultReference)
+            and e.site.aggregation is ref
+        )
+
+    def aggregate_requirements(
+        self, ref: ProjectSQLPlanRef
+    ) -> tuple[aggregation.ProjectSQLAggregateDemand, ...]:
+        self.aggregation(ref)
+        return tuple(
+            d
+            for d in self.demands
+            if isinstance(d, aggregation.ProjectSQLAggregateDemand)
+            and (d.witness.ref is ref or getattr(d.witness, "aggregation", None) is ref)
         )
 
     @property

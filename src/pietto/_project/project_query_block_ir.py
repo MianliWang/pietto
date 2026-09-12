@@ -26,6 +26,7 @@ from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import cast
 
+from pietto._project.aggregate_grouped_schema import ProjectGroupKeyFact
 from pietto._project.aggregate_grouped_clause_facts import (
     ProjectAggregateGroupedClauseReadiness,
     ProjectRelationClauseDependencyFact,
@@ -36,6 +37,7 @@ from pietto._project.model import (
     ProjectRowField,
     ProjectRowFieldNullability,
     ProjectRowFieldProvenanceKind,
+    ProjectRowResultRole,
 )
 from pietto._project.module_attribution import (
     ProjectDeclarationOccurrenceIdentity,
@@ -3277,6 +3279,7 @@ def _class_for_position(
 def _group_input_classes(
     context: ProjectIRQueryBlockAggregateEvaluationContext,
     incoming: ProjectIROutputRelationalProperties,
+    join_prefix: ProjectIRComposedJoinPrefix | None = None,
 ) -> tuple[ProjectIROutputValueClass, ...]:
     basis = context.semantic_basis
     positions: list[int] = []
@@ -3288,11 +3291,39 @@ def _group_input_classes(
                     for field in incoming.output.row_shape.fields
                     if field.semantic_source is key.field_semantics
                 )
+            elif join_prefix is not None:
+                final = join_prefix.final_join
+                if incoming.output is not final.output:
+                    raise ValueError("Grouped input must retain its exact JOIN image")
+                originals = final.source.output.row_shape.fields
+                matches = tuple(
+                    i
+                    for i, original in enumerate(originals)
+                    if original is key.field_semantics.joined_field
+                )
+                if len(matches) == 1:
+                    original = originals[matches[0]]
+                    image = final.output.row_shape.fields[matches[0]]
+                    uses = tuple(
+                        value.use
+                        for joined in join_prefix.joins
+                        for value in joined.inputs
+                        if value.source is original.introduction_use
+                    )
+                    if (
+                        len(uses) > 1
+                        or image.evidence is not original.evidence
+                        or image.introduction_use
+                        is not (uses[0] if uses else original.introduction_use)
+                    ):
+                        raise ValueError(
+                            "Group determinant lost its exact input-use image"
+                        )
             else:
                 matches = tuple(
-                    member.field_position
-                    for member in incoming.fields
-                    if member.evidence is key.field_semantics.joined_field.evidence
+                    position
+                    for position, member in enumerate(incoming.output.row_shape.fields)
+                    if member is key.field_semantics.joined_field
                 )
             if len(matches) != 1:
                 raise ValueError("Joined group key requires one exact input field.")
@@ -3340,28 +3371,91 @@ def _group_output_positions(
     output: ProjectIRRelationalRowOutput,
     context: ProjectIRQueryBlockAggregateEvaluationContext,
 ) -> tuple[int, ...]:
-    if type(output) is ProjectIRQueryBlockRowOutput:
-        positions = tuple(
-            field.field_position
-            for field in output.row_shape.fields
-            if (
-                type(field.semantic_source) is ProjectJoinedStageOutputOccurrence
-                and field.semantic_source.role is ProjectJoinedStageOutputRole.GROUP_KEY
-            )
-            or (
-                type(field.semantic_source) is ProjectNoJoinGroupedOutput
-                and field.semantic_source.field.result_role.value == "group_key"
-            )
+    """Image the complete determinant; a proper projection need not expose it."""
+    basis = context.semantic_basis
+    expected_keys, _ = _aggregate_basis_values(basis, context.mode)
+    if not _same_objects(context.group_keys, expected_keys) or not expected_keys:
+        raise ValueError("GROUPED output requires the complete exact determinant.")
+    selected_keys: dict[int, int] = {}
+    readiness = None
+    if type(basis) is not ProjectConcreteJoinedAggregation:
+        assert isinstance(
+            basis, (ProjectConcreteNoJoinReplay, ProjectModuleRelationSemanticFacts)
         )
-    else:
-        positions = tuple(
-            position
-            for position, field in enumerate(output.row_shape.fields)
-            if field.evidence.result_role.value == "group_key"
+        readiness = (
+            basis.aggregate_readiness
+            if isinstance(basis, ProjectConcreteNoJoinReplay)
+            else basis.aggregate_grouped_clause_readiness
         )
-    if len(positions) != len(context.group_keys):
-        raise ValueError("GROUPED output must expose every exact group key.")
-    return positions
+        if readiness is None:
+            raise ValueError("GROUPED projection requires retained clause authority.")
+        dependencies = tuple(
+            fact
+            for fact in readiness.dependency_facts
+            if fact.kind is ProjectRelationClauseDependencyKind.GROUP_KEY_INPUT
+        )
+        if len(dependencies) != len(expected_keys):
+            raise ValueError("GROUPED projection requires every determinant component.")
+        for index, dependency in enumerate(dependencies):
+            key = dependency.target_occurrence
+            if not isinstance(key, ProjectGroupKeyFact):
+                raise ValueError("GROUPED projection requires exact group-key facts.")
+            for item, projected_key in readiness.finalization.group_projections:
+                if (
+                    projected_key.item is not key.item
+                    or projected_key.input_field is not key.input_field
+                ):
+                    continue
+                if id(item) in selected_keys:
+                    raise ValueError("One projection cannot stand for two group keys.")
+                selected_keys[id(item)] = index
+    covered: set[int] = set()
+    positions: list[int] = []
+    for position, row_field in enumerate(output.row_shape.fields):
+        if row_field.evidence.result_role is not ProjectRowResultRole.GROUP_KEY:
+            continue
+        if type(basis) is ProjectConcreteJoinedAggregation:
+            if type(row_field) is not ProjectIRQueryBlockRowField:
+                raise ValueError("Joined grouped output requires its stage field.")
+            source = row_field.semantic_source
+            if type(source) is not ProjectJoinedStageOutputOccurrence or not any(
+                source is value for value in basis.stage_outputs
+            ):
+                raise ValueError("Joined grouped output lost its selected occurrence.")
+            matches = tuple(
+                i for i, key in enumerate(expected_keys) if source.group_key is key
+            )
+        else:
+            if type(basis) is ProjectConcreteNoJoinReplay:
+                if (
+                    type(row_field) is not ProjectIRQueryBlockRowField
+                    or type(row_field.semantic_source) is not ProjectNoJoinGroupedOutput
+                ):
+                    raise ValueError("Replay grouped output requires its exact source.")
+                source = row_field.semantic_source
+                if source.readiness is not readiness:
+                    raise ValueError("Replay grouped output has foreign readiness.")
+                item = source.select_fact.item
+            else:
+                assert isinstance(basis, ProjectModuleRelationSemanticFacts)
+                selected = tuple(
+                    fact
+                    for fact in basis.select_facts
+                    if fact.field is row_field.evidence
+                )
+                if len(selected) != 1:
+                    raise ValueError("Grouped field requires its exact selection.")
+                item = selected[0].item
+            matches = (
+                () if id(item) not in selected_keys else (selected_keys[id(item)],)
+            )
+        if len(matches) != 1:
+            raise ValueError(
+                "Grouped output must image one exact determinant component."
+            )
+        covered.add(matches[0])
+        positions.append(position)
+    return tuple(positions) if len(covered) == len(expected_keys) else ()
 
 
 def _grouped_relational_properties(
@@ -3370,6 +3464,7 @@ def _grouped_relational_properties(
     output: ProjectIRRelationalRowOutput,
     context: ProjectIRQueryBlockAggregateEvaluationContext,
     origins: ProjectIRQueryBlockGrainOriginExtension,
+    join_prefix: ProjectIRComposedJoinPrefix | None = None,
 ) -> ProjectIROutputRelationalProperties:
     fields = _field_occurrences(output)
     classes = _singleton_classes(output, fields)
@@ -3388,7 +3483,7 @@ def _grouped_relational_properties(
                     dependents=active,
                 )
             )
-        input_group_classes = _group_input_classes(context, incoming)
+        input_group_classes = _group_input_classes(context, incoming, join_prefix)
         if incoming.grain.active and any(
             key.strength is ProjectRowUniquenessStrength.STRICT
             and set(key.determinants) <= set(input_group_classes)
@@ -3404,12 +3499,16 @@ def _grouped_relational_properties(
             classes[position] for position in _group_output_positions(output, context)
         )
         keys = (
-            ProjectIROutputCandidateKey(
-                output=output,
-                determinants=key_classes,
-                strength=ProjectRowUniquenessStrength.STRICT,
-                supports=(context, origin),
-            ),
+            (
+                ProjectIROutputCandidateKey(
+                    output=output,
+                    determinants=key_classes,
+                    strength=ProjectRowUniquenessStrength.STRICT,
+                    supports=(context, origin),
+                ),
+            )
+            if key_classes
+            else ()
         )
         state = ProjectGrainBasisState.FACTORIZED
     else:
@@ -3551,6 +3650,7 @@ def _query_relational_properties(
                     operator,
                 ),
                 origins=origins,
+                join_prefix=pending.join_prefix,
             )
         else:
             fields = _field_occurrences(output)

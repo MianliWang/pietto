@@ -56,9 +56,10 @@ documentation does not supersede that evidence.
 | Phase 65 Slice 3 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 4 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 5 | `COMPLETED / PUBLISHED` |
-| Phase 65 Slice 6 | `NEXT / NOT IMPLEMENTED` |
-| Phase 65 Slices 7–16 | `NOT IMPLEMENTED` |
-| Next | `Phase 65 Slice 6 — GROUPED/GLOBAL/satisfying block boundaries` |
+| Phase 65 Slice 6 | `COMPLETED / PUBLISHED` |
+| Phase 65 Slice 7 | `NEXT / NOT IMPLEMENTED` |
+| Phase 65 Slices 8–16 | `NOT IMPLEMENTED` |
+| Next | `Phase 65 Slice 7 — Windows, named-window reuse and QUALIFY staging` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -869,8 +870,29 @@ static evidence; LEGAL_UNPROVED retains PIE-S2337 and downstream enforcement
 required. Verification does not fulfill that requirement. Origins/demands and
 exact-ref inspection cover all matching and obligation inventories.
 
-GROUP/GLOBAL/satisfying, windows/QUALIFY, DISTINCT/ORDER/LIMIT and SET bodies,
-missing call/type evidence and unsupported upstream combinations remain typed
-unavailable. No SQL emission/execution, backend strategy or evaluation-once promise
-is added. Phase65 stays `ACTIVE`; Slice6 is `NEXT / NOT IMPLEMENTED`;
-Slices 7–16 are `NOT IMPLEMENTED`; N16 is unchanged.
+At Slice5 publication, GROUP/GLOBAL/satisfying, windows/QUALIFY,
+DISTINCT/ORDER/LIMIT and SET bodies remained typed unavailable. That publication
+left Slice6 next and added no SQL emission/execution or target strategy.
+
+Phase 65 Slice 6 is `COMPLETED / PUBLISHED` only upon successful natural
+exact-head CI on its ordinary commit. Its [aggregate stage contract](spec/phase65-slice6-grouped-global-satisfying-block-boundaries-v1.md)
+adds GROUPED/GLOBAL and admitted GROUPED-only satisfying. Complete grouping
+determinants remain distinct from visible output projections: hidden/partial keys
+retain GROUPED grain without an invented STRICT key, FD or GLOBAL posture.
+Same-source JOIN inputs retain their exact occurrence correspondence.
+
+Ordinary finalization retains original aggregate argument/result typing and
+input/LET context. satisfying retains its original type map and complete ordered
+uses alongside the unchanged target-deduplicated summary. Private group/result
+ports remain separate from canonical exports; predicates consume established
+results, with SQL TRUE-only membership. GLOBAL retains its one-row-on-empty-input
+stage property even after false input WHERE. Existing protection, grain/pair/risk
+requirements and single-match proofs remain scoped and unfulfilled by verification.
+
+Named/imported producers feed immediate active exports into admitted consumers.
+Origins/demands and independent verification cover every aggregate boundary;
+exact-ref inspection exposes its ports, uses and requirements. No new semantic
+rules, arbitrary scalar calls, target support or SQL execution is claimed.
+Windows/QUALIFY, DISTINCT/ORDER/LIMIT and SET bodies remain unavailable.
+Phase65 stays `ACTIVE`; Slice7 is `NEXT / NOT IMPLEMENTED`;
+Slices 8–16 are `NOT IMPLEMENTED`; N16 is unchanged.

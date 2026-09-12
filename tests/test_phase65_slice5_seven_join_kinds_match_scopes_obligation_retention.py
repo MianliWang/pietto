@@ -935,7 +935,7 @@ def test_joined_post_namespace_must_be_its_actual_context(join_plans, mutation: 
         object.__setattr__(target, field, original)
 
 
-def test_right_global_proof_keeps_unsupported_producer_boundary(tmp_path: Path):
+def test_right_global_proof_survives_supported_producer_planning(tmp_path: Path):
     from test_phase64_slice4_effective_output_join_first_generic_vertical_closure import (
         _tail_source,
     )
@@ -952,9 +952,15 @@ def test_right_global_proof_keeps_unsupported_producer_boundary(tmp_path: Path):
         and roots[0].single_matches.entries[0].state is ProjectSingleMatchState.PROVED
     )
     result = build_project_sql_plan(*roots)
-    assert isinstance(result, ProjectSQLPlanUnavailable)
+    assert isinstance(result, ProjectSQLPlan)
+    verified = verify_project_sql_plan(result, *roots)
+    assert verified.verified, verified.issues
+    view = inspect_project_sql_plan(verified)
+    assert len(view.aggregations) == 1
+    assert view.single_matches[0].assessment is roots[0].single_matches.entries[0]
     assert any(
-        blocker.owner.definition.name == "upstream" for blocker in result.blockers
+        proof.source.source.kind.value == "right_global"
+        for proof in view.single_match_proofs
     )
 
 

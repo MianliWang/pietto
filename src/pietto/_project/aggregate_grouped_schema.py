@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass, field as dataclass_field
 from types import MappingProxyType
 
 from pietto._project.let_scope_facts import (
@@ -130,6 +130,44 @@ class ProjectGroupKeySchemaFacts:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectAggregateExpressionAnalysis:
+    """Original aggregate typing in its exact input and LET environment."""
+
+    definition: TableDef | QueryDef
+    item: SelectItem
+    input_schema: ProjectRowSchema
+    let_scope: ProjectRelationLetScopeFacts
+    upstream_symbol: ProjectSymbol
+    field: ProjectRowField
+    fact: ProjectAggregateResultFact
+    effective_argument: Expression | None
+    argument_value_types: Mapping[Expression, ValueType]
+    result_value_type: ValueType
+
+    def __post_init__(self) -> None:
+        call = self.item.expression
+        if (
+            not isinstance(call, CallExpr)
+            or not any(self.item is item for item in self.definition.select_items)
+            or self.let_scope.definition is not self.definition
+            or self.let_scope.input_schema is not self.input_schema
+            or self.field.provenance is None
+            or self.field.provenance.symbol is not self.upstream_symbol
+            or self.fact.argument_count != len(call.arguments)
+            or (self.effective_argument is None) is bool(call.arguments)
+            or self.result_value_type.kind is not ValueTypeKind.KNOWN
+        ):
+            raise ValueError("Aggregate analysis requires its exact original context")
+        values = MappingProxyType(dict(self.argument_value_types))
+        if call.arguments:
+            if not any(expression is call.arguments[0] for expression in values):
+                raise ValueError("Aggregate analysis lost its authored argument type")
+        elif values:
+            raise ValueError("Row count cannot retain scalar argument types")
+        object.__setattr__(self, "argument_value_types", values)
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectAggregateSelectedResult:
     """One project-private aggregate selected-result candidate."""
 
@@ -143,6 +181,7 @@ class ProjectAggregateSelectedResult:
             raise ValueError("Aggregate selected result requires a row field")
         if not isinstance(self.fact, ProjectAggregateResultFact):
             raise ValueError("Aggregate selected result requires an aggregate fact")
+
         if self.field.result_role is not ProjectRowResultRole.AGGREGATE_RESULT:
             raise ValueError("Aggregate selected result requires AGGREGATE_RESULT role")
         if self.field.field_def is not None:
@@ -238,6 +277,7 @@ class ProjectGroupedSelectedResult:
 
         if not isinstance(self.field, ProjectRowField):
             raise ValueError("Grouped selected result requires a row field")
+
         if self.field.result_role not in (
             ProjectRowResultRole.GROUP_KEY,
             ProjectRowResultRole.AGGREGATE_RESULT,
@@ -399,10 +439,18 @@ class ProjectAggregateGroupedCandidateAttempt:
 
     facts: _AggregateGroupedSchemaFacts | None
     failure_reason: ProjectRelationRowSchemaReason | None
+    analyses: tuple[ProjectAggregateExpressionAnalysis, ...] = ()
+    group_projections: tuple[tuple[SelectItem, ProjectGroupKeyFact], ...] = ()
 
     def __post_init__(self) -> None:
         """Require exactly one well-formed attempt outcome."""
 
+        if (
+            type(self.analyses) is not tuple
+            or type(self.group_projections) is not tuple
+            or (self.facts is None and (self.analyses or self.group_projections))
+        ):
+            raise ValueError("Candidate evidence must be immutable and success-only")
         if (self.facts is None) == (self.failure_reason is None):
             raise ValueError(
                 "Aggregate/grouped candidate attempt requires exactly one outcome"
@@ -438,10 +486,39 @@ class ProjectAggregateGroupedSchemaFinalization:
 
     state: ProjectRelationRowSchemaState
     aggregate_result_facts: Mapping[str, ProjectAggregateResultFact]
+    candidate: ProjectAggregateSchemaFacts | ProjectGroupedSchemaFacts | None = (
+        dataclass_field(default=None, init=False)
+    )
+    analyses: tuple[ProjectAggregateExpressionAnalysis, ...] = dataclass_field(
+        default=(), init=False
+    )
+    group_projections: tuple[tuple[SelectItem, ProjectGroupKeyFact], ...] = (
+        dataclass_field(default=(), init=False)
+    )
+    _construction: InitVar[ProjectAggregateGroupedCandidateAttempt | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(
+        self, _construction: ProjectAggregateGroupedCandidateAttempt | None = None
+    ) -> None:
         """Freeze facts and enforce state/schema/fact atomicity."""
 
+        if _construction is not None:
+            if (
+                type(_construction) is not ProjectAggregateGroupedCandidateAttempt
+                or not isinstance(
+                    _construction.facts,
+                    (ProjectAggregateSchemaFacts, ProjectGroupedSchemaFacts),
+                )
+                or _construction.failure_reason is not None
+            ):
+                raise ValueError(
+                    "Finalization construction requires an original successful candidate"
+                )
+            object.__setattr__(self, "candidate", _construction.facts)
+            object.__setattr__(self, "analyses", _construction.analyses)
+            object.__setattr__(
+                self, "group_projections", _construction.group_projections
+            )
         if not isinstance(self.state, ProjectRelationRowSchemaState):
             raise ValueError("Aggregate/grouped finalization requires a state")
         if not isinstance(self.aggregate_result_facts, Mapping):
@@ -455,6 +532,58 @@ class ProjectAggregateGroupedSchemaFinalization:
 
         status = self.state.status
         reason = self.state.reason
+        if (
+            type(self.analyses) is not tuple
+            or type(self.group_projections) is not tuple
+            or (
+                status is not ProjectRelationRowSchemaStatus.CONCRETE
+                and (self.analyses or self.group_projections)
+            )
+        ):
+            raise ValueError("Finalization evidence must be immutable and success-only")
+        for analysis in self.analyses:
+            if self.candidate is None:
+                raise ValueError("Aggregate analysis requires its retained candidate")
+            matches = tuple(
+                value
+                for item, value in self.candidate.selected_results.items()
+                if item is analysis.item
+            )
+            if (
+                len(matches) != 1
+                or matches[0].field is not analysis.field
+                or (
+                    matches[0].fact
+                    if isinstance(matches[0], ProjectAggregateSelectedResult)
+                    else matches[0].aggregate_fact
+                )
+                is not analysis.fact
+            ):
+                raise ValueError(
+                    "Finalization must bind each original aggregate analysis"
+                )
+        for item, key in self.group_projections:
+            if (
+                not isinstance(self.candidate, ProjectGroupedSchemaFacts)
+                or not any(key is retained for retained in self.candidate.group_keys)
+                or not any(
+                    item is selected for selected in self.candidate.selected_results
+                )
+            ):
+                raise ValueError(
+                    "Group projection requires its exact candidate key and selection"
+                )
+        if self.candidate is not None:
+            if status is not ProjectRelationRowSchemaStatus.CONCRETE or type(
+                self.candidate
+            ) not in {ProjectAggregateSchemaFacts, ProjectGroupedSchemaFacts}:
+                raise ValueError("Only concrete finalization can retain a candidate")
+            schema = self.state.schema
+            if schema is None or any(
+                schema.fields.get(value.field.name) is not value.field
+                for value in self.candidate.selected_results.values()
+            ):
+                raise ValueError("Finalization must retain its exact candidate fields")
         if status is ProjectRelationRowSchemaStatus.UNKNOWN:
             if reason not in {
                 ProjectRelationRowSchemaReason.DUPLICATE_OUTPUT_NAME,
@@ -589,8 +718,17 @@ class ProjectAggregateGroupedSchemaFinalization:
 class _ProjectAggregateSelectedResultAttempt:
     result: ProjectAggregateSelectedResult | None
     failure_reason: ProjectRelationRowSchemaReason | None
+    analysis: ProjectAggregateExpressionAnalysis | None = None
 
     def __post_init__(self) -> None:
+        if self.analysis is not None and (
+            self.result is None
+            or self.analysis.field is not self.result.field
+            or self.analysis.fact is not self.result.fact
+        ):
+            raise ValueError(
+                "Aggregate attempt requires the original field/fact analysis"
+            )
         if (self.result is None) == (self.failure_reason is None):
             raise ValueError(
                 "Aggregate selected-result attempt requires exactly one outcome"
@@ -601,6 +739,8 @@ class _ProjectAggregateSelectedResultAttempt:
 class _ProjectAggregateArgumentTypeAttempt:
     value_type: ValueType | None
     failure_reason: ProjectRelationRowSchemaReason | None
+    effective_expression: Expression | None = None
+    value_types: Mapping[Expression, ValueType] | None = None
 
     def __post_init__(self) -> None:
         if (self.value_type is None) == (self.failure_reason is None):
@@ -711,6 +851,8 @@ def _build_project_group_key_schema_attempt(
         )
 
     selected_fields: dict[SelectItem, ProjectRowField] = {}
+    keys_by_input = {id(key.input_field): key for key in group_keys}
+    selected_key_targets: dict[SelectItem, ProjectGroupKeyFact] = {}
     seen_items: set[SelectItem] = set()
     for item in definition.select_items:
         if item in seen_items:
@@ -754,6 +896,7 @@ def _build_project_group_key_schema_attempt(
                 ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
             )
             continue
+        selected_key_targets[item] = keys_by_input[id(input_field)]
         selected_fields[item] = ProjectRowField(
             name=item.alias or field_identity,
             resolved_type=input_field.resolved_type,
@@ -780,6 +923,7 @@ def _build_project_group_key_schema_attempt(
             selected_fields=selected_fields,
         ),
         failure_reason=None,
+        group_projections=tuple(selected_key_targets.items()),
     )
 
 
@@ -852,6 +996,7 @@ def _build_project_aggregate_schema_attempt(
         assert failure_reason is not None
         return _failed_candidate_attempt(failure_reason)
 
+    analyses: list[ProjectAggregateExpressionAnalysis] = []
     selected_occurrences: list[tuple[SelectItem, ProjectAggregateSelectedResult]] = []
     failure_reasons = list(structural_failure_reasons)
     if let_failure_reason is not None:
@@ -872,6 +1017,8 @@ def _build_project_aggregate_schema_attempt(
             failure_reasons.append(selected_attempt.failure_reason)
             continue
         selected_occurrences.append((item, selected_attempt.result))
+        if selected_attempt.analysis is not None:
+            analyses.append(selected_attempt.analysis)
 
     failure_reason = _candidate_failure_reason(failure_reasons)
     if failure_reason is not None:
@@ -880,6 +1027,7 @@ def _build_project_aggregate_schema_attempt(
     return ProjectAggregateGroupedCandidateAttempt(
         facts=ProjectAggregateSchemaFacts(selected_results=dict(selected_occurrences)),
         failure_reason=None,
+        analyses=tuple(analyses),
     )
 
 
@@ -1024,6 +1172,7 @@ def _build_project_grouped_schema_attempt(
     if let_failure_reason is not None:
         failure_reasons.append(let_failure_reason)
 
+    analyses: list[ProjectAggregateExpressionAnalysis] = []
     selected_occurrences: list[tuple[SelectItem, ProjectGroupedSelectedResult]] = []
     aggregate_count = 0
     aggregate_selection_count = 0
@@ -1068,6 +1217,8 @@ def _build_project_grouped_schema_attempt(
             failure_reasons.append(aggregate_attempt.failure_reason)
             continue
         aggregate_result = aggregate_attempt.result
+        if aggregate_attempt.analysis is not None:
+            analyses.append(aggregate_attempt.analysis)
         aggregate_count += 1
         selected_occurrences.append(
             (
@@ -1109,6 +1260,8 @@ def _build_project_grouped_schema_attempt(
             selected_results=dict(selected_occurrences),
         ),
         failure_reason=None,
+        analyses=tuple(analyses),
+        group_projections=group_key_attempt.group_projections,
     )
 
 
@@ -1194,6 +1347,7 @@ def _finalize_project_aggregate_grouped_candidate(
             reason=concrete_reason,
         ),
         aggregate_result_facts=aggregate_result_facts,
+        _construction=attempt,
     )
 
 
@@ -1369,6 +1523,7 @@ def _build_project_aggregate_selected_result_attempt(
 
     arguments = call.arguments
     argument_type: ValueType | None = None
+    argument_attempt: _ProjectAggregateArgumentTypeAttempt | None = None
     if arguments:
         assert len(arguments) == 1
         argument = arguments[0]
@@ -1428,10 +1583,28 @@ def _build_project_aggregate_selected_result_attempt(
         argument_count=len(arguments),
         location=location,
     )
+    argument_values: Mapping[Expression, ValueType] = {}
+    if argument_attempt is not None:
+        assert argument_attempt.value_types is not None
+        argument_values = argument_attempt.value_types
     return _ProjectAggregateSelectedResultAttempt(
         result=ProjectAggregateSelectedResult(
             field=field,
             fact=fact,
+        ),
+        analysis=ProjectAggregateExpressionAnalysis(
+            definition=definition,
+            item=item,
+            input_schema=input_schema,
+            let_scope=let_scope_facts,
+            upstream_symbol=upstream_symbol,
+            field=field,
+            fact=fact,
+            effective_argument=None
+            if argument_attempt is None
+            else argument_attempt.effective_expression,
+            argument_value_types=argument_values,
+            result_value_type=result_type,
         ),
         failure_reason=None,
     )
@@ -1547,6 +1720,7 @@ def _project_aggregate_argument_type_attempt(
 ) -> _ProjectAggregateArgumentTypeAttempt:
     """Resolve one aggregate argument or retain its exact failure category."""
 
+    effective_value_types: Mapping[Expression, ValueType]
     let_expansions = (
         let_scope_facts.binding_expressions
         if let_scope_facts.status is ProjectLetScopeFactsStatus.CONCRETE
@@ -1584,6 +1758,9 @@ def _project_aggregate_argument_type_attempt(
                 ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
             )
         argument_type = let_scope_facts.value_types.get(argument.name)
+        effective_value_types = (
+            {} if argument_type is None else {argument: argument_type}
+        )
     else:
         effective_value_types = build_project_row_expression_value_types(
             expressions=(effective_argument,),
@@ -1618,6 +1795,8 @@ def _project_aggregate_argument_type_attempt(
     return _ProjectAggregateArgumentTypeAttempt(
         value_type=argument_type,
         failure_reason=None,
+        effective_expression=effective_argument,
+        value_types=effective_value_types,
     )
 
 

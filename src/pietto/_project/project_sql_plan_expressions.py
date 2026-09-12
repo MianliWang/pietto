@@ -8,6 +8,7 @@ from types import MappingProxyType
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto.ast_nodes import (
     Expression,
     LiteralExpr,
@@ -85,6 +86,7 @@ type ProjectSQLScalarEvidence = (
     | ProjectJoinedLetValue
     | ProjectConcreteJoinedNamespaceExpression
     | ProjectJoinCondition
+    | aggregation.Evidence
 )
 
 
@@ -93,12 +95,16 @@ class ProjectSQLExpressionRole(StrEnum):
     LET = "let"
     WHERE = "where"
     SELECT = "select"
+    AGGREGATE_ARGUMENT = "aggregate_argument"
+    SATISFYING = "satisfying"
 
 
 class ProjectSQLStageKind(StrEnum):
     LET = "let"
     WHERE = "where"
     PROJECTION = "projection"
+    AGGREGATE = "aggregate"
+    SATISFYING = "satisfying"
 
 
 class ProjectSQLStagePortKind(StrEnum):
@@ -147,7 +153,10 @@ class ProjectSQLMatchSite:
 
 
 type ProjectSQLSite = (
-    ProjectSQLExpressionSite | ProjectSQLJoinedSite | ProjectSQLMatchSite
+    ProjectSQLExpressionSite
+    | ProjectSQLJoinedSite
+    | ProjectSQLMatchSite
+    | aggregation.ProjectSQLAggregateSite
 )
 
 
@@ -231,6 +240,8 @@ type ProjectSQLExpression = (
     | ProjectSQLComparison
     | ProjectSQLIsNull
     | ProjectSQLBetween
+    | aggregation.ProjectSQLResultReference
+    | aggregation.ProjectSQLAggregateArgumentCall
 )
 
 
@@ -255,6 +266,7 @@ class ProjectSQLStagePort:
         | LetBinding
         | ProjectScalarEnvironmentField
         | ProjectJoinedLetOccurrence
+        | aggregation.ResultKey
     )
     source: ProjectSQLPlanRef
     type_evidence: ProjectRowField | ValueType
@@ -313,7 +325,11 @@ class ProjectSQLLetValue:
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSQLFilter:
     ref: ProjectSQLPlanRef
-    site: ProjectSQLExpressionSite | ProjectSQLJoinedSite
+    site: (
+        ProjectSQLExpressionSite
+        | ProjectSQLJoinedSite
+        | aggregation.ProjectSQLAggregateSite
+    )
     predicate: ProjectSQLPlanRef
     retention_effects: tuple[ProjectJoinedRowRetentionEffect, ...]
 
@@ -342,7 +358,11 @@ class ProjectSQLStageValueDemand:
 class ProjectSQLFilterDemand:
     ref: ProjectSQLPlanRef
     subject: ProjectSQLPlanRef
-    site: ProjectSQLExpressionSite | ProjectSQLJoinedSite
+    site: (
+        ProjectSQLExpressionSite
+        | ProjectSQLJoinedSite
+        | aggregation.ProjectSQLAggregateSite
+    )
     value_type: ValueType
     retention_effects: tuple[ProjectJoinedRowRetentionEffect, ...]
     origin: ProjectSQLPlanRef
@@ -430,9 +450,13 @@ def row_authority(
         namespaces = tail.joined_semantics.namespaces
         joined_selected: list[ProjectConcreteJoinedNamespaceExpression] = []
         for output in semantic.fields:
-            if not isinstance(output.source, ProjectConcreteJoinedNamespaceExpression):
+            if isinstance(output.source, ProjectConcreteJoinedNamespaceExpression):
+                joined_selected.append(output.source)
+            elif (
+                entry.semantic_entry.root.window_stage.input_aggregation.mode
+                is aggregation.ProjectJoinedAggregationMode.ABSENT
+            ):
                 return None
-            joined_selected.append(output.source)
         return ProjectSQLJoinedRowAuthority(
             binding_environment=namespaces.binding_environment,
             namespaces=namespaces,
@@ -453,15 +477,18 @@ def row_authority(
         retained = tuple(
             r for r in completed.roots.row_references if r.entry is semantic
         )
-        if len(retained) != 1 or any(
-            not isinstance(f.source, ProjectNoJoinScalarExpression)
-            for f in semantic.fields
+        if len(retained) != 1 or (
+            root.mode is aggregation.ProjectJoinedAggregationMode.ABSENT
+            and any(
+                not isinstance(f.source, ProjectNoJoinScalarExpression)
+                for f in semantic.fields
+            )
         ):
             return None
         selected: list[ProjectNoJoinScalarExpression] = []
         for output in semantic.fields:
-            assert isinstance(output.source, ProjectNoJoinScalarExpression)
-            selected.append(output.source)
+            if isinstance(output.source, ProjectNoJoinScalarExpression):
+                selected.append(output.source)
         return ProjectSQLRowAuthority(
             input_schema=root.input_schema,
             let_scope=root.let_scope,
@@ -478,6 +505,10 @@ def row_authority(
 def evidence_types(
     evidence: ProjectSQLScalarEvidence,
 ) -> Mapping[Expression, ValueType]:
+    if isinstance(evidence, aggregation.ProjectAggregateExpressionAnalysis):
+        return evidence.argument_value_types
+    if isinstance(evidence, aggregation.ProjectJoinedSatisfyingAnalysis):
+        return evidence.value_types
     if isinstance(evidence, ProjectModuleLetBindingFact):
         return evidence.scope_facts.expression_value_types
     if isinstance(
@@ -493,7 +524,19 @@ def evidence_types(
     return evidence.expression_value_types
 
 
-def reference_expression(reference):
+def reference_expression(reference) -> Expression:
+    if isinstance(reference, aggregation.ProjectRelationClauseDependencyFact):
+        if not isinstance(reference.source_occurrence, Expression):
+            raise ValueError("Expression reference requires an expression occurrence")
+        return reference.source_occurrence
+    if isinstance(
+        reference,
+        (
+            aggregation.ProjectJoinedSatisfyingOutputReference,
+            aggregation.ProjectJoinedSatisfyingAggregateReference,
+        ),
+    ):
+        return reference.expression
     if isinstance(
         reference, (ProjectModuleExpressionReferenceFact, ProjectJoinConditionReference)
     ):
@@ -514,6 +557,14 @@ def reference_key(reference):
 
 
 def stage_key_label(key):
+    if isinstance(key, SelectItem):
+        if key.alias is None:
+            raise ValueError("Aggregate result ports require an authored alias")
+        return key.alias
+    if isinstance(key, aggregation.ProjectGroupKeyFact):
+        return key.field_identity
+    if isinstance(key, aggregation.ProjectJoinedGroupKeyOccurrence):
+        return key.field_semantics.scalar_field.evidence.name
     if isinstance(key, ProjectScalarEnvironmentField):
         return key.evidence.name
     if isinstance(key, ProjectJoinedLetOccurrence):
@@ -535,11 +586,15 @@ def scalar_children(expression: Expression) -> tuple[Expression, ...]:
     return ()
 
 
-def scalar_nodes(expression: Expression) -> tuple[Expression, ...]:
+def scalar_nodes(
+    expression: Expression, leaves: tuple[Expression, ...] = ()
+) -> tuple[Expression, ...]:
+    terminal = {id(leaf) for leaf in leaves}
     pending = [expression]
     result: list[Expression] = []
     while pending:
         node = pending.pop()
         result.append(node)
-        pending.extend(reversed(scalar_children(node)))
+        if id(node) not in terminal:
+            pending.extend(reversed(scalar_children(node)))
     return tuple(result)

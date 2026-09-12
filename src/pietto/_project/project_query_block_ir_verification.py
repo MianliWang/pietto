@@ -30,6 +30,10 @@ from enum import StrEnum
 from heapq import heappop, heappush
 from typing import cast
 
+from pietto._project.aggregate_grouped_clause_facts import (
+    ProjectRelationClauseDependencyKind,
+)
+from pietto._project.aggregate_grouped_schema import ProjectGroupKeyFact
 from pietto._project.model import (
     ProjectRowFieldNullability,
     ProjectRowFieldProvenanceKind,
@@ -37,6 +41,7 @@ from pietto._project.model import (
 )
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleWindowOutputFact,
+    ProjectModuleRelationSemanticFacts,
 )
 from pietto._project.project_completion import ProjectExistingEffectiveOutput
 from pietto._project.project_final_outputs import (
@@ -50,6 +55,7 @@ from pietto._project.project_final_outputs import (
 )
 from pietto._project.project_grain import (
     ProjectGrainBasisState,
+    ProjectGrainFactorIdentity,
     ProjectGrainOriginKind,
     ProjectGroupedGrainFactorIdentity,
     ProjectJoinGrainFactorIdentity,
@@ -91,6 +97,7 @@ from pietto._project.project_ir_verification import (
 )
 from pietto._project.project_joined_aggregation import (
     ProjectJoinedAggregationMode,
+    ProjectConcreteJoinedAggregation,
     ProjectJoinedStageOutputOccurrence,
     ProjectJoinedStageOutputRole,
 )
@@ -113,6 +120,7 @@ from pietto._project.project_query_block_ir import (
     ProjectIRSingleMatchRetention,
     ProjectIRSingleMatchProofImage,
     ProjectIRQueryBlockGrainOrigin,
+    ProjectIRQueryBlockRowField,
     ProjectIRQueryBlockRowDomainOrigin,
     ProjectIRCompletedQueryBlockOutput,
     ProjectIRCompletedSetOperationOutput,
@@ -1856,26 +1864,214 @@ def _expected_imaged_key_fd_signatures(
 
 def _group_key_positions(
     properties: ProjectIROutputRelationalProperties,
-) -> tuple[int, ...]:
-    output = properties.output
-    if type(output) is ProjectIRQueryBlockRowOutput:
-        return tuple(
-            field.field_position
-            for field in output.row_shape.fields
-            if (
-                type(field.semantic_source) is ProjectJoinedStageOutputOccurrence
-                and field.semantic_source.role is ProjectJoinedStageOutputRole.GROUP_KEY
+    context: ProjectIRQueryBlockAggregateEvaluationContext,
+) -> tuple[int, ...] | None:
+    """Independently check determinant authority and its visible occurrence image."""
+    readiness = None
+    basis = context.semantic_basis
+    if type(basis) is ProjectConcreteJoinedAggregation:
+        definition = basis.input_filter.entry.owner.definition
+        keys = basis.group_keys
+        outputs = basis.stage_outputs
+        if basis.mode is not context.mode:
+            return None
+        items = tuple(key.item for key in keys)
+        if any(
+            type(key.source_ordinal) is not int
+            or key.source_ordinal != i
+            or key.input_filter is not basis.input_filter
+            or not any(
+                key.field_semantics is row_field
+                for row_field in basis.input_filter.fields
             )
-            or (
-                type(field.semantic_source) is ProjectNoJoinGroupedOutput
-                and field.semantic_source.field.result_role
-                is ProjectRowResultRole.GROUP_KEY
-            )
+            for i, key in enumerate(keys)
+        ):
+            return None
+        selected = {}
+        for output in outputs:
+            if output.role is ProjectJoinedStageOutputRole.GROUP_KEY:
+                matches = [i for i, key in enumerate(keys) if output.group_key is key]
+                if len(matches) != 1:
+                    return None
+                selected[id(output)] = matches[0]
+    elif type(basis) in {
+        ProjectConcreteNoJoinReplay,
+        ProjectModuleRelationSemanticFacts,
+    }:
+        assert isinstance(
+            basis, (ProjectConcreteNoJoinReplay, ProjectModuleRelationSemanticFacts)
         )
-    return tuple(
-        position
-        for position, field in enumerate(output.row_shape.fields)
-        if field.evidence.result_role is ProjectRowResultRole.GROUP_KEY
+        if isinstance(basis, ProjectConcreteNoJoinReplay):
+            definition = basis.owner.definition
+            readiness = basis.aggregate_readiness
+            schema = basis.base_state.schema
+            outputs = () if schema is None else tuple(schema.fields.values())
+            if basis.mode is not context.mode:
+                return None
+        else:
+            definition = basis.owner.definition
+            readiness = basis.aggregate_grouped_clause_readiness
+            outputs = basis.aggregate_result_facts
+        if not isinstance(definition, (TableDef, QueryDef)):
+            return None
+        if readiness is None or readiness.definition is not definition:
+            return None
+        dependencies = tuple(
+            fact
+            for fact in readiness.dependency_facts
+            if fact.kind is ProjectRelationClauseDependencyKind.GROUP_KEY_INPUT
+        )
+        items = tuple(fact.source_occurrence for fact in dependencies)
+        keys = (
+            dependencies
+            if isinstance(basis, ProjectConcreteNoJoinReplay)
+            else basis.group_key_occurrences
+        )
+        selected = {}
+        for i, fact in enumerate(dependencies):
+            key = fact.target_occurrence
+            if (
+                type(key) is not ProjectGroupKeyFact
+                or key.item is not items[i]
+                or key.input_field is not fact.target_field
+            ):
+                return None
+            for item, projected_key in readiness.finalization.group_projections:
+                if (
+                    projected_key.item is not key.item
+                    or projected_key.input_field is not key.input_field
+                ):
+                    continue
+                if id(item) in selected or not any(
+                    item is authored for authored in definition.select_items
+                ):
+                    return None
+                selected[id(item)] = i
+    else:
+        return None
+    if not isinstance(definition, (TableDef, QueryDef)):
+        return None
+    clause = definition.group_by_clause
+    if clause is None or not keys or len({id(item) for item in items}) != len(items):
+        return None
+    if len(items) != len(clause.items) or any(
+        a is not b for a, b in zip(items, clause.items)
+    ):
+        return None
+    if len(context.group_keys) != len(keys) or any(
+        a is not b for a, b in zip(context.group_keys, keys)
+    ):
+        return None
+    if len(context.aggregate_outputs) != len(outputs) or any(
+        a is not b for a, b in zip(context.aggregate_outputs, outputs)
+    ):
+        return None
+    covered = set()
+    positions = []
+    for position, row_field in enumerate(properties.output.row_shape.fields):
+        if row_field.evidence.result_role is not ProjectRowResultRole.GROUP_KEY:
+            continue
+        if type(basis) is ProjectConcreteJoinedAggregation:
+            if (
+                type(row_field) is not ProjectIRQueryBlockRowField
+                or id(row_field.semantic_source) not in selected
+            ):
+                return None
+            index = selected[id(row_field.semantic_source)]
+        elif type(basis) is ProjectConcreteNoJoinReplay:
+            if (
+                type(row_field) is not ProjectIRQueryBlockRowField
+                or type(row_field.semantic_source) is not ProjectNoJoinGroupedOutput
+            ):
+                return None
+            source = row_field.semantic_source
+            if (
+                source.readiness is not readiness
+                or id(source.select_fact.item) not in selected
+            ):
+                return None
+            index = selected[id(source.select_fact.item)]
+        else:
+            assert isinstance(basis, ProjectModuleRelationSemanticFacts)
+            selections = [
+                fact for fact in basis.select_facts if fact.field is row_field.evidence
+            ]
+            if len(selections) != 1 or id(selections[0].item) not in selected:
+                return None
+            index = selected[id(selections[0].item)]
+        covered.add(index)
+        positions.append(position)
+    return tuple(positions) if len(covered) == len(keys) else ()
+
+
+def _group_input_has_key(context, incoming, root) -> bool | None:
+    """Use existing input classes and keys; no FD or grain inference."""
+    basis = context.semantic_basis
+    positions = []
+    if isinstance(basis, ProjectConcreteJoinedAggregation):
+        entries = root.find_owner(basis.input_filter.entry.owner)
+        if len(entries) != 1 or not isinstance(
+            entries[0], ProjectIRCompletedQueryBlockOutput
+        ):
+            return None
+        prefix = entries[0].join_prefix
+        for key in basis.group_keys:
+            if isinstance(incoming.output, ProjectIRQueryBlockRowOutput):
+                matches = [
+                    i
+                    for i, item in enumerate(incoming.output.row_shape.fields)
+                    if item.semantic_source is key.field_semantics
+                ]
+            elif prefix is not None:
+                if incoming.output is not prefix.final_join.output:
+                    return None
+                matches = [
+                    i
+                    for i, item in enumerate(
+                        prefix.final_join.source.output.row_shape.fields
+                    )
+                    if item is key.field_semantics.joined_field
+                ]
+            else:
+                matches = [
+                    i
+                    for i, item in enumerate(incoming.output.row_shape.fields)
+                    if item is key.field_semantics.joined_field
+                ]
+            if len(matches) != 1:
+                return None
+            positions.append(matches[0])
+    else:
+        readiness = (
+            basis.aggregate_readiness
+            if isinstance(basis, ProjectConcreteNoJoinReplay)
+            else basis.aggregate_grouped_clause_readiness
+        )
+        if readiness is None:
+            return None
+        for fact in readiness.dependency_facts:
+            if fact.kind is not ProjectRelationClauseDependencyKind.GROUP_KEY_INPUT:
+                continue
+            matches = [
+                item.field_position
+                for item in incoming.fields
+                if item.evidence is fact.target_field
+            ]
+            if len(matches) != 1:
+                return None
+            positions.append(matches[0])
+    classes = tuple(
+        value
+        for value in incoming.value_classes
+        if any(member.field_position in positions for member in value.members)
+    )
+    return any(
+        key.strength is ProjectRowUniquenessStrength.STRICT
+        and all(
+            any(determinant is value for value in classes)
+            for determinant in key.determinants
+        )
+        for key in incoming.keys
     )
 
 
@@ -1887,6 +2083,34 @@ def _group_properties_valid(
 ) -> bool:
     if type(context) is not ProjectIRQueryBlockAggregateEvaluationContext:
         return False
+    basis = context.semantic_basis
+    if context.mode is ProjectJoinedAggregationMode.GLOBAL:
+        if isinstance(basis, ProjectConcreteJoinedAggregation):
+            outputs = basis.stage_outputs
+            if basis.mode is not ProjectJoinedAggregationMode.GLOBAL:
+                return False
+        elif isinstance(basis, ProjectConcreteNoJoinReplay):
+            schema = basis.base_state.schema
+            outputs = () if schema is None else tuple(schema.fields.values())
+            if basis.mode is not ProjectJoinedAggregationMode.GLOBAL:
+                return False
+        elif isinstance(basis, ProjectModuleRelationSemanticFacts):
+            definition = basis.owner.definition
+            if (
+                not isinstance(definition, (TableDef, QueryDef))
+                or definition.group_by_clause is not None
+            ):
+                return False
+            outputs = basis.aggregate_result_facts
+        else:
+            return False
+        if (
+            context.group_keys
+            or not outputs
+            or len(context.aggregate_outputs) != len(outputs)
+            or any(a is not b for a, b in zip(context.aggregate_outputs, outputs))
+        ):
+            return False
     origin_matches = tuple(
         origin
         for origin in root.grain_origins.origins
@@ -1897,8 +2121,10 @@ def _group_properties_valid(
         return False
     origin = origin_matches[0]
     if context.mode is ProjectJoinedAggregationMode.GROUPED:
-        positions = _group_key_positions(properties)
-        key = ((positions, ProjectRowUniquenessStrength.STRICT),)
+        positions = _group_key_positions(properties, context)
+        if positions is None:
+            return False
+        key = ((positions, ProjectRowUniquenessStrength.STRICT),) if positions else ()
         expected_fds = (
             (
                 positions,
@@ -1910,8 +2136,47 @@ def _group_properties_valid(
                 ProjectRowUniquenessStrength.STRICT,
             ),
         )
-        expected_fds = tuple(item for item in expected_fds if item[1])
+        expected_fds = (
+            tuple(item for item in expected_fds if item[1]) if positions else ()
+        )
+        input_has_key = _group_input_has_key(context, incoming, root)
+        if input_has_key is None:
+            return False
         factor = origin.factor
+        if type(factor) is not ProjectGroupedGrainFactorIdentity:
+            return False
+        dependencies = properties.grain.dependencies
+        prefix = incoming.grain.dependencies
+        if len(dependencies) != len(prefix) + int(bool(incoming.grain.active)) * (
+            1 + int(input_has_key)
+        ) or any(
+            actual is not expected for actual, expected in zip(dependencies, prefix)
+        ):
+            return False
+        tail = dependencies[len(prefix) :]
+        expected_edges: list[
+            tuple[
+                tuple[ProjectGrainFactorIdentity, ...],
+                tuple[ProjectGrainFactorIdentity, ...],
+            ]
+        ] = [(incoming.grain.active, (factor,))] if incoming.grain.active else []
+        if incoming.grain.active and input_has_key:
+            expected_edges.append(((factor,), incoming.grain.active))
+        if any(
+            len(edge.determinants) != len(left)
+            or len(edge.dependents) != len(right)
+            or any(a is not b for a, b in zip(edge.determinants, left))
+            or any(a is not b for a, b in zip(edge.dependents, right))
+            for edge, (left, right) in zip(tail, expected_edges, strict=True)
+        ):
+            return False
+        factors = properties.grain.factors
+        if (
+            len(factors) != len(incoming.grain.factors) + 1
+            or any(a is not b for a, b in zip(factors, incoming.grain.factors))
+            or factors[len(incoming.grain.factors)].identity is not factor
+        ):
+            return False
         grain_valid = (
             origin.kind is ProjectGrainOriginKind.GROUPED_RESULT
             and type(factor) is ProjectGroupedGrainFactorIdentity
@@ -1930,8 +2195,7 @@ def _group_properties_valid(
             )
         )
         return (
-            bool(positions)
-            and _actual_key_signatures(properties) == key
+            _actual_key_signatures(properties) == key
             and _actual_fd_signatures(properties) == expected_fds
             and grain_valid
         )

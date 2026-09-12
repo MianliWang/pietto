@@ -6,6 +6,8 @@ semantic fields, producer definitions and input uses remain distinct.
 
 from __future__ import annotations
 
+from pietto._project import project_sql_plan_aggregation as aggregation
+
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Never, cast
@@ -83,6 +85,7 @@ from pietto._project.project_query_block_ir import (
 from pietto._project.project_query_block_ir_verification import (
     ProjectIRQueryBlockAnalysisBundle,
 )
+from pietto.ast_nodes import GroupByItem
 from pietto.ast_nodes import (
     AuthoredJoinKind,
     JoinOnClause,
@@ -350,9 +353,17 @@ def _blockers(
                         blocker = _match_blocker(condition)
                         if blocker is not None:
                             add(blocker, owner, entry, condition.use.clause.on_clause)
+            aggregate = (
+                aggregation.authority(completed, entry)
+                if not isinstance(entry, ProjectIRQueryBlockTerminal)
+                else None
+            )
             for present, kind in (
-                (definition.group_by_clause, K.GROUP),
-                (definition.satisfying_clause, K.SATISFYING),
+                (definition.group_by_clause if aggregate is None else None, K.GROUP),
+                (
+                    definition.satisfying_clause if aggregate is None else None,
+                    K.SATISFYING,
+                ),
             ):
                 if present:
                     add(kind, owner, entry, present)
@@ -369,6 +380,11 @@ def _blockers(
                     add(kind, owner, entry, present)
             # Capture operator-only stages (e.g. GLOBAL aggregation or inline window).
             for operator in _operators(entry):
+                if aggregate is not None and operator.kind in {
+                    ProjectIRLogicalOperatorKind.GROUP_AGGREGATE,
+                    ProjectIRLogicalOperatorKind.RESULT_FILTER,
+                }:
+                    continue
                 if operator.kind not in {
                     ProjectIRLogicalOperatorKind.RELATION_INPUT,
                     ProjectIRLogicalOperatorKind.ROW_FILTER,
@@ -385,8 +401,12 @@ def _row_blockers(completed, entry):
     K = ProjectSQLPlanBlockerKind
     authority = row.row_authority(completed, entry)
     definition = entry.owner.definition
+    aggregate = aggregation.authority(completed, entry)
     if isinstance(authority, row.ProjectSQLJoinedRowAuthority):
-        return _joined_row_blockers(entry, authority)
+        return (
+            *_joined_row_blockers(entry, authority, aggregate is not None),
+            *_aggregate_blockers(entry, authority, aggregate),
+        )
     if authority is None or authority.let_scope.status not in {
         ProjectLetScopeFactsStatus.ABSENT,
         ProjectLetScopeFactsStatus.CONCRETE,
@@ -420,9 +440,9 @@ def _row_blockers(completed, entry):
     sites.extend(
         (f.item, evidence, refs)
         for f, evidence, refs in zip(
-            authority.selections,
-            authority.selected_evidence,
-            authority.selected_references,
+            () if aggregate is not None else authority.selections,
+            () if aggregate is not None else authority.selected_evidence,
+            () if aggregate is not None else authority.selected_references,
             strict=True,
         )
     )
@@ -515,10 +535,10 @@ def _row_blockers(completed, entry):
                 )
             ):
                 blockers.append((K.EXPRESSION_EVIDENCE, site))
-    return tuple(blockers)
+    return (*blockers, *_aggregate_blockers(entry, authority, aggregate))
 
 
-def _joined_row_blockers(entry, authority):
+def _joined_row_blockers(entry, authority, aggregating=False):
     K = ProjectSQLPlanBlockerKind
     definition = entry.owner.definition
     bindings = () if definition.let_clause is None else definition.let_clause.bindings
@@ -535,8 +555,14 @@ def _joined_row_blockers(entry, authority):
             )
         )
         or len(authority.selections) != len(definition.select_items)
-        or len(authority.selected_evidence) != len(authority.selections)
-        or len(authority.selected_references) != len(authority.selections)
+        or (
+            not aggregating
+            and len(authority.selected_evidence) != len(authority.selections)
+        )
+        or (
+            not aggregating
+            and len(authority.selected_references) != len(authority.selections)
+        )
         or any(
             fact.item is not item
             for fact, item in zip(authority.selections, definition.select_items)
@@ -570,9 +596,9 @@ def _joined_row_blockers(entry, authority):
     sites.extend(
         (fact.item, evidence, references)
         for fact, evidence, references in zip(
-            authority.selections,
-            authority.selected_evidence,
-            authority.selected_references,
+            () if aggregating else authority.selections,
+            () if aggregating else authority.selected_evidence,
+            () if aggregating else authority.selected_references,
             strict=True,
         )
     )
@@ -640,6 +666,98 @@ def _joined_row_blockers(entry, authority):
     return tuple(result)
 
 
+def _aggregate_blockers(entry, rows, aggregate):
+    if aggregate is None:
+        return ()
+    K = ProjectSQLPlanBlockerKind
+    if not aggregation.retained_members_valid(aggregate, entry.owner):
+        return ((K.EXPRESSION_EVIDENCE, None),)
+    definition = entry.owner.definition
+    clause = definition.group_by_clause
+    expected_keys = () if clause is None else clause.items
+    if (
+        not aggregate.aggregates
+        or len(aggregate.keys) != len(expected_keys)
+        or len(aggregate.outputs) != len(definition.select_items)
+        or len(aggregate.key_references) != len(aggregate.keys)
+        or len(aggregate.argument_references) != len(aggregate.aggregates)
+        or (aggregate.mode is aggregation.ProjectJoinedAggregationMode.GROUPED)
+        is (clause is None)
+        or any(
+            key.item is not item
+            or not refs
+            or row.reference_expression(refs[0]) is not item.key
+            for key, item, refs in zip(
+                aggregate.keys, expected_keys, aggregate.key_references
+            )
+        )
+    ):
+        return ((K.EXPRESSION_EVIDENCE, clause),)
+    for source, references in zip(aggregate.aggregates, aggregate.argument_references):
+        call = source.item.expression
+        if not isinstance(call, CallExpr) or len(call.arguments) > 1:
+            return ((K.EXPRESSION_EVIDENCE, source.item),)
+        if isinstance(source, aggregation.ProjectAggregateExpressionAnalysis):
+            if isinstance(rows, row.ProjectSQLJoinedRowAuthority) or (
+                source.definition is not definition
+                or source.input_schema is not rows.input_schema
+                or source.let_scope is not rows.let_scope
+            ):
+                return ((K.EXPRESSION_EVIDENCE, source.item),)
+        else:
+            if (
+                type(source.selected_output_ordinal) is not int
+                or source.selected_output_ordinal < 0
+                or definition.select_items[source.selected_output_ordinal]
+                is not source.item
+            ):
+                return ((K.EXPRESSION_EVIDENCE, source.item),)
+        if call.arguments:
+            evidence = aggregation.argument_evidence(source)
+            if (
+                evidence is None
+                or _scalar_blocker(call.arguments[0], evidence, source) is not None
+            ):
+                return ((K.EXPRESSION_EVIDENCE, source.item),)
+            leaves = tuple(
+                n
+                for n in row.scalar_nodes(call.arguments[0])
+                if isinstance(n, (NameExpr, DottedNameExpr))
+            )
+            if len(leaves) != len(references) or any(
+                row.reference_expression(r) is not n for r, n in zip(references, leaves)
+            ):
+                return ((K.EXPRESSION_EVIDENCE, source.item),)
+    if definition.satisfying_clause is not None:
+        satisfying = aggregate.satisfying
+        if (
+            satisfying is None
+            or aggregate.mode is not aggregation.ProjectJoinedAggregationMode.GROUPED
+        ):
+            return ((K.SATISFYING, definition.satisfying_clause),)
+        values = (
+            satisfying.value_types
+            if isinstance(satisfying, aggregation.ProjectJoinedSatisfyingAnalysis)
+            else satisfying.expression_value_types
+        )
+        references = aggregate.satisfying_references
+        leaves = tuple(row.reference_expression(r) for r in references)
+        nodes = row.scalar_nodes(definition.satisfying_clause.expression, leaves)
+        expected = tuple(
+            n for n in nodes if isinstance(n, (NameExpr, DottedNameExpr, CallExpr))
+        )
+        if (
+            len(expected) != len(leaves)
+            or any(a is not b for a, b in zip(expected, leaves))
+            or any(
+                n not in values or values[n].kind is not ValueTypeKind.KNOWN
+                for n in nodes
+            )
+        ):
+            return ((K.EXPRESSION_EVIDENCE, definition.satisfying_clause),)
+    return ()
+
+
 def _match_blocker(condition):
     leaves = tuple(
         node
@@ -676,10 +794,16 @@ def _match_blocker(condition):
     return _scalar_blocker(condition.expression, condition)
 
 
-def _scalar_blocker(expression, evidence):
+def _scalar_blocker(expression, evidence, aggregate=None):
     nodes = row.scalar_nodes(expression)
-    if any(isinstance(node, CallExpr) for node in nodes):
+    if any(isinstance(node, CallExpr) for node in nodes) and aggregate is None:
         return ProjectSQLPlanBlockerKind.CALL_AUTHORITY
+    if aggregate is not None and (
+        aggregation.argument_evidence(aggregate) is not evidence
+        or not aggregation.arguments(aggregate)
+        or aggregation.arguments(aggregate)[0] is not expression
+    ):
+        return ProjectSQLPlanBlockerKind.EXPRESSION_EVIDENCE
     supported = {
         LiteralExpr,
         NameExpr,
@@ -690,6 +814,8 @@ def _scalar_blocker(expression, evidence):
         IsNullExpr,
         BetweenExpr,
     }
+    if aggregate is not None:
+        supported.add(CallExpr)
     values = {
         id(node): (node, value) for node, value in row.evidence_types(evidence).items()
     }
@@ -725,6 +851,11 @@ class ProjectSQLPlanUnavailable:
 
 
 class ProjectSQLPlanRefKind(StrEnum):
+    AGGREGATION = "aggregation"
+    GROUP_KEY = "group_key"
+    AGGREGATE = "aggregate"
+    AGGREGATE_PROJECTION = "aggregate_projection"
+    AGGREGATE_RISK = "aggregate_risk"
     JOIN = "join"
     JOIN_INPUT = "join_input"
     JOIN_PORT = "join_port"
@@ -870,6 +1001,11 @@ class ProjectSQLProjection:
 
 
 class ProjectSQLOriginRole(StrEnum):
+    AGGREGATION = "aggregation"
+    GROUP_KEY = "group_key"
+    AGGREGATE = "aggregate"
+    AGGREGATE_PROJECTION = "aggregate_projection"
+    AGGREGATE_RISK = "aggregate_risk"
     JOIN = "join"
     JOIN_INPUT = "join_input"
     JOIN_PORT = "join_port"
@@ -918,10 +1054,17 @@ type ProjectSQLCause = (
     | LetBinding
     | WhereClause
     | Expression
+    | aggregation.SatisfyingClause
+    | GroupByItem
 )
 
 type ProjectSQLOriginEvidence = (
-    row.ProjectSQLScalarEvidence
+    aggregation.Witness
+    | aggregation.Evidence
+    | aggregation.GroupKey
+    | aggregation.Output
+    | aggregation.Risk
+    | row.ProjectSQLScalarEvidence
     | joining.ProjectSQLJoinWitness
     | ProjectDeclarationOccurrence
     | ProjectIRQueryBlockEntry
@@ -975,6 +1118,7 @@ type ProjectSQLDemand = (
     | row.ProjectSQLFilterDemand
     | row.ProjectSQLScopeDemand
     | joining.ProjectSQLJoinDemand
+    | aggregation.ProjectSQLAggregateDemand
 )
 
 
@@ -1025,6 +1169,11 @@ class ProjectSQLPlan:
     join_tails: tuple[joining.ProjectSQLJoinTail, ...]
     single_matches: tuple[joining.ProjectSQLSingleMatch, ...]
     single_match_proofs: tuple[joining.ProjectSQLSingleMatchProof, ...]
+    aggregations: tuple[aggregation.ProjectSQLAggregation, ...]
+    group_keys: tuple[aggregation.ProjectSQLGroupKey, ...]
+    aggregates: tuple[aggregation.ProjectSQLAggregate, ...]
+    aggregate_projections: tuple[aggregation.ProjectSQLAggregateProjection, ...]
+    aggregate_risks: tuple[aggregation.ProjectSQLAggregateRisk, ...]
 
     def __init__(self) -> Never:
         raise TypeError("ProjectSQLPlan is closed; use build_project_sql_plan.")
@@ -1711,6 +1860,11 @@ def build_project_sql_plan(
     join_tails: list[joining.ProjectSQLJoinTail] = []
     obligations: list[joining.ProjectSQLSingleMatch] = []
     proof_images: list[joining.ProjectSQLSingleMatchProof] = []
+    aggregate_stages: list[aggregation.ProjectSQLAggregation] = []
+    group_keys: list[aggregation.ProjectSQLGroupKey] = []
+    aggregate_values: list[aggregation.ProjectSQLAggregate] = []
+    aggregate_projections: list[aggregation.ProjectSQLAggregateProjection] = []
+    aggregate_risks: list[aggregation.ProjectSQLAggregateRisk] = []
     definitions_by_owner = {id(d.entry.owner): d for d in bindings.definitions}
     uses_by_image = {id(u.edge): u for u in bindings.input_uses}
     joins_by_image = {}
@@ -1744,7 +1898,22 @@ def build_project_sql_plan(
         return port
 
     def expression(site, local_ports, local_symbols, stage_context):
-        nodes = row.scalar_nodes(site.occurrence.expression)
+        source_expression = (
+            site.expression
+            if isinstance(site, aggregation.ProjectSQLAggregateSite)
+            else site.occurrence.expression
+        )
+        result_site = (
+            isinstance(site, aggregation.ProjectSQLAggregateSite)
+            and site.role is row.ProjectSQLExpressionRole.SATISFYING
+        )
+        terminals = (
+            tuple(row.reference_expression(r) for r in site.references)
+            if result_site
+            else ()
+        )
+        terminal_ids = {id(n) for n in terminals}
+        nodes = row.scalar_nodes(source_expression, terminals)
         node_refs = {id(n): ref(K.EXPRESSION) for n in nodes}
         if len(node_refs) != len(nodes):
             raise ValueError(
@@ -1754,16 +1923,25 @@ def build_project_sql_plan(
         references = {id(row.reference_expression(r)): r for r in site.references}
         for node in nodes:
             children = tuple(
-                node_refs[id(child)] for child in row.scalar_children(node)
+                node_refs[id(child)]
+                for child in (
+                    () if id(node) in terminal_ids else row.scalar_children(node)
+                )
             )
             node_ref, value_type = node_refs[id(node)], types[id(node)][1]
             if isinstance(node, LiteralExpr):
                 value = row.ProjectSQLLiteral(
                     ref=node_ref, site=site, expression=node, value_type=value_type
                 )
-            elif isinstance(node, (NameExpr, DottedNameExpr)):
+            elif (
+                isinstance(node, (NameExpr, DottedNameExpr)) or id(node) in terminal_ids
+            ):
                 reference = references[id(node)]
-                key = row.reference_key(reference)
+                if result_site:
+                    assert isinstance(site, aggregation.ProjectSQLAggregateSite)
+                    key = aggregation.result_key(site, reference)
+                else:
+                    key = row.reference_key(reference)
                 port = local_ports.get(id(key))
                 if port is None or port.key is not key:
                     raise ValueError(
@@ -1774,21 +1952,70 @@ def build_project_sql_plan(
                     raise ValueError(
                         "Expression symbol is outside its exact SELECT scope."
                     )
-                reference_type = (
-                    row.ProjectSQLMatchReference
-                    if isinstance(site, row.ProjectSQLMatchSite)
-                    else row.ProjectSQLJoinedReference
-                    if isinstance(site, row.ProjectSQLJoinedSite)
-                    else row.ProjectSQLReference
-                )
-                value = reference_type(
+                if result_site:
+                    assert isinstance(site, aggregation.ProjectSQLAggregateSite)
+                    value = aggregation.ProjectSQLResultReference(
+                        ref=node_ref,
+                        site=site,
+                        expression=node,
+                        value_type=value_type,
+                        reference=reference,
+                        port=port.ref,
+                        symbol=symbol,
+                    )
+                else:
+                    assert isinstance(node, (NameExpr, DottedNameExpr))
+                    if isinstance(reference, ProjectModuleExpressionReferenceFact):
+                        value = row.ProjectSQLReference(
+                            ref=node_ref,
+                            site=site,
+                            expression=node,
+                            value_type=value_type,
+                            reference=reference,
+                            port=port.ref,
+                            symbol=symbol,
+                        )
+                    elif isinstance(reference, row.ProjectJoinConditionReference):
+                        value = row.ProjectSQLMatchReference(
+                            ref=node_ref,
+                            site=site,
+                            expression=node,
+                            value_type=value_type,
+                            reference=reference,
+                            port=port.ref,
+                            symbol=symbol,
+                        )
+                    else:
+                        assert isinstance(
+                            reference,
+                            (
+                                row.ProjectJoinedLetReferenceResolution,
+                                ProjectScalarReferenceResolution,
+                            ),
+                        )
+                        value = row.ProjectSQLJoinedReference(
+                            ref=node_ref,
+                            site=site,
+                            expression=node,
+                            value_type=value_type,
+                            reference=reference,
+                            port=port.ref,
+                            symbol=symbol,
+                        )
+            elif isinstance(node, CallExpr):
+                if (
+                    not isinstance(site, aggregation.ProjectSQLAggregateSite)
+                    or site.role is not row.ProjectSQLExpressionRole.AGGREGATE_ARGUMENT
+                ):
+                    raise ValueError(
+                        "Scalar calls require retained aggregate argument authority"
+                    )
+                value = aggregation.ProjectSQLAggregateArgumentCall(
                     ref=node_ref,
                     site=site,
                     expression=node,
                     value_type=value_type,
-                    reference=reference,
-                    port=port.ref,
-                    symbol=symbol,
+                    arguments=children,
                 )
             elif isinstance(node, UnaryExpr):
                 value = row.ProjectSQLUnary(
@@ -1847,7 +2074,7 @@ def build_project_sql_plan(
                         child=child,
                     )
                 )
-        return node_refs[id(site.occurrence.expression)]
+        return node_refs[id(source_expression)]
 
     def join_body(definition, authority):
         entry = definition.entry
@@ -2102,6 +2329,9 @@ def build_project_sql_plan(
         authority = row.row_authority(completed, entry)
         assert authority is not None
         context = authority
+        aggregate = aggregation.authority(completed, entry)
+        aggregate_ref = None
+        aggregate_outgoing = []
         if isinstance(authority, row.ProjectSQLJoinedRowAuthority):
             boundary, carried = join_body(definition, authority)
             use = None
@@ -2116,6 +2346,10 @@ def build_project_sql_plan(
         stages = [(row.ProjectSQLStageKind.LET, i) for i in range(len(authority.lets))]
         if authored.where_clause is not None:
             stages.append((row.ProjectSQLStageKind.WHERE, 0))
+        if aggregate is not None:
+            stages.append((row.ProjectSQLStageKind.AGGREGATE, 0))
+            if aggregate.satisfying is not None:
+                stages.append((row.ProjectSQLStageKind.SATISFYING, 0))
         stages.append((row.ProjectSQLStageKind.PROJECTION, 0))
         for position, (kind, ordinal) in enumerate(stages):
             block_ref = ref(K.SELECT_BLOCK)
@@ -2208,70 +2442,255 @@ def build_project_sql_plan(
                         retention_effects=_SQL_ROW_RETENTION_EFFECTS,
                     )
                 )
-            else:
-                for index, (semantic, evidence, references, export) in enumerate(
+            elif kind is row.ProjectSQLStageKind.AGGREGATE:
+                assert aggregate is not None
+                aggregate_ref = ref(K.AGGREGATION)
+                aggregate_outgoing = []
+                local_keys = []
+                local_aggregates = []
+                for index, (key, references) in enumerate(
+                    zip(aggregate.keys, aggregate.key_references, strict=True)
+                ):
+                    reference = references[0]
+                    target = row.reference_key(reference)
+                    input_port = local_ports.get(id(target))
+                    if input_port is None or input_port.key is not target:
+                        raise ValueError(
+                            "Group key is outside the exact pre-aggregate input"
+                        )
+                    key_ref = ref(K.GROUP_KEY)
+                    value_type = (
+                        key.input_field
+                        if isinstance(key, aggregation.ProjectGroupKeyFact)
+                        else key.value_type
+                    )
+                    output_port = stage_port(
+                        block_ref,
+                        row.ProjectSQLStagePortKind.EXPORT,
+                        key,
+                        key_ref,
+                        value_type,
+                        local_symbols,
+                    )
+                    value = aggregation.ProjectSQLGroupKey(
+                        ref=key_ref,
+                        aggregation=aggregate_ref,
+                        position=index,
+                        source=key,
+                        reference=reference,
+                        input=input_port.ref,
+                        result=output_port.ref,
+                    )
+                    group_keys.append(value)
+                    local_keys.append(value.ref)
+                    aggregate_outgoing.append(output_port)
+                for index, (source, references) in enumerate(
                     zip(
-                        authority.selections,
-                        authority.selected_evidence,
-                        authority.selected_references,
-                        definition.exports,
-                        strict=True,
+                        aggregate.aggregates, aggregate.argument_references, strict=True
                     )
                 ):
-                    current_site = site(
-                        row.ProjectSQLExpressionRole.SELECT,
-                        index,
-                        semantic.item,
-                        evidence,
-                        references,
-                    )
-                    root_expression = expression(
-                        current_site, local_ports, local_symbols, stage_context
-                    )
-                    direct = None
-                    if (
-                        not isinstance(authority, row.ProjectSQLJoinedRowAuthority)
-                        and isinstance(
-                            semantic.item.expression, (NameExpr, DottedNameExpr)
+                    call = source.item.expression
+                    assert isinstance(call, CallExpr)
+                    arguments = ()
+                    if call.arguments:
+                        evidence = aggregation.argument_evidence(source)
+                        assert evidence is not None
+                        current_site = aggregation.ProjectSQLAggregateSite(
+                            ref=ref(K.EXPRESSION_SITE),
+                            owner=entry.owner,
+                            block=block_ref,
+                            role=row.ProjectSQLExpressionRole.AGGREGATE_ARGUMENT,
+                            ordinal=index,
+                            occurrence=source.item,
+                            expression=call.arguments[0],
+                            aggregation=aggregate_ref,
+                            authority=aggregate,
+                            evidence=evidence,
+                            references=references,
                         )
-                        and len(references) == 1
-                        and isinstance(
-                            references[0], ProjectModuleExpressionReferenceFact
+                        sites.append(current_site)
+                        arguments = (
+                            expression(
+                                current_site, local_ports, local_symbols, stage_context
+                            ),
+                        )
+                    value_ref = ref(K.AGGREGATE)
+                    value_type = aggregation.result_type(source)
+                    output_port = stage_port(
+                        block_ref,
+                        row.ProjectSQLStagePortKind.EXPORT,
+                        source.item,
+                        value_ref,
+                        value_type,
+                        local_symbols,
+                    )
+                    value = aggregation.ProjectSQLAggregate(
+                        ref=value_ref,
+                        aggregation=aggregate_ref,
+                        position=index,
+                        source=source,
+                        arguments=arguments,
+                        result=output_port.ref,
+                        value_type=value_type,
+                    )
+                    aggregate_values.append(value)
+                    local_aggregates.append(value_ref)
+                    aggregate_outgoing.append(output_port)
+                aggregate_stages.append(
+                    aggregation.ProjectSQLAggregation(
+                        ref=aggregate_ref,
+                        block=block_ref,
+                        definition=definition.ref,
+                        authority=aggregate,
+                        mode=aggregate.mode,
+                        keys=tuple(local_keys),
+                        aggregates=tuple(local_aggregates),
+                        inputs=tuple(p.ref for p in local_inputs),
+                        results=tuple(p.ref for p in aggregate_outgoing),
+                        empty_input=aggregation.ProjectSQLAggregateEmptyInput.ONE_GLOBAL_ROW
+                        if aggregate.mode
+                        is aggregation.ProjectJoinedAggregationMode.GLOBAL
+                        else aggregation.ProjectSQLAggregateEmptyInput.NO_GROUPS,
+                    )
+                )
+                aggregate_risks.extend(
+                    aggregation.ProjectSQLAggregateRisk(
+                        ref=ref(K.AGGREGATE_RISK),
+                        aggregation=aggregate_ref,
+                        source=source,
+                    )
+                    for source in aggregate.risks
+                )
+            elif kind is row.ProjectSQLStageKind.SATISFYING:
+                assert (
+                    aggregate is not None
+                    and aggregate.satisfying is not None
+                    and aggregate_ref is not None
+                    and authored.satisfying_clause is not None
+                )
+                current_site = aggregation.ProjectSQLAggregateSite(
+                    ref=ref(K.EXPRESSION_SITE),
+                    owner=entry.owner,
+                    block=block_ref,
+                    role=row.ProjectSQLExpressionRole.SATISFYING,
+                    ordinal=0,
+                    occurrence=authored.satisfying_clause,
+                    expression=authored.satisfying_clause.expression,
+                    aggregation=aggregate_ref,
+                    authority=aggregate,
+                    evidence=aggregate.satisfying,
+                    references=aggregate.satisfying_references,
+                )
+                sites.append(current_site)
+                predicate = expression(
+                    current_site, local_ports, local_symbols, stage_context
+                )
+                filters.append(
+                    row.ProjectSQLFilter(
+                        ref=ref(K.FILTER),
+                        site=current_site,
+                        predicate=predicate,
+                        retention_effects=aggregation.satisfying_effects(aggregate),
+                    )
+                )
+            else:
+                if aggregate is not None:
+                    assert aggregate_ref is not None
+                    for semantic, source, key, export in zip(
+                        authority.selections,
+                        aggregate.outputs,
+                        aggregate.output_keys,
+                        definition.exports,
+                        strict=True,
+                    ):
+                        input_port = local_ports.get(id(key))
+                        if (
+                            input_port is None
+                            or input_port.key is not key
+                            or stage_context.lookup(input_port.ref) is not input_port
+                        ):
+                            raise ValueError(
+                                "Aggregate projection lost its exact result port"
+                            )
+                        aggregate_projections.append(
+                            aggregation.ProjectSQLAggregateProjection(
+                                ref=ref(K.AGGREGATE_PROJECTION),
+                                block=block_ref,
+                                aggregation=aggregate_ref,
+                                semantic=semantic,
+                                source=source,
+                                input=input_port.ref,
+                                export=export.ref,
+                            )
+                        )
+                else:
+                    for index, (semantic, evidence, references, export) in enumerate(
+                        zip(
+                            authority.selections,
+                            authority.selected_evidence,
+                            authority.selected_references,
+                            definition.exports,
+                            strict=True,
                         )
                     ):
-                        direct = original_ports.get(id(references[0].input_field))
-                    projections.append(
-                        ProjectSQLProjection(
-                            ref=ref(K.PROJECTION),
-                            block=block_ref,
-                            input_use=None if use is None else use.ref,
-                            source_port=None
-                            if direct is None
-                            else direct.producer_port,
-                            input_port=None if direct is None else direct.ref,
-                            export=export.ref,
-                            semantic=semantic,
-                            symbol=None
-                            if direct is None
-                            else binding_symbols[direct.ref],
-                            expression=root_expression,
-                            site=current_site,
+                        current_site = site(
+                            row.ProjectSQLExpressionRole.SELECT,
+                            index,
+                            semantic.item,
+                            evidence,
+                            references,
                         )
-                    )
+                        root_expression = expression(
+                            current_site, local_ports, local_symbols, stage_context
+                        )
+                        direct = None
+                        if (
+                            not isinstance(authority, row.ProjectSQLJoinedRowAuthority)
+                            and isinstance(
+                                semantic.item.expression, (NameExpr, DottedNameExpr)
+                            )
+                            and len(references) == 1
+                            and isinstance(
+                                references[0], ProjectModuleExpressionReferenceFact
+                            )
+                        ):
+                            direct = original_ports.get(id(references[0].input_field))
+                        projections.append(
+                            ProjectSQLProjection(
+                                ref=ref(K.PROJECTION),
+                                block=block_ref,
+                                input_use=None if use is None else use.ref,
+                                source_port=None
+                                if direct is None
+                                else direct.producer_port,
+                                input_port=None if direct is None else direct.ref,
+                                export=export.ref,
+                                semantic=semantic,
+                                symbol=None
+                                if direct is None
+                                else binding_symbols[direct.ref],
+                                expression=root_expression,
+                                site=current_site,
+                            )
+                        )
             if kind is row.ProjectSQLStageKind.PROJECTION:
                 exports = tuple(p.ref for p in definition.exports)
             else:
-                outgoing = [
-                    stage_port(
-                        block_ref,
-                        row.ProjectSQLStagePortKind.EXPORT,
-                        p.key,
-                        p.ref,
-                        p.type_evidence,
-                        local_symbols,
-                    )
-                    for p in local_inputs
-                ]
+                outgoing = (
+                    aggregate_outgoing
+                    if kind is row.ProjectSQLStageKind.AGGREGATE
+                    else [
+                        stage_port(
+                            block_ref,
+                            row.ProjectSQLStagePortKind.EXPORT,
+                            p.key,
+                            p.ref,
+                            p.type_evidence,
+                            local_symbols,
+                        )
+                        for p in local_inputs
+                    ]
+                )
                 if kind is row.ProjectSQLStageKind.LET:
                     assert produced is not None and current_site is not None
                     fact = authority.lets[ordinal]
@@ -2287,6 +2706,10 @@ def build_project_sql_plan(
                         local_symbols,
                     )
                     outgoing.append(port)
+                    assert isinstance(
+                        current_site,
+                        (row.ProjectSQLExpressionSite, row.ProjectSQLJoinedSite),
+                    )
                     lets.append(
                         row.ProjectSQLLetValue(
                             ref=ref(K.LET_VALUE),
@@ -2318,6 +2741,16 @@ def build_project_sql_plan(
                         or (
                             kind is row.ProjectSQLStageKind.WHERE
                             and operator.kind is ProjectIRLogicalOperatorKind.ROW_FILTER
+                        )
+                        or (
+                            kind is row.ProjectSQLStageKind.AGGREGATE
+                            and operator.kind
+                            is ProjectIRLogicalOperatorKind.GROUP_AGGREGATE
+                        )
+                        or (
+                            kind is row.ProjectSQLStageKind.SATISFYING
+                            and operator.kind
+                            is ProjectIRLogicalOperatorKind.RESULT_FILTER
                         )
                         or (
                             kind is row.ProjectSQLStageKind.PROJECTION
@@ -2479,6 +2912,7 @@ def build_project_sql_plan(
                     row.ProjectSQLReference,
                     row.ProjectSQLJoinedReference,
                     row.ProjectSQLMatchReference,
+                    aggregation.ProjectSQLResultReference,
                 ),
             )
             else ()
@@ -2786,6 +3220,93 @@ def build_project_sql_plan(
             (port.ref,),
         )
 
+    aggregate_by_ref = {a.ref: a for a in aggregate_stages}
+    for witness in (
+        *aggregate_stages,
+        *group_keys,
+        *aggregate_values,
+        *aggregate_projections,
+        *aggregate_risks,
+    ):
+        stage = (
+            witness
+            if isinstance(witness, aggregation.ProjectSQLAggregation)
+            else aggregate_by_ref[witness.aggregation]
+        )
+        block = block_by_ref[stage.block]
+        owner = block.selected.owner
+        if isinstance(witness, aggregation.ProjectSQLAggregation):
+            kind, role, provenance = (
+                aggregation.ProjectSQLAggregateDemandKind.GROUPING_AND_EMPTY_INPUT,
+                R.AGGREGATION,
+                P.MEMBERSHIP,
+            )
+            cause, antecedents = owner.definition, (witness.block,)
+        elif isinstance(witness, aggregation.ProjectSQLGroupKey):
+            kind, role, provenance = (
+                aggregation.ProjectSQLAggregateDemandKind.GROUP_COMPARISON,
+                R.GROUP_KEY,
+                P.VALUE,
+            )
+            cause, antecedents = (
+                witness.source.item,
+                (witness.aggregation, witness.input),
+            )
+        elif isinstance(witness, aggregation.ProjectSQLAggregate):
+            kind, role, provenance = (
+                aggregation.ProjectSQLAggregateDemandKind.AGGREGATE_OPERATION,
+                R.AGGREGATE,
+                P.VALUE,
+            )
+            cause, antecedents = (
+                witness.source.item,
+                (witness.aggregation, *witness.arguments),
+            )
+        elif isinstance(witness, aggregation.ProjectSQLAggregateProjection):
+            kind, role, provenance = (
+                aggregation.ProjectSQLAggregateDemandKind.RESULT_PROJECTION,
+                R.AGGREGATE_PROJECTION,
+                P.VALUE,
+            )
+            cause, antecedents = (
+                witness.semantic.item,
+                (witness.aggregation, witness.input),
+            )
+        else:
+            kind, role, provenance = (
+                aggregation.ProjectSQLAggregateDemandKind.RETAINED_RISK,
+                R.AGGREGATE_RISK,
+                P.TYPE_PROOF,
+            )
+            cause, antecedents = owner.definition, (witness.aggregation,)
+        original = origin(
+            witness.ref, role, provenance, owner, cause, witness, antecedents
+        )
+        demand_ref = ref(K.DEMAND)
+        demand_origin = origin(
+            demand_ref, R.DEMAND, provenance, owner, cause, witness, (original,)
+        )
+        demands.append(
+            aggregation.ProjectSQLAggregateDemand(
+                ref=demand_ref,
+                kind=kind,
+                witness=witness,
+                subject=witness.ref,
+                origin=demand_origin,
+            )
+        )
+        if isinstance(witness, aggregation.ProjectSQLAggregateProjection):
+            export = export_by_ref[witness.export]
+            origin(
+                export.ref,
+                R.EXPORT,
+                P.VALUE,
+                owner,
+                witness.semantic.item,
+                export.field,
+                (witness.ref,),
+            )
+
     selected = _one(
         tuple(d for d in bindings.definitions if d.entry.owner is selected_owner),
         "selected SQL definition",
@@ -2819,6 +3340,11 @@ def build_project_sql_plan(
         join_tails=tuple(join_tails),
         single_matches=tuple(obligations),
         single_match_proofs=tuple(proof_images),
+        aggregations=tuple(aggregate_stages),
+        group_keys=tuple(group_keys),
+        aggregates=tuple(aggregate_values),
+        aggregate_projections=tuple(aggregate_projections),
+        aggregate_risks=tuple(aggregate_risks),
     ).items():
         object.__setattr__(plan, name, value)
     return plan

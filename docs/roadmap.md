@@ -8,7 +8,7 @@ needed.
 
 Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. The current owner is Phase 65, which is
-`ACTIVE`; Slices 1–5 are `COMPLETED / PUBLISHED` and Slice 6 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
+`ACTIVE`; Slices 1–6 are `COMPLETED / PUBLISHED` and Slice 7 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
 remains conditional on its Slice 11 natural exact-head CI; the
 Validation/Test Performance Optimization Interlude II is `COMPLETED`. Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -2298,10 +2298,10 @@ No Phase-65 syntax, carrier, algorithm or numbered route is frozen here.
 
 ## Phase 65 route
 
-Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slices 1–4 are
-`COMPLETED / PUBLISHED`, and Slice 5 is `COMPLETED / PUBLISHED` only upon
-successful natural exact-head CI on its ordinary commit. Slice 6 is
-`NEXT / NOT IMPLEMENTED`; Slices 7–16 are `NOT IMPLEMENTED`.
+Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slices 1–5 are
+`COMPLETED / PUBLISHED`, and Slice 6 is `COMPLETED / PUBLISHED` only upon
+successful natural exact-head CI on its ordinary commit. Slice 7 is
+`NEXT / NOT IMPLEMENTED`; Slices 8–16 are `NOT IMPLEMENTED`.
 The selected route has exactly 16 deliveries. Its controlling
 [reviewed v2 phase gate](spec/phase65-project-sql-plan-product-phase-initiation-gate-source-audit-architecture-route-lock-v1.md)
 is documentation/static assurance only; it does not authorize later implementation.
@@ -2373,7 +2373,7 @@ preserved; nullable Bool filters retain SQL TRUE-only membership and the source
 BAG. Complete origins/demands, independent verification and exact-ref runtime
 queries cover these stages without claiming target support or evaluation once.
 Missing callable authority and unknown operand types remain typed limitations;
-GROUP/GLOBAL, windows, DISTINCT/ORDER/LIMIT and SET bodies remain unavailable.
+At Slice4 publication, GROUP/GLOBAL, windows, DISTINCT/ORDER/LIMIT and SET bodies remained unavailable.
 
 The [Slice5 JOIN contract](spec/phase65-slice5-seven-join-kinds-match-scopes-obligation-retention-v1.md)
 adds seven admitted JOIN kinds, exact pre-match scopes, relationship base/refinement
@@ -2383,7 +2383,16 @@ resolutions. Internal/external inputs, hidden path producers and repeated uses k
 exact current correspondence. Applicable single-match assessments and proof images
 retain scope and original diagnostics, including unfulfilled downstream enforcement
 required for LEGAL_UNPROVED. This adds no SQL emission/execution or target strategy.
-Slice6 owns GROUPED/GLOBAL/satisfying block boundaries next.
+The [Slice6 aggregate contract](spec/phase65-slice6-grouped-global-satisfying-block-boundaries-v1.md)
+adds GROUPED/GLOBAL/satisfying block boundaries. It separates complete grouping
+determinants from visible projections, preserves hidden-key GROUPED grain without
+invented output uniqueness, and retains original argument/result typing and ordered
+satisfying references. Private group/result ports feed canonical exports and named
+consumers; existing risk and single-match requirements retain their scope.
+GLOBAL one-row-on-empty-input is a stage property, not an unconditional final-row
+claim. Aggregate argument transforms use existing authority without opening arbitrary
+scalar calls. Independent verification and exact-ref inspection cover all inventories.
+Slice7 owns windows, named-window reuse and QUALIFY staging next.
 
 This task newly maps open caller-rebindable query parameters to Phase70, public
 entrypoints to Phase69/82, and any selected-owner compilation amid project semantic

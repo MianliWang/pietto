@@ -104,6 +104,12 @@ class ProjectCompletedRowReferenceFacts:
     where: tuple[
         module_semantic_fact_preservation.ProjectModuleExpressionReferenceFact, ...
     ]
+    groups: tuple[
+        tuple[
+            module_semantic_fact_preservation.ProjectModuleExpressionReferenceFact, ...
+        ],
+        ...,
+    ]
 
 
 def _completed_row_references(
@@ -153,6 +159,16 @@ def _completed_row_references(
                         i,
                     )
                     for i, item in enumerate(definition.select_items)
+                ),
+                groups=tuple(
+                    references(
+                        item.key, facts.ProjectModuleFactOccurrenceRole.GROUP_KEY, i
+                    )
+                    for i, item in enumerate(
+                        ()
+                        if definition.group_by_clause is None
+                        else definition.group_by_clause.items
+                    )
                 ),
                 where=()
                 if definition.where_clause is None

@@ -1216,6 +1216,9 @@ class ProjectModuleRelationSemanticFacts:
     helper_diagnostics: tuple[Diagnostic, ...] = ()
     where_fact: ProjectModuleWhereFact | None = None
     select_expressions: tuple[ProjectModuleSelectExpressionFact, ...] = ()
+    group_key_references: tuple[
+        tuple[ProjectModuleExpressionReferenceFact, ...], ...
+    ] = ()
 
     def __post_init__(self) -> None:
         if type(self.owner) is not ProjectDeclarationOccurrence:
@@ -3013,6 +3016,21 @@ def _build_derived_relation_facts(
             select_facts=select_facts,
             select_expressions=select_expressions,
             group_key_occurrences=group_key_occurrences,
+            group_key_references=tuple(
+                _expression_reference_facts(
+                    owner=owner,
+                    role=ProjectModuleFactOccurrenceRole.GROUP_KEY,
+                    container_ordinal=ordinal,
+                    expression=item.key,
+                    relation_qualifier=definition.from_clause.source_name,
+                    input_schema=input_schema,
+                    input_status=ProjectModuleCandidateBucketStatus.CONCRETE,
+                    let_scope=let_scope,
+                    let_candidates=let_scope.bindings,
+                    selected_items=(),
+                )
+                for ordinal, item in enumerate(group_key_occurrences)
+            ),
             aggregate_grouped_clause_readiness=readiness,
             clause_dependencies=clause_dependencies,
             aggregate_result_facts=published_aggregate_result_facts,
