@@ -605,16 +605,25 @@ def test_unsupported_named_ancestor_and_unrelated_sibling_are_distinguished(
 ) -> None:
     from pietto._project.project_sql_plan import ProjectSQLPlanUnavailable
 
+    limited = _chain().replace("        key = id\n", "        key = id\n    limit 2\n")
+    limited_roots = _roots(tmp_path / "limited", limited)
+    assert limited_roots[0].ok
+    limited_plan = build_project_sql_plan(*limited_roots)
+    assert isinstance(limited_plan, ProjectSQLPlan)
+    limited_view = inspect_project_sql_plan(
+        verify_project_sql_plan(limited_plan, *limited_roots)
+    )
+    assert len(limited_view.limits) == 1
     for reached in (False, True):
         source = _chain()
         if reached:
             source = source.replace(
-                "        key = id\n",
-                "        key = id\n    limit 2\n",
+                "table first:\n    from rows\n",
+                "table blocked:\n    union all:\n        from rows\n        from rows\ntable first:\n    from blocked\n",
             )
         else:
             source += (
-                "query unused:\n    from rows\n    select:\n        id\n    limit 2\n"
+                "query unused:\n    union all:\n        from rows\n        from rows\n"
             )
         roots = _roots(tmp_path / str(reached), source)
         assert roots[0].ok
@@ -623,7 +632,7 @@ def test_unsupported_named_ancestor_and_unrelated_sibling_are_distinguished(
             assert isinstance(result, ProjectSQLPlanUnavailable)
             assert [
                 (b.owner.definition.name, b.kind.value) for b in result.blockers
-            ] == [("first", "limit"), ("first", "ir_stage")]
+            ] == [("blocked", "set_operation")]
         else:
             assert isinstance(result, ProjectSQLPlan)
             assert verify_project_sql_plan(result, *roots).verified

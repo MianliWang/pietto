@@ -689,7 +689,7 @@ def test_invalid_single_match_blocks_the_project(tmp_path: Path, invalid: str):
     assert isinstance(build_project_sql_plan(*roots), ProjectSQLPlanUnavailable)
 
 
-def test_right_limit_proof_does_not_enable_limit_planning(tmp_path: Path):
+def test_right_limit_proof_survives_supported_limited_producer(tmp_path: Path):
     from test_phase64_slice7_single_match_direction_unit_scoped_proof_obligation_warning_diagnostics import (
         _limited_source,
     )
@@ -700,8 +700,14 @@ def test_right_limit_proof_does_not_enable_limit_planning(tmp_path: Path):
         and roots[0].single_matches.entries[0].state is ProjectSingleMatchState.PROVED
     )
     result = build_project_sql_plan(*roots)
-    assert isinstance(result, ProjectSQLPlanUnavailable)
-    assert any(blocker.kind.value == "limit" for blocker in result.blockers)
+    assert isinstance(result, ProjectSQLPlan)
+    view = inspect_project_sql_plan(verify_project_sql_plan(result, *roots))
+    assert view.limits and view.limits[0].value == 1
+    assert view.single_match_proofs
+    assert any(
+        image.source.source.kind.value == "right_limit"
+        for image in view.single_match_proofs
+    )
 
 
 def test_every_join_origin_and_demand_is_mandatory(proof_plans):

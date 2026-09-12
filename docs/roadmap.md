@@ -8,7 +8,7 @@ needed.
 
 Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. The current owner is Phase 65, which is
-`ACTIVE`; Slices 1–7 are `COMPLETED / PUBLISHED` and Slice 8 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
+`ACTIVE`; Slices 1–8 are `COMPLETED / PUBLISHED` and Slice 9 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
 remains conditional on its Slice 11 natural exact-head CI; the
 Validation/Test Performance Optimization Interlude II is `COMPLETED`. Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -2298,10 +2298,10 @@ No Phase-65 syntax, carrier, algorithm or numbered route is frozen here.
 
 ## Phase 65 route
 
-Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slices 1–6 are
-`COMPLETED / PUBLISHED`, and Slice 7 is `COMPLETED / PUBLISHED` only upon
-successful natural exact-head CI on its ordinary commit. Slice 8 is
-`NEXT / NOT IMPLEMENTED`; Slices 9–16 are `NOT IMPLEMENTED`.
+Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slices 1–7 are
+`COMPLETED / PUBLISHED`, and Slice 8 is `COMPLETED / PUBLISHED` only upon
+successful natural exact-head CI on its ordinary commit. Slice 9 is
+`NEXT / NOT IMPLEMENTED`; Slices 10–16 are `NOT IMPLEMENTED`.
 The selected route has exactly 16 deliveries. Its controlling
 [reviewed v2 phase gate](spec/phase65-project-sql-plan-product-phase-initiation-gate-source-audit-architecture-route-lock-v1.md)
 is documentation/static assurance only; it does not authorize later implementation.
@@ -2400,7 +2400,16 @@ Private results, frame/modifier/order policy, unknown effects, canonical exports
 and complete origins/demands remain distinct. Rebound consumers use original IR
 compatibility to retain immediate active exports. Logical reuse makes no physical
 evaluation-once claim; QUALIFY does not discharge single-match obligations.
-Slice8 owns DISTINCT, scoped ORDER demands and static LIMIT next.
+The [Slice8 result-boundary contract](spec/phase65-slice8-distinct-scoped-order-static-limit-result-boundaries-v1.md)
+adds visible-row DISTINCT, scoped relation ORDER and static LIMIT. Canonical
+exports and result-stage ports remain distinct; the quotient excludes hidden helpers.
+Original equality/type/Decimal evidence, visible-source determination and pending
+hidden STRICT-FD realization survive. NEW construction-time ORDER preparation
+retains actual input/LET/group/window contexts without downstream resolution.
+RIGHT_LIMIT proof transport uses the actual limited right producer; LIMIT0 retains
+applicable single-match requirements. Independent verification and exact-ref inspection
+require complete result boundaries, origins/demands and canonical terminal images.
+Slice9 owns Set query-expression bodies and positional ports next.
 
 This task newly maps open caller-rebindable query parameters to Phase70, public
 entrypoints to Phase69/82, and any selected-owner compilation amid project semantic

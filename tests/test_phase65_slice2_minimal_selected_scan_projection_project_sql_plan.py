@@ -107,7 +107,7 @@ def test_real_minimal_vertical(tmp_path: Path, kind: str, family: str) -> None:
     assert view.demands[0].source is source
 
 
-def _graft[T](value: T, **changes) -> T:
+def _graft[T](value: T, /, **changes) -> T:
     result = copy(value)
     for name, changed in changes.items():
         object.__setattr__(result, name, changed)
@@ -392,13 +392,14 @@ SUPPORTED_BODIES = {
     "group": "    from rows\n    group by:\n        id\n    select:\n        id\n        total = count(id)\n    satisfying:\n        total > 0\n",
     "global": "    from rows\n    select:\n        total = count(id)\n",
     "window": "    from rows\n    select:\n        id\n        ranked = row_number() window:\n            order by:\n                id\n    qualify:\n        ranked <= 3\n",
+    "order": "    from rows\n    select:\n        id\n    order by:\n        id\n",
+    "distinct": "    from rows\n    select distinct:\n        id\n    order by:\n        id\n    limit 2\n",
+    "multiple": "    from rows\n    where id > 0\n    select:\n        a = id + 1\n        b = id + 2\n    order by:\n        id + 1\n    limit 2\n",
 }
 
 FUTURE_BODIES = {
-    "order": "    from rows\n    select:\n        id\n    order by:\n        id\n",
-    "distinct": "    from rows\n    select distinct:\n        id\n    order by:\n        id\n    limit 2\n",
     "set": "    union all:\n        from rows\n        from other\n",
-    "multiple": "    from rows\n    where id > 0\n    select:\n        a = id + 1\n        b = id + 2\n    order by:\n        a\n    limit 2\n",
+    "multiple": "    union all:\n        from nested\n        from other\n",
 }
 
 
@@ -481,20 +482,21 @@ def test_every_future_family_is_a_typed_terminal(tmp_path: Path, family: str) ->
         _source().split("query result:", 1)[0]
         + 'source other: Row is postgres.table("other")\n'
     )
+    if family == "multiple":
+        base += "table nested:\n" + FUTURE_BODIES["set"]
     roots = _roots(tmp_path, base + "query result:\n" + FUTURE_BODIES[family])
     assert roots[0].ok, roots[0].diagnostics
     result = build_project_sql_plan(*roots)
     assert isinstance(result, ProjectSQLPlanUnavailable)
     assert result.plan is None and result.blockers
     assert [b.position for b in result.blockers] == list(range(len(result.blockers)))
-    assert all(b.owner is roots[2] for b in result.blockers)
     if family == "multiple":
-        assert [b.kind.value for b in result.blockers] == [
-            "order",
-            "limit",
-            "ir_stage",
-            "ir_stage",
+        assert [(b.owner.definition.name, b.kind.value) for b in result.blockers] == [
+            ("nested", "set_operation"),
+            ("result", "set_operation"),
         ]
+    else:
+        assert all(b.owner is roots[2] for b in result.blockers)
     checked = verify_project_sql_plan(result, *roots)
     assert not checked.verified
     with pytest.raises(ValueError, match="VERIFIED"):
@@ -509,8 +511,10 @@ def test_selected_closure_distinguishes_unrelated_limitation_and_error(
         source = (
             _source()
             + "query unrelated:\n"
-            + FUTURE_BODIES["order"].replace(
-                "        id\n", "        nope\n" if error else "        id\n"
+            + (
+                "    from rows\n    select:\n        nope\n"
+                if error
+                else "    union all:\n        from rows\n        from rows\n"
             )
         )
         roots = _roots(tmp_path / str(error), source)
@@ -528,7 +532,9 @@ def test_selected_closure_distinguishes_unrelated_limitation_and_error(
             assert verify_project_sql_plan(result, *roots).verified
 
 
-def test_named_producer_retains_transitive_blockers(tmp_path: Path) -> None:
+def test_named_limited_producer_and_remaining_transitive_blockers(
+    tmp_path: Path,
+) -> None:
     source = _source().replace("query result:", "table upstream:")
     source += (
         "table filtered:\n    from upstream\n    select:\n        id\n    limit 2\n"
@@ -537,10 +543,20 @@ def test_named_producer_retains_transitive_blockers(tmp_path: Path) -> None:
     roots = _roots(tmp_path, source)
     assert roots[0].ok, roots[0].diagnostics
     result = build_project_sql_plan(*roots)
-    assert isinstance(result, ProjectSQLPlanUnavailable)
-    assert [(b.owner.definition.name, b.kind.value) for b in result.blockers] == [
-        ("filtered", "limit"),
-        ("filtered", "ir_stage"),
+    assert isinstance(result, ProjectSQLPlan)
+    view = inspect_project_sql_plan(verify_project_sql_plan(result, *roots))
+    assert len(view.limits) == 1 and view.limits[0].value == 2
+    assert view.result_exports
+    source = source.replace(
+        "    from upstream\n    select:\n        id\n    limit 2\n",
+        "    union all:\n        from upstream\n        from upstream\n",
+    )
+    roots = _roots(tmp_path / "set", source)
+    assert roots[0].ok
+    unavailable = build_project_sql_plan(*roots)
+    assert isinstance(unavailable, ProjectSQLPlanUnavailable)
+    assert [(b.owner.definition.name, b.kind.value) for b in unavailable.blockers] == [
+        ("filtered", "set_operation")
     ]
 
 
@@ -552,7 +568,7 @@ def test_concrete_looking_terminal_cannot_bypass_supported_shape(
         tmp_path,
         _source().split("query result:")[0]
         + "query result:\n"
-        + FUTURE_BODIES["order"],
+        + "    union all:\n        from rows\n        from rows\n",
     )
     assert roots[0].ok, roots[0].diagnostics
     terminal = build_project_sql_plan(*roots)
@@ -665,7 +681,7 @@ def test_lifted_row_and_join_families_are_positive(tmp_path: Path, family: str) 
     checked = verify_project_sql_plan(result, *roots)
     assert checked.verified, checked.issues
     view = inspect_project_sql_plan(checked)
-    assert bool(view.filters) is (family in {"where", "group", "window"})
+    assert bool(view.filters) is (family in {"where", "group", "window", "multiple"})
     assert bool(view.aggregations) is (family in {"group", "global"})
     assert bool(view.let_values) is (family == "let")
     assert bool(view.joins) is (family == "join")

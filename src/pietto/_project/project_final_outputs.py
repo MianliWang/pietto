@@ -45,12 +45,14 @@ from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.module_resolution import ProjectTypeSourceResolutionSet
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
+    ProjectModuleOrderReferenceFact,
     ProjectModuleClauseDependencyFact,
     ProjectModuleFactOccurrenceRole,
     ProjectModuleRelationSemanticFacts,
     ProjectModuleSelectFact,
     ProjectModuleWindowOutputFact,
     _clause_dependency_facts,
+    _order_expression_reference_facts,
     _project_symbol_for_resolution,
     _window_output_facts,
     _window_project_targets,
@@ -1175,6 +1177,27 @@ class ProjectRelationOrderItem:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectRelationOrderInput:
+    """One ORDER occurrence and its original resolution, prepared upstream once."""
+
+    item: ProjectRelationOrderItem
+    expression: Expression
+    position: int
+    resolution: (
+        ProjectModuleOrderReferenceFact
+        | ProjectScalarReferenceResolution
+        | ProjectJoinedLetReferenceResolution
+        | ProjectModuleClauseDependencyFact
+        | ProjectModuleWindowOutputFact
+        | ProjectJoinedWindowInputBinding
+        | ProjectSelectedWindowResultBinding
+    ) = field(repr=False)
+    target: object = field(repr=False)
+    determination_target: object = field(repr=False)
+    value_type: ValueType
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectRelationOrdering:
     """The first final relation-order authority, distinct from window ordering."""
 
@@ -1185,8 +1208,14 @@ class ProjectRelationOrdering:
     )
     clause: OrderByClause = field(repr=False, compare=False, hash=False)
     items: tuple[ProjectRelationOrderItem, ...]
+    prepared_inputs: InitVar[
+        tuple[tuple[ProjectRelationOrderInput, ...], ...] | None
+    ] = None
+    inputs: tuple[tuple[ProjectRelationOrderInput, ...], ...] | None = field(
+        default=None, init=False, repr=False
+    )
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, prepared_inputs=None) -> None:
         definition = _derived_definition(self.owner)
         if (
             definition.order_by_clause is not self.clause
@@ -1203,6 +1232,26 @@ class ProjectRelationOrdering:
             )
         ):
             raise ValueError("Relation ordering must retain complete source order.")
+        if prepared_inputs is not None:
+            if (
+                type(prepared_inputs) is not tuple
+                or len(prepared_inputs) != len(self.items)
+                or any(
+                    type(uses) is not tuple
+                    or any(
+                        type(use) is not ProjectRelationOrderInput
+                        or use.item is not item
+                        or type(use.position) is not int
+                        or use.position != position
+                        for position, use in enumerate(uses)
+                    )
+                    for item, uses in zip(self.items, prepared_inputs, strict=True)
+                )
+            ):
+                raise ValueError(
+                    "ORDER inputs require complete exact item correspondence."
+                )
+            object.__setattr__(self, "inputs", prepared_inputs)
 
 
 class ProjectRelationOrderingNonConcreteReason(StrEnum):
@@ -3410,6 +3459,78 @@ def _order_direction(item: OrderItem) -> ProjectRelationOrderDirection:
     )
 
 
+def _prepare_relation_order_inputs(
+    item: ProjectRelationOrderItem,
+) -> tuple[ProjectRelationOrderInput, ...]:
+    """NEW binding preparation only where no resolved occurrence ledger exists."""
+    source = item.source
+    values = []
+    if isinstance(source, ProjectNoJoinScalarExpression):
+        definition = _derived_definition(item.owner)
+        references = _order_expression_reference_facts(
+            owner=item.owner,
+            container_ordinal=item.source_ordinal,
+            item=item.item,
+            relation_qualifier=definition.from_clause.source_name,
+            input_schema=source.input_schema,
+            let_scope=source.let_scope,
+        )
+        for reference in references:
+            target = reference.input_field
+            if target is None and len(reference.let_candidates) == 1:
+                target = reference.let_candidates[0]
+            values.append(
+                (
+                    reference.expression,
+                    reference,
+                    target,
+                    target.expression if isinstance(target, LetBinding) else target,
+                    source.value_types[reference.expression],
+                )
+            )
+    elif isinstance(source, ProjectConcreteJoinedNamespaceExpression):
+        for reference in source.resolutions:
+            target = reference.target
+            values.append(
+                (
+                    reference.reference.expression,
+                    reference,
+                    reference.target.occurrence
+                    if isinstance(reference, ProjectJoinedLetReferenceResolution)
+                    else target,
+                    target,
+                    source.value_types[reference.reference.expression],
+                )
+            )
+    else:
+        # The normal ORDER resolver already chose this exact group/window target.
+        target = (
+            source.target_occurrences[0]
+            if isinstance(source, ProjectModuleClauseDependencyFact)
+            else source
+        )
+        determination = (
+            source.stage_output
+            if isinstance(source, ProjectJoinedWindowInputBinding)
+            else target
+        )
+        values.append((item.expression, source, target, determination, item.value_type))
+    return tuple(
+        ProjectRelationOrderInput(
+            item=item,
+            expression=expression,
+            position=i,
+            resolution=resolution,
+            target=target,
+            determination_target=determination,
+            value_type=value_type,
+        )
+        for i, (expression, resolution, target, determination, value_type) in enumerate(
+            values
+        )
+    )
+
+
 def _joined_fallback_is_absent(
     analysis: ProjectNonConcreteJoinedNamespaceExpression,
 ) -> bool:
@@ -3519,6 +3640,7 @@ def _joined_relation_ordering(
         owner=owner,
         clause=clause,
         items=tuple(ordered),
+        prepared_inputs=tuple(_prepare_relation_order_inputs(item) for item in ordered),
     )
 
 
@@ -4120,6 +4242,7 @@ def _no_join_relation_ordering(
         owner=owner,
         clause=clause,
         items=tuple(ordered),
+        prepared_inputs=tuple(_prepare_relation_order_inputs(item) for item in ordered),
     )
 
 

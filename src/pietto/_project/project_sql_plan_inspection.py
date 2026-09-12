@@ -9,6 +9,7 @@ from pietto._project import project_sql_plan_expressions as row
 from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_joins as joining
+from pietto._project import project_sql_plan_results as results
 
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.project_sql_plan import (
@@ -136,6 +137,106 @@ class ProjectSQLPlanInspection:
     @property
     def expression_sites(self) -> tuple[row.ProjectSQLSite, ...]:
         return self.plan.expression_sites
+
+    @property
+    def result_boundaries(self) -> tuple[results.ProjectSQLResultBoundary, ...]:
+        return self.plan.result_boundaries
+
+    @property
+    def result_ports(self) -> tuple[results.ProjectSQLResultPort, ...]:
+        return self.plan.result_ports
+
+    @property
+    def distincts(self) -> tuple[results.ProjectSQLDistinct, ...]:
+        return self.plan.distincts
+
+    @property
+    def quotient_fields(self) -> tuple[results.ProjectSQLQuotientField, ...]:
+        return self.plan.quotient_fields
+
+    @property
+    def orders(self) -> tuple[results.ProjectSQLOrder, ...]:
+        return self.plan.orders
+
+    @property
+    def order_items(self) -> tuple[results.ProjectSQLOrderItem, ...]:
+        return self.plan.order_items
+
+    @property
+    def order_uses(self) -> tuple[results.ProjectSQLOrderUse, ...]:
+        return self.plan.order_uses
+
+    @property
+    def order_expressions(self) -> tuple[results.ProjectSQLOrderExpression, ...]:
+        return self.plan.order_expressions
+
+    @property
+    def hidden_order_requirements(
+        self,
+    ) -> tuple[results.ProjectSQLHiddenOrderRequirement, ...]:
+        return self.plan.hidden_order_requirements
+
+    @property
+    def limits(self) -> tuple[results.ProjectSQLResultLimit, ...]:
+        return self.plan.result_limits
+
+    @property
+    def result_exports(self) -> tuple[results.ProjectSQLResultExport, ...]:
+        return self.plan.result_exports
+
+    def result_stages(self, definition: ProjectSQLPlanRef):
+        self.context(definition)
+        return (
+            *tuple(block for block in self.blocks if block.definition is definition),
+            *tuple(
+                boundary
+                for boundary in self.result_boundaries
+                if boundary.definition is definition
+            ),
+        )
+
+    def result_port(
+        self, scope: ProjectSQLPlanRef, reference: ProjectSQLPlanRef
+    ) -> results.ProjectSQLResultPort:
+        matches = tuple(
+            port
+            for port in self.result_ports
+            if port.ref is reference and port.boundary is scope
+        )
+        if len(matches) != 1:
+            raise ValueError("Result port is outside this exact result scope.")
+        return matches[0]
+
+    def order_uses_for(
+        self, item: ProjectSQLPlanRef
+    ) -> tuple[results.ProjectSQLOrderUse, ...]:
+        if not any(value.ref is item for value in self.order_items):
+            raise ValueError("ORDER item reference does not belong to this plan.")
+        return tuple(use for use in self.order_uses if use.item is item)
+
+    def hidden_order_requirement(
+        self, reference: ProjectSQLPlanRef
+    ) -> results.ProjectSQLHiddenOrderRequirement:
+        matches = tuple(
+            requirement
+            for requirement in self.hidden_order_requirements
+            if requirement.ref is reference
+        )
+        if len(matches) != 1:
+            raise ValueError("Hidden ORDER requirement does not belong to this plan.")
+        return matches[0]
+
+    def result_requirements(
+        self, definition: ProjectSQLPlanRef
+    ) -> tuple[results.ProjectSQLResultDemand, ...]:
+        self.context(definition)
+        context = results.origin_context(self.plan)
+        return tuple(
+            demand
+            for demand in self.demands
+            if isinstance(demand, results.ProjectSQLResultDemand)
+            and results.origin_parts(demand.witness, context)[0] is definition
+        )
 
     @property
     def expressions(self) -> tuple[row.ProjectSQLExpression, ...]:

@@ -1347,7 +1347,7 @@ def test_qualify_does_not_discharge_original_single_match_obligation(
 
 
 @pytest.mark.parametrize("change", ("distinct", "order", "limit", "scalar_call"))
-def test_future_stages_and_general_calls_remain_unavailable(
+def test_result_stages_are_supported_and_general_calls_remain_unavailable(
     tmp_path: Path, change: str
 ) -> None:
     from pietto._project.project_sql_plan import (
@@ -1367,7 +1367,18 @@ def test_future_stages_and_general_calls_remain_unavailable(
     roots = _roots(tmp_path, source)
     assert roots[0].ok, roots[0].diagnostics
     result = build_project_sql_plan(*roots)
-    assert isinstance(result, ProjectSQLPlanUnavailable)
+    if change == "scalar_call":
+        assert isinstance(result, ProjectSQLPlanUnavailable)
+    else:
+        from pietto._project.project_sql_plan import ProjectSQLPlan
+        from pietto._project.project_sql_plan_verification import (
+            verify_project_sql_plan,
+        )
+        from pietto._project.project_sql_plan_inspection import inspect_project_sql_plan
+
+        assert isinstance(result, ProjectSQLPlan)
+        view = inspect_project_sql_plan(verify_project_sql_plan(result, *roots))
+        assert view.result_boundaries and view.windows and view.qualify_sites
 
 
 def test_where_false_and_repeated_order_uses_keep_computation_and_membership(

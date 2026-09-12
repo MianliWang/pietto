@@ -58,9 +58,10 @@ documentation does not supersede that evidence.
 | Phase 65 Slice 5 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 6 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 7 | `COMPLETED / PUBLISHED` |
-| Phase 65 Slice 8 | `NEXT / NOT IMPLEMENTED` |
-| Phase 65 Slices 9–16 | `NOT IMPLEMENTED` |
-| Next | `Phase 65 Slice 8 — DISTINCT, scoped ORDER demands and static LIMIT` |
+| Phase 65 Slice 8 | `COMPLETED / PUBLISHED` |
+| Phase 65 Slice 9 | `NEXT / NOT IMPLEMENTED` |
+| Phase 65 Slices 10–16 | `NOT IMPLEMENTED` |
+| Next | `Phase 65 Slice 9 — Set query-expression bodies and positional ports` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -909,5 +910,18 @@ Independent verification and exact-ref inspection cover bindings, scope crossing
 complete origins/demands and unchanged single-match obligations. Logical reuse
 makes no physical evaluation-once or materialization claim. No SQL emission,
 execution or target support is implemented.
-Phase65 stays `ACTIVE`; Slice8 is `NEXT / NOT IMPLEMENTED`;
-Slices 9–16 are `NOT IMPLEMENTED`; N16 is unchanged.
+That publication left Slice8 next; N16 stayed unchanged.
+
+Phase 65 Slice 8 is `COMPLETED / PUBLISHED` only upon successful natural
+exact-head CI on its ordinary commit. Its [result-boundary contract](spec/phase65-slice8-distinct-scoped-order-static-limit-result-boundaries-v1.md)
+adds visible-row DISTINCT, scoped relation ORDER and static LIMIT. Canonical
+exports and result-stage ports remain distinct; the quotient excludes hidden helpers.
+Original equality/type/Decimal evidence, visible-source determination and pending
+hidden STRICT-FD realization survive. NEW construction-time ORDER preparation
+retains actual input/LET/group/window contexts without downstream resolution.
+RIGHT_LIMIT proof transport uses the actual limited right producer; LIMIT0 retains
+all applicable single-match requirements and project errors. Independent verification
+and exact-ref inspection require complete result boundaries, origins/demands and
+canonical terminal images. No representative, target support or execution is supplied.
+Phase65 stays `ACTIVE`; Slice9 is `NEXT / NOT IMPLEMENTED`;
+Slices 10–16 are `NOT IMPLEMENTED`; N16 is unchanged.

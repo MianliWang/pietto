@@ -403,11 +403,11 @@ query result:
 def test_unrelated_row_error_versus_valid_later_stage(
     tmp_path: Path, error: bool
 ) -> None:
-    extra = "query unused:\n    from rows\n"
+    extra = "query unused:\n"
     extra += (
-        "    where missing\n    select:\n        id\n"
+        "    from rows\n    where missing\n    select:\n        id\n"
         if error
-        else "    select:\n        id\n    limit 1\n"
+        else "    union all:\n        from rows\n        from rows\n"
     )
     roots = _roots(tmp_path, _source(ROW_BODY) + extra)
     assert roots[0].ok is not error

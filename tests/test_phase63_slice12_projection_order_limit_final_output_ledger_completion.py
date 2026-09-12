@@ -838,6 +838,19 @@ def test_replayed_no_join_order_limit_and_grouped_domain_are_exact(
         final_outputs.ProjectNoJoinScalarExpression,
         final_outputs.ProjectModuleWindowOutputFact,
     )
+    inputs = ordinary.ordering.inputs
+    assert inputs is not None and len(inputs) == len(ordinary.ordering.items)
+    for item, uses in zip(ordinary.ordering.items, inputs, strict=True):
+        assert all(use.item is item and use.position == i for i, use in enumerate(uses))
+        if isinstance(item.source, final_outputs.ProjectNoJoinScalarExpression):
+            assert all(
+                use.value_type is item.source.value_types[use.expression]
+                for use in uses
+            )
+        else:
+            assert len(uses) == 1 and uses[0].resolution is item.source
+    assert replace(ordinary.ordering).inputs is None
+    assert ordinary.ordering.inputs is inputs
     assert ordinary.limit is not None and ordinary.limit.value == 1
     grouped = _completed(built, "replay_grouped")
     grouped_root = cast(final_outputs.ProjectConcreteNoJoinReplay, grouped.root)

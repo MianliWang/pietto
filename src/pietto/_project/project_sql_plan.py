@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_windows as windows
+from pietto._project import project_sql_plan_results as results
 
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -333,6 +334,7 @@ def _blockers(
         )
 
     K = ProjectSQLPlanBlockerKind
+    orderings = results.order_index(completed)
     if not completed.ok:
         add(K.SEMANTIC_RESULT_UNSUCCESSFUL, selected, completed)
     for entry in _closure(bundle, selected):
@@ -417,13 +419,10 @@ def _blockers(
                                 windows.qualify_target(qualify, reference, aggregate)
                 except (ValueError, TypeError, AttributeError, KeyError, IndexError):
                     add(K.WINDOW, owner, entry)
-            for present, kind in (
-                (definition.distinct_clause, K.DISTINCT),
-                (definition.order_by_clause, K.ORDER),
-                (definition.limit_clause, K.LIMIT),
+            if not isinstance(entry, ProjectIRQueryBlockTerminal) and not results.ready(
+                entry, orderings
             ):
-                if present:
-                    add(kind, owner, entry, present)
+                add(K.ORDER, owner, entry, definition.order_by_clause)
             # Capture operator-only stages (e.g. GLOBAL aggregation or inline window).
             for operator in _operators(entry):
                 if aggregate is not None and operator.kind in {
@@ -440,8 +439,11 @@ def _blockers(
                     ProjectIRLogicalOperatorKind.RELATION_INPUT,
                     ProjectIRLogicalOperatorKind.ROW_FILTER,
                     ProjectIRLogicalOperatorKind.FINAL_PROJECTION,
+                    ProjectIRLogicalOperatorKind.RELATION_ORDERING,
+                    ProjectIRLogicalOperatorKind.LIMIT,
                 }:
-                    add(K.IR_STAGE, owner, entry, operator)
+                    if operator.kind.value != "distinct":
+                        add(K.IR_STAGE, owner, entry, operator)
             if not isinstance(entry, ProjectIRQueryBlockTerminal):
                 for kind, site in _row_blockers(completed, entry):
                     add(kind, owner, entry, site)
@@ -908,6 +910,17 @@ class ProjectSQLPlanUnavailable:
 
 
 class ProjectSQLPlanRefKind(StrEnum):
+    RESULT_BOUNDARY = "result_boundary"
+    RESULT_PORT = "result_port"
+    DISTINCT = "distinct"
+    QUOTIENT_FIELD = "quotient_field"
+    ORDER = "relation_order"
+    ORDER_ITEM = "order_item"
+    ORDER_EXPRESSION = "order_expression"
+    ORDER_USE = "order_use"
+    HIDDEN_ORDER_REQUIREMENT = "hidden_order_requirement"
+    RESULT_LIMIT = "result_limit"
+    RESULT_EXPORT = "result_export"
     WINDOW = "window"
     WINDOW_USE = "window_use"
     WINDOW_ARGUMENT = "window_argument"
@@ -1063,6 +1076,17 @@ class ProjectSQLProjection:
 
 
 class ProjectSQLOriginRole(StrEnum):
+    RESULT_BOUNDARY = "result_boundary"
+    RESULT_PORT = "result_port"
+    DISTINCT = "distinct"
+    QUOTIENT_FIELD = "quotient_field"
+    ORDER = "relation_order"
+    ORDER_ITEM = "order_item"
+    ORDER_EXPRESSION = "order_expression"
+    ORDER_USE = "order_use"
+    HIDDEN_ORDER_REQUIREMENT = "hidden_order_requirement"
+    RESULT_LIMIT = "result_limit"
+    RESULT_EXPORT = "result_export"
     WINDOW = "window"
     WINDOW_USE = "window_use"
     WINDOW_ARGUMENT = "window_argument"
@@ -1109,7 +1133,10 @@ class ProjectSQLOriginProvenance(StrEnum):
 
 
 type ProjectSQLCause = (
-    JoinOnClause
+    DistinctClause
+    | OrderByClause
+    | LimitClause
+    | JoinOnClause
     | SourceDef
     | TableDef
     | QueryDef
@@ -1126,7 +1153,8 @@ type ProjectSQLCause = (
 )
 
 type ProjectSQLOriginEvidence = (
-    windows.Witness
+    results.Witness
+    | windows.Witness
     | windows.Qualify
     | aggregation.Witness
     | aggregation.Evidence
@@ -1180,7 +1208,8 @@ class ProjectSQLExportRepresentationDemand:
 
 
 type ProjectSQLDemand = (
-    ProjectSQLSourceRealizationDemand
+    results.ProjectSQLResultDemand
+    | ProjectSQLSourceRealizationDemand
     | ProjectSQLExportRepresentationDemand
     | row.ProjectSQLExpressionDemand
     | row.ProjectSQLStageValueDemand
@@ -1249,6 +1278,17 @@ class ProjectSQLPlan:
     window_arguments: tuple[windows.ProjectSQLWindowArgument, ...]
     window_policies: tuple[windows.ProjectSQLWindowPolicy, ...]
     window_projections: tuple[windows.ProjectSQLWindowProjection, ...]
+    result_boundaries: tuple[results.ProjectSQLResultBoundary, ...]
+    result_ports: tuple[results.ProjectSQLResultPort, ...]
+    distincts: tuple[results.ProjectSQLDistinct, ...]
+    quotient_fields: tuple[results.ProjectSQLQuotientField, ...]
+    orders: tuple[results.ProjectSQLOrder, ...]
+    order_items: tuple[results.ProjectSQLOrderItem, ...]
+    order_expressions: tuple[results.ProjectSQLOrderExpression, ...]
+    order_uses: tuple[results.ProjectSQLOrderUse, ...]
+    hidden_order_requirements: tuple[results.ProjectSQLHiddenOrderRequirement, ...]
+    result_limits: tuple[results.ProjectSQLResultLimit, ...]
+    result_exports: tuple[results.ProjectSQLResultExport, ...]
 
     def __init__(self) -> Never:
         raise TypeError("ProjectSQLPlan is closed; use build_project_sql_plan.")
@@ -3755,4 +3795,34 @@ def build_project_sql_plan(
         window_projections=tuple(window_projections),
     ).items():
         object.__setattr__(plan, name, value)
+    result_collections = results.build(plan, ref)
+    for name, value in result_collections.items():
+        object.__setattr__(plan, name, value)
+    result_context = results.origin_context(plan)
+    owners_by_definition = {d.ref: d.entry.owner for d in bindings.definitions}
+    for name, values in result_collections.items():
+        for witness in values:
+            definition_ref, cause, antecedents, demand_kind, provenance = (
+                results.origin_parts(witness, result_context)
+            )
+            owner = owners_by_definition[definition_ref]
+            role = R(witness.ref.kind.value)
+            original = origin(
+                witness.ref, role, provenance, owner, cause, witness, antecedents
+            )
+            demand_ref = ref(K.DEMAND)
+            demand_origin = origin(
+                demand_ref, R.DEMAND, provenance, owner, cause, witness, (original,)
+            )
+            demands.append(
+                results.ProjectSQLResultDemand(
+                    ref=demand_ref,
+                    subject=witness.ref,
+                    kind=demand_kind,
+                    witness=witness,
+                    origin=demand_origin,
+                )
+            )
+    object.__setattr__(plan, "origins", tuple(origins))
+    object.__setattr__(plan, "demands", tuple(demands))
     return plan

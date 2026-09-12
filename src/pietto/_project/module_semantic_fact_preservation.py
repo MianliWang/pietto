@@ -205,6 +205,10 @@ class ProjectModuleWhereReferenceRole(StrEnum):
     WHERE_VALUE = "where_value"
 
 
+class ProjectModuleOrderReferenceRole(StrEnum):
+    ORDER_VALUE = "order_value"
+
+
 class ProjectModuleCandidateBucketStatus(StrEnum):
     """Availability of one complete, source-preserved candidate bucket."""
 
@@ -546,6 +550,37 @@ class ProjectModuleExpressionReferenceFact[
                 raise ValueError(
                     "Concrete qualified expression references require an input field."
                 )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectModuleOrderReferenceFact:
+    """An ORDER-only occurrence using the existing candidate collector."""
+
+    owner: ProjectDeclarationOccurrence
+    item: OrderItem
+    container_ordinal: int
+    dependency_ordinal: int
+    expression: NameExpr | DottedNameExpr
+    local_name: str
+    input_field: ProjectRowField | None
+    let_candidates: tuple[LetBinding, ...]
+    status: ProjectModuleCandidateBucketStatus
+    role: ProjectModuleOrderReferenceRole = field(
+        default=ProjectModuleOrderReferenceRole.ORDER_VALUE, init=False
+    )
+
+    def __post_init__(self) -> None:
+        definition = self.owner.definition
+        if (
+            not isinstance(definition, (TableDef, QueryDef))
+            or definition.order_by_clause is None
+            or type(self.container_ordinal) is not int
+            or not 0 <= self.container_ordinal < len(definition.order_by_clause.items)
+            or definition.order_by_clause.items[self.container_ordinal] is not self.item
+            or type(self.dependency_ordinal) is not int
+            or self.dependency_ordinal < 0
+        ):
+            raise ValueError("ORDER reference requires its exact source occurrence")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -3382,8 +3417,93 @@ def _expression_reference_facts[
     let_candidates: tuple[LetBinding, ...],
     selected_items: tuple[SelectItem, ...],
 ) -> tuple[ProjectModuleExpressionReferenceFact[Role], ...]:
-    facts: list[ProjectModuleExpressionReferenceFact[Role]] = []
-    for dependency_ordinal, leaf in enumerate(_direct_name_leaves(expression)):
+    return tuple(
+        ProjectModuleExpressionReferenceFact(
+            owner=owner,
+            role=role,
+            container_ordinal=container_ordinal,
+            dependency_ordinal=ordinal,
+            expression=leaf,
+            local_name=local_name,
+            input_field=input_field,
+            let_candidates=matching_lets,
+            selected_output_candidates=matching_outputs,
+            status=status,
+        )
+        for ordinal, (
+            leaf,
+            local_name,
+            input_field,
+            matching_lets,
+            matching_outputs,
+            status,
+        ) in enumerate(
+            _expression_reference_candidates(
+                expression=expression,
+                relation_qualifier=relation_qualifier,
+                input_schema=input_schema,
+                input_status=input_status,
+                let_scope=let_scope,
+                let_candidates=let_candidates,
+                selected_items=selected_items,
+            )
+        )
+    )
+
+
+def _order_expression_reference_facts(
+    *,
+    owner: ProjectDeclarationOccurrence,
+    container_ordinal: int,
+    item: OrderItem,
+    relation_qualifier: str,
+    input_schema: ProjectRowSchema,
+    let_scope: ProjectRelationLetScopeFacts,
+) -> tuple[ProjectModuleOrderReferenceFact, ...]:
+    return tuple(
+        ProjectModuleOrderReferenceFact(
+            owner=owner,
+            item=item,
+            container_ordinal=container_ordinal,
+            dependency_ordinal=ordinal,
+            expression=leaf,
+            local_name=local_name,
+            input_field=input_field,
+            let_candidates=matching_lets,
+            status=status,
+        )
+        for ordinal, (
+            leaf,
+            local_name,
+            input_field,
+            matching_lets,
+            _,
+            status,
+        ) in enumerate(
+            _expression_reference_candidates(
+                expression=item.expression,
+                relation_qualifier=relation_qualifier,
+                input_schema=input_schema,
+                input_status=ProjectModuleCandidateBucketStatus.CONCRETE,
+                let_scope=let_scope,
+                let_candidates=let_scope.bindings,
+                selected_items=(),
+            )
+        )
+    )
+
+
+def _expression_reference_candidates(
+    *,
+    expression: Expression,
+    relation_qualifier: str,
+    input_schema: ProjectRowSchema | None,
+    input_status: ProjectModuleCandidateBucketStatus,
+    let_scope: ProjectRelationLetScopeFacts,
+    let_candidates: tuple[LetBinding, ...],
+    selected_items: tuple[SelectItem, ...],
+):
+    for leaf in _direct_name_leaves(expression):
         local_name, qualifier_valid = _local_reference_name(
             leaf,
             relation_qualifier=relation_qualifier,
@@ -3439,21 +3559,7 @@ def _expression_reference_facts[
             status = input_status
         else:
             raise AssertionError("One reference candidate must retain its family.")
-        facts.append(
-            ProjectModuleExpressionReferenceFact(
-                owner=owner,
-                role=role,
-                container_ordinal=container_ordinal,
-                dependency_ordinal=dependency_ordinal,
-                expression=leaf,
-                local_name=local_name,
-                input_field=input_field,
-                let_candidates=matching_lets,
-                selected_output_candidates=matching_outputs,
-                status=status,
-            )
-        )
-    return tuple(facts)
+        yield leaf, local_name, input_field, matching_lets, matching_outputs, status
 
 
 def _direct_name_leaves(

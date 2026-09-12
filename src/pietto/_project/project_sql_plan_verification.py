@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_windows as windows
+from pietto._project import project_sql_plan_results as results
 
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -86,12 +87,23 @@ from pietto._project.project_join_conditions import (
     ProjectJoinReferenceState,
     ProjectJoinConditionState,
 )
-from pietto._project.project_scalar_references import ProjectScalarReferenceResolution
+from pietto._project.project_scalar_references import (
+    ProjectScalarReferenceResolution,
+    _source_field_parts,
+)
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleExpressionReferenceFact,
 )
 from pietto._project.let_scope_facts import ProjectLetScopeFactsStatus
-from pietto._project.project_final_outputs import ProjectNoJoinScalarExpression
+from pietto._project.project_final_outputs import (
+    ProjectNoJoinScalarExpression,
+    ProjectRelationOrderDirection,
+)
+from pietto._project.module_semantic_fact_preservation import (
+    ProjectModuleClauseDependencyFact,
+    ProjectModuleOrderReferenceFact,
+)
+from pietto._project.project_row_equivalence import ProjectRowEquivalenceInput
 from pietto._project.project_sql_plan import _operators
 from pietto._project.project_joined_row_filter import _SQL_ROW_RETENTION_EFFECTS
 from pietto.ast_nodes import (
@@ -273,8 +285,8 @@ def _binding_ports(bindings: ProjectSQLBindings) -> bool:
         kind = (
             K.SOURCE_PORT if isinstance(entry.owner.definition, SourceDef) else K.EXPORT
         )
-        for port, actual, identity in zip(
-            definition.exports, fields, identities, strict=True
+        for position, (port, actual, identity) in enumerate(
+            zip(definition.exports, fields, identities, strict=True)
         ):
             if (
                 type(port) is not ProjectSQLPort
@@ -284,6 +296,10 @@ def _binding_ports(bindings: ProjectSQLBindings) -> bool:
                 or port.identity is not identity
                 or port.producer_port is not None
                 or actual.output is not entry.active_output
+                or type(actual.field_position) is not int
+                or actual.field_position != position
+                or type(identity.field_position) is not int
+                or identity.field_position != position
             ):
                 return False
             target.append(port)
@@ -640,13 +656,7 @@ def verify_project_sql_bindings(
 
 def _projection_shape(entry, aggregate=None, window=None) -> bool:
     definition = entry.owner.definition
-    if not isinstance(definition, (TableDef, QueryDef)) or any(
-        (
-            definition.distinct_clause,
-            definition.order_by_clause,
-            definition.limit_clause,
-        )
-    ):
+    if not isinstance(definition, (TableDef, QueryDef)):
         return False
     expected: list[
         ProjectIRLogicalOperatorKind | ProjectIRQueryBlockOperatorExtensionKind
@@ -665,12 +675,14 @@ def _projection_shape(entry, aggregate=None, window=None) -> bool:
     if window is not None:
         expected.append(ProjectIRLogicalOperatorKind.WINDOW_EVALUATION)
         if window.qualify is not None:
-            from pietto._project.project_query_block_ir import (
-                ProjectIRQueryBlockOperatorExtensionKind,
-            )
-
             expected.append(ProjectIRQueryBlockOperatorExtensionKind.QUALIFY)
     expected.append(ProjectIRLogicalOperatorKind.FINAL_PROJECTION)
+    if definition.distinct_clause is not None:
+        expected.append(ProjectIRQueryBlockOperatorExtensionKind.DISTINCT)
+    if definition.order_by_clause is not None:
+        expected.append(ProjectIRLogicalOperatorKind.RELATION_ORDERING)
+    if definition.limit_clause is not None:
+        expected.append(ProjectIRLogicalOperatorKind.LIMIT)
     return tuple(o.kind for o in _operators(entry)) == tuple(expected)
 
 
@@ -1894,6 +1906,7 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
         not _join_structure(plan)
         or not _aggregate_structure(plan)
         or not _window_structure(plan)
+        or not _result_structure(plan)
     ):
         return (Issue.STRUCTURE,)
     join_by_definition = {d.ref: [] for d in definitions}
@@ -3059,14 +3072,41 @@ def _row_origins_and_demands(plan):
             plan.window_projections,
         )
     )
-    if len(plan.demands) != demand_prefix + len(
-        subjects
-    ) + join_count + aggregate_count + window_count or len(
-        plan.origins
-    ) != prefix + len(specs) + len(subjects) + 2 * join_count + len(
-        plan.join_ports
-    ) + 2 * aggregate_count + len(plan.aggregate_projections) + 2 * window_count + len(
-        plan.window_projections
+    result_count = sum(
+        len(values)
+        for values in (
+            plan.result_boundaries,
+            plan.result_ports,
+            plan.distincts,
+            plan.quotient_fields,
+            plan.orders,
+            plan.order_items,
+            plan.order_expressions,
+            plan.order_uses,
+            plan.hidden_order_requirements,
+            plan.result_limits,
+            plan.result_exports,
+        )
+    )
+    if (
+        len(plan.demands)
+        != demand_prefix
+        + len(subjects)
+        + join_count
+        + aggregate_count
+        + window_count
+        + result_count
+        or len(plan.origins)
+        != prefix
+        + len(specs)
+        + len(subjects)
+        + 2 * join_count
+        + len(plan.join_ports)
+        + 2 * aggregate_count
+        + len(plan.aggregate_projections)
+        + 2 * window_count
+        + len(plan.window_projections)
+        + 2 * result_count
     ):
         return (Issue.DEMANDS,)
     operand_types = {e.ref: [] for e in plan.expressions}
@@ -3551,6 +3591,961 @@ def _window_origins_and_demands(plan, origin_position, demand_position):
             ):
                 return (Issue.ORIGINS,)
             origin_position += 1
+    return _result_origins_and_demands(plan, origin_position, demand_position)
+
+
+def _order_input_linkage(order, entry, rows, aggregate, window):
+    from pietto._project.module_semantic_fact_preservation import (
+        ProjectModuleOrderReferenceRole,
+    )
+
+    if (
+        type(order) is not results.ProjectRelationOrdering
+        or order.owner is not entry.owner
+        or order.clause is not entry.owner.definition.order_by_clause
+        or type(order.inputs) is not tuple
+        or len(order.items) != len(order.clause.items)
+        or len(order.inputs) != len(order.items)
+    ):
+        return False
+    source_root = (
+        entry.semantic_entry.root
+        if isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+        else entry.semantic_entry.fragment.semantic_facts
+    )
+    for ordinal, (item, original, uses) in enumerate(
+        zip(order.items, order.clause.items, order.inputs, strict=True)
+    ):
+        if (
+            type(item) is not results.ProjectRelationOrderItem
+            or item.owner is not entry.owner
+            or item.clause is not order.clause
+            or type(item.source_ordinal) is not int
+            or item.source_ordinal != ordinal
+            or item.item is not original
+            or item.expression is not original.expression
+            or type(item.direction) is not ProjectRelationOrderDirection
+            or item.direction.value
+            != ("asc" if original.direction is None else original.direction)
+            or item.value_type.kind is not ValueTypeKind.KNOWN
+            or type(uses) is not tuple
+        ):
+            return False
+        source = item.source
+        scalar = isinstance(
+            source,
+            (
+                results.ProjectNoJoinScalarExpression,
+                results.ProjectConcreteJoinedNamespaceExpression,
+            ),
+        )
+        if scalar:
+            if (
+                source.expression is not item.expression
+                or source.value_type is not item.value_type
+            ):
+                return False
+            expected = tuple(
+                n
+                for n in row.scalar_nodes(item.expression)
+                if isinstance(n, (NameExpr, DottedNameExpr))
+            )
+            if isinstance(source, results.ProjectNoJoinScalarExpression):
+                if (
+                    not isinstance(rows, row.ProjectSQLRowAuthority)
+                    or source.owner is not entry.owner
+                    or source.input_schema is not rows.input_schema
+                    or source.let_scope is not rows.let_scope
+                    or source.status.value != "concrete"
+                ):
+                    return False
+            elif (
+                not isinstance(rows, row.ProjectSQLJoinedRowAuthority)
+                or source.namespace is not rows.namespaces.post_let
+            ):
+                return False
+        else:
+            expected = (item.expression,)
+            if isinstance(source, windows.ProjectModuleWindowOutputFact):
+                if window is None or not any(
+                    source is selected for selected in window.selected
+                ):
+                    return False
+            elif isinstance(source, windows.ProjectSelectedWindowResultBinding):
+                if window is None or not any(
+                    source is selected for selected in window.selected
+                ):
+                    return False
+            elif isinstance(source, windows.ProjectJoinedWindowInputBinding):
+                if not isinstance(
+                    source_root, windows.ProjectConcreteJoinedQualify
+                ) or not any(
+                    source is target
+                    for target in source_root.window_stage.post_window.pre_window.bindings
+                ):
+                    return False
+            else:
+                if (
+                    type(source) is not ProjectModuleClauseDependencyFact
+                    or isinstance(source_root, windows.ProjectConcreteJoinedQualify)
+                    or source.owner is not entry.owner
+                    or type(source.source_ordinal) is not int
+                    or source.source_ordinal != ordinal
+                    or source.status is not ProjectModuleCandidateBucketStatus.CONCRETE
+                    or not any(source is f for f in source_root.clause_dependencies)
+                    or source.source_occurrence is not item.item
+                    or len(source.target_occurrences) != 1
+                ):
+                    return False
+        if not _same(tuple(use.expression for use in uses), expected):
+            return False
+        types = {id(node): value for node, value in results.order_types(item).items()}
+        for position, use in enumerate(uses):
+            if (
+                type(use) is not results.ProjectRelationOrderInput
+                or use.item is not item
+                or type(use.position) is not int
+                or use.position != position
+                or use.value_type is not types.get(id(use.expression))
+            ):
+                return False
+            resolution = use.resolution
+            if isinstance(source, results.ProjectNoJoinScalarExpression):
+                if (
+                    type(resolution) is not ProjectModuleOrderReferenceFact
+                    or resolution.owner is not entry.owner
+                    or resolution.item is not item.item
+                    or resolution.expression is not use.expression
+                    or resolution.role
+                    is not ProjectModuleOrderReferenceRole.ORDER_VALUE
+                    or type(resolution.container_ordinal) is not int
+                    or resolution.container_ordinal != ordinal
+                    or type(resolution.dependency_ordinal) is not int
+                    or resolution.dependency_ordinal != position
+                    or resolution.status
+                    is not ProjectModuleCandidateBucketStatus.CONCRETE
+                ):
+                    return False
+                target = resolution.input_field
+                if target is not None:
+                    if not any(
+                        target is field for field in source.input_schema.fields.values()
+                    ):
+                        return False
+                else:
+                    if len(resolution.let_candidates) != 1 or not any(
+                        resolution.let_candidates[0] is binding
+                        for binding in source.let_scope.bindings
+                    ):
+                        return False
+                    target = resolution.let_candidates[0]
+                if use.target is not target or use.determination_target is not (
+                    target.expression if isinstance(target, LetBinding) else target
+                ):
+                    return False
+            elif isinstance(source, results.ProjectConcreteJoinedNamespaceExpression):
+                if (
+                    not isinstance(
+                        resolution,
+                        (
+                            row.ProjectJoinedLetReferenceResolution,
+                            ProjectScalarReferenceResolution,
+                        ),
+                    )
+                    or len(source.resolutions) != len(uses)
+                    or source.resolutions[position] is not resolution
+                    or use.determination_target is not resolution.target
+                    or use.target
+                    is not (
+                        resolution.target.occurrence
+                        if isinstance(
+                            resolution, row.ProjectJoinedLetReferenceResolution
+                        )
+                        else resolution.target
+                    )
+                ):
+                    return False
+                if (
+                    resolution.reference.expression is not use.expression
+                    or resolution.reference.environment
+                    is not source.namespace.binding_environment.scalar_environment
+                    or resolution.target is None
+                    or use.value_type is not resolution.target.value_type
+                ):
+                    return False
+                if isinstance(resolution, row.ProjectJoinedLetReferenceResolution):
+                    if resolution.namespace is not source.namespace or not any(
+                        resolution.target is value
+                        for value in source.namespace.let_values
+                    ):
+                        return False
+                elif (
+                    resolution.status is not ProjectModuleCandidateBucketStatus.CONCRETE
+                    or type(resolution.target.position) is not int
+                    or resolution.target.position < 0
+                    or len(resolution.candidates) != 1
+                    or resolution.candidates[0] is not resolution.target
+                    or not any(
+                        resolution.target is field
+                        for field in source.namespace.visible_fields
+                    )
+                ):
+                    return False
+                if isinstance(resolution, ProjectScalarReferenceResolution):
+                    original_position, original_field, _ = _source_field_parts(
+                        resolution.target.source_field
+                    )
+                    if (
+                        type(original_position) is not int
+                        or resolution.target.position != original_position
+                        or resolution.target.evidence is not original_field
+                    ):
+                        return False
+            else:
+                if resolution is not source:
+                    return False
+                if isinstance(source, windows.ProjectJoinedWindowInputBinding):
+                    target, determination = source, source.stage_output
+                elif isinstance(source, ProjectModuleClauseDependencyFact):
+                    target = determination = source.target_occurrences[0]
+                else:
+                    target = determination = source
+                if (
+                    use.target is not target
+                    or use.determination_target is not determination
+                ):
+                    return False
+    return True
+
+
+def _supplied_strict_proof(
+    proof, properties, seed_targets, requested_targets, target_index
+):
+    """Check this supplied derivation; never search the FD graph for another proof."""
+    from pietto._project.project_ir_relational_properties import (
+        ProjectIROutputDeterminationStatus,
+    )
+    from pietto._project.project_row_keys import ProjectRowUniquenessStrength
+
+    if (
+        type(proof) is not results.ProjectIROutputDeterminationResult
+        or proof.status is not ProjectIROutputDeterminationStatus.PROVEN
+    ):
+        return False
+    index = properties.fd_index
+    if any(
+        type(field.field_position) is not int
+        or field.field_position != position
+        or field.output is not properties.output
+        for position, field in enumerate(properties.fields)
+    ):
+        return False
+    if any(
+        type(index.positions.get(group)) is not int
+        or index.positions[group] != position
+        for position, group in enumerate(index.universe)
+    ):
+        return False
+    if len(index.positions) != len(index.universe):
+        return False
+    seed = results.class_targets(target_index, seed_targets)
+    requested = results.class_targets(target_index, requested_targets)
+    if (
+        any(group is None for group in requested)
+        or proof.seed.index is not index
+        or proof.requested.index is not index
+        or proof.closure.seed is not proof.seed
+        or proof.closure.classes.index is not index
+    ):
+        return False
+    if not _same(
+        proof.seed.classes,
+        tuple(
+            group for group in index.universe if any(group is target for target in seed)
+        ),
+    ) or not _same(
+        proof.requested.classes,
+        tuple(
+            group
+            for group in index.universe
+            if any(group is target for target in requested)
+        ),
+    ):
+        return False
+    known = {id(group) for group in proof.seed.classes}
+    universe = {id(group): group for group in index.universe}
+    if not _same(index.universe, properties.value_classes) or not _same(
+        index.facts, properties.fds
+    ):
+        return False
+    for step in proof.closure.witness:
+        fact = step.fact
+        if (
+            not any(fact is value for value in index.facts)
+            or fact.strength is not ProjectRowUniquenessStrength.STRICT
+            or not any(rule.fact is fact for rule in index.strict_rules)
+            or any(rule.fact is fact for rule in index.lax_rules)
+            or fact.output is not properties.output
+            or any(id(group) not in known for group in fact.determinants)
+        ):
+            return False
+        derived = tuple(group for group in fact.dependents if id(group) not in known)
+        if (
+            not _same(step.derived, derived)
+            or not derived
+            or any(
+                universe.get(id(group)) is not group
+                for group in (*fact.determinants, *fact.dependents)
+            )
+        ):
+            return False
+        known.update(id(group) for group in derived)
+    if not _same(
+        proof.closure.classes.classes,
+        tuple(group for group in index.universe if id(group) in known),
+    ) or any(id(group) not in known for group in proof.requested.classes):
+        return False
+    for classes in (proof.seed, proof.requested, proof.closure.classes):
+        if type(classes.mask) is not int or classes.mask != sum(
+            1 << i
+            for i, group in enumerate(index.universe)
+            if any(group is member for member in classes.classes)
+        ):
+            return False
+    return True
+
+
+def _equivalence_links(distinct, entry, completed):
+    source = distinct.source
+    semantic = entry.semantic_entry
+    if (
+        type(source) is not results.ProjectDistinct
+        or semantic.row_domain.distinct is not source
+        or source.owner is not entry.owner
+        or source.root is not semantic.root
+        or source.clause is not entry.owner.definition.distinct_clause
+        or source.fields is not semantic.fields
+        or source.equivalence.fields is not source.fields
+        or source.equivalence.types is not source.types
+        or source.types is not completed.semantic_result.module_type_source_resolutions
+    ):
+        return False
+    fields = source.equivalence.evidence
+    if any(
+        selected.owner is not entry.owner
+        or type(selected.selected_output_ordinal) is not int
+        or selected.selected_output_ordinal != position
+        or type(selected.identity.field_position) is not int
+        or selected.identity.field_position != position
+        for position, selected in enumerate(source.fields)
+    ):
+        return False
+    if (
+        not fields
+        or len(fields) != len(source.fields)
+        or len(fields) != len(entry.owner.definition.select_items)
+        or type(distinct.global_input) is not bool
+        or distinct.global_input is not source.global_input
+        or distinct.input_domain is not source.input_domain
+        or distinct.origin is not source.origin
+        or distinct.uniqueness is not source.uniqueness
+        or source.uniqueness.distinct is not source
+        or source.uniqueness.nulls_equal is not True
+        or source.origin.witness is not source
+    ):
+        return False
+    pending: list[
+        tuple[
+            results.ProjectRowEquivalenceField,
+            results.ProjectCompletedOutputField | ProjectRowEquivalenceInput,
+        ]
+    ] = list(zip(fields, source.fields, strict=True))
+    seen = set()
+    resolutions = {
+        id(value): value
+        for environment in source.types.environments
+        for value in environment.type_resolutions
+    }
+    while pending:
+        value, selected = pending.pop()
+        if (id(value), id(selected)) in seen:
+            continue
+        seen.add((id(value), id(selected)))
+        if (
+            value.selected is not selected
+            or value.types is not source.types
+            or value.reason is not None
+            or value.parents is not selected.type_sources
+        ):
+            return False
+        if (
+            value.resolution is not None
+            and resolutions.get(id(value.resolution)) is not value.resolution
+        ):
+            return False
+        if selected.field.field_def is not None and (
+            value.resolution is None
+            or value.resolution.reference.type_expr
+            is not selected.field.field_def.type_expr
+        ):
+            return False
+        if value.decimal is not None:
+            if (
+                type(value.decimal.precision) is not int
+                or type(value.decimal.scale) is not int
+            ):
+                return False
+            if value.parents and value.decimal is not value.parents[0].decimal:
+                return False
+            if not value.parents and value.decimal_type_expr is None:
+                return False
+        pending.extend((parent, parent.selected) for parent in value.parents)
+    return True
+
+
+def _result_structure(plan):
+    K = ProjectSQLPlanRefKind
+    orderings = results.order_index(plan.scope.completed)
+    class_indexes = {}
+    inventories = (
+        ("result_boundaries", results.ProjectSQLResultBoundary, K.RESULT_BOUNDARY),
+        ("result_ports", results.ProjectSQLResultPort, K.RESULT_PORT),
+        ("distincts", results.ProjectSQLDistinct, K.DISTINCT),
+        ("quotient_fields", results.ProjectSQLQuotientField, K.QUOTIENT_FIELD),
+        ("orders", results.ProjectSQLOrder, K.ORDER),
+        ("order_items", results.ProjectSQLOrderItem, K.ORDER_ITEM),
+        ("order_expressions", results.ProjectSQLOrderExpression, K.ORDER_EXPRESSION),
+        ("order_uses", results.ProjectSQLOrderUse, K.ORDER_USE),
+        (
+            "hidden_order_requirements",
+            results.ProjectSQLHiddenOrderRequirement,
+            K.HIDDEN_ORDER_REQUIREMENT,
+        ),
+        ("result_limits", results.ProjectSQLResultLimit, K.RESULT_LIMIT),
+        ("result_exports", results.ProjectSQLResultExport, K.RESULT_EXPORT),
+    )
+    for name, cls, kind in inventories:
+        if not _inventory(getattr(plan, name), cls, plan.scope, kind):
+            return False
+    cursors = {name: 0 for name, _, _ in inventories}
+
+    def take(name, count=1):
+        start = cursors[name]
+        cursors[name] += count
+        values = getattr(plan, name)[start : start + count]
+        if len(values) != count:
+            raise ValueError("Incomplete result inventory")
+        return values
+
+    projections = {
+        p.export: p
+        for p in (
+            *plan.projections,
+            *plan.aggregate_projections,
+            *plan.window_projections,
+        )
+    }
+    blocks = {
+        b.definition: b
+        for b in plan.blocks
+        if b.kind is row.ProjectSQLStageKind.PROJECTION
+    }
+    stage_ports = {p.ref: p for p in plan.stage_ports}
+    for definition in plan.bindings.definitions:
+        entry, authored = definition.entry, definition.entry.owner.definition
+        if not isinstance(authored, (TableDef, QueryDef)):
+            continue
+        expected_kinds = []
+        if authored.distinct_clause is not None:
+            expected_kinds.append("distinct")
+        if authored.order_by_clause is not None:
+            expected_kinds.append("relation_ordering")
+        if authored.limit_clause is not None:
+            expected_kinds.append("limit")
+        if not expected_kinds:
+            continue
+        operators = tuple(
+            op
+            for op in _operators(entry)
+            if op.kind.value in {"distinct", "relation_ordering", "limit"}
+        )
+        if tuple(op.kind.value for op in operators) != tuple(expected_kinds):
+            return False
+        projection = blocks[definition.ref]
+        aggregate = aggregation.authority(plan.scope.completed, entry)
+        rows = row.row_authority(plan.scope.completed, entry)
+        window = windows.authority(entry)
+        order = results.ordering(entry, orderings)
+        quotient = results.distinct(entry)
+        if (quotient is None) is not (authored.distinct_clause is None) or (
+            authored.order_by_clause is not None
+            and not _order_input_linkage(order, entry, rows, aggregate, window)
+        ):
+            return False
+        pre_projection = {
+            id(stage_ports[p].key): stage_ports[p] for p in projection.inputs
+        }
+        specs = [
+            (projections[p.ref].ref, p, p, p.field.evidence) for p in definition.exports
+        ]
+        if order is not None and quotient is None:
+            seen = set()
+            for uses in order.inputs:
+                for use in uses:
+                    key = results.order_key(use, aggregate)
+                    if id(key) in seen:
+                        continue
+                    seen.add(id(key))
+                    source = pre_projection[id(key)]
+                    if source.key is not key:
+                        return False
+                    specs.append((source.ref, None, key, source.type_evidence))
+        carried = take("result_ports", len(specs))
+        for i, (port, (source, canonical, key, evidence)) in enumerate(
+            zip(carried, specs, strict=True)
+        ):
+            if (
+                port.definition is not definition.ref
+                or port.boundary is not projection.ref
+                or port.role is not results.ProjectSQLResultPortRole.PROJECTION
+                or type(port.position) is not int
+                or port.position != i
+                or port.source is not source
+                or port.canonical is not canonical
+                or port.key is not key
+                or port.type_evidence is not evidence
+            ):
+                return False
+        predecessor = projection.ref
+        targets = results.selected_targets(plan.scope.completed, entry)
+        for position, operator in enumerate(operators):
+            (boundary,) = take("result_boundaries")
+            if (
+                boundary.definition is not definition.ref
+                or type(boundary.position) is not int
+                or boundary.position != position
+                or type(boundary.kind) is not results.ProjectSQLResultKind
+                or boundary.kind.value != operator.kind.value
+                or boundary.predecessor is not predecessor
+                or boundary.operator is not operator
+                or boundary.properties is not results.result_properties(entry, operator)
+            ):
+                return False
+            inputs = take("result_ports", len(carried))
+            visible = tuple(p for p in inputs if p.canonical is not None)
+            outputs = take("result_ports", len(visible))
+            if (
+                not _same(boundary.inputs, tuple(p.ref for p in inputs))
+                or not _same(boundary.outputs, tuple(p.ref for p in outputs))
+                or not _same(tuple(p.canonical for p in visible), definition.exports)
+            ):
+                return False
+            for role, values, sources in (
+                (results.ProjectSQLResultPortRole.INPUT, inputs, carried),
+                (results.ProjectSQLResultPortRole.OUTPUT, outputs, visible),
+            ):
+                for i, (port, original) in enumerate(zip(values, sources, strict=True)):
+                    if (
+                        port.definition is not definition.ref
+                        or port.boundary is not boundary.ref
+                        or port.role is not role
+                        or type(port.position) is not int
+                        or port.position != i
+                        or port.source is not original.ref
+                        or port.canonical is not original.canonical
+                        or port.key is not original.key
+                        or port.type_evidence is not original.type_evidence
+                    ):
+                        return False
+            if boundary.kind is results.ProjectSQLResultKind.DISTINCT:
+                if quotient is None:
+                    return False
+                (value,) = take("distincts")
+                if (
+                    value.boundary is not boundary.ref
+                    or not _equivalence_links(value, entry, plan.scope.completed)
+                    or type(value.comparison) is not results.ProjectIRDistinctComparison
+                    or value.comparison is not operator.evidence
+                    or value.comparison.semantic is not quotient
+                    or len(inputs) != len(definition.exports)
+                ):
+                    return False
+                comparison = value.comparison
+                projection_ops = tuple(
+                    op
+                    for op in _operators(entry)
+                    if op.kind.value == "final_projection"
+                )
+                if (
+                    len(projection_ops) != 1
+                    or comparison.input_output.row_shape.operator
+                    is not projection_ops[0]
+                    or len(comparison.fields) != len(quotient.fields)
+                    or any(
+                        field.semantic_source is not selected
+                        or field.final_identity is not selected.identity
+                        for field, selected in zip(
+                            comparison.fields, quotient.fields, strict=True
+                        )
+                    )
+                ):
+                    return False
+                fields = take("quotient_fields", len(inputs))
+                if not _same(value.fields, tuple(f.ref for f in fields)):
+                    return False
+                for i, (field, incoming, outgoing, evidence) in enumerate(
+                    zip(
+                        fields,
+                        inputs,
+                        outputs,
+                        quotient.equivalence.evidence,
+                        strict=True,
+                    )
+                ):
+                    if (
+                        field.distinct is not value.ref
+                        or type(field.position) is not int
+                        or field.position != i
+                        or field.canonical is not definition.exports[i]
+                        or field.input is not incoming.ref
+                        or field.output is not outgoing.ref
+                        or field.equivalence is not evidence
+                    ):
+                        return False
+            elif boundary.kind is results.ProjectSQLResultKind.ORDER:
+                if (
+                    not isinstance(order, results.ProjectRelationOrdering)
+                    or order.inputs is None
+                ):
+                    return False
+                (value,) = take("orders")
+                if value.boundary is not boundary.ref or value.source is not order:
+                    return False
+                if (
+                    isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+                    and operator.evidence is not order
+                ):
+                    return False
+                visible_targets = {}
+                for original_targets, port in zip(targets, inputs):
+                    for target in original_targets:
+                        visible_targets.setdefault(id(target), []).append(port.ref)
+                helpers = {id(p.key): p for p in inputs if p.canonical is None}
+                items = take("order_items", len(order.items))
+                if not _same(value.items, tuple(item.ref for item in items)):
+                    return False
+                for i, (item, source, original_uses) in enumerate(
+                    zip(items, order.items, order.inputs, strict=True)
+                ):
+                    proof = None if quotient is None else quotient.order_proofs[i]
+                    if (
+                        item.ordering is not value.ref
+                        or type(item.position) is not int
+                        or item.position != i
+                        or item.source is not source
+                        or item.determination is not proof
+                    ):
+                        return False
+                    requirement = None
+                    if proof is not None:
+                        if (
+                            type(proof) is not tuple
+                            or len(proof) not in {2, 3}
+                            or proof[0] is not source
+                        ):
+                            return False
+                        visible_sources = tuple(t for group in targets for t in group)
+                        requested_sources = tuple(
+                            use.determination_target for use in original_uses
+                        )
+                        if len(proof) == 3:
+                            if (
+                                not _same(proof[1], visible_sources)
+                                or not _same(proof[2], requested_sources)
+                                or any(
+                                    id(target) not in visible_targets
+                                    for target in requested_sources
+                                )
+                            ):
+                                return False
+                        else:
+                            if quotient is None:
+                                return False
+                            (requirement,) = take("hidden_order_requirements")
+                            properties = results.proof_properties(quotient)
+                            if properties is None:
+                                return False
+                            if id(properties) not in class_indexes:
+                                class_indexes[id(properties)] = (
+                                    results.class_target_index(properties)
+                                )
+                            target_index = class_indexes[id(properties)]
+                            if (
+                                properties is None
+                                or requirement.item is not item.ref
+                                or requirement.scope is not boundary.ref
+                                or requirement.source is not source
+                                or requirement.proof is not proof[1]
+                                or requirement.properties is not properties
+                                or requirement.value_type is not source.value_type
+                                or not _supplied_strict_proof(
+                                    proof[1],
+                                    properties,
+                                    visible_sources,
+                                    requested_sources,
+                                    target_index,
+                                )
+                                or requirement.requested
+                                is not proof[1].requested.classes
+                            ):
+                                return False
+                            by_class = {}
+                            for original_targets, port in zip(targets, inputs):
+                                for group in results.class_targets(
+                                    target_index, original_targets
+                                ):
+                                    if group is not None:
+                                        by_class.setdefault(id(group), []).append(
+                                            port.ref
+                                        )
+                            if len(requirement.determinants) != len(
+                                proof[1].seed.classes
+                            ) or any(
+                                group is not expected
+                                or not _same(
+                                    ports, tuple(by_class.get(id(expected), ()))
+                                )
+                                or not ports
+                                for (group, ports), expected in zip(
+                                    requirement.determinants,
+                                    proof[1].seed.classes,
+                                    strict=True,
+                                )
+                            ):
+                                return False
+                            if len(requirement.input_images) != len(
+                                original_uses
+                            ) or any(
+                                use is not original
+                                or image
+                                is not pre_projection[
+                                    id(results.order_key(original, aggregate))
+                                ].ref
+                                for (use, image), original in zip(
+                                    requirement.input_images, original_uses, strict=True
+                                )
+                            ):
+                                return False
+                    uses = take("order_uses", len(original_uses))
+                    if not _same(item.uses, tuple(use.ref for use in uses)):
+                        return False
+                    for j, (use, original) in enumerate(
+                        zip(uses, original_uses, strict=True)
+                    ):
+                        expected_ports = (
+                            (
+                                ()
+                                if requirement is not None
+                                else tuple(
+                                    visible_targets.get(
+                                        id(original.determination_target), ()
+                                    )
+                                )
+                            )
+                            if quotient is not None
+                            else (
+                                helpers[id(results.order_key(original, aggregate))].ref,
+                            )
+                        )
+                        if (
+                            use.item is not item.ref
+                            or type(use.position) is not int
+                            or use.position != j
+                            or use.source is not original
+                            or use.scope is not boundary.ref
+                            or not _same(use.ports, expected_ports)
+                            or use.requirement
+                            is not (None if requirement is None else requirement.ref)
+                        ):
+                            return False
+                    nodes = row.scalar_nodes(
+                        source.expression,
+                        tuple(use.expression for use in original_uses),
+                    )
+                    expressions = take("order_expressions", len(nodes))
+                    by_expression = {id(e.expression): e for e in expressions}
+                    by_use = {id(use.source.expression): use for use in uses}
+                    if (
+                        len(by_expression) != len(nodes)
+                        or item.expression is not expressions[0].ref
+                        or item.value
+                        is not (
+                            item.expression if requirement is None else requirement.ref
+                        )
+                    ):
+                        return False
+                    types = {
+                        id(node): value
+                        for node, value in results.order_types(source).items()
+                    }
+                    for j, (expression, node) in enumerate(
+                        zip(expressions, nodes, strict=True)
+                    ):
+                        use = by_use.get(id(node))
+                        children = (
+                            ()
+                            if use is not None
+                            else tuple(
+                                by_expression[id(child)].ref
+                                for child in row.scalar_children(node)
+                            )
+                        )
+                        if (
+                            expression.item is not item.ref
+                            or type(expression.position) is not int
+                            or expression.position != j
+                            or expression.expression is not node
+                            or expression.value_type is not types.get(id(node))
+                            or expression.value_type.kind is not ValueTypeKind.KNOWN
+                            or not _same(expression.operands, children)
+                            or expression.use is not (None if use is None else use.ref)
+                            or type(node)
+                            not in {
+                                NameExpr,
+                                DottedNameExpr,
+                                LiteralExpr,
+                                UnaryExpr,
+                                BinaryExpr,
+                                ComparisonExpr,
+                                BetweenExpr,
+                                IsNullExpr,
+                            }
+                        ):
+                            return False
+            else:
+                (value,) = take("result_limits")
+                source = entry.active_properties.cardinality
+                clause = authored.limit_clause
+                if (
+                    clause is None
+                    or type(clause.expression) is not LiteralExpr
+                    or type(clause.expression.value) is not int
+                    or type(value.value) is not int
+                    or type(value.row_count_upper_bound) is not int
+                    or type(value.maximum) is not int
+                    or value.boundary is not boundary.ref
+                    or value.source is not source
+                    or value.clause is not clause
+                    or value.literal is not clause.expression
+                    or value.value != clause.expression.value
+                    or value.maximum != results.MAX_RELATION_LIMIT
+                    or not 0 <= value.value <= value.maximum
+                ):
+                    return False
+                if type(source) is results.ProjectRelationLimit:
+                    if (
+                        source.owner is not entry.owner
+                        or source.clause is not clause
+                        or source.literal is not value.literal
+                        or type(source.value) is not int
+                        or source.value != value.value
+                        or source.row_count_upper_bound != value.value
+                        or operator.evidence is not source
+                    ):
+                        return False
+                    bound = source.row_count_upper_bound
+                elif type(source) is results.ProjectIRProvidedCardinalityUpperBound:
+                    if (
+                        not isinstance(
+                            entry.semantic_entry, results.ProjectExistingEffectiveOutput
+                        )
+                        or source.evidence
+                        is not entry.semantic_entry.fragment.semantic_facts
+                        or source.evidence.owner is not entry.owner
+                    ):
+                        return False
+                    bound = source.upper_bound
+                else:
+                    return False
+                if (
+                    type(bound) is not int
+                    or value.row_count_upper_bound != bound
+                    or bound != value.value
+                ):
+                    return False
+            carried, predecessor = outputs, boundary.ref
+        exports = take("result_exports", len(definition.exports))
+        for export, canonical, port in zip(
+            exports, definition.exports, carried, strict=True
+        ):
+            if (
+                export.definition is not definition.ref
+                or export.canonical is not canonical
+                or export.port is not port.ref
+            ):
+                return False
+    return all(cursors[name] == len(getattr(plan, name)) for name, _, _ in inventories)
+
+
+def _result_origins_and_demands(plan, origin_position, demand_position):
+    Issue, R, K = (
+        ProjectSQLPlanVerificationIssue,
+        ProjectSQLOriginRole,
+        ProjectSQLPlanRefKind,
+    )
+    context = results.origin_context(plan)
+    for witness in (
+        *plan.result_boundaries,
+        *plan.result_ports,
+        *plan.distincts,
+        *plan.quotient_fields,
+        *plan.orders,
+        *plan.order_items,
+        *plan.order_expressions,
+        *plan.order_uses,
+        *plan.hidden_order_requirements,
+        *plan.result_limits,
+        *plan.result_exports,
+    ):
+        definition, cause, antecedents, kind, provenance = results.origin_parts(
+            witness, context
+        )
+        owner = context["definitions"][definition]
+        original, demand_origin = plan.origins[origin_position : origin_position + 2]
+        demand = plan.demands[demand_position]
+        if not _origin_matches(
+            original,
+            (
+                witness.ref,
+                R(witness.ref.kind.value),
+                provenance,
+                owner,
+                cause,
+                witness,
+                antecedents,
+            ),
+            plan.scope,
+            origin_position,
+        ):
+            return (Issue.ORIGINS,)
+        if (
+            type(demand) is not results.ProjectSQLResultDemand
+            or not _ref(demand.ref, plan.scope, K.DEMAND, demand_position)
+            or demand.subject is not witness.ref
+            or demand.kind is not kind
+            or demand.witness is not witness
+            or demand.origin is not demand_origin.ref
+        ):
+            return (Issue.DEMANDS,)
+        if not _origin_matches(
+            demand_origin,
+            (demand.ref, R.DEMAND, provenance, owner, cause, witness, (original.ref,)),
+            plan.scope,
+            origin_position + 1,
+        ):
+            return (Issue.ORIGINS,)
+        origin_position += 2
+        demand_position += 1
     return (
         ()
         if origin_position == len(plan.origins) and demand_position == len(plan.demands)

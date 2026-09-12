@@ -88,6 +88,52 @@ __all__: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectCompletedOrderFacts:
+    """ORDER preparation for one exact existing or completed result boundary."""
+
+    entry: ProjectExistingEffectiveOutput | ProjectCompletedEffectiveOutput
+    ordering: project_final_outputs.ProjectRelationOrderingResult
+
+
+def _completed_order_facts(
+    effective: ProjectEffectiveOutputCompletion,
+) -> tuple[ProjectCompletedOrderFacts, ...]:
+    result = []
+    for entry in effective.entries:
+        definition = entry.owner.definition
+        if (
+            not isinstance(definition, (TableDef, QueryDef))
+            or definition.order_by_clause is None
+        ):
+            continue
+        if isinstance(entry, ProjectCompletedEffectiveOutput):
+            ordering = entry.ordering
+        elif isinstance(entry, ProjectExistingEffectiveOutput):
+            facts = entry.fragment.semantic_facts
+            if (
+                facts.input_state is None
+                or facts.input_state.schema is None
+                or facts.let_scope_facts is None
+            ):
+                continue
+            # Existing-entry ORDER has no earlier typed analysis carrier. Construct
+            # it here once with the same semantic ORDER resolver and original input;
+            # keep its outcome separate from the legacy completion's diagnostics.
+            ordering = project_final_outputs._no_join_relation_ordering(
+                owner=entry.owner,
+                input_schema=facts.input_state.schema,
+                let_scope=facts.let_scope_facts,
+                mode=project_joined_aggregation._mode(definition),
+                clause_dependencies=facts.clause_dependencies,
+                window_outputs=facts.window_outputs,
+            )
+        else:
+            continue
+        result.append(ProjectCompletedOrderFacts(entry=entry, ordering=ordering))
+    return tuple(result)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectCompletedRowReferenceFacts:
     """References retained once in the effective replay's actual environment."""
 
@@ -264,6 +310,7 @@ class _ProjectCompletedSemanticRoots:
     row_references: tuple[ProjectCompletedRowReferenceFacts, ...] = field(
         init=False, repr=False
     )
+    order_facts: tuple[ProjectCompletedOrderFacts, ...] = field(init=False, repr=False)
     verification: ProjectPhase62VerificationResult = field(
         init=False,
         repr=False,
@@ -311,6 +358,9 @@ class _ProjectCompletedSemanticRoots:
         object.__setattr__(self, "effective_outputs", effective_outputs)
         object.__setattr__(
             self, "row_references", _completed_row_references(effective_outputs)
+        )
+        object.__setattr__(
+            self, "order_facts", _completed_order_facts(effective_outputs)
         )
         operative = effective_outputs.operative_conditions
         if operative is None:
