@@ -8,7 +8,7 @@ needed.
 
 Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. The current owner is Phase 65, which is
-`ACTIVE`; Slices 1–12 are `COMPLETED / PUBLISHED` and Slice 13 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
+`ACTIVE`; Slices 1–13 are `COMPLETED / PUBLISHED` and Slice 14 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
 remains conditional on its Slice 11 natural exact-head CI; the
 Validation/Test Performance Optimization Interlude II is `COMPLETED`. Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -2298,10 +2298,10 @@ No Phase-65 syntax, carrier, algorithm or numbered route is frozen here.
 
 ## Phase 65 route
 
-Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slices 1–11 are
-`COMPLETED / PUBLISHED`, and Slice 12 is `COMPLETED / PUBLISHED` only upon
-successful natural exact-head CI on its ordinary commit. Slice 13 is
-`NEXT / NOT IMPLEMENTED`; Slices 14–16 are `NOT IMPLEMENTED`.
+Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slices 1–12 are
+`COMPLETED / PUBLISHED`, and Slice 13 is `COMPLETED / PUBLISHED` only upon
+successful natural exact-head CI on its ordinary commit. Slice 14 is
+`NEXT / NOT IMPLEMENTED`; Slices 15–16 are `NOT IMPLEMENTED`.
 The selected route has exactly 16 deliveries. Its controlling
 [reviewed v2 phase gate](spec/phase65-project-sql-plan-product-phase-initiation-gate-source-audit-architecture-route-lock-v1.md)
 is documentation/static assurance only; it does not authorize later implementation.
@@ -2447,7 +2447,19 @@ Half-open parser coordinates preserve escaped/non-BMP text and legacy absence.
 Visited transitive explanations retain intermediate roles and shared definitions.
 Independent verification and exact-ref inspection reject stale roots, policy,
 envelope, sites and reverse indexes. Report interoperability uses original refs.
-Slice13 owns Explicit target/profile requirement assessment next.
+That publication left Slice13 next.
+
+Slice13 [explicit target/profile assessment](spec/phase65-slice13-explicit-target-profile-requirement-assessment-v1.md)
+consumes the complete verified report and detached explicit DATABASE/profile inputs.
+Canonical compiler subpropositions, raw profile/provider lookup and declared
+applicability remain separate. Raw composed facts survive target mismatch; no
+profile declaration is observed database conformance. All composite residuals,
+original enforcement/proof/risk and hidden ORDER records remain pending.
+Exact demand/aspect/query links retain all uses and the complete denominator.
+Independent verification uses retained inventories without provider reacquisition
+or profile recomposition. Two exact private consumers are registered in existing
+privacy guards; no public, dynamic-import or directory-wide exception is added.
+Slice14 owns Portable boundary and minimum real process/acquisition integration next.
 
 This task newly maps open caller-rebindable query parameters to Phase70, public
 entrypoints to Phase69/82, and any selected-owner compilation amid project semantic

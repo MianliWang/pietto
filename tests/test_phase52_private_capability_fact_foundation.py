@@ -510,6 +510,8 @@ def test_private_module_has_only_authorized_window_strategy_compiler_consumer() 
                 REPO_ROOT / "src/pietto/_project/model.py",
                 REPO_ROOT / "src/pietto/_project/package_manifest.py",
                 REPO_ROOT / "src/pietto/_project/project_capability_environment.py",
+                REPO_ROOT / "src/pietto/_project/project_sql_plan_target_assessment.py",
+                REPO_ROOT / "src/pietto/_project/project_sql_plan_target_mapping.py",
                 REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py",
                 REPO_ROOT
                 / "src/pietto/_project_explain/package_requirement_projection.py",

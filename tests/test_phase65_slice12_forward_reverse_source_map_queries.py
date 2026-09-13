@@ -819,6 +819,9 @@ def test_no_reconstruction_source_reads_or_map_builders_in_independent_checks(
 
     names = (
         "infer_row_expression",
+        "build_project_sql_target_assessment",
+        "prepare_project_sql_target_request",
+        "canonical_capability_provider_inputs",
         "resolve_named_window_namespace",
         "build_project_completed_semantic_result",
         "build_project_query_block_ir",

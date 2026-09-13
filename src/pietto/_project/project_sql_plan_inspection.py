@@ -14,6 +14,7 @@ from pietto._project import project_sql_plan_sets as sets
 from pietto._project import project_sql_plan_literals as literals
 from pietto._project import project_sql_plan_requirements as requirements
 from pietto._project import project_sql_plan_source_maps as source_maps
+from pietto._project import project_sql_plan_target_assessment as targets
 
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.project_sql_plan import (
@@ -75,6 +76,23 @@ class ProjectSQLPlanInspection:
         product = source_maps.build_project_sql_source_map(self.verification)
         checked = source_maps.verify_project_sql_source_map(product, self.verification)
         return source_maps.inspect_project_sql_source_map(checked)
+
+    def target_assessment(
+        self,
+        request: targets.ProjectSQLTargetRequest,
+        *,
+        report_verification: requirements.ProjectSQLRequirementVerification
+        | None = None,
+    ) -> targets.ProjectSQLTargetAssessmentInspection:
+        product = targets.build_project_sql_target_assessment(
+            self.verification,
+            request,
+            report_verification=report_verification,
+        )
+        checked = targets.verify_project_sql_target_assessment(
+            product, self.verification, request
+        )
+        return targets.inspect_project_sql_target_assessment(checked)
 
     def __post_init__(self) -> None:
         verification = self.verification

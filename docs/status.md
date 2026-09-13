@@ -63,9 +63,10 @@ documentation does not supersede that evidence.
 | Phase 65 Slice 10 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 11 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 12 | `COMPLETED / PUBLISHED` |
-| Phase 65 Slice 13 | `NEXT / NOT IMPLEMENTED` |
-| Phase 65 Slices 14–16 | `NOT IMPLEMENTED` |
-| Next | `Phase 65 Slice 13 — Explicit target/profile requirement assessment` |
+| Phase 65 Slice 13 | `COMPLETED / PUBLISHED` |
+| Phase 65 Slice 14 | `NEXT / NOT IMPLEMENTED` |
+| Phase 65 Slices 15–16 | `NOT IMPLEMENTED` |
+| Next | `Phase 65 Slice 14 — Portable boundary and minimum real process/acquisition integration` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -981,5 +982,22 @@ Visited transitive explanations retain intermediate roles and shared definitions
 Independent verification and exact-ref inspection reject stale roots, policy,
 envelope, sites and reverse indexes. Report interoperability uses original refs.
 No source reread, new semantic lineage, target support or execution is supplied.
-Phase65 stays `ACTIVE`; Slice13 is `NEXT / NOT IMPLEMENTED`;
-Slices 14–16 are `NOT IMPLEMENTED`; N16 is unchanged.
+That publication left Slice13 next; N16 stayed unchanged.
+
+
+Phase 65 Slice 13 is `COMPLETED / PUBLISHED` only upon successful natural
+exact-head CI on its ordinary commit. Its [target-assessment contract](spec/phase65-slice13-explicit-target-profile-requirement-assessment-v1.md)
+adds explicit DATABASE target/profile assessment over the complete verified report.
+Canonical compiler subpropositions, raw profile/provider lookup and declared
+applicability remain separate. Missing profiles and incompatible releases remain
+explicit; raw composed facts survive target mismatch. Source-family agreement
+proves neither a common connection nor database availability.
+Exact demand/aspect/query links preserve repeated uses and the full denominator.
+All composite residuals, original enforcement/proof/risk and hidden ORDER records
+remain pending; supported subsets do not certify full-plan realization.
+Independent verification reuses retained static inventories without provider
+reacquisition, profile recomposition, semantic reconstruction or SQL emission.
+Two exact private consumers are registered in existing privacy guards; public
+exports, dynamic-import detection and all other consumer boundaries remain intact.
+Phase65 stays `ACTIVE`; Slice14 is `NEXT / NOT IMPLEMENTED`;
+Slices 15–16 are `NOT IMPLEMENTED`; N16 is unchanged.

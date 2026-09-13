@@ -894,6 +894,9 @@ def test_no_downstream_construction_classification_or_provider_access(
 
     names = (
         "infer_row_expression",
+        "build_project_sql_target_assessment",
+        "prepare_project_sql_target_request",
+        "canonical_capability_provider_inputs",
         "resolve_named_window_namespace",
         "build_project_completed_semantic_result",
         "build_project_query_block_ir",
