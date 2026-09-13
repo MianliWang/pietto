@@ -13,6 +13,7 @@ from pietto._project import project_sql_plan_results as results
 from pietto._project import project_sql_plan_sets as sets
 from pietto._project import project_sql_plan_literals as literals
 from pietto._project import project_sql_plan_requirements as requirements
+from pietto._project import project_sql_plan_source_maps as source_maps
 
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.project_sql_plan import (
@@ -69,6 +70,11 @@ class ProjectSQLPlanInspection:
             report, self.verification
         )
         return requirements.inspect_project_sql_requirement_report(checked)
+
+    def source_map(self) -> source_maps.ProjectSQLSourceMapInspection:
+        product = source_maps.build_project_sql_source_map(self.verification)
+        checked = source_maps.verify_project_sql_source_map(product, self.verification)
+        return source_maps.inspect_project_sql_source_map(checked)
 
     def __post_init__(self) -> None:
         verification = self.verification

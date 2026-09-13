@@ -990,3 +990,18 @@ def test_unhandled_report_taxonomy_is_closed(corpus):
     nodes, _, _ = report.context_index(plan)
     with pytest.raises(ValueError, match="subkind"):
         report.classify(_graft(demand, kind="join_rows"), nodes)
+
+
+@pytest.mark.parametrize("policy", tuple(P))
+def test_requirement_entries_use_original_demand_and_origin_source_map_refs(
+    corpus, policy
+):
+    _, plan, source, value, _, view = corpus["literal_tags", policy]
+    source_view = inspect_project_sql_plan(source).source_map()
+    assert source_view.source_map.plan is plan
+    for entry in view.entries:
+        (origin,) = source_view.subject(entry.ref).origins
+        assert origin.original is entry.origin
+        assert source_view.origin(entry.origin.ref) is origin
+        assert source_view.associations(entry.ref)
+    assert tuple(entry.demand for entry in value.entries) == plan.demands

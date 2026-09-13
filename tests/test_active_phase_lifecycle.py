@@ -306,11 +306,12 @@ EXPECTED_STATUS = (
     ("Phase 65 Slice 9", "`COMPLETED / PUBLISHED`"),
     ("Phase 65 Slice 10", "`COMPLETED / PUBLISHED`"),
     ("Phase 65 Slice 11", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 12", "`NEXT / NOT IMPLEMENTED`"),
-    ("Phase 65 Slices 13–16", "`NOT IMPLEMENTED`"),
+    ("Phase 65 Slice 12", "`COMPLETED / PUBLISHED`"),
+    ("Phase 65 Slice 13", "`NEXT / NOT IMPLEMENTED`"),
+    ("Phase 65 Slices 14–16", "`NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 65 Slice 12 — Forward/reverse source-map queries`",
+        "`Phase 65 Slice 13 — Explicit target/profile requirement assessment`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1440,8 +1441,8 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
 EXPECTED_CURRENT_OWNER_SENTENCE = (
-    "The current owner is Phase 65, which is `ACTIVE`; Slices 1–11 are "
-    "`COMPLETED / PUBLISHED` and Slice 12 is `NEXT / NOT IMPLEMENTED`."
+    "The current owner is Phase 65, which is `ACTIVE`; Slices 1–12 are "
+    "`COMPLETED / PUBLISHED` and Slice 13 is `NEXT / NOT IMPLEMENTED`."
 )
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
@@ -4950,7 +4951,7 @@ def test_phase65_route_and_lifecycle_are_conditional() -> None:
     status = " ".join(_read(STATUS).split())
     normalized = " ".join(roadmap.split())
     for phrase in (
-        "Slices 13–16 are `NOT IMPLEMENTED`",
+        "Slices 14–16 are `NOT IMPLEMENTED`",
         "D65.01–D65.12",
         "only upon successful natural exact-head CI",
     ):
@@ -5020,7 +5021,7 @@ def test_phase65_slice4_current_stage_boundary() -> None:
     ):
         assert phrase in status and phrase in roadmap
     assert "never enter selected visible exports" in status
-    assert "Slice12 is `NEXT / NOT IMPLEMENTED`" in status
+    assert "Slice13 is `NEXT / NOT IMPLEMENTED`" in status
 
 
 def test_phase65_slice5_current_matching_and_obligation_boundary() -> None:
@@ -5040,7 +5041,7 @@ def test_phase65_slice5_current_matching_and_obligation_boundary() -> None:
     ):
         assert phrase in status and phrase in roadmap
     assert "INNER/LEFT/CROSS/RIGHT/FULL/SEMI/ANTI" in status
-    assert "Slices 13–16 are `NOT IMPLEMENTED`" in status
+    assert "Slices 14–16 are `NOT IMPLEMENTED`" in status
 
 
 def test_phase65_slice6_current_aggregate_boundary() -> None:
@@ -5056,8 +5057,8 @@ def test_phase65_slice6_current_aggregate_boundary() -> None:
         "exact-ref inspection",
     ):
         assert phrase in status and phrase in roadmap
-    assert "Slice12 is `NEXT / NOT IMPLEMENTED`" in status
-    assert "Slices 13–16 are `NOT IMPLEMENTED`" in status
+    assert "Slice13 is `NEXT / NOT IMPLEMENTED`" in status
+    assert "Slices 14–16 are `NOT IMPLEMENTED`" in status
 
 
 def test_phase65_slice7_current_window_and_qualify_boundary() -> None:
@@ -5075,8 +5076,8 @@ def test_phase65_slice7_current_window_and_qualify_boundary() -> None:
         "origins/demands",
     ):
         assert phrase in status and phrase in roadmap
-    assert "Slice12 is `NEXT / NOT IMPLEMENTED`" in status
-    assert "Slices 13–16 are `NOT IMPLEMENTED`" in status
+    assert "Slice13 is `NEXT / NOT IMPLEMENTED`" in status
+    assert "Slices 14–16 are `NOT IMPLEMENTED`" in status
 
 
 def test_phase65_slice8_current_result_boundary() -> None:
@@ -5095,8 +5096,8 @@ def test_phase65_slice8_current_result_boundary() -> None:
         "canonical terminal images",
     ):
         assert phrase in status and phrase in roadmap
-    assert "Slice12 is `NEXT / NOT IMPLEMENTED`" in status
-    assert "Slices 13–16 are `NOT IMPLEMENTED`" in status
+    assert "Slice13 is `NEXT / NOT IMPLEMENTED`" in status
+    assert "Slices 14–16 are `NOT IMPLEMENTED`" in status
 
 
 def test_phase65_slice9_current_set_body_boundary() -> None:
@@ -5114,8 +5115,8 @@ def test_phase65_slice9_current_set_body_boundary() -> None:
         "Depth12 full-plan sharing",
     ):
         assert phrase in status and phrase in roadmap
-    assert "Slice12 is `NEXT / NOT IMPLEMENTED`" in status
-    assert "Slices 13–16 are `NOT IMPLEMENTED`" in status
+    assert "Slice13 is `NEXT / NOT IMPLEMENTED`" in status
+    assert "Slices 14–16 are `NOT IMPLEMENTED`" in status
 
 
 def test_phase65_slice10_current_fixed_literal_boundary() -> None:
@@ -5133,8 +5134,8 @@ def test_phase65_slice10_current_fixed_literal_boundary() -> None:
         "mandatory representation demands",
     ):
         assert phrase in status and phrase in roadmap
-    assert "Slice12 is `NEXT / NOT IMPLEMENTED`" in status
-    assert "Slices 13–16 are `NOT IMPLEMENTED`" in status
+    assert "Slice13 is `NEXT / NOT IMPLEMENTED`" in status
+    assert "Slices 14–16 are `NOT IMPLEMENTED`" in status
 
 
 def test_phase65_slice11_current_requirement_report_boundary() -> None:
@@ -5154,5 +5155,25 @@ def test_phase65_slice11_current_requirement_report_boundary() -> None:
         "existing plan construction and demand carriers remain unchanged",
     ):
         assert phrase in status and phrase in roadmap
-    assert "Slice12 is `NEXT / NOT IMPLEMENTED`" in status
-    assert "Slices 13–16 are `NOT IMPLEMENTED`" in status
+    assert "Slice13 is `NEXT / NOT IMPLEMENTED`" in status
+    assert "Slices 14–16 are `NOT IMPLEMENTED`" in status
+
+
+def test_phase65_slice12_current_source_map_boundary() -> None:
+    status = " ".join(_read(STATUS).split())
+    roadmap = " ".join(_section(_read(ROADMAP), "Phase 65 route").split())
+    target = "spec/phase65-slice12-forward-reverse-source-map-queries-v1.md"
+    assert f"]({target})" in status and f"]({target})" in roadmap
+    assert (STATUS.parent / target).is_file()
+    for phrase in (
+        "immutable forward/reverse source-map queries",
+        "Exact authored membership",
+        "without invented subject spans",
+        "Typed origin/subject endpoints",
+        "Half-open parser coordinates",
+        "Visited transitive explanations",
+        "Report interoperability uses original refs",
+    ):
+        assert phrase in status and phrase in roadmap
+    assert "Slice13 is `NEXT / NOT IMPLEMENTED`" in status
+    assert "Slices 14–16 are `NOT IMPLEMENTED`" in status

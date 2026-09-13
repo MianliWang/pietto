@@ -62,9 +62,10 @@ documentation does not supersede that evidence.
 | Phase 65 Slice 9 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 10 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 11 | `COMPLETED / PUBLISHED` |
-| Phase 65 Slice 12 | `NEXT / NOT IMPLEMENTED` |
-| Phase 65 Slices 13–16 | `NOT IMPLEMENTED` |
-| Next | `Phase 65 Slice 12 — Forward/reverse source-map queries` |
+| Phase 65 Slice 12 | `COMPLETED / PUBLISHED` |
+| Phase 65 Slice 13 | `NEXT / NOT IMPLEMENTED` |
+| Phase 65 Slices 14–16 | `NOT IMPLEMENTED` |
+| Next | `Phase 65 Slice 13 — Explicit target/profile requirement assessment` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -966,5 +967,19 @@ realization and aggregate evidence stay separate from runtime enforcement.
 Target posture remains NOT_ASSESSED. Independent report verification checks
 complete entries, links, category records, indexes and inspectable summary members.
 The report is optional; existing plan construction and demand carriers remain unchanged.
-Phase65 stays `ACTIVE`; Slice12 is `NEXT / NOT IMPLEMENTED`;
-Slices 13–16 are `NOT IMPLEMENTED`; N16 is unchanged.
+That publication left Slice12 next; N16 stayed unchanged.
+
+Phase 65 Slice 12 is `COMPLETED / PUBLISHED` only upon successful natural
+exact-head CI on its ordinary commit. Its [source-map contract](spec/phase65-slice12-forward-reverse-source-map-queries-v1.md)
+adds immutable forward/reverse source-map queries over the original origin ledger.
+Exact authored membership, defining source and consuming context remain distinct.
+Generated reasons retain their authored causes without invented subject spans;
+named-window effective correspondence does not create new authored occurrences.
+Typed origin/subject endpoints and every original link occurrence remain explicit.
+Half-open parser coordinates preserve escaped/non-BMP text and legacy absence.
+Visited transitive explanations retain intermediate roles and shared definitions.
+Independent verification and exact-ref inspection reject stale roots, policy,
+envelope, sites and reverse indexes. Report interoperability uses original refs.
+No source reread, new semantic lineage, target support or execution is supplied.
+Phase65 stays `ACTIVE`; Slice13 is `NEXT / NOT IMPLEMENTED`;
+Slices 14–16 are `NOT IMPLEMENTED`; N16 is unchanged.

@@ -8,7 +8,7 @@ needed.
 
 Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. The current owner is Phase 65, which is
-`ACTIVE`; Slices 1–11 are `COMPLETED / PUBLISHED` and Slice 12 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
+`ACTIVE`; Slices 1–12 are `COMPLETED / PUBLISHED` and Slice 13 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
 remains conditional on its Slice 11 natural exact-head CI; the
 Validation/Test Performance Optimization Interlude II is `COMPLETED`. Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -2298,10 +2298,10 @@ No Phase-65 syntax, carrier, algorithm or numbered route is frozen here.
 
 ## Phase 65 route
 
-Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slices 1–10 are
-`COMPLETED / PUBLISHED`, and Slice 11 is `COMPLETED / PUBLISHED` only upon
-successful natural exact-head CI on its ordinary commit. Slice 12 is
-`NEXT / NOT IMPLEMENTED`; Slices 13–16 are `NOT IMPLEMENTED`.
+Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slices 1–11 are
+`COMPLETED / PUBLISHED`, and Slice 12 is `COMPLETED / PUBLISHED` only upon
+successful natural exact-head CI on its ordinary commit. Slice 13 is
+`NEXT / NOT IMPLEMENTED`; Slices 14–16 are `NOT IMPLEMENTED`.
 The selected route has exactly 16 deliveries. Its controlling
 [reviewed v2 phase gate](spec/phase65-project-sql-plan-product-phase-initiation-gate-source-audit-architecture-route-lock-v1.md)
 is documentation/static assurance only; it does not authorize later implementation.
@@ -2437,7 +2437,17 @@ realization and aggregate evidence stay separate from runtime enforcement.
 Target posture remains NOT_ASSESSED. Independent report verification checks
 complete entries, links, category records, indexes and inspectable summary members.
 The report is optional; existing plan construction and demand carriers remain unchanged.
-Slice12 owns Forward/reverse source-map queries next.
+The [Slice12 source-map contract](spec/phase65-slice12-forward-reverse-source-map-queries-v1.md)
+adds immutable forward/reverse source-map queries over the original origin ledger.
+Exact authored membership, defining source and consuming context remain distinct.
+Generated reasons retain their authored causes without invented subject spans;
+named-window effective correspondence does not create new authored occurrences.
+Typed origin/subject endpoints and every original link occurrence remain explicit.
+Half-open parser coordinates preserve escaped/non-BMP text and legacy absence.
+Visited transitive explanations retain intermediate roles and shared definitions.
+Independent verification and exact-ref inspection reject stale roots, policy,
+envelope, sites and reverse indexes. Report interoperability uses original refs.
+Slice13 owns Explicit target/profile requirement assessment next.
 
 This task newly maps open caller-rebindable query parameters to Phase70, public
 entrypoints to Phase69/82, and any selected-owner compilation amid project semantic
