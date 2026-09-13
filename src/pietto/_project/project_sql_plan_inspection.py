@@ -12,6 +12,7 @@ from pietto._project import project_sql_plan_joins as joining
 from pietto._project import project_sql_plan_results as results
 from pietto._project import project_sql_plan_sets as sets
 from pietto._project import project_sql_plan_literals as literals
+from pietto._project import project_sql_plan_requirements as requirements
 
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.project_sql_plan import (
@@ -61,6 +62,13 @@ class ProjectSQLPlanInspection:
     _terminals: Mapping[
         ProjectSQLPlanRef, ProjectSQLPort | results.ProjectSQLResultPort
     ] = field(init=False, repr=False)
+
+    def requirements(self) -> requirements.ProjectSQLRequirementInspection:
+        report = requirements.build_project_sql_requirement_report(self.verification)
+        checked = requirements.verify_project_sql_requirement_report(
+            report, self.verification
+        )
+        return requirements.inspect_project_sql_requirement_report(checked)
 
     def __post_init__(self) -> None:
         verification = self.verification

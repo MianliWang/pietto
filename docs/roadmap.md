@@ -8,7 +8,7 @@ needed.
 
 Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. The current owner is Phase 65, which is
-`ACTIVE`; Slices 1–10 are `COMPLETED / PUBLISHED` and Slice 11 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
+`ACTIVE`; Slices 1–11 are `COMPLETED / PUBLISHED` and Slice 12 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
 remains conditional on its Slice 11 natural exact-head CI; the
 Validation/Test Performance Optimization Interlude II is `COMPLETED`. Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -2298,10 +2298,10 @@ No Phase-65 syntax, carrier, algorithm or numbered route is frozen here.
 
 ## Phase 65 route
 
-Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slices 1–9 are
-`COMPLETED / PUBLISHED`, and Slice 10 is `COMPLETED / PUBLISHED` only upon
-successful natural exact-head CI on its ordinary commit. Slice 11 is
-`NEXT / NOT IMPLEMENTED`; Slices 12–16 are `NOT IMPLEMENTED`.
+Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slices 1–10 are
+`COMPLETED / PUBLISHED`, and Slice 11 is `COMPLETED / PUBLISHED` only upon
+successful natural exact-head CI on its ordinary commit. Slice 12 is
+`NEXT / NOT IMPLEMENTED`; Slices 13–16 are `NOT IMPLEMENTED`.
 The selected route has exactly 16 deliveries. Its controlling
 [reviewed v2 phase gate](spec/phase65-project-sql-plan-product-phase-initiation-gate-source-audit-architecture-route-lock-v1.md)
 is documentation/static assurance only; it does not authorize later implementation.
@@ -2427,7 +2427,17 @@ Structural type/connector/window/ORDER/LIMIT literals remain preserved with reas
 Independent fixed-envelope verification checks rooted source values; fresh inspection
 rejects stale policy/envelope identities and exposes mandatory representation demands.
 Shared definitions and stage ports retain their existing multiplicity and obligations.
-Slice11 owns Complete demand and obligation report next.
+The [Slice11 requirement-report contract](spec/phase65-slice11-complete-demand-obligation-report-v1.md)
+adds a complete demand/obligation report over an exact VERIFIED plan request.
+Original demand occurrences, captured literal policy and envelope, and project
+diagnostics retain their exact identities. Immutable exact-ref queries preserve
+shared definitions, repeated uses and original proof/ancestor links.
+PROVED and LEGAL_UNPROVED remain original scoped evidence; pending hidden ORDER
+realization and aggregate evidence stay separate from runtime enforcement.
+Target posture remains NOT_ASSESSED. Independent report verification checks
+complete entries, links, category records, indexes and inspectable summary members.
+The report is optional; existing plan construction and demand carriers remain unchanged.
+Slice12 owns Forward/reverse source-map queries next.
 
 This task newly maps open caller-rebindable query parameters to Phase70, public
 entrypoints to Phase69/82, and any selected-owner compilation amid project semantic

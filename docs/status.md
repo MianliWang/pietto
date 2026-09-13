@@ -61,9 +61,10 @@ documentation does not supersede that evidence.
 | Phase 65 Slice 8 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 9 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 10 | `COMPLETED / PUBLISHED` |
-| Phase 65 Slice 11 | `NEXT / NOT IMPLEMENTED` |
-| Phase 65 Slices 12–16 | `NOT IMPLEMENTED` |
-| Next | `Phase 65 Slice 11 — Complete demand and obligation report` |
+| Phase 65 Slice 11 | `COMPLETED / PUBLISHED` |
+| Phase 65 Slice 12 | `NEXT / NOT IMPLEMENTED` |
+| Phase 65 Slices 13–16 | `NOT IMPLEMENTED` |
+| Next | `Phase 65 Slice 12 — Forward/reverse source-map queries` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -952,5 +953,18 @@ Independent fixed-envelope verification checks rooted source values; fresh inspe
 rejects stale policy/envelope identities and exposes mandatory representation demands.
 Shared definitions and stage ports retain their existing multiplicity and obligations;
 no caller rebind, SQL placeholder, target support or execution is supplied.
-Phase65 stays `ACTIVE`; Slice11 is `NEXT / NOT IMPLEMENTED`;
-Slices 12–16 are `NOT IMPLEMENTED`; N16 is unchanged.
+That publication left Slice11 next; N16 stayed unchanged.
+
+Phase 65 Slice 11 is `COMPLETED / PUBLISHED` only upon successful natural
+exact-head CI on its ordinary commit. Its [requirement-report contract](spec/phase65-slice11-complete-demand-obligation-report-v1.md)
+adds a complete demand/obligation report over an exact VERIFIED plan request.
+Original demand occurrences, captured literal policy and envelope, and project
+diagnostics retain their exact identities. Immutable exact-ref queries preserve
+shared definitions, repeated uses and original proof/ancestor links.
+PROVED and LEGAL_UNPROVED remain original scoped evidence; pending hidden ORDER
+realization and aggregate evidence stay separate from runtime enforcement.
+Target posture remains NOT_ASSESSED. Independent report verification checks
+complete entries, links, category records, indexes and inspectable summary members.
+The report is optional; existing plan construction and demand carriers remain unchanged.
+Phase65 stays `ACTIVE`; Slice12 is `NEXT / NOT IMPLEMENTED`;
+Slices 13–16 are `NOT IMPLEMENTED`; N16 is unchanged.
