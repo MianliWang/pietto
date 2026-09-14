@@ -294,7 +294,7 @@ EXPECTED_STATUS = (
     ("Phase 64 Slice 9", "`COMPLETED / PUBLISHED`"),
     ("Phase 64 Slice 10", "`COMPLETED / PUBLISHED`"),
     ("Phase 64 Slice 11", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65", "`ACTIVE`"),
+    ("Phase 65", "`COMPLETED`"),
     ("Phase 65 Slice 1", "`COMPLETED / PUBLISHED`"),
     ("Phase 65 Slice 2", "`COMPLETED / PUBLISHED`"),
     ("Phase 65 Slice 3", "`COMPLETED / PUBLISHED`"),
@@ -310,10 +310,11 @@ EXPECTED_STATUS = (
     ("Phase 65 Slice 13", "`COMPLETED / PUBLISHED`"),
     ("Phase 65 Slice 14", "`COMPLETED / PUBLISHED`"),
     ("Phase 65 Slice 15", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 16", "`NEXT / NOT IMPLEMENTED`"),
+    ("Phase 65 Slice 16", "`COMPLETED / PUBLISHED`"),
+    ("Phase 66", "`NEXT / NOT STARTED`"),
     (
         "Next",
-        "`Phase 65 Slice 16 — Completion audit and Phase66 handoff`",
+        "`Phase 66 — Fresh phase initiation and route approval`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1443,8 +1444,8 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
 EXPECTED_CURRENT_OWNER_SENTENCE = (
-    "The current owner is Phase 65, which is `ACTIVE`; Slices 1–14 are "
-    "`COMPLETED / PUBLISHED` and Slice 15 is `NEXT / NOT IMPLEMENTED`."
+    "The current owner is Phase 66, which is `NEXT / NOT STARTED`; "
+    "fresh initiation and route approval remain pending."
 )
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
@@ -4953,7 +4954,7 @@ def test_phase65_route_and_lifecycle_are_conditional() -> None:
     status = " ".join(_read(STATUS).split())
     normalized = " ".join(roadmap.split())
     for phrase in (
-        "Slice16 is `NEXT / NOT IMPLEMENTED`",
+        "Phase66 is `NEXT / NOT STARTED`",
         "D65.01–D65.12",
         "only upon successful natural exact-head CI",
     ):
@@ -5024,7 +5025,7 @@ def test_phase65_slice4_current_stage_boundary() -> None:
         assert phrase in status and phrase in roadmap
     assert "never enter selected visible exports" in status
     assert (
-        "Slice15 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI"
+        "Slice16 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI"
         in status
     )
 
@@ -5046,7 +5047,7 @@ def test_phase65_slice5_current_matching_and_obligation_boundary() -> None:
     ):
         assert phrase in status and phrase in roadmap
     assert "INNER/LEFT/CROSS/RIGHT/FULL/SEMI/ANTI" in status
-    assert "Slice16 is `NEXT / NOT IMPLEMENTED`" in status
+    assert "Phase66 is `NEXT / NOT STARTED`" in status
 
 
 def test_phase65_slice6_current_aggregate_boundary() -> None:
@@ -5204,8 +5205,8 @@ def test_phase65_slice14_current_portable_boundary() -> None:
         "Historical 62/74 request domains remain unchanged",
         "current totals derive from the independent request manifest",
         "The portable adapter is the only new registered capability consumer",
-        "Slice15 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI",
-        "Slice16 is `NEXT / NOT IMPLEMENTED`",
+        "Slice16 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI",
+        "Phase66 is `NEXT / NOT STARTED`",
     ):
         assert phrase in status and phrase in roadmap
 
@@ -5225,6 +5226,32 @@ def test_phase65_slice15_current_conformance_and_bounded_repairs() -> None:
         "original five canonical documents and seven historical family streams",
         "one invocation-local acquisition store",
         "frozen repaired candidate",
-        "Slice16 is `NEXT / NOT IMPLEMENTED`; N16 is unchanged",
+        "That publication left Slice16 next; N16 stayed unchanged",
     ):
         assert phrase in status and phrase in roadmap
+
+
+def test_phase65_slice16_completion_and_phase66_handoff_are_conditional() -> None:
+    status = " ".join(_read(STATUS).split())
+    roadmap = " ".join(_section(_read(ROADMAP), "Phase 65 route").split())
+    opening = " ".join(_read(ROADMAP).split("## Phase 55 route", 1)[0].split())
+    target = "spec/phase65-completion-audit-phase66-handoff-v1.md"
+    assert f"]({target})" in status and f"]({target})" in roadmap
+    assert (STATUS.parent / target).is_file()
+    for phrase in (
+        "only upon successful natural exact-head CI",
+        "authoritative/generated/golden/package checks",
+        "P01–P10 within the explicitly approved support domain",
+        "Phase65 self-owned-open = 0",
+        "current private consumer APIs, retained limitations and established later owners",
+        "Static traceability supports the audit; existing behavior tests supply runtime evidence",
+        "Single portable-document limits remain separate from aggregate corpus measurements",
+        "Legacy SQL generation remains available",
+        "Phase66 is `NEXT / NOT STARTED`",
+        "fresh initiation and route approval remain pending",
+        "No Phase66 Slice implementation is authorized. N16 is unchanged",
+    ):
+        assert phrase in status and phrase in roadmap
+    assert EXPECTED_CURRENT_OWNER_SENTENCE in opening
+    assert "Slice 15 is `NEXT / NOT IMPLEMENTED`" not in opening
+    assert "Phase 64 completion remains conditional" not in opening

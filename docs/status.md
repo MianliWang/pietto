@@ -50,7 +50,7 @@ documentation does not supersede that evidence.
 | Phase 64 Slice 9 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 10 | `COMPLETED / PUBLISHED` |
 | Phase 64 Slice 11 | `COMPLETED / PUBLISHED` |
-| Phase 65 | `ACTIVE` |
+| Phase 65 | `COMPLETED` |
 | Phase 65 Slice 1 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 2 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 3 | `COMPLETED / PUBLISHED` |
@@ -66,8 +66,9 @@ documentation does not supersede that evidence.
 | Phase 65 Slice 13 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 14 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 15 | `COMPLETED / PUBLISHED` |
-| Phase 65 Slice 16 | `NEXT / NOT IMPLEMENTED` |
-| Next | `Phase 65 Slice 16 — Completion audit and Phase66 handoff` |
+| Phase 65 Slice 16 | `COMPLETED / PUBLISHED` |
+| Phase 66 | `NEXT / NOT STARTED` |
+| Next | `Phase 66 — Fresh phase initiation and route approval` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -779,8 +780,9 @@ Compare 14–16 real delivery Slices, with 16 the preferred initial candidate;
 this is a planning preference, not an approved N=16 route. Split by one principal
 invariant and a real first consumer. That handoff did not start Phase 65 implementation.
 
-Phase 65 is `ACTIVE`, and Slice 1 is `COMPLETED / PUBLISHED` only upon successful
-natural exact-head CI on its ordinary route-lock commit. The
+Phase 65 began its `ACTIVE` lifecycle with the successfully published Slice 1
+route-lock commit. The following Slice1–15 narratives describe historical
+deliveries; their natural exact-head CI conditions have been satisfied. The
 [reviewed v2 product gate and N16 route](spec/phase65-project-sql-plan-product-phase-initiation-gate-source-audit-architecture-route-lock-v1.md)
 adopts D65.01–D65.12 as this task's new decisions. It records all 30 gate answers,
 12 question groups, 8 cross-cutting checks, three exclusive ledgers, every
@@ -1016,7 +1018,7 @@ from the independent request manifest. The portable adapter is the only new
 registered capability consumer. Old runtime products remain independently usable.
 That publication left Slice15 next; N16 stayed unchanged.
 
-Phase 65 Slice15 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI
+Phase 65 Slice15 is `COMPLETED / PUBLISHED` following successful natural exact-head CI
 on its ordinary commit. Its [whole selected-plan conformance contract](spec/phase65-slice15-whole-selected-plan-real-source-differential-conformance-v1.md)
 extends the existing probe to 37 real-source positive cases, independent field/link
 oracles, semantic/planning negatives, compact mutations and raw-input rejections.
@@ -1029,5 +1031,18 @@ their bytes. Actual supported/available interpreters share one invocation-local
 acquisition store across the expanded reader and complete Slice14 controls.
 Final checkout, relocated and installed observations use the frozen repaired candidate.
 No database execution, source authenticity, redaction, target realization or
-fulfilled obligations is claimed. Phase65 stays `ACTIVE`;
-Slice16 is `NEXT / NOT IMPLEMENTED`; N16 is unchanged.
+fulfilled obligations is claimed. That publication left Slice16 next; N16 stayed unchanged.
+
+Phase65 and Slices1–16 are `COMPLETED / PUBLISHED` only upon successful natural
+exact-head CI on the ordinary Slice16 audit commit. Slice16 is `COMPLETED / PUBLISHED`
+only upon successful natural exact-head CI, with both Python jobs passing
+authoritative/generated/golden/package checks. Its [completion audit and Phase66 handoff](spec/phase65-completion-audit-phase66-handoff-v1.md)
+closes P01–P10 within the explicitly approved support domain, with
+Phase65 self-owned-open = 0. It records the exact publication and repair history,
+current private consumer APIs, retained limitations and established later owners.
+Static traceability supports the audit; existing behavior tests supply runtime evidence.
+Single portable-document limits remain separate from aggregate corpus measurements.
+Legacy SQL generation remains available; the new ProjectSQLPlan pipeline does not
+deliver dialect SQL AST/text, executable portable import or runtime fulfillment.
+Phase66 is `NEXT / NOT STARTED`; fresh initiation and route approval remain pending.
+No Phase66 Slice implementation is authorized. N16 is unchanged.
