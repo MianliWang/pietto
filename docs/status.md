@@ -64,9 +64,10 @@ documentation does not supersede that evidence.
 | Phase 65 Slice 11 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 12 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 13 | `COMPLETED / PUBLISHED` |
-| Phase 65 Slice 14 | `NEXT / NOT IMPLEMENTED` |
-| Phase 65 Slices 15–16 | `NOT IMPLEMENTED` |
-| Next | `Phase 65 Slice 14 — Portable boundary and minimum real process/acquisition integration` |
+| Phase 65 Slice 14 | `COMPLETED / PUBLISHED` |
+| Phase 65 Slice 15 | `NEXT / NOT IMPLEMENTED` |
+| Phase 65 Slice 16 | `NOT IMPLEMENTED` |
+| Next | `Phase 65 Slice 15 — Full selected-plan real-source and differential conformance` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -999,5 +1000,19 @@ Independent verification reuses retained static inventories without provider
 reacquisition, profile recomposition, semantic reconstruction or SQL emission.
 Two exact private consumers are registered in existing privacy guards; public
 exports, dynamic-import detection and all other consumer boundaries remain intact.
-Phase65 stays `ACTIVE`; Slice14 is `NEXT / NOT IMPLEMENTED`;
-Slices 15–16 are `NOT IMPLEMENTED`; N16 is unchanged.
+That publication left Slice14 next; N16 stayed unchanged.
+
+Phase 65 Slice 14 is `COMPLETED / PUBLISHED` only upon successful natural
+exact-head CI on its ordinary commit. Its [portable boundary contract](spec/phase65-slice14-portable-boundary-minimal-process-integration-v1.md)
+adds a distinct private typed document, original-object correspondence and
+independent pure decoding. Complete plan, requirement and source-map observations
+remain separate from an explicitly supplied target assessment. Pure consistency
+does not authenticate runtime roots or certify database support or execution.
+
+The five-source phase65 probe uses the existing seed/relocation/installed matrix,
+one standalone/batch renderer and import origins from the observation-producing
+child. Historical 62/74 request domains remain unchanged; current totals derive
+from the independent request manifest. The portable adapter is the only new
+registered capability consumer. Old runtime products remain independently usable.
+Phase65 stays `ACTIVE`; Slice15 is `NEXT / NOT IMPLEMENTED`;
+Slice16 is `NOT IMPLEMENTED`; N16 is unchanged.

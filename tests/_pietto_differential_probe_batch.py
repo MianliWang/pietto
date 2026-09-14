@@ -26,6 +26,7 @@ FAMILY_MODULES: dict[str, str] = {
     "phase62": "_pietto_phase62_join_differential_probe",
     "phase63": "_pietto_phase63_query_block_ir_differential_probe",
     "phase64": "_pietto_phase64_flat_ir_differential_probe",
+    "phase65": "_pietto_phase65_sql_plan_differential_probe",
 }
 FAMILY_AMBIENT: dict[str, str] = {
     "phase58": "PIETTO_SLICE16_IRRELEVANT",
@@ -35,7 +36,13 @@ FAMILY_AMBIENT: dict[str, str] = {
     "phase62": "PIETTO_SLICE15_IRRELEVANT",
     "phase63": "PIETTO_PHASE63_SLICE15_AMBIENT",
     "phase64": "PIETTO_PHASE64_SLICE10_AMBIENT",
+    "phase65": "PIETTO_PHASE65_SLICE14_AMBIENT",
 }
+PHASE65_MODULES = (
+    "pietto._project.project_sql_plan_portable",
+    "pietto._project.project_sql_plan_pure_boundary",
+    "pietto._project.project_sql_plan_portable_schema",
+)
 # Only these families reach the CLI through `_run_cli_pair`, so only these may
 # be served by one explicit CLI worker session.
 CLI_SESSION_FAMILIES: frozenset[str] = frozenset({"phase58", "phase59", "phase60"})
@@ -118,13 +125,25 @@ def run(manifest: dict[str, object]) -> dict[str, object]:
 
     if len(results) != len(requests):
         raise AssertionError("Batch request keys must be unique.")
-    return {
+    payload: dict[str, object] = {
         "results": results,
         "python_version": list(sys.version_info[:2]),
         "hash_seed": os.environ.get("PYTHONHASHSEED"),
         "import_origin": _import_origin(),
         "executable": sys.executable,
     }
+    if "phase65" in families:
+        origins = {}
+        for name in PHASE65_MODULES:
+            module = sys.modules.get(name)
+            origin = None if module is None else getattr(module, "__file__", None)
+            if type(origin) is not str:
+                raise AssertionError(
+                    "Phase65 observation omitted a required import origin."
+                )
+            origins[name] = str(Path(origin).resolve())
+        payload["module_import_origins"] = origins
+    return payload
 
 
 def main(argv: list[str] | None = None) -> int:

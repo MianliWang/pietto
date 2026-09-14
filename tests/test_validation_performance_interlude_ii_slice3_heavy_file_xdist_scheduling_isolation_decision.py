@@ -10,6 +10,9 @@ from typing import Any, cast
 
 import _pietto_differential_process_acquisition as acquisition
 import _pietto_differential_probe_batch as batch
+from test_validation_performance_interlude_ii_slice2_differential_probe_process_acquisition_optimization import (
+    expected_request_manifest,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -225,12 +228,21 @@ def test_acquisition_invariants_hold_under_the_candidate_scheduler() -> None:
     assert "no cross-run result reuse and no persistent cache exists" in invariants
     assert "not acquisition locks" in invariants
 
-    # The published Slice-2 acquisition plan is closed authority here.
+    # Historical six/seven-family evidence and current requests are separate.
     two_interpreters = {(3, 13): "python3.13", (3, 12): "python3.12"}
     plan = acquisition.cell_plan(two_interpreters)
-    assert len(plan) == 16
-    assert sum(len(requests) for requests in plan.values()) == 74
-    assert sum(r.family != "phase64" for rs in plan.values() for r in rs) == 62
+    expected = expected_request_manifest()
+    historical = ("phase58", "phase59", "phase60", "phase61", "phase62", "phase63")
+    previous = (*historical, "phase64")
+    actual = tuple(
+        (r.family, r.key, r.cell.version, r.cell.seed, r.cell.mode, r.ambient)
+        for r in acquisition.all_requests(two_interpreters)
+    )
+    assert actual == expected
+    assert len(plan) == len({row[2:5] for row in expected})
+    assert sum(len(requests) for requests in plan.values()) == len(expected)
+    assert sum(row[0] in previous for row in actual) == 74
+    assert sum(row[0] in historical for row in actual) == 62
     assert acquisition.FAMILY_ORDER == tuple(batch.FAMILY_MODULES)
 
     # The recorded per-mode origin counts must partition the plan exactly. The
@@ -413,4 +425,5 @@ def test_isolation_audit_and_measurement_hygiene_are_documented() -> None:
         "from typing import Any, cast",
         "import _pietto_differential_process_acquisition as acquisition",
         "import _pietto_differential_probe_batch as batch",
+        "from test_validation_performance_interlude_ii_slice2_differential_probe_process_acquisition_optimization import (",
     )

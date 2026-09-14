@@ -8,7 +8,7 @@ needed.
 
 Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. The current owner is Phase 65, which is
-`ACTIVE`; Slices 1–13 are `COMPLETED / PUBLISHED` and Slice 14 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
+`ACTIVE`; Slices 1–14 are `COMPLETED / PUBLISHED` and Slice 15 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
 remains conditional on its Slice 11 natural exact-head CI; the
 Validation/Test Performance Optimization Interlude II is `COMPLETED`. Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -2298,10 +2298,10 @@ No Phase-65 syntax, carrier, algorithm or numbered route is frozen here.
 
 ## Phase 65 route
 
-Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slices 1–12 are
-`COMPLETED / PUBLISHED`, and Slice 13 is `COMPLETED / PUBLISHED` only upon
-successful natural exact-head CI on its ordinary commit. Slice 14 is
-`NEXT / NOT IMPLEMENTED`; Slices 15–16 are `NOT IMPLEMENTED`.
+Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slices 1–13 are
+`COMPLETED / PUBLISHED`, and Slice 14 is `COMPLETED / PUBLISHED` only upon
+successful natural exact-head CI on its ordinary commit. Slice 15 is
+`NEXT / NOT IMPLEMENTED`; Slice16 is `NOT IMPLEMENTED`.
 The selected route has exactly 16 deliveries. Its controlling
 [reviewed v2 phase gate](spec/phase65-project-sql-plan-product-phase-initiation-gate-source-audit-architecture-route-lock-v1.md)
 is documentation/static assurance only; it does not authorize later implementation.
@@ -2345,6 +2345,17 @@ Every operator's first implementing Slice includes its own local demands/origins
 verifier and runtime view. Slice11/12 integrate reports/queries, not first capture.
 Slice14 closes minimum real portable/probe/batch/acquisition/standalone/relocation/
 installed/direct-reader consumers; Slice15 broadens their corpus. Slice16 is audit-only.
+
+The [Slice14 portable boundary contract](spec/phase65-slice14-portable-boundary-minimal-process-integration-v1.md)
+delivers original-object correspondence and independent pure decoding for complete
+plan, requirement and source-map observations, with explicitly supplied target
+evidence. Pure consistency does not authenticate runtime roots or certify database
+support or execution. Its five-source phase65 probe uses the existing
+seed/relocation/installed matrix, one standalone/batch renderer and import origins
+from the observation-producing child. Historical 62/74 request domains remain
+unchanged; current totals derive from the independent request manifest.
+The portable adapter is the only new registered capability consumer.
+Slice15 is `NEXT / NOT IMPLEMENTED`; Slice16 is `NOT IMPLEMENTED`.
 N15 would merge demand reporting with target assessment after source mapping;
 N14 would also merge portable integration and full conformance. N16 keeps those
 failure causes separate at the cost of two publications, with no measured speed claim.

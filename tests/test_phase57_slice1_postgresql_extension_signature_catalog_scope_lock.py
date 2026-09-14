@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import fields
+import ast
 import hashlib
 import inspect
 from pathlib import Path
+import sys
+
+import pytest
 
 import _pietto_capability_differential_vectors as vectors
 import pietto
@@ -328,6 +332,11 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
         for evidence in fact.evidence
     )
 
+    # Read-only observation vocabulary does not permit database operations.
+    portable_observation_paths = {
+        source_root / "_project/project_sql_plan_portable.py",
+        source_root / "_project/project_sql_plan_portable_schema.py",
+    }
     production_source = "\n".join(
         _read(path)
         for path in sorted(source_root.rglob("*.py"))
@@ -345,7 +354,31 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
         "postgis",
         "timescaledb",
     ):
-        assert forbidden not in production_source.lower()
+        inspected_source = production_source
+        if forbidden == "extension_catalog":
+            inspected_source = "\n".join(
+                _read(path)
+                for path in sorted(source_root.rglob("*.py"))
+                if path not in catalog_paths | portable_observation_paths
+            )
+        assert forbidden not in inspected_source.lower()
+    for path in portable_observation_paths:
+        identifiers = set()
+        for node in ast.walk(ast.parse(_read(path))):
+            if isinstance(node, ast.Name):
+                identifiers.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                identifiers.add(node.attr)
+            elif isinstance(node, ast.alias):
+                identifiers.add(node.name.rsplit(".", 1)[-1])
+        assert identifiers.isdisjoint(
+            {
+                "construct_extension_catalog",
+                "select_extension_catalog",
+                "extension_signature_provider_authority",
+                "canonical_capability_provider_inputs",
+            }
+        )
     catalog_source = _read(catalog_path).lower()
     for forbidden in (
         "capabilityfact",
@@ -381,6 +414,71 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
         assert "server installation" not in source.lower()
         assert "database connection" not in source.lower()
     assert 'version = "0.1.0"' in _read(REPO_ROOT / "pyproject.toml")
+
+
+@pytest.mark.parametrize(
+    "owner",
+    ("project_sql_plan_portable.py", "project_sql_plan_portable_schema.py"),
+)
+@pytest.mark.parametrize(
+    "forbidden",
+    ("create extension", "pg_extension", "server_version", "psycopg", "asyncpg"),
+)
+def test_portable_metadata_permission_preserves_behavior_bans(
+    monkeypatch, owner: str, forbidden: str
+) -> None:
+    test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+    path = REPO_ROOT / "src/pietto/_project" / owner
+    original_read = _read
+
+    def injected_read(candidate: Path) -> str:
+        source = original_read(candidate)
+        return source + "\n" + forbidden if candidate == path else source
+
+    monkeypatch.setattr(sys.modules[__name__], "_read", injected_read)
+    with pytest.raises(AssertionError):
+        test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+
+
+def test_catalog_metadata_permission_does_not_cover_other_observation_owners(
+    monkeypatch,
+) -> None:
+    test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+    path = REPO_ROOT / "src/pietto/_project/project_sql_plan_pure_boundary.py"
+    original_read = _read
+
+    def injected_read(candidate: Path) -> str:
+        source = original_read(candidate)
+        return source + "\nextension_catalog" if candidate == path else source
+
+    monkeypatch.setattr(sys.modules[__name__], "_read", injected_read)
+    with pytest.raises(AssertionError):
+        test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "construct_extension_catalog (None)",
+        "catalogs.select_extension_catalog(None)",
+        "extension_signature_provider_authority(None)",
+        "from pietto.semantic.capability_providers import canonical_capability_provider_inputs as acquire",
+    ),
+)
+def test_catalog_metadata_permission_rejects_operational_references(
+    monkeypatch, source: str
+) -> None:
+    test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+    path = REPO_ROOT / "src/pietto/_project/project_sql_plan_portable.py"
+    original_read = _read
+
+    def injected_read(candidate: Path) -> str:
+        content = original_read(candidate)
+        return content + "\n" + source if candidate == path else content
+
+    monkeypatch.setattr(sys.modules[__name__], "_read", injected_read)
+    with pytest.raises(AssertionError):
+        test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
 
 
 def test_exact_target_release_dimensions_and_authority_boundaries_are_locked() -> None:

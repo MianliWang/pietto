@@ -1119,6 +1119,15 @@ class ProjectSQLSourceMapInspection:
     verification: ProjectSQLSourceMapVerification
     source_map: ProjectSQLSourceMap = field(init=False)
 
+    def portable(self):
+        from pietto._project.project_sql_plan_portable import (
+            build_project_sql_plan_portable,
+        )
+
+        return build_project_sql_plan_portable(
+            self.verification.source_verification, source_map=self.verification
+        )
+
     def __post_init__(self) -> None:
         checked = self.verification
         try:

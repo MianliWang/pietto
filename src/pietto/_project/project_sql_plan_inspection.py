@@ -65,6 +65,13 @@ class ProjectSQLPlanInspection:
         ProjectSQLPlanRef, ProjectSQLPort | results.ProjectSQLResultPort
     ] = field(init=False, repr=False)
 
+    def portable(self, *, assessment=None):
+        from pietto._project.project_sql_plan_portable import (
+            build_project_sql_plan_portable,
+        )
+
+        return build_project_sql_plan_portable(self.verification, assessment=assessment)
+
     def requirements(self) -> requirements.ProjectSQLRequirementInspection:
         report = requirements.build_project_sql_requirement_report(self.verification)
         checked = requirements.verify_project_sql_requirement_report(

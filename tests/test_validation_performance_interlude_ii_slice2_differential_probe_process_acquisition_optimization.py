@@ -22,6 +22,7 @@ import _pietto_phase61_project_ir_differential_probe as phase61_probe
 import _pietto_phase62_join_differential_probe as phase62_probe
 import _pietto_phase63_query_block_ir_differential_probe as phase63_probe
 import _pietto_phase64_flat_ir_differential_probe as phase64_probe
+import _pietto_phase65_sql_plan_differential_probe as phase65_probe
 import _pietto_project_explain_differential_probe as phase58_probe
 import _pietto_project_explain_scenarios as scenarios
 
@@ -41,6 +42,7 @@ DIFFERENTIAL_TESTS = (
     "tests/test_phase62_slice15_real_authored_e2e_python_differential_metamorphic_join_assurance.py",
     "tests/test_phase63_slice15_inspection_pure_boundary_real_e2e_differential_metamorphic_assurance.py",
     "tests/test_phase64_slice10_ir_observation_and_differential.py",
+    "tests/test_phase65_slice14_portable_boundary_minimal_process_integration.py",
 )
 PROBES = {
     "phase58": phase58_probe,
@@ -50,19 +52,97 @@ PROBES = {
     "phase62": phase62_probe,
     "phase63": phase63_probe,
     "phase64": phase64_probe,
+    "phase65": phase65_probe,
 }
 TWO_INTERPRETERS = {(3, 13): "python3.13", (3, 12): "python3.12"}
+HISTORICAL_FAMILIES = ("phase58", "phase59", "phase60", "phase61", "phase62", "phase63")
+PREVIOUS_FAMILIES = (*HISTORICAL_FAMILIES, "phase64")
+CURRENT_FAMILIES = (*PREVIOUS_FAMILIES, "phase65")
+EXPECTED_SUPPORT_MANIFEST = (
+    "_pietto_differential_probe_batch.py",
+    "_pietto_project_explain_scenarios.py",
+    "_pietto_project_explain_differential_probe.py",
+    "_pietto_phase59_graph_differential_probe.py",
+    "_pietto_phase60_window_differential_probe.py",
+    "_pietto_phase61_project_ir_differential_probe.py",
+    "_pietto_phase62_join_differential_probe.py",
+    "_pietto_phase63_query_block_ir_differential_probe.py",
+    "_pietto_phase64_flat_ir_differential_probe.py",
+    "_pietto_phase65_sql_plan_differential_probe.py",
+)
+
+
+def expected_request_manifest():
+    """Independent keys, environments and ordering; no live registry reads."""
+    current = tuple(sys.version_info[:2])
+    versions = ((3, 13), (3, 12))
+    seeds = ("0", "1", "7", "4294967295")
+    rows = []
+    for family in CURRENT_FAMILIES:
+        if family in ("phase58", "phase59", "phase60", "phase61"):
+            for seed in seeds:
+                rows.append(
+                    (family, f"seed:{seed}", current, seed, "checkout", f"seed-{seed}")
+                )
+            for version in versions:
+                if version != current:
+                    key = f"python{version[0]}.{version[1]}"
+                    rows.append((family, key, version, "0", "checkout", key))
+            rows.append(
+                (
+                    family,
+                    "project-relocated",
+                    current,
+                    "0",
+                    "checkout",
+                    "project-relocated",
+                )
+            )
+            rows.append(
+                (
+                    family,
+                    "source-relocated",
+                    current,
+                    "0",
+                    "relocated",
+                    "source-relocated",
+                )
+            )
+            if family != "phase58":
+                for version, seed in (((3, 12), "1"), ((3, 13), "4294967295")):
+                    key = (
+                        f"combined:python{version[0]}.{version[1]}:seed{seed}:relocated"
+                    )
+                    rows.append((family, key, version, seed, "relocated", key))
+            rows.append(
+                (
+                    family,
+                    "installed-wheel",
+                    current,
+                    "0",
+                    "installed",
+                    "installed-wheel",
+                )
+            )
+        else:
+            for version in versions:
+                for seed in seeds:
+                    key = f"source:python{version[0]}.{version[1]}:seed:{seed}"
+                    rows.append((family, key, version, seed, "checkout", key))
+            for mode in ("relocated", "installed"):
+                for version in versions:
+                    key = f"{mode}:python{version[0]}.{version[1]}:seed:7"
+                    rows.append((family, key, version, "7", mode, key))
+    return tuple(rows)
+
+
+EXPECTED_REQUESTS = expected_request_manifest()
 EXPECTED_FAMILY_REQUEST_COUNTS = {
-    "phase58": 8,
-    "phase59": 10,
-    "phase60": 10,
-    "phase61": 10,
-    "phase62": 12,
-    "phase63": 12,
-    "phase64": 12,
+    family: sum(row[0] == family for row in EXPECTED_REQUESTS)
+    for family in CURRENT_FAMILIES
 }
-EXPECTED_CELL_COUNT = 16
-EXPECTED_LOGICAL_REQUESTS = 74
+EXPECTED_CELL_COUNT = len({row[2:5] for row in EXPECTED_REQUESTS})
+EXPECTED_LOGICAL_REQUESTS = len(EXPECTED_REQUESTS)
 EXPECTED_GATES = (
     ("lockfile", ("uv", "lock", "--check")),
     ("format", ("uv", "run", "ruff", "format", "--check", ".")),
@@ -214,14 +294,29 @@ def test_process_cells_never_merge_incompatible_environment_facts() -> None:
     shared = [cell for cell, requests in plan.items() if len(requests) > 1]
     assert len(shared) == EXPECTED_CELL_COUNT
     largest = max(plan.items(), key=lambda item: len(item[1]))
-    assert len(largest[1]) == 11
+    expected_cell_sizes = {}
+    for expected in EXPECTED_REQUESTS:
+        coordinates = expected[2:5]
+        expected_cell_sizes[coordinates] = expected_cell_sizes.get(coordinates, 0) + 1
+    assert len(largest[1]) == max(expected_cell_sizes.values())
     assert {item.family for item in largest[1]} == set(acquisition.FAMILY_ORDER)
 
 
 def test_logical_request_matrices_and_witness_cells_are_unchanged() -> None:
     assert acquisition.SEEDS == ("0", "1", "7", "4294967295")
     assert acquisition.SUPPORTED_INTERPRETERS == ((3, 12), (3, 13))
-    assert acquisition.FAMILY_ORDER == tuple(PROBES)
+    assert acquisition.FAMILY_ORDER == tuple(PROBES) == CURRENT_FAMILIES
+    actual = tuple(
+        (r.family, r.key, r.cell.version, r.cell.seed, r.cell.mode, r.ambient)
+        for r in acquisition.all_requests(TWO_INTERPRETERS)
+    )
+    assert actual == EXPECTED_REQUESTS
+    assert sum(row[0] in HISTORICAL_FAMILIES for row in actual) == 62
+    assert sum(row[0] in PREVIOUS_FAMILIES for row in actual) == 74
+    assert acquisition.RELOCATION_SUPPORT_MANIFEST == EXPECTED_SUPPORT_MANIFEST
+    assert tuple(batch.FAMILY_MODULES.values()) == tuple(
+        name.removesuffix(".py") for name in EXPECTED_SUPPORT_MANIFEST[2:]
+    )
     assert set(batch.FAMILY_MODULES) == set(PROBES)
     assert batch.CLI_SESSION_FAMILIES == frozenset({"phase58", "phase59", "phase60"})
 
