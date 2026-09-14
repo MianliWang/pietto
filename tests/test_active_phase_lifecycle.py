@@ -309,11 +309,11 @@ EXPECTED_STATUS = (
     ("Phase 65 Slice 12", "`COMPLETED / PUBLISHED`"),
     ("Phase 65 Slice 13", "`COMPLETED / PUBLISHED`"),
     ("Phase 65 Slice 14", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 15", "`NEXT / NOT IMPLEMENTED`"),
-    ("Phase 65 Slice 16", "`NOT IMPLEMENTED`"),
+    ("Phase 65 Slice 15", "`COMPLETED / PUBLISHED`"),
+    ("Phase 65 Slice 16", "`NEXT / NOT IMPLEMENTED`"),
     (
         "Next",
-        "`Phase 65 Slice 15 — Full selected-plan real-source and differential conformance`",
+        "`Phase 65 Slice 16 — Completion audit and Phase66 handoff`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -4953,7 +4953,7 @@ def test_phase65_route_and_lifecycle_are_conditional() -> None:
     status = " ".join(_read(STATUS).split())
     normalized = " ".join(roadmap.split())
     for phrase in (
-        "Slice16 is `NOT IMPLEMENTED`",
+        "Slice16 is `NEXT / NOT IMPLEMENTED`",
         "D65.01–D65.12",
         "only upon successful natural exact-head CI",
     ):
@@ -5023,7 +5023,10 @@ def test_phase65_slice4_current_stage_boundary() -> None:
     ):
         assert phrase in status and phrase in roadmap
     assert "never enter selected visible exports" in status
-    assert "Slice15 is `NEXT / NOT IMPLEMENTED`" in status
+    assert (
+        "Slice15 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI"
+        in status
+    )
 
 
 def test_phase65_slice5_current_matching_and_obligation_boundary() -> None:
@@ -5043,7 +5046,7 @@ def test_phase65_slice5_current_matching_and_obligation_boundary() -> None:
     ):
         assert phrase in status and phrase in roadmap
     assert "INNER/LEFT/CROSS/RIGHT/FULL/SEMI/ANTI" in status
-    assert "Slice16 is `NOT IMPLEMENTED`" in status
+    assert "Slice16 is `NEXT / NOT IMPLEMENTED`" in status
 
 
 def test_phase65_slice6_current_aggregate_boundary() -> None:
@@ -5201,7 +5204,27 @@ def test_phase65_slice14_current_portable_boundary() -> None:
         "Historical 62/74 request domains remain unchanged",
         "current totals derive from the independent request manifest",
         "The portable adapter is the only new registered capability consumer",
-        "Slice15 is `NEXT / NOT IMPLEMENTED`",
-        "Slice16 is `NOT IMPLEMENTED`",
+        "Slice15 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI",
+        "Slice16 is `NEXT / NOT IMPLEMENTED`",
+    ):
+        assert phrase in status and phrase in roadmap
+
+
+def test_phase65_slice15_current_conformance_and_bounded_repairs() -> None:
+    status = " ".join(_read(STATUS).split())
+    roadmap = " ".join(_section(_read(ROADMAP), "Phase 65 route").split())
+    target = "spec/phase65-slice15-whole-selected-plan-real-source-differential-conformance-v1.md"
+    assert f"]({target})" in status and f"]({target})" in roadmap
+    assert (STATUS.parent / target).is_file()
+    for phrase in (
+        "37 real-source positive cases",
+        "independent field/link oracles",
+        "F65S15-01 closes literal ancestry, context and report-local link consistency",
+        "F65S15-02 transports exact provided-ordering evidence",
+        "bounded production corrections in three portable owners",
+        "original five canonical documents and seven historical family streams",
+        "one invocation-local acquisition store",
+        "frozen repaired candidate",
+        "Slice16 is `NEXT / NOT IMPLEMENTED`; N16 is unchanged",
     ):
         assert phrase in status and phrase in roadmap

@@ -281,6 +281,170 @@ def _acyclic(edges):
     _require(visited == len(incoming), Status.INVALID_RELATION)
 
 
+def _provided_ordering_relationships(
+    plan, fields, declared, kinds, primary, source_map
+):
+    """Check provided ORDER authority in ordinary and rebound property routes."""
+    kind = "project_ir_provided_relation_ordering"
+    carriers = set(kinds.get(kind, ()))
+    linked = set()
+
+    def require(condition):
+        _require(condition, Status.INVALID_RELATION)
+
+    def owner_key(owner):
+        value = fields[owner]
+        return value["module_position"], value["declaration_position"]
+
+    def output_owner(output):
+        require(declared[output].kind == "project_ir_relation_row_output")
+        anchor = fields[fields[output]["occurrence"]]["anchor"]
+        require(declared[anchor].kind == "project_ir_relation_anchor")
+        return owner_key(fields[anchor]["identity"])
+
+    orders = {}
+    for ref in plan["orders"]:
+        order = fields[ref]
+        source = fields[order["source"]]
+        orders.setdefault(source["owner"], []).append(ref)
+    authored = {}
+    for ref in source_map["sites"]:
+        site = fields[ref]
+        authored.setdefault(site["occurrence"], []).append(site)
+
+    for ref in carriers:
+        provided = fields[ref]
+        owner = fields[provided["evidence"]]["owner"]
+        require(output_owner(provided["output"]) == owner_key(owner))
+        require(
+            declared[fields[owner]["definition"]].kind in ("table_def", "query_def")
+        )
+        matches = orders.get(owner, ())
+        require(len(matches) == 1)
+        order = fields[matches[0]]
+        source = fields[order["source"]]
+        clause = fields[source["clause"]]
+        require(bool(provided["items"]) and provided["items"] == clause["items"])
+        require(
+            any(
+                site["declaration"] == owner
+                and site["container"] == fields[owner]["definition"]
+                for site in authored.get(source["clause"], ())
+            )
+        )
+        require(tuple(fields[r]["item"] for r in source["items"]) == provided["items"])
+        require(
+            tuple(int(fields[r]["source_ordinal"]) for r in source["items"])
+            == tuple(range(len(provided["items"])))
+        )
+        require(
+            tuple(fields[primary[r]]["source"] for r in order["items"])
+            == source["items"]
+        )
+        for item_ref in source["items"]:
+            item = fields[item_ref]
+            original = fields[item["item"]]
+            require(item["owner"] == owner and item["clause"] == source["clause"])
+            require(item["expression"] == original["expression"])
+            require(
+                item["direction"]
+                == ("asc" if original["direction"] is None else original["direction"])
+            )
+        boundary = fields[primary[order["boundary"]]]
+        require(boundary["kind"] == "relation_ordering")
+        require(
+            fields[fields[primary[boundary["definition"]]]["entry"]]["owner"] == owner
+        )
+
+    # An ordinary PropertyStage is the complete fragment inventory, shared by
+    # its ORDER and LIMIT boundaries. Row-shape order retains operator order;
+    # scalar shape records between row groups do not create new row stages.
+    stage_users = {}
+    result_users = {}
+    preserved = {"row_filter", "result_filter", "limit"}
+    operator_ordering = {}
+    for ref in plan["result_boundaries"]:
+        boundary = fields[ref]
+        entry_ref = fields[primary[boundary["definition"]]]["entry"]
+        if declared[entry_ref].kind not in (
+            "project_ir_reused_effective_output",
+            "project_ir_rebound_existing_output",
+        ):
+            continue
+        entry = fields[entry_ref]
+        require(boundary["operator"] in entry["operators"])
+        operator = fields[boundary["operator"]]
+        require(operator["kind"] == boundary["kind"])
+        require(fields[operator["evidence"]]["owner"] == entry["owner"])
+        if entry_ref not in operator_ordering:
+            active = False
+            values = {}
+            for item_ref in entry["operators"]:
+                item = fields[item_ref]
+                active = item["kind"] == "relation_ordering" or (
+                    active and item["kind"] in preserved
+                )
+                values[item_ref] = active
+            operator_ordering[entry_ref] = values
+        properties = boundary["properties"]
+        if declared[properties].kind == "project_ir_property_stage":
+            stage_users.setdefault(properties, []).append(entry_ref)
+        else:
+            result_users.setdefault(properties, []).append((entry_ref, boundary))
+
+    for stage_ref in kinds.get("project_ir_property_stage", ()):
+        stage = fields[stage_ref]
+        members = tuple(r for r in stage["provided"] if r in carriers)
+        entries = set(stage_users.get(stage_ref, ()))
+        if not members and not entries:
+            continue
+        require(len(entries) == 1)
+        entry_ref = next(iter(entries))
+        entry = fields[entry_ref]
+        rows = tuple(
+            fields[r]["output"]
+            for r in stage["provided"]
+            if declared[r].kind == "project_ir_provided_output_shape"
+            and declared[fields[r]["output"]].kind == "project_ir_relation_row_output"
+        )
+        require(len(rows) == len(entry["operators"]) and len(set(rows)) == len(rows))
+        by_output = {}
+        for member in members:
+            by_output.setdefault(fields[member]["output"], []).append(member)
+        expected = []
+        for operator_ref, output in zip(entry["operators"], rows, strict=True):
+            require(output_owner(output) == owner_key(entry["owner"]))
+            matches = by_output.get(output, ())
+            if operator_ordering[entry_ref][operator_ref]:
+                require(len(matches) == 1)
+                require(
+                    fields[matches[0]]["evidence"] == fields[operator_ref]["evidence"]
+                )
+                expected.append(matches[0])
+            else:
+                require(not matches)
+        require(tuple(expected) == members)
+        linked.update(members)
+
+    for ref in kinds.get("project_ir_query_block_result_properties", ()):
+        properties = fields[ref]
+        member = properties["ordering"]
+        if member in carriers:
+            output = fields[properties["relational"]]["output"]
+            require(fields[member]["output"] == output)
+            require(fields[properties["effect"]]["output"] == output)
+        for entry_ref, boundary in result_users.get(ref, ()):
+            expected = operator_ordering[entry_ref][boundary["operator"]]
+            require((member in carriers) == expected)
+            if expected:
+                require(
+                    fields[member]["evidence"]
+                    == fields[boundary["operator"]]["evidence"]
+                )
+                linked.add(member)
+    require(linked == carriers)
+
+
 def _relationships(document, declared):
     """Check document claims, without compiler construction or source authority."""
     fields = {
@@ -790,6 +954,14 @@ def _relationships(document, declared):
         if declared[ref].kind == "project_sql_literal_demand"
     )
     require(tuple(fields[ref]["use"] for ref in literal_demands) == p["bind_uses"])
+    expression_sites = set(p["expression_sites"])
+    context_demands = {}
+    for ref in p["demands"]:
+        if declared[ref].kind == "project_sql_expression_demand":
+            demand = fields[ref]
+            key = (fields[demand["site"]]["ref"], demand["expression"])
+            context_demands.setdefault(key, []).append(ref)
+    literal_contexts = {}
     for ref in literal_demands:
         demand = fields[ref]
         require(
@@ -804,6 +976,122 @@ def _relationships(document, declared):
         )
         require(demand["value"] in envelope["values"])
         require(fields[demand["value"]]["slot"] == fields[demand["use"]]["slot"])
+        use = fields[demand["use"]]
+        slot = fields[use["slot"]]
+        position = fields[fields[slot["site"]]["position"]]
+        context = position["context"]
+        require(context in expression_sites)
+        site = fields[context]
+        require(
+            declared[context].kind
+            in (
+                "project_sql_expression_site",
+                "project_sql_joined_site",
+                "project_sql_match_site",
+            )
+        )
+        require(site["role"] in ("select", "let", "where", "match"))
+        require(
+            position["context_ref"] == site["ref"]
+            and position["owner"] == site["owner"]
+            and position["evidence"] == site["evidence"]
+            and position["role"] == ("on" if site["role"] == "match" else site["role"])
+        )
+        require(
+            fields[fields[primary[position["definition"]]]["entry"]]["owner"]
+            == site["owner"]
+            and fields[primary[site["block"]]]["definition"] == position["definition"]
+        )
+        require(demand["subject"] == use["ref"])
+        require(position["expression"] == use["expression"])
+        bound_expression = fields[primary[use["expression"]]]
+        require(
+            declared[primary[use["expression"]]].kind == "project_sql_bound_literal"
+            and bound_expression["site"] == context
+            and bound_expression["expression"] == position["literal"]
+            and bound_expression["use"] == demand["use"]
+            and bound_expression["value_type"] == position["value_type"]
+        )
+        current = fields[site["occurrence"]]["expression"]
+        contexts = []
+        # Follow only this recorded scalar path, never stage-port references or
+        # transitive producer uses. The context root also rejects shortened paths.
+        for step in (*position["ancestry"], (position["literal"], None)):
+            require(type(step) is tuple and len(step) == 2)
+            parent, ordinal = step
+            require(parent == current)
+            matches = context_demands.get((site["ref"], parent), ())
+            require(len(matches) == 1)
+            context_demand = fields[matches[0]]
+            expression_ref = context_demand["subject"]
+            expression = fields[primary[expression_ref]]
+            require(
+                context_demand["site"] == expression["site"] == context
+                and context_demand["expression"] == expression["expression"] == parent
+                and context_demand["value_type"] == expression["value_type"]
+            )
+            contexts.append(matches[0])
+            if ordinal is None:
+                require(expression_ref == use["expression"])
+            else:
+                require(type(ordinal) is str)
+                require(declared[primary[expression_ref]].kind in expression_roles)
+                children = expression_edges[expression_ref]
+                child_position = int(cast(str, ordinal))
+                require(0 <= child_position < len(children))
+                child = fields[primary[children[child_position]]]
+                require(child["site"] == context)
+                current = child["expression"]
+        require(demand["contexts"] == tuple(contexts))
+        literal_contexts[ref] = tuple(contexts)
+
+    # Each report has its own entry/link identities, even when an assessment
+    # carries a second report of the same plan. Full positions include proof links.
+    for report_ref in kinds.get("project_sql_requirement_report", ()):
+        local = fields[report_ref]
+        require(local["plan"] == fields[root]["plan"])
+        require(tuple(fields[r]["demand"] for r in local["entries"]) == p["demands"])
+        entries = {}
+        join_entries = {}
+        for ordinal, entry_ref in enumerate(local["entries"]):
+            entry = fields[entry_ref]
+            require(int(entry["position"]) == ordinal)
+            require(entry["ref"] == fields[entry["demand"]]["ref"])
+            require(entry["demand"] not in entries)
+            entries[entry["demand"]] = entry_ref
+            if declared[entry["demand"]].kind == "project_sql_join_demand":
+                require(entry["subject"] not in join_entries)
+                join_entries[entry["subject"]] = entry_ref
+        expected_links = []
+        for demand_ref, entry_ref in entries.items():
+            if demand_ref in literal_contexts:
+                expected_links.extend(
+                    ("literal_ancestor_context", entry_ref, entries[context_ref])
+                    for context_ref in literal_contexts[demand_ref]
+                )
+            elif declared[demand_ref].kind == "project_sql_join_demand":
+                demand = fields[demand_ref]
+                if demand["kind"] in ("single_match", "proof_context"):
+                    proof_root = demand["kind"] == "single_match"
+                    witness = fields[demand["witness"]]
+                    for subject in witness["proofs" if proof_root else "children"]:
+                        require(subject in join_entries)
+                        expected_links.append(
+                            (
+                                "single_match_root_proof"
+                                if proof_root
+                                else "single_match_child_proof",
+                                entry_ref,
+                                join_entries[subject],
+                            )
+                        )
+        require(len(local["links"]) == len(expected_links))
+        for ordinal, (link_ref, expected) in enumerate(
+            zip(local["links"], expected_links, strict=True)
+        ):
+            link = fields[link_ref]
+            require(int(link["position"]) == ordinal)
+            require((link["kind"], link["source"], link["target"]) == expected)
 
     for ref in p["set_bodies"]:
         body = fields[ref]
@@ -938,6 +1226,7 @@ def _relationships(document, declared):
                 require(fields[primary[item["value"]]]["proof"] == determination[1])
             else:
                 require(set(determination[2]) <= set(determination[1]))
+    _provided_ordering_relationships(p, fields, declared, kinds, primary, source_map)
     for ref in p["result_limits"]:
         limit = fields[ref]
         require(

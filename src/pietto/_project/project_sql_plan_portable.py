@@ -914,6 +914,7 @@ _ADAPTERS: Mapping[type, str] = {
     project_relationships.ProjectRelationshipDeclarationOccurrence: "project_relationship_declaration_occurrence",
     project_ir_properties.ProjectIRPropertyStage: "project_ir_property_stage",
     project_ir_properties.ProjectIRProvidedCardinalityUpperBound: "project_ir_provided_cardinality_upper_bound",
+    project_ir_properties.ProjectIRProvidedRelationOrdering: "project_ir_provided_relation_ordering",
     project_ir_properties.ProjectIRProvidedOutputShape: "project_ir_provided_output_shape",
     project_ir_properties.ProjectIRProvidedBagMultiplicity: "project_ir_provided_bag_multiplicity",
     project_ir_properties.ProjectIRProvidedClosedBindings: "project_ir_provided_closed_bindings",

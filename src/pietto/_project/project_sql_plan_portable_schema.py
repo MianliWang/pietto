@@ -529,6 +529,7 @@ ANCHOR = Shape(
         "project_relationship_declaration_occurrence",
         "project_ir_property_stage",
         "project_ir_provided_cardinality_upper_bound",
+        "project_ir_provided_relation_ordering",
         "project_ir_provided_output_shape",
         "project_ir_provided_bag_multiplicity",
         "project_ir_provided_closed_bindings",
@@ -4193,7 +4194,13 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("multiplicity", enum("bag")),
                 FieldRule(
                     "ordering",
-                    union(union(ANCHOR, ref("project_relation_ordering")), optional),
+                    union(
+                        union(
+                            ref("project_ir_provided_relation_ordering"),
+                            ref("project_relation_ordering"),
+                        ),
+                        optional,
+                    ),
                 ),
                 FieldRule(
                     "cardinality",
@@ -8285,7 +8292,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                             ref("project_ir_provided_output_shape"),
                             ref("project_ir_provided_bag_multiplicity"),
                             ref("project_ir_provided_closed_bindings"),
-                            ANCHOR,
+                            ref("project_ir_provided_relation_ordering"),
                             ANCHOR,
                             ref("project_ir_provided_cardinality_upper_bound"),
                             ref("project_ir_provided_evaluation_policy"),
@@ -8295,6 +8302,14 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 ),
                 FieldRule("required", seq(ANCHOR)),
                 FieldRule("effects", seq(ref("project_ir_effect_evidence"))),
+            ),
+        ),
+        "project_ir_provided_relation_ordering": RecordRule(
+            "project_ir_provided_relation_ordering",
+            (
+                FieldRule("output", ref("project_ir_relation_row_output")),
+                FieldRule("evidence", ref("project_module_relation_semantic_facts")),
+                FieldRule("items", seq(ref("order_item"))),
             ),
         ),
         "project_ir_provided_cardinality_upper_bound": RecordRule(

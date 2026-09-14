@@ -65,9 +65,9 @@ documentation does not supersede that evidence.
 | Phase 65 Slice 12 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 13 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 14 | `COMPLETED / PUBLISHED` |
-| Phase 65 Slice 15 | `NEXT / NOT IMPLEMENTED` |
-| Phase 65 Slice 16 | `NOT IMPLEMENTED` |
-| Next | `Phase 65 Slice 15 — Full selected-plan real-source and differential conformance` |
+| Phase 65 Slice 15 | `COMPLETED / PUBLISHED` |
+| Phase 65 Slice 16 | `NEXT / NOT IMPLEMENTED` |
+| Next | `Phase 65 Slice 16 — Completion audit and Phase66 handoff` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -1009,10 +1009,25 @@ independent pure decoding. Complete plan, requirement and source-map observation
 remain separate from an explicitly supplied target assessment. Pure consistency
 does not authenticate runtime roots or certify database support or execution.
 
-The five-source phase65 probe uses the existing seed/relocation/installed matrix,
+The original five-source phase65 probe uses the existing seed/relocation/installed matrix,
 one standalone/batch renderer and import origins from the observation-producing
 child. Historical 62/74 request domains remain unchanged; current totals derive
 from the independent request manifest. The portable adapter is the only new
 registered capability consumer. Old runtime products remain independently usable.
-Phase65 stays `ACTIVE`; Slice15 is `NEXT / NOT IMPLEMENTED`;
-Slice16 is `NOT IMPLEMENTED`; N16 is unchanged.
+That publication left Slice15 next; N16 stayed unchanged.
+
+Phase 65 Slice15 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI
+on its ordinary commit. Its [whole selected-plan conformance contract](spec/phase65-slice15-whole-selected-plan-real-source-differential-conformance-v1.md)
+extends the existing probe to 37 real-source positive cases, independent field/link
+oracles, semantic/planning negatives, compact mutations and raw-input rejections.
+F65S15-01 closes literal ancestry, context and report-local link consistency.
+F65S15-02 transports exact provided-ordering evidence and checks its property-stage
+and ORDER/result relationships. These are bounded production corrections in three
+portable owners; other semantic and public contracts remain unchanged.
+The original five canonical documents and seven historical family streams retain
+their bytes. Actual supported/available interpreters share one invocation-local
+acquisition store across the expanded reader and complete Slice14 controls.
+Final checkout, relocated and installed observations use the frozen repaired candidate.
+No database execution, source authenticity, redaction, target realization or
+fulfilled obligations is claimed. Phase65 stays `ACTIVE`;
+Slice16 is `NEXT / NOT IMPLEMENTED`; N16 is unchanged.

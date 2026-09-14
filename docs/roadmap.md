@@ -2298,10 +2298,10 @@ No Phase-65 syntax, carrier, algorithm or numbered route is frozen here.
 
 ## Phase 65 route
 
-Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slices 1–13 are
-`COMPLETED / PUBLISHED`, and Slice 14 is `COMPLETED / PUBLISHED` only upon
-successful natural exact-head CI on its ordinary commit. Slice 15 is
-`NEXT / NOT IMPLEMENTED`; Slice16 is `NOT IMPLEMENTED`.
+Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slices 1–14 are
+`COMPLETED / PUBLISHED`, and Slice15 is `COMPLETED / PUBLISHED` only upon
+successful natural exact-head CI on its ordinary commit.
+Slice16 is `NEXT / NOT IMPLEMENTED`.
 The selected route has exactly 16 deliveries. Its controlling
 [reviewed v2 phase gate](spec/phase65-project-sql-plan-product-phase-initiation-gate-source-audit-architecture-route-lock-v1.md)
 is documentation/static assurance only; it does not authorize later implementation.
@@ -2355,7 +2355,22 @@ seed/relocation/installed matrix, one standalone/batch renderer and import origi
 from the observation-producing child. Historical 62/74 request domains remain
 unchanged; current totals derive from the independent request manifest.
 The portable adapter is the only new registered capability consumer.
-Slice15 is `NEXT / NOT IMPLEMENTED`; Slice16 is `NOT IMPLEMENTED`.
+That publication left Slice15 next.
+
+The [Slice15 whole selected-plan conformance contract](spec/phase65-slice15-whole-selected-plan-real-source-differential-conformance-v1.md)
+extends the existing probe to 37 real-source positive cases, independent field/link
+oracles, semantic/planning negatives, compact mutations and raw-input rejections.
+F65S15-01 closes literal ancestry, context and report-local link consistency.
+F65S15-02 transports exact provided-ordering evidence and checks its property-stage
+and ORDER/result relationships. These are bounded production corrections in three
+portable owners; other semantic and public contracts remain unchanged.
+The original five canonical documents and seven historical family streams retain
+their bytes. Actual supported/available interpreters share one invocation-local
+acquisition store across the expanded reader and complete Slice14 controls.
+Final checkout, relocated and installed observations use the frozen repaired candidate.
+No database execution, source authenticity, redaction, target realization or
+fulfilled obligations is claimed. Slice16 is `NEXT / NOT IMPLEMENTED`; N16 is unchanged.
+
 N15 would merge demand reporting with target assessment after source mapping;
 N14 would also merge portable integration and full conformance. N16 keeps those
 failure causes separate at the cost of two publications, with no measured speed claim.
@@ -2470,7 +2485,7 @@ Exact demand/aspect/query links retain all uses and the complete denominator.
 Independent verification uses retained inventories without provider reacquisition
 or profile recomposition. Two exact private consumers are registered in existing
 privacy guards; no public, dynamic-import or directory-wide exception is added.
-Slice14 owns Portable boundary and minimum real process/acquisition integration next.
+That publication left Slice14 next.
 
 This task newly maps open caller-rebindable query parameters to Phase70, public
 entrypoints to Phase69/82, and any selected-owner compilation amid project semantic

@@ -19,7 +19,6 @@ from _pietto_phase65_sql_plan_differential_probe import (
     construction,
     CORPUS,
     assessment,
-    observation,
     render,
 )
 
@@ -387,7 +386,22 @@ def _available_request_manifest(interpreters):
     current = (sys.version_info.major, sys.version_info.minor)
     assert current in interpreters
     assert set(interpreters) <= set(SUPPORTED_INTERPRETERS)
-    return tuple(row for row in expected_request_manifest() if row[2] in interpreters)
+    rows = [row for row in expected_request_manifest() if row[2] in interpreters]
+    expected = []
+    for family in dict.fromkeys(row[0] for row in rows):
+        family_rows = [row for row in rows if row[0] == family]
+        if family in ("phase62", "phase63", "phase64", "phase65"):
+            # The historical template fixes 3.13/3.12; matrix requests preserve
+            # the supplied available-interpreter order within each mode.
+            family_rows.sort(
+                key=lambda row: (
+                    ("checkout", "relocated", "installed").index(row[4]),
+                    tuple(interpreters).index(row[2]),
+                    SEEDS.index(row[3]),
+                )
+            )
+        expected.extend(family_rows)
+    return tuple(expected)
 
 
 def test_process_request_manifest_covers_single_and_both_interpreters():
@@ -397,6 +411,7 @@ def test_process_request_manifest_covers_single_and_both_interpreters():
     for interpreters in (
         {current: sys.executable},
         {(3, 13): "manifest-only-3.13", (3, 12): "manifest-only-3.12"},
+        {(3, 12): "manifest-only-3.12", (3, 13): "manifest-only-3.13"},
     ):
         expected = _available_request_manifest(interpreters)
         actual = tuple(
@@ -852,14 +867,20 @@ def test_group_window_qualify_and_explicit_target_vertical(tmp_path):
         )
 
 
-def test_five_source_observation_and_single_renderer(tmp_path):
-    result = observation(tmp_path / "probe")
+def test_source_observation_and_single_renderer(tmp_path, tmp_path_factory):
+    import _pietto_differential_process_acquisition as process
+
+    store = process.acquisition(tmp_path_factory)
+    key = f"source:python{sys.version_info.major}.{sys.version_info.minor}:seed:0"
+    captured = store.documents("phase65")[key]
+    result = json.loads(captured)
     cases = result["cases"]
     assert isinstance(cases, list)
     assert [r["case"] for r in cases] == [r[0] for r in CORPUS]
     framed = render(result, tmp_path)
     assert framed.endswith(b"\n") and not framed.endswith(b"\n\n")
     assert json.loads(framed) == result
+    assert framed == captured
 
 
 @pytest.mark.parametrize(
