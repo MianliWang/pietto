@@ -379,18 +379,44 @@ def test_raw_refs_and_typed_document_resources_are_bounded(tmp_path):
         pure.Inspection(pure.Outcome(pure.Status.INVALID_DOCUMENT))
 
 
+def _available_request_manifest(interpreters):
+    from test_validation_performance_interlude_ii_slice2_differential_probe_process_acquisition_optimization import (
+        expected_request_manifest,
+    )
+
+    current = (sys.version_info.major, sys.version_info.minor)
+    assert current in interpreters
+    assert set(interpreters) <= set(SUPPORTED_INTERPRETERS)
+    return tuple(row for row in expected_request_manifest() if row[2] in interpreters)
+
+
+def test_process_request_manifest_covers_single_and_both_interpreters():
+    import _pietto_differential_process_acquisition as process
+
+    current = (sys.version_info.major, sys.version_info.minor)
+    for interpreters in (
+        {current: sys.executable},
+        {(3, 13): "manifest-only-3.13", (3, 12): "manifest-only-3.12"},
+    ):
+        expected = _available_request_manifest(interpreters)
+        actual = tuple(
+            (r.family, r.key, r.cell.version, r.cell.seed, r.cell.mode, r.ambient)
+            for r in process.all_requests(interpreters)
+        )
+        assert actual == expected
+        assert {row[2] for row in expected} == set(interpreters)
+        assert {row[0] for row in expected} == set(process.FAMILY_ORDER)
+
+
 def test_registered_process_matrix_and_same_child_origins(
     tmp_path_factory, record_property
 ):
     import _pietto_differential_process_acquisition as process
     import _pietto_differential_probe_batch as batch
-    from test_validation_performance_interlude_ii_slice2_differential_probe_process_acquisition_optimization import (
-        expected_request_manifest,
-    )
 
     store = process.acquisition(tmp_path_factory)
-    assert set(store.interpreters) == set(SUPPORTED_INTERPRETERS)
-    expected = expected_request_manifest()
+    assert process.SUPPORTED_INTERPRETERS == SUPPORTED_INTERPRETERS
+    expected = _available_request_manifest(store.interpreters)
     families = tuple(dict.fromkeys(row[0] for row in expected))
     assert families == process.FAMILY_ORDER
     for family in families:
