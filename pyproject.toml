@@ -19,12 +19,17 @@ requires = ["uv_build>=0.12.5,<0.13.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
+target-conformance = [
+    "psycopg[binary]==3.3.5",
+    "mysql-connector-python==26.7.0",
+]
 dev = [
     "pyright>=1.1.411",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "pytest-xdist>=3.8.0",
     "ruff>=0.16.3",
+    { include-group = "target-conformance" },
 ]
 
 [tool.ruff]

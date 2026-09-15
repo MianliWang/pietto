@@ -69,8 +69,8 @@ documentation does not supersede that evidence.
 | Phase 65 Slice 16 | `COMPLETED / PUBLISHED` |
 | Phase 66 | `ACTIVE` |
 | Phase 66 Slice 1 | `COMPLETED / PUBLISHED` |
-| Phase 66 Slice 2 | `NEXT / NOT IMPLEMENTED` |
-| Phase 66 Slice 3 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 2 | `COMPLETED / PUBLISHED` |
+| Phase 66 Slice 3 | `NEXT / NOT IMPLEMENTED` |
 | Phase 66 Slice 4 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 5 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 6 | `NOT IMPLEMENTED` |
@@ -85,7 +85,7 @@ documentation does not supersede that evidence.
 | Phase 66 Slice 15 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 16 | `NOT IMPLEMENTED` |
 | Phase 66 route | `N=16` |
-| Next | `Phase 66 Slice 2 — Isolated target conformance facility` |
+| Next | `Phase 66 Slice 3 — Minimal source realization and scan/projection emission` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -1071,8 +1071,8 @@ Phase66 is `ACTIVE` and Slice1 is `COMPLETED / PUBLISHED` only upon successful
 natural exact-head CI on the ordinary Slice1 commit, with both Python jobs
 passing authoritative/generated/golden/package checks. The [fresh initiation
 gate and route lock](spec/phase66-dialect-sql-emission-product-phase-initiation-gate-route-lock-v1.md)
-adopts D66.01–D66.16 and a separate Phase66 N=16 route. Slice2 is
-`NEXT / NOT IMPLEMENTED`; Slices3–16 are `NOT IMPLEMENTED`. Phase65 remains completed
+adopts D66.01–D66.16 and a separate Phase66 N=16 route. That Slice1 publication left Slice2
+`NEXT / NOT IMPLEMENTED` and Slices3–16 `NOT IMPLEMENTED`. Phase65 remains completed
 within its approved domain; its N16, F65S15-01/F65S15-02 and publication history remain intact.
 
 Slice1 adds documentation/static assurance only. PostgreSQL18 and MySQL8.4 have
@@ -1087,7 +1087,31 @@ with a separate versioned artifact and preserved legacy SQL/CLI/JSON behavior.
 Slice2 owns the separately authorized isolated target facility, stable adapters,
 artifact/platform pins, recovery/cleanup and required natural CI; it first consumes
 legacy-generated and independent SQL, and Slice3 onward consumes the new installed
-emission pipeline. Actual target pins and database observations are not acquired.
+emission pipeline. At that Slice1 checkpoint, actual target pins and database observations were not acquired.
 The minimal public artifact precedes private observation/process integration in14.
-No lowerer or database facility is implemented, no runtime fulfillment is claimed,
-and E01–E10 are not satisfied by Slice1 publication. Slice2 does not start automatically.
+At that checkpoint no lowerer or database facility was implemented and no runtime fulfillment was claimed;
+E01–E10 are not satisfied by Slice1 publication. That publication did not start Slice2 automatically.
+
+
+Phase66 Slice2 is `COMPLETED / PUBLISHED` only upon successful natural exact-head
+CI on its ordinary publication commit: both compiler jobs, both target cells and
+the strict aggregate must succeed. Its [isolated target conformance facility](spec/phase66-isolated-target-conformance-facility-v1.md)
+uses the installed existing legacy compiler plus independent SQL controls;
+production Python remains204 and test Python files become468. The finite manifest
+has six families per target: installed generation, result control, native parameters,
+diagnostics, same-session recovery, and privilege/owned cleanup.
+
+The target pins distinguish PostgreSQL18.6-bookworm and Oracle Community Server8.4.12
+from Docker Hub's separate distribution channel, index/platform/config identities
+and actual server builds. Psycopg3.3.5 binary/RawCursor and Connector/Python26.7.0
+pure prepared execution are test-only. Default pytest remains offline; real targets
+require the explicit runner, fixed pins and owned evidence directory. Both complete
+receipts, same-child installed origins, actual submitted SQL/parameters, complete
+observations and known successful cleanup are required.
+
+The original compiler matrix and four gates remain intact. Separate PostgreSQL/MySQL
+cells and an always-evaluated aggregate reject failed/cancelled/skipped/missing or
+empty outcomes; run-scoped raw JSON artifacts use strict digest verification.
+Phase66 remains `ACTIVE`; Slice3 is `NEXT / NOT IMPLEMENTED`, Slices4–16 remain
+`NOT IMPLEMENTED`, and N66 remains16. No new ProjectSQLPlan lowering, project emit-SQL,
+result contract or product executor is implemented. Do not start Slice3 automatically.

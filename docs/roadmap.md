@@ -10,7 +10,7 @@ Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. Phase64 and its 11 numbered Slices are completed
 through their accepted publication chains. Phase65 and Slices1–16 are completed
 through the accepted Slice16 audit publication. The current owner is Phase 66,
-which is `ACTIVE`; Slice 2 is `NEXT / NOT IMPLEMENTED` after successful Slice1 publication.
+which is `ACTIVE`; Slice 3 is `NEXT / NOT IMPLEMENTED` after successful Slice2 publication.
 The Validation/Test Performance Optimization Interlude II is `COMPLETED`.
 Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -2511,8 +2511,8 @@ Phase66 is `ACTIVE` and Slice1 is `COMPLETED / PUBLISHED` only upon successful
 natural exact-head CI on the ordinary Slice1 commit, with both Python jobs
 passing authoritative/generated/golden/package checks. The [fresh initiation
 gate and route lock](spec/phase66-dialect-sql-emission-product-phase-initiation-gate-route-lock-v1.md)
-adopts D66.01–D66.16 and a separate Phase66 N=16 route. Slice2 is
-`NEXT / NOT IMPLEMENTED`; Slices3–16 are `NOT IMPLEMENTED`.
+adopts D66.01–D66.16 and a separate Phase66 N=16 route. That Slice1 publication left Slice2
+`NEXT / NOT IMPLEMENTED` and Slices3–16 `NOT IMPLEMENTED`.
 
 | Slice | Owner |
 | --- | --- |
@@ -2556,6 +2556,25 @@ separate from the private observation added in14; legacy public contracts stay
 unchanged. Each operator Slice includes its first verifier/consumer;12/14/15
 consolidate or extend,16 is audit-only without implementation catch-up.
 E01–E10 are not satisfied by Slice1 publication. Do not begin Slice2 automatically.
+
+The [Slice2 isolated target facility](spec/phase66-isolated-target-conformance-facility-v1.md) is
+`COMPLETED / PUBLISHED` only upon successful natural exact-head CI on its ordinary
+commit, with both compiler jobs, both target cells and the strict aggregate successful.
+It adds six independently specified families per PostgreSQL/MySQL target, actual
+installed-legacy generation and native parameter controls, protocol-specific
+diagnostics, same-session recovery, effective query privileges and owned cleanup.
+Default pytest remains offline. Real execution has explicit pinned inputs and bounded
+resources; receipt verification is data-only. The existing compiler matrix/four gates
+remain intact; exact run-scoped artifacts and strict digest checks carry both target
+receipts to an always-evaluated aggregate. Missing, skipped, cancelled, failed or empty
+required outcomes cannot yield PASS.
+
+Psycopg3.3.5 binary/RawCursor and Connector/Python26.7.0 pure prepared execution are
+test-only dependencies. PostgreSQL18.6-bookworm and Oracle Community Server8.4.12
+have separate repository/index/platform/config/build evidence. This is real legacy/
+control SQL assurance, not new ProjectSQLPlan lowering or a product executor.
+Phase66 remains `ACTIVE`; Slice3 is `NEXT / NOT IMPLEMENTED`, Slices4–16 remain
+`NOT IMPLEMENTED`, and N66 remains16. Do not start Slice3 automatically.
 
 ## Future Roadmap v6
 

@@ -6,7 +6,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 PYTHON_VERSION_PATH = REPO_ROOT / ".python-version"
-EXPECTED_ACTIONS = (
+VALIDATION_ACTIONS = (
     "actions/checkout",
     "actions/setup-python",
     "actions/setup-java",
@@ -20,6 +20,26 @@ EXPECTED_COMMANDS = (
 )
 
 
+def _job(workflow: str, name: str) -> str:
+    marker = f"  {name}:\n"
+    assert workflow.count(marker) == 1
+    return re.split(r"\n  [a-z_]+:\n", workflow.split(marker, 1)[1], maxsplit=1)[0]
+
+
+EXPECTED_ACTIONS = (
+    *VALIDATION_ACTIONS,
+    "actions/checkout",
+    "actions/setup-python",
+    "astral-sh/setup-uv",
+    "actions/upload-artifact",
+    "actions/checkout",
+    "actions/setup-python",
+    "astral-sh/setup-uv",
+    "actions/download-artifact",
+    "actions/download-artifact",
+)
+
+
 def test_ci_triggers_permissions_runner_and_matrix_are_exact() -> None:
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
@@ -27,6 +47,7 @@ def test_ci_triggers_permissions_runner_and_matrix_are_exact() -> None:
         r"(?m)^on:\n  pull_request:\n  push:\n    branches:\n      - main$", workflow
     )
     assert re.search(r"(?m)^permissions:\n  contents: read$", workflow)
+    workflow = _job(workflow, "validation")
     assert "runs-on: ubuntu-latest" in workflow
     assert re.findall(r'(?m)^          - "(3\.\d+)"$', workflow) == [
         "3.12",
@@ -51,7 +72,7 @@ def test_ci_triggers_permissions_runner_and_matrix_are_exact() -> None:
 
 
 def test_ci_sets_java_21_and_pins_the_local_uv_version() -> None:
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    workflow = _job(WORKFLOW_PATH.read_text(encoding="utf-8"), "validation")
 
     assert "distribution: temurin" in workflow
     assert 'java-version: "21"' in workflow
@@ -113,7 +134,7 @@ def test_ci_sets_java_21_and_pins_the_local_uv_version() -> None:
 
 
 def test_ci_invokes_only_the_accepted_release_readiness_commands() -> None:
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    workflow = _job(WORKFLOW_PATH.read_text(encoding="utf-8"), "validation")
     run_commands = tuple(
         match.group(1)
         for match in re.finditer(
@@ -152,7 +173,7 @@ def test_every_action_is_pinned_to_a_reviewed_full_sha() -> None:
     )
 
 
-def test_ci_has_no_write_credentials_publication_or_artifact_behavior() -> None:
+def test_ci_has_no_write_credentials_and_only_scoped_evidence_artifacts() -> None:
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
     lowered = workflow.lower()
 
@@ -168,10 +189,28 @@ def test_ci_has_no_write_credentials_publication_or_artifact_behavior() -> None:
         "tw" + "ine",
         "pub" + "lish",
         "dep" + "loy",
-        "upload-" + "artifact",
-        "actions/upload-" + "artifact",
     ):
         assert forbidden not in lowered
+    assert "pull_request_target" not in lowered
+    assert "workflow_run:" not in lowered
+    assert "workflow_dispatch:" not in lowered
+    assert "continue-on-error" not in lowered
+    assert workflow.count("persist-credentials: false") == 3
+    assert workflow.count("actions/upload-artifact@") == 1
+    assert workflow.count("actions/download-artifact@") == 2
+    target = _job(workflow, "target_conformance")
+    aggregate = _job(workflow, "target_conformance_aggregate")
+    assert "archive: false" in target and "if-no-files-found: error" in target
+    assert "overwrite: false" in target and "include-hidden-files: false" in target
+    assert "retention-days: 1" in target
+    assert (
+        "path: ${{ runner.temp }}/phase66-target/${{ matrix.target }}/phase66-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}.json"
+        in target
+    )
+    assert aggregate.count("digest-mismatch: error") == 2
+    assert aggregate.count("skip-decompress: true") == 2
+    assert "github-token:" not in aggregate and "run-id:" not in aggregate
+    assert "repository:" not in aggregate and "pattern:" not in aggregate
 
 
 def test_ci_does_not_rewrite_repository_outputs() -> None:
@@ -204,3 +243,36 @@ def test_existing_release_readiness_scripts_remain_independent() -> None:
     assert "package_smoke" not in script_sources["scripts/check_goldens.py"]
     assert "scripts/validate.py" not in script_sources["scripts/check_goldens.py"]
     assert "scripts/validate.py" not in script_sources["scripts/check_generated.py"]
+
+
+def test_two_target_cells_and_strict_always_aggregate_are_explicit() -> None:
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    assert tuple(
+        re.findall(r"(?m)^  ([a-z_]+):$", workflow.split("jobs:\n", 1)[1])
+    ) == ("validation", "target_conformance", "target_conformance_aggregate")
+    target = _job(workflow, "target_conformance")
+    aggregate = _job(workflow, "target_conformance_aggregate")
+    assert (
+        "      matrix:\n        target:\n          - postgres\n          - mysql\n"
+        in target
+    )
+    assert "fail-fast: false" in target and 'python-version: "3.13"' in target
+    assert "exclude:" not in target and "include:" not in target
+    assert "needs: [validation, target_conformance]" in aggregate
+    assert "if: always()" in aggregate
+    for value in (
+        "COMPILER_STATUS: ${{ needs.validation.result }}",
+        "TARGET_STATUS: ${{ needs.target_conformance.result }}",
+        '--compiler-status "$COMPILER_STATUS" --target-status "$TARGET_STATUS"',
+    ):
+        assert value in aggregate
+    assert "_pietto_target_conformance.py run" in target
+    assert "_pietto_target_conformance.py verify-receipts" in target
+    assert "_pietto_target_conformance.py verify-receipts" in aggregate
+    for section in (target, aggregate):
+        assert '--expected-commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"' in section
+        assert '--run-attempt "$GITHUB_RUN_ATTEMPT"' in section
+        assert "--pins tests/phase66_target_pins.json" in section
+    assert "ARTIFACT_DIGEST: ${{ steps.receipt.outputs.artifact-digest }}" in target
+    assert "ARTIFACT_ID: ${{ steps.receipt.outputs.artifact-id }}" in target
+    assert '--artifact-digest "$ARTIFACT_DIGEST" --artifact-id "$ARTIFACT_ID"' in target
