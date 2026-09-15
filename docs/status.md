@@ -67,8 +67,25 @@ documentation does not supersede that evidence.
 | Phase 65 Slice 14 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 15 | `COMPLETED / PUBLISHED` |
 | Phase 65 Slice 16 | `COMPLETED / PUBLISHED` |
-| Phase 66 | `NEXT / NOT STARTED` |
-| Next | `Phase 66 — Fresh phase initiation and route approval` |
+| Phase 66 | `ACTIVE` |
+| Phase 66 Slice 1 | `COMPLETED / PUBLISHED` |
+| Phase 66 Slice 2 | `NEXT / NOT IMPLEMENTED` |
+| Phase 66 Slice 3 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 4 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 5 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 6 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 7 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 8 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 9 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 10 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 11 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 12 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 13 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 14 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 15 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 16 | `NOT IMPLEMENTED` |
+| Phase 66 route | `N=16` |
+| Next | `Phase 66 Slice 2 — Isolated target conformance facility` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -1044,5 +1061,33 @@ Static traceability supports the audit; existing behavior tests supply runtime e
 Single portable-document limits remain separate from aggregate corpus measurements.
 Legacy SQL generation remains available; the new ProjectSQLPlan pipeline does not
 deliver dialect SQL AST/text, executable portable import or runtime fulfillment.
-Phase66 is `NEXT / NOT STARTED`; fresh initiation and route approval remain pending.
-No Phase66 Slice implementation is authorized. N16 is unchanged.
+That handoff left Phase66 `NEXT / NOT STARTED`; fresh initiation and route approval were pending.
+That audit authorized no Phase66 Slice implementation. Phase65 N16 is unchanged.
+
+
+## Phase 66
+
+Phase66 is `ACTIVE` and Slice1 is `COMPLETED / PUBLISHED` only upon successful
+natural exact-head CI on the ordinary Slice1 commit, with both Python jobs
+passing authoritative/generated/golden/package checks. The [fresh initiation
+gate and route lock](spec/phase66-dialect-sql-emission-product-phase-initiation-gate-route-lock-v1.md)
+adopts D66.01–D66.16 and a separate Phase66 N=16 route. Slice2 is
+`NEXT / NOT IMPLEMENTED`; Slices3–16 are `NOT IMPLEMENTED`. Phase65 remains completed
+within its approved domain; its N16, F65S15-01/F65S15-02 and publication history remain intact.
+
+Slice1 adds documentation/static assurance only. PostgreSQL18 and MySQL8.4 have
+finite planned positive/negative rule domains; PostgreSQL FULL is restricted to
+reviewed builtin cross-input equality, MySQL FULL and hidden STRICT-FD ORDER are
+first-version blockers. Exact physical representations, nullable Bool values,
+completed SEMI/ANTI terminals, final ordering, fixed parameter uses, UTF-8 SQL
+ranges and both original/generated requirement inventories retain distinct checks.
+
+Project emit-SQL will require explicit selected owner and emission-contract input,
+with a separate versioned artifact and preserved legacy SQL/CLI/JSON behavior.
+Slice2 owns the separately authorized isolated target facility, stable adapters,
+artifact/platform pins, recovery/cleanup and required natural CI; it first consumes
+legacy-generated and independent SQL, and Slice3 onward consumes the new installed
+emission pipeline. Actual target pins and database observations are not acquired.
+The minimal public artifact precedes private observation/process integration in14.
+No lowerer or database facility is implemented, no runtime fulfillment is claimed,
+and E01–E10 are not satisfied by Slice1 publication. Slice2 does not start automatically.

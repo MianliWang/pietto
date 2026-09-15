@@ -8,9 +8,9 @@ needed.
 
 Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. Phase64 and its 11 numbered Slices are completed
-through their accepted publication chains. Phase65 completion is conditional on
-the Slice16 audit publication described below. The current owner is Phase 66,
-which is `NEXT / NOT STARTED`; fresh initiation and route approval remain pending.
+through their accepted publication chains. Phase65 and Slices1–16 are completed
+through the accepted Slice16 audit publication. The current owner is Phase 66,
+which is `ACTIVE`; Slice 2 is `NEXT / NOT IMPLEMENTED` after successful Slice1 publication.
 The Validation/Test Performance Optimization Interlude II is `COMPLETED`.
 Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -2302,8 +2302,7 @@ Phase 65 **Target-neutral ProjectSQLPlan** and Slices1–16 are `COMPLETED / PUB
 only upon successful natural exact-head CI on the ordinary Slice16 audit commit.
 Slices1–15 already have accepted publication chains. Slice16 is `COMPLETED / PUBLISHED`
 only upon successful natural exact-head CI, with both Python jobs passing
-authoritative/generated/golden/package checks. Phase66 is `NEXT / NOT STARTED`;
-fresh initiation and route approval remain pending.
+authoritative/generated/golden/package checks. That handoff left Phase66 `NEXT / NOT STARTED`; fresh initiation and route approval were pending.
 The selected route has exactly 16 deliveries. Its controlling
 [reviewed v2 phase gate](spec/phase65-project-sql-plan-product-phase-initiation-gate-source-audit-architecture-route-lock-v1.md)
 is documentation/static assurance only; it does not authorize later implementation.
@@ -2381,7 +2380,7 @@ Static traceability supports the audit; existing behavior tests supply runtime e
 Single portable-document limits remain separate from aggregate corpus measurements.
 Legacy SQL generation remains available; the new ProjectSQLPlan pipeline does not
 deliver dialect SQL AST/text, executable portable import or runtime fulfillment.
-No Phase66 Slice implementation is authorized. N16 is unchanged.
+That audit authorized no Phase66 Slice implementation. Phase65 N16 is unchanged.
 
 N15 would merge demand reporting with target assessment after source mapping;
 N14 would also merge portable integration and full conformance. N16 keeps those
@@ -2505,6 +2504,58 @@ errors to a Phase69/70 policy decision. These are new later-owner refinements, n
 older roadmap wording. Phase66 retains SQL AST/text, actual placeholder order and
 realization; Phase68 retains resources and runtime single-match fulfillment;
 Phase72 retains Float row equivalence; these future features remain unimplemented.
+
+## Phase 66 route
+
+Phase66 is `ACTIVE` and Slice1 is `COMPLETED / PUBLISHED` only upon successful
+natural exact-head CI on the ordinary Slice1 commit, with both Python jobs
+passing authoritative/generated/golden/package checks. The [fresh initiation
+gate and route lock](spec/phase66-dialect-sql-emission-product-phase-initiation-gate-route-lock-v1.md)
+adopts D66.01–D66.16 and a separate Phase66 N=16 route. Slice2 is
+`NEXT / NOT IMPLEMENTED`; Slices3–16 are `NOT IMPLEMENTED`.
+
+| Slice | Owner |
+| --- | --- |
+| 1 | Initiation/source audit/decisions/route |
+| 2 | Isolated target conformance facility, real minimal consumers and required CI |
+| 3 | Minimal source realization and both-dialect scan/projection emission vertical |
+| 4 | Named/shared producers, scopes, terminal outputs and capture-free names |
+| 5 | Fixed values, physical type anchors and server parameter-use mapping |
+| 6 | Supported row scalar/LET/WHERE/ON |
+| 7 | JOIN/EXISTS, restricted PostgreSQL FULL and MySQL FULL negative domain |
+| 8 | GROUPED/GLOBAL/satisfying and aggregate representations |
+| 9 | Admitted windows/named uses/QUALIFY |
+| 10 | DISTINCT/ORDER/LIMIT and exact result barriers |
+| 11 | Six SET forms, positional types and operand-local boundaries |
+| 12 | Complete emission artifact, dual-denominator closure and SQL-range queries |
+| 13 | Project emit-SQL, explicit contract input, public output and legacy compatibility |
+| 14 | Private emission observation and first real process/relocation/wheel integration |
+| 15 | Expanded target/differential conformance and historical compatibility |
+| 16 | Completion audit and exact Phase67/68/later handoff |
+
+The contract records all30 initiation answers, A–L/X1–X8, mutually exclusive
+asset ledgers, every Phase67–97 atom (91–97 remain tentative), finite rule
+positives/negatives, exact source/consumer findings and E01–E10. Slice1 implements
+no SQL lowerer, database facility, driver or workflow. Later implementation and
+resource acquisition need their own exact authorization. Phase65 N16 is unchanged.
+
+PostgreSQL18/MySQL8.4 are finite target families; PostgreSQL18.6 is a reviewed
+maintenance candidate and MySQL8.4.12 a Docker-image-specific security-update
+candidate. Slice2 acquires exact artifacts/platforms and stable adapters, then
+first tests legacy-generated and independently specified SQL. Slice3 onward must
+test the new installed emission pipeline. Compiler/process and real-target
+matrices remain separate, and missing/skipped/cancelled/empty required target
+jobs cannot yield aggregate PASS. No actual database execution is claimed here.
+
+PostgreSQL FULL has a restricted builtin cross-input equality positive domain;
+MySQL FULL and hidden STRICT-FD ORDER are first-version blockers. Other support
+is rule-level with physical type/NULL/collation/range premises, complete terminal
+consumption, source/parameter/SQL-byte ranges and two independent requirement
+inventories. Explicit emission-contract input and minimal public artifact are
+separate from the private observation added in14; legacy public contracts stay
+unchanged. Each operator Slice includes its first verifier/consumer;12/14/15
+consolidate or extend,16 is audit-only without implementation catch-up.
+E01–E10 are not satisfied by Slice1 publication. Do not begin Slice2 automatically.
 
 ## Future Roadmap v6
 
