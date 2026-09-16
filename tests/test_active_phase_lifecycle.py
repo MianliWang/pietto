@@ -315,8 +315,8 @@ EXPECTED_STATUS = (
     ("Phase 66 Slice 1", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 2", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 3", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 4", "`NEXT / NOT IMPLEMENTED`"),
-    ("Phase 66 Slice 5", "`NOT IMPLEMENTED`"),
+    ("Phase 66 Slice 4", "`COMPLETED / PUBLISHED`"),
+    ("Phase 66 Slice 5", "`NEXT / NOT IMPLEMENTED`"),
     ("Phase 66 Slice 6", "`NOT IMPLEMENTED`"),
     ("Phase 66 Slice 7", "`NOT IMPLEMENTED`"),
     ("Phase 66 Slice 8", "`NOT IMPLEMENTED`"),
@@ -331,7 +331,7 @@ EXPECTED_STATUS = (
     ("Phase 66 route", "`N=16`"),
     (
         "Next",
-        "`Phase 66 Slice 4 — Named/shared producers and capture-free scopes`",
+        "`Phase 66 Slice 5 — Fixed values and server parameter-use mapping`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1462,7 +1462,7 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
 )
 EXPECTED_CURRENT_OWNER_SENTENCE = (
     "The current owner is Phase 66, which is `ACTIVE`; "
-    "Slice 4 is `NEXT / NOT IMPLEMENTED` after successful Slice3 publication."
+    "Slice 5 is `NEXT / NOT IMPLEMENTED` after successful Slice4 publication."
 )
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
@@ -5357,15 +5357,38 @@ def test_phase66_slice2_facility_and_required_ci_lifecycle() -> None:
     assert (STATUS.parent / target).is_file()
 
 
-def test_phase66_slice3_emission_current_lifecycle() -> None:
+def test_phase66_slice3_emission_historical_handoff() -> None:
     target = (
         "spec/phase66-slice3-minimal-source-realization-scan-projection-emission-v1.md"
     )
     for path in (STATUS, ROADMAP):
         document = " ".join(_read(path).split())
         assert f"]({target})" in document
-        assert "Slice4 is `NEXT / NOT IMPLEMENTED`" in document
-        assert "Slices5–16 remain `NOT IMPLEMENTED`" in document
+        assert (
+            "That Slice3 publication left Slice4 `NEXT / NOT IMPLEMENTED`" in document
+        )
+        assert "Slices5–16 `NOT IMPLEMENTED`" in document
         assert "N66 remains16" in document
         assert "Do not start Slice4 automatically" in document
     assert (STATUS.parent / target).is_file()
+
+
+def test_phase66_slice4_lifecycle_retains_all_r03_joint_witnesses() -> None:
+    target = "spec/phase66-slice4-named-shared-producer-scopes-terminal-output-emission-v1.md"
+    obligation = "R03 outstanding joint execution: Slice7 repeated/shared JOIN; Slice10 ordinary/rebound/completed ORDER and ORDER/LIMIT sharing; Slice11 repeated UNION ALL and two import facades."
+    for path in (STATUS, ROADMAP):
+        document = " ".join(_read(path).split())
+        assert f"]({target})" in document
+        assert "Slice5 is `NEXT / NOT IMPLEMENTED`" in document
+        assert "Slices6–16 remain `NOT IMPLEMENTED`" in document
+        assert "N66 remains16" in document
+        assert "Do not start Slice5 automatically" in document
+        assert obligation in document
+        assert "mandatory for phase-completion audit" in document
+        assert "R03 target conformance is not complete" in document
+    for path in (
+        STATUS.parent / target,
+        STATUS.parent
+        / "spec/phase66-dialect-sql-emission-product-phase-initiation-gate-route-lock-v1.md",
+    ):
+        assert obligation in " ".join(path.read_text(encoding="utf-8").split())

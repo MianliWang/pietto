@@ -420,7 +420,9 @@ def valid_receipts(
                 {
                     "id": item["id"],
                     "variant": item["variant"],
-                    "source_sha256": facility.digest(item["source"].encode()),
+                    "source_sha256": facility.digest(
+                        probe.source_bytes(item["source"])
+                    ),
                     "contract_sha256": facility.digest(item["contract"].encode()),
                     "public": public.decode(),
                     "public_sha256": facility.digest(public),
@@ -436,7 +438,14 @@ def valid_receipts(
                         "pietto/_project/project_sql_emission" + suffix + ".py"
                     ],
                 }
-                for suffix in ("", "_contract", "_ast", "_rendering", "_verification")
+                for suffix in (
+                    "",
+                    "_contract",
+                    "_ast",
+                    "_rendering",
+                    "_verification",
+                    "_scopes",
+                )
             },
             "probe_sha256": expected["harness"][
                 facility.EMISSION_PROBE.relative_to(facility.ROOT).as_posix()
@@ -709,6 +718,7 @@ def valid_receipts(
                 "UTC",
                 "10s",
                 "pietto_manager",
+                "63",
             ]
             if target == "postgres"
             else [
@@ -721,6 +731,7 @@ def valid_receipts(
                 resources.MYSQL_MODE,
                 "10000",
                 "root@%",
+                "0",
             ]
         )
         env = {
@@ -731,7 +742,7 @@ def valid_receipts(
                     [
                         {
                             "kind": "int"
-                            if target == "mysql" and index == 7
+                            if target == "mysql" and index in {7, 9}
                             else "text",
                             "value": value,
                         }
@@ -832,14 +843,22 @@ def valid_receipts(
                 before = submissions
                 document = probe.decode_public(record["public"].encode())
                 if document["status"] == "VERIFIED":
+                    named = case_id in {"M_named_chain", "N_imported_chain"}
+                    types = (
+                        [25, 20, 16, 1700, 701]
+                        if target == "postgres"
+                        else [253, 8, 1, 246, 5]
+                    )
+                    if named:
+                        types.append(20 if target == "postgres" else 8)
                     observation = _observation(
                         target,
                         document["sql"],
-                        cases.emission_rows(target, empty=record["variant"] == "empty"),
-                        list(probe.LABELS),
-                        [25, 20, 16, 1700, 701]
-                        if target == "postgres"
-                        else [253, 8, 1, 246, 5],
+                        (cases.chain_rows if named else cases.emission_rows)(
+                            target, empty=record["variant"] == "empty"
+                        ),
+                        list(probe.CHAIN_LABELS if named else probe.LABELS),
+                        types,
                     )
                     observation["prepared"] = True
                     observation["cursor_type"] = (
@@ -1206,6 +1225,9 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "J_emission_query_empty",
         "K_emission_rejected",
         "L_emission_blocked",
+        "M_named_chain",
+        "N_imported_chain",
+        "O_named_later",
     )
     assert resources.ENDPOINT == "unix:///var/run/docker.sock"
     assert resources.STARTUP_SECONDS == 120 and resources.MAX_CONNECT_ATTEMPTS == 3

@@ -190,7 +190,7 @@ def _public_document(outcome):
                 "nullable": json.loads(field.representation)["nullable"],
                 "representation": json.loads(field.representation),
                 "correspondence": {
-                    "source": json.loads(ast.scan.realization.selector),
+                    "source": json.loads(column.origin.realization.selector),
                     "field": field.ordinal,
                     "source_port": _ref(column.source_port.ref),
                     "input_port": _ref(column.input_port.ref),
@@ -249,7 +249,15 @@ def _public_document(outcome):
                 "denominator": "generated",
                 "ordinal": i,
                 "kind": item.kind,
-                "subject": {"kind": item.kind, "position": i},
+                "subject": _ref(item.subject)
+                if item.kind
+                in {
+                    "cte_definition",
+                    "terminal_column",
+                    "named_use",
+                    "immediate_terminal",
+                }
+                else {"kind": item.kind, "position": i},
                 "rule": item.rule,
                 "disposition": "checked_rule",
                 "premises": [p.position for p in item.premises],

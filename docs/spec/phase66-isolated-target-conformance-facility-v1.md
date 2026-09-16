@@ -1,9 +1,29 @@
 # Phase66 Isolated Target Conformance Facility v1
 
-## Current Slice3 extension
+## Current Slice4 extension
+
+The [Slice4 contract](phase66-slice4-named-shared-producer-scopes-terminal-output-emission-v1.md)
+adds M_named_chain (table_bag/query_bag/empty/long_intermediate), N_imported_chain
+(bag/empty), and O_named_later (self_join/union_dag/two_facades/order_ordinary/
+order_rebound/order_completed/producer_filter). The current denominator is exactly
+A–O:15 cases,26 public documents per target,10 successful emitted SELECTs and16
+no-submission outcomes. A–L retain every existing variant and independent assertion.
+O is structural-only evidence; it does not satisfy R03 joint target execution.
+Those witnesses remain assigned to Slice7 JOIN, Slice10 ORDER/LIMIT and Slice11 SET.
+
+The installed wheel/probe includes the new scopes module and complete multi-module
+source bytes. Independent public decoding checks WITH visibility, actual immediate
+terminal references, final physical provenance and UTF-8 ranges before submission.
+The existing manager adds a physical p0 fixture; schema/database SELECT grants already
+cover it. Environment observations additionally require PostgreSQL max_identifier_length63
+and MySQL lower_case_table_names0. Pins, transport, resource ceilings, generation30s,
+recovery/diagnostics/cleanup and workflow remain unchanged. This extension has separate
+Slice4 evidence/budgets; the historical Slice2 sections below are unchanged.
+
+## Historical Slice3 extension
 
 The sections below retain the frozen Slice2 six-case baseline and its historical
-evidence. The current additive manifest is specified by the [Slice3 contract](phase66-slice3-minimal-source-realization-scan-projection-emission-v1.md):
+evidence. The Slice3 additive manifest was specified by the [Slice3 contract](phase66-slice3-minimal-source-realization-scan-projection-emission-v1.md):
 A_legacy through F_privilege_cleanup remain mandatory, with G_emission_table_bag,
 H_emission_query_bag, I_emission_table_empty, J_emission_query_empty,
 K_emission_rejected and L_emission_blocked added. The new installed probe supplies
@@ -12,7 +32,7 @@ data-only decoder supplies the four emitted SELECT submissions. Rejected/blocked
 variants prove no submission and never count as successful database queries.
 Probe/source/contract/config bytes and same-child emission origins join the
 existing input/wheel/transfer boundary. Exact Decimal observations preserve
-physical values and scale. Current receipt verification requires the complete
+physical values and scale. At Slice3 publication, receipt verification required the complete
 twelve-case manifest, while retaining every original recovery/diagnostic/cleanup
 assertion. Pins, transport, resource limits and workflow remain unchanged.
 

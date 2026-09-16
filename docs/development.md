@@ -89,6 +89,12 @@ Local compiler, local target, CI compiler and CI target results are separate.
 This facility preserves its six Slice2 legacy/control cases and also consumes
 the installed Slice3 scan/projection pipeline: production public artifact bytes,
 independent data-only decoding, unchanged submission and complete typed BAG
-observations. The current manifest has twelve cases and thirteen new public
-artifact variants per target; compiler failures have independent no-submission
-evidence. See the [Slice3 contract](spec/phase66-slice3-minimal-source-realization-scan-projection-emission-v1.md).
+observations. Slice3 added twelve cases and thirteen public artifact variants;
+the [Slice4 contract](spec/phase66-slice4-named-shared-producer-scopes-terminal-output-emission-v1.md)
+extends the current manifest to fifteen cases and twenty-six public documents per
+target, including six successful named-chain variants and seven structural-only
+BLOCKED variants. Compiler failures have independent no-submission evidence.
+The decoder checks actual immediate CTE terminals while retaining final physical
+source provenance. Environment observations include identifier limits/case; pins,
+acquisition limits and workflow commands remain unchanged. R03 joint JOIN/ORDER/SET
+execution remains assigned to Slices7/10/11.

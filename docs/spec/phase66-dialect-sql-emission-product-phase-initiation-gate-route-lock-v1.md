@@ -823,7 +823,7 @@ correlation、parameter、order/window结构必须登记generated requirement与
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | R01 | PG/MY，explicit同family source | exact VERIFIED selected closure、完整source mappings、relation_rows实际domain | PLANNED：结构化qualified scan、显式projection | namespace/scan domain/read-only object/field representation | 单source Int字段两行含重复，投影保留两行 | missing source、stale root、other-family或错误inheritance domain阻止；unused合法target差异不影响 | 03 |
 | R02 | PG/MY，V01–V06 | 每个source/result边界的logical/physical/type/null完整链 | PLANNED：有限representation-preserving mapping；conversion只有对应exact rule | encoding/range/p/s/null/collation，used proof applicability | signed Int、Bool0/1/NULL、Text尾空格、Decimal(9,2)扫描；有意义证据的V05/V06传递 | Bool2、unsigned mismatch、Decimal参数猜测、timezone/UUID顺序不明；Float row-equivalence拒绝 | 03/05 |
-| R03 | PG/MY，identifier length/case已声明 | named/shared DAG，各use exact immediate terminal，三类ORDER载体 | PLANNED：nonrecursive CTE/derived blocks、显式column lists、ordered internal names和binding check | CTE可见域、physical namespace不被capture、case/length、effect/coupling适用性 | self-use两次的definition共享而use不同；physical表名等于首个generated名仍正确绑定 | CTE capture、长final label、foreign port、循环；未知effects且rule要求复制时阻止 | 04 |
+| R03 | PG/MY，identifier length/case已声明 | named/shared DAG，各use exact immediate terminal，三类ORDER载体 | PLANNED：nonrecursive CTE/derived blocks、显式column lists、ordered internal names和binding check；按下述明确修订分期交付 | CTE可见域、physical namespace不被capture、case/length、effect/coupling适用性 | 04实际named chains与physical同名绑定；重复/shared JOIN见证07、三ORDER载体及ORDER/LIMIT sharing见证10、重复SET及双facade见证11 | CTE capture、长final label、foreign port、循环；未知effects且rule要求复制时阻止 | 04 named-chain；07/10/11 joint execution |
 | R04 | PG extended `$n`；MY prepared `?` | 原eligible Bool/Int/finite Float/Text literals，exact envelope/policy/context | PLANNED：每SQL use映射logical slot；精确type anchor；PG context兼容才复用index | 参数physical representation、token order、type/overload、use/range完整性 | 两个相等literal两个slot；一个slot多use；大Int、Float零和含问号/`%s`文本保持 | 错tag/value/sign/index、structural LIMIT绑定、coercion修复或SQL string计token拒绝 | 05 |
 | R05 | PG/MY，适用V域 | 既有field/LET reference，typed literal、unary sign、+/-/*、comparison/NULL-test/and/or已准入树；算术需要原证据足以保证精确范围 | PLANNED：逐原树/precedence表达，stage值跨boundary用port；无constant folding | operator/type/range、literal anchor和阶段scope | Int 1+2、原LET后用两次、括号混合布尔表达式 | division/general calls、UNKNOWN type、无overflow/effect前提的变换阻止；不新增solver | 06 |
 | R06 | PG/MY，V02 | scalar nullable Bool与WHERE/ON/satisfying/QUALIFY消费域分开 | PLANNED：scalar三值保留；仅predicate根消费TRUE | 三值operator真值、physical Bool域 | SELECT NULL Bool仍NULL，filter NULL不保留row | 内部IS TRUE/CASE把NULL变FALSE，physical2冒充Bool拒绝 | 06 |
@@ -854,6 +854,26 @@ R02的Timestamp/UUID只承诺有完整原逻辑证据的传递，不开启advanc
 R19的省略NULL/tie条款不自动赋予target default：先读原policy的unspecified/target-defined或
 required-evidence状态；前两者用其允许结果约束，后者缺失必须BLOCKED。
 
+## R03 scheduling amendment authorized for Slice4
+
+原 Slice1 route 将 R03 completing Slice 记为04；C19 记为04/10，C32 记为04/10/14。
+这些是保留的原排期历史。新的 Slice4 用户执行指令现在明确授权下述窄修订；Slice3 PASS
+本身未授予该修订。N66=16、所有 operator owners、最终 Phase66 obligations 均不改变。
+
+| Owner | Required R03 delivery |
+| --- | --- |
+| Slice4 | 完整 production definition/use/terminal correspondence、capture-free scopes、installed 两target named/imported/reexported field-projection chains；重复 graph 与 ORDER carriers 仅结构检查/准确 BLOCKED |
+| Slice7 | repeated/shared producers inside admitted JOINs 的 installed joint execution |
+| Slice10 | ordinary/rebound/completed ORDER realization，以及相关 ORDER/LIMIT sharing joint execution |
+| Slice11 | repeated/shared producers inside SET，包括 repeated UNION ALL 与 two import facades 的 installed joint execution |
+
+R03 outstanding joint execution: Slice7 repeated/shared JOIN; Slice10 ordinary/rebound/completed ORDER and ORDER/LIMIT sharing; Slice11 repeated UNION ALL and two import facades.
+
+Slice4 的结构检查、blocked documents、分别执行的 queries 和手写 controls 不能抵扣这些
+joint witnesses；其发布不代表完整 R03 target conformance。sole lifecycle reader 保持该
+未完成清单可见，Slice16 completion audit 必须核对各 owner 的实际 joint receipts。
+本修订不将 JOIN、ORDER/LIMIT 或 SET lowering 提前到04。
+
 ## Counterexample obligations
 
 这些是独立规格例，不是本次Pietto/DB执行结果。不新增evaluator/fuzz平台。
@@ -870,8 +890,8 @@ required-evidence状态；前两者用其允许结果约束，后者缺失必须
 | C07 | LEFT右producer先SELECT marker=1，未match时marker必须NULL | R08 | 07 |
 | C08 | (A LEFT B) RIGHT C，A/B的已累计nulling与新nulling均保留 | R08 | 07 |
 | C09 | SEMI/ANTI right LIMIT0、LIMIT1、SET、GLOBAL empty、window producer各自completed terminal；base scan shortcut得到不同membership | R11 | 07 |
-| C10 | constant GROUP/ORDER key=1不能解释成ordinal；用户label等于column不得改变绑定 | R03 R12 R19 | 04/08/10 |
-| C11 | physical table名恰等于generated CTE名，quoted也可能capture；namespace checker须证明实际绑定 | R03 | 04 |
+| C10 | constant GROUP/ORDER key=1不能解释成ordinal；用户label等于column不得改变绑定；04只完成named field labels/scopes，constant GROUP/ORDER仍由08/10真实执行 | R03 R12 R19 | 04 scopes /08 GROUP /10 ORDER |
+| C11 | physical table名恰等于generated CTE名，quoted也可能capture；04 named-chain namespace checker与真实target证明绑定，不代表R03全部joint cases完成 | R03 | 04 |
 | C12 | hidden window/group/order值不在visible DISTINCT/SET tuple内，SELECT label重复仍positional | R17 R18 R20 R22 | 09/10/11 |
 | C13 | [1,2]先LIMIT1再filter>1为空；先filter后LIMIT为[2]；outer presentation须final ORDER | R19 R21 | 10 |
 | C14 | PG FULL builtin cross-input Int equality正例含两个NULL未match行；inequality/OR/额外ON为准确non-support；MY FULL总negative | R09 R10 | 07 |
@@ -879,7 +899,7 @@ required-evidence状态；前两者用其允许结果约束，后者缺失必须
 | C16 | offset RANGE单non-null Int key正例；为NULL order加key导致offset-RANGE不合法/变义；多key/负offset准确拒绝 | R15 R19 | 09/10 |
 | C17 | A=[1,1,NULL],B=[1,NULL,NULL]：UNION ALL six rows，UNION DISTINCT two；INTERSECT ALL two，DISTINCT two；EXCEPT ALL one1，DISTINCT zero | R22 | 11 |
 | C18 | SET不同Decimal parents/p/s或Int/Float promotion不得靠backend common type；Float UNION ALL与其它五式不同 | R02 R22 | 11 |
-| C19 | 两个use共享definition并不证明materialize/evaluate once；不捏造重复LIMIT选择独立性或coupling | R03 R21 | 04/10 |
+| C19 | 两个use共享definition并不证明materialize/evaluate once；04保留结构/阻断，07/10/11分别实际验证JOIN、ORDER/LIMIT、SET sharing；不捏造重复LIMIT选择独立性或coupling | R03 R21 | 04 structural /07/10/11 joint |
 | C20 | 原demands完整但generated CAST/correlation/parameter/order helper需求缺失仍失败；两清单互删不能空成功 | R04 R11 R23 | 05/07/12 |
 | C21 | 两rule要求同一statement时区/SQL mode不同→conflict；两个source局部合法不同collation不自动global conflict | R01 R02 R23 | 03/12 |
 | C22 | justification A→B→A无独立root拒绝；一root被两个rule引用允许但各use保留 | R23 | 12 |
@@ -892,7 +912,7 @@ required-evidence状态；前两者用其允许结果约束，后者缺失必须
 | C29 | candidate wheel正确但实际import来自checkout，或submitted SQL/parameters与artifact不同，证据链失败 | R24 R25 R26 | 03/13/14 |
 | C30 | promised-domain红例不能以手写SQL也失败就认定server bug；保持version/environment/minimized fixture与unresolved attribution | R25 | 02/15 |
 | C31 | original LEGAL_UNPROVED与LIMIT0/EXCEPT right membership完整保留；ordinary aggregate risk与未履行义务分别处理 | R11 R13 R21 R23 | 07/08/10/12 |
-| C32 | ordinary与rebound provided ORDER的items可共享但outputs不同；completed relation ORDER有不同carrier；每条路线真实消费/反向map | R03 R19 R26 | 04/10/14 |
+| C32 | ordinary与rebound provided ORDER的items可共享但outputs不同；completed relation ORDER有不同carrier；04只验证结构并BLOCKED，10真实ORDER执行，14独立观察/反向map | R03 R19 R26 | 04 structural /10 execution /14 observation |
 
 ## Source findings and consumer consequences
 
@@ -969,19 +989,19 @@ fixture、SQL/params、版本/环境与独立预期；手写SQL也失败只说�
 | 01 | Initiation/source audit/decisions/route | 本合同与static principal，no production | C01–C32作为未来义务 | E01–E10设计，不宣称满足 |
 | 02 | Isolated target conformance facility, real minimal consumers and required CI | legacy-generated + independently specified SQL、真实recovery/cleanup、manifest/required aggregate | C26 C27 C28 C30 | E09设施 |
 | 03 | Minimal source realization and both-dialect scan/projection emission vertical | installed minimal emission及public decoder被target facility消费；独立AST/byte/requirement/source/output map验证立即存在 | C02 C06 C21 C23 C24 C29 | E01 E02 E03 E04 E06 E07 |
-| 04 | Named/shared producers, scopes, terminal outputs and capture-free names | exact scopes/terminal consumer、SQL binding check、两target真实named cases | C10 C11 C19 C32 | E02 E03 E06 |
+| 04 | Named/shared producers, scopes, terminal outputs and capture-free names | exact scopes/terminal consumer、SQL binding check、两target真实named chains；repeated/ORDER graph仅结构/阻断，joint witnesses留07/10/11 | C10 C11 C19 C32 | E02 E03 E06 |
 | 05 | Fixed values, physical type anchors and server parameter-use mapping | RawCursor/prepared实际transport与原envelope核对、use/ranges/source links | C02 C03 C05 C20 C23 C25 | E05 E06 E07 |
 | 06 | Supported row scalar/LET/WHERE/ON | 原树/nullable Bool的独立truth oracle与真实target scalar/filter | C01 C02 | E03 E04 E06 E07 |
-| 07 | JOIN/EXISTS, restricted PostgreSQL FULL and MySQL FULL negative domain | completed right terminals、outer-null ports与two-target BAG oracle | C07 C08 C09 C14 C20 C31 | E02 E03 E04 E07 |
+| 07 | JOIN/EXISTS, restricted PostgreSQL FULL and MySQL FULL negative domain | completed right terminals、outer-null ports与two-target BAG oracle；R03 repeated/shared JOIN joint execution | C07 C08 C09 C14 C19 C20 C31 | E02 E03 E04 E07 |
 | 08 | GROUPED/GLOBAL/satisfying and aggregate representations | empty input、count/null、promoted representation negative与post-group consumer | C04 C10 C31 | E03 E04 E07 |
 | 09 | Admitted windows/named uses/QUALIFY | selected/hidden pre-window roots、frame/peers/modifiers和QUALIFY真实consumer | C12 C15 C16 | E02 E03 E04 E07 |
-| 10 | DISTINCT/ORDER/LIMIT and exact result barriers | final ORDER、visible tuple、inner LIMIT与hidden STRICT-FD blocker | C05 C10 C12 C13 C16 C19 C31 C32 | E02 E03 E04 E07 |
-| 11 | Six SET forms, positional types and operand-local boundaries | independent六式BAG/type oracle，保留nested/operand terminal消费者 | C04 C12 C17 C18 | E02 E03 E04 E07 |
+| 10 | DISTINCT/ORDER/LIMIT and exact result barriers | final ORDER、visible tuple、inner LIMIT与hidden STRICT-FD blocker；R03三类ORDER及ORDER/LIMIT sharing joint execution | C05 C10 C12 C13 C16 C19 C31 C32 | E02 E03 E04 E07 |
+| 11 | Six SET forms, positional types and operand-local boundaries | independent六式BAG/type oracle，保留nested/operand terminal消费者；R03 repeated UNION ALL及two import facades joint execution | C04 C12 C17 C18 C19 | E02 E03 E04 E07 |
 | 12 | Complete emission artifact, dual-denominator closure and SQL-range queries | 汇总已有verifiers、独立完整性/无cycle/actual-byte range queries | C20 C21 C22 C23 C24 C25 C31 | E01 E05 E06 E07 |
 | 13 | Project emit-SQL, explicit contract input, public output and legacy compatibility | installed console exact selection/input/output/error/atomic tests、独立public decoder与target submission | C03 C29 | E08 |
 | 14 | Private emission observation and first real process/relocation/wheel integration | private schema/parser/correspondence+standalone/正反batch/同child origin，保留历史 | C29 C32 | E06 E08 E09 |
 | 15 | Expanded target/differential conformance and historical compatibility | 扩corpus/mutations/joint outcome、完整两target与历史process streams | C01–C32扩大组合；C30 | E03 E04 E09 |
-| 16 | Completion audit and exact Phase67/68/later handoff | audit only，逐E/ledger/rule消账，无implementation catch-up | C01–C32处置，不能补实现 | E01–E10最终审核 |
+| 16 | Completion audit and exact Phase67/68/later handoff | audit only，逐E/ledger/rule消账，核对R03的07/10/11 joint receipts，无implementation catch-up | C01–C32处置，不能补实现 | E01–E10最终审核 |
 
 “first”在Slice14标题中只修饰private emission observation这一个新产品的
 standalone/batch/relocation/wheel消费。Slice3已经拥有target facility内真实installed-wheel→
@@ -1074,11 +1094,11 @@ Phase65 N16是已关闭历史，本N66=16为独立新route。不得回到overloa
 4. Layering/dependency direction: lowerer检查新SQL绑定，保留Pietto ports；不返向解析用户meaning。
 5. Algorithms/data structures/complexity: deterministic bounded internal names、显式column lists及closed scope traversal；按目标单位检查最终label。
 6. Interface/version/capability model: MySQL derived tables可遮CTE，CTE可遮base tables；PG CTE可有folding/materialization选择。
-7. Testing/operational lifecycle: C10/C11/C19/C32使用同名physical源与不同carrier/use；真实执行检验绑定和allowed joint outcomes。
+7. Testing/operational lifecycle: C10/C11/C19/C32使用同名physical源与不同carrier/use；真实执行检验绑定和allowed joint outcomes。按 Slice4 新授权修订，04仅named chains真实执行，JOIN/ORDER/SET joint outcomes分别由07/10/11交付。
 8. Pitfalls/migration costs: quoting不能消除capture；长label截断、numeric ordinal或output alias依赖导致错绑。
 9. Disposition: ADAPT；R03/R19显式namespace和terminal检查，case/length为target premise。
 10. WHAT_NOT_TO_COPY: mandatory全局materialization、随意CTE inline/copy、optimizer成本搜索或backend别名winner。
-11. Pietto owner affected: Slice4/10、D66.06/.09/.14。
+11. Pietto owner affected: 原排期 Slice4/10、D66.06/.09/.14；R03修订后的joint execution owners另含Slice7/11，决策边界不变。
 
 ### XREF05 Server parameter forms and byte positions
 

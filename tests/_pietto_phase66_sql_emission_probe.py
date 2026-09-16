@@ -27,9 +27,22 @@ VARIANTS = {
         "uuid_meaning",
         "where_later",
     ),
+    "M_named_chain": ("table_bag", "query_bag", "empty", "long_intermediate"),
+    "N_imported_chain": ("bag", "empty"),
+    "O_named_later": (
+        "self_join",
+        "union_dag",
+        "two_facades",
+        "order_ordinary",
+        "order_rebound",
+        "order_completed",
+        "producer_filter",
+    ),
 }
 LABELS = ("display_text", "record_id", "active", "amount", "ratio")
 LOGICAL = ("Text", "Int", "Bool", "Decimal", "Float")
+CHAIN_LABELS = (*LABELS, "repeated")
+CHAIN_LOGICAL = (*LOGICAL, "Int")
 CODES = {
     "PIE-B1001": "SOURCE_REALIZATION",
     "PIE-B1002": "REPRESENTATION",
@@ -62,6 +75,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         or variant not in VARIANTS[case]
     ):
         raise ValueError("unknown emission fixture")
+    if case in {"M_named_chain", "N_imported_chain", "O_named_later"}:
+        return chain_fixture(target, case, variant)
     kind = (
         "table"
         if case in {"G_emission_table_bag", "I_emission_table_empty"}
@@ -226,6 +241,198 @@ source rows: Row is {target}.table("opaque.locator.not.sql")
         if case in {"H_emission_query_bag", "I_emission_table_empty"}
         else "preserve_literals",
     }
+
+
+def chain_fixture(target, case, variant):
+    base = fixture(target)
+    base_source = base["source"]
+    assert type(base_source) is str
+    header = base_source.split("table result:", 1)[0]
+    contract = json.loads(base["contract"])
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        }
+    )
+    text_label = (
+        "intermediate_" + "x" * 280 if variant == "long_intermediate" else "TextValue"
+    )
+    first_kind = "query" if variant == "query_bag" else "table"
+    first = f"""{first_kind} first:
+    from rows
+    select:
+        {text_label} = text
+        Key = id
+        key = money
+        FlagValue = flag
+        AmountValue = money
+        RatioValue = ratio
+        omitted = text
+"""
+    second = f"""table second:
+    from first
+    select:
+        amount2 = key
+        txt2 = {text_label}
+        id2 = Key
+        flag2 = FlagValue
+        ratio2 = RatioValue
+        again = Key
+"""
+    final_kind = "table" if variant == "table_bag" else "query"
+    final = f"""{final_kind} result:
+    from second
+    select:
+        display_text = txt2
+        record_id = id2
+        active = flag2
+        amount = amount2
+        ratio = ratio2
+        repeated = again
+"""
+    source: str | dict[str, str] = header + first + second + final
+    description = contract["sources"][0]
+    if variant == "empty":
+        description["relation"]["name"] = "phase66 empty é"
+    if case == "N_imported_chain" or variant == "two_facades":
+        source = {
+            "a.pietto": header + first + "export:\n    table first\n",
+            "b.pietto": 'import "a.pietto":\n    table first as Public\nexport:\n    table Public\n',
+            "main.pietto": 'import "b.pietto":\n    table Public as Alias\n'
+            + second.replace("from first", "from Alias")
+            + final,
+        }
+        description["selector"]["module"] = "a.pietto"
+        if variant != "empty":
+            description["relation"]["name"] = "p0"
+        if variant == "two_facades":
+            source["c.pietto"] = source["b.pietto"]
+            source["main.pietto"] = """import "b.pietto":
+    table Public as Left
+import "c.pietto":
+    table Public as Right
+query result:
+    union all:
+        from Left
+        from Right
+"""
+    elif case == "O_named_later":
+        if variant == "self_join":
+            source = (
+                header
+                + first
+                + """query result:
+    from first
+    inner join first as r:
+        from first
+        on first.Key == r.Key
+    select:
+        id = first.Key
+"""
+            )
+        elif variant == "union_dag":
+            chain_text = header + first
+            previous = "first"
+            for i in range(3):
+                chain_text += f"table shared{i}:\n    union all:\n        from {previous}\n        from {previous}\n"
+                previous = f"shared{i}"
+            source = (
+                chain_text
+                + f"query result:\n    from {previous}\n    select:\n        Key\n"
+            )
+        elif variant == "order_ordinary":
+            source = (
+                header
+                + first
+                + """query result:
+    from first
+    select:
+        Key
+    order by:
+        Key
+"""
+            )
+        elif variant == "order_rebound":
+            source = (
+                header
+                + """table upstream:
+    from rows
+    select:
+        id
+        w = row_number() window:
+            order by:
+                id
+    qualify:
+        row_number() window:
+            order by:
+                id
+        <= 3 and w <= 2
+query result:
+    from upstream
+    select:
+        id
+    order by:
+        id
+    limit 1
+"""
+            )
+        elif variant == "order_completed":
+            source = (
+                header
+                + f'source other: Row is {target}.table("other")\n'
+                + """table upstream:
+    from rows
+    cross join other as r:
+        from rows
+    select:
+        id = rows.id
+query result:
+    from upstream
+    select:
+        id
+    order by:
+        id
+"""
+            )
+            other = deepcopy(description)
+            other["selector"]["name"] = "other"
+            contract["sources"].append(other)
+        elif variant == "producer_filter":
+            source = (
+                header
+                + first.replace("    select:", "    where id > 0\n    select:")
+                + second
+                + final
+            )
+    return {
+        "source": source,
+        "contract": encoded(contract).decode(),
+        "policy": "bind_safe_literals"
+        if variant == "query_bag"
+        else "preserve_literals",
+    }
+
+
+def source_bytes(source):
+    return source.encode("utf-8") if type(source) is str else encoded(source)
+
+
+def source_files(source):
+    return {"main.pietto": source} if type(source) is str else source
+
+
+def expected_status(case):
+    return (
+        "INPUT_REJECTED"
+        if case == "K_emission_rejected"
+        else "BLOCKED"
+        if case in {"L_emission_blocked", "O_named_later"}
+        else "VERIFIED"
+    )
 
 
 def generation_inputs(target):
@@ -476,6 +683,442 @@ def _contract_shape(contract):
         declared[key, scope] = value
 
 
+def _public_premises(contract):
+    return [
+        *contract["environment"],
+        *[p for source in contract["sources"] for p in source["premises"]],
+    ]
+
+
+def _identifier_token(text, family, role):
+    quote = '"' if family == "postgres" else "`"
+    _need(
+        re.fullmatch(
+            re.escape(quote)
+            + "(?:"
+            + re.escape(quote * 2)
+            + "|[^"
+            + re.escape(quote)
+            + "])*"
+            + re.escape(quote),
+            text,
+        )
+        is not None
+    )
+    value = text[1:-1].replace(quote * 2, quote)
+    _need(bool(value) and "\0" not in value, "unrepresentable identifier")
+    if family == "postgres":
+        _need(len(value.encode("utf-8")) <= 63, "identifier byte limit")
+    else:
+        _need(
+            len(value) <= (256 if role == "label" else 64), "identifier character limit"
+        )
+        _need(all(ord(char) <= 0xFFFF for char in value))
+        _need(role == "label" or not value.endswith(" "))
+        if role in {"namespace", "relation"}:
+            _need(not any(char in value for char in (".", "/", "\\")))
+    return value
+
+
+def _named_range_provenance(document):
+    modules = {source["module"] for source in document["request"]["sources"]}
+    subjects, positions = {}, {}
+    roles = {
+        "selected_plan": ["selected_owner"],
+        "definition": ["definition"],
+        "source_port": ["source_port"],
+        "result_port": ["result_port"],
+        "input_use": ["input_use"],
+        "input_port": ["input_port"],
+        "projection": ["projection"],
+        "export": ["stage_export", "export"],
+    }
+    associations = {
+        "authored_cause",
+        "expression_body",
+        "field_declaration",
+        "type_reference",
+        "referenced_declaration",
+        "import_item",
+        "export_item",
+        "source_connector",
+    }
+    for interval in _records(document["ranges"]):
+        _reference(interval["subject"])
+        key = interval["subject"]["kind"], interval["subject"]["position"]
+        origins = _records(interval["origins"])
+        expected = (
+            ["definition", "source_descriptor"]
+            if key == ("definition", 0)
+            else roles.get(key[0])
+        )
+        _need(
+            expected is not None and [o.get("role") for o in origins] == expected,
+            "range origin roles",
+        )
+        _need(
+            key not in subjects or subjects[key] == origins,
+            "inconsistent repeated-subject provenance",
+        )
+        subjects[key] = origins
+        previous = -1
+        for origin in origins:
+            _keys(origin, ("position", "role", "sources"))
+            _need(_ordinal(origin["position"]) and origin["position"] > previous)
+            previous = origin["position"]
+            _need(
+                origin["position"] not in positions
+                or positions[origin["position"]] == key,
+                "foreign origin subject",
+            )
+            positions[origin["position"]] = key
+            causes = []
+            for source in _records(origin["sources"]):
+                _keys(source, ("path", "kind", "location"))
+                _need(
+                    source["path"] in modules and source["kind"] in associations,
+                    "range origin module or association",
+                )
+                _location(source["location"])
+                location = source["location"]
+                if location is None:
+                    raise ValueError("missing origin location")
+                _need(location["path"] == source["path"])
+                _need(
+                    all(
+                        type(location[k]) is int
+                        for k in ("line", "column", "end_line", "end_column")
+                    )
+                )
+                _need(
+                    (location["line"], location["column"])
+                    <= (location["end_line"], location["end_column"])
+                )
+                if source["kind"] == "authored_cause":
+                    causes.append(location)
+            _need(len(causes) == 1, "missing authored range cause")
+    return subjects
+
+
+def _decode_named_sql(document, fields, limits):
+    """Read the finite WITH grammar from bytes; never import compiler machinery."""
+    sql = document["sql"].encode("utf-8")
+    provenance = _named_range_provenance(document)
+    expected_case = (
+        "quoted_exact"
+        if document["target"]["family"] == "postgres"
+        else "lower_case_table_names=0"
+    )
+    cases = [
+        p["value"]
+        for p in _public_premises(document["request"]["contract"])
+        if p["key"] == "identifier_case" and p["scope"] == "statement"
+    ]
+    _need(bool(cases) and all(value == expected_case for value in cases))
+    tokens = []
+    offset = 0
+    for interval in _records(document["ranges"]):
+        _keys(interval, ("start", "end", "kind", "role", "subject", "origins"))
+        _need(type(interval["start"]) is int and type(interval["end"]) is int)
+        _need(interval["start"] == offset < interval["end"] <= len(sql))
+        text = sql[offset : interval["end"]].decode("utf-8")
+        _need(interval["kind"] in {"identifier", "syntax"})
+        if interval["kind"] == "identifier":
+            text = _identifier_token(
+                text, document["target"]["family"], interval["role"]
+            )
+        tokens.append((interval["kind"], interval["role"], text, interval["subject"]))
+        offset = interval["end"]
+    _need(offset == len(sql))
+    cursor = 0
+
+    def reference(kind, position):
+        return {"kind": kind, "position": position}
+
+    def origins(ref):
+        return provenance[ref["kind"], ref["position"]]
+
+    def cause(ref):
+        locations = [
+            next(s["location"] for s in o["sources"] if s["kind"] == "authored_cause")
+            for o in origins(ref)
+        ]
+        _need(
+            all(location == locations[0] for location in locations),
+            "conflicting subject causes",
+        )
+        return locations[0]
+
+    def within(child, parent):
+        return child["path"] == parent["path"] and (
+            parent["line"],
+            parent["column"],
+        ) <= (child["line"], child["column"]) <= (
+            child["end_line"],
+            child["end_column"],
+        ) <= (parent["end_line"], parent["end_column"])
+
+    def take(kind, role, text=None, subject=None):
+        nonlocal cursor
+        _need(cursor < len(tokens), "missing SQL token")
+        actual_kind, actual_role, actual_text, actual_subject = tokens[cursor]
+        cursor += 1
+        _need((actual_kind, actual_role) == (kind, role))
+        _need(text is None or actual_text == text)
+        _need(subject is None or actual_subject == subject)
+        return actual_text, actual_subject
+
+    def peek():
+        return tokens[cursor][1] if cursor < len(tokens) else None
+
+    ctes = {}
+    bodies = []
+    projection_base = 0
+    input_base = 0
+    physical_count = 0
+    description = fields[0][1]
+    originals = Counter()
+
+    def select(owner, final=False):
+        nonlocal projection_base, input_base, physical_count
+        take("syntax", "select", "SELECT ", owner)
+        selected = []
+        while True:
+            i = len(selected)
+            projection = reference("projection", projection_base + i)
+            export = reference("export", projection_base + i)
+            if i:
+                take("syntax", "separator", ", ", projection)
+            alias, input_ref = take("identifier", "column_scope")
+            _need(input_ref["kind"] == "input_port")
+            take("syntax", "qualifier", ".", projection)
+            name, terminal = take("identifier", "column")
+            take("syntax", "alias", " AS ", projection)
+            label, _ = take("identifier", "label", None if final else f"c{i}", export)
+            selected.append(
+                (alias, input_ref, name, terminal, label, projection, export)
+            )
+            if peek() != "separator":
+                break
+        _, producer_ref = take("syntax", "from", " FROM ")
+        _need(producer_ref["kind"] == "definition")
+        producer_name = None
+        if peek() == "namespace":
+            _need(producer_ref == reference("definition", 0))
+            take(
+                "identifier",
+                "namespace",
+                description["relation"]["namespace"],
+                producer_ref,
+            )
+            take("syntax", "qualifier", ".", producer_ref)
+            take(
+                "identifier", "relation", description["relation"]["name"], producer_ref
+            )
+            producer_columns = [
+                {
+                    "name": f["column"],
+                    "terminal": reference("source_port", f["ordinal"]),
+                    "field": f,
+                }
+                for f in description["fields"]
+            ]
+            physical_count += 1
+        else:
+            producer_name, _ = take("identifier", "cte_reference", subject=producer_ref)
+            _need(producer_name in ctes, "forward or captured CTE reference")
+            _need(ctes[producer_name]["definition"] == producer_ref)
+            producer_columns = ctes[producer_name]["columns"]
+        use = reference("input_use", len(bodies))
+        take("syntax", "alias", " AS ", use)
+        alias, _ = take("identifier", "relation_scope", f"s{len(bodies)}", use)
+        consumer_cause, producer_cause, use_cause = (
+            cause(owner),
+            cause(producer_ref),
+            cause(use),
+        )
+        _need(within(use_cause, consumer_cause), "use outside consumer source scope")
+        route = origins(use)[0]["sources"]
+        _need(
+            any(
+                s["kind"] == "referenced_declaration"
+                and s["location"] == producer_cause
+                for s in route
+            ),
+            "missing immediate producer declaration",
+        )
+        hops = [s for s in route if s["kind"] in {"import_item", "export_item"}]
+        module = consumer_cause["path"]
+        _need(len(hops) % 2 == 0)
+        for imported, exported in zip(hops[::2], hops[1::2], strict=True):
+            _need(
+                imported["kind"] == "import_item"
+                and imported["path"] == module
+                and exported["kind"] == "export_item",
+                "broken import provenance trail",
+            )
+            module = exported["path"]
+        _need(module == producer_cause["path"], "missing import provenance trail")
+        names = {
+            column["name"]: (i, column) for i, column in enumerate(producer_columns)
+        }
+        _need(len(names) == len(producer_columns))
+        output = []
+        for i, (
+            qualifier,
+            input_ref,
+            name,
+            terminal,
+            label,
+            projection,
+            export,
+        ) in enumerate(selected):
+            _need(qualifier == alias and name in names)
+            index, producer_column = names[name]
+            _need(input_ref == reference("input_port", input_base + index))
+            _need(terminal == producer_column["terminal"], "wrong immediate terminal")
+            _need(cause(input_ref) == use_cause, "input port outside its use")
+            _need(
+                cause(terminal) == producer_cause,
+                "terminal outside producer source scope",
+            )
+            _need(
+                cause(export) == cause(projection)
+                and within(cause(projection), consumer_cause),
+                "projection/export source correspondence",
+            )
+            field = producer_column["field"]
+            if final:
+                _need(i < len(fields))
+                public = fields[i][0]
+                correspondence = public["correspondence"]
+                _need(label == public["label"] and field is fields[i][2])
+                _need(correspondence["input_port"] == input_ref)
+                _need(
+                    correspondence["projection"] == projection
+                    and correspondence["export"] == export
+                )
+                _need(
+                    correspondence["source_port"]
+                    == reference("source_port", field["ordinal"])
+                )
+            output.append(
+                {
+                    "name": label,
+                    "terminal": reference("result_port", projection_base + i),
+                    "field": field,
+                }
+            )
+        _need(not final or len(output) == len(fields))
+        n = len(output)
+        originals.update(
+            {
+                "export_representation": n,
+                "expression": n,
+                "stage_value": len(producer_columns),
+                "scope": 1,
+                "result": 2 * n,
+            }
+        )
+        bodies.append(
+            {
+                "producer": producer_name,
+                "producer_columns": producer_columns,
+                "use": use,
+                "columns": output,
+            }
+        )
+        projection_base += n
+        input_base += len(producer_columns)
+        return output
+
+    take("syntax", "with", "WITH ", reference("selected_plan", 0))
+    _need(
+        cause(reference("selected_plan", 0))["path"]
+        == document["request"]["owner"]["module"]
+    )
+    _need(
+        cause(reference("definition", 0))["path"] == description["selector"]["module"]
+    )
+    while True:
+        index = len(ctes)
+        definition = reference("definition", index + 1)
+        if index:
+            take("syntax", "cte_separator", ", ", definition)
+        name, _ = take("identifier", "cte_name", f"p{index}", definition)
+        take("syntax", "cte_columns_open", " (", definition)
+        header = []
+        while True:
+            position = len(header)
+            terminal = reference("result_port", projection_base + position)
+            if position:
+                take("syntax", "terminal_separator", ", ", terminal)
+            take("identifier", "terminal_column", f"c{position}", terminal)
+            _need(
+                cause(terminal) == cause(definition),
+                "CTE header outside defining source",
+            )
+            header.append(terminal)
+            if peek() != "terminal_separator":
+                break
+        take("syntax", "cte_body_open", ") AS (", definition)
+        output = select(definition)
+        _need(header == [c["terminal"] for c in output])
+        take("syntax", "cte_body_close", ")", definition)
+        ctes[name] = {
+            "definition": definition,
+            "columns": output,
+            "producer": bodies[-1]["producer"],
+        }
+        if peek() != "cte_separator":
+            break
+    take("syntax", "with_body", " ", reference("definition", len(ctes) + 1))
+    _need(
+        cause(reference("definition", len(ctes) + 1))
+        == cause(reference("selected_plan", 0))
+    )
+    select(reference("selected_plan", 0), final=True)
+    _need(cursor == len(tokens) and physical_count == 1)
+    visited = set()
+    producer = bodies[-1]["producer"]
+    while producer is not None:
+        _need(producer not in visited)
+        visited.add(producer)
+        producer = ctes[producer]["producer"]
+    _need(visited == set(ctes), "unreferenced SQL definition")
+    originals["source_realization"] = 1
+    generated = []
+    for cte in ctes.values():
+        generated.append(("cte_definition", "R03", cte["definition"]))
+        generated.extend(
+            ("terminal_column", "R03", c["terminal"]) for c in cte["columns"]
+        )
+    for body in bodies:
+        if body["producer"] is None:
+            generated.append(("qualified_scan", "R01", None))
+            generated.extend(
+                ("source_representation", "R02", None) for _ in description["fields"]
+            )
+        else:
+            generated.append(("named_use", "R03", body["use"]))
+            generated.extend(
+                ("immediate_terminal", "R03", c["terminal"])
+                for c in body["producer_columns"]
+            )
+        generated.extend(("field_projection", "R02", None) for _ in body["columns"])
+        generated.append(("read_only_select_bytes", "R23", None))
+    generated.append(("nonrecursive_with_bytes", "R23", None))
+    _need(all(len(body["columns"]) <= limits["columns"] for body in bodies))
+    _need(
+        3 * len(bodies)
+        + 2 * projection_base
+        + 2 * len(ctes)
+        + sum(len(c["columns"]) for c in ctes.values())
+        <= limits["nodes"]
+    )
+    return originals, generated
+
+
 def decode_public(data: bytes) -> dict[str, Any]:
     """Validate data only. A decoded document grants no compiler authority."""
     _need(type(data) is bytes and len(data) <= 16 * 1024 * 1024)
@@ -586,14 +1229,18 @@ def decode_public(data: bytes) -> dict[str, Any]:
         )
         _need(request["literal_policy"] in {"preserve_literals", "bind_safe_literals"})
         _need(type(request["sources"]) is list and bool(request["sources"]))
+        modules = set()
         for source in request["sources"]:
             _keys(source, ("module", "sha256", "byte_count"))
             _need(
                 type(source["module"]) is str
+                and bool(source["module"])
+                and source["module"] not in modules
                 and type(source["sha256"]) is str
                 and re.fullmatch(r"[0-9a-f]{64}", source["sha256"]) is not None
                 and _ordinal(source["byte_count"])
             )
+            modules.add(source["module"])
         _need(request["owner"]["module"] in [s["module"] for s in request["sources"]])
         contract = request["contract"]
         _contract_shape(contract)
@@ -610,7 +1257,21 @@ def decode_public(data: bytes) -> dict[str, Any]:
             and bool(document["columns"])
         )
         sql = document["sql"].encode("utf-8")
-        _need(len(sql) <= 8 * 1024 * 1024)
+        named = sql.startswith(b"WITH ")
+        all_premises = _public_premises(contract)
+        limits = {
+            "sql_bytes": 8 * 1024 * 1024,
+            "artifact_bytes": 16 * 1024 * 1024,
+            "nodes": 32768,
+            "parameters": 32768,
+            "columns": 1664 if target["family"] == "postgres" else 4096,
+        }
+        for premise in all_premises:
+            if premise["key"] == "resource_limits" and premise["scope"] == "statement":
+                for key, value in premise["value"].items():
+                    limits[key] = min(limits[key], value)
+        _need(len(sql) <= limits["sql_bytes"] and len(data) <= limits["artifact_bytes"])
+        _need(len(document["columns"]) <= limits["columns"])
         _need(
             type(document["ranges"]) is list and type(document["requirements"]) is list
         )
@@ -662,14 +1323,15 @@ def decode_public(data: bytes) -> dict[str, Any]:
             for key in ("source_port", "input_port", "export", "projection"):
                 _reference(correspondence[key])
                 _need(correspondence[key]["kind"] == key)
-                _need(
-                    correspondence[key]["position"]
-                    == (
-                        correspondence["field"]
-                        if key in {"source_port", "input_port"}
-                        else ordinal
+                if not named or key == "source_port":
+                    _need(
+                        correspondence[key]["position"]
+                        == (
+                            correspondence["field"]
+                            if key in {"source_port", "input_port"}
+                            else ordinal
+                        )
                     )
-                )
             matches = [s for s in sources if s["selector"] == correspondence["source"]]
             _need(len(matches) == 1)
             description = matches[0]
@@ -740,7 +1402,6 @@ def decode_public(data: bytes) -> dict[str, Any]:
         _need(all(item[1] is fields[0][1] for item in fields))
         ranges = iter(document["ranges"])
         offset = 0
-        quote = '"' if target["family"] == "postgres" else "`"
 
         def token(kind, role, expected, subject):
             nonlocal offset
@@ -769,61 +1430,61 @@ def decode_public(data: bytes) -> dict[str, Any]:
                     _location(source["location"])
             text = sql[offset : interval["end"]].decode("utf-8")
             if kind == "identifier":
-                _need(
-                    re.fullmatch(
-                        re.escape(quote)
-                        + "(?:"
-                        + re.escape(quote * 2)
-                        + "|[^"
-                        + re.escape(quote)
-                        + "])*"
-                        + re.escape(quote),
-                        text,
-                    )
-                    is not None
-                )
-                _need(text[1:-1].replace(quote * 2, quote) == expected)
+                _need(_identifier_token(text, target["family"], role) == expected)
             else:
                 _need(text == expected)
             offset = interval["end"]
 
-        token("syntax", "select", "SELECT ", {"kind": "selected_plan", "position": 0})
-        for i, (column, description, field) in enumerate(fields):
-            if i:
+        if not named:
+            token(
+                "syntax", "select", "SELECT ", {"kind": "selected_plan", "position": 0}
+            )
+            for i, (column, description, field) in enumerate(fields):
+                if i:
+                    token(
+                        "syntax",
+                        "separator",
+                        ", ",
+                        column["correspondence"]["projection"],
+                    )
                 token(
-                    "syntax", "separator", ", ", column["correspondence"]["projection"]
+                    "identifier",
+                    "column_scope",
+                    "s0",
+                    column["correspondence"]["input_port"],
                 )
+                token(
+                    "syntax", "qualifier", ".", column["correspondence"]["projection"]
+                )
+                token(
+                    "identifier",
+                    "column",
+                    field["column"],
+                    column["correspondence"]["source_port"],
+                )
+                token("syntax", "alias", " AS ", column["correspondence"]["projection"])
+                token(
+                    "identifier",
+                    "label",
+                    column["label"],
+                    column["correspondence"]["export"],
+                )
+            definition = {"kind": "definition", "position": 0}
+            use = {"kind": "input_use", "position": 0}
+            token("syntax", "from", " FROM ", definition)
             token(
                 "identifier",
-                "column_scope",
-                "s0",
-                column["correspondence"]["input_port"],
+                "namespace",
+                fields[0][1]["relation"]["namespace"],
+                definition,
             )
-            token("syntax", "qualifier", ".", column["correspondence"]["projection"])
+            token("syntax", "qualifier", ".", definition)
             token(
-                "identifier",
-                "column",
-                field["column"],
-                column["correspondence"]["source_port"],
+                "identifier", "relation", fields[0][1]["relation"]["name"], definition
             )
-            token("syntax", "alias", " AS ", column["correspondence"]["projection"])
-            token(
-                "identifier",
-                "label",
-                column["label"],
-                column["correspondence"]["export"],
-            )
-        definition = {"kind": "definition", "position": 0}
-        use = {"kind": "input_use", "position": 0}
-        token("syntax", "from", " FROM ", definition)
-        token(
-            "identifier", "namespace", fields[0][1]["relation"]["namespace"], definition
-        )
-        token("syntax", "qualifier", ".", definition)
-        token("identifier", "relation", fields[0][1]["relation"]["name"], definition)
-        token("syntax", "alias", " AS ", use)
-        token("identifier", "relation_scope", "s0", use)
-        _need(next(ranges, None) is None and offset == len(sql))
+            token("syntax", "alias", " AS ", use)
+            token("identifier", "relation_scope", "s0", use)
+            _need(next(ranges, None) is None and offset == len(sql))
         original, generated = [], []
         for requirement in _records(document["requirements"]):
             _keys(
@@ -841,7 +1502,8 @@ def decode_public(data: bytes) -> dict[str, Any]:
             )
             _need(
                 requirement["denominator"] in {"original", "generated"}
-                and requirement["rule"] in {"R01", "R02", "R23"}
+                and requirement["rule"]
+                in ({"R01", "R02", "R03", "R23"} if named else {"R01", "R02", "R23"})
                 and requirement["disposition"] == "checked_rule"
             )
             _reference(requirement["subject"])
@@ -856,35 +1518,67 @@ def decode_public(data: bytes) -> dict[str, Any]:
                 and requirement["ordinal"] == len(bucket)
             )
             bucket.append(requirement)
-        n = len(fields)
-        used_inputs = {
-            json.dumps(c["correspondence"]["input_port"], sort_keys=True)
-            for c, _, _ in fields
-        }
-        _need(
-            Counter(r["kind"] for r in original)
-            == Counter(
+        if not named:
+            n = len(fields)
+            _need(3 + 2 * n <= limits["nodes"])
+            expected_original = Counter(
                 {
                     "source_realization": 1,
                     "export_representation": n,
                     "expression": n,
-                    "stage_value": len(used_inputs),
+                    "stage_value": len(fields[0][1]["fields"]),
                     "scope": 1,
                     "result": 2 * n,
                 }
-            ),
+            )
+            expected_generated = [
+                ("qualified_scan", "R01", None),
+                *[("source_representation", "R02", None)] * len(fields[0][1]["fields"]),
+                *[("field_projection", "R02", None)] * n,
+                ("read_only_select_bytes", "R23", None),
+            ]
+        else:
+            expected_original, expected_generated = _decode_named_sql(
+                document, fields, limits
+            )
+        _need(
+            Counter(r["kind"] for r in original) == expected_original,
             "original requirement denominator",
         )
+        for requirement in original:
+            expected_rule = (
+                "R03"
+                if named and requirement["kind"] == "scope"
+                else "R01"
+                if requirement["kind"] in {"source_realization", "expression", "scope"}
+                else "R02"
+            )
+            _need(requirement["rule"] == expected_rule)
         _need(
-            [r["kind"] for r in generated]
-            == [
-                "qualified_scan",
-                *["source_representation"] * len(fields[0][1]["fields"]),
-                *["field_projection"] * n,
-                "read_only_select_bytes",
-            ],
+            len(generated) == len(expected_generated),
             "generated requirement denominator",
         )
+        naming = [
+            i
+            for i, premise in enumerate(all_premises)
+            if premise["key"] == "identifier_case" and premise["scope"] == "statement"
+        ]
+        for i, (actual, (kind, rule, subject)) in enumerate(
+            zip(generated, expected_generated, strict=True)
+        ):
+            _need(actual["kind"] == kind and actual["rule"] == rule)
+            _need(all(position < len(all_premises) for position in actual["premises"]))
+            if kind in {
+                "cte_definition",
+                "terminal_column",
+                "named_use",
+                "immediate_terminal",
+            }:
+                _need(actual["premises"] == naming)
+            _need(
+                actual["subject"]
+                == (subject if subject is not None else {"kind": kind, "position": i})
+            )
         return document
     except (
         KeyError,
@@ -919,7 +1613,10 @@ def build_case(
 
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "pietto.toml").write_text(CONFIG)
-    (directory / "main.pietto").write_text(source, encoding="utf-8")
+    for name, content in sorted(source_files(source).items()):
+        if Path(name).name != name or not name.endswith(".pietto"):
+            raise ValueError("closed fixture module path required")
+        (directory / name).write_text(content, encoding="utf-8")
     parsed = check_project_parse_only(directory)
     if not parsed.ok:
         raise ValueError("probe source failed parsing")
@@ -971,7 +1668,7 @@ def main():
                     "id": item["id"],
                     "variant": item["variant"],
                     "source_sha256": hashlib.sha256(
-                        item["source"].encode()
+                        source_bytes(item["source"])
                     ).hexdigest(),
                     "contract_sha256": hashlib.sha256(
                         item["contract"].encode()

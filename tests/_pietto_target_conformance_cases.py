@@ -106,8 +106,12 @@ def emission_setup(target):
         (0, False if target == "postgres" else 0, "A", Decimal("0.00"), 1.5),
         (1, None, "a ", Decimal("-0.01"), 0.0),
     )
-    return tuple((f"CREATE TABLE {name} ({columns})", ()) for name in names) + tuple(
-        (f"INSERT INTO {names[0]} VALUES ({parameters})", row) for row in rows
+    collision = '"p0"' if target == "postgres" else "`p0`"
+    return (
+        tuple((f"CREATE TABLE {name} ({columns})", ()) for name in names)
+        + tuple((f"INSERT INTO {names[0]} VALUES ({parameters})", row) for row in rows)
+        + ((f"CREATE TABLE {collision} ({columns})", ()),)
+        + tuple((f"INSERT INTO {collision} VALUES ({parameters})", row) for row in rows)
     )
 
 
@@ -153,9 +157,12 @@ def emission_rows(target, *, empty=False):
 
 def emission_setup_parameters(target):
     # Independent expected insertion order; never use the observer as an oracle.
-    return [[], []] + [
-        [row[1], row[2], row[0], row[3], row[4]] for row in emission_rows(target)
-    ]
+    rows = [[row[1], row[2], row[0], row[3], row[4]] for row in emission_rows(target)]
+    return [[], [], *rows, [], *rows]
+
+
+def chain_rows(target, *, empty=False):
+    return [[*row, dict(row[1])] for row in emission_rows(target, empty=empty)]
 
 
 def check_emission_case(case, target):
@@ -180,13 +187,7 @@ def check_emission_case(case, target):
         before, after = variant["submission_before"], variant["submission_after"]
         if type(before) is not int or type(after) is not int or before < 0:
             raise ValueError("submission observation missing")
-        expected_status = (
-            "INPUT_REJECTED"
-            if case["id"] == "K_emission_rejected"
-            else "BLOCKED"
-            if case["id"] == "L_emission_blocked"
-            else "VERIFIED"
-        )
+        expected_status = emission.expected_status(case["id"])
         if document["status"] != expected_status or after - before != (
             1 if expected_status == "VERIFIED" else 0
         ):
@@ -202,20 +203,27 @@ def check_emission_case(case, target):
             raise ValueError("emitted artifact/submission mismatch")
         check_complete(observation)
         check_identity(observation, target, "query", prepared=True)
-        expected_rows = emission_rows(target, empty=variant["variant"] == "empty")
+        named = case["id"] in {"M_named_chain", "N_imported_chain"}
+        expected_rows = (chain_rows if named else emission_rows)(
+            target, empty=variant["variant"] == "empty"
+        )
         if Counter(
             json.dumps(row, sort_keys=True) for row in observation["rows"]
         ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
             raise ValueError("emission typed row multiset mismatch")
         metadata = observation["metadata"]
         types = [25, 20, 16, 1700, 701] if target == "postgres" else [253, 8, 1, 246, 5]
-        if [m[0] for m in metadata] != list(emission.LABELS) or [
+        labels = emission.CHAIN_LABELS if named else emission.LABELS
+        logical = emission.CHAIN_LOGICAL if named else emission.LOGICAL
+        if named:
+            types.append(20 if target == "postgres" else 8)
+        if [m[0] for m in metadata] != list(labels) or [
             m[1] for m in metadata
         ] != types:
             raise ValueError("emission positional physical metadata mismatch")
         if [c["logical_type"]["name"] for c in document["columns"]] != list(
-            emission.LOGICAL
-        ) or [c["label"] for c in document["columns"]] != list(emission.LABELS):
+            logical
+        ) or [c["label"] for c in document["columns"]] != list(labels):
             raise ValueError("emission positional logical metadata mismatch")
         if target == "postgres" and any(m[6] is not None for m in metadata):
             raise ValueError("unavailable nullability was invented")

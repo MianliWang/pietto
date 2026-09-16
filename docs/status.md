@@ -71,8 +71,8 @@ documentation does not supersede that evidence.
 | Phase 66 Slice 1 | `COMPLETED / PUBLISHED` |
 | Phase 66 Slice 2 | `COMPLETED / PUBLISHED` |
 | Phase 66 Slice 3 | `COMPLETED / PUBLISHED` |
-| Phase 66 Slice 4 | `NEXT / NOT IMPLEMENTED` |
-| Phase 66 Slice 5 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 4 | `COMPLETED / PUBLISHED` |
+| Phase 66 Slice 5 | `NEXT / NOT IMPLEMENTED` |
 | Phase 66 Slice 6 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 7 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 8 | `NOT IMPLEMENTED` |
@@ -85,7 +85,7 @@ documentation does not supersede that evidence.
 | Phase 66 Slice 15 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 16 | `NOT IMPLEMENTED` |
 | Phase 66 route | `N=16` |
-| Next | `Phase 66 Slice 4 — Named/shared producers and capture-free scopes` |
+| Next | `Phase 66 Slice 5 — Fixed values and server parameter-use mapping` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -1122,6 +1122,19 @@ with both compiler jobs, both target cells and the strict aggregate. Its
 adds exact explicit source realization, independent AST/bytes/requirements/ranges
 verification, three-branch public artifact serialization and installed target
 consumption through an independent decoder. Default pytest remains offline.
-Phase66 remains `ACTIVE`; Slice4 is `NEXT / NOT IMPLEMENTED`, Slices5–16 remain
-`NOT IMPLEMENTED`, and N66 remains16. Do not start Slice4 automatically.
+That Slice3 publication left Slice4 `NEXT / NOT IMPLEMENTED` and Slices5–16
+`NOT IMPLEMENTED`. N66 remains16. Its handoff stated: Do not start Slice4 automatically.
 Public project emit CLI, parameter lowering and product execution remain unimplemented.
+
+Phase66 Slice4 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI
+with both compiler jobs, both target cells and the strict aggregate. Its
+[named producer contract](spec/phase66-slice4-named-shared-producer-scopes-terminal-output-emission-v1.md)
+adds exact definition/use/terminal layouts and installed named/imported/reexported
+field-projection chains with independent public decoding. Repeated JOIN/SET uses
+and ordinary/rebound/completed ORDER carriers are structural-only BLOCKED witnesses.
+The R03 scheduling amendment is newly authorized by the Slice4 task, not by Slice3 PASS.
+R03 outstanding joint execution: Slice7 repeated/shared JOIN; Slice10 ordinary/rebound/completed ORDER and ORDER/LIMIT sharing; Slice11 repeated UNION ALL and two import facades.
+These remain mandatory for phase-completion audit; separate queries or blocked documents
+do not satisfy them. R03 target conformance is not complete. Default pytest remains offline.
+Phase66 remains `ACTIVE`; Slice5 is `NEXT / NOT IMPLEMENTED`, Slices6–16 remain
+`NOT IMPLEMENTED`, and N66 remains16. Do not start Slice5 automatically.

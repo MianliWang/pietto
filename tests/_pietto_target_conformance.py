@@ -192,7 +192,7 @@ def inputs() -> dict[str, Any]:
                 {
                     "id": item["id"],
                     "variant": item["variant"],
-                    "source_sha256": digest(item["source"].encode()),
+                    "source_sha256": digest(emission.source_bytes(item["source"])),
                     "contract_sha256": digest(item["contract"].encode()),
                     "policy": item["policy"],
                 }
@@ -410,7 +410,14 @@ def verify_emission_generation(value, target, expected):
         raise ValueError("emission probe/config input substitution")
     required = {
         "pietto._project.project_sql_emission" + suffix
-        for suffix in ("", "_contract", "_ast", "_rendering", "_verification")
+        for suffix in (
+            "",
+            "_contract",
+            "_ast",
+            "_rendering",
+            "_verification",
+            "_scopes",
+        )
     }
     if not required <= value["origins"].keys():
         raise ValueError("same-child emission origins incomplete")
@@ -450,13 +457,7 @@ def verify_emission_generation(value, target, expected):
         if record["public_sha256"] != digest(data):
             raise ValueError("serialized emission transfer identity")
         document = emission.decode_public(data)
-        status = (
-            "INPUT_REJECTED"
-            if record["id"] == "K_emission_rejected"
-            else "BLOCKED"
-            if record["id"] == "L_emission_blocked"
-            else "VERIFIED"
-        )
+        status = emission.expected_status(record["id"])
         if document["status"] != status:
             raise ValueError("wrong emission outcome")
         if status == "INPUT_REJECTED":
@@ -487,16 +488,22 @@ def verify_emission_generation(value, target, expected):
                 or document["request"]["sources"]
                 != [
                     {
-                        "module": "main.pietto",
-                        "sha256": item["source_sha256"],
-                        "byte_count": len(fixture["source"].encode()),
+                        "module": name,
+                        "sha256": digest(content.encode("utf-8")),
+                        "byte_count": len(content.encode("utf-8")),
                     }
+                    for name, content in sorted(
+                        emission.source_files(fixture["source"]).items()
+                    )
                 ]
             ):
                 raise ValueError("public artifact not bound to source/contract input")
             kind = (
                 "table"
                 if record["id"] in {"G_emission_table_bag", "I_emission_table_empty"}
+                or (
+                    record["id"] == "M_named_chain" and record["variant"] == "table_bag"
+                )
                 else "query"
             )
             if document["request"]["owner"] != {
@@ -506,14 +513,18 @@ def verify_emission_generation(value, target, expected):
             }:
                 raise ValueError("public selected owner changed")
         elif status == "BLOCKED":
-            code = {
-                "missing_source": "PIE-B1001",
-                "bool_domain": "PIE-B1002",
-                "decimal_mismatch": "PIE-B1002",
-                "timestamp_meaning": "PIE-B1004",
-                "uuid_meaning": "PIE-B1004",
-                "where_later": "PIE-B1003",
-            }[record["variant"]]
+            code = (
+                "PIE-B1003"
+                if record["id"] == "O_named_later"
+                else {
+                    "missing_source": "PIE-B1001",
+                    "bool_domain": "PIE-B1002",
+                    "decimal_mismatch": "PIE-B1002",
+                    "timestamp_meaning": "PIE-B1004",
+                    "uuid_meaning": "PIE-B1004",
+                    "where_later": "PIE-B1003",
+                }[record["variant"]]
+            )
             if code not in [b["code"] for b in document["blockers"]]:
                 raise ValueError("wrong emission blocker taxonomy")
 
@@ -536,8 +547,8 @@ def driver_info(pins: dict[str, Any]) -> dict[str, Any]:
 
 
 ENVIRONMENT_QUERIES = {
-    "postgres": "SELECT current_setting('server_version'), current_setting('server_version_num'), version(), current_setting('server_encoding'), current_setting('client_encoding'), current_setting('TimeZone'), current_setting('statement_timeout'), current_user",
-    "mysql": "SELECT VERSION(), @@version_comment, @@version_compile_machine, @@version_compile_os, @@character_set_connection, @@collation_connection, @@sql_mode, @@max_execution_time, CURRENT_USER()",
+    "postgres": "SELECT current_setting('server_version'), current_setting('server_version_num'), version(), current_setting('server_encoding'), current_setting('client_encoding'), current_setting('TimeZone'), current_setting('statement_timeout'), current_user, current_setting('max_identifier_length')",
+    "mysql": "SELECT VERSION(), @@version_comment, @@version_compile_machine, @@version_compile_os, @@character_set_connection, @@collation_connection, @@sql_mode, @@max_execution_time, CURRENT_USER(), @@lower_case_table_names",
 }
 MYSQL_TLS_QUERY = (
     "SHOW SESSION STATUS WHERE Variable_name IN ('Ssl_cipher', 'Ssl_version')"
@@ -637,9 +648,9 @@ def verify_environment(value: dict[str, Any], target: str, pin: dict[str, Any]) 
         or value["query"]["parameters"] != []
     ):
         raise ValueError("environment query substitution")
-    kinds = ["text"] * (8 if target == "postgres" else 9)
+    kinds = ["text"] * (9 if target == "postgres" else 10)
     if target == "mysql":
-        kinds[7] = "int"
+        kinds[7] = kinds[9] = "int"
     if [item["kind"] for item in value["query"]["rows"][0]] != kinds:
         raise ValueError("environment value type mismatch")
     values = [item.get("value") for item in value["query"]["rows"][0]]
@@ -657,6 +668,7 @@ def verify_environment(value: dict[str, Any], target: str, pin: dict[str, Any]) 
             or pin["package_version"] not in values[2]
             or values[3:7] != ["UTF8", "UTF8", "UTC", "10s"]
             or values[7] != "pietto_manager"
+            or values[8] != "63"
         ):
             raise ValueError("PostgreSQL server/build/environment mismatch")
     elif (
@@ -672,6 +684,7 @@ def verify_environment(value: dict[str, Any], target: str, pin: dict[str, Any]) 
         or set(str(values[6]).split(",")) != set(MYSQL_MODE.split(","))
         or values[7] != "10000"
         or values[8] != "root@%"
+        or values[9] != "0"
     ):
         raise ValueError("MySQL server/build/environment mismatch")
 

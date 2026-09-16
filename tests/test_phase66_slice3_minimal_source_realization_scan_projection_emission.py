@@ -751,9 +751,36 @@ def test_current_emission_variant_manifest_is_complete():
             "uuid_meaning",
             "where_later",
         ),
+        "M_named_chain": ("table_bag", "query_bag", "empty", "long_intermediate"),
+        "N_imported_chain": ("bag", "empty"),
+        "O_named_later": (
+            "self_join",
+            "union_dag",
+            "two_facades",
+            "order_ordinary",
+            "order_rebound",
+            "order_completed",
+            "producer_filter",
+        ),
     }
     for target in ("postgres", "mysql"):
-        assert len(probe.generation_inputs(target)) == 13
+        inputs = probe.generation_inputs(target)
+        assert len(inputs) == 26
+        assert (
+            sum(
+                item["id"]
+                in {
+                    "G_emission_table_bag",
+                    "H_emission_query_bag",
+                    "I_emission_table_empty",
+                    "J_emission_query_empty",
+                    "K_emission_rejected",
+                    "L_emission_blocked",
+                }
+                for item in inputs
+            )
+            == 13
+        )
 
 
 def test_multiple_later_scalar_projections_keep_each_blocker(tmp_path):

@@ -10,7 +10,7 @@ Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. Phase64 and its 11 numbered Slices are completed
 through their accepted publication chains. Phase65 and Slices1–16 are completed
 through the accepted Slice16 audit publication. The current owner is Phase 66,
-which is `ACTIVE`; Slice 4 is `NEXT / NOT IMPLEMENTED` after successful Slice3 publication.
+which is `ACTIVE`; Slice 5 is `NEXT / NOT IMPLEMENTED` after successful Slice4 publication.
 The Validation/Test Performance Optimization Interlude II is `COMPLETED`.
 Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -2580,11 +2580,22 @@ Phase66 Slice3 completes the [minimal scan/projection emission vertical](spec/ph
 only upon successful natural exact-head CI with both compiler jobs, both target cells and the strict aggregate.
 It preserves the six historical facility cases and adds six cases with thirteen
 new public artifact variants per target, independent decoding and unchanged SQL
-submission. Default pytest remains offline. Phase66 remains `ACTIVE`;
-Slice4 is `NEXT / NOT IMPLEMENTED`, Slices5–16 remain `NOT IMPLEMENTED`, and
-N66 remains16. Do not start Slice4 automatically. Named/shared producers remain
-Slice4 work; the public CLI remains Slice13, private observation Slice14, and
+submission. Default pytest remains offline. That Slice3 publication left Slice4
+`NEXT / NOT IMPLEMENTED` and Slices5–16 `NOT IMPLEMENTED`. N66 remains16.
+Its handoff stated: Do not start Slice4 automatically. The public CLI remains Slice13, private observation Slice14, and
 result decoding/execution remain later phases.
+
+Phase66 Slice4 completes the [named producer emission vertical](spec/phase66-slice4-named-shared-producer-scopes-terminal-output-emission-v1.md)
+only upon successful natural exact-head CI with both compiler jobs, both target cells and the strict aggregate.
+It preserves A–L and adds M–O: six installed named-chain query variants and seven
+structural-only BLOCKED variants per target. Current complete manifests contain15
+cases and26 public documents. The R03 scheduling amendment is newly authorized by
+the Slice4 task, not by Slice3 PASS; it preserves the original route history and all operator owners.
+R03 outstanding joint execution: Slice7 repeated/shared JOIN; Slice10 ordinary/rebound/completed ORDER and ORDER/LIMIT sharing; Slice11 repeated UNION ALL and two import facades.
+These remain mandatory for phase-completion audit; separate queries or blocked documents
+do not satisfy them. R03 target conformance is not complete. Default pytest remains offline.
+Phase66 remains `ACTIVE`; Slice5 is `NEXT / NOT IMPLEMENTED`, Slices6–16 remain
+`NOT IMPLEMENTED`, and N66 remains16. Do not start Slice5 automatically.
 
 ## Future Roadmap v6
 

@@ -13,6 +13,11 @@ from pietto._project import project_sql_plan_expressions as row
 from pietto._project import project_sql_plan_target_assessment as targets
 from pietto._project.project_sql_plan_verification import ProjectSQLPlanVerification
 from pietto._project.project_sql_plan_inspection import inspect_project_sql_plan
+from pietto._project.project_sql_emission_scopes import (
+    EmissionLayout,
+    build_emission_layout,
+    projection_sources,
+)
 from pietto._project.model import ProjectResolvedTypeKind
 from pietto._project.project_query_block_ir import ProjectIRReusedEffectiveOutput
 from pietto.semantic.analyzer import _decimal_precision_scale_fact
@@ -122,6 +127,7 @@ class PreparedEmission:
     report: Any
     source_map: Any
     assessment: Any
+    layout: EmissionLayout
     input_blockers: tuple[Blocker, ...]
     _accepted: tuple[object, ...]
 
@@ -564,7 +570,7 @@ def prepare_project_sql_emission(verification, data, *, target_request=None):
     if view is not None:
         stages = {p.ref: p for p in view.plan.stage_ports}
         inputs = {p.ref: p for p in view.plan.input_ports}
-        source_ports = {p.ref: p for p in view.plan.source_ports}
+        source_ports = projection_sources(view.plan)
         source_owners = {s.ref: s.source.owner for s in view.plan.sources}
         for expression in view.plan.expressions:
             if type(expression) is row.ProjectSQLReference:
@@ -721,6 +727,7 @@ def prepare_project_sql_emission(verification, data, *, target_request=None):
         assessment = view.target_assessment(
             target_request, report_verification=report
         ).verification
+        layout = build_emission_layout(verification)
     except (AttributeError, TypeError, ValueError):
         return PreparationFailure(
             errors=(
@@ -743,6 +750,7 @@ def prepare_project_sql_emission(verification, data, *, target_request=None):
         report,
         source_map,
         assessment,
+        layout,
         tuple(conflicts),
     )
     for name, value in zip(
@@ -758,6 +766,7 @@ def prepare_project_sql_emission(verification, data, *, target_request=None):
             "report",
             "source_map",
             "assessment",
+            "layout",
             "input_blockers",
         ),
         values,

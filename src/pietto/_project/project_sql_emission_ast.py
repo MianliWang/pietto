@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 from typing import Any
 from pietto.ast_nodes import SourceDef
 
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project.model import ProjectResolvedTypeKind
+from pietto._project.project_sql_emission_scopes import (
+    ScopeDefinition,
+    ScopeUse,
+    TerminalBinding,
+    projection_sources,
+)
 from pietto._project.project_sql_emission_contract import (
     Blocker,
     BoundField,
@@ -38,12 +44,21 @@ class SQLScan:
     realization: BoundSource
     use: Any
     symbol: SQLSymbol
+    binding: ScopeUse
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class SQLNamedUse:
+    cte: SQLCTE
+    use: Any
+    symbol: SQLSymbol
+    binding: ScopeUse
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class SQLColumn:
     ordinal: int
-    scan: SQLScan
+    scan: SQLScan | SQLNamedUse
     source_field: BoundField
     source_port: Any
     input_port: Any
@@ -51,13 +66,25 @@ class SQLColumn:
     projection: Any
     symbol: SQLSymbol
     label: str
+    producer: TerminalBinding
+    origin: SQLScan
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class SQLSelect:
     request: PreparedEmission
-    scan: SQLScan
+    scan: SQLScan | SQLNamedUse
     columns: tuple[SQLColumn, ...]
+    definition: ScopeDefinition
+    ctes: tuple[SQLCTE, ...] = ()
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class SQLCTE:
+    definition: ScopeDefinition
+    symbol: SQLSymbol
+    columns: tuple[SQLSymbol, ...]
+    body: SQLSelect
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -94,20 +121,31 @@ def identifier_valid(name, family, *, label=False, relation=False):
     return not relation or not any(c in name for c in (".", "/", "\\"))
 
 
-def direct_shape(plan):
+def projection_chain_shape(plan):
+    named = tuple(
+        d
+        for d in plan.bindings.definitions
+        if type(d.entry.owner.definition) is not SourceDef
+    )
     return (
-        len(plan.sources) == len(plan.input_uses) == len(plan.blocks) == 1
-        and tuple(o.kind.value for o in plan.blocks[0].operators)
-        == ("relation_input", "final_projection")
-        and plan.input_uses[0].producer is plan.sources[0].ref
-        and len(plan.bindings.definitions) == 2
-        and plan.bindings.definitions[0].entry.owner is plan.sources[0].source.owner
-        and plan.bindings.definitions[1].entry.owner is plan.scope.selected_owner
+        bool(named)
+        and len(plan.sources) == 1
+        and len(plan.blocks) == len(named) == len(plan.input_uses)
+        and all(
+            tuple(o.kind.value for o in block.operators)
+            == ("relation_input", "final_projection")
+            for block in plan.blocks
+        )
+        and all(
+            sum(block.definition is d.ref for block in plan.blocks) == 1
+            and sum(use.consumer is d.ref for use in plan.input_uses) == 1
+            and bool(d.exports)
+            for d in named
+        )
         and len(plan.projections)
-        == len(plan.exports)
+        == len(plan.all_exports)
         == len(plan.expressions)
         == len(plan.expression_sites)
-        and bool(plan.exports)
         and all(type(e) is row.ProjectSQLReference for e in plan.expressions)
         and not any(
             (
@@ -123,6 +161,7 @@ def direct_shape(plan):
                 plan.operands,
                 plan.bind_uses,
                 plan.literal_slots,
+                plan.fixed_envelope.slots,
                 plan.fixed_envelope.values,
             )
         )
@@ -131,17 +170,14 @@ def direct_shape(plan):
 
 def applicable_premises(request, owner, field=None):
     plan = request.plan
+    sources = projection_sources(plan)
     sites = (
         ()
         if field is None
         else tuple(
             p.site
             for p in plan.projections
-            if p.source_port is not None
-            and any(
-                port.ref is p.source_port and port.field is field.field
-                for port in plan.source_ports
-            )
+            if p.source_port in sources and sources[p.source_port].field is field.field
         )
     )
     return tuple(
@@ -271,14 +307,9 @@ def emission_blockers(request: PreparedEmission):
 
     if RELEASES.get(request.family) != request.release:
         add("PIE-B1003", "target_release_not_reviewed")
-    if not direct_shape(plan):
+    admitted = projection_chain_shape(plan)
+    if not admitted:
         shape_start = len(result)
-        for definition in plan.bindings.definitions:
-            if (
-                definition.entry.owner is not plan.scope.selected_owner
-                and type(definition.entry.owner.definition) is not SourceDef
-            ):
-                add("PIE-B1003", "named_producers_require_slice4", definition.ref)
         for block in plan.blocks:
             for operator in block.operators:
                 if operator.kind.value not in {"relation_input", "final_projection"}:
@@ -309,11 +340,35 @@ def emission_blockers(request: PreparedEmission):
                 request.target_request,
             )
     limits = resource_limits(request)
-    if (
-        len(plan.exports) > limits["columns"]
-        or 3 + 2 * len(plan.projections) > limits["nodes"]
+    bodies = tuple(
+        d
+        for d in request.layout.definitions
+        if type(d.original.entry.owner.definition) is not SourceDef
+    )
+    intermediate = tuple(
+        d for d in bodies if d.original.entry.owner is not plan.scope.selected_owner
+    )
+    nodes = (
+        3 * len(bodies)
+        + 2 * len(plan.projections)
+        + sum(2 + len(d.terminals) for d in intermediate)
+    )
+    if admitted and (
+        any(len(d.terminals) > limits["columns"] for d in bodies)
+        or nodes > limits["nodes"]
     ):
         add("PIE-B1007", "generated_structure_limit", plan.scope)
+    if admitted and intermediate:
+        names = [p for p in request.premises if p.key == "identifier_case"]
+        expected = (
+            "quoted_exact"
+            if request.family == "postgres"
+            else "lower_case_table_names=0"
+        )
+        if not names:
+            add("PIE-B1004", "identifier_case_declaration_missing", plan.scope)
+        elif any(json.loads(p.value) != expected for p in names):
+            add("PIE-B1005", "identifier_case_declaration_mismatch", plan.scope)
     for aspect in request.assessment.assessment.aspects:
         if any(
             state.value in {"exact_negative", "conflicting_facts"}
@@ -406,72 +461,159 @@ def emission_blockers(request: PreparedEmission):
 
 def build_sql_ast(request: PreparedEmission):
     plan = request.plan
-    (source,), (use,) = plan.sources, plan.input_uses
-    (bound,) = tuple(s for s in request.sources if s.owner is source.source.owner)
-    scan = SQLScan(source, bound, use, SQLSymbol(0, use.ref, "s0"))
-    columns = []
-    for position, projection in enumerate(plan.projections):
-        (source_port,) = tuple(
-            p for p in plan.source_ports if p.ref is projection.source_port
-        )
-        (input_port,) = tuple(
-            p for p in plan.input_ports if p.ref is projection.input_port
-        )
-        export = plan.exports[position]
-        (field,) = tuple(f for f in bound.fields if f.field is source_port.field)
-        columns.append(
-            SQLColumn(
-                position,
-                scan,
-                field,
-                source_port,
-                input_port,
-                export,
-                projection,
-                SQLSymbol(position + 1, input_port.ref, field.column),
-                export.identity.name,
+    sources = {source.ref: source for source in plan.sources}
+    bindings = {use.consumer.original.ref: use for use in request.layout.uses}
+    blocks = {block.definition: block for block in plan.blocks}
+    ctes: dict[Any, SQLCTE] = {}
+    selected = None
+    for definition in request.layout.definitions:
+        original = definition.original
+        if original.ref in sources:
+            continue
+        binding = bindings[original.ref]
+        use = binding.original
+        alias = SQLSymbol(0, use.ref, f"s{use.ref.position}")
+        scan: SQLScan | SQLNamedUse
+        if use.producer in sources:
+            source = sources[use.producer]
+            (bound,) = tuple(
+                s for s in request.sources if s.owner is source.source.owner
             )
+            scan = SQLScan(source, bound, use, alias, binding)
+        else:
+            scan = SQLNamedUse(ctes[use.producer], use, alias, binding)
+        projections = tuple(
+            p for p in plan.projections if p.block is blocks[original.ref].ref
         )
-    return SQLSelect(request, scan, tuple(columns))
+        by_input = {b.input_port.ref: (i, b) for i, b in enumerate(binding.bindings)}
+        columns = []
+        final = original.entry.owner is plan.scope.selected_owner
+        for position, (projection, export) in enumerate(
+            zip(projections, original.exports, strict=True)
+        ):
+            port_position, producer = by_input[projection.input_port]
+            if type(scan) is SQLScan:
+                origin = scan
+                source_port = producer.canonical
+                (field,) = tuple(
+                    f for f in scan.realization.fields if f.field is source_port.field
+                )
+                name = field.column
+            else:
+                assert type(scan) is SQLNamedUse
+                previous = scan.cte.body.columns[port_position]
+                origin, source_port, field = (
+                    previous.origin,
+                    previous.source_port,
+                    previous.source_field,
+                )
+                name = scan.cte.columns[port_position].name
+            columns.append(
+                SQLColumn(
+                    position,
+                    scan,
+                    field,
+                    source_port,
+                    producer.input_port,
+                    export,
+                    projection,
+                    SQLSymbol(position + 1, producer.input_port.ref, name),
+                    export.identity.name if final else f"c{position}",
+                    producer,
+                    origin,
+                )
+            )
+        body = SQLSelect(request, scan, tuple(columns), definition)
+        if final:
+            selected = body
+        else:
+            ctes[original.ref] = SQLCTE(
+                definition,
+                SQLSymbol(len(ctes), original.ref, f"p{len(ctes)}"),
+                tuple(
+                    SQLSymbol(i, terminal.ref, f"c{i}")
+                    for i, terminal in enumerate(definition.terminals)
+                ),
+                body,
+            )
+    assert selected is not None
+    return replace(selected, ctes=tuple(ctes.values()))
 
 
 def build_requirements(request, ast):
     original = tuple(
         OriginalRequirement(
             entry,
-            "R01"
+            "R03"
+            if ast.ctes and entry.family.value == "scope"
+            else "R01"
             if entry.family.value in {"source_realization", "expression", "scope"}
             else "R02",
         )
         for entry in request.report.report.entries
     )
-    generated = [
-        GeneratedRequirement(
-            "qualified_scan",
-            ast.scan,
-            "R01",
-            applicable_premises(request, ast.scan.realization.owner),
-        )
-    ]
-    generated.extend(
-        GeneratedRequirement(
-            "source_representation",
-            field,
-            "R02",
-            applicable_premises(request, ast.scan.realization.owner, field),
-        )
-        for field in ast.scan.realization.fields
+    generated = []
+    naming = tuple(
+        p
+        for p in request.premises
+        if p.scope == "statement" and p.key == "identifier_case"
     )
-    generated.extend(
-        GeneratedRequirement(
-            "field_projection",
-            column,
-            "R02",
-            applicable_premises(
-                request, ast.scan.realization.owner, column.source_field
-            ),
+    for cte in ast.ctes:
+        generated.append(
+            GeneratedRequirement(
+                "cte_definition", cte.definition.original.ref, "R03", naming
+            )
         )
-        for column in ast.columns
-    )
-    generated.append(GeneratedRequirement("read_only_select_bytes", ast, "R23", ()))
+        generated.extend(
+            GeneratedRequirement("terminal_column", terminal.ref, "R03", naming)
+            for terminal in cte.definition.terminals
+        )
+    for body in (*[cte.body for cte in ast.ctes], ast):
+        scan = body.scan
+        if type(scan) is SQLScan:
+            generated.append(
+                GeneratedRequirement(
+                    "qualified_scan",
+                    scan,
+                    "R01",
+                    applicable_premises(request, scan.realization.owner),
+                )
+            )
+            generated.extend(
+                GeneratedRequirement(
+                    "source_representation",
+                    field,
+                    "R02",
+                    applicable_premises(request, scan.realization.owner, field),
+                )
+                for field in scan.realization.fields
+            )
+        else:
+            generated.append(
+                GeneratedRequirement("named_use", scan.use.ref, "R03", naming)
+            )
+            generated.extend(
+                GeneratedRequirement(
+                    "immediate_terminal", link.terminal.ref, "R03", naming
+                )
+                for link in scan.binding.bindings
+            )
+        for column in body.columns:
+            generated.append(
+                GeneratedRequirement(
+                    "field_projection",
+                    column,
+                    "R02",
+                    applicable_premises(
+                        request, column.origin.realization.owner, column.source_field
+                    ),
+                )
+            )
+        generated.append(
+            GeneratedRequirement("read_only_select_bytes", body, "R23", ())
+        )
+    if ast.ctes:
+        generated.append(
+            GeneratedRequirement("nonrecursive_with_bytes", ast, "R23", ())
+        )
     return original, tuple(generated)

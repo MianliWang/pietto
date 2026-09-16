@@ -17,14 +17,17 @@ from pietto._project.project_sql_plan_target_assessment import (
     verify_project_sql_target_assessment,
 )
 from pietto._project.project_sql_emission_contract import PreparedEmission
+from pietto._project.project_sql_emission_scopes import verify_emission_layout
 from pietto._project.project_sql_emission_ast import (
     SQLSelect,
     SQLScan,
     SQLColumn,
     SQLSymbol,
+    SQLCTE,
+    SQLNamedUse,
     OriginalRequirement,
     GeneratedRequirement,
-    direct_shape,
+    projection_chain_shape,
     identifier_valid,
     applicable_premises,
     resource_limits,
@@ -58,6 +61,7 @@ def prepared_current(request):
         "report",
         "source_map",
         "assessment",
+        "layout",
         "input_blockers",
     )
     if not _same(tuple(getattr(request, n) for n in names), request._accepted):
@@ -95,6 +99,8 @@ def prepared_current(request):
         ).verified
         or request.assessment.source_verification is not checked
     ):
+        return False
+    if not verify_emission_layout(request.layout, checked):
         return False
     # Binding was done once. Check retained occurrence/ordinal correspondence,
     # without running a selector resolver or the construction-time Decimal rule.
@@ -176,79 +182,202 @@ def verify_sql_ast(request, ast):
         ):
             return False
         plan = request.plan
+        if not projection_chain_shape(plan) or emission_blockers(request):
+            return False
+        sources = {s.ref: s for s in plan.sources}
+        definitions = tuple(
+            d for d in request.layout.definitions if d.original.ref not in sources
+        )
         if (
-            not direct_shape(plan)
-            or emission_blockers(request)
-            or type(ast.scan) is not SQLScan
-            or type(ast.scan.symbol) is not SQLSymbol
+            type(ast.ctes) is not tuple
+            or len(ast.ctes) != len(definitions) - 1
+            or ast.definition is not definitions[-1]
+            or definitions[-1].original.entry.owner is not plan.scope.selected_owner
         ):
             return False
-        scan = ast.scan
-        if (
-            scan.source is not plan.sources[0]
-            or scan.use is not plan.input_uses[0]
-            or scan.symbol.binding is not scan.use.ref
-            or type(scan.symbol.position) is not int
-            or scan.symbol.position != 0
-            or scan.symbol.name != "s0"
+        available = {}
+        provenance = {}
+        symbols = []
+        nodes = []
+        bodies = (*[cte.body for cte in ast.ctes], ast)
+        for index, (definition, body) in enumerate(
+            zip(definitions, bodies, strict=True)
         ):
-            return False
-        if (
-            not any(scan.realization is source for source in request.sources)
-            or scan.realization.owner is not scan.source.source.owner
-        ):
-            return False
-        if len(ast.columns) != len(plan.exports) or type(ast.columns) is not tuple:
-            return False
-        for position, column in enumerate(ast.columns):
-            projection, export = plan.projections[position], plan.exports[position]
+            final = body is ast
             if (
-                type(column) is not SQLColumn
-                or type(column.ordinal) is not int
-                or column.ordinal != position
-                or column.scan is not scan
-                or column.projection is not projection
-                or column.export is not export
-                or column.label != export.identity.name
+                type(body) is not SQLSelect
+                or body.request is not request
+                or body.definition is not definition
+                or (not final and body.ctes != ())
+            ):
+                return False
+            matches = tuple(u for u in request.layout.uses if u.consumer is definition)
+            if len(matches) != 1:
+                return False
+            binding = matches[0]
+            use = binding.original
+            scan = body.scan
+            if use.producer in sources:
+                if (
+                    type(scan) is not SQLScan
+                    or scan.source is not sources[use.producer]
+                    or not any(scan.realization is s for s in request.sources)
+                    or scan.realization.owner is not scan.source.source.owner
+                ):
+                    return False
+            elif type(scan) is not SQLNamedUse or scan.cte is not available.get(
+                use.producer
             ):
                 return False
             if (
-                not any(column.source_field is f for f in scan.realization.fields)
-                or not any(column.source_port is p for p in plan.source_ports)
-                or not any(column.input_port is p for p in plan.input_ports)
+                scan.use is not use
+                or scan.binding is not binding
+                or type(scan.symbol) is not SQLSymbol
+                or type(scan.symbol.position) is not int
+                or scan.symbol.position != 0
+                or scan.symbol.binding is not use.ref
+                or scan.symbol.name != f"s{use.ref.position}"
             ):
                 return False
-            if (
-                column.source_field.field is not column.source_port.field
-                or projection.source_port is not column.source_port.ref
-                or projection.input_port is not column.input_port.ref
-                or projection.export is not export.ref
-                or projection.input_use is not scan.use.ref
-                or column.input_port.producer_port is not column.source_port.ref
-            ):
-                return False
-            expressions = tuple(
-                e for e in plan.expressions if e.ref is projection.expression
+            symbols.append(scan.symbol)
+            nodes.extend((body, scan))
+            blocks = tuple(
+                b for b in plan.blocks if b.definition is definition.original.ref
             )
+            if len(blocks) != 1:
+                return False
+            projections = tuple(p for p in plan.projections if p.block is blocks[0].ref)
+            exports = definition.original.exports
             if (
-                len(expressions) != 1
-                or type(expressions[0]) is not row.ProjectSQLReference
+                type(body.columns) is not tuple
+                or len(body.columns) != len(exports)
+                or len(projections) != len(exports)
             ):
                 return False
-            symbol = column.symbol
-            if (
-                type(symbol) is not SQLSymbol
-                or type(symbol.position) is not int
-                or symbol.position != position + 1
-                or symbol.binding is not column.input_port.ref
-                or symbol.name != column.source_field.column
-                or symbol is scan.symbol
+            for position, (column, projection, export) in enumerate(
+                zip(body.columns, projections, exports, strict=True)
             ):
-                return False
-            if not identifier_valid(
-                symbol.name, request.family
-            ) or not identifier_valid(column.label, request.family, label=True):
-                return False
+                if (
+                    type(column) is not SQLColumn
+                    or type(column.ordinal) is not int
+                    or column.ordinal != position
+                    or column.scan is not scan
+                    or column.projection is not projection
+                    or column.export is not export
+                    or column.label
+                    != (export.identity.name if final else f"c{position}")
+                ):
+                    return False
+                pairs = tuple(
+                    (i, b)
+                    for i, b in enumerate(binding.bindings)
+                    if b.input_port.ref is projection.input_port
+                )
+                if len(pairs) != 1:
+                    return False
+                input_position, link = pairs[0]
+                if (
+                    column.producer is not link
+                    or column.input_port is not link.input_port
+                    or projection.source_port is not link.canonical.ref
+                    or projection.export is not export.ref
+                    or projection.input_use is not use.ref
+                ):
+                    return False
+                if type(scan) is SQLScan:
+                    physical = link.canonical
+                    fields = tuple(
+                        f for f in scan.realization.fields if f.field is physical.field
+                    )
+                    if len(fields) != 1 or not any(
+                        physical is p for p in plan.source_ports
+                    ):
+                        return False
+                    field, origin = fields[0], scan
+                    name = field.column
+                else:
+                    if type(scan) is not SQLNamedUse:
+                        return False
+                    physical, field, origin = provenance[link.canonical.ref]
+                    name = scan.cte.columns[input_position].name
+                    if (
+                        scan.cte.columns[input_position].binding
+                        is not link.terminal.ref
+                    ):
+                        return False
+                if (
+                    column.source_port is not physical
+                    or column.source_field is not field
+                    or column.origin is not origin
+                ):
+                    return False
+                for port in (link.canonical, link.input_port, export):
+                    logical, original_type = (
+                        port.field.evidence.resolved_type,
+                        field.field.evidence.resolved_type,
+                    )
+                    if (
+                        logical.kind is not original_type.kind
+                        or logical.name != original_type.name
+                        or port.field.effective_nullability
+                        is not field.field.effective_nullability
+                    ):
+                        return False
+                expressions = tuple(
+                    e for e in plan.expressions if e.ref is projection.expression
+                )
+                if (
+                    len(expressions) != 1
+                    or type(expressions[0]) is not row.ProjectSQLReference
+                ):
+                    return False
+                symbol = column.symbol
+                if (
+                    type(symbol) is not SQLSymbol
+                    or type(symbol.position) is not int
+                    or symbol.position != position + 1
+                    or symbol.binding is not link.input_port.ref
+                    or symbol.name != name
+                    or not identifier_valid(name, request.family)
+                    or not identifier_valid(column.label, request.family, label=final)
+                ):
+                    return False
+                symbols.append(symbol)
+                nodes.append(column)
+                provenance[export.ref] = (physical, field, origin)
+            if not final:
+                cte = ast.ctes[index]
+                if (
+                    type(cte) is not SQLCTE
+                    or cte.definition is not definition
+                    or type(cte.symbol) is not SQLSymbol
+                    or type(cte.symbol.position) is not int
+                    or cte.symbol.position != index
+                    or cte.symbol.binding is not definition.original.ref
+                    or cte.symbol.name != f"p{index}"
+                    or type(cte.columns) is not tuple
+                    or len(cte.columns) != len(exports)
+                ):
+                    return False
+                for i, (symbol, terminal) in enumerate(
+                    zip(cte.columns, definition.terminals, strict=True)
+                ):
+                    if (
+                        type(symbol) is not SQLSymbol
+                        or type(symbol.position) is not int
+                        or symbol.position != i
+                        or symbol.binding is not terminal.ref
+                        or symbol.name != f"c{i}"
+                    ):
+                        return False
+                symbols.extend((cte.symbol, *cte.columns))
+                nodes.append(cte)
+                available[definition.original.ref] = cte
+        if (
+            len({id(s) for s in symbols}) != len(symbols)
+            or len(nodes) + len(symbols) > resource_limits(request)["nodes"]
+        ):
+            return False
         if (
             plan.bind_uses
             or plan.literal_slots
@@ -318,53 +447,103 @@ def verify_sql_bytes(ast, rendered):
             offset = event.end
 
         plan = ast.request.plan
-        take("syntax", "select", plan.scope, "SELECT ")
-        for position, column in enumerate(ast.columns):
-            if position:
-                take("syntax", "separator", column.projection.ref, ", ")
+
+        def select(body, owner):
+            scan = body.scan
+            take("syntax", "select", owner, "SELECT ")
+            for position, column in enumerate(body.columns):
+                if position:
+                    take("syntax", "separator", column.projection.ref, ", ")
+                take(
+                    "identifier",
+                    "column_scope",
+                    column.input_port.ref,
+                    scan.symbol.name,
+                    identifier=True,
+                )
+                take("syntax", "qualifier", column.projection.ref, ".")
+                port = (
+                    column.source_port
+                    if type(scan) is SQLScan
+                    else column.producer.terminal
+                )
+                take(
+                    "identifier",
+                    "column",
+                    port.ref,
+                    column.symbol.name,
+                    identifier=True,
+                )
+                take("syntax", "alias", column.projection.ref, " AS ")
+                take(
+                    "identifier",
+                    "label",
+                    column.export.ref,
+                    column.label,
+                    identifier=True,
+                )
+            if type(scan) is SQLScan:
+                ref = scan.source.ref
+                take("syntax", "from", ref, " FROM ")
+                take(
+                    "identifier",
+                    "namespace",
+                    ref,
+                    scan.realization.namespace,
+                    identifier=True,
+                )
+                take("syntax", "qualifier", ref, ".")
+                take(
+                    "identifier",
+                    "relation",
+                    ref,
+                    scan.realization.name,
+                    identifier=True,
+                )
+            else:
+                if type(scan) is not SQLNamedUse:
+                    raise ValueError("unknown SQL relation")
+                ref = scan.cte.definition.original.ref
+                take("syntax", "from", ref, " FROM ")
+                take(
+                    "identifier",
+                    "cte_reference",
+                    ref,
+                    scan.cte.symbol.name,
+                    identifier=True,
+                )
+            take("syntax", "alias", scan.use.ref, " AS ")
             take(
                 "identifier",
-                "column_scope",
-                column.input_port.ref,
-                ast.scan.symbol.name,
+                "relation_scope",
+                scan.use.ref,
+                scan.symbol.name,
                 identifier=True,
             )
-            take("syntax", "qualifier", column.projection.ref, ".")
-            take(
-                "identifier",
-                "column",
-                column.source_port.ref,
-                column.source_field.column,
-                identifier=True,
-            )
-            take("syntax", "alias", column.projection.ref, " AS ")
-            take(
-                "identifier", "label", column.export.ref, column.label, identifier=True
-            )
-        take("syntax", "from", ast.scan.source.ref, " FROM ")
-        take(
-            "identifier",
-            "namespace",
-            ast.scan.source.ref,
-            ast.scan.realization.namespace,
-            identifier=True,
-        )
-        take("syntax", "qualifier", ast.scan.source.ref, ".")
-        take(
-            "identifier",
-            "relation",
-            ast.scan.source.ref,
-            ast.scan.realization.name,
-            identifier=True,
-        )
-        take("syntax", "alias", ast.scan.use.ref, " AS ")
-        take(
-            "identifier",
-            "relation_scope",
-            ast.scan.use.ref,
-            ast.scan.symbol.name,
-            identifier=True,
-        )
+
+        if ast.ctes:
+            take("syntax", "with", plan.scope, "WITH ")
+            for i, cte in enumerate(ast.ctes):
+                ref = cte.definition.original.ref
+                if i:
+                    take("syntax", "cte_separator", ref, ", ")
+                take("identifier", "cte_name", ref, cte.symbol.name, identifier=True)
+                take("syntax", "cte_columns_open", ref, " (")
+                for j, symbol in enumerate(cte.columns):
+                    if j:
+                        take("syntax", "terminal_separator", symbol.binding, ", ")
+                    take(
+                        "identifier",
+                        "terminal_column",
+                        symbol.binding,
+                        symbol.name,
+                        identifier=True,
+                    )
+                take("syntax", "cte_body_open", ref, ") AS (")
+                select(cte.body, ref)
+                take("syntax", "cte_body_close", ref, ")")
+            take("syntax", "with_body", ast.definition.original.ref, " ")
+        select(ast, plan.scope)
         return next(events, None) is None and offset == len(data)
     except (
         AttributeError,
@@ -389,7 +568,9 @@ def verify_requirements(request, ast, original, generated):
         return False
     for item, entry, demand in zip(original, entries, plan.demands, strict=True):
         rule = (
-            "R01"
+            "R03"
+            if ast.ctes and entry.family.value == "scope"
+            else "R01"
             if entry.family.value in {"source_realization", "expression", "scope"}
             else "R02"
         )
@@ -400,36 +581,63 @@ def verify_requirements(request, ast, original, generated):
             or item.rule != rule
         ):
             return False
-    if type(generated) is not tuple or len(generated) != 2 + len(
-        ast.scan.realization.fields
-    ) + len(ast.columns):
+    if type(generated) is not tuple:
         return False
-    subjects = (ast.scan, *ast.scan.realization.fields, *ast.columns, ast)
-    for index, (requirement, subject) in enumerate(
-        zip(generated, subjects, strict=True)
-    ):
-        if index == 0:
-            kind, rule, premises = (
-                "qualified_scan",
-                "R01",
-                applicable_premises(request, ast.scan.realization.owner),
+    # The denominator comes from every actual definition/header/reference/body,
+    # not from the supplied requirement list or a construction success tag.
+    expected = []
+    naming = tuple(
+        p
+        for p in request.premises
+        if p.key == "identifier_case" and p.scope == "statement"
+    )
+    for cte in ast.ctes:
+        expected.append(("cte_definition", cte.definition.original.ref, "R03", naming))
+        for column in cte.columns:
+            expected.append(("terminal_column", column.binding, "R03", naming))
+    for body in (*[cte.body for cte in ast.ctes], ast):
+        scan = body.scan
+        if type(scan) is SQLScan:
+            expected.append(
+                (
+                    "qualified_scan",
+                    scan,
+                    "R01",
+                    applicable_premises(request, scan.realization.owner),
+                )
             )
-        elif index == len(subjects) - 1:
-            kind, rule, premises = "read_only_select_bytes", "R23", ()
-        elif index <= len(ast.scan.realization.fields):
-            kind, rule, premises = (
-                "source_representation",
-                "R02",
-                applicable_premises(request, ast.scan.realization.owner, subject),
-            )
+            for field in scan.realization.fields:
+                expected.append(
+                    (
+                        "source_representation",
+                        field,
+                        "R02",
+                        applicable_premises(request, scan.realization.owner, field),
+                    )
+                )
         else:
-            kind, rule, premises = (
-                "field_projection",
-                "R02",
-                applicable_premises(
-                    request, ast.scan.realization.owner, subject.source_field
-                ),
+            expected.append(("named_use", scan.use.ref, "R03", naming))
+            for symbol in scan.cte.columns:
+                expected.append(("immediate_terminal", symbol.binding, "R03", naming))
+        for column in body.columns:
+            expected.append(
+                (
+                    "field_projection",
+                    column,
+                    "R02",
+                    applicable_premises(
+                        request, column.origin.realization.owner, column.source_field
+                    ),
+                )
             )
+        expected.append(("read_only_select_bytes", body, "R23", ()))
+    if ast.ctes:
+        expected.append(("nonrecursive_with_bytes", ast, "R23", ()))
+    if len(expected) != len(generated):
+        return False
+    for requirement, (kind, subject, rule, premises) in zip(
+        generated, expected, strict=True
+    ):
         if (
             type(requirement) is not GeneratedRequirement
             or requirement.subject is not subject
