@@ -22,6 +22,7 @@ import venv
 import zipfile
 
 import _pietto_target_conformance_cases as cases
+import _pietto_phase66_sql_emission_probe as emission
 from _pietto_target_conformance_observation import Observer
 from _pietto_target_conformance_resources import (
     MYSQL_MODE,
@@ -41,6 +42,7 @@ HELPERS = tuple(
     Path(__file__).with_name("_pietto_target_conformance" + suffix + ".py")
     for suffix in ("", "_resources", "_observation", "_cases")
 )
+EMISSION_PROBE = Path(__file__).with_name("_pietto_phase66_sql_emission_probe.py")
 
 
 def canonical(value: object) -> bytes:
@@ -178,13 +180,26 @@ def source_members() -> dict[str, str]:
 
 
 def inputs() -> dict[str, Any]:
-    paths = (*HELPERS, PINS, ROOT / "pyproject.toml", ROOT / "uv.lock")
+    paths = (*HELPERS, EMISSION_PROBE, PINS, ROOT / "pyproject.toml", ROOT / "uv.lock")
     return {
         "harness": {
             path.relative_to(ROOT).as_posix(): digest(path.read_bytes())
             for path in paths
         },
         "package_members": source_members(),
+        "emission_inputs": {
+            target: [
+                {
+                    "id": item["id"],
+                    "variant": item["variant"],
+                    "source_sha256": digest(item["source"].encode()),
+                    "contract_sha256": digest(item["contract"].encode()),
+                    "policy": item["policy"],
+                }
+                for item in emission.generation_inputs(target)
+            ]
+            for target in cases.TARGETS
+        },
     }
 
 
@@ -303,6 +318,20 @@ def installed_generation(
     result["wheel_members"] = members
     result["source_sha256"] = digest(cases.legacy_source(target).encode())
     result["stdout_sha256"] = digest(result["stdout"].encode())
+    probe_bytes = EMISSION_PROBE.read_bytes()
+    if (
+        digest(probe_bytes)
+        != expected["harness"][EMISSION_PROBE.relative_to(ROOT).as_posix()]
+    ):
+        raise ValueError("emission probe input changed")
+    copied_probe = scratch / "emission_probe.py"
+    copied_probe.write_bytes(probe_bytes)
+    result["emission"] = json.loads(
+        command(
+            [str(python), "-I", str(copied_probe), target], cwd=scratch, timeout=30
+        ),
+        object_pairs_hook=pairs,
+    )
     verify_generation(result, target, expected)
     return result
 
@@ -365,6 +394,128 @@ def verify_generation(
         {"kind": "relation", "name": "legacy_rows", "sql": cases.legacy_sql(target)}
     ]:
         raise ValueError("wrong legacy query artifact")
+    verify_emission_generation(generation["emission"], target, expected)
+
+
+def verify_emission_generation(value, target, expected):
+    if (
+        set(value)
+        != {"records", "origins", "isolated", "probe_sha256", "config_sha256"}
+        or value["isolated"] != 1
+    ):
+        raise ValueError("emission generation envelope")
+    if value["probe_sha256"] != expected["harness"][
+        EMISSION_PROBE.relative_to(ROOT).as_posix()
+    ] or value["config_sha256"] != digest(emission.CONFIG.encode()):
+        raise ValueError("emission probe/config input substitution")
+    required = {
+        "pietto._project.project_sql_emission" + suffix
+        for suffix in ("", "_contract", "_ast", "_rendering", "_verification")
+    }
+    if not required <= value["origins"].keys():
+        raise ValueError("same-child emission origins incomplete")
+    for name, origin in value["origins"].items():
+        if (
+            set(origin) != {"member", "sha256"}
+            or origin["member"] not in expected["package_members"]
+            or origin["sha256"] != expected["package_members"][origin["member"]]
+        ):
+            raise ValueError("foreign emission installed origin")
+        module_member = name.replace(".", "/")
+        if origin["member"] not in {
+            module_member + ".py",
+            module_member + "/__init__.py",
+        }:
+            raise ValueError("emission module/member identity mismatch")
+    records = value["records"]
+    inputs = expected["emission_inputs"][target]
+    if len(records) != len(inputs):
+        raise ValueError("emission variant denominator mismatch")
+    for record, item, fixture in zip(
+        records, inputs, emission.generation_inputs(target), strict=True
+    ):
+        if set(record) != {
+            "id",
+            "variant",
+            "source_sha256",
+            "contract_sha256",
+            "public",
+            "public_sha256",
+        } or any(
+            record[key] != item[key]
+            for key in ("id", "variant", "source_sha256", "contract_sha256")
+        ):
+            raise ValueError("emission generation input substitution")
+        data = record["public"].encode("utf-8")
+        if record["public_sha256"] != digest(data):
+            raise ValueError("serialized emission transfer identity")
+        document = emission.decode_public(data)
+        status = (
+            "INPUT_REJECTED"
+            if record["id"] == "K_emission_rejected"
+            else "BLOCKED"
+            if record["id"] == "L_emission_blocked"
+            else "VERIFIED"
+        )
+        if document["status"] != status:
+            raise ValueError("wrong emission outcome")
+        if status == "INPUT_REJECTED":
+            message, path = {
+                "duplicate_selector": (
+                    "Duplicate source description.",
+                    "sources/1/selector",
+                ),
+                "ordinal_bool": (
+                    "Invalid emission contract structure.",
+                    "sources/0/fields/0/ordinal",
+                ),
+                "stale_selector": (
+                    "Source selector is absent or ambiguous.",
+                    "sources/0/selector",
+                ),
+            }[record["variant"]]
+            if (
+                document["cli_errors"]
+                != [{"kind": "emission_selector", "message": message, "path": path}]
+                or document["diagnostics"] != []
+            ):
+                raise ValueError("wrong exact emission input rejection")
+        if status == "VERIFIED":
+            if (
+                document["request"]["contract"] != json.loads(fixture["contract"])
+                or document["request"]["literal_policy"] != fixture["policy"]
+                or document["request"]["sources"]
+                != [
+                    {
+                        "module": "main.pietto",
+                        "sha256": item["source_sha256"],
+                        "byte_count": len(fixture["source"].encode()),
+                    }
+                ]
+            ):
+                raise ValueError("public artifact not bound to source/contract input")
+            kind = (
+                "table"
+                if record["id"] in {"G_emission_table_bag", "I_emission_table_empty"}
+                else "query"
+            )
+            if document["request"]["owner"] != {
+                "module": "main.pietto",
+                "kind": kind,
+                "name": "result",
+            }:
+                raise ValueError("public selected owner changed")
+        elif status == "BLOCKED":
+            code = {
+                "missing_source": "PIE-B1001",
+                "bool_domain": "PIE-B1002",
+                "decimal_mismatch": "PIE-B1002",
+                "timestamp_meaning": "PIE-B1004",
+                "uuid_meaning": "PIE-B1004",
+                "where_later": "PIE-B1003",
+            }[record["variant"]]
+            if code not in [b["code"] for b in document["blockers"]]:
+                raise ValueError("wrong emission blocker taxonomy")
 
 
 def driver_info(pins: dict[str, Any]) -> dict[str, Any]:
@@ -605,7 +756,29 @@ def execute_case(
     generation: dict[str, Any],
     result: dict[str, Any],
 ) -> dict[str, Any]:
-    if case_id in cases.CASE_IDS[:3]:
+    if case_id in emission.VARIANTS:
+        result["variants"] = []
+        records = [r for r in generation["emission"]["records"] if r["id"] == case_id]
+        if [r["variant"] for r in records] != list(emission.VARIANTS[case_id]):
+            raise ValueError("missing emission variants")
+        for record in records:
+            document = emission.decode_public(record["public"].encode())
+            before = query.submission_count
+            if document["status"] == "VERIFIED":
+                # The public decoder is the only source of submitted SQL/values.
+                result["observations"].append(
+                    query.capture(document["sql"], (), prepared=True)
+                )
+            result["variants"].append(
+                {
+                    "variant": record["variant"],
+                    "public": record["public"],
+                    "public_sha256": record["public_sha256"],
+                    "submission_before": before,
+                    "submission_after": query.submission_count,
+                }
+            )
+    elif case_id in cases.SLICE2_CASE_IDS[:3]:
         sql, params = (
             (json.loads(generation["stdout"])["artifacts"][0]["sql"], ())
             if case_id == "A_legacy"
@@ -765,27 +938,31 @@ def _verify_receipt(
     )
     if [observation["sql"] for observation in receipt["setup"]] != setup_sql:
         raise ValueError("fixture loading observation denominator mismatch")
-    fixture_params = [
-        [],
-        [],
-        [],
+    fixture_params = (
         [
-            {"kind": "int", "value": "1"},
-            {"kind": "int", "value": "7"},
-            {"kind": "null"},
-        ],
-        [
-            {"kind": "int", "value": "2"},
-            {"kind": "int", "value": "7"},
-            {"kind": "null"},
-        ],
-        [
-            {"kind": "int", "value": "3"},
-            {"kind": "int", "value": "9007199254740993"},
-            {"kind": "text", "value": cases.TEXT},
-        ],
-        [],
-    ] + [[] for _ in setup_sql[7:]]
+            [],
+            [],
+            [],
+            [
+                {"kind": "int", "value": "1"},
+                {"kind": "int", "value": "7"},
+                {"kind": "null"},
+            ],
+            [
+                {"kind": "int", "value": "2"},
+                {"kind": "int", "value": "7"},
+                {"kind": "null"},
+            ],
+            [
+                {"kind": "int", "value": "3"},
+                {"kind": "int", "value": "9007199254740993"},
+                {"kind": "text", "value": cases.TEXT},
+            ],
+            [],
+        ]
+        + cases.emission_setup_parameters(target)
+        + [[] for _ in setup_sql[len(cases.setup(target)) :]]
+    )
     for observation, parameters in zip(receipt["setup"], fixture_params, strict=True):
         cases.check_complete(observation)
         cases.check_identity(
@@ -797,6 +974,17 @@ def _verify_receipt(
         raise ValueError("missing/duplicate/reordered case receipts")
     for case in receipt["cases"]:
         cases.check_case(case, target)
+        if case["id"] in emission.VARIANTS:
+            records = [
+                r
+                for r in receipt["generation"]["emission"]["records"]
+                if r["id"] == case["id"]
+            ]
+            if [
+                (v["variant"], v["public"], v["public_sha256"])
+                for v in case["variants"]
+            ] != [(r["variant"], r["public"], r["public_sha256"]) for r in records]:
+                raise ValueError("installed public artifact/case substitution")
         if case["id"] == "F_privilege_cleanup":
             verify_privileges(case["privilege_observations"], target)
     cleanup = receipt["cleanup"]

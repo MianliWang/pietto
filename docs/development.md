@@ -86,5 +86,9 @@ failed target, host administration or shared-image cleanup is provided.
 `verify-receipts` is data-only; CI verifies both same-run receipts, transferred
 bytes and successful compiler/target prerequisites through its strict aggregate.
 Local compiler, local target, CI compiler and CI target results are separate.
-This facility consumes installed legacy SQL and independent controls; the new
-ProjectSQLPlan emission pipeline starts only in its separately authorized Slice3.
+This facility preserves its six Slice2 legacy/control cases and also consumes
+the installed Slice3 scan/projection pipeline: production public artifact bytes,
+independent data-only decoding, unchanged submission and complete typed BAG
+observations. The current manifest has twelve cases and thirteen new public
+artifact variants per target; compiler failures have independent no-submission
+evidence. See the [Slice3 contract](spec/phase66-slice3-minimal-source-realization-scan-projection-emission-v1.md).

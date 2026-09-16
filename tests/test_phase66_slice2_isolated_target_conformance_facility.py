@@ -351,9 +351,9 @@ def _observation(
 
 
 @pytest.fixture(scope="module")
-def valid_receipts() -> tuple[
-    dict[str, Any], str, dict[str, Any], dict[str, dict[str, Any]]
-]:
+def valid_receipts(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[dict[str, Any], str, dict[str, Any], dict[str, dict[str, Any]]]:
     pins, pins_digest = facility.load_pins(facility.PINS)
     expected = facility.inputs()
     result = {}
@@ -403,6 +403,45 @@ def valid_receipts() -> tuple[
             "wheel_members": members,
             "source_sha256": facility.digest(cases.legacy_source(target).encode()),
             "stdout_sha256": facility.digest(stdout.encode()),
+        }
+        from pietto._project.project_sql_emission import serialize_project_sql_emission
+
+        probe = facility.emission
+        emission_records = []
+        for item in probe.generation_inputs(target):
+            _, outcome = probe.build_case(
+                tmp_path_factory.mktemp("synthetic-emission"),
+                item["source"],
+                item["contract"],
+                item["policy"],
+            )
+            public = serialize_project_sql_emission(outcome)
+            emission_records.append(
+                {
+                    "id": item["id"],
+                    "variant": item["variant"],
+                    "source_sha256": facility.digest(item["source"].encode()),
+                    "contract_sha256": facility.digest(item["contract"].encode()),
+                    "public": public.decode(),
+                    "public_sha256": facility.digest(public),
+                }
+            )
+        generation["emission"] = {
+            "records": emission_records,
+            "isolated": 1,
+            "origins": {
+                "pietto._project.project_sql_emission" + suffix: {
+                    "member": "pietto/_project/project_sql_emission" + suffix + ".py",
+                    "sha256": members[
+                        "pietto/_project/project_sql_emission" + suffix + ".py"
+                    ],
+                }
+                for suffix in ("", "_contract", "_ast", "_rendering", "_verification")
+            },
+            "probe_sha256": expected["harness"][
+                facility.EMISSION_PROBE.relative_to(facility.ROOT).as_posix()
+            ],
+            "config_sha256": facility.digest(probe.CONFIG.encode()),
         }
         case_rows = []
         for case_id in cases.CASE_IDS[:3]:
@@ -510,7 +549,7 @@ def valid_receipts() -> tuple[
                 )
             ]
         case_rows.append(d)
-        for case_id in cases.CASE_IDS[4:]:
+        for case_id in cases.SLICE2_CASE_IDS[4:]:
             privilege = case_id == "F_privilege_cleanup"
             bad_sql = (
                 (
@@ -786,6 +825,40 @@ def valid_receipts() -> tuple[
             events.insert(
                 2, {"event": "ca_extracted", "identity": env["transport"]["ca"]}
             )
+        submissions = 20
+        for case_id, variants in probe.VARIANTS.items():
+            row = {"id": case_id, "observations": [], "variants": []}
+            for record in [r for r in emission_records if r["id"] == case_id]:
+                before = submissions
+                document = probe.decode_public(record["public"].encode())
+                if document["status"] == "VERIFIED":
+                    observation = _observation(
+                        target,
+                        document["sql"],
+                        cases.emission_rows(target, empty=record["variant"] == "empty"),
+                        list(probe.LABELS),
+                        [25, 20, 16, 1700, 701]
+                        if target == "postgres"
+                        else [253, 8, 1, 246, 5],
+                    )
+                    observation["prepared"] = True
+                    observation["cursor_type"] = (
+                        "psycopg.RawCursor"
+                        if target == "postgres"
+                        else "mysql.connector.cursor.MySQLCursorPrepared"
+                    )
+                    row["observations"].append(observation)
+                    submissions += 1
+                row["variants"].append(
+                    {
+                        "variant": record["variant"],
+                        "public": record["public"],
+                        "public_sha256": record["public_sha256"],
+                        "submission_before": before,
+                        "submission_after": submissions,
+                    }
+                )
+            case_rows.append(row)
         result[target] = {
             "format": facility.FORMAT,
             "target": target,
@@ -862,6 +935,11 @@ def valid_receipts() -> tuple[
         ):
             result[target]["setup"][index]["parameters"] = params
             result[target]["setup"][index]["prepared"] = True
+        for index, params in enumerate(cases.emission_setup_parameters(target), 7):
+            result[target]["setup"][index]["parameters"] = params
+            result[target]["setup"][index]["prepared"] = target == "postgres" or bool(
+                params
+            )
     return pins, pins_digest, expected, result
 
 
@@ -1112,13 +1190,22 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         assert not any(
             module.startswith("pietto._project") for module in facts.imported_modules
         )
-    assert cases.CASE_IDS == (
+    assert cases.SLICE2_CASE_IDS == (
         "A_legacy",
         "B_result",
         "C_parameters",
         "D_diagnostics",
         "E_recovery",
         "F_privilege_cleanup",
+    )
+    assert cases.CASE_IDS == (
+        *cases.SLICE2_CASE_IDS,
+        "G_emission_table_bag",
+        "H_emission_query_bag",
+        "I_emission_table_empty",
+        "J_emission_query_empty",
+        "K_emission_rejected",
+        "L_emission_blocked",
     )
     assert resources.ENDPOINT == "unix:///var/run/docker.sock"
     assert resources.STARTUP_SECONDS == 120 and resources.MAX_CONNECT_ATTEMPTS == 3
@@ -1254,3 +1341,79 @@ def test_mysql_connection_keeps_ca_verification_and_explicit_modern_tls(
         "connect_failed", failure={"message": resource.without_secrets(message)}
     )
     assert resource.events[-1]["failure"]["message"] == "native SSL failure [REDACTED]"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "emission_origin",
+        "source_hash",
+        "contract_hash",
+        "probe_hash",
+        "public_sha",
+        "public_sql",
+        "public_range",
+        "case_record_swap",
+        "negative_submission",
+        "missing_new_case",
+        "missing_variant",
+        "wrong_rejection_path",
+    ),
+)
+@pytest.mark.parametrize("target", cases.TARGETS)
+def test_new_installed_public_chain_corruptions_are_rejected(
+    valid_receipts, mutation, target
+):
+    pins, pins_digest, expected, receipts = valid_receipts
+    receipt = deepcopy(receipts[target])
+    emission = receipt["generation"]["emission"]
+    record = emission["records"][0]
+    if mutation == "emission_origin":
+        emission["origins"]["pietto._project.project_sql_emission"]["member"] = (
+            "checkout/project_sql_emission.py"
+        )
+    elif mutation == "source_hash":
+        record["source_sha256"] = "0" * 64
+    elif mutation == "contract_hash":
+        record["contract_sha256"] = "0" * 64
+    elif mutation == "probe_hash":
+        emission["probe_sha256"] = "0" * 64
+    elif mutation == "public_sha":
+        record["public_sha256"] = "0" * 64
+    elif mutation in {"public_sql", "public_range", "wrong_rejection_path"}:
+        if mutation == "wrong_rejection_path":
+            record = next(
+                r for r in emission["records"] if r["id"] == "K_emission_rejected"
+            )
+        document = json.loads(record["public"])
+        if mutation == "public_sql":
+            document["sql"] = document["sql"].replace("SELECT", "DELETE", 1)
+        elif mutation == "public_range":
+            document["ranges"][-1]["end"] -= 1
+        else:
+            document["cli_errors"][0]["path"] = "different/selector"
+        record["public"] = facility.emission.encoded(document).decode()
+        record["public_sha256"] = facility.digest(record["public"].encode())
+        for case in receipt["cases"]:
+            if case["id"] == record["id"]:
+                for variant in case["variants"]:
+                    if variant["variant"] == record["variant"]:
+                        variant["public"], variant["public_sha256"] = (
+                            record["public"],
+                            record["public_sha256"],
+                        )
+    elif mutation == "case_record_swap":
+        receipt["cases"][6]["variants"][0]["public"] = emission["records"][1]["public"]
+        receipt["cases"][6]["variants"][0]["public_sha256"] = emission["records"][1][
+            "public_sha256"
+        ]
+    elif mutation == "negative_submission":
+        receipt["cases"][10]["variants"][0]["submission_after"] += 1
+    elif mutation == "missing_new_case":
+        receipt["cases"].pop()
+    elif mutation == "missing_variant":
+        emission["records"].pop()
+    with pytest.raises(ValueError):
+        facility.verify_receipt(
+            receipt, target, pins, pins_digest, expected, "1" * 40, "synthetic", 1
+        )

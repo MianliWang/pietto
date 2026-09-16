@@ -314,8 +314,8 @@ EXPECTED_STATUS = (
     ("Phase 66", "`ACTIVE`"),
     ("Phase 66 Slice 1", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 2", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 3", "`NEXT / NOT IMPLEMENTED`"),
-    ("Phase 66 Slice 4", "`NOT IMPLEMENTED`"),
+    ("Phase 66 Slice 3", "`COMPLETED / PUBLISHED`"),
+    ("Phase 66 Slice 4", "`NEXT / NOT IMPLEMENTED`"),
     ("Phase 66 Slice 5", "`NOT IMPLEMENTED`"),
     ("Phase 66 Slice 6", "`NOT IMPLEMENTED`"),
     ("Phase 66 Slice 7", "`NOT IMPLEMENTED`"),
@@ -331,7 +331,7 @@ EXPECTED_STATUS = (
     ("Phase 66 route", "`N=16`"),
     (
         "Next",
-        "`Phase 66 Slice 3 — Minimal source realization and scan/projection emission`",
+        "`Phase 66 Slice 4 — Named/shared producers and capture-free scopes`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1462,7 +1462,7 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
 )
 EXPECTED_CURRENT_OWNER_SENTENCE = (
     "The current owner is Phase 66, which is `ACTIVE`; "
-    "Slice 3 is `NEXT / NOT IMPLEMENTED` after successful Slice2 publication."
+    "Slice 4 is `NEXT / NOT IMPLEMENTED` after successful Slice3 publication."
 )
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
@@ -5348,8 +5348,24 @@ def test_phase66_slice2_facility_and_required_ci_lifecycle() -> None:
             "both compiler jobs, both target cells and the strict aggregate" in document
         )
         assert "Default pytest remains offline" in document
-        assert "Slice3 is `NEXT / NOT IMPLEMENTED`" in document
-        assert "Slices4–16 remain `NOT IMPLEMENTED`" in document
+        assert (
+            "That Slice2 publication left Slice3 `NEXT / NOT IMPLEMENTED`" in document
+        )
+        assert "Slices4–16 `NOT IMPLEMENTED`" in document
         assert "N66 remains16" in document
-        assert "Do not start Slice3 automatically" in document
+        assert "Do not start Slice4 automatically" in document
+    assert (STATUS.parent / target).is_file()
+
+
+def test_phase66_slice3_emission_current_lifecycle() -> None:
+    target = (
+        "spec/phase66-slice3-minimal-source-realization-scan-projection-emission-v1.md"
+    )
+    for path in (STATUS, ROADMAP):
+        document = " ".join(_read(path).split())
+        assert f"]({target})" in document
+        assert "Slice4 is `NEXT / NOT IMPLEMENTED`" in document
+        assert "Slices5–16 remain `NOT IMPLEMENTED`" in document
+        assert "N66 remains16" in document
+        assert "Do not start Slice4 automatically" in document
     assert (STATUS.parent / target).is_file()

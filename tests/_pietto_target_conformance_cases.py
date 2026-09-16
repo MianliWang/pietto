@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections import Counter
+from decimal import Decimal
 import json
 import hashlib
 from typing import Any
+import _pietto_phase66_sql_emission_probe as emission
 
 TARGETS = ("postgres", "mysql")
-CASE_IDS = (
+SLICE2_CASE_IDS = (
     "A_legacy",
     "B_result",
     "C_parameters",
@@ -16,6 +18,7 @@ CASE_IDS = (
     "E_recovery",
     "F_privilege_cleanup",
 )
+CASE_IDS = (*SLICE2_CASE_IDS, *emission.VARIANTS)
 BIG = 9007199254740993
 TEXT = "雪?%s e\u0301 😀"
 
@@ -73,7 +76,151 @@ def setup(target: str) -> tuple[tuple[str, tuple[object, ...]], ...]:
             (3, BIG, TEXT),
         ),
         ("CREATE TABLE phase66_diagnostic_rows (value VARCHAR(5))", ()),
+    ) + emission_setup(target)
+
+
+def emission_setup(target):
+    if target == "postgres":
+        columns = '"order.id" BIGINT NOT NULL, "flag value" BOOLEAN, "text `""é" TEXT COLLATE "C" NOT NULL, "amount value" NUMERIC(9,2) NOT NULL, "ratio value" DOUBLE PRECISION NOT NULL'
+        names = ('"phase66 source é"', '"phase66 empty é"')
+        parameters = "$1, $2, $3, $4, $5"
+    else:
+        columns = '`order.id` BIGINT NOT NULL, `flag value` TINYINT, `text ``"é` VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL, `amount value` DECIMAL(9,2) NOT NULL, `ratio value` DOUBLE NOT NULL'
+        names = ("`phase66 source é`", "`phase66 empty é`")
+        parameters = "?, ?, ?, ?, ?"
+    rows = (
+        (
+            BIG,
+            True if target == "postgres" else 1,
+            "trail 😀  ",
+            Decimal("12.30"),
+            -0.0,
+        ),
+        (
+            BIG,
+            True if target == "postgres" else 1,
+            "trail 😀  ",
+            Decimal("12.30"),
+            -0.0,
+        ),
+        (0, False if target == "postgres" else 0, "A", Decimal("0.00"), 1.5),
+        (1, None, "a ", Decimal("-0.01"), 0.0),
     )
+    return tuple((f"CREATE TABLE {name} ({columns})", ()) for name in names) + tuple(
+        (f"INSERT INTO {names[0]} VALUES ({parameters})", row) for row in rows
+    )
+
+
+def emission_rows(target, *, empty=False):
+    if empty:
+        return []
+    true = (
+        {"kind": "bool", "value": True}
+        if target == "postgres"
+        else {"kind": "int", "value": "1"}
+    )
+    false = (
+        {"kind": "bool", "value": False}
+        if target == "postgres"
+        else {"kind": "int", "value": "0"}
+    )
+    duplicate = [
+        {"kind": "text", "value": "trail 😀  "},
+        {"kind": "int", "value": "9007199254740993"},
+        true,
+        {"kind": "decimal", "value": "12.30"},
+        {"kind": "float", "value": "-0x0.0p+0"},
+    ]
+    return [
+        duplicate,
+        duplicate,
+        [
+            {"kind": "text", "value": "A"},
+            {"kind": "int", "value": "0"},
+            false,
+            {"kind": "decimal", "value": "0.00"},
+            {"kind": "float", "value": "0x1.8000000000000p+0"},
+        ],
+        [
+            {"kind": "text", "value": "a "},
+            {"kind": "int", "value": "1"},
+            {"kind": "null"},
+            {"kind": "decimal", "value": "-0.01"},
+            {"kind": "float", "value": "0x0.0p+0"},
+        ],
+    ]
+
+
+def emission_setup_parameters(target):
+    # Independent expected insertion order; never use the observer as an oracle.
+    return [[], []] + [
+        [row[1], row[2], row[0], row[3], row[4]] for row in emission_rows(target)
+    ]
+
+
+def check_emission_case(case, target):
+    if set(case) != {"id", "observations", "variants"} or [
+        v["variant"] for v in case["variants"]
+    ] != list(emission.VARIANTS[case["id"]]):
+        raise ValueError("emission case denominator mismatch")
+    observed = iter(case["observations"])
+    for variant in case["variants"]:
+        if set(variant) != {
+            "variant",
+            "public",
+            "public_sha256",
+            "submission_before",
+            "submission_after",
+        }:
+            raise ValueError("emission transfer fields")
+        data = variant["public"].encode("utf-8")
+        if hashlib.sha256(data).hexdigest() != variant["public_sha256"]:
+            raise ValueError("public artifact transfer substitution")
+        document = emission.decode_public(data)
+        before, after = variant["submission_before"], variant["submission_after"]
+        if type(before) is not int or type(after) is not int or before < 0:
+            raise ValueError("submission observation missing")
+        expected_status = (
+            "INPUT_REJECTED"
+            if case["id"] == "K_emission_rejected"
+            else "BLOCKED"
+            if case["id"] == "L_emission_blocked"
+            else "VERIFIED"
+        )
+        if document["status"] != expected_status or after - before != (
+            1 if expected_status == "VERIFIED" else 0
+        ):
+            raise ValueError("compiler failure submitted or wrong outcome")
+        if expected_status != "VERIFIED":
+            continue
+        observation = next(observed, None)
+        if (
+            observation is None
+            or observation["sql"].encode() != document["sql"].encode()
+            or observation["parameters"] != []
+        ):
+            raise ValueError("emitted artifact/submission mismatch")
+        check_complete(observation)
+        check_identity(observation, target, "query", prepared=True)
+        expected_rows = emission_rows(target, empty=variant["variant"] == "empty")
+        if Counter(
+            json.dumps(row, sort_keys=True) for row in observation["rows"]
+        ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
+            raise ValueError("emission typed row multiset mismatch")
+        metadata = observation["metadata"]
+        types = [25, 20, 16, 1700, 701] if target == "postgres" else [253, 8, 1, 246, 5]
+        if [m[0] for m in metadata] != list(emission.LABELS) or [
+            m[1] for m in metadata
+        ] != types:
+            raise ValueError("emission positional physical metadata mismatch")
+        if [c["logical_type"]["name"] for c in document["columns"]] != list(
+            emission.LOGICAL
+        ) or [c["label"] for c in document["columns"]] != list(emission.LABELS):
+            raise ValueError("emission positional logical metadata mismatch")
+        if target == "postgres" and any(m[6] is not None for m in metadata):
+            raise ValueError("unavailable nullability was invented")
+    if next(observed, None) is not None:
+        raise ValueError("extra submitted query observations")
 
 
 def _integer(value: str) -> dict[str, str]:
@@ -262,7 +409,9 @@ def check_server_error(
 def check_case(case: dict[str, Any], target: str) -> None:
     case_id = case.get("id")
     observations = case.get("observations", [])
-    if case_id in CASE_IDS[:3]:
+    if case_id in emission.VARIANTS:
+        check_emission_case(case, target)
+    elif case_id in SLICE2_CASE_IDS[:3]:
         if len(observations) != 1:
             raise ValueError("wrong observation denominator")
         statement, params = (

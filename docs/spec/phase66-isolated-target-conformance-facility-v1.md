@@ -1,5 +1,21 @@
 # Phase66 Isolated Target Conformance Facility v1
 
+## Current Slice3 extension
+
+The sections below retain the frozen Slice2 six-case baseline and its historical
+evidence. The current additive manifest is specified by the [Slice3 contract](phase66-slice3-minimal-source-realization-scan-projection-emission-v1.md):
+A_legacy through F_privilege_cleanup remain mandatory, with G_emission_table_bag,
+H_emission_query_bag, I_emission_table_empty, J_emission_query_empty,
+K_emission_rejected and L_emission_blocked added. The new installed probe supplies
+thirteen production-serialized public artifacts per target; an independent
+data-only decoder supplies the four emitted SELECT submissions. Rejected/blocked
+variants prove no submission and never count as successful database queries.
+Probe/source/contract/config bytes and same-child emission origins join the
+existing input/wheel/transfer boundary. Exact Decimal observations preserve
+physical values and scale. Current receipt verification requires the complete
+twelve-case manifest, while retaining every original recovery/diagnostic/cleanup
+assertion. Pins, transport, resource limits and workflow remain unchanged.
+
 ## Gate1: accepted scope and current owners
 
 本Slice仅交付test-only real conformance facility，不实施Slice3或产品executor。

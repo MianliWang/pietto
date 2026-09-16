@@ -10,7 +10,7 @@ Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. Phase64 and its 11 numbered Slices are completed
 through their accepted publication chains. Phase65 and Slices1–16 are completed
 through the accepted Slice16 audit publication. The current owner is Phase 66,
-which is `ACTIVE`; Slice 3 is `NEXT / NOT IMPLEMENTED` after successful Slice2 publication.
+which is `ACTIVE`; Slice 4 is `NEXT / NOT IMPLEMENTED` after successful Slice3 publication.
 The Validation/Test Performance Optimization Interlude II is `COMPLETED`.
 Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -2573,8 +2573,18 @@ Psycopg3.3.5 binary/RawCursor and Connector/Python26.7.0 pure prepared execution
 test-only dependencies. PostgreSQL18.6-bookworm and Oracle Community Server8.4.12
 have separate repository/index/platform/config/build evidence. This is real legacy/
 control SQL assurance, not new ProjectSQLPlan lowering or a product executor.
-Phase66 remains `ACTIVE`; Slice3 is `NEXT / NOT IMPLEMENTED`, Slices4–16 remain
-`NOT IMPLEMENTED`, and N66 remains16. Do not start Slice3 automatically.
+That Slice2 publication left Slice3 `NEXT / NOT IMPLEMENTED` and Slices4–16
+`NOT IMPLEMENTED`. N66 remains16.
+
+Phase66 Slice3 completes the [minimal scan/projection emission vertical](spec/phase66-slice3-minimal-source-realization-scan-projection-emission-v1.md)
+only upon successful natural exact-head CI with both compiler jobs, both target cells and the strict aggregate.
+It preserves the six historical facility cases and adds six cases with thirteen
+new public artifact variants per target, independent decoding and unchanged SQL
+submission. Default pytest remains offline. Phase66 remains `ACTIVE`;
+Slice4 is `NEXT / NOT IMPLEMENTED`, Slices5–16 remain `NOT IMPLEMENTED`, and
+N66 remains16. Do not start Slice4 automatically. Named/shared producers remain
+Slice4 work; the public CLI remains Slice13, private observation Slice14, and
+result decoding/execution remain later phases.
 
 ## Future Roadmap v6
 

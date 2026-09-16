@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from decimal import Decimal
 from typing import Any
 
 from _pietto_target_conformance_resources import (
@@ -37,12 +38,15 @@ def scalar(value: object) -> dict[str, Any]:
         return {"kind": "bytes", "value": value.hex()}
     if type(value) is float and math.isfinite(value):
         return {"kind": "float", "value": value.hex()}
+    if type(value) is Decimal and value.is_finite():
+        return {"kind": "decimal", "value": str(value)}
     raise ObserverFailure("UNSUPPORTED_VALUE_TYPE")
 
 
 class Observer:
     def __init__(self, target: str, connection: Any, identity: str):
         self.target, self.connection, self.identity = target, connection, identity
+        self.submission_count = 0
         self.notices: list[dict[str, Any]] = []
         self.notices_lost = False
         self.diagnostic_failures: list[dict[str, Any]] = []
@@ -172,6 +176,7 @@ class Observer:
             with deadline(QUERY_SECONDS):
                 # This exact API call is the submission boundary. RawCursor and
                 # qmark prepared execution need no placeholder rewriting here.
+                self.submission_count += 1
                 cursor.execute(sql, parameters or None)
             observation["execute"] = "success"
             stage = "fetch"

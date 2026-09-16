@@ -70,8 +70,8 @@ documentation does not supersede that evidence.
 | Phase 66 | `ACTIVE` |
 | Phase 66 Slice 1 | `COMPLETED / PUBLISHED` |
 | Phase 66 Slice 2 | `COMPLETED / PUBLISHED` |
-| Phase 66 Slice 3 | `NEXT / NOT IMPLEMENTED` |
-| Phase 66 Slice 4 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 3 | `COMPLETED / PUBLISHED` |
+| Phase 66 Slice 4 | `NEXT / NOT IMPLEMENTED` |
 | Phase 66 Slice 5 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 6 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 7 | `NOT IMPLEMENTED` |
@@ -85,7 +85,7 @@ documentation does not supersede that evidence.
 | Phase 66 Slice 15 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 16 | `NOT IMPLEMENTED` |
 | Phase 66 route | `N=16` |
-| Next | `Phase 66 Slice 3 — Minimal source realization and scan/projection emission` |
+| Next | `Phase 66 Slice 4 — Named/shared producers and capture-free scopes` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -1112,6 +1112,16 @@ observations and known successful cleanup are required.
 The original compiler matrix and four gates remain intact. Separate PostgreSQL/MySQL
 cells and an always-evaluated aggregate reject failed/cancelled/skipped/missing or
 empty outcomes; run-scoped raw JSON artifacts use strict digest verification.
-Phase66 remains `ACTIVE`; Slice3 is `NEXT / NOT IMPLEMENTED`, Slices4–16 remain
-`NOT IMPLEMENTED`, and N66 remains16. No new ProjectSQLPlan lowering, project emit-SQL,
-result contract or product executor is implemented. Do not start Slice3 automatically.
+That Slice2 publication left Slice3 `NEXT / NOT IMPLEMENTED` and Slices4–16
+`NOT IMPLEMENTED`; it added no new ProjectSQLPlan lowering, project emit-SQL,
+result contract or product executor. N66 remains16.
+
+Phase66 Slice3 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI
+with both compiler jobs, both target cells and the strict aggregate. Its
+[scan/projection contract](spec/phase66-slice3-minimal-source-realization-scan-projection-emission-v1.md)
+adds exact explicit source realization, independent AST/bytes/requirements/ranges
+verification, three-branch public artifact serialization and installed target
+consumption through an independent decoder. Default pytest remains offline.
+Phase66 remains `ACTIVE`; Slice4 is `NEXT / NOT IMPLEMENTED`, Slices5–16 remain
+`NOT IMPLEMENTED`, and N66 remains16. Do not start Slice4 automatically.
+Public project emit CLI, parameter lowering and product execution remain unimplemented.
