@@ -18,11 +18,14 @@ from pietto._project.project_sql_emission_contract import (
 )
 from pietto._project.project_sql_emission_ast import (
     SQLSelect,
+    SQLLiteralColumn,
     build_sql_ast,
     build_requirements,
     emission_blockers,
     resource_limits,
 )
+from pietto._project import project_sql_emission_parameters as parameters
+from pietto._project.project_sql_plan_literals import ProjectSQLFixedLiteralValue
 from pietto._project.project_sql_emission_rendering import (
     RenderedSQL,
     SQLSizeLimit,
@@ -44,8 +47,8 @@ class EmissionArtifact:
     rendered: RenderedSQL
     original_requirements: tuple[Any, ...]
     generated_requirements: tuple[Any, ...]
-    fixed_values: tuple[object, ...] = ()
-    parameter_uses: tuple[object, ...] = ()
+    fixed_values: tuple[ProjectSQLFixedLiteralValue, ...] = ()
+    parameter_uses: tuple[parameters.NativeUse, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -100,7 +103,23 @@ def realize_project_sql(request):
             "BLOCKED", diagnostics, blockers=(Blocker("PIE-B1007", "sql_byte_limit"),)
         )
     original, generated = build_requirements(request, ast)
-    artifact = EmissionArtifact(request, ast, rendered, original, generated)
+    uses = tuple(
+        node.use
+        for body in (*[cte.body for cte in ast.ctes], ast)
+        for column in body.columns
+        if type(column) is SQLLiteralColumn and column.value is not None
+        for node in parameters.value_nodes(column.value)
+        if type(node) is parameters.SQLParameter
+    )
+    artifact = EmissionArtifact(
+        request,
+        ast,
+        rendered,
+        original,
+        generated,
+        request.plan.fixed_envelope.values,
+        uses,
+    )
     checked = verify_project_sql_emission(artifact, request)
     if not checked.verified:
         return EmissionOutcome(
@@ -169,8 +188,54 @@ def _public_document(outcome):
     semantic = checked.completed.semantic_result
     owner = checked.selected_owner
     source_map = request.source_map.source_map
+    slots = {slot: i for i, slot in enumerate(request.plan.literal_slots)}
     columns = []
     for column in ast.columns:
+        if type(column) is SQLLiteralColumn:
+            origin = column.origin
+            leaf = parameters.value_nodes(origin.value)[-1]
+            producer = column.producer
+            columns.append(
+                {
+                    "ordinal": column.ordinal,
+                    "label": column.label,
+                    "logical_type": {
+                        "kind": "builtin",
+                        "name": parameters.tag_of(origin.value.original),
+                        "parameters": None,
+                    },
+                    "nullable": False,
+                    "representation": parameters.representation(
+                        origin.value, request.family
+                    ),
+                    "correspondence": {
+                        "literal_origin": {
+                            "expression": _ref(origin.value.original.ref),
+                            "leaf": _ref(leaf.original.ref),
+                            "site": _ref(leaf.site.ref),
+                            "slot": slots[leaf.fixed.slot]
+                            if type(leaf) is parameters.SQLParameter
+                            else None,
+                            "export": _ref(origin.export.ref),
+                            "terminal": _ref(origin.terminal.ref),
+                        },
+                        "expression": _ref(column.projection.expression),
+                        "input_port": None
+                        if producer is None
+                        else _ref(producer.input_port.ref),
+                        "producer": None
+                        if producer is None
+                        else {
+                            "export": _ref(producer.canonical.ref),
+                            "terminal": _ref(producer.terminal.ref),
+                        },
+                        "export": _ref(column.export.ref),
+                        "projection": _ref(column.projection.ref),
+                        "sql_symbol": column.symbol.position,
+                    },
+                }
+            )
+            continue
         field = column.source_field
         logical = field.field.evidence.resolved_type
         columns.append(
@@ -201,7 +266,7 @@ def _public_document(outcome):
             }
         )
     ranges = []
-    for event in artifact.rendered.events:
+    for event in (*artifact.rendered.events, *artifact.rendered.expression_ranges):
         ranges.append(
             {
                 "start": event.start,
@@ -244,6 +309,21 @@ def _public_document(outcome):
             }
         )
     for i, item in enumerate(artifact.generated_requirements):
+        evidence = []
+        if item.kind in {"literal", "unary"}:
+            expression = request.plan.expressions[item.subject.position]
+            if item.kind == "literal":
+                tag = parameters.tag_of(expression)
+                evidence = [
+                    {
+                        "tag": tag,
+                        "value": parameters.wire_value(
+                            tag, expression.expression.value
+                        ),
+                    }
+                ]
+            else:
+                evidence = [{"operator": expression.expression.operator}]
         requirements.append(
             {
                 "denominator": "generated",
@@ -256,12 +336,17 @@ def _public_document(outcome):
                     "terminal_column",
                     "named_use",
                     "immediate_terminal",
+                    "value_projection",
+                    "literal",
+                    "parameter",
+                    "type_anchor",
+                    "unary",
                 }
                 else {"kind": item.kind, "position": i},
                 "rule": item.rule,
                 "disposition": "checked_rule",
                 "premises": [p.position for p in item.premises],
-                "evidence": [],
+                "evidence": evidence,
             }
         )
     return {
@@ -290,8 +375,30 @@ def _public_document(outcome):
             "literal_policy": checked.literal_policy.value,
         },
         "sql": artifact.rendered.sql.decode("utf-8"),
-        "fixed_values": [],
-        "parameter_uses": [],
+        "fixed_values": [
+            {
+                "slot": i,
+                "reference": _ref(value.slot.ref),
+                "site": _ref(value.slot.site.ref),
+                "tag": value.tag.value,
+                "value": parameters.wire_value(value.tag.value, value.value),
+            }
+            for i, value in enumerate(artifact.fixed_values)
+        ],
+        "parameter_uses": [
+            {
+                "use": use.ordinal,
+                "slot": slots[use.slot],
+                "server_index": use.server_index,
+                "physical_type": use.physical_type,
+                "range": {"start": token.start, "end": token.end},
+            }
+            for use, token in zip(
+                artifact.parameter_uses,
+                (e for e in artifact.rendered.events if e.kind == "parameter"),
+                strict=True,
+            )
+        ],
         "columns": columns,
         "ranges": ranges,
         "requirements": requirements,

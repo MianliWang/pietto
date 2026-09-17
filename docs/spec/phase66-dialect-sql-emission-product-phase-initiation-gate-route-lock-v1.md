@@ -320,11 +320,16 @@ Fixed Bool/Int/finite Float/Text values remain exact, including tags and signed
 zero. Preserve unary sign structure. Type anchors need semantic evidence and
 must not repair errors by coercing values.
 
-For initial test adapters prefer stable, explicitly pinned interfaces accepting
-the generated server form: Psycopg RawCursor for $n and MySQL Connector/Python
-prepared cursor for ?. Verify actual versions in Slice2. Do not build a generic
-placeholder-rewriting framework. Any unavoidable submitted-SQL transformation
-needs explicit independent mapping and validation.
+Current Slice5 test adapters retain Psycopg RawCursor for $n and use pinned pure
+Connector/Python26.7.0 cmd_stmt_prepare/cmd_stmt_execute/get_rows/cmd_stmt_close for ?.
+Every MySQL query-purpose submission follows this native route, including zero
+parameters. Exact bytes reach prepare and the actual command-send payload unchanged;
+statement/session/arguments, actual binary terminals and close-send are observed.
+No general placeholder rewriting, cursor fallback or production executor is added.
+The former prepared-cursor API remains the historical Slice2–4 choice; its actual
+identifier rewrite is an offline counterexample, not a claim that every historical
+query failed. The Slice5 contract amends D66.10, R04/R25 and prerequisite P02/P09 only
+at this test-adapter/observation boundary; product semantics and R03 timing remain.
 
 ### D66.11 — Two complete denominators and noncircular justification
 
@@ -824,7 +829,7 @@ correlation、parameter、order/window结构必须登记generated requirement与
 | R01 | PG/MY，explicit同family source | exact VERIFIED selected closure、完整source mappings、relation_rows实际domain | PLANNED：结构化qualified scan、显式projection | namespace/scan domain/read-only object/field representation | 单source Int字段两行含重复，投影保留两行 | missing source、stale root、other-family或错误inheritance domain阻止；unused合法target差异不影响 | 03 |
 | R02 | PG/MY，V01–V06 | 每个source/result边界的logical/physical/type/null完整链 | PLANNED：有限representation-preserving mapping；conversion只有对应exact rule | encoding/range/p/s/null/collation，used proof applicability | signed Int、Bool0/1/NULL、Text尾空格、Decimal(9,2)扫描；有意义证据的V05/V06传递 | Bool2、unsigned mismatch、Decimal参数猜测、timezone/UUID顺序不明；Float row-equivalence拒绝 | 03/05 |
 | R03 | PG/MY，identifier length/case已声明 | named/shared DAG，各use exact immediate terminal，三类ORDER载体 | PLANNED：nonrecursive CTE/derived blocks、显式column lists、ordered internal names和binding check；按下述明确修订分期交付 | CTE可见域、physical namespace不被capture、case/length、effect/coupling适用性 | 04实际named chains与physical同名绑定；重复/shared JOIN见证07、三ORDER载体及ORDER/LIMIT sharing见证10、重复SET及双facade见证11 | CTE capture、长final label、foreign port、循环；未知effects且rule要求复制时阻止 | 04 named-chain；07/10/11 joint execution |
-| R04 | PG extended `$n`；MY prepared `?` | 原eligible Bool/Int/finite Float/Text literals，exact envelope/policy/context | PLANNED：每SQL use映射logical slot；精确type anchor；PG context兼容才复用index | 参数physical representation、token order、type/overload、use/range完整性 | 两个相等literal两个slot；一个slot多use；大Int、Float零和含问号/`%s`文本保持 | 错tag/value/sign/index、structural LIMIT绑定、coercion修复或SQL string计token拒绝 | 05 |
+| R04 | PG extended `$n`；MY26.7 native prepared `?` | 原eligible Bool/Int/finite Float/Text literals，exact envelope/policy/context | PLANNED：每SQL use映射logical slot；精确type anchor；PG context兼容才复用index | 参数physical representation、token order、type/overload、use/range完整性 | 两个相等literal两个slot；一个slot多use；大Int、Float零和含问号/`%s`文本保持 | 错tag/value/sign/index、structural LIMIT绑定、coercion修复或SQL string计token拒绝 | 05 |
 | R05 | PG/MY，适用V域 | 既有field/LET reference，typed literal、unary sign、+/-/*、comparison/NULL-test/and/or已准入树；算术需要原证据足以保证精确范围 | PLANNED：逐原树/precedence表达，stage值跨boundary用port；无constant folding | operator/type/range、literal anchor和阶段scope | Int 1+2、原LET后用两次、括号混合布尔表达式 | division/general calls、UNKNOWN type、无overflow/effect前提的变换阻止；不新增solver | 06 |
 | R06 | PG/MY，V02 | scalar nullable Bool与WHERE/ON/satisfying/QUALIFY消费域分开 | PLANNED：scalar三值保留；仅predicate根消费TRUE | 三值operator真值、physical Bool域 | SELECT NULL Bool仍NULL，filter NULL不保留row | 内部IS TRUE/CASE把NULL变FALSE，physical2冒充Bool拒绝 | 06 |
 | R07 | PG/MY，predicate适用 | exact CROSS或INNER pre-match scopes，R05/R06条件；保留base/refinement/ON | PLANNED：native CROSS/INNER ON，显式所有ports | matching comparisons、scope、multiplicity、原mandatory proofs | 2×2 CROSS四行；含duplicate/NULL的equality INNER | 用WHERE代替ON边界、post-null field或缺condition evidence拒绝 | 07 |
@@ -845,7 +850,7 @@ correlation、parameter、order/window结构必须登记generated requirement与
 | R22 | PG/MY | 六SET forms；每列exact positional type/equivalence与operand完整terminal；V01–V04相同physical type及Decimal parameters；UNION ALL另可V06 | PLANNED：UNION/INTERSECT/EXCEPT ALL/DISTINCT，explicit nested derived boundaries，不依赖backend common-type猜测 | 逐SET column result type/NULL/collation、right membership、operand ORDER/LIMIT、nesting | A=[1,1,NULL],B=[1,NULL,NULL]六个独立BAG oracle，另测(left EXCEPT middle) EXCEPT right vs nested | names对齐、类型promotion被省略、Float equality、删EXCEPT right、嵌套LIMIT扁平化拒绝 | 11 |
 | R23 | PG/MY | 完整AST/原report/生成需求/renderer events/exact bytes | PLANNED：独立plan→AST和events→bytes检查、闭合scopes/双denominator、range查询 | 每实际generated structure的premise及original cause，独立根无cycle；全部token/range覆盖 | multi-stage artifact每项都可追根，Unicode SQL bytes/ranges正确 | wrong SQL bytes/parentheses/params、两张清单互删、无root自证、range错单位拒绝 | 03起/12整合 |
 | R24 | PG/MY，explicit contract/project/owner | 新公共artifact与唯一selected query | PLANNED：installed project emit、独立versioned output、atomic replace | source/input/output身份、public exact value encoding与完整diagnostics | installed console经独立public decoder生成完整可提交artifact，legacy byte/JSON回归保持 | conflicting target、ambiguous owner、unsafe output、BIND裸SQL、partial output成功拒绝 | 13 |
-| R25 | 两exact targets，test-only隔离环境 | real fixture和independent oracle，先legacy/独立SQL，03起installed new pipeline | PLANNED：complete results/metadata/notices/warnings、success→failure→success、cleanup | actual server/build/adapter/pins/env/role及完整manifest/receipt | 每target真实至少一positive、exact error/recovery/cleanup控制 | missing/cancelled/empty job、prefix rows/丢warning、observer或cleanup failure不准PASS | 02起/15扩展 |
+| R25 | 两exact targets，test-only隔离环境 | real fixture和independent oracle，先legacy/独立SQL，03起installed new pipeline | PLANNED：v2 native prepare/execute/binary terminal/close-send、complete results/metadata/diagnostics、same-session recovery、owned cleanup | actual server/build/adapter/pins/env/role及完整manifest/receipt | 每target真实至少一positive、exact error/recovery/cleanup控制 | missing/cancelled/empty job、prefix rows/丢warning、observer或cleanup failure不准PASS | 02起/15扩展 |
 | R26 | Python3.12/3.13中actually available、checkout/relocated/wheel | private artifact observation及真实same-child imports/bytes/rejections | PLANNED：既有invocation-local acquisition扩展，独立manifest，单独DB matrix | candidate→wheel→artifact→submission身份链、历史streams原域 | standalone/正反batch/relocation/installed消费同产物；旧流保持 | installed来源错、submission变字节、仅manifest声称运行、空结果拒绝 | 14/15 |
 
 R13 的count/min/max是首版aggregate承诺，SUM/AVG等没有本版reviewed physical-result转换规则，
@@ -956,14 +961,14 @@ allowlist；本合同不预造contingency文件、不安装driver/image、不触
 | Prerequisite | Exact acquisition / implementation owner and gate | Lifecycle and acceptance |
 | --- | --- | --- |
 | P01 target artifacts | Slice2 Gate0/1读取PG18.6/MySQL8.4.12官方distribution记录，区分image tag、multi-platform index digest、platform manifest digest、server build/platform、libraries；实际pins尚MISSING_OBSERVATION | 只在精确resource授权后pull/create；无latest/自动downgrade；运行前核对server/OS/architecture/libraries与receipt，错配不测假target。 |
-| P02 stable test adapters | Slice2在实际 `pyproject.toml` / `uv.lock` 冻结stable Psycopg RawCursor与Connector/Python prepared cursor及依赖版本；当前dev docs不是stable pin | 独立test dependency group/locked env，无production import；server-form SQL原样提交，任何必需转换必须另有mapping verifier。 |
+| P02 stable test adapters | Slice2在实际 `pyproject.toml` / `uv.lock` 冻结Psycopg RawCursor与历史Connector/Python prepared cursor及依赖版本；当前Slice5使用同一26.7 pure driver的native methods；当前dev docs不是stable pin | 独立test dependency group/locked env，无production import；当前v2核对actual prepare/command-send byte identity、statement/session/value和terminal/close-send；无cursor fallback。 |
 | P03 explicit collection | Slice2检查 `tests/conftest.py`、`pyproject.toml`、`scripts/validate.py` 和现有pytest acquisition；新DB collection exact命令/paths由该Slice先enumerate再获批 | 常规pytest继续所有既有tests和新harness unit/config tests；DB cases单独显式collection及独立有限manifest；没有环境skip当PASS。 |
 | P04 isolated resources | Slice2 resource owner持有显式container/network/volume IDs及creation receipt；仅本次资源，无ambient DATABASE_URL/PGHOST、host mounts、global prune | planned bounds：startup≤120s，最多3次startup/connect尝试且在总时限内；query≤10s、read≤20s、cleanup≤30s；Slice2执行前冻结实际参数，失败不无限重试。 |
 | P05 fixtures and query role | Slice2分别管理fixture-admin与least-privilege SELECT-only角色，credentials只传test资源通道；不进compiler/artifact/log | 独立人工有限fixture及oracle，首版每case每relation≤1000rows，结果≤100000rows/16MiB；bounded overflow归observer failure，无prefix成功。 |
 | P06 recovery/close | Slice2每项成功acquire即登记finalizer，setup/yield之前失败也清理；观测diag必须早于下一语句 | PG expected error后rollback/savepoint recovery；MY DDL不能靠rollback cleanup；success→expected failure→success、close及owned drop/stop结果都记录。 |
 | P07 diagnostics/observation | Slice2先观测legacy-generated与independent SQL；Slice3开始必须用installed new emission artifact，后续每operator首个consumer同时接入 | 完整rows/types/column metadata/terminal status/notices/warning total/details及fixture loading diag；detail截断或缺metadata保持明确unavailable，不能判false/non-null。 |
 | P08 CI aggregate | Slice2检查 `.github/workflows/ci.yml`、现有四required steps、workflow tests，再获精确workflow/resource权限；当前workflow未改变 | 两exact-target jobs独立compiler3.12/3.13 matrix；read-only repo permissions、pinned actions，不运行privileged PR untrusted checkout；missing/skipped/cancelled/empty required job使aggregate非PASS。 |
-| P09 receipts and linkage | Slice2建立finite manifest/real receipts，03开始candidate→installed wheel→artifact→submitted SQL/params→server/env/query role→complete observation→independent oracle | artifact传递而非大job outputs；identity hash只用于跨boundary真实bytes；下载digest warning必须变验证失败，不能以checksum认证语义。 |
+| P09 receipts and linkage | Slice2建立finite manifest/real receipts，03开始candidate→installed wheel→artifact→submitted SQL/params→server/env/query role→complete observation→independent oracle | 当前v2增加native API/session/statement/actual-command/terminal/cleanup；历史v1不认证新路由。artifact传递而非大job outputs；identity hash只用于跨boundary真实bytes；下载digest warning必须变验证失败，不能以checksum认证语义。 |
 | P10 guard and installed closure | Slice2重新枚举 `.github/workflows/ci.yml`、`scripts/package_smoke.py`、`scripts/check_goldens.py`、`tests/_pietto_differential_process_acquisition.py`、`tests/_pietto_differential_probe_batch.py` 及上节direct guards | 既有compiler/process acquisition不冒充DB harness；14做首次private observation实际注册/relocation/wheel消费，15扩大；SUPPORTED与AVAILABLE分别记录。 |
 
 状态：NOT_ACQUIRED→ACQUIRED→READY→RUNNING→OBSERVED/FAILED→RECOVERED/RECOVERY_FAILED→
@@ -1107,7 +1112,7 @@ Phase65 N16是已关闭历史，本N66=16为独立新route。不得回到overloa
 3. Semantic/identity model: logical slot、SQL use、server index不同；PG error position是1-based characters，internal query position另有字段，不等于UTF-8 bytes。
 4. Layering/dependency direction: compiler产生server form；test adapter消费固定artifact，不获得rebind或semantic修复权。
 5. Algorithms/data structures/complexity: renderer events记录use order和range；authenticated original-query位置可线性按UTF-8 prefix换算，无text-search猜测。
-6. Interface/version/capability model: RawCursor自3.2提供原生$n且只接受positional参数；MY prepared cursor接受?或%s，每marker一个值。选择?避免rewrite；stable adapter pins尚由Slice2获取。
+6. Interface/version/capability model: RawCursor自3.2提供原生$n且只接受positional参数；MY prepared cursor接受?或%s，每marker一个值。选择?不证明cursor避免rewrite；该历史snapshot的stable adapter pins由Slice2获取。当前Slice5使用相同26.7 pure driver的native methods，并观察actual command payload。
 7. Testing/operational lifecycle: 对实际adapter版本检查submitted SQL与params、type metadata、large Int/signed zero/Unicode及complete result。
 8. Pitfalls/migration costs: 普通Psycopg Cursor的%s接口不同；不能拿开发文档版本当安装pin或假定所有driver都保留SQL。
 9. Disposition: ADAPT；D66.10/.12的直接server-form策略和独立mapping验证。

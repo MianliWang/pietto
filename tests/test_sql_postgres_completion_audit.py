@@ -248,7 +248,14 @@ def test_implemented_backend_diagnostics_match_documented_codes() -> None:
     )
 
     emission = set()
-    for suffix in ("", "_contract", "_ast", "_rendering", "_verification"):
+    for suffix in (
+        "",
+        "_contract",
+        "_ast",
+        "_rendering",
+        "_verification",
+        "_parameters",
+    ):
         path = Path("src/pietto/_project/project_sql_emission" + suffix + ".py")
         emission.update(
             re.findall(

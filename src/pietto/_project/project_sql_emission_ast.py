@@ -15,6 +15,7 @@ from pietto._project.project_sql_emission_scopes import (
     TerminalBinding,
     projection_sources,
 )
+from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project.project_sql_emission_contract import (
     Blocker,
     BoundField,
@@ -71,10 +72,23 @@ class SQLColumn:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class SQLLiteralColumn:
+    ordinal: int
+    scan: SQLScan | SQLNamedUse
+    export: Any
+    projection: Any
+    symbol: SQLSymbol
+    label: str
+    origin: parameters.LiteralOrigin
+    value: parameters.SQLAnchor | parameters.SQLUnary | None
+    producer: TerminalBinding | None
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class SQLSelect:
     request: PreparedEmission
     scan: SQLScan | SQLNamedUse
-    columns: tuple[SQLColumn, ...]
+    columns: tuple[SQLColumn | SQLLiteralColumn, ...]
     definition: ScopeDefinition
     ctes: tuple[SQLCTE, ...] = ()
 
@@ -142,11 +156,22 @@ def projection_chain_shape(plan):
             and bool(d.exports)
             for d in named
         )
-        and len(plan.projections)
-        == len(plan.all_exports)
-        == len(plan.expressions)
-        == len(plan.expression_sites)
-        and all(type(e) is row.ProjectSQLReference for e in plan.expressions)
+        and len(plan.projections) == len(plan.all_exports) == len(plan.expression_sites)
+        and all(
+            type(e)
+            in {
+                row.ProjectSQLReference,
+                row.ProjectSQLLiteral,
+                row.ProjectSQLBoundLiteral,
+                row.ProjectSQLUnary,
+            }
+            for e in plan.expressions
+        )
+        and all(
+            type(plan.expressions[p.expression.position]) is row.ProjectSQLReference
+            or parameters.original_chain(plan, p.expression) is not None
+            for p in plan.projections
+        )
         and not any(
             (
                 plan.let_values,
@@ -158,11 +183,6 @@ def projection_chain_shape(plan):
                 plan.orders,
                 plan.result_limits,
                 plan.set_bodies,
-                plan.operands,
-                plan.bind_uses,
-                plan.literal_slots,
-                plan.fixed_envelope.slots,
-                plan.fixed_envelope.values,
             )
         )
     )
@@ -316,9 +336,10 @@ def emission_blockers(request: PreparedEmission):
                     add("PIE-B1003", "operator_not_implemented_in_slice3", block.ref)
         expressions = {e.ref: e for e in plan.expressions}
         for projection in plan.projections:
-            if (
-                type(expressions.get(projection.expression))
-                is not row.ProjectSQLReference
+            if type(
+                expressions.get(projection.expression)
+            ) is not row.ProjectSQLReference and (
+                parameters.original_chain(plan, projection.expression) is None
             ):
                 add(
                     "PIE-B1003",
@@ -340,6 +361,36 @@ def emission_blockers(request: PreparedEmission):
                 request.target_request,
             )
     limits = resource_limits(request)
+    scalar_nodes = 0
+    for projection in plan.projections:
+        expression = plan.expressions[projection.expression.position]
+        if type(expression) is row.ProjectSQLReference:
+            continue
+        problem = parameters.chain_problem(plan, projection.expression, request.family)
+        if problem is not None:
+            add(*problem, projection.ref, projection.site.occurrence.span)
+        else:
+            chain = parameters.original_chain(plan, projection.expression)
+            assert chain is not None
+            scalar_nodes += 3 + len(chain[0])  # origin, anchor, leaf and every sign
+    if scalar_nodes:
+        keys = {"operator_environment": "builtin_only"}
+        if plan.literal_slots:
+            keys["parameter_protocol"] = (
+                "postgres_extended"
+                if request.family == "postgres"
+                else "mysql_prepared"
+            )
+        for key, expected in keys.items():
+            found = [
+                p for p in request.premises if p.scope == "statement" and p.key == key
+            ]
+            if not found:
+                add("PIE-B1004", key + "_declaration_missing", plan.scope)
+            elif any(json.loads(p.value) != expected for p in found):
+                add("PIE-B1005", key + "_declaration_mismatch", plan.scope)
+    if len(plan.bind_uses) > limits["parameters"]:
+        add("PIE-B1007", "parameter_occurrence_limit", plan.scope)
     bodies = tuple(
         d
         for d in request.layout.definitions
@@ -352,6 +403,7 @@ def emission_blockers(request: PreparedEmission):
         3 * len(bodies)
         + 2 * len(plan.projections)
         + sum(2 + len(d.terminals) for d in intermediate)
+        + scalar_nodes
     )
     if admitted and (
         any(len(d.terminals) > limits["columns"] for d in bodies)
@@ -464,6 +516,25 @@ def build_sql_ast(request: PreparedEmission):
     sources = {source.ref: source for source in plan.sources}
     bindings = {use.consumer.original.ref: use for use in request.layout.uses}
     blocks = {block.definition: block for block in plan.blocks}
+    ordered = tuple(
+        p
+        for d in request.layout.definitions
+        if d.original.ref not in sources
+        for p in plan.projections
+        if p.block is blocks[d.original.ref].ref
+    )
+    occurrences = []
+    for projection in ordered:
+        chain = parameters.original_chain(plan, projection.expression)
+        if chain is not None and type(chain[1]) is row.ProjectSQLBoundLiteral:
+            leaf = chain[1]
+            tag = parameters.tag_of(leaf)
+            assert tag is not None
+            occurrences.append((leaf, parameters.PHYSICAL[request.family][tag]))
+    allocated = parameters.allocate_uses(
+        request.family, tuple(occurrences), resource_limits(request)["parameters"]
+    )
+    uses = {use.original.ref: use for use in allocated}
     ctes: dict[Any, SQLCTE] = {}
     selected = None
     for definition in request.layout.definitions:
@@ -491,6 +562,28 @@ def build_sql_ast(request: PreparedEmission):
         for position, (projection, export) in enumerate(
             zip(projections, original.exports, strict=True)
         ):
+            label = export.identity.name if final else f"c{position}"
+            if projection.input_port is None:
+                value = parameters.build_value(
+                    plan, projection.expression, request.family, uses
+                )
+                origin = parameters.LiteralOrigin(
+                    value, export, definition.terminals[position]
+                )
+                columns.append(
+                    SQLLiteralColumn(
+                        position,
+                        scan,
+                        export,
+                        projection,
+                        SQLSymbol(position + 1, export.ref, label),
+                        label,
+                        origin,
+                        value,
+                        None,
+                    )
+                )
+                continue
             port_position, producer = by_input[projection.input_port]
             if type(scan) is SQLScan:
                 origin = scan
@@ -502,6 +595,26 @@ def build_sql_ast(request: PreparedEmission):
             else:
                 assert type(scan) is SQLNamedUse
                 previous = scan.cte.body.columns[port_position]
+                if type(previous) is SQLLiteralColumn:
+                    columns.append(
+                        SQLLiteralColumn(
+                            position,
+                            scan,
+                            export,
+                            projection,
+                            SQLSymbol(
+                                position + 1,
+                                producer.input_port.ref,
+                                scan.cte.columns[port_position].name,
+                            ),
+                            label,
+                            previous.origin,
+                            None,
+                            producer,
+                        )
+                    )
+                    continue
+                assert isinstance(previous, SQLColumn)
                 origin, source_port, field = (
                     previous.origin,
                     previous.source_port,
@@ -518,7 +631,7 @@ def build_sql_ast(request: PreparedEmission):
                     export,
                     projection,
                     SQLSymbol(position + 1, producer.input_port.ref, name),
-                    export.identity.name if final else f"c{position}",
+                    label,
                     producer,
                     origin,
                 )
@@ -544,7 +657,14 @@ def build_requirements(request, ast):
     original = tuple(
         OriginalRequirement(
             entry,
-            "R03"
+            "R04"
+            if entry.family.value == "fixed_literal_transport"
+            or (
+                entry.family.value == "expression"
+                and type(request.plan.expressions[entry.subject.position])
+                is not row.ProjectSQLReference
+            )
+            else "R03"
             if ast.ctes and entry.family.value == "scope"
             else "R01"
             if entry.family.value in {"source_realization", "expression", "scope"}
@@ -599,6 +719,34 @@ def build_requirements(request, ast):
                 for link in scan.binding.bindings
             )
         for column in body.columns:
+            if type(column) is SQLLiteralColumn:
+                generated.append(
+                    GeneratedRequirement(
+                        "value_projection", column.projection.ref, "R04", ()
+                    )
+                )
+                if column.value is not None:
+                    for node in parameters.value_nodes(column.value):
+                        kind = (
+                            "unary"
+                            if type(node) is parameters.SQLUnary
+                            else "type_anchor"
+                            if type(node) is parameters.SQLAnchor
+                            else "parameter"
+                            if type(node) is parameters.SQLParameter
+                            else "literal"
+                        )
+                        generated.append(
+                            GeneratedRequirement(
+                                kind,
+                                node.original.ref,
+                                "R04",
+                                parameters.anchor_premises(
+                                    request, kind, parameters.tag_of(node.original)
+                                ),
+                            )
+                        )
+                continue
             generated.append(
                 GeneratedRequirement(
                     "field_projection",

@@ -1,6 +1,37 @@
 # Phase66 Isolated Target Conformance Facility v1
 
-## Current Slice4 extension
+## Current Slice5 native transport amendment
+
+The [Slice5 contract](phase66-slice5-fixed-values-physical-type-anchors-server-parameter-use-mapping-v1.md)
+replaces current MySQL query-purpose execution with the pinned pure driver's native
+prepare/execute/binary-fetch/close methods. Every compiler-generated query, including
+zero-parameter legacy SQL, uses that route. Fixed manager/diagnostic operations retain
+their identified cursor purpose; PostgreSQL retains RawCursor. No content-based dispatch
+is used. Fixed BEGIN/rollback transaction management retains its ordinary command purpose;
+BEGIN is never a fallback from a failed native submission. No SQL rewriting is permitted. Actual driver calls and command payloads are independently
+observed; close records send completion with no acknowledgement.
+
+Current private receipts require pietto.target-conformance-receipt.v2, exact API/native
+events, actual statement/session association, terminal results and connection teardown.
+Historical v1 bytes remain historical; their finite successes never establish universal
+MySQL cursor-to-server byte identity. The old cursor's identifier rewrite is preserved
+as an offline counterexample. Receipt filenames, upload/digest policy and workflow remain.
+Part A adds P_native_identifiers and Q_native_lifecycle with a separate exact focused
+prerequisite. Native transport acceptance precedes Part B fixed-value implementation.
+
+## Current complete Slice5 manifest
+
+A–S is exactly19 cases and46 public documents per target:30 VERIFIED,3 INPUT_REJECTED,
+13 BLOCKED. P adds8 installed identifier variants; Q has native lifecycle controls
+separate from public documents; R adds6 direct fixed-value variants and S adds6
+named/imported variants. Preserve A–O variants/outcomes. Current same-child installed
+origins include project_sql_emission_parameters.py; test-harness transfer includes
+the native adapter. Its code is not part of the production wheel.
+The exact anchor/value/use/provenance contracts and independent oracles are owned
+by the Slice5 contract and current case/probe modules. Final full manifests bind
+final inputs; Part A focused receipts are prerequisite evidence only.
+
+## Historical Slice4 extension
 
 The [Slice4 contract](phase66-slice4-named-shared-producer-scopes-terminal-output-emission-v1.md)
 adds M_named_chain (table_bag/query_bag/empty/long_intermediate), N_imported_chain

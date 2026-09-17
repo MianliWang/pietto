@@ -10,7 +10,7 @@ Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. Phase64 and its 11 numbered Slices are completed
 through their accepted publication chains. Phase65 and Slices1–16 are completed
 through the accepted Slice16 audit publication. The current owner is Phase 66,
-which is `ACTIVE`; Slice 5 is `NEXT / NOT IMPLEMENTED` after successful Slice4 publication.
+which is `ACTIVE`; Slice 6 is `NEXT / NOT IMPLEMENTED` after successful Slice5 publication.
 The Validation/Test Performance Optimization Interlude II is `COMPLETED`.
 Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -2588,14 +2588,28 @@ result decoding/execution remain later phases.
 Phase66 Slice4 completes the [named producer emission vertical](spec/phase66-slice4-named-shared-producer-scopes-terminal-output-emission-v1.md)
 only upon successful natural exact-head CI with both compiler jobs, both target cells and the strict aggregate.
 It preserves A–L and adds M–O: six installed named-chain query variants and seven
-structural-only BLOCKED variants per target. Current complete manifests contain15
+structural-only BLOCKED variants per target. At Slice4 publication complete manifests contained15
 cases and26 public documents. The R03 scheduling amendment is newly authorized by
 the Slice4 task, not by Slice3 PASS; it preserves the original route history and all operator owners.
 R03 outstanding joint execution: Slice7 repeated/shared JOIN; Slice10 ordinary/rebound/completed ORDER and ORDER/LIMIT sharing; Slice11 repeated UNION ALL and two import facades.
 These remain mandatory for phase-completion audit; separate queries or blocked documents
 do not satisfy them. R03 target conformance is not complete. Default pytest remains offline.
-Phase66 remains `ACTIVE`; Slice5 is `NEXT / NOT IMPLEMENTED`, Slices6–16 remain
-`NOT IMPLEMENTED`, and N66 remains16. Do not start Slice5 automatically.
+That Slice4 publication left Slice5 `NEXT / NOT IMPLEMENTED` and Slices6–16
+`NOT IMPLEMENTED`. N66 remains16. Its handoff stated: Do not start Slice5 automatically.
+
+Phase66 Slice5 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI
+with Python3.12,Python3.13,both target jobs and the strict v2 aggregate. The
+[fixed-value/native transport contract](spec/phase66-slice5-fixed-values-physical-type-anchors-server-parameter-use-mapping-v1.md)
+adds original Bool/Int/finite-Float/Text leaf/sign emission, exact type anchors,
+slot/use/native argument mapping, literal-origin outputs and independent public decoding.
+The pinned MySQL low-level adapter replaces query-purpose cursor preprocessing; the old
+cursor rewrite witness and every failed prerequisite remain historical evidence.
+A–S19 cases/46 public documents per target include30 VERIFIED,3 INPUT_REJECTED,13 BLOCKED;
+component mapping and native controls remain separate from installed-query evidence.
+R03 outstanding joint execution: Slice7 repeated/shared JOIN; Slice10 ordinary/rebound/completed ORDER and ORDER/LIMIT sharing; Slice11 repeated UNION ALL and two import facades.
+Phase66 remains `ACTIVE`; Slice6 is `NEXT / NOT IMPLEMENTED`; Slices7–16 remain `NOT IMPLEMENTED`.
+N66 remains16. Do not start Slice6 automatically. No general scalar/LET/WHERE/ON/JOIN/ORDER/SET,
+public project emit CLI, caller rebind, general result decoder or product executor is added.
 
 ## Future Roadmap v6
 

@@ -16,6 +16,7 @@ import _pietto_target_conformance_cases as cases
 import _pietto_target_conformance_observation as observation
 import _pietto_target_conformance_resources as resources
 from _pietto_repository_facts import REPOSITORY_FACTS
+from test_phase66_slice5_mysql_native_prepared_transport import native_data
 
 
 class InjectedServerError(Exception):
@@ -199,7 +200,15 @@ def test_injected_recovery_uses_one_session_and_retains_failed_prefix() -> None:
     view = observation.Observer("postgres", connection, "query")
     result: dict[str, Any] = {"id": "E_recovery", "observations": []}
     facility.execute_case("E_recovery", "postgres", view, view, {}, result)
-    cases.check_case(result, "postgres")
+    # Injected recovery behavior is not actual-driver identity evidence.
+    with pytest.raises(ValueError, match="cursor route identity"):
+        cases.check_case(result, "postgres")
+    assert result["recovery"] == "success"
+    assert result["session_before"] == result["session_after"] == 41
+    assert [result["observations"][i]["rows"] for i in (0, 2)] == [
+        [[{"kind": "int", "value": "1"}]],
+        [[{"kind": "int", "value": "2"}]],
+    ]
     assert result["session_before"] == result["session_after"] == 41
     assert (result["state_after_failure"], result["state_after_recovery"]) == (3, 0)
     connection.fault = "recovery"
@@ -347,6 +356,130 @@ def _observation(
         else "mysql.connector.cursor.MySQLCursorPrepared"
         if params
         else "mysql.connector.cursor.MySQLCursor",
+        "api": "psycopg.RawCursor"
+        if target == "postgres"
+        else "mysql.connector.cursor.MySQLCursorPrepared"
+        if params
+        else "mysql.connector.cursor.MySQLCursor",
+        "native": None,
+    }
+
+
+def _native_control_data(target):
+    first = _observation(
+        target, "SELECT 1 AS v", [[{"kind": "int", "value": "1"}]], ["v"], [23]
+    )
+    bad = _observation(
+        target,
+        "SELECT CAST($1 AS integer)"
+        if target == "postgres"
+        else "DO JSON_EXTRACT(?, '$')",
+        [],
+        [],
+        [],
+        [{"kind": "text", "value": "{"}],
+    )
+    bad.update(
+        status="failed",
+        execute="failed",
+        fetch="not_started",
+        failures=[
+            {
+                "stage": "execute",
+                "kind": "ServerError",
+                "sqlstate": "22P02" if target == "postgres" else "22032",
+                "vendor_code": None if target == "postgres" else 3141,
+            }
+        ],
+    )
+    if target == "mysql":
+        bad["diagnostics"].update(
+            total=1,
+            details=[
+                {
+                    "severity": "Error",
+                    "vendor_code": 3141,
+                    "sqlstate": None,
+                    "message": "synthetic invalid JSON",
+                }
+            ],
+        )
+    second = _observation(
+        target, "SELECT 2 AS v", [[{"kind": "int", "value": "2"}]], ["v"], [23]
+    )
+    warning = _observation(
+        target,
+        "CREATE TABLE IF NOT EXISTS phase66_rows (id BIGINT NOT NULL)"
+        if target == "postgres"
+        else "INSERT IGNORE INTO phase66_diagnostic_rows VALUES ('abcdef')",
+        [],
+        [],
+        [],
+        identity="fixture_manager",
+    )
+    warning["diagnostics"].update(
+        total=None if target == "postgres" else 1,
+        details=[
+            {
+                "severity": "NOTICE" if target == "postgres" else "Warning",
+                "sqlstate": "42P07" if target == "postgres" else None,
+                "vendor_code": None if target == "postgres" else 1265,
+                "message": "synthetic warning",
+            }
+        ],
+    )
+    empty = _observation(
+        target,
+        "SELECT id FROM phase66_rows WHERE 1=0",
+        [],
+        ["id"],
+        [20 if target == "postgres" else 8],
+    )
+    observations = [first, bad, second, warning, empty]
+    if target == "mysql":
+        native_data(warning, session=40)
+        mismatch = _observation(target, "SELECT ? AS v", [], [], [])
+        mismatch.update(
+            status="failed",
+            execute="not_started",
+            fetch="not_started",
+            failures=[{"stage": "parameter_count", "kind": "NATIVE_PARAMETER_COUNT"}],
+        )
+        observations.append(mismatch)
+        late = _observation(
+            target,
+            "SELECT JSON_EXTRACT(?, '$')",
+            [],
+            ["JSON_EXTRACT(?, '$')"],
+            [245],
+            [{"kind": "text", "value": "{"}],
+        )
+        late.update(
+            status="failed",
+            execute="success",
+            fetch="failed",
+            failures=[
+                {
+                    "stage": "fetch",
+                    "kind": "DataError",
+                    "sqlstate": "22032",
+                    "vendor_code": 3141,
+                }
+            ],
+            diagnostics=deepcopy(bad["diagnostics"]),
+        )
+        observations.append(late)
+        observations.append(
+            _observation(
+                target, "SELECT 3 AS v", [[{"kind": "int", "value": "3"}]], ["v"], [23]
+            )
+        )
+    return {
+        "id": "Q_native_lifecycle",
+        "observations": observations,
+        "session_before": 41,
+        "session_after": 41,
+        "recovery": "success",
     }
 
 
@@ -445,6 +578,7 @@ def valid_receipts(
                     "_rendering",
                     "_verification",
                     "_scopes",
+                    "_parameters",
                 )
             },
             "probe_sha256": expected["harness"][
@@ -866,6 +1000,44 @@ def valid_receipts(
                         if target == "postgres"
                         else "mysql.connector.cursor.MySQLCursorPrepared"
                     )
+                    if case_id == "P_native_identifiers":
+                        number = "7" if record["variant"].startswith("plain") else "11"
+                        observation = _observation(
+                            target,
+                            document["sql"],
+                            []
+                            if record["variant"].startswith("empty")
+                            else [[{"kind": "int", "value": number}]] * 2,
+                            ["id"],
+                            [20 if target == "postgres" else 8],
+                        )
+                        observation["prepared"] = True
+                    elif case_id in {"R_fixed_direct", "S_fixed_named"}:
+                        is_named = case_id == "S_fixed_named"
+                        labels = (
+                            probe.FIXED_NAMED_LABELS if is_named else probe.FIXED_LABELS
+                        )
+                        tags = probe.FIXED_NAMED_TAGS if is_named else probe.FIXED_TAGS
+                        observation = _observation(
+                            target,
+                            document["sql"],
+                            cases.fixed_rows(
+                                target,
+                                named=is_named,
+                                empty=record["variant"].startswith("empty"),
+                            ),
+                            list(labels),
+                            cases.fixed_metadata(target, named=is_named),
+                            cases.parameter_records(document),
+                        )
+                        observation["prepared"] = True
+                        if target == "mysql":
+                            for metadata, tag in zip(
+                                observation["metadata"], tags, strict=True
+                            ):
+                                metadata.extend((0, 309 if tag == "Text" else 63))
+                    if target == "postgres":
+                        observation["api"] = observation["cursor_type"]
                     row["observations"].append(observation)
                     submissions += 1
                 row["variants"].append(
@@ -878,6 +1050,12 @@ def valid_receipts(
                     }
                 )
             case_rows.append(row)
+        case_rows.append(_native_control_data(target))
+        case_rows.sort(key=lambda case: cases.CASE_IDS.index(case["id"]))
+        events[4:4] = [
+            {"event": "connection_closed", "identity": "query", "session_id": 41},
+            {"event": "connection_closed", "identity": "manager", "session_id": 40},
+        ]
         result[target] = {
             "format": facility.FORMAT,
             "target": target,
@@ -959,6 +1137,32 @@ def valid_receipts(
             result[target]["setup"][index]["prepared"] = target == "postgres" or bool(
                 params
             )
+        if target == "mysql":
+
+            def migrate(value, *, transaction_control=False):
+                if type(value) is list:
+                    for child in value:
+                        migrate(child)
+                elif type(value) is dict:
+                    if "sql_sha256" in value:
+                        if value["identity"] == "query" and not transaction_control:
+                            # Only the missing column is resolved at prepare;
+                            # the denied CREATE DATABASE still fails at execute.
+                            if any(
+                                f.get("vendor_code") == 1054 for f in value["failures"]
+                            ):
+                                value["execute"] = "not_started"
+                                value["failures"][0]["stage"] = "prepare"
+                            native_data(value, session=41)
+                        elif value["native"] is None and value["prepared"]:
+                            value["api"] = value["cursor_type"] = (
+                                "mysql.connector.cursor.MySQLCursorPrepared"
+                            )
+                        return
+                    for key, child in value.items():
+                        migrate(child, transaction_control=key == "begin")
+
+            migrate(result[target])
     return pins, pins_digest, expected, result
 
 
@@ -1228,6 +1432,10 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "M_named_chain",
         "N_imported_chain",
         "O_named_later",
+        "P_native_identifiers",
+        "Q_native_lifecycle",
+        "R_fixed_direct",
+        "S_fixed_named",
     )
     assert resources.ENDPOINT == "unix:///var/run/docker.sock"
     assert resources.STARTUP_SECONDS == 120 and resources.MAX_CONNECT_ATTEMPTS == 3
@@ -1439,3 +1647,230 @@ def test_new_installed_public_chain_corruptions_are_rejected(
         facility.verify_receipt(
             receipt, target, pins, pins_digest, expected, "1" * 40, "synthetic", 1
         )
+
+
+def server_error_observation(*, privilege: bool, native: bool = True) -> dict[str, Any]:
+    """Data-only: the exact layers observed against the pinned MySQL 8.4.12."""
+    from _pietto_mysql_native_prepared import API
+
+    at_prepare = native and not privilege
+    return {
+        "api": API if native else "mysql.connector.cursor.MySQLCursorPrepared",
+        "status": "failed",
+        "execute": "not_started" if at_prepare else "failed",
+        "close": "success",
+        "diagnostics": {
+            "protocol": "mysql_warnings",
+            "total": 1,
+            "details": [
+                {"severity": "Error", "vendor_code": 1044 if privilege else 1054}
+            ],
+            "complete": True,
+        },
+        "failures": [
+            {
+                "stage": "prepare" if at_prepare else "execute",
+                "sqlstate": "42000" if privilege else "42S22",
+                "vendor_code": 1044 if privilege else 1054,
+            }
+        ],
+    }
+
+
+def test_native_server_errors_keep_their_own_reported_layer() -> None:
+    # MySQL resolves a missing column while preparing, but checks the CREATE
+    # DATABASE privilege only at execution; one uniform layer would be wrong.
+    cases.check_server_error(server_error_observation(privilege=False), "mysql")
+    cases.check_server_error(
+        server_error_observation(privilege=True), "mysql", privilege=True
+    )
+    swapped = server_error_observation(privilege=True)
+    swapped["execute"] = "not_started"
+    swapped["failures"][0]["stage"] = "prepare"
+    with pytest.raises(ValueError, match="wrong failure layer"):
+        cases.check_server_error(swapped, "mysql", privilege=True)
+    moved = server_error_observation(privilege=False)
+    moved["execute"] = "failed"
+    moved["failures"][0]["stage"] = "execute"
+    with pytest.raises(ValueError, match="wrong failure layer"):
+        cases.check_server_error(moved, "mysql")
+    # An ordinary cursor has no prepare step, and PostgreSQL never goes native.
+    cases.check_server_error(
+        server_error_observation(privilege=False, native=False), "mysql"
+    )
+    postgres = server_error_observation(privilege=False, native=False)
+    postgres["api"] = "psycopg.RawCursor"
+    postgres["failures"][0]["sqlstate"] = "22012"
+    with pytest.raises(ValueError, match="wrong failure layer"):
+        cases.check_server_error(dict(postgres, execute="not_started"), "postgres")
+    cases.check_server_error(postgres, "postgres")
+
+
+# The exact result column this pinned MySQL 8.4.12 reported for empty_text in
+# every R_fixed_direct variant, PRESERVE and BIND alike, recorded in
+# claude-mysql-focused-6. Written out here so the observed side of these
+# regressions never comes from the oracle under test.
+OBSERVED_EMPTY_TEXT = ["empty_text", 253, None, None, None, None, 1, 128, 309]
+EMPTY_TEXT = cases.emission.FIXED_LABELS.index("empty_text")
+
+
+def fixed_case(receipt: dict[str, Any], case_id: str = "R_fixed_direct") -> Any:
+    return next(case for case in receipt["cases"] if case["id"] == case_id)
+
+
+def substitute_result_column(record: Any, position: int, column: list[Any]) -> int:
+    """Replace one result column everywhere this observation records it."""
+    replaced = 0
+
+    def walk(node: Any) -> None:
+        nonlocal replaced
+        if type(node) is list:
+            if (
+                len(node) > position
+                and type(node[position]) is list
+                and node[position][:1] == column[:1]
+            ):
+                node[position] = list(column)
+                replaced += 1
+                return
+            for child in node:
+                walk(child)
+        elif type(node) is dict:
+            for child in node.values():
+                walk(child)
+
+    walk(record)
+    if not replaced:
+        raise AssertionError("no recorded result column matched")
+    return replaced
+
+
+def replace_everywhere(record: Any, column: list[Any], replacement: list[Any]) -> int:
+    """Replace one recorded result column by value, wherever the receipt holds it."""
+    replaced = 0
+
+    def walk(node: Any) -> None:
+        nonlocal replaced
+        if type(node) is list:
+            for index, child in enumerate(node):
+                if child == column:
+                    node[index] = list(replacement)
+                    replaced += 1
+                else:
+                    walk(child)
+        elif type(node) is dict:
+            for child in node.values():
+                walk(child)
+
+    walk(record)
+    if not replaced:
+        raise AssertionError("no recorded result column matched")
+    return replaced
+
+
+def observed_mysql_receipt(receipts: Any, case_id: str = "R_fixed_direct") -> Any:
+    receipt = deepcopy(receipts["mysql"])
+    for record in fixed_case(receipt, case_id)["observations"]:
+        substitute_result_column(record, EMPTY_TEXT, OBSERVED_EMPTY_TEXT)
+    return receipt
+
+
+def accept_receipt(receipt: Any, valid: Any, target: str = "mysql") -> None:
+    pins, pins_digest, expected, _ = valid
+    facility.verify_receipt(
+        receipt, target, pins, pins_digest, expected, "1" * 40, "synthetic", 1
+    )
+
+
+def reject_receipt(receipt: Any, valid: Any, target: str = "mysql") -> None:
+    with pytest.raises(ValueError, match="invalid target receipt"):
+        accept_receipt(receipt, valid, target)
+
+
+def test_empty_text_anchor_requires_the_observed_var_string_type(
+    valid_receipts: Any,
+) -> None:
+    accept_receipt(observed_mysql_receipt(valid_receipts[3]), valid_receipts)
+    # The oracle states 253 explicitly; it is not optional and not a set.
+    assert cases.fixed_metadata("mysql", named=False)[EMPTY_TEXT] == 253
+    assert cases.fixed_metadata("postgres", named=False)[EMPTY_TEXT] == 25
+    variants = [
+        v["variant"] for v in fixed_case(valid_receipts[3]["mysql"])["variants"]
+    ]
+    preserve = [i for i, v in enumerate(variants) if not v.endswith("bind")]
+    bind = [i for i, v in enumerate(variants) if v.endswith("bind")]
+    assert len(preserve) == 3 and len(bind) == 3
+    for code in (254, 252, 15, 8):
+        for selected in (preserve, bind, range(len(variants))):
+            receipt = observed_mysql_receipt(valid_receipts[3])
+            observations = fixed_case(receipt)["observations"]
+            for index in selected:
+                substitute_result_column(
+                    observations[index],
+                    EMPTY_TEXT,
+                    [OBSERVED_EMPTY_TEXT[0], code, *OBSERVED_EMPTY_TEXT[2:]],
+                )
+            reject_receipt(receipt, valid_receipts)
+
+
+@pytest.mark.parametrize(
+    "change",
+    (
+        "other_column_type",
+        "label",
+        "collation",
+        "arity",
+        "position_swap",
+        "value_kind",
+        "null_value",
+        "multiplicity",
+        "parameters",
+        "empty_result_metadata",
+        "named_case_type",
+    ),
+)
+def test_fixed_value_receipt_keeps_every_other_expectation(
+    valid_receipts: Any, change: str
+) -> None:
+    receipt = observed_mysql_receipt(valid_receipts[3])
+    case = fixed_case(receipt)
+    first = case["observations"][0]
+    if change == "other_column_type":
+        substitute_result_column(
+            first, 16, ["trailing_text", 254, None, None, None, None, 1, 128, 309]
+        )
+    elif change == "label":
+        replace_everywhere(
+            first, OBSERVED_EMPTY_TEXT, ["renamed", *OBSERVED_EMPTY_TEXT[1:]]
+        )
+    elif change == "collation":
+        replace_everywhere(first, OBSERVED_EMPTY_TEXT, [*OBSERVED_EMPTY_TEXT[:8], 255])
+    elif change == "arity":
+        first["metadata"].pop()
+    elif change == "position_swap":
+        # Move the Text anchor onto the leading Int column's position.
+        other = list(first["metadata"][0])
+        sentinel = ["__swapped__", *OBSERVED_EMPTY_TEXT[1:]]
+        replace_everywhere(first, OBSERVED_EMPTY_TEXT, sentinel)
+        replace_everywhere(first, other, OBSERVED_EMPTY_TEXT)
+        replace_everywhere(first, sentinel, other)
+    elif change == "value_kind":
+        first["rows"][0][EMPTY_TEXT] = {
+            "kind": "bytes",
+            "value": "",
+        }
+    elif change == "null_value":
+        first["rows"][0][EMPTY_TEXT] = {"kind": "null"}
+    elif change == "multiplicity":
+        first["rows"].pop()
+    elif change == "parameters":
+        bound = case["observations"][1]
+        bound["parameters"] = bound["parameters"][:-1]
+    elif change == "empty_result_metadata":
+        empty = case["observations"][4]
+        assert empty["rows"] == []
+        empty["metadata"] = None
+    else:
+        named = fixed_case(receipt, "S_fixed_named")["observations"][0]
+        named["metadata"][-1][1] = 254
+    reject_receipt(receipt, valid_receipts)

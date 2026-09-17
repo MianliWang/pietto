@@ -708,7 +708,7 @@ def test_repeated_source_field_has_distinct_positional_exports(tmp_path):
     )
 
 
-def test_nonempty_bind_work_is_later_owned(tmp_path):
+def test_nonempty_binding_requires_explicit_native_protocol_evidence(tmp_path):
     item = probe.fixture("postgres")
     source = item["source"]
     source = source.replace("        ratio\n", "        ratio\n        marker = 1\n")
@@ -716,7 +716,10 @@ def test_nonempty_bind_work_is_later_owned(tmp_path):
         tmp_path, source, item["contract"], "bind_safe_literals"
     )
     assert result.status == "BLOCKED" and result.artifact is None
-    assert any(b.code == "PIE-B1003" for b in result.blockers)
+    assert any(
+        b.code == "PIE-B1004" and b.detail == "parameter_protocol_declaration_missing"
+        for b in result.blockers
+    )
     assert checked.envelope is not None and checked.envelope.values
 
 
@@ -762,10 +765,36 @@ def test_current_emission_variant_manifest_is_complete():
             "order_completed",
             "producer_filter",
         ),
+        "P_native_identifiers": (
+            "preserve",
+            "bind",
+            "plain_preserve",
+            "plain_bind",
+            "named_preserve",
+            "named_bind",
+            "empty_preserve",
+            "empty_bind",
+        ),
+        "R_fixed_direct": (
+            "table_preserve",
+            "table_bind",
+            "query_preserve",
+            "query_bind",
+            "empty_preserve",
+            "empty_bind",
+        ),
+        "S_fixed_named": (
+            "named_preserve",
+            "named_bind",
+            "imported_preserve",
+            "imported_bind",
+            "empty_preserve",
+            "empty_bind",
+        ),
     }
     for target in ("postgres", "mysql"):
         inputs = probe.generation_inputs(target)
-        assert len(inputs) == 26
+        assert len(inputs) == 46
         assert (
             sum(
                 item["id"]
@@ -786,7 +815,8 @@ def test_current_emission_variant_manifest_is_complete():
 def test_multiple_later_scalar_projections_keep_each_blocker(tmp_path):
     item = probe.fixture("postgres")
     source = item["source"].replace(
-        "        ratio\n", "        ratio\n        first = 1\n        second = 2\n"
+        "        ratio\n",
+        "        ratio\n        first = 1 + 1\n        second = 2 + 2\n",
     )
     _, result = probe.build_case(tmp_path, source, item["contract"])
     blockers = [

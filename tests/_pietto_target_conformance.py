@@ -36,13 +36,20 @@ from _pietto_target_conformance_resources import (
 
 ROOT = Path(__file__).resolve().parents[1]
 PINS = Path(__file__).with_name("phase66_target_pins.json")
-FORMAT = "pietto.target-conformance-receipt.v1"
+FORMAT = "pietto.target-conformance-receipt.v2"
 MAX_RECEIPT = 32 * 1024 * 1024
 HELPERS = tuple(
     Path(__file__).with_name("_pietto_target_conformance" + suffix + ".py")
     for suffix in ("", "_resources", "_observation", "_cases")
-)
+) + (Path(__file__).with_name("_pietto_mysql_native_prepared.py"),)
 EMISSION_PROBE = Path(__file__).with_name("_pietto_phase66_sql_emission_probe.py")
+NATIVE_PREREQUISITE = (
+    "A_legacy",
+    "C_parameters",
+    "E_recovery",
+    "P_native_identifiers",
+    "Q_native_lifecycle",
+)
 
 
 def canonical(value: object) -> bytes:
@@ -417,6 +424,7 @@ def verify_emission_generation(value, target, expected):
             "_rendering",
             "_verification",
             "_scopes",
+            "_parameters",
         )
     }
     if not required <= value["origins"].keys():
@@ -503,6 +511,10 @@ def verify_emission_generation(value, target, expected):
                 if record["id"] in {"G_emission_table_bag", "I_emission_table_empty"}
                 or (
                     record["id"] == "M_named_chain" and record["variant"] == "table_bag"
+                )
+                or (
+                    record["id"] == "R_fixed_direct"
+                    and record["variant"] in {"table_preserve", "table_bind"}
                 )
                 else "query"
             )
@@ -780,7 +792,11 @@ def execute_case(
             if document["status"] == "VERIFIED":
                 # The public decoder is the only source of submitted SQL/values.
                 result["observations"].append(
-                    query.capture(document["sql"], (), prepared=True)
+                    query.capture(
+                        document["sql"],
+                        emission.decoded_arguments(document),
+                        prepared=True,
+                    )
                 )
             result["variants"].append(
                 {
@@ -800,6 +816,39 @@ def execute_case(
         result["observations"] = [
             query.capture(sql, params, prepared=case_id == "C_parameters")
         ]
+    elif case_id == "Q_native_lifecycle":
+        result["session_before"] = query.session_id()
+        observations = result["observations"]
+        observations.append(query.capture("SELECT 1 AS v"))
+        sql = (
+            "SELECT CAST($1 AS integer)"
+            if target == "postgres"
+            else "DO JSON_EXTRACT(?, '$')"
+        )
+        observations.append(
+            query.capture(sql, ("{",), prepared=True, rows=target == "postgres")
+        )
+        query.rollback()
+        result["recovery"] = "success"
+        observations.append(query.capture("SELECT 2 AS v"))
+        observations.append(
+            manager.capture(
+                "CREATE TABLE IF NOT EXISTS phase66_rows (id BIGINT NOT NULL)"
+                if target == "postgres"
+                else "INSERT IGNORE INTO phase66_diagnostic_rows VALUES ('abcdef')",
+                rows=False,
+                native=True,
+            )
+        )
+        observations.append(query.capture("SELECT id FROM phase66_rows WHERE 1=0"))
+        if target == "mysql":
+            observations.append(query.capture("SELECT ? AS v"))
+            observations.append(
+                query.capture("SELECT JSON_EXTRACT(?, '$')", ("{",), prepared=True)
+            )
+            query.rollback()
+            observations.append(query.capture("SELECT 3 AS v"))
+        result["session_after"] = query.session_id()
     elif case_id == "D_diagnostics":
         sql = (
             "CREATE TABLE IF NOT EXISTS phase66_rows (id BIGINT NOT NULL)"
@@ -834,7 +883,7 @@ def execute_case(
                 else "CREATE DATABASE phase66_denied"
             )
         else:
-            result["begin"] = query.capture("BEGIN", rows=False)
+            result["begin"] = query.begin()
             cases.check_complete(result["begin"])
             sql = (
                 "SELECT 1/0"
@@ -874,7 +923,12 @@ def _verify_receipt(
     commit: str,
     run_id: str,
     attempt: int,
+    *,
+    native_prerequisite: bool = False,
 ) -> None:
+    wanted = NATIVE_PREREQUISITE if native_prerequisite else cases.CASE_IDS
+    if native_prerequisite and target != "mysql":
+        raise ValueError("native prerequisite target")
     required = {
         "format",
         "target",
@@ -913,8 +967,8 @@ def _verify_receipt(
     ):
         raise ValueError("stale or substituted source/pins")
     if (
-        receipt["case_ids"] != list(cases.CASE_IDS)
-        or receipt["full_manifest"] is not True
+        receipt["case_ids"] != list(wanted)
+        or receipt["full_manifest"] is not (not native_prerequisite)
         or receipt["status"] != "success"
         or receipt["failures"] != []
     ):
@@ -974,6 +1028,7 @@ def _verify_receipt(
             [],
         ]
         + cases.emission_setup_parameters(target)
+        + [[], [], []]
         + [[] for _ in setup_sql[len(cases.setup(target)) :]]
     )
     for observation, parameters in zip(receipt["setup"], fixture_params, strict=True):
@@ -983,7 +1038,7 @@ def _verify_receipt(
         )
         if observation["parameters"] != parameters:
             raise ValueError("fixture parameter substitution")
-    if [case["id"] for case in receipt["cases"]] != list(cases.CASE_IDS):
+    if [case["id"] for case in receipt["cases"]] != list(wanted):
         raise ValueError("missing/duplicate/reordered case receipts")
     for case in receipt["cases"]:
         cases.check_case(case, target)
@@ -1001,6 +1056,44 @@ def _verify_receipt(
         if case["id"] == "F_privilege_cleanup":
             verify_privileges(case["privilege_observations"], target)
     cleanup = receipt["cleanup"]
+    closed = [
+        event
+        for event in receipt["resources"]
+        if event.get("event") == "connection_closed"
+    ]
+    if (
+        [event.get("identity") for event in closed] != ["query", "manager"]
+        or any(
+            type(e.get("session_id")) is not int or e["session_id"] <= 0 for e in closed
+        )
+        or closed[0]["session_id"] == closed[1]["session_id"]
+    ):
+        raise ValueError("connection teardown evidence missing")
+    sessions = {
+        "query": closed[0]["session_id"],
+        "fixture_manager": closed[1]["session_id"],
+    }
+    observations = [*receipt["setup"], receipt["environment"]["query"]]
+    for case in receipt["cases"]:
+        observations.extend(case["observations"])
+        observations.extend(case.get("settings", []))
+        observations.extend(case.get("privilege_observations", []))
+        if "begin" in case:
+            observations.append(case["begin"])
+        if "session_before" in case and case["session_before"] != sessions["query"]:
+            raise ValueError("recovery/teardown session substitution")
+    if target == "mysql":
+        observations.extend(
+            s["observation"] for s in receipt["environment"]["transport"]["sessions"]
+        )
+        for observation in observations:
+            if observation.get("native") is not None:
+                cases.verify_native(observation)
+                if (
+                    observation["native"]["session_id"]
+                    != sessions[observation["identity"]]
+                ):
+                    raise ValueError("native/teardown session substitution")
     if target == "mysql":
         ca = receipt["environment"]["transport"]["ca"]
         if ca["container_id"] != cleanup["container_id"] or not any(
@@ -1010,7 +1103,7 @@ def _verify_receipt(
             raise ValueError("CA does not belong to the acquired container")
         if (
             receipt["environment"]["transport"]["sessions"][1]["session_id"]
-            != receipt["cases"][4]["session_before"]
+            != sessions["query"]
         ):
             raise ValueError("TLS observation belongs to another query session")
     if (
@@ -1088,6 +1181,27 @@ def verify_receipt(
         )
     except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
         raise ValueError("invalid target receipt: " + type(error).__name__) from error
+
+
+def verify_native_prerequisite(
+    receipt, pins, pins_digest, expected, commit, run_id, attempt
+):
+    try:
+        _verify_receipt(
+            receipt,
+            "mysql",
+            pins,
+            pins_digest,
+            expected,
+            commit,
+            run_id,
+            attempt,
+            native_prerequisite=True,
+        )
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
+        raise ValueError(
+            "invalid native prerequisite: " + type(error).__name__
+        ) from error
 
 
 def verify_directory(
@@ -1273,6 +1387,24 @@ def run_target(args: argparse.Namespace, pins: dict[str, Any], pins_digest: str)
             except Exception as error:
                 receipt["status"] = "failed"
                 receipt["failures"].append(error_fact(error, "receipt"))
+        elif (
+            receipt["status"] == "success"
+            and args.target == "mysql"
+            and selected == list(NATIVE_PREREQUISITE)
+        ):
+            try:
+                verify_native_prerequisite(
+                    receipt,
+                    pins,
+                    pins_digest,
+                    expected,
+                    commit,
+                    args.run_id,
+                    args.run_attempt,
+                )
+            except Exception as error:
+                receipt["status"] = "failed"
+                receipt["failures"].append(error_fact(error, "prerequisite_receipt"))
         data = canonical(receipt)
         if resource is not None:
             sanitized = resource.without_secrets(data.decode()).encode()

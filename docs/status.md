@@ -72,8 +72,8 @@ documentation does not supersede that evidence.
 | Phase 66 Slice 2 | `COMPLETED / PUBLISHED` |
 | Phase 66 Slice 3 | `COMPLETED / PUBLISHED` |
 | Phase 66 Slice 4 | `COMPLETED / PUBLISHED` |
-| Phase 66 Slice 5 | `NEXT / NOT IMPLEMENTED` |
-| Phase 66 Slice 6 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 5 | `COMPLETED / PUBLISHED` |
+| Phase 66 Slice 6 | `NEXT / NOT IMPLEMENTED` |
 | Phase 66 Slice 7 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 8 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 9 | `NOT IMPLEMENTED` |
@@ -85,7 +85,7 @@ documentation does not supersede that evidence.
 | Phase 66 Slice 15 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 16 | `NOT IMPLEMENTED` |
 | Phase 66 route | `N=16` |
-| Next | `Phase 66 Slice 5 — Fixed values and server parameter-use mapping` |
+| Next | `Phase 66 Slice 6 — Supported row scalar/LET/WHERE/ON` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -1136,5 +1136,19 @@ The R03 scheduling amendment is newly authorized by the Slice4 task, not by Slic
 R03 outstanding joint execution: Slice7 repeated/shared JOIN; Slice10 ordinary/rebound/completed ORDER and ORDER/LIMIT sharing; Slice11 repeated UNION ALL and two import facades.
 These remain mandatory for phase-completion audit; separate queries or blocked documents
 do not satisfy them. R03 target conformance is not complete. Default pytest remains offline.
-Phase66 remains `ACTIVE`; Slice5 is `NEXT / NOT IMPLEMENTED`, Slices6–16 remain
-`NOT IMPLEMENTED`, and N66 remains16. Do not start Slice5 automatically.
+That Slice4 publication left Slice5 `NEXT / NOT IMPLEMENTED` and Slices6–16
+`NOT IMPLEMENTED`. N66 remains16. Its handoff stated: Do not start Slice5 automatically.
+
+Phase66 Slice5 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI
+with Python3.12,Python3.13,both target jobs and the strict v2 aggregate. The
+[fixed-value/native transport contract](spec/phase66-slice5-fixed-values-physical-type-anchors-server-parameter-use-mapping-v1.md)
+adds original Bool/Int/finite-Float/Text leaf/sign emission, exact type anchors,
+slot/use/native argument mapping, literal-origin outputs and independent public decoding.
+The pinned MySQL low-level adapter replaces query-purpose cursor preprocessing; the old
+cursor rewrite witness and every failed prerequisite remain historical evidence.
+A–S19 cases/46 public documents per target include30 VERIFIED,3 INPUT_REJECTED,13 BLOCKED;
+component mapping and native controls remain separate from installed-query evidence.
+R03 outstanding joint execution: Slice7 repeated/shared JOIN; Slice10 ordinary/rebound/completed ORDER and ORDER/LIMIT sharing; Slice11 repeated UNION ALL and two import facades.
+Phase66 remains `ACTIVE`; Slice6 is `NEXT / NOT IMPLEMENTED`; Slices7–16 remain `NOT IMPLEMENTED`.
+N66 remains16. Do not start Slice6 automatically. No general scalar/LET/WHERE/ON/JOIN/ORDER/SET,
+public project emit CLI, caller rebind, general result decoder or product executor is added.

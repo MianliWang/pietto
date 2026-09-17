@@ -4,10 +4,13 @@ from dataclasses import dataclass
 
 from pietto._project.project_sql_emission_ast import (
     SQLSelect,
+    SQLColumn,
     SQLScan,
     SQLNamedUse,
+    SQLLiteralColumn,
     resource_limits,
 )
+from pietto._project import project_sql_emission_parameters as parameters
 
 __all__: tuple[str, ...] = ()
 
@@ -27,6 +30,7 @@ class RenderedSQL:
     ast: SQLSelect
     sql: bytes
     events: tuple[RenderingEvent, ...]
+    expression_ranges: tuple[RenderingEvent, ...] = ()
 
 
 class SQLSizeLimit(ValueError):
@@ -38,6 +42,7 @@ def render_sql(ast: SQLSelect) -> RenderedSQL:
     quote = '"' if request.family == "postgres" else "`"
     chunks: list[bytes] = []
     events = []
+    expression_ranges = []
     offset = 0
     limit = resource_limits(request)["sql_bytes"]
     subjects = request.source_map.source_map.indexes.subjects
@@ -67,20 +72,81 @@ def render_sql(ast: SQLSelect) -> RenderedSQL:
 
     plan = request.plan
 
+    def scalar(value):
+        nodes = parameters.value_nodes(value)
+        opened = []
+        for node in nodes[:-1]:
+            opened.append((node, offset))
+            if type(node) is parameters.SQLUnary:
+                emit(
+                    "(" + node.original.expression.operator,
+                    "syntax",
+                    "unary_open",
+                    node.original.ref,
+                )
+            else:
+                emit("CAST(", "syntax", "anchor_open", node.original.ref)
+        leaf = nodes[-1]
+        tag = parameters.tag_of(leaf.original)
+        if type(leaf) is parameters.SQLParameter:
+            emit(
+                "$" + str(leaf.use.server_index)
+                if request.family == "postgres"
+                else "?",
+                "parameter",
+                tag,
+                leaf.site.ref,
+            )
+        else:
+            emit(
+                parameters.literal_token(leaf, request.family),
+                "literal",
+                tag,
+                leaf.site.ref,
+            )
+        for node, start in reversed(opened):
+            unary = type(node) is parameters.SQLUnary
+            emit(
+                ")" if unary else parameters.anchor_suffix(node.physical_type),
+                "syntax",
+                "unary_close" if unary else "anchor_close",
+                node.original.ref,
+            )
+            expression_ranges.append(
+                RenderingEvent(
+                    "expression_range",
+                    "unary" if unary else "anchor",
+                    node.original.ref,
+                    start,
+                    offset,
+                    getattr(subjects.get(node.original.ref), "origins", ()),
+                )
+            )
+
     def select(body, subject):
         scan = body.scan
         emit("SELECT ", "syntax", "select", subject)
         for i, column in enumerate(body.columns):
             if i:
                 emit(", ", "syntax", "separator", column.projection.ref)
-            identifier(scan.symbol.name, "column_scope", column.input_port.ref)
-            emit(".", "syntax", "qualifier", column.projection.ref)
-            port = (
-                column.source_port
-                if type(scan) is SQLScan
-                else column.producer.terminal
-            )
-            identifier(column.symbol.name, "column", port.ref)
+            if type(column) is SQLLiteralColumn and column.value is not None:
+                scalar(column.value)
+            else:
+                if type(column) is SQLLiteralColumn:
+                    assert column.producer is not None
+                    input_port = column.producer.input_port
+                    port = column.producer.terminal
+                else:
+                    assert isinstance(column, SQLColumn)
+                    input_port = column.input_port
+                    port = (
+                        column.source_port
+                        if type(scan) is SQLScan
+                        else column.producer.terminal
+                    )
+                identifier(scan.symbol.name, "column_scope", input_port.ref)
+                emit(".", "syntax", "qualifier", column.projection.ref)
+                identifier(column.symbol.name, "column", port.ref)
             emit(" AS ", "syntax", "alias", column.projection.ref)
             identifier(column.label, "label", column.export.ref)
         if type(scan) is SQLScan:
@@ -113,4 +179,4 @@ def render_sql(ast: SQLSelect) -> RenderedSQL:
             emit(")", "syntax", "cte_body_close", ref)
         emit(" ", "syntax", "with_body", ast.definition.original.ref)
     select(ast, plan.scope)
-    return RenderedSQL(ast, b"".join(chunks), tuple(events))
+    return RenderedSQL(ast, b"".join(chunks), tuple(events), tuple(expression_ranges))

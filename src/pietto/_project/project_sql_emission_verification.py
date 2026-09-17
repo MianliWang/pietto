@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import math
+import re
 
 from pietto._project import project_sql_plan as plans
 from pietto._project.project_query_block_ir import ProjectIRReusedEffectiveOutput
@@ -22,6 +24,7 @@ from pietto._project.project_sql_emission_ast import (
     SQLSelect,
     SQLScan,
     SQLColumn,
+    SQLLiteralColumn,
     SQLSymbol,
     SQLCTE,
     SQLNamedUse,
@@ -33,6 +36,7 @@ from pietto._project.project_sql_emission_ast import (
     resource_limits,
     emission_blockers,
 )
+from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project.project_sql_emission_rendering import RenderedSQL, RenderingEvent
 
 __all__: tuple[str, ...] = ()
@@ -197,6 +201,7 @@ def verify_sql_ast(request, ast):
             return False
         available = {}
         provenance = {}
+        expressions_seen = []
         symbols = []
         nodes = []
         bodies = (*[cte.body for cte in ast.ctes], ast)
@@ -258,7 +263,7 @@ def verify_sql_ast(request, ast):
                 zip(body.columns, projections, exports, strict=True)
             ):
                 if (
-                    type(column) is not SQLColumn
+                    type(column) not in {SQLColumn, SQLLiteralColumn}
                     or type(column.ordinal) is not int
                     or column.ordinal != position
                     or column.scan is not scan
@@ -268,6 +273,45 @@ def verify_sql_ast(request, ast):
                     != (export.identity.name if final else f"c{position}")
                 ):
                     return False
+                expression = plan.expressions[projection.expression.position]
+                if (
+                    expression.ref is not projection.expression
+                    or projection.export is not export.ref
+                    or projection.input_use is not use.ref
+                ):
+                    return False
+                if type(column) is SQLLiteralColumn and column.value is not None:
+                    origin = column.origin
+                    if (
+                        type(origin) is not parameters.LiteralOrigin
+                        or origin.value is not column.value
+                        or origin.export is not export
+                        or origin.terminal is not definition.terminals[position]
+                        or projection.source_port is not None
+                        or projection.input_port is not None
+                        or column.producer is not None
+                        or column.symbol.binding is not export.ref
+                        or column.symbol.name != column.label
+                        or not _verify_value(
+                            request, column.value, expression, expressions_seen, nodes
+                        )
+                    ):
+                        return False
+                    if not _literal_ports(origin, (export,)):
+                        return False
+                    if (
+                        type(column.symbol) is not SQLSymbol
+                        or type(column.symbol.position) is not int
+                        or column.symbol.position != position + 1
+                        or not identifier_valid(
+                            column.label, request.family, label=final
+                        )
+                    ):
+                        return False
+                    symbols.append(column.symbol)
+                    nodes.extend((column, origin))
+                    provenance[export.ref] = origin
+                    continue
                 pairs = tuple(
                     (i, b)
                     for i, b in enumerate(binding.bindings)
@@ -278,12 +322,47 @@ def verify_sql_ast(request, ast):
                 input_position, link = pairs[0]
                 if (
                     column.producer is not link
-                    or column.input_port is not link.input_port
+                    or (
+                        type(column) is SQLColumn
+                        and column.input_port is not link.input_port
+                    )
                     or projection.source_port is not link.canonical.ref
                     or projection.export is not export.ref
                     or projection.input_use is not use.ref
                 ):
                     return False
+                if type(expression) is not row.ProjectSQLReference:
+                    return False
+                expressions_seen.append(expression)
+                if type(column) is SQLLiteralColumn:
+                    if (
+                        type(scan) is not SQLNamedUse
+                        or column.value is not None
+                        or column.origin is not provenance.get(link.canonical.ref)
+                        or not _literal_ports(
+                            column.origin, (link.canonical, link.input_port, export)
+                        )
+                    ):
+                        return False
+                    name = scan.cte.columns[input_position].name
+                    symbol = column.symbol
+                    if (
+                        type(symbol) is not SQLSymbol
+                        or type(symbol.position) is not int
+                        or symbol.position != position + 1
+                        or symbol.binding is not link.input_port.ref
+                        or symbol.name != name
+                        or not identifier_valid(name, request.family)
+                        or not identifier_valid(
+                            column.label, request.family, label=final
+                        )
+                    ):
+                        return False
+                    symbols.append(symbol)
+                    nodes.append(column)
+                    provenance[export.ref] = column.origin
+                    continue
+                assert isinstance(column, SQLColumn)
                 if type(scan) is SQLScan:
                     physical = link.canonical
                     fields = tuple(
@@ -379,10 +458,8 @@ def verify_sql_ast(request, ast):
         ):
             return False
         if (
-            plan.bind_uses
-            or plan.literal_slots
-            or plan.fixed_envelope.slots
-            or plan.fixed_envelope.values
+            len(expressions_seen) != len(plan.expressions)
+            or {id(e) for e in expressions_seen} != {id(e) for e in plan.expressions}
             or request.verification.envelope is not plan.fixed_envelope
             or request.verification.literal_policy is not plan.literal_policy
         ):
@@ -390,6 +467,79 @@ def verify_sql_ast(request, ast):
         return True
     except (AttributeError, TypeError, ValueError, IndexError, KeyError):
         return False
+
+
+def _literal_ports(origin, ports):
+    tag = parameters.tag_of(origin.value.original)
+    return all(
+        port.field.evidence.resolved_type.kind.value == "builtin"
+        and port.field.evidence.resolved_type.name == tag
+        and port.field.effective_nullability.value == "non_null"
+        for port in ports
+    )
+
+
+def _verify_value(request, value, original, expressions_seen, nodes):
+    """Walk the supplied SQL nodes against original refs; never build expectations."""
+    plan = request.plan
+    seen = set()
+    while type(original) is row.ProjectSQLUnary:
+        if (
+            type(value) is not parameters.SQLUnary
+            or id(value) in seen
+            or value.original is not original
+            or original.expression.operator not in {"+", "-"}
+        ):
+            return False
+        seen.add(id(value))
+        expressions_seen.append(original)
+        nodes.append(value)
+        original = plan.expressions[original.operand.position]
+        if value.original.operand is not original.ref:
+            return False
+        value = value.operand
+    tag = parameters.tag_of(original)
+    if (
+        type(value) is not parameters.SQLAnchor
+        or value.original is not original
+        or tag is None
+        or value.physical_type != parameters.PHYSICAL[request.family].get(tag)
+    ):
+        return False
+    nodes.append(value)
+    leaf = value.operand
+    if (
+        type(leaf) not in {parameters.SQLLiteral, parameters.SQLParameter}
+        or leaf.original is not original
+        or not any(leaf.site is site for site in plan.literal_sites)
+        or leaf.site.position.expression is not original.ref
+        or leaf.site.position.literal is not original.expression
+        or leaf.site.position.role.value != "select"
+    ):
+        return False
+    expressions_seen.append(original)
+    nodes.append(leaf)
+    if type(leaf) is parameters.SQLLiteral:
+        return (
+            type(original) is row.ProjectSQLLiteral
+            and parameters.same_value(leaf.value, original.expression.value)
+            and leaf.site.disposition.value == "preserved_with_reason"
+            and request.verification.literal_policy.value == "preserve_literals"
+        )
+    assert isinstance(leaf, parameters.SQLParameter)
+    return (
+        type(original) is row.ProjectSQLBoundLiteral
+        and type(leaf.use) is parameters.NativeUse
+        and leaf.use.original is original
+        and leaf.use.slot is original.use.slot
+        and leaf.use.slot.site is leaf.site
+        and leaf.use.physical_type == value.physical_type
+        and any(leaf.fixed is fixed for fixed in plan.fixed_envelope.values)
+        and leaf.fixed.slot is original.use.slot
+        and leaf.fixed.tag is original.use.slot.tag
+        and parameters.same_value(leaf.fixed.value, original.expression.value)
+        and request.verification.literal_policy.value == "bind_safe_literals"
+    )
 
 
 def verify_sql_bytes(ast, rendered):
@@ -406,6 +556,7 @@ def verify_sql_bytes(ast, rendered):
         if len(data) > resource_limits(ast.request)["sql_bytes"]:
             return False
         events = iter(rendered.events)
+        semantic_ranges = []
         offset = 0
         subjects = ast.request.source_map.source_map.indexes.subjects
         quote = '"' if ast.request.family == "postgres" else "`"
@@ -442,11 +593,89 @@ def verify_sql_bytes(ast, rendered):
                     i += 1
                 if "".join(decoded) != expected:
                     raise ValueError("identifier binding")
-            elif token != expected:
+            elif expected is not None and token != expected:
                 raise ValueError("SQL token")
             offset = event.end
+            return token, event.start, event.end
 
         plan = ast.request.plan
+
+        def scalar(value):
+            nodes = parameters.value_nodes(value)
+            opened = []
+            for node in nodes[:-1]:
+                opened.append((node, offset))
+                if type(node) is parameters.SQLUnary:
+                    take(
+                        "syntax",
+                        "unary_open",
+                        node.original.ref,
+                        "(" + node.original.expression.operator,
+                    )
+                else:
+                    take("syntax", "anchor_open", node.original.ref, "CAST(")
+            leaf = nodes[-1]
+            tag = parameters.tag_of(leaf.original)
+            family = ast.request.family
+            if type(leaf) is parameters.SQLParameter:
+                take(
+                    "parameter",
+                    tag,
+                    leaf.site.ref,
+                    "$" + str(leaf.use.server_index) if family == "postgres" else "?",
+                )
+            else:
+                assert isinstance(leaf, parameters.SQLLiteral)
+                token, _, _ = take("literal", tag, leaf.site.ref, None)
+                if tag == "Bool":
+                    if token not in {"TRUE", "FALSE"}:
+                        raise ValueError("Boolean literal token")
+                    decoded = token == "TRUE"
+                elif tag == "Int":
+                    if re.fullmatch(r"-?(0|[1-9][0-9]*)", token) is None:
+                        raise ValueError("integer literal token")
+                    decoded = int(token)
+                    if str(decoded) != token:
+                        raise ValueError("noncanonical integer literal")
+                elif tag == "Float":
+                    if family == "postgres":
+                        if not token.startswith("'") or not token.endswith("'"):
+                            raise ValueError("double input must be a string token")
+                        spelling = token[1:-1]
+                    else:
+                        if "e" not in token:
+                            raise ValueError(
+                                "double requires approximate numeric spelling"
+                            )
+                        spelling = token[:-2] if token.endswith("e0") else token
+                    decoded = float(spelling)
+                    if not math.isfinite(decoded) or repr(decoded) != spelling:
+                        raise ValueError("noncanonical binary64 spelling")
+                elif family == "postgres":
+                    if re.fullmatch(r"E'(?:\\[0-3][0-7]{2})*'", token) is None:
+                        raise ValueError("explicit UTF8 string escape")
+                    decoded = bytes(
+                        int(token[i + 1 : i + 4], 8)
+                        for i in range(2, len(token) - 1, 4)
+                    ).decode("utf-8")
+                else:
+                    if re.fullmatch(r"X'(?:[0-9a-f]{2})*'", token) is None:
+                        raise ValueError("UTF8 hexadecimal string")
+                    decoded = bytes.fromhex(token[2:-1]).decode("utf-8")
+                if not parameters.same_value(decoded, leaf.value):
+                    raise ValueError("literal payload mismatch")
+            for node, start in reversed(opened):
+                if type(node) is parameters.SQLUnary:
+                    role, close = "unary", ")"
+                else:
+                    role = "anchor"
+                    close = " AS " + parameters.SQL_TYPES[node.physical_type] + ")"
+                    if node.physical_type == "pg_text":
+                        close += ' COLLATE "C"'
+                    elif node.physical_type == "my_utf8mb4_text":
+                        close += " COLLATE utf8mb4_0900_bin"
+                take("syntax", role + "_close", node.original.ref, close)
+                semantic_ranges.append((role, node.original.ref, start, offset))
 
         def select(body, owner):
             scan = body.scan
@@ -454,26 +683,39 @@ def verify_sql_bytes(ast, rendered):
             for position, column in enumerate(body.columns):
                 if position:
                     take("syntax", "separator", column.projection.ref, ", ")
-                take(
-                    "identifier",
-                    "column_scope",
-                    column.input_port.ref,
-                    scan.symbol.name,
-                    identifier=True,
-                )
-                take("syntax", "qualifier", column.projection.ref, ".")
-                port = (
-                    column.source_port
-                    if type(scan) is SQLScan
-                    else column.producer.terminal
-                )
-                take(
-                    "identifier",
-                    "column",
-                    port.ref,
-                    column.symbol.name,
-                    identifier=True,
-                )
+                if type(column) is SQLLiteralColumn and column.value is not None:
+                    scalar(column.value)
+                else:
+                    if type(column) is SQLLiteralColumn:
+                        if column.producer is None:
+                            raise ValueError("literal terminal link missing")
+                        input_port, port = (
+                            column.producer.input_port,
+                            column.producer.terminal,
+                        )
+                    else:
+                        assert isinstance(column, SQLColumn)
+                        input_port = column.input_port
+                        port = (
+                            column.source_port
+                            if type(scan) is SQLScan
+                            else column.producer.terminal
+                        )
+                    take(
+                        "identifier",
+                        "column_scope",
+                        input_port.ref,
+                        scan.symbol.name,
+                        identifier=True,
+                    )
+                    take("syntax", "qualifier", column.projection.ref, ".")
+                    take(
+                        "identifier",
+                        "column",
+                        port.ref,
+                        column.symbol.name,
+                        identifier=True,
+                    )
                 take("syntax", "alias", column.projection.ref, " AS ")
                 take(
                     "identifier",
@@ -544,7 +786,30 @@ def verify_sql_bytes(ast, rendered):
                 take("syntax", "cte_body_close", ref, ")")
             take("syntax", "with_body", ast.definition.original.ref, " ")
         select(ast, plan.scope)
-        return next(events, None) is None and offset == len(data)
+        if (
+            next(events, None) is not None
+            or offset != len(data)
+            or type(rendered.expression_ranges) is not tuple
+            or len(rendered.expression_ranges) != len(semantic_ranges)
+        ):
+            return False
+        for event, (role, subject, start, end) in zip(
+            rendered.expression_ranges, semantic_ranges, strict=True
+        ):
+            if (
+                type(event) is not RenderingEvent
+                or event.kind != "expression_range"
+                or event.role != role
+                or event.subject is not subject
+                or type(event.start) is not int
+                or type(event.end) is not int
+                or (event.start, event.end) != (start, end)
+                or not _same(
+                    event.origins, getattr(subjects.get(subject), "origins", ())
+                )
+            ):
+                return False
+        return True
     except (
         AttributeError,
         TypeError,
@@ -568,7 +833,14 @@ def verify_requirements(request, ast, original, generated):
         return False
     for item, entry, demand in zip(original, entries, plan.demands, strict=True):
         rule = (
-            "R03"
+            "R04"
+            if entry.family.value == "fixed_literal_transport"
+            or (
+                entry.family.value == "expression"
+                and type(plan.expressions[entry.subject.position])
+                is not row.ProjectSQLReference
+            )
+            else "R03"
             if ast.ctes and entry.family.value == "scope"
             else "R01"
             if entry.family.value in {"source_realization", "expression", "scope"}
@@ -620,6 +892,31 @@ def verify_requirements(request, ast, original, generated):
             for symbol in scan.cte.columns:
                 expected.append(("immediate_terminal", symbol.binding, "R03", naming))
         for column in body.columns:
+            if type(column) is SQLLiteralColumn:
+                expected.append(("value_projection", column.projection.ref, "R04", ()))
+                if column.value is not None:
+                    for node in parameters.value_nodes(column.value):
+                        kind = (
+                            "unary"
+                            if type(node) is parameters.SQLUnary
+                            else "type_anchor"
+                            if type(node) is parameters.SQLAnchor
+                            else "parameter"
+                            if type(node) is parameters.SQLParameter
+                            else "literal"
+                        )
+                        keys = {"operator_environment"}
+                        if parameters.tag_of(node.original) == "Text":
+                            keys.add("client_encoding")
+                        if kind == "parameter":
+                            keys.add("parameter_protocol")
+                        used = tuple(
+                            p
+                            for p in request.premises
+                            if p.scope == "statement" and p.key in keys
+                        )
+                        expected.append((kind, node.original.ref, "R04", used))
+                continue
             expected.append(
                 (
                     "field_projection",
@@ -677,8 +974,8 @@ def verify_project_sql_emission(artifact, request):
             artifact.generated_requirements,
         ):
             issues.append("requirement_denominators")
-        if artifact.fixed_values != () or artifact.parameter_uses != ():
-            issues.append("unexpected_parameters")
+        if not verify_parameters(artifact):
+            issues.append("fixed_value_or_parameter_correspondence")
         # Accepted bytes are retained, not reopened; semantic target changes
         # invalidate this product even when a query's spelling is unchanged.
         document = json.loads(request.normalized_bytes)
@@ -687,3 +984,50 @@ def verify_project_sql_emission(artifact, request):
     except (AttributeError, TypeError, ValueError, IndexError, KeyError):
         issues.append("artifact_structure")
     return EmissionVerification(tuple(issues))
+
+
+def verify_parameters(artifact):
+    plan, ast = artifact.request.plan, artifact.ast
+    if not _same(artifact.fixed_values, plan.fixed_envelope.values):
+        return False
+    leaves = [
+        node
+        for body in (*[cte.body for cte in ast.ctes], ast)
+        for column in body.columns
+        if type(column) is SQLLiteralColumn and column.value is not None
+        for node in parameters.value_nodes(column.value)
+        if type(node) is parameters.SQLParameter
+    ]
+    tokens = [event for event in artifact.rendered.events if event.kind == "parameter"]
+    if (
+        type(artifact.parameter_uses) is not tuple
+        or len(artifact.parameter_uses) != len(leaves)
+        or len(tokens) != len(leaves)
+        or len(leaves) > resource_limits(artifact.request)["parameters"]
+    ):
+        return False
+    seen = {}
+    for ordinal, (use, leaf, token) in enumerate(
+        zip(artifact.parameter_uses, leaves, tokens, strict=True)
+    ):
+        slot = leaf.original.use.slot
+        if slot not in seen:
+            seen[slot] = (len(seen) + 1, use.physical_type)
+        index, physical = seen[slot]
+        if (
+            type(use) is not parameters.NativeUse
+            or use is not leaf.use
+            or use.original is not leaf.original
+            or use.slot is not slot
+            or type(use.ordinal) is not int
+            or use.ordinal != ordinal
+            or type(use.server_index) is not int
+            or use.server_index
+            != (ordinal + 1 if artifact.request.family == "mysql" else index)
+            or use.physical_type != physical
+            or token.subject is not leaf.site.ref
+        ):
+            return False
+    return len(seen) == len(plan.literal_slots) and all(
+        slot in seen for slot in plan.literal_slots
+    )
