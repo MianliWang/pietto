@@ -64,3 +64,47 @@ authoritative Python 3.13 validator exactly once. Run generated, golden, and
 package-smoke audits locally only when their owned risk surfaces change.
 Natural CI remains the final independent Python 3.12 and 3.13 full-validation
 owner.
+
+
+## Explicit target conformance
+
+After the Phase66 Slice2 infrastructure publication, applicable acceptance needs
+both the existing compiler gates and successful PostgreSQL/MySQL conformance.
+Default pytest remains offline; it runs the fixture/observer/config/receipt unit
+checks without Docker or database discovery. Real execution is explicit:
+
+```text
+UV_PYTHON=3.13 uv run python tests/_pietto_target_conformance.py run --target postgres --pins tests/phase66_target_pins.json --evidence-dir /tmp/pietto-target-postgres-new --run-id local-check --run-attempt 1
+UV_PYTHON=3.13 uv run python tests/_pietto_target_conformance.py run --target mysql --pins tests/phase66_target_pins.json --evidence-dir /tmp/pietto-target-mysql-new --run-id local-check --run-attempt 1
+```
+
+Use new owned evidence directories outside the repository. The fixed pins,
+local Docker endpoint, linux/amd64 platform, finite cases, deadlines and exact
+resource cleanup are specified by the [facility contract](spec/phase66-isolated-target-conformance-facility-v1.md).
+No arbitrary DSN/image/SQL input, missing-environment skip, automatic retry of a
+failed target, host administration or shared-image cleanup is provided.
+`verify-receipts` is data-only; CI verifies both same-run receipts, transferred
+bytes and successful compiler/target prerequisites through its strict aggregate.
+Local compiler, local target, CI compiler and CI target results are separate.
+This facility preserves its six Slice2 legacy/control cases and also consumes
+the installed Slice3 scan/projection pipeline: production public artifact bytes,
+independent data-only decoding, unchanged submission and complete typed BAG
+observations. Slice3 added twelve cases and thirteen public artifact variants;
+the [Slice4 contract](spec/phase66-slice4-named-shared-producer-scopes-terminal-output-emission-v1.md)
+extended its publication manifest to fifteen cases and twenty-six public documents per
+target, including six successful named-chain variants and seven structural-only
+BLOCKED variants. Compiler failures have independent no-submission evidence.
+The decoder checks actual immediate CTE terminals while retaining final physical
+source provenance. Environment observations include identifier limits/case; pins,
+acquisition limits and workflow commands remain unchanged. R03 joint JOIN/ORDER/SET
+execution remains assigned to Slices7/10/11.
+
+
+The [Slice5 fixed-value/native contract](spec/phase66-slice5-fixed-values-physical-type-anchors-server-parameter-use-mapping-v1.md)
+sets the current exact A–S19-case/46-public-document denominator:30 VERIFIED,
+3 INPUT_REJECTED and13 BLOCKED per target. Private receipts require v2 native
+prepare/execute/session/argument/terminal/close-send evidence and exact harness inputs;
+historical v1 is not new transport proof. MySQL query submissions use pinned low-level
+native methods, including zero parameters. Fixed BEGIN/rollback and identified manager
+operations retain their ordinary purpose. A native failure never falls back to a cursor.
+Part A focused prerequisite and final whole-candidate target manifests are separate.

@@ -1,0 +1,31 @@
+{
+  "format": "pietto.target-conformance-pins.v1",
+  "platform": "linux/amd64",
+  "drivers": {
+    "psycopg": "3.3.5",
+    "psycopg-binary": "3.3.5",
+    "mysql-connector-python": "26.7.0"
+  },
+  "targets": {
+    "postgres": {
+      "repository": "docker.io/library/postgres",
+      "tag": "18.6-bookworm",
+      "release": "18.6",
+      "index_digest": "sha256:1c59e2c3c818eaa0f0628f695b36e7c9e362d6b219b36a54a32df645cbd7e1af",
+      "platform_digest": "sha256:a10c981235b4f635e65df0cfb66a5598064628128505dbc6a3ed4ca303717521",
+      "config_digest": "sha256:f372eda99ac2ea249c3dce566dcdf468397035371284d2cf2103b4bc52b3b39e",
+      "server_version": "18.6",
+      "package_version": "18.6-1.pgdg12+2"
+    },
+    "mysql": {
+      "repository": "container-registry.oracle.com/mysql/community-server",
+      "tag": "8.4.12",
+      "release": "8.4.12",
+      "index_digest": null,
+      "platform_digest": "sha256:7dcc4add9183664de3a214daf85a50c3ba6cccfd7534f700b6561bf5b41885be",
+      "config_digest": "sha256:c9570e7b94230d3717b88a334acaea49a4fe6b162f68a8f2927eaaf866b7f867",
+      "server_version": "8.4.12",
+      "package_version": "8.4.12"
+    }
+  }
+}

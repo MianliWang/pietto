@@ -7,10 +7,12 @@ invariants, compatibility boundary, and the smallest behavior that is actually
 needed.
 
 Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
-successful natural exact-head CI. The current owner is Phase 65, which is
-`ACTIVE`; Slices 1–14 are `COMPLETED / PUBLISHED` and Slice 15 is `NEXT / NOT IMPLEMENTED`. Phase 64 completion
-remains conditional on its Slice 11 natural exact-head CI; the
-Validation/Test Performance Optimization Interlude II is `COMPLETED`. Interlude II Slice 1, post-Phase-63 baseline profiling, cost
+successful natural exact-head CI. Phase64 and its 11 numbered Slices are completed
+through their accepted publication chains. Phase65 and Slices1–16 are completed
+through the accepted Slice16 audit publication. The current owner is Phase 66,
+which is `ACTIVE`; Slice 6 is `NEXT / NOT IMPLEMENTED` after successful Slice5 publication.
+The Validation/Test Performance Optimization Interlude II is `COMPLETED`.
+Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
 behavior. Interlude II Slice 2,
 differential probe and process acquisition optimization, is
@@ -19,16 +21,14 @@ heavy-file xdist scheduling and isolation decision, is
 `COMPLETED / PUBLISHED` and closed `NO_GAIN`. Interlude II Slice 4, the
 completion benchmark and Phase-64 readiness assurance, is
 `COMPLETED / PUBLISHED`, so the Validation/Test Performance Optimization
-Interlude II is `COMPLETED` with `Interlude II self-owned-open = 0`. Phase 64 is
-`COMPLETED` upon successful natural exact-head CI on its Slice 11 audit commit.
-Its Slice 1 froze a fresh Product/Phase Initiation Gate v3 and a route of exactly
-11 numbered Slices; Slices 1–11 are `COMPLETED / PUBLISHED` upon their successful
-publication chains. Phase 65 now has the conditional N16 route recorded below.
+Interlude II is `COMPLETED` with `Interlude II self-owned-open = 0`.
+Phase64's successful Slice11 audit closed its original 11-Slice route.
+Phase65's unchanged N16 route and qualified completion rule are recorded below.
 Project Explain v1 remains unchanged.
 
 The [unnumbered compilation-boundary repair](spec/pre-phase64-slice2-compilation-boundary-correctness-repair-v1.md)
-closes unsupported QUALIFY admission and typed relation-cycle failure before
-Slice 2. Successful natural exact-head CI on its ordinary commit establishes
+closed unsupported QUALIFY admission and typed relation-cycle failure before
+Slice 2. Successful natural exact-head CI on its ordinary commit established
 completion. It adds no numbered route row, changes no D01–D08 or E01–E12, and
 left Phase 64 Slice 2 `NEXT / NOT IMPLEMENTED`.
 
@@ -2298,10 +2298,11 @@ No Phase-65 syntax, carrier, algorithm or numbered route is frozen here.
 
 ## Phase 65 route
 
-Phase 65 **Target-neutral ProjectSQLPlan** is `ACTIVE`; Slices 1–14 are
-`COMPLETED / PUBLISHED`, and Slice15 is `COMPLETED / PUBLISHED` only upon
-successful natural exact-head CI on its ordinary commit.
-Slice16 is `NEXT / NOT IMPLEMENTED`.
+Phase 65 **Target-neutral ProjectSQLPlan** and Slices1–16 are `COMPLETED / PUBLISHED`
+only upon successful natural exact-head CI on the ordinary Slice16 audit commit.
+Slices1–15 already have accepted publication chains. Slice16 is `COMPLETED / PUBLISHED`
+only upon successful natural exact-head CI, with both Python jobs passing
+authoritative/generated/golden/package checks. That handoff left Phase66 `NEXT / NOT STARTED`; fresh initiation and route approval were pending.
 The selected route has exactly 16 deliveries. Its controlling
 [reviewed v2 phase gate](spec/phase65-project-sql-plan-product-phase-initiation-gate-source-audit-architecture-route-lock-v1.md)
 is documentation/static assurance only; it does not authorize later implementation.
@@ -2325,7 +2326,7 @@ is documentation/static assurance only; it does not authorize later implementati
 | 15 | Full selected-plan real-source and differential conformance |
 | 16 | Completion audit and Phase66 handoff |
 
-D65.01–D65.12 are newly adopted task decisions, not retroactive Phase64 authority.
+D65.01–D65.12 were adopted by the Phase65 initiation task, not retroactive Phase64 authority.
 Exactly one TABLE/QUERY owner from an exact completed.ok/VERIFIED chain is selected;
 unrelated project ERROR still blocks admission. Only the selected closure's
 planning requirements are collected, while original project diagnostics remain
@@ -2369,7 +2370,17 @@ their bytes. Actual supported/available interpreters share one invocation-local
 acquisition store across the expanded reader and complete Slice14 controls.
 Final checkout, relocated and installed observations use the frozen repaired candidate.
 No database execution, source authenticity, redaction, target realization or
-fulfilled obligations is claimed. Slice16 is `NEXT / NOT IMPLEMENTED`; N16 is unchanged.
+fulfilled obligations is claimed. That publication left Slice16 next; N16 stayed unchanged.
+
+The [Slice16 completion audit and Phase66 handoff](spec/phase65-completion-audit-phase66-handoff-v1.md)
+closes P01–P10 within the explicitly approved support domain, with
+Phase65 self-owned-open = 0. It records the exact publication and repair history,
+current private consumer APIs, retained limitations and established later owners.
+Static traceability supports the audit; existing behavior tests supply runtime evidence.
+Single portable-document limits remain separate from aggregate corpus measurements.
+Legacy SQL generation remains available; the new ProjectSQLPlan pipeline does not
+deliver dialect SQL AST/text, executable portable import or runtime fulfillment.
+That audit authorized no Phase66 Slice implementation. Phase65 N16 is unchanged.
 
 N15 would merge demand reporting with target assessment after source mapping;
 N14 would also merge portable integration and full conformance. N16 keeps those
@@ -2493,6 +2504,112 @@ errors to a Phase69/70 policy decision. These are new later-owner refinements, n
 older roadmap wording. Phase66 retains SQL AST/text, actual placeholder order and
 realization; Phase68 retains resources and runtime single-match fulfillment;
 Phase72 retains Float row equivalence; these future features remain unimplemented.
+
+## Phase 66 route
+
+Phase66 is `ACTIVE` and Slice1 is `COMPLETED / PUBLISHED` only upon successful
+natural exact-head CI on the ordinary Slice1 commit, with both Python jobs
+passing authoritative/generated/golden/package checks. The [fresh initiation
+gate and route lock](spec/phase66-dialect-sql-emission-product-phase-initiation-gate-route-lock-v1.md)
+adopts D66.01–D66.16 and a separate Phase66 N=16 route. That Slice1 publication left Slice2
+`NEXT / NOT IMPLEMENTED` and Slices3–16 `NOT IMPLEMENTED`.
+
+| Slice | Owner |
+| --- | --- |
+| 1 | Initiation/source audit/decisions/route |
+| 2 | Isolated target conformance facility, real minimal consumers and required CI |
+| 3 | Minimal source realization and both-dialect scan/projection emission vertical |
+| 4 | Named/shared producers, scopes, terminal outputs and capture-free names |
+| 5 | Fixed values, physical type anchors and server parameter-use mapping |
+| 6 | Supported row scalar/LET/WHERE/ON |
+| 7 | JOIN/EXISTS, restricted PostgreSQL FULL and MySQL FULL negative domain |
+| 8 | GROUPED/GLOBAL/satisfying and aggregate representations |
+| 9 | Admitted windows/named uses/QUALIFY |
+| 10 | DISTINCT/ORDER/LIMIT and exact result barriers |
+| 11 | Six SET forms, positional types and operand-local boundaries |
+| 12 | Complete emission artifact, dual-denominator closure and SQL-range queries |
+| 13 | Project emit-SQL, explicit contract input, public output and legacy compatibility |
+| 14 | Private emission observation and first real process/relocation/wheel integration |
+| 15 | Expanded target/differential conformance and historical compatibility |
+| 16 | Completion audit and exact Phase67/68/later handoff |
+
+The contract records all30 initiation answers, A–L/X1–X8, mutually exclusive
+asset ledgers, every Phase67–97 atom (91–97 remain tentative), finite rule
+positives/negatives, exact source/consumer findings and E01–E10. Slice1 implements
+no SQL lowerer, database facility, driver or workflow. Later implementation and
+resource acquisition need their own exact authorization. Phase65 N16 is unchanged.
+
+PostgreSQL18/MySQL8.4 are finite target families; PostgreSQL18.6 is a reviewed
+maintenance candidate and MySQL8.4.12 a Docker-image-specific security-update
+candidate. Slice2 acquires exact artifacts/platforms and stable adapters, then
+first tests legacy-generated and independently specified SQL. Slice3 onward must
+test the new installed emission pipeline. Compiler/process and real-target
+matrices remain separate, and missing/skipped/cancelled/empty required target
+jobs cannot yield aggregate PASS. No actual database execution is claimed here.
+
+PostgreSQL FULL has a restricted builtin cross-input equality positive domain;
+MySQL FULL and hidden STRICT-FD ORDER are first-version blockers. Other support
+is rule-level with physical type/NULL/collation/range premises, complete terminal
+consumption, source/parameter/SQL-byte ranges and two independent requirement
+inventories. Explicit emission-contract input and minimal public artifact are
+separate from the private observation added in14; legacy public contracts stay
+unchanged. Each operator Slice includes its first verifier/consumer;12/14/15
+consolidate or extend,16 is audit-only without implementation catch-up.
+E01–E10 are not satisfied by Slice1 publication. Do not begin Slice2 automatically.
+
+The [Slice2 isolated target facility](spec/phase66-isolated-target-conformance-facility-v1.md) is
+`COMPLETED / PUBLISHED` only upon successful natural exact-head CI on its ordinary
+commit, with both compiler jobs, both target cells and the strict aggregate successful.
+It adds six independently specified families per PostgreSQL/MySQL target, actual
+installed-legacy generation and native parameter controls, protocol-specific
+diagnostics, same-session recovery, effective query privileges and owned cleanup.
+Default pytest remains offline. Real execution has explicit pinned inputs and bounded
+resources; receipt verification is data-only. The existing compiler matrix/four gates
+remain intact; exact run-scoped artifacts and strict digest checks carry both target
+receipts to an always-evaluated aggregate. Missing, skipped, cancelled, failed or empty
+required outcomes cannot yield PASS.
+
+Psycopg3.3.5 binary/RawCursor and Connector/Python26.7.0 pure prepared execution are
+test-only dependencies. PostgreSQL18.6-bookworm and Oracle Community Server8.4.12
+have separate repository/index/platform/config/build evidence. This is real legacy/
+control SQL assurance, not new ProjectSQLPlan lowering or a product executor.
+That Slice2 publication left Slice3 `NEXT / NOT IMPLEMENTED` and Slices4–16
+`NOT IMPLEMENTED`. N66 remains16.
+
+Phase66 Slice3 completes the [minimal scan/projection emission vertical](spec/phase66-slice3-minimal-source-realization-scan-projection-emission-v1.md)
+only upon successful natural exact-head CI with both compiler jobs, both target cells and the strict aggregate.
+It preserves the six historical facility cases and adds six cases with thirteen
+new public artifact variants per target, independent decoding and unchanged SQL
+submission. Default pytest remains offline. That Slice3 publication left Slice4
+`NEXT / NOT IMPLEMENTED` and Slices5–16 `NOT IMPLEMENTED`. N66 remains16.
+Its handoff stated: Do not start Slice4 automatically. The public CLI remains Slice13, private observation Slice14, and
+result decoding/execution remain later phases.
+
+Phase66 Slice4 completes the [named producer emission vertical](spec/phase66-slice4-named-shared-producer-scopes-terminal-output-emission-v1.md)
+only upon successful natural exact-head CI with both compiler jobs, both target cells and the strict aggregate.
+It preserves A–L and adds M–O: six installed named-chain query variants and seven
+structural-only BLOCKED variants per target. At Slice4 publication complete manifests contained15
+cases and26 public documents. The R03 scheduling amendment is newly authorized by
+the Slice4 task, not by Slice3 PASS; it preserves the original route history and all operator owners.
+R03 outstanding joint execution: Slice7 repeated/shared JOIN; Slice10 ordinary/rebound/completed ORDER and ORDER/LIMIT sharing; Slice11 repeated UNION ALL and two import facades.
+These remain mandatory for phase-completion audit; separate queries or blocked documents
+do not satisfy them. R03 target conformance is not complete. Default pytest remains offline.
+That Slice4 publication left Slice5 `NEXT / NOT IMPLEMENTED` and Slices6–16
+`NOT IMPLEMENTED`. N66 remains16. Its handoff stated: Do not start Slice5 automatically.
+
+Phase66 Slice5 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI
+with Python3.12,Python3.13,both target jobs and the strict v2 aggregate. The
+[fixed-value/native transport contract](spec/phase66-slice5-fixed-values-physical-type-anchors-server-parameter-use-mapping-v1.md)
+adds original Bool/Int/finite-Float/Text leaf/sign emission, exact type anchors,
+slot/use/native argument mapping, literal-origin outputs and independent public decoding.
+The pinned MySQL low-level adapter replaces query-purpose cursor preprocessing; the old
+cursor rewrite witness and every failed prerequisite remain historical evidence.
+A–S19 cases/46 public documents per target include30 VERIFIED,3 INPUT_REJECTED,13 BLOCKED;
+component mapping and native controls remain separate from installed-query evidence.
+R03 outstanding joint execution: Slice7 repeated/shared JOIN; Slice10 ordinary/rebound/completed ORDER and ORDER/LIMIT sharing; Slice11 repeated UNION ALL and two import facades.
+Phase66 remains `ACTIVE`; Slice6 is `NEXT / NOT IMPLEMENTED`; Slices7–16 remain `NOT IMPLEMENTED`.
+N66 remains16. Do not start Slice6 automatically. No general scalar/LET/WHERE/ON/JOIN/ORDER/SET,
+public project emit CLI, caller rebind, general result decoder or product executor is added.
 
 ## Future Roadmap v6
 
