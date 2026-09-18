@@ -487,11 +487,18 @@ class Resources:
             connection = getattr(self, name)
             if connection is not None:
                 try:
+                    session_id = (
+                        getattr(getattr(connection, "info", None), "backend_pid", None)
+                        if self.target == "postgres"
+                        else getattr(connection, "connection_id", None)
+                    )
                     with deadline(
                         min(5, CLEANUP_SECONDS - (time.monotonic() - started))
                     ):
                         connection.close()
-                    self.event("connection_closed", identity=name)
+                    self.event(
+                        "connection_closed", identity=name, session_id=session_id
+                    )
                 except Exception as error:
                     failures.append(error_fact(error, name + ".close"))
         for kind in ("container", "network"):

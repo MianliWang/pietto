@@ -395,3 +395,16 @@ def test_external_records_have_exact_eleven_fields_and_observation_limits() -> N
         "Documentation/source research is not target execution or implementation proof",
     ):
         assert phrase in document
+
+
+def test_current_native_adapter_amendment_preserves_historical_cursor_scope() -> None:
+    document = SPEC.read_text(encoding="utf-8")
+    for phrase in (
+        "cmd_stmt_prepare/cmd_stmt_execute/get_rows/cmd_stmt_close",
+        "former prepared-cursor API remains the historical Slice2–4 choice",
+        "D66.10, R04/R25 and prerequisite P02/P09",
+        "actual prepare/command-send byte identity",
+        "历史v1不认证新路由",
+        "选择?不证明cursor避免rewrite",
+    ):
+        assert phrase in document

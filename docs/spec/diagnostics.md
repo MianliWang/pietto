@@ -121,5 +121,17 @@ stored separately and is never encoded in the code.
 | Code | Meaning |
 |---|---|
 | `PIE-B1000` | Selected PostgreSQL/private MySQL SQL backend emission case is unsupported or invalid |
+| `PIE-B1001` | SOURCE_REALIZATION: explicit selected source mapping, identifier, family or row-domain/read-only declaration cannot realize the scan |
+| `PIE-B1002` | REPRESENTATION: selected logical/physical storage, value domain, nullability, Decimal parameters or output label do not correspond |
+| `PIE-B1003` | UNSUPPORTED_RULE: target release or selected lowering shape has no current implementation; later-owned operators remain planned |
+| `PIE-B1004` | MISSING_EVIDENCE: required existing logical meaning, validated Decimal parameters or environmental declaration is absent |
+| `PIE-B1005` | PREMISE_CONFLICT: the selected rules cannot use the supplied declarations coherently |
+| `PIE-B1006` | UNFULFILLED_REQUIREMENT: applicable original negative/conflicting target evidence or mandatory enforcement remains unresolved |
+| `PIE-B1007` | TARGET_RESOURCE: emitted structure, SQL bytes or public artifact exceeds a compiler or stricter declared target limit |
+| `PIE-B1008` | ARTIFACT_INTEGRITY: actual SQL AST, final bytes, ranges, parameters, requirements or current input roots fail correspondence |
+
+These additional codes are implemented by the private Phase66 Slice3 emission
+pipeline and its `pietto.sql-emission.v1` serialization. They do not expand the
+legacy emitter's `PIE-B1000` domain or implement later operator families.
 
 No runtime diagnostic codes are currently defined.
