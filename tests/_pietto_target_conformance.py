@@ -22,6 +22,7 @@ import venv
 import zipfile
 
 import _pietto_target_conformance_cases as cases
+import _pietto_phase66_sql_emission_probe as emission
 from _pietto_target_conformance_observation import Observer
 from _pietto_target_conformance_resources import (
     MYSQL_MODE,
@@ -35,11 +36,19 @@ from _pietto_target_conformance_resources import (
 
 ROOT = Path(__file__).resolve().parents[1]
 PINS = Path(__file__).with_name("phase66_target_pins.json")
-FORMAT = "pietto.target-conformance-receipt.v1"
+FORMAT = "pietto.target-conformance-receipt.v2"
 MAX_RECEIPT = 32 * 1024 * 1024
 HELPERS = tuple(
     Path(__file__).with_name("_pietto_target_conformance" + suffix + ".py")
     for suffix in ("", "_resources", "_observation", "_cases")
+) + (Path(__file__).with_name("_pietto_mysql_native_prepared.py"),)
+EMISSION_PROBE = Path(__file__).with_name("_pietto_phase66_sql_emission_probe.py")
+NATIVE_PREREQUISITE = (
+    "A_legacy",
+    "C_parameters",
+    "E_recovery",
+    "P_native_identifiers",
+    "Q_native_lifecycle",
 )
 
 
@@ -178,13 +187,26 @@ def source_members() -> dict[str, str]:
 
 
 def inputs() -> dict[str, Any]:
-    paths = (*HELPERS, PINS, ROOT / "pyproject.toml", ROOT / "uv.lock")
+    paths = (*HELPERS, EMISSION_PROBE, PINS, ROOT / "pyproject.toml", ROOT / "uv.lock")
     return {
         "harness": {
             path.relative_to(ROOT).as_posix(): digest(path.read_bytes())
             for path in paths
         },
         "package_members": source_members(),
+        "emission_inputs": {
+            target: [
+                {
+                    "id": item["id"],
+                    "variant": item["variant"],
+                    "source_sha256": digest(emission.source_bytes(item["source"])),
+                    "contract_sha256": digest(item["contract"].encode()),
+                    "policy": item["policy"],
+                }
+                for item in emission.generation_inputs(target)
+            ]
+            for target in cases.TARGETS
+        },
     }
 
 
@@ -303,6 +325,20 @@ def installed_generation(
     result["wheel_members"] = members
     result["source_sha256"] = digest(cases.legacy_source(target).encode())
     result["stdout_sha256"] = digest(result["stdout"].encode())
+    probe_bytes = EMISSION_PROBE.read_bytes()
+    if (
+        digest(probe_bytes)
+        != expected["harness"][EMISSION_PROBE.relative_to(ROOT).as_posix()]
+    ):
+        raise ValueError("emission probe input changed")
+    copied_probe = scratch / "emission_probe.py"
+    copied_probe.write_bytes(probe_bytes)
+    result["emission"] = json.loads(
+        command(
+            [str(python), "-I", str(copied_probe), target], cwd=scratch, timeout=30
+        ),
+        object_pairs_hook=pairs,
+    )
     verify_generation(result, target, expected)
     return result
 
@@ -365,6 +401,144 @@ def verify_generation(
         {"kind": "relation", "name": "legacy_rows", "sql": cases.legacy_sql(target)}
     ]:
         raise ValueError("wrong legacy query artifact")
+    verify_emission_generation(generation["emission"], target, expected)
+
+
+def verify_emission_generation(value, target, expected):
+    if (
+        set(value)
+        != {"records", "origins", "isolated", "probe_sha256", "config_sha256"}
+        or value["isolated"] != 1
+    ):
+        raise ValueError("emission generation envelope")
+    if value["probe_sha256"] != expected["harness"][
+        EMISSION_PROBE.relative_to(ROOT).as_posix()
+    ] or value["config_sha256"] != digest(emission.CONFIG.encode()):
+        raise ValueError("emission probe/config input substitution")
+    required = {
+        "pietto._project.project_sql_emission" + suffix
+        for suffix in (
+            "",
+            "_contract",
+            "_ast",
+            "_rendering",
+            "_verification",
+            "_scopes",
+            "_parameters",
+        )
+    }
+    if not required <= value["origins"].keys():
+        raise ValueError("same-child emission origins incomplete")
+    for name, origin in value["origins"].items():
+        if (
+            set(origin) != {"member", "sha256"}
+            or origin["member"] not in expected["package_members"]
+            or origin["sha256"] != expected["package_members"][origin["member"]]
+        ):
+            raise ValueError("foreign emission installed origin")
+        module_member = name.replace(".", "/")
+        if origin["member"] not in {
+            module_member + ".py",
+            module_member + "/__init__.py",
+        }:
+            raise ValueError("emission module/member identity mismatch")
+    records = value["records"]
+    inputs = expected["emission_inputs"][target]
+    if len(records) != len(inputs):
+        raise ValueError("emission variant denominator mismatch")
+    for record, item, fixture in zip(
+        records, inputs, emission.generation_inputs(target), strict=True
+    ):
+        if set(record) != {
+            "id",
+            "variant",
+            "source_sha256",
+            "contract_sha256",
+            "public",
+            "public_sha256",
+        } or any(
+            record[key] != item[key]
+            for key in ("id", "variant", "source_sha256", "contract_sha256")
+        ):
+            raise ValueError("emission generation input substitution")
+        data = record["public"].encode("utf-8")
+        if record["public_sha256"] != digest(data):
+            raise ValueError("serialized emission transfer identity")
+        document = emission.decode_public(data)
+        status = emission.expected_status(record["id"])
+        if document["status"] != status:
+            raise ValueError("wrong emission outcome")
+        if status == "INPUT_REJECTED":
+            message, path = {
+                "duplicate_selector": (
+                    "Duplicate source description.",
+                    "sources/1/selector",
+                ),
+                "ordinal_bool": (
+                    "Invalid emission contract structure.",
+                    "sources/0/fields/0/ordinal",
+                ),
+                "stale_selector": (
+                    "Source selector is absent or ambiguous.",
+                    "sources/0/selector",
+                ),
+            }[record["variant"]]
+            if (
+                document["cli_errors"]
+                != [{"kind": "emission_selector", "message": message, "path": path}]
+                or document["diagnostics"] != []
+            ):
+                raise ValueError("wrong exact emission input rejection")
+        if status == "VERIFIED":
+            if (
+                document["request"]["contract"] != json.loads(fixture["contract"])
+                or document["request"]["literal_policy"] != fixture["policy"]
+                or document["request"]["sources"]
+                != [
+                    {
+                        "module": name,
+                        "sha256": digest(content.encode("utf-8")),
+                        "byte_count": len(content.encode("utf-8")),
+                    }
+                    for name, content in sorted(
+                        emission.source_files(fixture["source"]).items()
+                    )
+                ]
+            ):
+                raise ValueError("public artifact not bound to source/contract input")
+            kind = (
+                "table"
+                if record["id"] in {"G_emission_table_bag", "I_emission_table_empty"}
+                or (
+                    record["id"] == "M_named_chain" and record["variant"] == "table_bag"
+                )
+                or (
+                    record["id"] == "R_fixed_direct"
+                    and record["variant"] in {"table_preserve", "table_bind"}
+                )
+                else "query"
+            )
+            if document["request"]["owner"] != {
+                "module": "main.pietto",
+                "kind": kind,
+                "name": "result",
+            }:
+                raise ValueError("public selected owner changed")
+        elif status == "BLOCKED":
+            code = (
+                "PIE-B1003"
+                if record["id"] == "O_named_later"
+                else {
+                    "missing_source": "PIE-B1001",
+                    "bool_domain": "PIE-B1002",
+                    "decimal_mismatch": "PIE-B1002",
+                    "timestamp_meaning": "PIE-B1004",
+                    "uuid_meaning": "PIE-B1004",
+                    "where_later": "PIE-B1003",
+                }[record["variant"]]
+            )
+            if code not in [b["code"] for b in document["blockers"]]:
+                raise ValueError("wrong emission blocker taxonomy")
 
 
 def driver_info(pins: dict[str, Any]) -> dict[str, Any]:
@@ -385,8 +559,8 @@ def driver_info(pins: dict[str, Any]) -> dict[str, Any]:
 
 
 ENVIRONMENT_QUERIES = {
-    "postgres": "SELECT current_setting('server_version'), current_setting('server_version_num'), version(), current_setting('server_encoding'), current_setting('client_encoding'), current_setting('TimeZone'), current_setting('statement_timeout'), current_user",
-    "mysql": "SELECT VERSION(), @@version_comment, @@version_compile_machine, @@version_compile_os, @@character_set_connection, @@collation_connection, @@sql_mode, @@max_execution_time, CURRENT_USER()",
+    "postgres": "SELECT current_setting('server_version'), current_setting('server_version_num'), version(), current_setting('server_encoding'), current_setting('client_encoding'), current_setting('TimeZone'), current_setting('statement_timeout'), current_user, current_setting('max_identifier_length')",
+    "mysql": "SELECT VERSION(), @@version_comment, @@version_compile_machine, @@version_compile_os, @@character_set_connection, @@collation_connection, @@sql_mode, @@max_execution_time, CURRENT_USER(), @@lower_case_table_names",
 }
 MYSQL_TLS_QUERY = (
     "SHOW SESSION STATUS WHERE Variable_name IN ('Ssl_cipher', 'Ssl_version')"
@@ -486,9 +660,9 @@ def verify_environment(value: dict[str, Any], target: str, pin: dict[str, Any]) 
         or value["query"]["parameters"] != []
     ):
         raise ValueError("environment query substitution")
-    kinds = ["text"] * (8 if target == "postgres" else 9)
+    kinds = ["text"] * (9 if target == "postgres" else 10)
     if target == "mysql":
-        kinds[7] = "int"
+        kinds[7] = kinds[9] = "int"
     if [item["kind"] for item in value["query"]["rows"][0]] != kinds:
         raise ValueError("environment value type mismatch")
     values = [item.get("value") for item in value["query"]["rows"][0]]
@@ -506,6 +680,7 @@ def verify_environment(value: dict[str, Any], target: str, pin: dict[str, Any]) 
             or pin["package_version"] not in values[2]
             or values[3:7] != ["UTF8", "UTF8", "UTC", "10s"]
             or values[7] != "pietto_manager"
+            or values[8] != "63"
         ):
             raise ValueError("PostgreSQL server/build/environment mismatch")
     elif (
@@ -521,6 +696,7 @@ def verify_environment(value: dict[str, Any], target: str, pin: dict[str, Any]) 
         or set(str(values[6]).split(",")) != set(MYSQL_MODE.split(","))
         or values[7] != "10000"
         or values[8] != "root@%"
+        or values[9] != "0"
     ):
         raise ValueError("MySQL server/build/environment mismatch")
 
@@ -605,7 +781,33 @@ def execute_case(
     generation: dict[str, Any],
     result: dict[str, Any],
 ) -> dict[str, Any]:
-    if case_id in cases.CASE_IDS[:3]:
+    if case_id in emission.VARIANTS:
+        result["variants"] = []
+        records = [r for r in generation["emission"]["records"] if r["id"] == case_id]
+        if [r["variant"] for r in records] != list(emission.VARIANTS[case_id]):
+            raise ValueError("missing emission variants")
+        for record in records:
+            document = emission.decode_public(record["public"].encode())
+            before = query.submission_count
+            if document["status"] == "VERIFIED":
+                # The public decoder is the only source of submitted SQL/values.
+                result["observations"].append(
+                    query.capture(
+                        document["sql"],
+                        emission.decoded_arguments(document),
+                        prepared=True,
+                    )
+                )
+            result["variants"].append(
+                {
+                    "variant": record["variant"],
+                    "public": record["public"],
+                    "public_sha256": record["public_sha256"],
+                    "submission_before": before,
+                    "submission_after": query.submission_count,
+                }
+            )
+    elif case_id in cases.SLICE2_CASE_IDS[:3]:
         sql, params = (
             (json.loads(generation["stdout"])["artifacts"][0]["sql"], ())
             if case_id == "A_legacy"
@@ -614,6 +816,39 @@ def execute_case(
         result["observations"] = [
             query.capture(sql, params, prepared=case_id == "C_parameters")
         ]
+    elif case_id == "Q_native_lifecycle":
+        result["session_before"] = query.session_id()
+        observations = result["observations"]
+        observations.append(query.capture("SELECT 1 AS v"))
+        sql = (
+            "SELECT CAST($1 AS integer)"
+            if target == "postgres"
+            else "DO JSON_EXTRACT(?, '$')"
+        )
+        observations.append(
+            query.capture(sql, ("{",), prepared=True, rows=target == "postgres")
+        )
+        query.rollback()
+        result["recovery"] = "success"
+        observations.append(query.capture("SELECT 2 AS v"))
+        observations.append(
+            manager.capture(
+                "CREATE TABLE IF NOT EXISTS phase66_rows (id BIGINT NOT NULL)"
+                if target == "postgres"
+                else "INSERT IGNORE INTO phase66_diagnostic_rows VALUES ('abcdef')",
+                rows=False,
+                native=True,
+            )
+        )
+        observations.append(query.capture("SELECT id FROM phase66_rows WHERE 1=0"))
+        if target == "mysql":
+            observations.append(query.capture("SELECT ? AS v"))
+            observations.append(
+                query.capture("SELECT JSON_EXTRACT(?, '$')", ("{",), prepared=True)
+            )
+            query.rollback()
+            observations.append(query.capture("SELECT 3 AS v"))
+        result["session_after"] = query.session_id()
     elif case_id == "D_diagnostics":
         sql = (
             "CREATE TABLE IF NOT EXISTS phase66_rows (id BIGINT NOT NULL)"
@@ -648,7 +883,7 @@ def execute_case(
                 else "CREATE DATABASE phase66_denied"
             )
         else:
-            result["begin"] = query.capture("BEGIN", rows=False)
+            result["begin"] = query.begin()
             cases.check_complete(result["begin"])
             sql = (
                 "SELECT 1/0"
@@ -688,7 +923,12 @@ def _verify_receipt(
     commit: str,
     run_id: str,
     attempt: int,
+    *,
+    native_prerequisite: bool = False,
 ) -> None:
+    wanted = NATIVE_PREREQUISITE if native_prerequisite else cases.CASE_IDS
+    if native_prerequisite and target != "mysql":
+        raise ValueError("native prerequisite target")
     required = {
         "format",
         "target",
@@ -727,8 +967,8 @@ def _verify_receipt(
     ):
         raise ValueError("stale or substituted source/pins")
     if (
-        receipt["case_ids"] != list(cases.CASE_IDS)
-        or receipt["full_manifest"] is not True
+        receipt["case_ids"] != list(wanted)
+        or receipt["full_manifest"] is not (not native_prerequisite)
         or receipt["status"] != "success"
         or receipt["failures"] != []
     ):
@@ -765,27 +1005,32 @@ def _verify_receipt(
     )
     if [observation["sql"] for observation in receipt["setup"]] != setup_sql:
         raise ValueError("fixture loading observation denominator mismatch")
-    fixture_params = [
-        [],
-        [],
-        [],
+    fixture_params = (
         [
-            {"kind": "int", "value": "1"},
-            {"kind": "int", "value": "7"},
-            {"kind": "null"},
-        ],
-        [
-            {"kind": "int", "value": "2"},
-            {"kind": "int", "value": "7"},
-            {"kind": "null"},
-        ],
-        [
-            {"kind": "int", "value": "3"},
-            {"kind": "int", "value": "9007199254740993"},
-            {"kind": "text", "value": cases.TEXT},
-        ],
-        [],
-    ] + [[] for _ in setup_sql[7:]]
+            [],
+            [],
+            [],
+            [
+                {"kind": "int", "value": "1"},
+                {"kind": "int", "value": "7"},
+                {"kind": "null"},
+            ],
+            [
+                {"kind": "int", "value": "2"},
+                {"kind": "int", "value": "7"},
+                {"kind": "null"},
+            ],
+            [
+                {"kind": "int", "value": "3"},
+                {"kind": "int", "value": "9007199254740993"},
+                {"kind": "text", "value": cases.TEXT},
+            ],
+            [],
+        ]
+        + cases.emission_setup_parameters(target)
+        + [[], [], []]
+        + [[] for _ in setup_sql[len(cases.setup(target)) :]]
+    )
     for observation, parameters in zip(receipt["setup"], fixture_params, strict=True):
         cases.check_complete(observation)
         cases.check_identity(
@@ -793,13 +1038,62 @@ def _verify_receipt(
         )
         if observation["parameters"] != parameters:
             raise ValueError("fixture parameter substitution")
-    if [case["id"] for case in receipt["cases"]] != list(cases.CASE_IDS):
+    if [case["id"] for case in receipt["cases"]] != list(wanted):
         raise ValueError("missing/duplicate/reordered case receipts")
     for case in receipt["cases"]:
         cases.check_case(case, target)
+        if case["id"] in emission.VARIANTS:
+            records = [
+                r
+                for r in receipt["generation"]["emission"]["records"]
+                if r["id"] == case["id"]
+            ]
+            if [
+                (v["variant"], v["public"], v["public_sha256"])
+                for v in case["variants"]
+            ] != [(r["variant"], r["public"], r["public_sha256"]) for r in records]:
+                raise ValueError("installed public artifact/case substitution")
         if case["id"] == "F_privilege_cleanup":
             verify_privileges(case["privilege_observations"], target)
     cleanup = receipt["cleanup"]
+    closed = [
+        event
+        for event in receipt["resources"]
+        if event.get("event") == "connection_closed"
+    ]
+    if (
+        [event.get("identity") for event in closed] != ["query", "manager"]
+        or any(
+            type(e.get("session_id")) is not int or e["session_id"] <= 0 for e in closed
+        )
+        or closed[0]["session_id"] == closed[1]["session_id"]
+    ):
+        raise ValueError("connection teardown evidence missing")
+    sessions = {
+        "query": closed[0]["session_id"],
+        "fixture_manager": closed[1]["session_id"],
+    }
+    observations = [*receipt["setup"], receipt["environment"]["query"]]
+    for case in receipt["cases"]:
+        observations.extend(case["observations"])
+        observations.extend(case.get("settings", []))
+        observations.extend(case.get("privilege_observations", []))
+        if "begin" in case:
+            observations.append(case["begin"])
+        if "session_before" in case and case["session_before"] != sessions["query"]:
+            raise ValueError("recovery/teardown session substitution")
+    if target == "mysql":
+        observations.extend(
+            s["observation"] for s in receipt["environment"]["transport"]["sessions"]
+        )
+        for observation in observations:
+            if observation.get("native") is not None:
+                cases.verify_native(observation)
+                if (
+                    observation["native"]["session_id"]
+                    != sessions[observation["identity"]]
+                ):
+                    raise ValueError("native/teardown session substitution")
     if target == "mysql":
         ca = receipt["environment"]["transport"]["ca"]
         if ca["container_id"] != cleanup["container_id"] or not any(
@@ -809,7 +1103,7 @@ def _verify_receipt(
             raise ValueError("CA does not belong to the acquired container")
         if (
             receipt["environment"]["transport"]["sessions"][1]["session_id"]
-            != receipt["cases"][4]["session_before"]
+            != sessions["query"]
         ):
             raise ValueError("TLS observation belongs to another query session")
     if (
@@ -887,6 +1181,27 @@ def verify_receipt(
         )
     except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
         raise ValueError("invalid target receipt: " + type(error).__name__) from error
+
+
+def verify_native_prerequisite(
+    receipt, pins, pins_digest, expected, commit, run_id, attempt
+):
+    try:
+        _verify_receipt(
+            receipt,
+            "mysql",
+            pins,
+            pins_digest,
+            expected,
+            commit,
+            run_id,
+            attempt,
+            native_prerequisite=True,
+        )
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
+        raise ValueError(
+            "invalid native prerequisite: " + type(error).__name__
+        ) from error
 
 
 def verify_directory(
@@ -1072,6 +1387,24 @@ def run_target(args: argparse.Namespace, pins: dict[str, Any], pins_digest: str)
             except Exception as error:
                 receipt["status"] = "failed"
                 receipt["failures"].append(error_fact(error, "receipt"))
+        elif (
+            receipt["status"] == "success"
+            and args.target == "mysql"
+            and selected == list(NATIVE_PREREQUISITE)
+        ):
+            try:
+                verify_native_prerequisite(
+                    receipt,
+                    pins,
+                    pins_digest,
+                    expected,
+                    commit,
+                    args.run_id,
+                    args.run_attempt,
+                )
+            except Exception as error:
+                receipt["status"] = "failed"
+                receipt["failures"].append(error_fact(error, "prerequisite_receipt"))
         data = canonical(receipt)
         if resource is not None:
             sanitized = resource.without_secrets(data.decode()).encode()

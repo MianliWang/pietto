@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from decimal import Decimal
 from typing import Any
 
 from _pietto_target_conformance_resources import (
@@ -37,12 +38,15 @@ def scalar(value: object) -> dict[str, Any]:
         return {"kind": "bytes", "value": value.hex()}
     if type(value) is float and math.isfinite(value):
         return {"kind": "float", "value": value.hex()}
+    if type(value) is Decimal and value.is_finite():
+        return {"kind": "decimal", "value": str(value)}
     raise ObserverFailure("UNSUPPORTED_VALUE_TYPE")
 
 
 class Observer:
     def __init__(self, target: str, connection: Any, identity: str):
         self.target, self.connection, self.identity = target, connection, identity
+        self.submission_count = 0
         self.notices: list[dict[str, Any]] = []
         self.notices_lost = False
         self.diagnostic_failures: list[dict[str, Any]] = []
@@ -137,7 +141,13 @@ class Observer:
         rows: bool = True,
         prepared: bool = False,
         secret: bool = False,
+        native: bool = False,
+        transaction_control: bool = False,
     ) -> dict[str, Any]:
+        if transaction_control and (
+            sql != "BEGIN" or parameters or rows or prepared or native or secret
+        ):
+            raise ObserverFailure("UNREVIEWED_TRANSACTION_CONTROL")
         self.notices.clear()
         self.notices_lost = False
         self.diagnostic_failures.clear()
@@ -162,16 +172,28 @@ class Observer:
             "diagnostics": None,
             "failures": [],
             "cursor_type": None,
+            "api": None,
+            "native": None,
         }
+        if (
+            self.target == "mysql"
+            and not transaction_control
+            and (self.identity == "query" or native)
+        ):
+            if secret:
+                raise ObserverFailure("SECRET_NATIVE_QUERY_FORBIDDEN")
+            return self.capture_native(observation, parameters, rows=rows)
         stage = "execute"
         try:
             cursor = self.cursor(prepared)
             observation["cursor_type"] = (
                 type(cursor).__module__ + "." + type(cursor).__name__
             )
+            observation["api"] = observation["cursor_type"]
             with deadline(QUERY_SECONDS):
-                # This exact API call is the submission boundary. RawCursor and
-                # qmark prepared execution need no placeholder rewriting here.
+                # Actual cursor input only; MySQL native queries use the separately
+                # observed low-level route below, including zero-parameter queries.
+                self.submission_count += 1
                 cursor.execute(sql, parameters or None)
             observation["execute"] = "success"
             stage = "fetch"
@@ -243,6 +265,106 @@ class Observer:
                     observation["failures"].append(error_fact(error, "close"))
         if not observation["failures"]:
             observation["status"] = "success"
+        return observation
+
+    def begin(self) -> dict[str, Any]:
+        # Fixed transaction management retains its original ordinary command.
+        # It is never selected as a fallback from a native query failure.
+        return self.capture("BEGIN", rows=False, transaction_control=True)
+
+    def capture_native(self, observation, parameters, *, rows):
+        from _pietto_mysql_native_prepared import (
+            API,
+            NativeStatement,
+            characters,
+            verify_native,
+        )
+
+        observation["api"] = API
+        observation["prepared"] = True
+        statement = NativeStatement(self.connection)
+        observation["native"] = statement.record
+        stage = "prepare"
+        with statement:
+            try:
+                with deadline(QUERY_SECONDS):
+                    self.submission_count += 1
+                    statement.prepare(observation["sql"])
+                    stage = "parameter_count"
+                    if statement.record["parameter_count"] != len(parameters):
+                        raise ObserverFailure("NATIVE_PARAMETER_COUNT")
+                    stage = "execute"
+                    has_rows = statement.execute(parameters)
+                observation["execute"] = "success"
+                stage = "fetch"
+                if has_rows:
+                    observation["metadata"] = statement.record["result_metadata"]
+                    size = 0
+                    with deadline(READ_SECONDS):
+                        for batch in statement.batches():
+                            for row in batch:
+                                encoded = characters(
+                                    [scalar(value) for value in row],
+                                    observation["metadata"],
+                                )
+                                size += len(
+                                    json.dumps(encoded, ensure_ascii=False).encode()
+                                )
+                                if (
+                                    len(observation["rows"]) >= MAX_ROWS
+                                    or size > MAX_RESULT_BYTES
+                                ):
+                                    raise ObserverFailure("RESULT_LIMIT")
+                                observation["rows"].append(encoded)
+                    observation["fetch"] = "success"
+                    if not rows:
+                        raise ObserverFailure("UNEXPECTED_RESULT_SET")
+                elif rows:
+                    raise ObserverFailure("METADATA_UNAVAILABLE")
+                else:
+                    observation["fetch"] = "not_applicable"
+                stage = "diagnostics"
+                observation["diagnostics"] = self.diagnostics()
+                observation["failures"].extend(self.diagnostic_failures)
+                if observation["diagnostics"]["complete"] is not True:
+                    raise ObserverFailure("DIAGNOSTICS_INCOMPLETE")
+            except Exception as error:
+                if stage in {"execute", "fetch"}:
+                    observation[stage] = "failed"
+                fact = error_fact(error, stage) | {"message": str(error)}
+                if isinstance(error, ObserverFailure):
+                    fact["kind"] = str(error)
+                observation["failures"].append(fact)
+                # Do not issue another command before a real rowset terminal.
+                if observation["diagnostics"] is None:
+                    if not self.connection.unread_result:
+                        observation["diagnostics"] = self.diagnostics()
+                        observation["failures"].extend(self.diagnostic_failures)
+                    else:
+                        observation["diagnostics"] = {
+                            "protocol": "mysql_warnings",
+                            "total": None,
+                            "details": [],
+                            "complete": False,
+                        }
+            finally:
+                try:
+                    with deadline(QUERY_SECONDS):
+                        statement.close()
+                    observation["close"] = "success"
+                except Exception as error:
+                    statement.record["close_send"] = "failed"
+                    observation["close"] = "failed"
+                    observation["failures"].append(error_fact(error, "close"))
+        if not observation["failures"]:
+            observation["status"] = "success"
+        try:
+            verify_native(observation)
+        except ValueError as error:
+            observation["status"] = "failed"
+            observation["failures"].append(
+                error_fact(error, "observation") | {"message": str(error)}
+            )
         return observation
 
     def session_id(self) -> int:

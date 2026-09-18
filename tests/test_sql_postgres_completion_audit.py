@@ -6,6 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from _pietto_repository_facts import REPOSITORY_FACTS
 
 import pietto.ir as ir_api
 import pietto.parser_api as parser_api
@@ -236,7 +237,7 @@ def test_implemented_backend_diagnostics_match_documented_codes() -> None:
         implemented.update(
             re.findall(
                 r'["\'](PIE-B[0-9]{4})["\']',
-                path.read_text(encoding="utf-8"),
+                REPOSITORY_FACTS.python(path.resolve()).text,
             )
         )
     documented = set(
@@ -246,7 +247,35 @@ def test_implemented_backend_diagnostics_match_documented_codes() -> None:
         )
     )
 
-    assert implemented == documented == {"PIE-B1000"}
+    emission = set()
+    for suffix in (
+        "",
+        "_contract",
+        "_ast",
+        "_rendering",
+        "_verification",
+        "_parameters",
+    ):
+        path = Path("src/pietto/_project/project_sql_emission" + suffix + ".py")
+        emission.update(
+            re.findall(
+                r'["\'](PIE-B[0-9]{4})["\']',
+                REPOSITORY_FACTS.python(path.resolve()).text,
+            )
+        )
+    assert implemented == {"PIE-B1000"}
+    assert emission == {
+        "PIE-B1001",
+        "PIE-B1002",
+        "PIE-B1003",
+        "PIE-B1004",
+        "PIE-B1005",
+        "PIE-B1006",
+        "PIE-B1007",
+        "PIE-B1008",
+    }
+    assert implemented.isdisjoint(emission)
+    assert documented == implemented | emission
 
 
 def test_repository_contains_no_legacy_diagnostic_codes() -> None:
