@@ -317,8 +317,8 @@ EXPECTED_STATUS = (
     ("Phase 66 Slice 3", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 4", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 5", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 6", "`NEXT / NOT IMPLEMENTED`"),
-    ("Phase 66 Slice 7", "`NOT IMPLEMENTED`"),
+    ("Phase 66 Slice 6", "`COMPLETED / PUBLISHED`"),
+    ("Phase 66 Slice 7", "`NEXT / NOT IMPLEMENTED`"),
     ("Phase 66 Slice 8", "`NOT IMPLEMENTED`"),
     ("Phase 66 Slice 9", "`NOT IMPLEMENTED`"),
     ("Phase 66 Slice 10", "`NOT IMPLEMENTED`"),
@@ -331,7 +331,7 @@ EXPECTED_STATUS = (
     ("Phase 66 route", "`N=16`"),
     (
         "Next",
-        "`Phase 66 Slice 6 — Supported row scalar/LET/WHERE/ON`",
+        "`Phase 66 Slice 7 — Supported JOIN emission`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -5407,5 +5407,20 @@ def test_phase66_slice5_conditional_publication_preserves_later_boundaries() -> 
         assert "A–S19 cases/46 public documents" in document
         assert "30 VERIFIED,3 INPUT_REJECTED,13 BLOCKED" in document
         assert "Do not start Slice6 automatically" in document
+        assert "N66 remains16" in document
+    assert (STATUS.parent / target).is_file()
+
+
+def test_phase66_slice6_row_stage_publication_preserves_later_boundaries() -> None:
+    target = "spec/phase66-slice6-row-scalar-let-where-on-context-emission-v1.md"
+    for path in (STATUS, ROADMAP):
+        document = " ".join(_read(path).split())
+        assert f"]({target})" in document
+        assert "Phase66 Slice6 is " in document
+        assert "only upon successful natural exact-head CI" in document
+        assert "strict v2 aggregate" in document
+        assert "T–V22 cases/61 public documents" in document
+        assert "39 VERIFIED,3 INPUT_REJECTED,19 BLOCKED" in document
+        assert "Do not start Slice7 automatically" in document
         assert "N66 remains16" in document
     assert (STATUS.parent / target).is_file()

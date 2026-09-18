@@ -2611,6 +2611,27 @@ Phase66 remains `ACTIVE`; Slice6 is `NEXT / NOT IMPLEMENTED`; Slices7–16 remai
 N66 remains16. Do not start Slice6 automatically. No general scalar/LET/WHERE/ON/JOIN/ORDER/SET,
 public project emit CLI, caller rebind, general result decoder or product executor is added.
 
+Phase66 Slice6 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI
+with Python3.12,Python3.13,both target jobs and the strict v2 aggregate. The
+[row scalar/LET/WHERE/ON contract](spec/phase66-slice6-row-scalar-let-where-on-context-emission-v1.md)
+adds admitted typed row expressions, ordered LET stage bodies, TRUE-only filtering and
+real pre-match ON context checking over single-input direct/named/imported TABLE/QUERY
+bodies. Admitted nodes are exact field/LET references, existing literals/parameters,
+unary signs, signed-Int `+` `-` `*`, approved same-logical-type comparisons,
+`is null`/`is not null` and Boolean `and`/`or`; scalar Bool stays three-valued and only
+a predicate ROOT consumes TRUE. A finite emission-local interval is checked at every
+node against the actually selected physical type, so an overflowing intermediate is
+rejected even when the final result would fit. The old single-projection shapes keep
+their exact SQL bytes. `where_later` and `producer_filter` migrate from the
+not-yet-implemented WHERE blocker to independently checked successful queries.
+T–V22 cases/61 public documents per target include39 VERIFIED,3 INPUT_REJECTED,19 BLOCKED;
+the nine ordered three-valued AND/OR pairs are witnessed on both real targets.
+R03 outstanding joint execution: Slice7 repeated/shared JOIN; Slice10 ordinary/rebound/completed ORDER and ORDER/LIMIT sharing; Slice11 repeated UNION ALL and two import facades.
+Phase66 remains `ACTIVE`; Slice7 is `NEXT / NOT IMPLEMENTED`; Slices8–16 remain `NOT IMPLEMENTED`.
+N66 remains16. Do not start Slice7 automatically. Whole JOIN construction and execution,
+grouping, windows, DISTINCT, ORDER/LIMIT, SET, public project emit CLI, caller rebind,
+general result decoder and product executor are not added.
+
 ## Future Roadmap v6
 
 These rows replace the former broad Phase-63–70 map. They assign one phase-level

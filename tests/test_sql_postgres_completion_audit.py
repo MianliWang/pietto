@@ -255,6 +255,7 @@ def test_implemented_backend_diagnostics_match_documented_codes() -> None:
         "_rendering",
         "_verification",
         "_parameters",
+        "_rows",
     ):
         path = Path("src/pietto/_project/project_sql_emission" + suffix + ".py")
         emission.update(

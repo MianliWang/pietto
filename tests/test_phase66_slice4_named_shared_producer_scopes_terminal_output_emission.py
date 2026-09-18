@@ -12,6 +12,7 @@ from pietto._project.project_sql_emission import (
     emit_project_sql,
     serialize_project_sql_emission,
 )
+from pietto._project.project_sql_emission_ast import SQLSelect
 from pietto._project.project_sql_emission_scopes import (
     build_emission_layout,
     verify_emission_layout,
@@ -206,6 +207,16 @@ def test_later_operator_graph_is_structural_only(built, target, variant):
     assert verify_emission_layout(layout, checked)
     assert len(layout.definitions) == len(checked.plan.bindings.definitions)
     assert len(layout.uses) == len(checked.plan.input_uses)
+    if variant == "producer_filter":
+        # Slice6 implements this input's producer filter. The retained source
+        # purpose and its historical BLOCKED outcome are unchanged history; the
+        # named-chain structure this case owns is still checked above.
+        assert outcome.status == "VERIFIED"
+        assert outcome.artifact is not None
+        public = probe.decode_public(serialize_project_sql_emission(outcome))
+        assert "blockers" not in public
+        assert public["sql"] == outcome.artifact.rendered.sql.decode()
+        return
     assert outcome.status == "BLOCKED" and outcome.artifact is None
     public = probe.decode_public(serialize_project_sql_emission(outcome))
     assert "sql" not in public and public["artifact"] is None
@@ -712,6 +723,7 @@ def test_flat_cte_sizes_are_measured_and_bounded(tmp_path, record_property, dept
     assert outcome.status == "VERIFIED"
     artifact = outcome.artifact
     assert artifact is not None
+    assert isinstance(artifact.ast, SQLSelect)
     assert len(artifact.ast.ctes) == depth
     assert all(not cte.body.ctes for cte in artifact.ast.ctes)
     public = serialize_project_sql_emission(outcome)

@@ -74,6 +74,10 @@ def test_public_vertical(built, target, case):
     assert outcome.diagnostics is checked.completed.diagnostics
 
 
+# Inputs whose only blocker was the not-yet-implemented WHERE family.
+MIGRATED_TO_SUCCESS = ("where_later",)
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 @pytest.mark.parametrize(
     "variant",
@@ -90,6 +94,14 @@ def test_real_failure_boundaries(tmp_path, target, variant):
         tmp_path, item["source"], item["contract"], item["policy"]
     )
     public = probe.decode_public(serialize_project_sql_emission(outcome))
+    if variant in MIGRATED_TO_SUCCESS:
+        # Slice6 implements this input's filter family; the retained source
+        # purpose is unchanged and its historical BLOCKED outcome is history.
+        assert public["status"] == "VERIFIED"
+        assert outcome.artifact is not None
+        assert "blockers" not in public
+        assert public["sql"] == outcome.artifact.rendered.sql.decode()
+        return
     assert public["status"] == ("INPUT_REJECTED" if case.startswith("K") else "BLOCKED")
     assert outcome.artifact is None
     assert set(public) == {
@@ -106,7 +118,6 @@ def test_real_failure_boundaries(tmp_path, target, variant):
         "decimal_mismatch": "PIE-B1002",
         "timestamp_meaning": "PIE-B1004",
         "uuid_meaning": "PIE-B1004",
-        "where_later": "PIE-B1003",
     }
     if variant in expected:
         assert expected[variant] in [b["code"] for b in public["blockers"]]
@@ -791,10 +802,29 @@ def test_current_emission_variant_manifest_is_complete():
             "empty_preserve",
             "empty_bind",
         ),
+        # Slice6 row stages: successful direct/named pipelines and the finite
+        # boundary set that keeps no usable partial SQL.
+        "T_row_direct": (
+            "table_preserve",
+            "query_bind",
+            "empty_preserve",
+            "truth_table",
+        ),
+        "U_row_named": ("named_preserve", "imported_bind", "empty_preserve"),
+        "V_row_blocked": (
+            "float_arithmetic",
+            "float_comparison",
+            "bool_comparison",
+            "int_overflow",
+            "unary_overflow",
+            "modulo",
+            "between",
+            "match_join",
+        ),
     }
     for target in ("postgres", "mysql"):
         inputs = probe.generation_inputs(target)
-        assert len(inputs) == 46
+        assert len(inputs) == 61
         assert (
             sum(
                 item["id"]
@@ -814,9 +844,13 @@ def test_current_emission_variant_manifest_is_complete():
 
 def test_multiple_later_scalar_projections_keep_each_blocker(tmp_path):
     item = probe.fixture("postgres")
+    # Slice6 admits signed-Int arithmetic, so this case keeps its original purpose
+    # with `between`, which is still a later-slice scalar projection.
     source = item["source"].replace(
         "        ratio\n",
-        "        ratio\n        first = 1 + 1\n        second = 2 + 2\n",
+        "        ratio\n"
+        "        first = id between 0 and 10\n"
+        "        second = id between 1 and 20\n",
     )
     _, result = probe.build_case(tmp_path, source, item["contract"])
     blockers = [

@@ -65,11 +65,52 @@ VARIANTS = {
         "empty_preserve",
         "empty_bind",
     ),
+    "T_row_direct": (
+        "table_preserve",
+        "query_bind",
+        "empty_preserve",
+        "truth_table",
+    ),
+    "U_row_named": ("named_preserve", "imported_bind", "empty_preserve"),
+    "V_row_blocked": (
+        "float_arithmetic",
+        "float_comparison",
+        "bool_comparison",
+        "int_overflow",
+        "unary_overflow",
+        "modulo",
+        "between",
+        "match_join",
+    ),
 }
 LABELS = ("display_text", "record_id", "active", "amount", "ratio")
 LOGICAL = ("Text", "Int", "Bool", "Decimal", "Float")
 CHAIN_LABELS = (*LABELS, "repeated")
 CHAIN_LOGICAL = (*LOGICAL, "Int")
+ROW_LABELS = (
+    "record_id",
+    "next_id",
+    "twice",
+    "positive",
+    "both",
+    "missing",
+    "same_text",
+)
+ROW_LOGICAL = ("Int", "Int", "Int", "Bool", "Bool", "Bool", "Bool")
+# Every ordered (left, right) pair of TRUE/FALSE/NULL appears once for AND and once
+# for OR across these ten outputs and the authored flag column's three values.
+TRUTH_LABELS = (
+    "and_true",
+    "and_false",
+    "and_self",
+    "true_and",
+    "false_and",
+    "or_true",
+    "or_false",
+    "or_self",
+    "true_or",
+    "false_or",
+)
 CODES = {
     "PIE-B1001": "SOURCE_REALIZATION",
     "PIE-B1002": "REPRESENTATION",
@@ -108,6 +149,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         return fixed_fixture(target, case, variant)
     if case in {"M_named_chain", "N_imported_chain", "O_named_later"}:
         return chain_fixture(target, case, variant)
+    if case in {"T_row_direct", "U_row_named", "V_row_blocked"}:
+        return row_fixture(target, case, variant)
     kind = (
         "table"
         if case in {"G_emission_table_bag", "I_emission_table_empty"}
@@ -264,7 +307,19 @@ source rows: Row is {target}.table("opaque.locator.not.sql")
             else {"kind": "uuid", "encoding": "standard_bytes"},
         }
     elif variant == "where_later":
+        # The retained filter now realizes a real generated stage scope, so this
+        # input must declare the identifier-case premise that scope already
+        # required in Slice4. Changed input identity; same source purpose.
         source = source.replace("    select:", "    where id > 0\n    select:")
+        contract["environment"].append(
+            {
+                "key": "identifier_case",
+                "scope": "statement",
+                "value": "quoted_exact"
+                if target == "postgres"
+                else "lower_case_table_names=0",
+            }
+        )
     return {
         "source": source,
         "contract": encoded(contract).decode(),
@@ -655,6 +710,157 @@ query result:
     }
 
 
+ROW_DIRECT_BODY = """    from rows
+    let:
+        bumped = id + 1
+        doubled = bumped * 2
+    where id > 0
+    select:
+        record_id = id
+        next_id = bumped
+        twice = doubled
+        positive = id > 0
+        both = id > 0 and flag
+        missing = flag is null
+        same_text = text == text
+"""
+ROW_PRODUCER = """table first:
+    from rows
+    let:
+        bumped = id + 1
+    where id > 0
+    select:
+        kept = id
+        stepped = bumped
+        flagged = flag
+        label = text
+"""
+ROW_CONSUMER = """query result:
+    from {producer}
+    let:
+        doubled = stepped * 2
+    select:
+        record_id = kept
+        next_id = stepped
+        twice = doubled
+        positive = kept > 0
+        both = kept > 0 and flagged
+        missing = flagged is null
+        same_text = label == label
+"""
+ROW_BLOCKED_BODY = {
+    "float_arithmetic": "        total = ratio + ratio\n",
+    "float_comparison": "        same = ratio == ratio\n",
+    "bool_comparison": "        same = flag == flag\n",
+    "int_overflow": "        big = id + 1\n",
+    "unary_overflow": "        negated = -id\n",
+    "modulo": "        rest = id % 2\n",
+    "between": "        inside = id between 0 and 1\n",
+}
+
+
+def row_fixture(target, case, variant):
+    """Ordered LET stages, a retained filter and admitted scalar projections."""
+    base = fixture(target)
+    base_source = base["source"]
+    assert type(base_source) is str
+    header = base_source.split("table result:", 1)[0]
+    contract = json.loads(base["contract"])
+    description = contract["sources"][0]
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        }
+    )
+    if variant.endswith("bind"):
+        contract["environment"].append(
+            {
+                "key": "parameter_protocol",
+                "scope": "statement",
+                "value": "postgres_extended"
+                if target == "postgres"
+                else "mysql_prepared",
+            }
+        )
+    if variant.startswith("empty"):
+        description["relation"]["name"] = "phase66 empty é"
+    source: str | dict[str, str]
+    if variant == "truth_table":
+        source = (
+            header
+            + "table result:\n    from rows\n    select:\n"
+            + "".join(
+                f"        {label} = {expression}\n"
+                for label, expression in zip(
+                    TRUTH_LABELS,
+                    (
+                        "flag and true",
+                        "flag and false",
+                        "flag and flag",
+                        "true and flag",
+                        "false and flag",
+                        "flag or true",
+                        "flag or false",
+                        "flag or flag",
+                        "true or flag",
+                        "false or flag",
+                    ),
+                    strict=True,
+                )
+            )
+        )
+    elif case == "T_row_direct":
+        kind = "query" if variant.startswith("query") else "table"
+        source = header + kind + " result:\n" + ROW_DIRECT_BODY
+    elif case == "U_row_named":
+        if variant.startswith("imported"):
+            source = {
+                "a.pietto": header + ROW_PRODUCER + "export:\n    table first\n",
+                "main.pietto": 'import "a.pietto":\n    table first as Public\n'
+                + ROW_CONSUMER.format(producer="Public"),
+            }
+            description["selector"]["module"] = "a.pietto"
+        else:
+            source = header + ROW_PRODUCER + ROW_CONSUMER.format(producer="first")
+    elif variant == "match_join":
+        # A retained MATCH exercises the same scalar domain; whole JOIN emission
+        # stays with Slice7, so this input has no usable partial SQL.
+        source = (
+            header
+            + """query result:
+    from rows
+    inner join rows as r:
+        from rows
+        on rows.id == r.id
+    select:
+        record_id = rows.id
+"""
+        )
+    else:
+        if variant in {"int_overflow", "unary_overflow"}:
+            # The declared source domain is the whole signed 64-bit range, so the
+            # result overflows on BOTH targets, not only the narrower one.
+            description["fields"][0]["representation"]["domain"] = {
+                "kind": "int_range",
+                "min": "-9223372036854775808",
+                "max": "9223372036854775807",
+            }
+        source = (
+            header + "table result:\n    from rows\n    select:\n"
+        ) + ROW_BLOCKED_BODY[variant]
+    return {
+        "source": source,
+        "contract": encoded(contract).decode(),
+        "policy": "bind_safe_literals"
+        if variant.endswith("bind")
+        else "preserve_literals",
+    }
+
+
 def source_bytes(source):
     return source.encode("utf-8") if type(source) is str else encoded(source)
 
@@ -663,7 +869,21 @@ def source_files(source):
     return {"main.pietto": source} if type(source) is str else source
 
 
-def expected_status(case):
+# Inputs whose only blocker was the not-yet-implemented WHERE family. Slice6
+# implements that family, so each one now emits an independently checked query.
+# The retained source purpose and the historical outcome are unchanged history;
+# the variant name is not status authority.
+MIGRATED_TO_SUCCESS = (
+    ("L_emission_blocked", "where_later"),
+    ("O_named_later", "producer_filter"),
+)
+
+
+def expected_status(case, variant):
+    if (case, variant) in MIGRATED_TO_SUCCESS:
+        return "VERIFIED"
+    if case == "V_row_blocked":
+        return "BLOCKED"
     return (
         "INPUT_REJECTED"
         if case == "K_emission_rejected"
@@ -1069,6 +1289,11 @@ def _named_range_provenance(document):
         "export": ["stage_export", "export"],
         "expression": ["expression"],
         "literal_site": ["literal_site"],
+        # Slice6 stage bodies own their own generated scope, carried stage ports
+        # and filter root; each one still declares exactly its own origin role.
+        "select_block": ["select_block"],
+        "stage_port": ["stage_port"],
+        "filter": ["filter"],
     }
     associations = {
         "authored_cause",
@@ -1604,6 +1829,162 @@ def _requirement_premises(key, naming, scan_premises, physical):
     return physical[key[1]] if type(key) is tuple else []
 
 
+def _decode_row_denominators(
+    document, limits, premises, statements, source_positions, description, naming, walk
+):
+    """Both requirement denominators for one decoded stage pipeline."""
+    bodies = walk["bodies"]
+    field_uses = []
+    for column in document["columns"]:
+        origin = column["correspondence"].get("computed_origin")
+        if origin is None or origin.get("field") is None:
+            continue
+        _reference(origin["site"])
+        _reference(origin["stage"])
+        _need(
+            origin["site"]["kind"] == "expression_site"
+            and origin["stage"]["kind"] == "select_block",
+            "computed origin context kinds",
+        )
+        field_uses.append(
+            (origin["field"], origin["site"]["position"], origin["stage"]["position"])
+        )
+    scan_premises = sorted([*statements, *source_positions])
+    physical = _field_premises(premises, description, scan_premises, field_uses)
+    expected = [*walk["scopes"], *walk["generated"]]
+    if len(bodies) > 1:
+        expected.append(("nonrecursive_with_bytes", None, "R23", [], None))
+    originals, actual = [], []
+    for requirement in document["requirements"]:
+        _keys(
+            requirement,
+            (
+                "denominator",
+                "ordinal",
+                "kind",
+                "subject",
+                "rule",
+                "disposition",
+                "premises",
+                "evidence",
+            ),
+        )
+        _need(
+            requirement["denominator"] in {"original", "generated"}
+            and requirement["disposition"] == "checked_rule"
+        )
+        _reference(requirement["subject"])
+        _need(
+            type(requirement["premises"]) is list
+            and all(_ordinal(i) and i < len(premises) for i in requirement["premises"])
+        )
+        _need(type(requirement["evidence"]) is list)
+        bucket = originals if requirement["denominator"] == "original" else actual
+        _need(
+            type(requirement["ordinal"]) is int
+            and requirement["ordinal"] == len(bucket)
+        )
+        bucket.append(requirement)
+    _need(len(expected) == len(actual), "generated requirement denominator")
+    for i, (item, (kind, subject, rule, key, evidence)) in enumerate(
+        zip(actual, expected, strict=True)
+    ):
+        _need((item["kind"], item["rule"]) == (kind, rule), "generated requirement")
+        _need(
+            item["subject"]
+            == (subject if subject is not None else {"kind": kind, "position": i}),
+            "generated requirement subject",
+        )
+        positions = (
+            _requirement_premises(key, naming, scan_premises, physical)
+            if type(key) in {str, tuple}
+            else key
+        )
+        _need(item["premises"] == positions, "generated requirement premises")
+        if evidence is None:
+            _need(item["evidence"] == [], "generated requirement evidence")
+        elif evidence == "checked":
+            continue
+        elif type(evidence) is dict:
+            _need(item["evidence"] == [evidence], "generated operator evidence")
+        else:
+            _, block, expression = evidence
+            _need(len(item["evidence"]) == 1, "reference evidence")
+            entry = cast(dict[str, Any], item["evidence"][0])
+            _keys(entry, ("site", "context"))
+            _reference(entry["site"])
+            _need(
+                entry["site"]["kind"] == "expression_site"
+                and entry["context"] == block,
+                "a reference declares the stage it was read in",
+            )
+    # Original demands: every family keeps its own re-derived rule and no premise.
+    blocks = [body["block"] for body in bodies]
+    families: dict[str, list[dict[str, Any]]] = {}
+    for item in originals:
+        families.setdefault(item["kind"], []).append(item)
+        _need(item["premises"] == [], "original requirement premises")
+    _need(
+        [item["subject"] for item in families.get("scope", ())] == blocks,
+        "scope demands do not match the emitted stage bodies",
+    )
+    _need(
+        [item["subject"] for item in families.get("filter", ())] == walk["filters"],
+        "filter demands do not match the emitted predicate roots",
+    )
+    _need(
+        [item["subject"] for item in families.get("source_realization", ())]
+        == [{"kind": "definition", "position": 0}],
+        "source realization demand",
+    )
+    positions = sorted(
+        item["subject"]["position"] for item in families.get("expression", ())
+    )
+    _need(
+        all(item["subject"]["kind"] == "expression" for item in families["expression"])
+        and positions == sorted(walk["expressions"])
+        and positions == list(range(len(positions))),
+        "expression demands do not match the decoded expressions",
+    )
+    stage_positions = sorted(
+        item["subject"]["position"] for item in families.get("stage_value", ())
+    )
+    _need(
+        all(
+            item["subject"]["kind"] == "stage_port"
+            for item in families.get("stage_value", ())
+        )
+        and stage_positions == list(range(len(stage_positions))),
+        "stage value demands",
+    )
+    for key in walk["ports"]:
+        port = json.loads(key)
+        _need(port["position"] in stage_positions, "a read port has no stage demand")
+    generated_scopes = len(bodies) > 1
+    for item in originals:
+        kind, subject = item["kind"], item["subject"]
+        if kind == "filter":
+            rule = "R06"
+        elif kind == "expression":
+            rule = walk["rules"].get(subject["position"], "R01")
+        elif kind == "fixed_literal_transport":
+            rule = "R04"
+        elif kind == "scope":
+            rule = "R03" if generated_scopes else "R01"
+        elif kind == "source_realization":
+            rule = "R01"
+        else:
+            rule = "R02"
+        _need(item["rule"] == rule, "original requirement rule")
+    _need(
+        3 * len(bodies)
+        + 2 * sum(len(body["columns"]) for body in bodies)
+        + sum(2 + len(body["columns"]) for body in bodies[:-1])
+        + walk["scalar_nodes"]
+        <= limits["nodes"]
+    )
+
+
 def _decode_fixed_public(document, limits):
     """Independent finite SELECT/WITH/leaf/sign grammar, including unused values."""
     family = document["target"]["family"]
@@ -1710,6 +2091,7 @@ def _decode_fixed_public(document, limits):
     cursor = expression_count = projection_count = input_count = 0
     scalar_ids, seen_sites, used_slots, expected_ranges = set(), {}, set(), []
     bodies, ctes, field_uses = [], {}, []
+    seen_expressions: set[int] = set()
 
     def take(kind, role, text=None, subject=None):
         nonlocal cursor
@@ -1727,22 +2109,43 @@ def _decode_fixed_public(document, limits):
     used = 0
     scalar_nodes = 0
 
-    def scalar(projection):
+    def expression_ref(positional):
+        """The expression a token declares.
+
+        The projection grammar numbers expressions in exactly rendering order, so
+        it predicts the next position and the token must confirm it. A stage body
+        renders its values in stage order, which is not that counter, so there the
+        token declares its own expression and the walk records which ones it saw.
+        """
+        _need(cursor < len(lexical))
+        subject = lexical[cursor][0]["subject"]
+        if positional:
+            _need(subject == ref("expression", expression_count))
+            return subject
+        _need(subject["kind"] == "expression" and _ordinal(subject["position"]))
+        _need(subject["position"] not in seen_expressions)
+        return subject
+
+    def scalar(projection, positional=True):
         nonlocal expression_count, used, scalar_nodes
-        start_ref = ref("expression", expression_count)
         signs, requirements = [], []
+        start_ref = None
         while peek() == "unary_open":
-            original = ref("expression", expression_count)
+            original = expression_ref(positional)
             interval, text = take("syntax", "unary_open", subject=original)
             _need(text in {"(+", "(-"})
-            _need(unary_evidence[expression_count]["operator"] == text[1])
+            _need(unary_evidence[original["position"]]["operator"] == text[1])
             signs.append((original, text[1], interval["start"]))
-            scalar_ids.add(expression_count)
-            expression_count += 1
-        original = ref("expression", expression_count)
+            scalar_ids.add(original["position"])
+            seen_expressions.add(original["position"])
+            start_ref = start_ref or original
+            expression_count += positional
+        original = expression_ref(positional)
         opened, _ = take("syntax", "anchor_open", "CAST(", original)
-        scalar_ids.add(expression_count)
-        expression_count += 1
+        scalar_ids.add(original["position"])
+        seen_expressions.add(original["position"])
+        start_ref = start_ref or original
+        expression_count += positional
         _need(cursor < len(lexical))
         interval, token = lexical[cursor]
         cursor_kind, tag = interval["kind"], interval["role"]
@@ -2074,8 +2477,759 @@ def _decode_fixed_public(document, limits):
         input_count += len(incoming)
         return output
 
+    # ---- Slice6 stage grammar ----------------------------------------------
+    # One generated SELECT per actual original stage block. The shared contract,
+    # field, premise, constant-leaf and parameter machinery above is reused; only
+    # the carried ports, admitted operator nodes, stage scopes and the filter root
+    # are new, and this walk derives their realization itself. Structure is parsed
+    # first (tokens, spans, enclosures), then resolved against the body's own
+    # immediate incoming columns once the FROM has named the producer.
+    INT_BITS = {
+        "pg_int2": 16,
+        "pg_int4": 32,
+        "pg_int8": 64,
+        "my_smallint": 16,
+        "my_int": 32,
+        "my_bigint": 64,
+        "my_signed_int": 64,
+    }
+    ARITHMETIC_TOKENS = {" + ", " - ", " * "}
+    LOGICAL_TOKENS = {" AND ", " OR "}
+    COMPARISON_TOKENS = {" = ", " <> ", " < ", " <= ", " > ", " >= "}
+    COMPARABLE = ("Int", "Text", "Decimal")
+    row_bodies: list[dict[str, Any]] = []
+    row_generated: list[Any] = []
+    row_port_reads: dict[str, Any] = {}
+    row_stage_ports: set[str] = set()
+    row_rules: dict[int, str] = {}
+    row_filters: list[Any] = []
+    row_block: list[Any] = [None]
+    ROW_OPERATORS = {
+        " + ": "+",
+        " - ": "-",
+        " * ": "*",
+        " AND ": "and",
+        " OR ": "or",
+        " = ": "==",
+        " <> ": "!=",
+        " < ": "<",
+        " <= ": "<=",
+        " > ": ">",
+        " >= ": ">=",
+    }
+
+    def row_node_premises(tag, operand_tags, kind):
+        keys = {"operator_environment"}
+        if tag == "Text" or "Text" in operand_tags:
+            keys.add("client_encoding")
+        if kind == "parameter":
+            keys.add("parameter_protocol")
+        return [i for i in statements if premises[i]["key"] in keys]
+
+    def row_bool(nullable):
+        return {
+            "tag": "Bool",
+            "storage": {
+                "kind": "pg_bool" if family == "postgres" else "my_signed_bool"
+            },
+            "nullable": nullable,
+            "domain": {"kind": "bool01"},
+        }
+
+    def row_interval(value):
+        _need(
+            value["tag"] == "Int" and value["domain"]["kind"] == "int_range",
+            "integer range evidence",
+        )
+        return int(value["domain"]["min"]), int(value["domain"]["max"])
+
+    def row_int(operands, low, high, nullable):
+        if family == "mysql":
+            storage = {"kind": "my_signed_int"}
+        else:
+            widths = [INT_BITS.get(o["storage"]["kind"]) for o in operands]
+            _need(all(w is not None for w in widths), "integer operand storage")
+            storage = {
+                "kind": {16: "pg_int2", 32: "pg_int4", 64: "pg_int8"}[
+                    max(w for w in widths if w is not None)
+                ]
+            }
+        bits = INT_BITS[storage["kind"]]
+        _need(
+            -(1 << (bits - 1)) <= low <= high <= (1 << (bits - 1)) - 1,
+            "integer result outside its physical range",
+        )
+        return {
+            "tag": "Int",
+            "storage": storage,
+            "nullable": nullable,
+            "domain": {"kind": "int_range", "min": str(low), "max": str(high)},
+        }
+
+    def constant_ahead():
+        index = cursor
+        while index < len(lexical) and lexical[index][0]["role"] == "unary_open":
+            index += 1
+        return index < len(lexical) and lexical[index][0]["role"] == "anchor_open"
+
+    def row_parse(block):
+        """Parse one admitted stage value, recording its spans and enclosures."""
+        role, start = peek(), lexical[cursor][0]["start"]
+        if role == "value_scope":
+            port = lexical[cursor][0]["subject"]
+            _need(port["kind"] == "stage_port", "stage reference port kind")
+            _, alias = take("identifier", "value_scope", subject=port)
+            original = expression_ref(False)
+            take("syntax", "value_qualifier", ".", original)
+            seen_expressions.add(original["position"])
+            token, name = take("identifier", "value_column")
+            expected_ranges.append(("reference", original, start, token["end"]))
+            row_stage_ports.add(encoded(port).decode())
+            return {
+                "kind": "reference",
+                "expression": original,
+                "port": port,
+                "name": name,
+                "terminal": token["subject"],
+                "alias": alias,
+            }
+        if role == "anchor_open" or (role == "unary_open" and constant_ahead()):
+            return {"kind": "constant", "value": scalar(block, positional=False)}
+        original = expression_ref(False)
+        seen_expressions.add(original["position"])
+        if role == "unary_open":
+            _, text = take("syntax", "unary_open", subject=original)
+            _need(text in {"(+", "(-"}, "unary operator")
+            operand = row_parse(block)
+            closed, _ = take("syntax", "unary_close", ")", original)
+            expected_ranges.append(("unary", original, start, closed["end"]))
+            return {
+                "kind": "sign",
+                "expression": original,
+                "operator": text[1],
+                "operands": [operand],
+            }
+        if role == "is_null_open":
+            take("syntax", "is_null_open", "(", original)
+            operand = row_parse(block)
+            _, text = take("syntax", "is_null_test", subject=original)
+            _need(text in {" IS NULL", " IS NOT NULL"}, "null test spelling")
+            closed, _ = take("syntax", "is_null_close", ")", original)
+            expected_ranges.append(("is_null", original, start, closed["end"]))
+            return {
+                "kind": "null_test",
+                "expression": original,
+                "operator": "is not null" if "NOT" in text else "is null",
+                "operands": [operand],
+            }
+        _need(role in {"binary_open", "comparison_open"}, "row expression node")
+        take("syntax", role, "(", original)
+        left = row_parse(block)
+        operator_role = peek()
+        _, token = take("syntax", operator_role, subject=original)
+        right = row_parse(block)
+        closing = "binary_close" if role == "binary_open" else "comparison_close"
+        closed, _ = take("syntax", closing, ")", original)
+        if operator_role == "arithmetic_operator":
+            _need(role == "binary_open" and token in ARITHMETIC_TOKENS, "operator")
+            kind, enclosure = "arithmetic", "binary"
+        elif operator_role == "logical_operator":
+            _need(role == "binary_open" and token in LOGICAL_TOKENS, "operator")
+            kind, enclosure = "logical", "binary"
+        else:
+            _need(
+                role == "comparison_open"
+                and operator_role == "comparison_operator"
+                and token in COMPARISON_TOKENS,
+                "operator",
+            )
+            kind, enclosure = "comparison", "comparison"
+        expected_ranges.append((enclosure, original, start, closed["end"]))
+        return {
+            "kind": kind,
+            "expression": original,
+            "operator": token,
+            "operands": [left, right],
+        }
+
+    def row_resolve(node, incoming, alias, owner):
+        """Realize one parsed value against this body's own immediate columns."""
+        if node["kind"] == "constant":
+            value = node["value"]
+            realization = {"tag": value["tag"], **value_representation(value)}
+            for kind, subject, tag in value["requirements"]:
+                row_generated.append(
+                    (kind, subject, "R04", row_node_premises(tag, (), kind), "checked")
+                )
+                row_rules[subject["position"]] = "R04"
+            return {**realization, "root": value["expression"], "value": value}
+        if node["kind"] == "reference":
+            _need(node["alias"] == alias, "stage reference scope")
+            matches = [
+                c
+                for c in incoming
+                if c["name"] == node["name"] and c["terminal"] == node["terminal"]
+            ]
+            _need(len(matches) == 1, "reference outside the immediate stage scope")
+            read = matches[0]
+            key = encoded(node["port"]).decode()
+            _need(
+                row_port_reads.setdefault(key, read) is read, "stage port binding drift"
+            )
+            _need(within(cause(node["expression"]), cause(owner)))
+            row_generated.append(
+                (
+                    "reference",
+                    node["expression"],
+                    "R05",
+                    row_node_premises(read["realization"]["tag"], (), "reference"),
+                    ("reference", row_block[0], node["expression"]),
+                )
+            )
+            row_rules[node["expression"]["position"]] = "R01"
+            return {
+                **read["realization"],
+                "root": node["expression"],
+                "read": read,
+            }
+        original = node["expression"]
+        kind = "arithmetic" if node["kind"] == "sign" else node["kind"]
+        rule = "R06" if kind == "logical" else "R05"
+        # One requirement per node in exact rendering order: the node, then the
+        # nodes of each operand, so the slot is reserved before descending.
+        slot = len(row_generated)
+        row_generated.append(None)
+        operands = [
+            row_resolve(item, incoming, alias, owner) for item in node["operands"]
+        ]
+        tags = tuple(item["tag"] for item in operands)
+        # Upstream NULL evidence is preserved, never strengthened here: an operator
+        # result is not independently derivable, so it stays None and only a claim
+        # of NON_NULL over a nullable operand is rejected later.
+        strict = all(o["nullable"] is False for o in operands)
+        nullable = None
+        if node["kind"] == "sign":
+            low, high = row_interval(operands[0])
+            if node["operator"] == "-":
+                low, high = -high, -low
+            result = row_int([operands[0], operands[0]], low, high, nullable)
+        elif node["kind"] == "arithmetic":
+            (low_l, high_l), (low_r, high_r) = (row_interval(o) for o in operands)
+            if node["operator"] == " + ":
+                low, high = low_l + low_r, high_l + high_r
+            elif node["operator"] == " - ":
+                low, high = low_l - high_r, high_l - low_r
+            else:
+                products = [a * b for a in (low_l, high_l) for b in (low_r, high_r)]
+                low, high = min(products), max(products)
+            result = row_int(operands, low, high, nullable)
+        elif node["kind"] == "logical":
+            _need(
+                all(
+                    o["tag"] == "Bool" and o["domain"]["kind"] == "bool01"
+                    for o in operands
+                ),
+                "logical operand domain",
+            )
+            result = row_bool(nullable)
+        elif node["kind"] == "null_test":
+            result = row_bool(False)
+        else:
+            left, right = operands
+            _need(
+                left["tag"] in COMPARABLE and left["tag"] == right["tag"],
+                "comparison type pair",
+            )
+            if left["tag"] == "Text":
+                _need(
+                    all(
+                        left["domain"].get(k) == right["domain"].get(k) is not None
+                        for k in ("encoding", "collation", "padding")
+                    ),
+                    "text comparison domain",
+                )
+            if left["tag"] == "Decimal":
+                _need(
+                    left["storage"] == right["storage"]
+                    and all(
+                        left["domain"].get(k) == right["domain"].get(k) is not None
+                        for k in ("precision", "scale")
+                    ),
+                    "decimal comparison parameters",
+                )
+            result = row_bool(nullable)
+        _need(within(cause(original), cause(owner)))
+        spelling = (
+            node["operator"]
+            if node["kind"] in {"sign", "null_test"}
+            else ROW_OPERATORS[node["operator"]]
+        )
+        row_generated[slot] = (
+            kind,
+            original,
+            rule,
+            row_node_premises(result["tag"], tags, kind),
+            {"operator": spelling},
+        )
+        # A field sign is a generated arithmetic requirement, but its retained
+        # demand is still the R04 literal/unary family, like any authored sign.
+        row_rules[original["position"]] = "R04" if node["kind"] == "sign" else rule
+        return {
+            **result,
+            "root": original,
+            "operands": [item["root"] for item in operands],
+            "kind": kind,
+            "strict": strict and node["kind"] != "null_test",
+        }
+
+    row_counts = {"projection": 0, "result": 0}
+
+    def row_field_realization(field):
+        return {"tag": source_type(field)["name"], **field["representation"]}
+
+    def row_output(
+        position,
+        label,
+        node,
+        root,
+        read,
+        realization,
+        block,
+        terminal,
+        export,
+        scan,
+        alias,
+    ):
+        """Independently rebuild one published output column and compare it."""
+        _need(position < len(document["columns"]), "published column denominator")
+        published = document["columns"][position]
+        _keys(
+            published,
+            (
+                "ordinal",
+                "label",
+                "logical_type",
+                "nullable",
+                "representation",
+                "correspondence",
+            ),
+        )
+        nullable = realization["nullable"]
+        if nullable is None:
+            nullable = published["nullable"]
+            _need(
+                nullable is True or nullable is False or nullable == "unknown",
+                "computed nullability",
+            )
+            _need(
+                nullable is not False or root["strict"],
+                "NON_NULL claimed over a nullable operand",
+            )
+            realization = {**realization, "nullable": nullable}
+        logical = {
+            "kind": "builtin",
+            "name": realization["tag"],
+            "parameters": {
+                "precision": realization["domain"]["precision"],
+                "scale": realization["domain"]["scale"],
+            }
+            if realization["tag"] == "Decimal"
+            else None,
+        }
+        projection = ref("projection", row_counts["projection"] + position)
+        link = None
+        if scan["kind"] in {"scan", "named"} and root is not None and "read" in root:
+            correspondence_link = published["correspondence"]
+            _reference(correspondence_link["input_port"])
+            _need(
+                correspondence_link["input_port"]["kind"] == "input_port",
+                "immediate input port",
+            )
+            producer = correspondence_link["producer"]
+            _keys(producer, ("export", "terminal"))
+            _reference(producer["export"])
+            _reference(producer["terminal"])
+            _need(
+                producer["terminal"] == read["terminal"],
+                "a named read must declare the terminal it read",
+            )
+            link = (correspondence_link["input_port"], producer)
+        correspondence: dict[str, Any] = {
+            "expression": root["root"] if root is not None else None,
+            "input_port": None if link is None else link[0],
+            "producer": None if link is None else link[1],
+            "export": export,
+            "projection": projection,
+            "sql_symbol": position + 1,
+        }
+        _need(node["kind"] != "carry", "the selected body carries no column")
+        assert root is not None
+        if "value" in root:
+            origin = published["correspondence"]["literal_origin"]
+            correspondence = {"literal_origin": origin, **correspondence}
+        else:
+            site = published["correspondence"]["computed_origin"]["site"]
+            role = published["correspondence"]["computed_origin"]["role"]
+            _reference(site)
+            _need(site["kind"] == "expression_site" and role == "select", "value site")
+            correspondence = {
+                "computed_origin": {
+                    "kind": root["kind"] if "kind" in root else "reference",
+                    "expression": root["root"],
+                    "site": site,
+                    "role": role,
+                    "stage": block,
+                    "export": export,
+                    "terminal": terminal,
+                    "operands": root.get("operands", []),
+                    "source": None
+                    if read is None or read["field"] is None
+                    else description["selector"],
+                    "field": None
+                    if read is None or read["field"] is None
+                    else read["field"]["ordinal"],
+                    "source_port": None if read is None else read.get("source_port"),
+                },
+                **correspondence,
+            }
+        expected = {
+            "ordinal": position,
+            "label": label,
+            "logical_type": logical,
+            "nullable": realization["nullable"],
+            "representation": {
+                "storage": realization["storage"],
+                "nullable": realization["nullable"],
+                "domain": realization["domain"],
+            },
+            "correspondence": correspondence,
+        }
+        _need(encoded(published) == encoded(expected), "row output correspondence")
+        return realization
+
+    def row_select(block, final, cte_terminals):
+        """One stage body: parse its columns, bind its scan, then realize them."""
+        take("syntax", "select", "SELECT ", block)
+        parsed = []
+        while True:
+            separator = None
+            if parsed:
+                separator, _ = take("syntax", "separator", ", ")
+            if peek() == "carry_scope":
+                port = lexical[cursor][0]["subject"]
+                _need(port["kind"] == "stage_port", "carried port kind")
+                _, carry_alias = take("identifier", "carry_scope", subject=port)
+                qualifier, _ = take("syntax", "carry_qualifier", ".")
+                token, name = take("identifier", "carry_column")
+                node = {
+                    "kind": "carry",
+                    "port": port,
+                    "name": name,
+                    "terminal": token["subject"],
+                    "alias": carry_alias,
+                    "qualifier": qualifier["subject"],
+                }
+                row_stage_ports.add(encoded(port).decode())
+            else:
+                node = {"kind": "value", "value": row_parse(block)}
+            alias_token, _ = take("syntax", "alias", " AS ")
+            export = alias_token["subject"]
+            _need(export["kind"] in {"stage_port", "export"}, "export kind")
+            _, label = take("identifier", "label", None, export)
+            _need(separator is None or separator["subject"] == export, "separator")
+            _need(
+                node["kind"] != "carry" or node["qualifier"] == export,
+                "carried qualifier",
+            )
+            parsed.append({"node": node, "export": export, "label": label})
+            if peek() != "separator":
+                break
+        from_token, _ = take("syntax", "from", " FROM ")
+        producer = from_token["subject"]
+        scan: dict[str, Any] = {}
+        if peek() == "namespace":
+            _need(producer == ref("definition", 0), "scan definition")
+            take(
+                "identifier",
+                "namespace",
+                description["relation"]["namespace"],
+                producer,
+            )
+            take("syntax", "qualifier", ".", producer)
+            take("identifier", "relation", description["relation"]["name"], producer)
+            _need(cause(producer)["path"] == description["selector"]["module"])
+            incoming = []
+            for field in description["fields"]:
+                realization = row_field_realization(field)
+                incoming.append(
+                    {
+                        "name": field["column"],
+                        "terminal": ref("source_port", field["ordinal"]),
+                        "source_port": ref("source_port", field["ordinal"]),
+                        "realization": realization,
+                        "field": field,
+                        "literal": None,
+                    }
+                )
+            scan = {"kind": "scan"}
+        elif peek() == "cte_reference":
+            _need(producer["kind"] == "select_block", "named producer kind")
+            _, name = take("identifier", "cte_reference", subject=producer)
+            source_body = row_ctes.get(name)
+            _need(
+                source_body is not None
+                and source_body["block"] == producer
+                and source_body["projection"],
+                "named use must read a complete definition terminal",
+            )
+            assert source_body is not None
+            incoming = source_body["outgoing"]
+            scan = {"kind": "named", "body": source_body}
+        else:
+            _need(producer["kind"] == "select_block", "stage producer kind")
+            _, name = take("identifier", "stage_reference", subject=producer)
+            source_body = row_ctes.get(name)
+            _need(
+                source_body is not None
+                and source_body is row_bodies[-1]
+                and source_body["block"] == producer
+                and not source_body["projection"],
+                "stage use must read its immediately preceding stage",
+            )
+            assert source_body is not None
+            incoming = source_body["outgoing"]
+            scan = {"kind": "stage", "body": source_body}
+        alias_token, _ = take("syntax", "alias", " AS ")
+        binding = alias_token["subject"]
+        if scan["kind"] == "stage":
+            _need(binding == block, "stage scope binding")
+            _, alias = take("identifier", "stage_scope", None, binding)
+            _need(alias == f"t{block['position']}", "stage scope spelling")
+        else:
+            _need(binding["kind"] == "input_use", "relation scope binding")
+            _, alias = take("identifier", "relation_scope", None, binding)
+            _need(alias == f"s{binding['position']}", "relation scope spelling")
+            scan["use"] = binding
+        _need(within(cause(binding), cause(block)))
+        row_block[0] = block
+        if scan["kind"] == "scan":
+            row_generated.append(("qualified_scan", None, "R01", "scan", None))
+            for field in description["fields"]:
+                row_generated.append(
+                    (
+                        "source_representation",
+                        None,
+                        "R02",
+                        ("field", field["ordinal"]),
+                        None,
+                    )
+                )
+        elif scan["kind"] == "named":
+            row_generated.append(("named_use", binding, "R03", "naming", None))
+            for column in incoming:
+                row_generated.append(
+                    ("immediate_terminal", column["terminal"], "R03", "naming", None)
+                )
+        else:
+            row_generated.append(("stage_use", block, "R03", "naming", None))
+            for column in scan["body"]["header"]:
+                row_generated.append(("stage_terminal", column, "R03", "naming", None))
+        carries = sum(1 for item in parsed if item["node"]["kind"] == "carry")
+        _need(
+            all(item["node"]["kind"] == "carry" for item in parsed[:carries]),
+            "carried columns precede computed ones",
+        )
+        projection_body = carries == 0
+        outgoing, columns = [], []
+        for position, item in enumerate(parsed):
+            node, export, label = item["node"], item["export"], item["label"]
+            _need(final or label == f"c{position}", "stage column label")
+            if node["kind"] == "carry":
+                _need(position < len(incoming), "carried column beyond the scan")
+                read = incoming[position]
+                _need(
+                    node["alias"] == alias
+                    and node["name"] == read["name"]
+                    and node["terminal"] == read["terminal"],
+                    "carried column is not the immediate pass-through",
+                )
+                key = encoded(node["port"]).decode()
+                _need(
+                    row_port_reads.setdefault(key, read) is read,
+                    "carried port binding drift",
+                )
+                row_generated.append(("carry_projection", export, "R05", [], None))
+                realization, field, literal = read["realization"], read["field"], None
+                root = None
+            else:
+                row_generated.append(("computed_projection", export, "R05", [], None))
+                resolved = row_resolve(node["value"], incoming, alias, export)
+                realization = {
+                    k: resolved[k] for k in ("tag", "storage", "nullable", "domain")
+                }
+                read = resolved.get("read")
+                field = None if read is None else read["field"]
+                literal = resolved.get("value")
+                root = resolved
+            terminal = (
+                ref("result_port", row_counts["result"] + position)
+                if projection_body
+                else export
+            )
+            if cte_terminals is not None:
+                _need(cte_terminals[position] == terminal, "declared stage terminal")
+            if final:
+                realization = row_output(
+                    position,
+                    label,
+                    node,
+                    root,
+                    read,
+                    realization,
+                    block,
+                    terminal,
+                    export,
+                    scan,
+                    alias,
+                )
+            outgoing.append(
+                {
+                    "name": f"c{position}",
+                    "terminal": terminal,
+                    "source_port": None if read is None else read.get("source_port"),
+                    "realization": realization,
+                    "field": field,
+                    "literal": literal,
+                }
+            )
+            columns.append(
+                {
+                    "label": label,
+                    "export": export,
+                    "terminal": terminal,
+                    "realization": realization,
+                    "field": field,
+                    "literal": literal,
+                    "root": root,
+                    "position": position,
+                }
+            )
+        if peek() == "where":
+            where_token, _ = take("syntax", "where", " WHERE ")
+            predicate = where_token["subject"]
+            _need(predicate["kind"] == "filter", "filter root kind")
+            _need(projection_body is False, "a filter body carries its rows")
+            row_filters.append(predicate)
+            row_generated.append(
+                (
+                    "predicate_root",
+                    predicate,
+                    "R06",
+                    [
+                        i
+                        for i in statements
+                        if premises[i]["key"] == "operator_environment"
+                    ],
+                    None,
+                )
+            )
+            root = row_resolve(row_parse(block), incoming, alias, predicate)
+            _need(
+                root["tag"] == "Bool" and root["domain"]["kind"] == "bool01",
+                "predicate root is not a Boolean value",
+            )
+            _need(carries == len(incoming), "a filter body must carry every column")
+        row_generated.append(("read_only_select_bytes", None, "R23", [], None))
+        if projection_body:
+            row_counts["result"] += len(columns)
+            row_counts["projection"] += len(columns)
+        body = {
+            "block": block,
+            "columns": columns,
+            "outgoing": outgoing,
+            "projection": projection_body,
+            "final": final,
+            "scan": scan,
+            "header": cte_terminals,
+        }
+        row_bodies.append(body)
+        _need(len(columns) <= limits["columns"])
+        return body
+
+    row_ctes: dict[str, Any] = {}
+    row_scopes: list[Any] = []
     naming = [i for i in statements if premises[i]["key"] == "identifier_case"]
-    if peek() == "with":
+
+    def row_case_premise():
+        expected_case = (
+            "quoted_exact" if family == "postgres" else "lower_case_table_names=0"
+        )
+        _need(
+            bool(naming) and all(premises[i]["value"] == expected_case for i in naming),
+            "generated stage scopes need the identifier-case premise",
+        )
+
+    def row_driver():
+        """Walk every emitted stage definition once, in dependency order."""
+        if peek() != "with":
+            block = lexical[cursor][0]["subject"]
+            _need(block["kind"] == "select_block", "stage body scope")
+            row_select(block, True, None)
+            return
+        row_case_premise()
+        take("syntax", "with", "WITH ", ref("selected_plan", 0))
+        while True:
+            index = len(row_ctes)
+            separator = None
+            if index:
+                separator, _ = take("syntax", "cte_separator", ", ")
+            name_token, name = take("identifier", "cte_name")
+            block = name_token["subject"]
+            _need(block["kind"] == "select_block", "a stage CTE binds a select block")
+            _need(name == f"p{index}" and name not in row_ctes, "stage CTE name")
+            _need(separator is None or separator["subject"] == block, "CTE separator")
+            take("syntax", "cte_columns_open", " (", block)
+            header = []
+            while True:
+                terminal_separator = None
+                if header:
+                    terminal_separator, _ = take("syntax", "terminal_separator", ", ")
+                token, text = take("identifier", "terminal_column")
+                _need(text == f"c{len(header)}", "declared terminal name")
+                _need(
+                    token["subject"]["kind"] in {"stage_port", "result_port"},
+                    "declared terminal kind",
+                )
+                _need(
+                    terminal_separator is None
+                    or terminal_separator["subject"] == token["subject"],
+                    "terminal separator",
+                )
+                _need(token["subject"] not in header, "duplicate declared terminal")
+                header.append(token["subject"])
+                if peek() != "terminal_separator":
+                    break
+            take("syntax", "cte_body_open", ") AS (", block)
+            row_scopes.append(("cte_definition", block, "R03", "naming", None))
+            row_scopes.extend(
+                ("terminal_column", terminal, "R03", "naming", None)
+                for terminal in header
+            )
+            row_ctes[name] = row_select(block, False, header)
+            take("syntax", "cte_body_close", ")", block)
+            if peek() != "cte_separator":
+                break
+        final_token, _ = take("syntax", "with_body", " ")
+        _need(final_token["subject"]["kind"] == "select_block", "final stage scope")
+        row_select(final_token["subject"], True, None)
+
+    row_grammar = any(
+        interval["role"] == "select" and interval["subject"]["kind"] == "select_block"
+        for interval, _ in lexical
+    )
+    if row_grammar:
+        row_driver()
+    elif peek() == "with":
         expected_case = (
             "quoted_exact" if family == "postgres" else "lower_case_table_names=0"
         )
@@ -2113,21 +3267,28 @@ def _decode_fixed_public(document, limits):
                 break
         take("syntax", "with_body", " ", ref("definition", len(ctes) + 1))
         _need(cause(ref("definition", len(ctes) + 1)) == cause(ref("selected_plan", 0)))
-    select(ref("selected_plan", 0), final=True)
+    if not row_grammar:
+        select(ref("selected_plan", 0), final=True)
     _need(
         cursor == len(lexical)
         and used == len(uses)
         and used_slots == set(range(len(fixed)))
     )
+    # A single stage body emits no WITH, so the selected plan is not a range
+    # subject there; the selected definition's own last body carries the owner.
     _need(
-        cause(ref("selected_plan", 0))["path"] == document["request"]["owner"]["module"]
+        cause(row_bodies[-1]["block"] if row_grammar else ref("selected_plan", 0))[
+            "path"
+        ]
+        == document["request"]["owner"]["module"]
     )
-    visited, previous = set(), bodies[-1]["producer"]
-    while previous is not None:
-        _need(previous not in visited)
-        visited.add(previous)
-        previous = ctes[previous]["producer"]
-    _need(visited == set(ctes))
+    if not row_grammar:
+        visited, previous = set(), bodies[-1]["producer"]
+        while previous is not None:
+            _need(previous not in visited)
+            visited.add(previous)
+            previous = ctes[previous]["producer"]
+        _need(visited == set(ctes))
     _need(len(enclosures) == len(expected_ranges))
     for interval, (role, subject, start, end) in zip(
         enclosures, expected_ranges, strict=True
@@ -2137,6 +3298,29 @@ def _decode_fixed_public(document, limits):
             == (role, subject, start, end)
         )
     decoded_arguments(document)
+    if row_grammar:
+        _decode_row_denominators(
+            document,
+            limits,
+            premises,
+            statements,
+            source_positions,
+            description,
+            naming,
+            {
+                "bodies": row_bodies,
+                "scopes": row_scopes,
+                "generated": row_generated,
+                "rules": row_rules,
+                "filters": row_filters,
+                "ports": row_stage_ports,
+                "expressions": seen_expressions,
+                "fixed": fixed,
+                "scalar_nodes": scalar_nodes,
+                "ctes": row_ctes,
+            },
+        )
+        return
     # Independent complete denominators from the parsed bodies and literal tokens.
     original_subjects = {
         "source_realization": [ref("definition", 0)],

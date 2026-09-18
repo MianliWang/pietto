@@ -465,7 +465,7 @@ def verify_emission_generation(value, target, expected):
         if record["public_sha256"] != digest(data):
             raise ValueError("serialized emission transfer identity")
         document = emission.decode_public(data)
-        status = emission.expected_status(record["id"])
+        status = emission.expected_status(record["id"], record["variant"])
         if document["status"] != status:
             raise ValueError("wrong emission outcome")
         if status == "INPUT_REJECTED":
@@ -516,6 +516,11 @@ def verify_emission_generation(value, target, expected):
                     record["id"] == "R_fixed_direct"
                     and record["variant"] in {"table_preserve", "table_bind"}
                 )
+                or (
+                    record["id"] == "T_row_direct"
+                    and record["variant"]
+                    in {"table_preserve", "empty_preserve", "truth_table"}
+                )
                 else "query"
             )
             if document["request"]["owner"] != {
@@ -534,7 +539,16 @@ def verify_emission_generation(value, target, expected):
                     "decimal_mismatch": "PIE-B1002",
                     "timestamp_meaning": "PIE-B1004",
                     "uuid_meaning": "PIE-B1004",
-                    "where_later": "PIE-B1003",
+                    # Slice6 row boundaries: an unadmitted operator or node type
+                    # against an overflowing checked physical result.
+                    "float_arithmetic": "PIE-B1003",
+                    "float_comparison": "PIE-B1003",
+                    "bool_comparison": "PIE-B1003",
+                    "modulo": "PIE-B1003",
+                    "between": "PIE-B1003",
+                    "match_join": "PIE-B1003",
+                    "int_overflow": "PIE-B1002",
+                    "unary_overflow": "PIE-B1002",
                 }[record["variant"]]
             )
             if code not in [b["code"] for b in document["blockers"]]:

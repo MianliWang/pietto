@@ -101,10 +101,29 @@ execution remains assigned to Slices7/10/11.
 
 
 The [Slice5 fixed-value/native contract](spec/phase66-slice5-fixed-values-physical-type-anchors-server-parameter-use-mapping-v1.md)
-sets the current exact A–S19-case/46-public-document denominator:30 VERIFIED,
+set the A–S19-case/46-public-document denominator:30 VERIFIED,
 3 INPUT_REJECTED and13 BLOCKED per target. Private receipts require v2 native
 prepare/execute/session/argument/terminal/close-send evidence and exact harness inputs;
 historical v1 is not new transport proof. MySQL query submissions use pinned low-level
 native methods, including zero parameters. Fixed BEGIN/rollback and identified manager
 operations retain their ordinary purpose. A native failure never falls back to a cursor.
 Part A focused prerequisite and final whole-candidate target manifests are separate.
+
+
+The [Slice6 row stage contract](spec/phase66-slice6-row-scalar-let-where-on-context-emission-v1.md)
+emits one generated SELECT per actual original stage block: ordered LET bodies, a
+TRUE-only filter body and the final projection, with explicit pass-through columns and
+`p{index}` / `s{n}` / `t{n}` / `c{i}` naming. Admitted row values are field and LET
+references, existing literals and parameters, unary signs, signed-Int `+` `-` `*`,
+approved same-logical-type comparisons, `is null`/`is not null` and Boolean `and`/`or`.
+Scalar Bool stays three-valued and only a predicate root consumes TRUE. A finite
+emission-local interval is checked at every node against the actually selected physical
+type, so an overflowing intermediate is rejected even when the final result fits. The
+old single-projection shapes keep byte-identical SQL. The current exact denominator is
+T–V22 cases and61 public documents per target:39 VERIFIED,3 INPUT_REJECTED,19 BLOCKED.
+`L_emission_blocked/where_later` and `O_named_later/producer_filter` migrate from the
+not-yet-implemented WHERE blocker to independently checked successful queries, and
+`T_row_direct/truth_table` witnesses all nine ordered three-valued AND/OR pairs on both
+fixed targets. A focused run of one or more cases uses repeated `--case` arguments and
+its receipt records `full_manifest: false`; only a complete manifest is acceptance
+evidence. Whole JOIN construction and execution remain BLOCKED for Slice7.

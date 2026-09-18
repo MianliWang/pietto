@@ -165,3 +165,31 @@ def projection_sources(plan):
         if projection.source_port in sources:
             sources[projection.export] = sources[projection.source_port]
     return sources
+
+
+def stage_origins(plan):
+    """Map each stage port to the input port it carries unmodified, when it does."""
+    inputs = {port.ref: port for port in plan.input_ports}
+    origins = {}
+    for port in plan.stage_ports:
+        source = port.source
+        if source in inputs:
+            origins[port.ref] = inputs[source]
+        elif source in origins:
+            origins[port.ref] = origins[source]
+    return origins
+
+
+def reference_source_ports(plan):
+    """Source port each reference expression reads, following retained stage links."""
+    sources = projection_sources(plan)
+    origins = stage_origins(plan)
+    result = {}
+    for expression in plan.expressions:
+        port = origins.get(getattr(expression, "port", None))
+        if port is None or port.producer_port is None:
+            continue
+        source_port = sources.get(port.producer_port)
+        if source_port is not None:
+            result[expression.ref] = (expression, source_port)
+    return result

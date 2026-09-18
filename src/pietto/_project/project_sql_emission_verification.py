@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import math
 import re
+from typing import Any
 
 from pietto._project import project_sql_plan as plans
 from pietto._project.project_query_block_ir import ProjectIRReusedEffectiveOutput
@@ -21,6 +22,16 @@ from pietto._project.project_sql_plan_target_assessment import (
 from pietto._project.project_sql_emission_contract import PreparedEmission
 from pietto._project.project_sql_emission_scopes import verify_emission_layout
 from pietto._project.project_sql_emission_ast import (
+    RowScan,
+    RowNamedUse,
+    RowStageUse,
+    RowCarryColumn,
+    RowValueColumn,
+    SQLRowQuery,
+    node_premises,
+    row_parameter_leaves,
+    admitted_row_shape,
+    definition_blocks,
     SQLSelect,
     SQLScan,
     SQLColumn,
@@ -37,7 +48,13 @@ from pietto._project.project_sql_emission_ast import (
     emission_blockers,
 )
 from pietto._project import project_sql_emission_parameters as parameters
-from pietto._project.project_sql_emission_rendering import RenderedSQL, RenderingEvent
+from pietto._project import project_sql_emission_rows as rows
+from pietto._project.project_sql_emission_rendering import (
+    OPERATORS,
+    RenderedSQL,
+    RenderingEvent,
+    operator_token,
+)
 
 __all__: tuple[str, ...] = ()
 
@@ -514,7 +531,7 @@ def _verify_value(request, value, original, expressions_seen, nodes):
         or not any(leaf.site is site for site in plan.literal_sites)
         or leaf.site.position.expression is not original.ref
         or leaf.site.position.literal is not original.expression
-        or leaf.site.position.role.value != "select"
+        or leaf.site.position.role.value not in {"select", "let", "where"}
     ):
         return False
     expressions_seen.append(original)
@@ -959,22 +976,46 @@ def verify_project_sql_emission(artifact, request):
 
     issues = []
     try:
+        rows_query = type(artifact) is EmissionArtifact and (
+            type(artifact.ast) is SQLRowQuery
+        )
         if (
             type(artifact) is not EmissionArtifact
             or artifact.request is not request
-            or not verify_sql_ast(request, artifact.ast)
+            or not (
+                verify_row_query(request, artifact.ast)
+                if rows_query
+                else verify_sql_ast(request, artifact.ast)
+            )
         ):
             issues.append("plan_ast_correspondence")
-        if not verify_sql_bytes(artifact.ast, artifact.rendered):
+        if not (
+            verify_row_bytes(artifact.ast, artifact.rendered)
+            if rows_query
+            else verify_sql_bytes(artifact.ast, artifact.rendered)
+        ):
             issues.append("sql_bytes_or_ranges")
-        if not verify_requirements(
-            request,
-            artifact.ast,
-            artifact.original_requirements,
-            artifact.generated_requirements,
+        if not (
+            verify_row_requirements(
+                request,
+                artifact.ast,
+                artifact.original_requirements,
+                artifact.generated_requirements,
+            )
+            if rows_query
+            else verify_requirements(
+                request,
+                artifact.ast,
+                artifact.original_requirements,
+                artifact.generated_requirements,
+            )
         ):
             issues.append("requirement_denominators")
-        if not verify_parameters(artifact):
+        if not (
+            verify_row_parameters(artifact)
+            if rows_query
+            else verify_parameters(artifact)
+        ):
             issues.append("fixed_value_or_parameter_correspondence")
         # Accepted bytes are retained, not reopened; semantic target changes
         # invalidate this product even when a query's spelling is unchanged.
@@ -998,6 +1039,971 @@ def verify_parameters(artifact):
         for node in parameters.value_nodes(column.value)
         if type(node) is parameters.SQLParameter
     ]
+    tokens = [event for event in artifact.rendered.events if event.kind == "parameter"]
+    if (
+        type(artifact.parameter_uses) is not tuple
+        or len(artifact.parameter_uses) != len(leaves)
+        or len(tokens) != len(leaves)
+        or len(leaves) > resource_limits(artifact.request)["parameters"]
+    ):
+        return False
+    seen = {}
+    for ordinal, (use, leaf, token) in enumerate(
+        zip(artifact.parameter_uses, leaves, tokens, strict=True)
+    ):
+        slot = leaf.original.use.slot
+        if slot not in seen:
+            seen[slot] = (len(seen) + 1, use.physical_type)
+        index, physical = seen[slot]
+        if (
+            type(use) is not parameters.NativeUse
+            or use is not leaf.use
+            or use.original is not leaf.original
+            or use.slot is not slot
+            or type(use.ordinal) is not int
+            or use.ordinal != ordinal
+            or type(use.server_index) is not int
+            or use.server_index
+            != (ordinal + 1 if artifact.request.family == "mysql" else index)
+            or use.physical_type != physical
+            or token.subject is not leaf.site.ref
+        ):
+            return False
+    return len(seen) == len(plan.literal_slots) and all(
+        slot in seen for slot in plan.literal_slots
+    )
+
+
+def _operand_children(plan):
+    """Independent child order from the retained operand links, not node fields."""
+    children: dict[object, list[tuple[int, object]]] = {}
+    for operand in plan.operands:
+        children.setdefault(operand.parent, []).append(
+            (operand.position, operand.child)
+        )
+    result = {}
+    for parent, items in children.items():
+        ordered = sorted(items)
+        if [position for position, _ in ordered] != list(range(len(ordered))):
+            raise ValueError("operand positions")
+        result[parent] = tuple(child for _, child in ordered)
+    return result
+
+
+def _row_realization(request, expression, operands):
+    """Recompute one node's checked tag, storage, NULL posture and exact interval."""
+    family = request.family
+    tag, nullable = rows.value_tag(expression), rows.value_nullable(expression)
+    if tag is None or nullable is None:
+        raise ValueError("logical type evidence")
+    if type(expression) is row.ProjectSQLIsNull:
+        if tag != "Bool" or nullable is not False:
+            raise ValueError("null test result")
+        return rows.Realization(
+            "Bool", {"kind": rows.BOOL_RESULT[family]}, nullable, {"kind": "bool01"}
+        )
+    if type(expression) is row.ProjectSQLComparison:
+        left, right = operands
+        if (
+            expression.expression.operator not in rows.COMPARISONS
+            or tag != "Bool"
+            or left.tag not in rows.COMPARABLE
+            or left.tag != right.tag
+        ):
+            raise ValueError("comparison domain")
+        if left.tag == "Text" and tuple(
+            left.domain.get(k) for k in ("encoding", "collation", "padding")
+        ) != tuple(right.domain.get(k) for k in ("encoding", "collation", "padding")):
+            raise ValueError("text comparison domain")
+        if left.tag == "Decimal" and (
+            left.storage != right.storage
+            or tuple(left.domain.get(k) for k in ("precision", "scale"))
+            != tuple(right.domain.get(k) for k in ("precision", "scale"))
+        ):
+            raise ValueError("decimal comparison parameters")
+        return rows.Realization(
+            "Bool", {"kind": rows.BOOL_RESULT[family]}, nullable, {"kind": "bool01"}
+        )
+    operator = expression.expression.operator
+    if type(expression) is row.ProjectSQLBinary and operator in rows.LOGICAL:
+        if tag != "Bool" or any(
+            item.tag != "Bool" or item.domain.get("kind") != "bool01"
+            for item in operands
+        ):
+            raise ValueError("logical domain")
+        return rows.Realization(
+            "Bool", {"kind": rows.BOOL_RESULT[family]}, nullable, {"kind": "bool01"}
+        )
+    if tag != "Int" or any(item.tag != "Int" for item in operands):
+        raise ValueError("arithmetic domain")
+    bounds = []
+    for item in operands:
+        interval = rows.int_bounds(item)
+        if interval is None:
+            raise ValueError("int range evidence")
+        bounds.append(interval)
+    if type(expression) is row.ProjectSQLUnary:
+        if operator not in {"+", "-"}:
+            raise ValueError("unary operator")
+        low, high = (-bounds[0][1], -bounds[0][0]) if operator == "-" else bounds[0]
+        storage = rows._arithmetic_storage(family, operands[0], operands[0])
+    else:
+        if operator not in rows.ARITHMETIC:
+            raise ValueError("arithmetic operator")
+        if operator == "+":
+            low, high = bounds[0][0] + bounds[1][0], bounds[0][1] + bounds[1][1]
+        elif operator == "-":
+            low, high = bounds[0][0] - bounds[1][1], bounds[0][1] - bounds[1][0]
+        else:
+            products = [a * b for a in bounds[0] for b in bounds[1]]
+            low, high = min(products), max(products)
+        storage = rows._arithmetic_storage(family, operands[0], operands[1])
+    if storage is None:
+        raise ValueError("integer result has no physical type")
+    limits = rows.signed_range(storage)
+    if limits is None or low < limits[0] or high > limits[1]:
+        raise ValueError("integer result outside its physical range")
+    return rows.Realization(
+        "Int",
+        storage,
+        nullable,
+        {"kind": "int_range", "min": str(low), "max": str(high)},
+    )
+
+
+def _same_read(actual, expected):
+    """Independent field-by-field image of one scan column; identity is not reused."""
+    return (
+        type(actual) is rows.StageColumn
+        and type(expected) is rows.StageColumn
+        and (actual.position, actual.name) == (expected.position, expected.name)
+        and actual.terminal is expected.terminal
+        and actual.field is expected.field
+        and actual.source_port is expected.source_port
+        and actual.literal is expected.literal
+        and _same_realization(actual.realization, expected.realization)
+    )
+
+
+def _same_realization(actual, expected):
+    return (
+        type(actual) is rows.Realization
+        and (actual.tag, actual.nullable) == (expected.tag, expected.nullable)
+        and actual.storage == expected.storage
+        and actual.domain == expected.domain
+    )
+
+
+def _verify_row_value(request, value, reference, columns, children, state):
+    """Walk the supplied tree against retained operand links and stage ports."""
+    plan = request.plan
+    expression = plan.expressions[reference.position]
+    if expression.ref is not reference:
+        raise ValueError("expression identity")
+    if type(value) is rows.SQLStageReference:
+        if (
+            type(expression) is not row.ProjectSQLReference
+            or value.original is not expression
+            or value.port is not expression.port
+            or reference in children
+        ):
+            raise ValueError("reference node")
+        column = columns.get(expression.port)
+        if column is None or not _same_read(value.column, column):
+            raise ValueError("reference stage column")
+        tag, nullable = rows.value_tag(expression), rows.value_nullable(expression)
+        if (column.realization.tag, column.realization.nullable) != (tag, nullable):
+            raise ValueError("reference type or NULL drift")
+        if not _same_realization(value.realization, column.realization):
+            raise ValueError("reference realization")
+        state["expressions"].append(expression)
+        state["nodes"] += 1
+        return value.realization
+    if type(value) is not rows.SQLOperation:
+        if not _verify_value(
+            request, value, expression, state["expressions"], state["value_nodes"]
+        ):
+            raise ValueError("constant chain")
+        state["nodes"] += len(parameters.value_nodes(value))
+        return rows.constant_realization(value, request.family)
+    if value.original is not expression:
+        raise ValueError("operation identity")
+    expected_kind = {
+        row.ProjectSQLUnary: "sign",
+        row.ProjectSQLIsNull: "null_test",
+        row.ProjectSQLComparison: "comparison",
+    }.get(type(expression))
+    if expected_kind is None:
+        if type(expression) is not row.ProjectSQLBinary:
+            raise ValueError("operator node")
+        expected_kind = (
+            "logical"
+            if expression.expression.operator in rows.LOGICAL
+            else "arithmetic"
+        )
+    if value.kind != expected_kind:
+        raise ValueError("operator kind")
+    links = children.get(reference, ())
+    if len(links) != len(value.operands):
+        raise ValueError("operand denominator")
+    state["expressions"].append(expression)
+    state["nodes"] += 1
+    operands = []
+    for link, operand in zip(links, value.operands, strict=True):
+        if rows.root_expression(operand).ref is not link:
+            raise ValueError("operand order")
+        operands.append(
+            _verify_row_value(request, operand, link, columns, children, state)
+        )
+    expected = _row_realization(request, expression, tuple(operands))
+    if not _same_realization(value.realization, expected):
+        raise ValueError("operator realization")
+    return value.realization
+
+
+def verify_row_query(request, query):
+    """Independent stage schedule, scope, column and expression correspondence."""
+    try:
+        plan = request.plan
+        if (
+            not prepared_current(request)
+            or type(query) is not SQLRowQuery
+            or query.request is not request
+            or not admitted_row_shape(plan)
+            or projection_chain_shape(plan)
+            or emission_blockers(request)
+        ):
+            return False
+        children = _operand_children(plan)
+        lets = {value.site.block: value for value in plan.let_values}
+        filters = {item.site.block: item for item in plan.filters}
+        projections: dict[object, list[object]] = {}
+        for projection in plan.projections:
+            projections.setdefault(projection.block, []).append(projection)
+        uses_by_consumer = {u.consumer.original.ref: u for u in request.layout.uses}
+        source_refs = {source.ref: source for source in plan.sources}
+        expected = []
+        for definition, blocks in definition_blocks(request):
+            for index, block in enumerate(blocks):
+                expected.append((definition, block, index))
+        if len(expected) != len(query.bodies):
+            return False
+        state = {"expressions": [], "value_nodes": [], "nodes": 0}
+        symbols = []
+        produced: dict[object, object] = {}
+        columns_by_body = {}
+        for position, ((definition, block, index), body) in enumerate(
+            zip(expected, query.bodies, strict=True)
+        ):
+            if (
+                type(body.scan) not in {RowScan, RowNamedUse, RowStageUse}
+                or body.definition is not definition
+                or body.block is not block
+                or body.index != index
+                or body.final != (position == len(query.bodies) - 1)
+                or body.final
+                != (
+                    block.kind.value == "projection"
+                    and definition.original.entry.owner is plan.scope.selected_owner
+                )
+            ):
+                return False
+            binding = uses_by_consumer[definition.original.ref]
+            scan = body.scan
+            if index == 0:
+                use = binding.original
+                if (
+                    scan.symbol.name != f"s{use.ref.position}"
+                    or scan.symbol.binding is not use.ref
+                ):
+                    return False
+                if use.producer in source_refs:
+                    if (
+                        type(scan) is not RowScan
+                        or scan.source is not source_refs[use.producer]
+                        or scan.binding is not binding
+                        or scan.use is not use
+                        or not any(scan.realization is s for s in request.sources)
+                        or scan.realization.owner is not scan.source.source.owner
+                    ):
+                        return False
+                elif (
+                    type(scan) is not RowNamedUse
+                    or scan.binding is not binding
+                    or scan.use is not use
+                    or scan.body is not produced.get(use.producer)
+                ):
+                    return False
+            elif (
+                type(scan) is not RowStageUse
+                or scan.block is not block
+                or scan.body is not query.bodies[position - 1]
+                or scan.body.definition is not definition
+                or scan.symbol.binding is not block.ref
+                or scan.symbol.name != f"t{block.ref.position}"
+            ):
+                return False
+            symbols.append(scan.symbol)
+            stage_ports = {port.ref: port for port in plan.stage_ports}
+            for slot, reference in enumerate(block.inputs):
+                port = stage_ports.get(reference)
+                if port is None or port.block is not block.ref:
+                    return False
+                if index == 0:
+                    if port.source is not binding.bindings[slot].input_port.ref:
+                        return False
+                elif port.source is not query.bodies[position - 1].block.exports[slot]:
+                    return False
+            columns = dict(
+                zip(block.inputs, _row_reads(request, scan, block), strict=True)
+            )
+            if any(column is None for column in columns.values()):
+                return False
+            columns_by_body[position] = columns
+            kind = block.kind.value
+            carries = 0 if kind == "projection" else len(block.inputs)
+            items: tuple[Any, ...] = (
+                tuple(projections.get(block.ref, ()))
+                if kind == "projection"
+                else ((lets[block.ref],) if kind == "let" else ())
+            )
+            if len(body.columns) != carries + len(items):
+                return False
+            block_exports: tuple[Any, ...] = ()
+            if kind != "projection":
+                resolved_exports = [stage_ports.get(ref) for ref in block.exports]
+                if any(port is None for port in resolved_exports):
+                    return False
+                block_exports = tuple(resolved_exports)
+            terminals: tuple[Any, ...] = (
+                definition.original.exports if kind == "projection" else block_exports
+            )
+            if body.terminals != (
+                definition.terminals if kind == "projection" else block_exports
+            ):
+                return False
+            for ordinal, column in enumerate(body.columns):
+                export = terminals[ordinal]
+                label = export.identity.name if body.final else f"c{ordinal}"
+                if (
+                    column.ordinal != ordinal
+                    or column.export is not export
+                    or column.label != label
+                    or column.symbol.position != ordinal + 1
+                    or column.symbol.binding is not export.ref
+                    or column.symbol.name != label
+                    or not identifier_valid(label, request.family, label=body.final)
+                ):
+                    return False
+                symbols.append(column.symbol)
+                if ordinal < carries:
+                    if (
+                        type(column) is not RowCarryColumn
+                        or column.input_port is not block.inputs[ordinal]
+                        or not _same_read(column.read, columns[block.inputs[ordinal]])
+                        or export.source is not block.inputs[ordinal]
+                        or not identifier_valid(column.read.name, request.family)
+                    ):
+                        return False
+                    continue
+                item = items[ordinal - carries]
+                if (
+                    type(column) is not RowValueColumn
+                    or column.site is not item.site
+                    or column.expression is not item.expression
+                    or (
+                        column.projection is not item
+                        if kind == "projection"
+                        else column.projection is not None
+                    )
+                ):
+                    return False
+                if kind == "let" and export.source is not item.expression:
+                    return False
+                _verify_row_value(
+                    request,
+                    column.value,
+                    item.expression,
+                    columns,
+                    children,
+                    state,
+                )
+                state["nodes"] += 1
+            if body.predicate is not None:
+                if kind != "where":
+                    return False
+                item = filters[block.ref]
+                if (
+                    body.predicate.original is not item
+                    or body.predicate.expression is not item.predicate
+                ):
+                    return False
+                realization = _verify_row_value(
+                    request,
+                    body.predicate.value,
+                    item.predicate,
+                    columns,
+                    children,
+                    state,
+                )
+                if realization.tag != "Bool" or tuple(
+                    (effect.truth.value, effect.retain_row)
+                    for effect in item.retention_effects
+                ) != (("true", True), ("false", False), ("unknown", False)):
+                    return False
+            elif kind == "where":
+                return False
+            if body.final:
+                if body.symbol is not None or body.cte_columns != ():
+                    return False
+            else:
+                if (
+                    body.symbol is None
+                    or body.symbol.position != position
+                    or body.symbol.binding is not block.ref
+                    or body.symbol.name != f"p{position}"
+                    or len(body.cte_columns) != len(body.terminals)
+                ):
+                    return False
+                for i, (symbol, terminal) in enumerate(
+                    zip(body.cte_columns, body.terminals, strict=True)
+                ):
+                    if (
+                        symbol.position != i
+                        or symbol.binding is not terminal.ref
+                        or symbol.name != f"c{i}"
+                    ):
+                        return False
+                symbols.extend((body.symbol, *body.cte_columns))
+            if kind == "projection":
+                produced[definition.original.ref] = body
+        if (
+            len({id(s) for s in symbols}) != len(symbols)
+            or len(state["expressions"]) != len(plan.expressions)
+            or {id(e) for e in state["expressions"]}
+            != {id(e) for e in plan.expressions}
+            or request.verification.envelope is not plan.fixed_envelope
+            or request.verification.literal_policy is not plan.literal_policy
+        ):
+            return False
+        limits = resource_limits(request)
+        nodes = (
+            state["nodes"]
+            + 3 * len(query.bodies)
+            + 2 * sum(len(b.columns) for b in query.bodies)
+            + sum(2 + len(b.columns) for b in query.bodies[:-1])
+        )
+        return nodes == query.nodes and nodes <= limits["nodes"]
+    except (AttributeError, TypeError, ValueError, IndexError, KeyError):
+        return False
+
+
+def _row_reads(request, scan, block):
+    """Independently rebuild each scan column; the builder's own walk is not reused."""
+    reads = []
+    for position in range(len(block.inputs)):
+        if type(scan) is RowScan:
+            link = scan.binding.bindings[position]
+            matches = tuple(
+                field
+                for field in scan.realization.fields
+                if field.field is link.canonical.field
+            )
+            if len(matches) != 1 or link.terminal is not link.canonical:
+                return [None]
+            realization = rows.field_realization(matches[0])
+            if realization is None:
+                return [None]
+            reads.append(
+                rows.StageColumn(
+                    position,
+                    matches[0].column,
+                    link.canonical.ref,
+                    realization,
+                    field=matches[0],
+                    source_port=link.canonical.ref,
+                )
+            )
+            continue
+        if type(scan) is RowNamedUse:
+            column = scan.body.columns[position].column
+            if column.terminal is not scan.binding.bindings[position].terminal.ref:
+                return [None]
+            reads.append(replace(column, position=position, name=f"c{position}"))
+            continue
+        assert type(scan) is RowStageUse
+        reads.append(
+            replace(
+                scan.body.columns[position].column,
+                position=position,
+                name=f"c{position}",
+            )
+        )
+    return reads
+
+
+def verify_row_bytes(query, rendered):
+    """Independently re-derive every token, range and enclosing expression span."""
+    try:
+        request = query.request
+        if (
+            type(rendered) is not RenderedSQL
+            or rendered.ast is not query
+            or type(rendered.sql) is not bytes
+            or type(rendered.events) is not tuple
+            or type(rendered.expression_ranges) is not tuple
+        ):
+            return False
+        data = rendered.sql
+        data.decode("utf-8")
+        if len(data) > resource_limits(request)["sql_bytes"]:
+            return False
+        events = iter(rendered.events)
+        subjects = request.source_map.source_map.indexes.subjects
+        quote = '"' if request.family == "postgres" else "`"
+        spans = []
+        offset = 0
+
+        def take(kind, role, subject, expected, *, identifier=False):
+            nonlocal offset
+            event = next(events)
+            if (
+                type(event) is not RenderingEvent
+                or (event.kind, event.role) != (kind, role)
+                or event.subject is not subject
+                or type(event.start) is not int
+                or type(event.end) is not int
+                or event.start != offset
+                or not event.start < event.end <= len(data)
+                or not _same(
+                    event.origins, getattr(subjects.get(subject), "origins", ())
+                )
+            ):
+                raise ValueError("token range or ownership")
+            token = data[event.start : event.end].decode("utf-8")
+            if identifier:
+                if not token.startswith(quote) or not token.endswith(quote):
+                    raise ValueError("quoting")
+                inner, index, decoded = token[1:-1], 0, []
+                while index < len(inner):
+                    char = inner[index]
+                    if char == quote:
+                        if index + 1 >= len(inner) or inner[index + 1] != quote:
+                            raise ValueError("undoubled identifier quote")
+                        index += 1
+                    decoded.append(char)
+                    index += 1
+                if "".join(decoded) != expected:
+                    raise ValueError("identifier binding")
+            elif token != expected:
+                raise ValueError("SQL token")
+            offset = event.end
+            return event
+
+        def scalar(value, alias):
+            start = offset
+            if type(value) is rows.SQLStageReference:
+                reference = value.original.ref
+                take("identifier", "value_scope", value.port, alias, identifier=True)
+                take("syntax", "value_qualifier", reference, ".")
+                take(
+                    "identifier",
+                    "value_column",
+                    value.column.terminal,
+                    value.column.name,
+                    identifier=True,
+                )
+                spans.append(("reference", reference, start, offset))
+                return
+            if type(value) is not rows.SQLOperation:
+                constant(value)
+                return
+            reference = value.original.ref
+            if value.kind == "sign":
+                operator = value.original.expression.operator
+                if operator not in {"+", "-"}:
+                    raise ValueError("unary operator")
+                take("syntax", "unary_open", reference, "(" + operator)
+                scalar(value.operands[0], alias)
+                take("syntax", "unary_close", reference, ")")
+                spans.append(("unary", reference, start, offset))
+                return
+            if value.kind == "null_test":
+                take("syntax", "is_null_open", reference, "(")
+                scalar(value.operands[0], alias)
+                take(
+                    "syntax",
+                    "is_null_test",
+                    reference,
+                    " IS NOT NULL" if value.original.expression.negated else " IS NULL",
+                )
+                take("syntax", "is_null_close", reference, ")")
+                spans.append(("is_null", reference, start, offset))
+                return
+            opening, operator, closing, role = OPERATORS[value.kind]
+            take("syntax", opening, reference, "(")
+            scalar(value.operands[0], alias)
+            take("syntax", operator, reference, operator_token(value))
+            scalar(value.operands[1], alias)
+            take("syntax", closing, reference, ")")
+            spans.append((role, reference, start, offset))
+
+        def constant(value):
+            nodes = parameters.value_nodes(value)
+            opened = []
+            for node in nodes[:-1]:
+                opened.append((node, offset))
+                if type(node) is parameters.SQLUnary:
+                    take(
+                        "syntax",
+                        "unary_open",
+                        node.original.ref,
+                        "(" + node.original.expression.operator,
+                    )
+                else:
+                    take("syntax", "anchor_open", node.original.ref, "CAST(")
+            leaf = nodes[-1]
+            tag = parameters.tag_of(leaf.original)
+            if type(leaf) is parameters.SQLParameter:
+                take(
+                    "parameter",
+                    tag,
+                    leaf.site.ref,
+                    "$" + str(leaf.use.server_index)
+                    if request.family == "postgres"
+                    else "?",
+                )
+            else:
+                take(
+                    "literal",
+                    tag,
+                    leaf.site.ref,
+                    parameters.literal_token(leaf, request.family),
+                )
+            for node, start in reversed(opened):
+                unary = type(node) is parameters.SQLUnary
+                take(
+                    "syntax",
+                    "unary_close" if unary else "anchor_close",
+                    node.original.ref,
+                    ")" if unary else parameters.anchor_suffix(node.physical_type),
+                )
+                spans.append(
+                    ("unary" if unary else "anchor", node.original.ref, start, offset)
+                )
+
+        def select(body):
+            scan = body.scan
+            alias = scan.symbol.name
+            take("syntax", "select", body.block.ref, "SELECT ")
+            for position, column in enumerate(body.columns):
+                if position:
+                    take("syntax", "separator", column.export.ref, ", ")
+                if type(column) is RowCarryColumn:
+                    take(
+                        "identifier",
+                        "carry_scope",
+                        column.input_port,
+                        alias,
+                        identifier=True,
+                    )
+                    take("syntax", "carry_qualifier", column.export.ref, ".")
+                    take(
+                        "identifier",
+                        "carry_column",
+                        column.read.terminal,
+                        column.read.name,
+                        identifier=True,
+                    )
+                else:
+                    scalar(column.value, alias)
+                take("syntax", "alias", column.export.ref, " AS ")
+                take(
+                    "identifier",
+                    "label",
+                    column.export.ref,
+                    column.label,
+                    identifier=True,
+                )
+            if type(scan) is RowScan:
+                take("syntax", "from", scan.source.ref, " FROM ")
+                take(
+                    "identifier",
+                    "namespace",
+                    scan.source.ref,
+                    scan.realization.namespace,
+                    identifier=True,
+                )
+                take("syntax", "qualifier", scan.source.ref, ".")
+                take(
+                    "identifier",
+                    "relation",
+                    scan.source.ref,
+                    scan.realization.name,
+                    identifier=True,
+                )
+                take("syntax", "alias", scan.use.ref, " AS ")
+                take(
+                    "identifier", "relation_scope", scan.use.ref, alias, identifier=True
+                )
+            elif type(scan) is RowNamedUse:
+                reference = scan.body.block.ref
+                take("syntax", "from", reference, " FROM ")
+                take(
+                    "identifier",
+                    "cte_reference",
+                    reference,
+                    scan.body.symbol.name,
+                    identifier=True,
+                )
+                take("syntax", "alias", scan.use.ref, " AS ")
+                take(
+                    "identifier", "relation_scope", scan.use.ref, alias, identifier=True
+                )
+            else:
+                if type(scan) is not RowStageUse:
+                    raise ValueError("unknown SQL relation")
+                reference = scan.body.block.ref
+                take("syntax", "from", reference, " FROM ")
+                take(
+                    "identifier",
+                    "stage_reference",
+                    reference,
+                    scan.body.symbol.name,
+                    identifier=True,
+                )
+                take("syntax", "alias", scan.block.ref, " AS ")
+                take(
+                    "identifier", "stage_scope", scan.block.ref, alias, identifier=True
+                )
+            if body.predicate is not None:
+                take("syntax", "where", body.predicate.original.ref, " WHERE ")
+                scalar(body.predicate.value, alias)
+
+        if len(query.bodies) > 1:
+            take("syntax", "with", request.plan.scope, "WITH ")
+            for index, body in enumerate(query.bodies[:-1]):
+                reference = body.block.ref
+                if index:
+                    take("syntax", "cte_separator", reference, ", ")
+                take(
+                    "identifier",
+                    "cte_name",
+                    reference,
+                    body.symbol.name,
+                    identifier=True,
+                )
+                take("syntax", "cte_columns_open", reference, " (")
+                for position, symbol in enumerate(body.cte_columns):
+                    if position:
+                        take("syntax", "terminal_separator", symbol.binding, ", ")
+                    take(
+                        "identifier",
+                        "terminal_column",
+                        symbol.binding,
+                        symbol.name,
+                        identifier=True,
+                    )
+                take("syntax", "cte_body_open", reference, ") AS (")
+                select(body)
+                take("syntax", "cte_body_close", reference, ")")
+            take("syntax", "with_body", query.bodies[-1].block.ref, " ")
+        select(query.bodies[-1])
+        if (
+            next(events, None) is not None
+            or offset != len(data)
+            or len(rendered.expression_ranges) != len(spans)
+        ):
+            return False
+        for event, (role, subject, start, end) in zip(
+            rendered.expression_ranges, spans, strict=True
+        ):
+            if (
+                type(event) is not RenderingEvent
+                or event.kind != "expression_range"
+                or event.role != role
+                or event.subject is not subject
+                or (event.start, event.end) != (start, end)
+                or not _same(
+                    event.origins, getattr(subjects.get(subject), "origins", ())
+                )
+            ):
+                return False
+        return True
+    except (
+        AttributeError,
+        TypeError,
+        ValueError,
+        IndexError,
+        KeyError,
+        StopIteration,
+        UnicodeError,
+    ):
+        return False
+
+
+def verify_row_requirements(request, query, original, generated):
+    """Rebuild both denominators from the actual bodies, nodes and premise domains."""
+    plan = request.plan
+    entries = request.report.report.entries
+    generated_scopes = len(query.bodies) > 1
+    if (
+        type(original) is not tuple
+        or len(original) != len(plan.demands)
+        or len(entries) != len(plan.demands)
+    ):
+        return False
+    for item, entry, demand in zip(original, entries, plan.demands, strict=True):
+        rule = rows.demand_rule(plan, entry)
+        if rule is None:
+            rule = (
+                "R04"
+                if entry.family.value == "fixed_literal_transport"
+                or (
+                    entry.family.value == "expression"
+                    and type(plan.expressions[entry.subject.position])
+                    is not row.ProjectSQLReference
+                )
+                else "R03"
+                if generated_scopes and entry.family.value == "scope"
+                else "R01"
+                if entry.family.value in {"source_realization", "expression", "scope"}
+                else "R02"
+            )
+        if (
+            type(item) is not OriginalRequirement
+            or item.entry is not entry
+            or entry.demand is not demand
+            or item.rule != rule
+        ):
+            return False
+    if type(generated) is not tuple:
+        return False
+    naming = tuple(
+        p
+        for p in request.premises
+        if p.key == "identifier_case" and p.scope == "statement"
+    )
+    expected = []
+
+    def node_expectations(value):
+        for node in rows.value_nodes(value):
+            if type(node) in {rows.SQLStageReference, rows.SQLOperation}:
+                kind = rows.requirement_kind(node)
+                operands = (
+                    ()
+                    if type(node) is rows.SQLStageReference
+                    else tuple(
+                        rows.realization_of(o, request.family) for o in node.operands
+                    )
+                )
+                expected.append(
+                    (
+                        kind,
+                        node.original.ref,
+                        rows.REQUIREMENT_RULES[kind],
+                        node_premises(request, node.realization, operands, kind),
+                    )
+                )
+                continue
+            for leaf in parameters.value_nodes(node):
+                kind = (
+                    "unary"
+                    if type(leaf) is parameters.SQLUnary
+                    else "type_anchor"
+                    if type(leaf) is parameters.SQLAnchor
+                    else "parameter"
+                    if type(leaf) is parameters.SQLParameter
+                    else "literal"
+                )
+                expected.append(
+                    (
+                        kind,
+                        leaf.original.ref,
+                        "R04",
+                        parameters.anchor_premises(
+                            request, kind, parameters.tag_of(leaf.original)
+                        ),
+                    )
+                )
+
+    for body in query.bodies[:-1]:
+        expected.append(("cte_definition", body.block.ref, "R03", naming))
+        for symbol in body.cte_columns:
+            expected.append(("terminal_column", symbol.binding, "R03", naming))
+    for body in query.bodies:
+        scan = body.scan
+        if type(scan) is RowScan:
+            expected.append(
+                (
+                    "qualified_scan",
+                    scan,
+                    "R01",
+                    applicable_premises(request, scan.realization.owner),
+                )
+            )
+            for field in scan.realization.fields:
+                expected.append(
+                    (
+                        "source_representation",
+                        field,
+                        "R02",
+                        applicable_premises(request, scan.realization.owner, field),
+                    )
+                )
+        elif type(scan) is RowNamedUse:
+            expected.append(("named_use", scan.use.ref, "R03", naming))
+            for link in scan.binding.bindings:
+                expected.append(
+                    ("immediate_terminal", link.terminal.ref, "R03", naming)
+                )
+        else:
+            expected.append(("stage_use", scan.block.ref, "R03", naming))
+            for symbol in scan.body.cte_columns:
+                expected.append(("stage_terminal", symbol.binding, "R03", naming))
+        for column in body.columns:
+            if type(column) is RowCarryColumn:
+                expected.append(("carry_projection", column.export.ref, "R05", ()))
+                continue
+            expected.append(("computed_projection", column.export.ref, "R05", ()))
+            node_expectations(column.value)
+        if body.predicate is not None:
+            expected.append(
+                (
+                    "predicate_root",
+                    body.predicate.original.ref,
+                    "R06",
+                    tuple(
+                        p
+                        for p in request.premises
+                        if p.scope == "statement" and p.key == "operator_environment"
+                    ),
+                )
+            )
+            node_expectations(body.predicate.value)
+        expected.append(("read_only_select_bytes", body, "R23", ()))
+    if generated_scopes:
+        expected.append(("nonrecursive_with_bytes", query, "R23", ()))
+    if len(expected) != len(generated):
+        return False
+    for requirement, (kind, subject, rule, premises) in zip(
+        generated, expected, strict=True
+    ):
+        if (
+            type(requirement) is not GeneratedRequirement
+            or requirement.subject is not subject
+            or (requirement.kind, requirement.rule) != (kind, rule)
+            or not _same(requirement.premises, premises)
+        ):
+            return False
+    return True
+
+
+def verify_row_parameters(artifact):
+    plan, query = artifact.request.plan, artifact.ast
+    if not _same(artifact.fixed_values, plan.fixed_envelope.values):
+        return False
+    leaves = row_parameter_leaves(query)
     tokens = [event for event in artifact.rendered.events if event.kind == "parameter"]
     if (
         type(artifact.parameter_uses) is not tuple

@@ -190,6 +190,135 @@ def chain_rows(target, *, empty=False):
     return [[*row, dict(row[1])] for row in emission_rows(target, empty=empty)]
 
 
+# Slice6 implements the retained producer filter of these two inputs. Their source
+# purpose is unchanged; the surviving rows are stated here independently, as the
+# authored table rows whose `id` is strictly positive, never read back from SQL.
+FILTERED_VARIANTS = {
+    ("L_emission_blocked", "where_later"),
+    ("O_named_later", "producer_filter"),
+}
+
+
+def positive_id_rows(rows):
+    return [row for row in rows if int(row[1]["value"]) > 0]
+
+
+def row_result_rows(target, *, empty=False):
+    """Independent three-valued oracle for one Slice6 stage pipeline.
+
+    Columns are record_id, next_id, twice, positive, both, missing, same_text over
+    the authored rows that survive `where id > 0`. `both` is `(id > 0) and flag`,
+    so the row whose flag is NULL keeps an unknown result rather than false, and
+    `missing` is a non-null `flag is null`. Stated here, never read back from SQL.
+    """
+    if empty:
+        return []
+    true = (
+        {"kind": "bool", "value": True}
+        if target == "postgres"
+        else {"kind": "int", "value": "1"}
+    )
+    false = (
+        {"kind": "bool", "value": False}
+        if target == "postgres"
+        else {"kind": "int", "value": "0"}
+    )
+    duplicate = [
+        {"kind": "int", "value": "9007199254740993"},
+        {"kind": "int", "value": "9007199254740994"},
+        {"kind": "int", "value": "18014398509481988"},
+        true,
+        true,
+        false,
+        true,
+    ]
+    return [
+        duplicate,
+        duplicate,
+        [
+            {"kind": "int", "value": "1"},
+            {"kind": "int", "value": "2"},
+            {"kind": "int", "value": "4"},
+            true,
+            {"kind": "null"},
+            true,
+            true,
+        ],
+    ]
+
+
+AND_TABLE = {
+    ("true", "true"): "true",
+    ("true", "false"): "false",
+    ("true", "null"): "null",
+    ("false", "true"): "false",
+    ("false", "false"): "false",
+    ("false", "null"): "false",
+    ("null", "true"): "null",
+    ("null", "false"): "false",
+    ("null", "null"): "null",
+}
+OR_TABLE = {
+    ("true", "true"): "true",
+    ("true", "false"): "true",
+    ("true", "null"): "true",
+    ("false", "true"): "true",
+    ("false", "false"): "false",
+    ("false", "null"): "null",
+    ("null", "true"): "true",
+    ("null", "false"): "null",
+    ("null", "null"): "null",
+}
+# Each output is one (left, right) operand pair; `self` reuses the row's own flag.
+TRUTH_PAIRS = (
+    (AND_TABLE, "self", "true"),
+    (AND_TABLE, "self", "false"),
+    (AND_TABLE, "self", "self"),
+    (AND_TABLE, "true", "self"),
+    (AND_TABLE, "false", "self"),
+    (OR_TABLE, "self", "true"),
+    (OR_TABLE, "self", "false"),
+    (OR_TABLE, "self", "self"),
+    (OR_TABLE, "true", "self"),
+    (OR_TABLE, "false", "self"),
+)
+
+
+def truth_rows(target):
+    """Explicit finite three-valued oracle; never Python `and`/`or` or truthiness."""
+
+    def value(name):
+        if name == "null":
+            return {"kind": "null"}
+        if target == "postgres":
+            return {"kind": "bool", "value": name == "true"}
+        return {"kind": "int", "value": "1" if name == "true" else "0"}
+
+    rows = []
+    for flag in ("true", "true", "false", "null"):
+        rows.append(
+            [
+                value(
+                    table[
+                        (
+                            flag if left == "self" else left,
+                            flag if right == "self" else right,
+                        )
+                    ]
+                )
+                for table, left, right in TRUTH_PAIRS
+            ]
+        )
+    return rows
+
+
+def row_result_metadata(target):
+    """Physical result metadata observed from the fixed targets, not desired tags."""
+    return (
+        [20, 20, 20, 16, 16, 16, 16] if target == "postgres" else [8, 8, 8, 8, 8, 8, 8]
+    )
+
+
 def fixed_rows(target, *, named=False, empty=False):
     """Independent typed oracles, never produced from compiler/public values."""
     if empty:
@@ -292,7 +421,7 @@ def check_emission_case(case, target):
         before, after = variant["submission_before"], variant["submission_after"]
         if type(before) is not int or type(after) is not int or before < 0:
             raise ValueError("submission observation missing")
-        expected_status = emission.expected_status(case["id"])
+        expected_status = emission.expected_status(case["id"], variant["variant"])
         if document["status"] != expected_status or after - before != (
             1 if expected_status == "VERIFIED" else 0
         ):
@@ -348,10 +477,47 @@ def check_emission_case(case, target):
             ]:
                 raise ValueError("native identifier metadata")
             continue
-        named = case["id"] in {"M_named_chain", "N_imported_chain"}
+        if variant["variant"] == "truth_table":
+            expected_rows = truth_rows(target)
+            # BAG multiplicity, not order: this query authors no ordering.
+            if Counter(
+                json.dumps(row, sort_keys=True) for row in observation["rows"]
+            ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
+                raise ValueError("three-valued AND/OR table mismatch")
+            metadata = observation["metadata"]
+            if [m[0] for m in metadata] != list(emission.TRUTH_LABELS) or [
+                m[1] for m in metadata
+            ] != [16 if target == "postgres" else 8] * len(emission.TRUTH_LABELS):
+                raise ValueError("three-valued positional physical metadata mismatch")
+            if [c["logical_type"]["name"] for c in document["columns"]] != [
+                "Bool"
+            ] * len(emission.TRUTH_LABELS):
+                raise ValueError("three-valued positional logical metadata mismatch")
+            continue
+        if case["id"] in {"T_row_direct", "U_row_named"}:
+            expected_rows = row_result_rows(
+                target, empty=variant["variant"].startswith("empty")
+            )
+            if Counter(
+                json.dumps(row, sort_keys=True) for row in observation["rows"]
+            ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
+                raise ValueError("row stage typed BAG mismatch")
+            metadata = observation["metadata"]
+            if [m[0] for m in metadata] != list(emission.ROW_LABELS) or [
+                m[1] for m in metadata
+            ] != row_result_metadata(target):
+                raise ValueError("row stage positional physical metadata mismatch")
+            if [c["logical_type"]["name"] for c in document["columns"]] != list(
+                emission.ROW_LOGICAL
+            ) or [c["label"] for c in document["columns"]] != list(emission.ROW_LABELS):
+                raise ValueError("row stage positional logical metadata mismatch")
+            continue
+        named = case["id"] in {"M_named_chain", "N_imported_chain", "O_named_later"}
         expected_rows = (chain_rows if named else emission_rows)(
             target, empty=variant["variant"] == "empty"
         )
+        if (case["id"], variant["variant"]) in FILTERED_VARIANTS:
+            expected_rows = positive_id_rows(expected_rows)
         if Counter(
             json.dumps(row, sort_keys=True) for row in observation["rows"]
         ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):

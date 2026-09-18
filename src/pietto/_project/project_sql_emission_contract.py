@@ -9,14 +9,13 @@ from typing import Any
 
 from pietto.ast_nodes import DottedNameExpr, NameExpr, SourceDef, TypeDef
 from pietto._project import project_sql_plan as plans
-from pietto._project import project_sql_plan_expressions as row
 from pietto._project import project_sql_plan_target_assessment as targets
 from pietto._project.project_sql_plan_verification import ProjectSQLPlanVerification
 from pietto._project.project_sql_plan_inspection import inspect_project_sql_plan
 from pietto._project.project_sql_emission_scopes import (
     EmissionLayout,
     build_emission_layout,
-    projection_sources,
+    reference_source_ports,
 )
 from pietto._project.model import ProjectResolvedTypeKind
 from pietto._project.project_query_block_ir import ProjectIRReusedEffectiveOutput
@@ -568,23 +567,11 @@ def prepare_project_sql_emission(verification, data, *, target_request=None):
         _error(errors, "sources", "Emission field mapping limit exceeded.")
     site_sources: dict[int, list[object]] = {}
     if view is not None:
-        stages = {p.ref: p for p in view.plan.stage_ports}
-        inputs = {p.ref: p for p in view.plan.input_ports}
-        source_ports = projection_sources(view.plan)
         source_owners = {s.ref: s.source.owner for s in view.plan.sources}
-        for expression in view.plan.expressions:
-            if type(expression) is row.ProjectSQLReference:
-                stage = stages.get(expression.port)
-                port = inputs.get(expression.port if stage is None else stage.source)
-                source_port = (
-                    None
-                    if port is None or port.producer_port is None
-                    else source_ports.get(port.producer_port)
-                )
-                if source_port is not None:
-                    site_sources.setdefault(id(expression.site), []).append(
-                        source_owners[source_port.owner]
-                    )
+        for expression, source_port in reference_source_ports(view.plan).values():
+            site_sources.setdefault(id(expression.site), []).append(
+                source_owners[source_port.owner]
+            )
     premises = []
     for raw, path, enclosing in premise_inputs:
         raw = _object(raw, ("key", "scope", "value"), path, errors)

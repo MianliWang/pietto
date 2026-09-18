@@ -210,8 +210,10 @@ def test_component_zero_one_many_mapping_does_not_claim_query_duplication(
     [
         ("-9223372036854775808", "PIE-B1002"),  # positive leaf cannot fit signed64
         ("9223372036854775808", "PIE-B1002"),
-        ("id + 1", "PIE-B1003"),
-        ("-id", "PIE-B1003"),
+        # Slice6 admits signed-Int +,-,* and field signs, so these boundaries keep
+        # their purpose with an operator and a node type it still does not admit.
+        ("id % 2", "PIE-B1003"),
+        ("id between 0 and 1", "PIE-B1003"),
     ],
 )
 def test_complete_shape_and_representation_boundaries(

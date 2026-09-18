@@ -977,7 +977,11 @@ def valid_receipts(
                 before = submissions
                 document = probe.decode_public(record["public"].encode())
                 if document["status"] == "VERIFIED":
-                    named = case_id in {"M_named_chain", "N_imported_chain"}
+                    named = case_id in {
+                        "M_named_chain",
+                        "N_imported_chain",
+                        "O_named_later",
+                    }
                     types = (
                         [25, 20, 16, 1700, 701]
                         if target == "postgres"
@@ -985,14 +989,32 @@ def valid_receipts(
                     )
                     if named:
                         types.append(20 if target == "postgres" else 8)
+                    rows = (cases.chain_rows if named else cases.emission_rows)(
+                        target, empty=record["variant"] == "empty"
+                    )
+                    if (case_id, record["variant"]) in cases.FILTERED_VARIANTS:
+                        rows = cases.positive_id_rows(rows)
+                    names: list[str] = [
+                        str(label)
+                        for label in (probe.CHAIN_LABELS if named else probe.LABELS)
+                    ]
+                    if case_id in {"T_row_direct", "U_row_named"}:
+                        rows = cases.row_result_rows(
+                            target, empty=record["variant"].startswith("empty")
+                        )
+                        names = [str(label) for label in probe.ROW_LABELS]
+                        types = cases.row_result_metadata(target)
+                    if record["variant"] == "truth_table":
+                        rows = cases.truth_rows(target)
+                        names = [str(label) for label in probe.TRUTH_LABELS]
+                        types = [16 if target == "postgres" else 8] * len(names)
                     observation = _observation(
                         target,
                         document["sql"],
-                        (cases.chain_rows if named else cases.emission_rows)(
-                            target, empty=record["variant"] == "empty"
-                        ),
-                        list(probe.CHAIN_LABELS if named else probe.LABELS),
+                        rows,
+                        names,
                         types,
+                        cases.parameter_records(document),
                     )
                     observation["prepared"] = True
                     observation["cursor_type"] = (
@@ -1436,6 +1458,9 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "Q_native_lifecycle",
         "R_fixed_direct",
         "S_fixed_named",
+        "T_row_direct",
+        "U_row_named",
+        "V_row_blocked",
     )
     assert resources.ENDPOINT == "unix:///var/run/docker.sock"
     assert resources.STARTUP_SECONDS == 120 and resources.MAX_CONNECT_ATTEMPTS == 3

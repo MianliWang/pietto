@@ -17,21 +17,30 @@ from pietto._project.project_sql_emission_contract import (
     prepare_project_sql_emission,
 )
 from pietto._project.project_sql_emission_ast import (
+    RowScan,
     SQLSelect,
     SQLLiteralColumn,
+    SQLRowQuery,
     build_sql_ast,
     build_requirements,
+    build_row_requirements,
     emission_blockers,
+    projection_chain_shape,
+    realize_rows,
     resource_limits,
+    row_parameter_leaves,
 )
 from pietto._project import project_sql_emission_parameters as parameters
+from pietto._project import project_sql_emission_rows as rows
 from pietto._project.project_sql_plan_literals import ProjectSQLFixedLiteralValue
 from pietto._project.project_sql_emission_rendering import (
     RenderedSQL,
     SQLSizeLimit,
+    render_row_sql,
     render_sql,
 )
 from pietto._project.project_sql_emission_verification import (
+    verify_row_query,
     verify_sql_ast,
     verify_project_sql_emission,
 )
@@ -43,7 +52,7 @@ FORMAT = "pietto.sql-emission.v1"
 @dataclass(frozen=True, slots=True, eq=False)
 class EmissionArtifact:
     request: PreparedEmission
-    ast: SQLSelect
+    ast: SQLSelect | SQLRowQuery
     rendered: RenderedSQL
     original_requirements: tuple[Any, ...]
     generated_requirements: tuple[Any, ...]
@@ -89,6 +98,8 @@ def realize_project_sql(request):
     blockers = emission_blockers(request)
     if blockers:
         return EmissionOutcome("BLOCKED", diagnostics, blockers=blockers)
+    if not projection_chain_shape(request.plan):
+        return _realize_row_query(request, diagnostics)
     ast = build_sql_ast(request)
     if not verify_sql_ast(request, ast):
         return EmissionOutcome(
@@ -119,6 +130,58 @@ def realize_project_sql(request):
         generated,
         request.plan.fixed_envelope.values,
         uses,
+    )
+    checked = verify_project_sql_emission(artifact, request)
+    if not checked.verified:
+        return EmissionOutcome(
+            "BLOCKED",
+            diagnostics,
+            blockers=tuple(Blocker("PIE-B1008", issue) for issue in checked.issues),
+        )
+    outcome = EmissionOutcome("VERIFIED", diagnostics, artifact)
+    if (
+        len(canonical(_public_document(outcome))) + 1
+        > resource_limits(request)["artifact_bytes"]
+    ):
+        return EmissionOutcome(
+            "BLOCKED",
+            diagnostics,
+            blockers=(Blocker("PIE-B1007", "public_artifact_byte_limit"),),
+        )
+    return outcome
+
+
+def _realize_row_query(request, diagnostics):
+    realization = realize_rows(request)
+    query = realization.query
+    if query is None:
+        return EmissionOutcome(
+            "BLOCKED",
+            diagnostics,
+            blockers=realization.problems
+            or (Blocker("PIE-B1008", "row_realization_unavailable"),),
+        )
+    if not verify_row_query(request, query):
+        return EmissionOutcome(
+            "BLOCKED",
+            diagnostics,
+            blockers=(Blocker("PIE-B1008", "plan_ast_correspondence"),),
+        )
+    try:
+        rendered = render_row_sql(query)
+    except SQLSizeLimit:
+        return EmissionOutcome(
+            "BLOCKED", diagnostics, blockers=(Blocker("PIE-B1007", "sql_byte_limit"),)
+        )
+    original, generated = build_row_requirements(request, query)
+    artifact = EmissionArtifact(
+        request,
+        query,
+        rendered,
+        original,
+        generated,
+        request.plan.fixed_envelope.values,
+        tuple(leaf.use for leaf in row_parameter_leaves(query)),
     )
     checked = verify_project_sql_emission(artifact, request)
     if not checked.verified:
@@ -184,11 +247,11 @@ def _public_document(outcome):
     artifact = outcome.artifact
     assert artifact is not None
     request, ast = artifact.request, artifact.ast
-    checked = request.verification
-    semantic = checked.completed.semantic_result
-    owner = checked.selected_owner
     source_map = request.source_map.source_map
     slots = {slot: i for i, slot in enumerate(request.plan.literal_slots)}
+    if type(ast) is SQLRowQuery:
+        columns = _row_columns(ast, slots)
+        return _document(outcome, artifact, request, columns, source_map, slots)
     columns = []
     for column in ast.columns:
         if type(column) is SQLLiteralColumn:
@@ -265,6 +328,103 @@ def _public_document(outcome):
                 },
             }
         )
+    return _document(outcome, artifact, request, columns, source_map, slots)
+
+
+def _row_columns(query, slots):
+    """Public output description for one stage pipeline's final SELECT columns."""
+    body = query.bodies[-1]
+    selector = next(
+        json.loads(item.scan.realization.selector)
+        for item in query.bodies
+        if type(item.scan) is RowScan
+    )
+    result = []
+    for column in body.columns:
+        image = column.column
+        realization = image.realization
+        link = column.link
+        correspondence = {
+            "expression": _ref(column.expression),
+            "input_port": None if link is None else _ref(link.input_port.ref),
+            "producer": None
+            if link is None
+            else {
+                "export": _ref(link.canonical.ref),
+                "terminal": _ref(link.terminal.ref),
+            },
+            "export": _ref(column.export.ref),
+            "projection": _ref(column.projection.ref),
+            "sql_symbol": column.symbol.position,
+        }
+        if image.literal is not None:
+            origin = image.literal
+            leaf = parameters.value_nodes(origin.value)[-1]
+            correspondence = {
+                "literal_origin": {
+                    "expression": _ref(origin.value.original.ref),
+                    "leaf": _ref(leaf.original.ref),
+                    "site": _ref(leaf.site.ref),
+                    "slot": slots[leaf.fixed.slot]
+                    if type(leaf) is parameters.SQLParameter
+                    else None,
+                    "export": _ref(origin.export.ref),
+                    "terminal": _ref(origin.terminal.ref),
+                },
+                **correspondence,
+            }
+        else:
+            value = column.value
+            correspondence = {
+                "computed_origin": {
+                    "kind": "reference"
+                    if type(value) is rows.SQLStageReference
+                    else rows.requirement_kind(value),
+                    "expression": _ref(rows.root_expression(value).ref),
+                    "site": _ref(column.site.ref),
+                    "role": column.site.role.value,
+                    "stage": _ref(body.block.ref),
+                    "export": _ref(column.export.ref),
+                    "terminal": _ref(image.terminal),
+                    "operands": [_ref(item) for item in rows.operand_refs(value)],
+                    "source": None if image.field is None else selector,
+                    "field": None if image.field is None else image.field.ordinal,
+                    "source_port": None
+                    if image.source_port is None
+                    else _ref(image.source_port),
+                },
+                **correspondence,
+            }
+        result.append(
+            {
+                "ordinal": column.ordinal,
+                "label": column.label,
+                "logical_type": {
+                    "kind": "builtin",
+                    "name": realization.tag,
+                    "parameters": {
+                        "precision": realization.domain["precision"],
+                        "scale": realization.domain["scale"],
+                    }
+                    if realization.tag == "Decimal"
+                    else None,
+                },
+                "nullable": realization.nullable,
+                "representation": {
+                    "storage": realization.storage,
+                    "nullable": realization.nullable,
+                    "domain": realization.domain,
+                },
+                "correspondence": correspondence,
+            }
+        )
+    return result
+
+
+def _document(outcome, artifact, request, columns, source_map, slots):
+    checked = request.verification
+    semantic = checked.completed.semantic_result
+    owner = checked.selected_owner
     ranges = []
     for event in (*artifact.rendered.events, *artifact.rendered.expression_ranges):
         ranges.append(
@@ -310,7 +470,15 @@ def _public_document(outcome):
         )
     for i, item in enumerate(artifact.generated_requirements):
         evidence = []
-        if item.kind in {"literal", "unary"}:
+        if item.kind in {
+            "literal",
+            "unary",
+            "reference",
+            "arithmetic",
+            "comparison",
+            "logical",
+            "null_test",
+        }:
             expression = request.plan.expressions[item.subject.position]
             if item.kind == "literal":
                 tag = parameters.tag_of(expression)
@@ -320,6 +488,21 @@ def _public_document(outcome):
                         "value": parameters.wire_value(
                             tag, expression.expression.value
                         ),
+                    }
+                ]
+            elif item.kind == "reference":
+                evidence = [
+                    {
+                        "site": _ref(expression.site.ref),
+                        "context": _ref(expression.site.block),
+                    }
+                ]
+            elif item.kind == "null_test":
+                evidence = [
+                    {
+                        "operator": "is not null"
+                        if expression.expression.negated
+                        else "is null"
                     }
                 ]
             else:
@@ -336,7 +519,17 @@ def _public_document(outcome):
                     "terminal_column",
                     "named_use",
                     "immediate_terminal",
+                    "stage_use",
+                    "stage_terminal",
                     "value_projection",
+                    "carry_projection",
+                    "computed_projection",
+                    "predicate_root",
+                    "reference",
+                    "arithmetic",
+                    "comparison",
+                    "null_test",
+                    "logical",
                     "literal",
                     "parameter",
                     "type_anchor",
