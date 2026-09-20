@@ -226,6 +226,7 @@ class FakeResources(resources.Resources):
     def __init__(self, target: str, pin: dict[str, Any], directory: Path):
         super().__init__(target, pin, directory)
         self.container_id, self.network_id = "a" * 64, "b" * 64
+        self.runtime_image_id = pin["platform_digest"]
         self.live = {"container": True, "network": True}
         self.commands: list[tuple[str, ...]] = []
         self.event("network_acquired", id=self.network_id)
@@ -237,7 +238,7 @@ class FakeResources(resources.Resources):
         return {
             "id": reference,
             "name": self.name if kind == "container" else self.network_name,
-            "image": self.pin["config_digest"],
+            "image": self.runtime_image_id,
             "labels": {
                 "pietto.phase66.invocation": "foreign" if self.foreign else self.nonce
             },
@@ -941,6 +942,17 @@ def valid_receipts(
             + pins["targets"][target]["platform_digest"],
         }
         events = [
+            {
+                "event": "image_verified",
+                "reference": pins["targets"][target]["repository"]
+                + "@"
+                + pins["targets"][target]["platform_digest"],
+                "contract": "descriptor",
+                "runtime_image_id": pins["targets"][target]["platform_digest"],
+                "descriptor_digest": pins["targets"][target]["platform_digest"],
+                "os": "linux",
+                "architecture": "amd64",
+            },
             {"event": "network_acquired", "id": "b" * 64},
             {
                 "event": "network_observed",
@@ -955,6 +967,7 @@ def valid_receipts(
             {
                 "event": "container_start_observed",
                 "id": "a" * 64,
+                "image": pins["targets"][target]["platform_digest"],
                 "running": True,
                 "ports": {
                     ("5432/tcp" if target == "postgres" else "3306/tcp"): [
@@ -968,7 +981,7 @@ def valid_receipts(
         ]
         if target == "mysql":
             events.insert(
-                2, {"event": "ca_extracted", "identity": env["transport"]["ca"]}
+                3, {"event": "ca_extracted", "identity": env["transport"]["ca"]}
             )
         submissions = 20
         for case_id, variants in probe.VARIANTS.items():
@@ -1255,6 +1268,8 @@ def test_data_only_receipt_controls_have_nonempty_positive_denominators(
         "recovery",
         "privileges",
         "extra",
+        "image_contract",
+        "image_binding",
     ],
 )
 @pytest.mark.parametrize("target", cases.TARGETS)
@@ -1296,6 +1311,22 @@ def test_receipt_corruption_is_rejected_without_any_resource(
         )
     elif mutation == "cleanup":
         receipt["cleanup"]["status"] = "unknown"
+    elif mutation == "image_contract":
+        # Renaming the contract without its own exposed digest is not evidence.
+        image = next(
+            event
+            for event in receipt["resources"]
+            if event["event"] == "image_verified"
+        )
+        image["contract"] = "classic"
+        image["descriptor_digest"] = None
+    elif mutation == "image_binding":
+        started = next(
+            event
+            for event in receipt["resources"]
+            if event["event"] == "container_start_observed"
+        )
+        started["image"] = pins["targets"][target]["config_digest"]
     elif mutation == "cleanup_journal":
         receipt["resources"] = []
     elif mutation == "network":

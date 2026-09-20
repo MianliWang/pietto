@@ -48,6 +48,26 @@ independently in the case module and is never read back from an observation. Pin
 transport, resource ceilings, generation timeout, recovery/diagnostics/cleanup and
 the workflow commands are unchanged.
 
+## Current target-facility Docker image identity compatibility amendment
+
+The [image identity compatibility contract](phase66-target-facility-docker-image-identity-compatibility-v1.md)
+replaces the historical assumption that `docker image inspect .Id` equals the pinned
+`config_digest`. That representation belongs to the historical Docker image store; a
+containerd-backed store reports the acquired platform manifest digest there instead.
+Acquisition still uses exactly `repository@platform_digest` on linux/amd64 with no tag,
+`latest`, fallback, alternate registry, discovered digest or substituted image. One
+structurally exact observation then selects exactly one route: a well-formed image target
+descriptor must carry the pinned `platform_digest`, or, where no descriptor is exposed,
+`.Id` must equal the pinned `config_digest`. There is no value-based fallback and no
+try-one-then-the-other behavior, a correct `.Id` never rescues a wrong descriptor, and a
+malformed or unrecognized response fails closed instead of being classified as historical.
+Container ownership now binds to the exact runtime image object validated during that
+acquisition rather than to `config_digest`, and labels alone never establish ownership.
+The receipt format, pins, reviewed distributions, transport, resource ceilings, cleanup,
+workflow and server/package verification are all unchanged; the resource journal gains the
+structured image observation and the started container's image, which the data-only
+verifier re-derives against the pin through that contract's own exposed digest.
+
 ## Historical Slice4 extension
 
 The [Slice4 contract](phase66-slice4-named-shared-producer-scopes-terminal-output-emission-v1.md)
@@ -133,7 +153,9 @@ PG实际要求binary implementation及RawCursor；MY固定use_pure=True和prepar
 执行收据记录实际driver/Python/libpq/library版本，不拿development-doc banner当pin。
 
 `phase66_target_pins.json`是唯一target pin输入；不接受其它image/DSN/SQL-file/callback/command。
-执行使用repository@platform-digest，并核对image config ID/architecture及实际server build。
+执行使用repository@platform-digest，并按当前Docker image store实际暴露的identity契约核验
+immutable image、architecture及实际server build；`platform_digest`与`config_digest`仍是两个
+各自保留的reviewed identity，不互相改写也不互换。详见下述compatibility amendment。
 
 | Target | Reviewed distribution | Index / platform / config |
 | --- | --- | --- |

@@ -1264,3 +1264,23 @@ Phase66 remains `ACTIVE`; Slice9 is `NEXT / NOT IMPLEMENTED`; Slices10–16 rema
 N66 remains16. Do not start Slice9 automatically. Windows, QUALIFY, DISTINCT,
 ORDER/LIMIT, SET, public project emit CLI, caller rebind, general result decoder and
 product executor are not added.
+
+The Phase66 target-facility Docker image identity compatibility interlude is a
+test-infrastructure corrective delivery between Slice8 and Slice9 and is not a numbered
+Slice. Local target-conformance execution had stopped because the facility required the
+Docker image object ID to equal the pinned `config_digest`, which is the historical image
+store's representation; a containerd-backed store reports the acquired platform manifest
+digest there instead, so both pinned targets failed acquisition while the same checked-in
+pins kept passing natural CI. The [image identity compatibility contract](spec/phase66-target-facility-docker-image-identity-compatibility-v1.md)
+verifies whichever immutable identity the applicable Docker inspection contract actually
+exposes — the pinned `platform_digest` through a well-formed image target descriptor, or
+the pinned `config_digest` through the historical image ID — with no value-based fallback,
+no try-one-then-the-other behavior and fail-closed rejection of a malformed or unrecognized
+response, and it binds the owned container to the exact runtime image object validated
+during that acquisition instead of to `config_digest`. `platform_digest` and
+`config_digest` remain two distinct reviewed identities. The checked-in target pins, the
+reviewed PostgreSQL/MySQL distributions and server builds, the Docker daemon
+configuration, the CI workflow, the receipt format and every Pietto compiler/product
+semantic are unchanged. Phase66 remains `ACTIVE`, Slices1–8 remain
+`COMPLETED / PUBLISHED`, Slice9 remains `NEXT / NOT IMPLEMENTED`, N66 remains16 and no
+Slice9 implementation occurred.

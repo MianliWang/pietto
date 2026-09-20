@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import signal
 import stat
@@ -23,6 +24,12 @@ QUERY_SECONDS = 10
 READ_SECONDS = 20
 CLEANUP_SECONDS = 30
 MYSQL_MODE = "ONLY_FULL_GROUP_BY,STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION"
+# "index" tolerates the key that only a descriptor-aware image store exposes.
+IMAGE_FIELDS = (
+    '{"id":{{json .Id}},"os":{{json .Os}},"architecture":{{json .Architecture}}'
+    ',"descriptor":{{json (index . "Descriptor")}}}'
+)
+DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 MYSQL_TLS_VERSIONS = ("TLSv1.2", "TLSv1.3")
 
 
@@ -102,6 +109,48 @@ def loopback_port(ports: dict[str, Any], port: str) -> int:
     return int(bindings[0]["HostPort"])
 
 
+def image_identity(observed: dict[str, Any], pin: dict[str, Any]) -> dict[str, Any]:
+    """Select the identity contract the active Docker image store actually exposes.
+
+    A descriptor-aware store exposes the pinned platform manifest directly and
+    reports a storage-specific runtime object ID; the historical store exposes the
+    pinned config identity as that ID. Each route verifies its own exposed digest,
+    so a matching ID never rescues a wrong descriptor and neither route is a
+    fallback for the other.
+    """
+    identifier, descriptor = observed.get("id"), observed.get("descriptor")
+    if (
+        set(observed) != {"id", "os", "architecture", "descriptor"}
+        or type(identifier) is not str
+        or DIGEST.fullmatch(identifier) is None
+        or (observed["os"], observed["architecture"]) != ("linux", "amd64")
+    ):
+        raise ValueError("incomplete or non-amd64 image observation")
+    if descriptor is None:
+        if identifier != pin["config_digest"]:
+            raise ValueError("historical image config identity mismatch")
+        contract, digest = "classic", None
+    elif type(descriptor) is dict and DIGEST.fullmatch(str(descriptor.get("digest"))):
+        contract, digest = "descriptor", descriptor["digest"]
+        platform = descriptor.get("platform")
+        if digest != pin["platform_digest"]:
+            raise ValueError("descriptor platform manifest identity mismatch")
+        if platform is not None and (
+            type(platform) is not dict
+            or (platform.get("os"), platform.get("architecture")) != ("linux", "amd64")
+        ):
+            raise ValueError("descriptor platform disagreement")
+    else:
+        raise ValueError("unrecognized Docker image observation shape")
+    return {
+        "contract": contract,
+        "runtime_image_id": identifier,
+        "descriptor_digest": digest,
+        "os": "linux",
+        "architecture": "amd64",
+    }
+
+
 class Resources:
     def __init__(self, target: str, pin: dict[str, Any], directory: Path):
         self.target, self.pin, self.directory = target, pin, directory
@@ -126,6 +175,7 @@ class Resources:
         self.ca_identity: dict[str, Any] | None = None
         self.cleanup_result: dict[str, Any] | None = None
         self.endpoint_observation: dict[str, str] | None = None
+        self.runtime_image_id: str | None = None
 
     def event(self, event_name: str, **data: object) -> None:
         value = {"event": event_name, **data}
@@ -173,7 +223,13 @@ class Resources:
         return (
             value.get("name", "").lstrip("/") == expected
             and value.get("labels", {}).get("pietto.phase66.invocation") == self.nonce
-            and (kind != "container" or value.get("image") == self.pin["config_digest"])
+            and (
+                kind != "container"
+                or (
+                    self.runtime_image_id is not None
+                    and value.get("image") == self.runtime_image_id
+                )
+            )
         )
 
     def acquire(self) -> None:
@@ -195,22 +251,14 @@ class Resources:
         self.docker(
             "image", "pull", "--quiet", "--platform", "linux/amd64", image, timeout=600
         )
-        observed = json.loads(
-            self.docker(
-                "image",
-                "inspect",
-                image,
-                "--format",
-                '{"id":{{json .Id}},"os":{{json .Os}},"architecture":{{json .Architecture}}}',
-            )
+        identity = image_identity(
+            json.loads(
+                self.docker("image", "inspect", image, "--format", IMAGE_FIELDS)
+            ),
+            self.pin,
         )
-        if observed != {
-            "id": self.pin["config_digest"],
-            "os": "linux",
-            "architecture": "amd64",
-        }:
-            raise ValueError("immutable image config identity mismatch")
-        self.event("image_verified", **observed)
+        self.runtime_image_id = identity["runtime_image_id"]
+        self.event("image_verified", reference=image, **identity)
         label = "pietto.phase66.invocation=" + self.nonce
         self.event("network_create_intent", name=self.network_name, nonce=self.nonce)
         self.uncertain.append("network")
@@ -300,7 +348,8 @@ class Resources:
             "container_create_intent",
             name=self.name,
             nonce=self.nonce,
-            image_config=self.pin["config_digest"],
+            reference=image,
+            runtime_image_id=self.runtime_image_id,
         )
         self.uncertain.append("container")
         self.container_id = self.docker(*args, extra_env=credentials)
@@ -318,6 +367,7 @@ class Resources:
         self.event(
             "container_start_observed",
             id=self.container_id,
+            image=observed["image"],
             running=observed["running"],
             ports=observed["ports"],
         )

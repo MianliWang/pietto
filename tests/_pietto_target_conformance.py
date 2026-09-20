@@ -940,6 +940,43 @@ def execute_case(
     return result
 
 
+def verify_image_identity(event: dict[str, Any], pin: dict[str, Any]) -> str:
+    """Re-derive the journalled image identity claim and return the bound runtime ID.
+
+    Each observation contract authenticates through the digest that contract
+    actually exposes, so renaming the contract alone never transfers the other
+    contract's evidence.
+    """
+    contract, runtime = event.get("contract"), event.get("runtime_image_id")
+    descriptor = event.get("descriptor_digest")
+    if (
+        set(event)
+        != {
+            "event",
+            "reference",
+            "contract",
+            "runtime_image_id",
+            "descriptor_digest",
+            "os",
+            "architecture",
+        }
+        or event["reference"] != pin["repository"] + "@" + pin["platform_digest"]
+        or (event["os"], event["architecture"]) != ("linux", "amd64")
+        or type(runtime) is not str
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", runtime) is None
+        or not (
+            (contract == "descriptor" and descriptor == pin["platform_digest"])
+            or (
+                contract == "classic"
+                and descriptor is None
+                and runtime == pin["config_digest"]
+            )
+        )
+    ):
+        raise ValueError("unauthenticated image identity observation")
+    return runtime
+
+
 def _verify_receipt(
     receipt: dict[str, Any],
     target: str,
@@ -1140,6 +1177,16 @@ def _verify_receipt(
         or not 0 <= cleanup.get("elapsed_seconds", -1) <= 30
     ):
         raise ValueError("cleanup incomplete, failed or unknown")
+    image_observations = [
+        event
+        for event in receipt["resources"]
+        if event.get("event") == "image_verified"
+    ]
+    if len(image_observations) != 1:
+        raise ValueError("missing or duplicated image identity observation")
+    runtime_image = verify_image_identity(
+        image_observations[0], pins["targets"][target]
+    )
     network_observations = [
         event["observation"]
         for event in receipt["resources"]
@@ -1161,6 +1208,7 @@ def _verify_receipt(
         .get("com.docker.network.bridge.gateway_mode_ipv4")
         != "nat"
         or port_observations[0].get("id") != cleanup["container_id"]
+        or port_observations[0].get("image") != runtime_image
         or port_observations[0].get("running") is not True
     ):
         raise ValueError("isolated network/port observation mismatch")

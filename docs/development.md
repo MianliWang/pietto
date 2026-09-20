@@ -81,6 +81,11 @@ UV_PYTHON=3.13 uv run python tests/_pietto_target_conformance.py run --target my
 Use new owned evidence directories outside the repository. The fixed pins,
 local Docker endpoint, linux/amd64 platform, finite cases, deadlines and exact
 resource cleanup are specified by the [facility contract](spec/phase66-isolated-target-conformance-facility-v1.md).
+The same checked-in pins run on a historical or a containerd-backed Docker image
+store, because the [image identity compatibility contract](spec/phase66-target-facility-docker-image-identity-compatibility-v1.md)
+verifies whichever immutable identity that store actually exposes and binds the
+owned container to the exact validated runtime image. No daemon reconfiguration,
+image-store switch or repin is needed or permitted.
 No arbitrary DSN/image/SQL input, missing-environment skip, automatic retry of a
 failed target, host administration or shared-image cleanup is provided.
 `verify-receipts` is data-only; CI verifies both same-run receipts, transferred

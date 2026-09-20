@@ -5470,6 +5470,32 @@ def test_phase66_slice8_aggregate_publication_preserves_later_boundaries() -> No
     assert (STATUS.parent / target).is_file()
 
 
+def test_phase66_target_facility_compatibility_interlude_is_recorded_as_prose() -> None:
+    target = "spec/phase66-target-facility-docker-image-identity-compatibility-v1.md"
+    for path in (STATUS, ROADMAP):
+        document = " ".join(_read(path).split())
+        assert f"]({target})" in document
+        assert (
+            "Phase66 target-facility Docker image identity compatibility interlude"
+            " is a test-infrastructure corrective delivery between Slice8 and"
+            " Slice9 and is not a numbered Slice" in document
+        )
+        assert "no value-based fallback" in document
+        assert (
+            "`platform_digest` and `config_digest` remain two distinct reviewed"
+            " identities" in document
+        )
+        assert (
+            "Phase66 remains `ACTIVE`, Slices1–8 remain `COMPLETED / PUBLISHED`,"
+            " Slice9 remains `NEXT / NOT IMPLEMENTED`, N66 remains16 and no"
+            " Slice9 implementation occurred." in document
+        )
+    assert (STATUS.parent / target).is_file()
+    # The interlude is prose only; the exact status table is unchanged and
+    # carries no invented Slice, which test_active_status_table_... pins.
+    assert "Slice 8.5" not in _read(STATUS) and "Slice 8.5" not in _read(ROADMAP)
+
+
 def test_phase66_slice8_amendment_is_recorded_in_the_route_lock() -> None:
     route = (
         STATUS.parent
