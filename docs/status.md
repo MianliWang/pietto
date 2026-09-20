@@ -75,8 +75,8 @@ documentation does not supersede that evidence.
 | Phase 66 Slice 5 | `COMPLETED / PUBLISHED` |
 | Phase 66 Slice 6 | `COMPLETED / PUBLISHED` |
 | Phase 66 Slice 7 | `COMPLETED / PUBLISHED` |
-| Phase 66 Slice 8 | `NEXT / NOT IMPLEMENTED` |
-| Phase 66 Slice 9 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 8 | `COMPLETED / PUBLISHED` |
+| Phase 66 Slice 9 | `NEXT / NOT IMPLEMENTED` |
 | Phase 66 Slice 10 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 11 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 12 | `NOT IMPLEMENTED` |
@@ -85,7 +85,7 @@ documentation does not supersede that evidence.
 | Phase 66 Slice 15 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 16 | `NOT IMPLEMENTED` |
 | Phase 66 route | `N=16` |
-| Next | `Phase 66 Slice 8 — Grouped/global aggregate emission` |
+| Next | `Phase 66 Slice 9 — Admitted windows, named uses and QUALIFY` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -1225,5 +1225,42 @@ R03 outstanding joint execution: Slice10 ordinary/rebound/completed ORDER and OR
 R11/C09 outstanding membership differences: Slice8 GROUPED/GLOBAL; Slice9 window/QUALIFY; Slice10 LIMIT0/LIMIT1; Slice11 SET.
 Phase66 remains `ACTIVE`; Slice8 is `NEXT / NOT IMPLEMENTED`; Slices9–16 remain `NOT IMPLEMENTED`.
 N66 remains16. Do not start Slice8 automatically. Grouping, windows, QUALIFY, DISTINCT,
+ORDER/LIMIT, SET, public project emit CLI, caller rebind, general result decoder and
+product executor are not added.
+
+Phase66 Slice8 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI
+with Python3.12,Python3.13,both target jobs and the strict v2 aggregate. The
+[grouped/global aggregate contract](spec/phase66-slice8-grouped-global-satisfying-aggregate-emission-v1.md)
+emits native GROUPED and GLOBAL aggregation as its own generated stage inside the closed
+schedule input terminal, ordered LET, one WHERE, aggregation, satisfying and the exact
+visible projection. `GROUP BY` binds the actual input expression, never an output alias
+or a numeric ordinal, and a constant-valued determinant groups by its established
+producer port; GLOBAL emits no `GROUP BY`. ONLY_FULL_GROUP_BY stays on with no
+`ANY_VALUE`, representative row, extra grouping key or session-rule repair.
+R13 delivers `count()` as `COUNT(*)`, `count(field)` as `COUNT(column)`,
+`count_distinct(field)` as `COUNT(DISTINCT column)` and `min`/`max` on an admitted direct
+V01 field. A count result is non-null inside R13's declared signed64 premise rather than
+inferred from its argument's value range, and an extreme value is nullable even over a
+non-null column because an empty or all-null input has none. `sum`/`avg` keep one exact
+typed blocker `PIE-B1003 sum_avg_result_realization_rule_not_reviewed_in_phase66` in
+direct and hidden right-producer positions alike. GROUPED empty input yields zero groups,
+GLOBAL empty input still yields one row, and a false pre-input filter does not erase it;
+all-null rows differ from no rows. satisfying is one deterministic post-aggregation
+predicate stage over the established result columns, so its aliases, repeated references
+and the unique aggregate-LET reference are uses of one already-established port rather
+than new computations; source-level GLOBAL+satisfying stays rejected while a named GLOBAL
+producer filtered by an ordinary consumer is the supported composition. An authorized
+narrow upstream completion route now admits a fully verified GROUPED/GLOBAL no-JOIN
+producer onto the current-input route, so SEMI/ANTI and outer JOIN consume the complete
+aggregate right terminal and an unmatched grouped count becomes NULL instead of a
+recomputed zero; the window exclusion, the old scalar route and the joined field-aggregate
+grain requirement are all retained, and the two Slice7 later-owner exclusion fixtures are
+rewritten in the real accepted surface because both had previously failed at parse.
+The denominator is V–Z35 cases/107 public documents per target:
+postgres81 VERIFIED,3 INPUT_REJECTED,23 BLOCKED; mysql79 VERIFIED,3 INPUT_REJECTED,25 BLOCKED.
+R03 outstanding joint execution: Slice10 ordinary/rebound/completed ORDER and ORDER/LIMIT sharing; Slice11 repeated UNION ALL and two import facades.
+R11/C09 outstanding membership differences: Slice9 window/QUALIFY; Slice10 LIMIT0/LIMIT1; Slice11 SET.
+Phase66 remains `ACTIVE`; Slice9 is `NEXT / NOT IMPLEMENTED`; Slices10–16 remain `NOT IMPLEMENTED`.
+N66 remains16. Do not start Slice9 automatically. Windows, QUALIFY, DISTINCT,
 ORDER/LIMIT, SET, public project emit CLI, caller rebind, general result decoder and
 product executor are not added.

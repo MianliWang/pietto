@@ -137,7 +137,93 @@ def emission_setup(target):
         + tuple((f"INSERT INTO {names[0]} VALUES ({parameters})", row) for row in rows)
         + ((f"CREATE TABLE {collision} ({columns})", ()),)
         + tuple((f"INSERT INTO {collision} VALUES ({parameters})", row) for row in rows)
+        + aggregate_setup(target)
     )
+
+
+# Five modest fixed aggregation inputs. Every row below is the oracle for the
+# aggregate cases; nothing here is read back out of an observation.
+AGGREGATE_TABLE_ROWS = {
+    "phase66 agg é": (
+        (1, 10, True, "a", Decimal("1.00"), 1.5, 10),
+        (1, None, True, "a", Decimal("1.00"), 1.5, 11),
+        (2, 20, False, "A", Decimal("2.00"), 1.5, 12),
+        (None, None, None, "a ", Decimal("1.00"), 1.5, 13),
+        (3, 30, None, "😀", Decimal("-0.01"), 1.5, 14),
+    ),
+    "phase66 agg empty é": (),
+    "phase66 agg trio é": (
+        (1, 1, True, "a", Decimal("1.00"), 1.5, 20),
+        (1, None, True, "a", Decimal("1.00"), 1.5, 21),
+        (1, 1, True, "a", Decimal("1.00"), 1.5, 22),
+    ),
+    "phase66 agg nulls é": (
+        (None, None, None, "n", Decimal("0.00"), 0.0, 30),
+        (None, None, None, "n", Decimal("0.00"), 0.0, 31),
+    ),
+    "phase66 agg keys é": (
+        (0, None, None, "k", Decimal("0.00"), 0.0, 10),
+        (1, None, None, "k", Decimal("0.00"), 0.0, 11),
+        (1, None, None, "k", Decimal("0.00"), 0.0, 98),
+        (None, None, None, "k", Decimal("0.00"), 0.0, 99),
+    ),
+}
+
+
+def aggregate_setup_parameters(target):
+    """Independent expected insertion order for the five aggregation relations."""
+    result: list[list[Any]] = []
+    for rows in AGGREGATE_TABLE_ROWS.values():
+        result.append([])
+        for row in rows:
+            result.append(
+                [
+                    _maybe(row[0]),
+                    _maybe(row[1]),
+                    _bool(target, row[2]),
+                    _text(str(row[3])),
+                    _decimal(str(row[4])),
+                    {"kind": "float", "value": float(row[5]).hex()},
+                    _integer(str(row[6])),
+                ]
+            )
+    return result
+
+
+def aggregate_setup(target):
+    """One shared column shape over the five fixed aggregation relations."""
+    if target == "postgres":
+        columns = (
+            '"group key" BIGINT, "value é" BIGINT, "flag value" BOOLEAN, '
+            '"text `""é" TEXT COLLATE "C" NOT NULL, '
+            '"amount value" NUMERIC(9,2) NOT NULL, '
+            '"ratio value" DOUBLE PRECISION NOT NULL, "row id" BIGINT NOT NULL'
+        )
+        quote, markers = '"', ", ".join(f"${i + 1}" for i in range(7))
+    else:
+        columns = (
+            "`group key` BIGINT, `value é` BIGINT, `flag value` TINYINT, "
+            '`text ``"é` VARCHAR(64) CHARACTER SET utf8mb4 '
+            "COLLATE utf8mb4_0900_bin NOT NULL, "
+            "`amount value` DECIMAL(9,2) NOT NULL, "
+            "`ratio value` DOUBLE NOT NULL, `row id` BIGINT NOT NULL"
+        )
+        quote, markers = "`", ", ".join(["?"] * 7)
+    statements: list[tuple[str, tuple[object, ...]]] = []
+    for name, rows in AGGREGATE_TABLE_ROWS.items():
+        relation = quote + name + quote
+        statements.append((f"CREATE TABLE {relation} ({columns})", ()))
+        for row in rows:
+            flag = row[2]
+            if target == "mysql" and flag is not None:
+                flag = 1 if flag else 0
+            statements.append(
+                (
+                    f"INSERT INTO {relation} VALUES ({markers})",
+                    (row[0], row[1], flag, row[3], row[4], row[5], row[6]),
+                )
+            )
+    return tuple(statements)
 
 
 def emission_rows(target, *, empty=False):
@@ -452,6 +538,121 @@ MIGRATED_JOIN_LABELS = {
 }
 
 
+def _bool(target, value):
+    if value is None:
+        return dict(NULL)
+    if target == "postgres":
+        return {"kind": "bool", "value": value}
+    return {"kind": "int", "value": "1" if value else "0"}
+
+
+def _decimal(value: str) -> dict[str, str]:
+    return {"kind": "decimal", "value": value}
+
+
+def _maybe(value):
+    return dict(NULL) if value is None else _integer(str(value))
+
+
+# Every aggregate oracle below is stated from the authored fixture rows and the
+# published function rules, never from an observation. A count is a non-null
+# occurrence count; an extreme value over an empty or all-null input is NULL.
+AGGREGATE_EXPECTED = {
+    ("X_aggregate_global", "bag"): ((3, 2, 1, 1, 1),),
+    ("X_aggregate_global", "empty"): ((0, 0, 0, None, None),),
+    ("X_aggregate_global", "all_null"): ((2, 0, 0, None, None),),
+    # A pre-input filter that keeps no row still leaves the one GLOBAL row.
+    ("X_aggregate_global", "where_false"): ((0, 0, 0, None, None),),
+    # Hidden determinants: four distinct groups, two identical visible rows.
+    ("X_aggregate_grouped", "hidden"): ((2, 1), (1, 1), (1, 0), (1, 1)),
+    ("X_aggregate_grouped", "empty"): (),
+    ("Y_aggregate_constant", "grouped"): ((1, 5),),
+    ("Y_aggregate_constant", "empty"): (),
+    ("Y_aggregate_satisfying", "retained"): ((2, 1, 20), (3, 1, 30)),
+    ("Y_aggregate_satisfying", "bind"): ((2, 1, 20), (3, 1, 30)),
+    ("Y_aggregate_satisfying", "before_input"): ((1, 1, 10), (2, 1, 20), (3, 1, 30)),
+    ("Y_aggregate_satisfying", "let_reference"): ((1, 1), (2, 1), (3, 1)),
+    ("Z_aggregate_composition", "named"): ((1, 2), (2, 1), (None, 1), (3, 1)),
+    ("Z_aggregate_composition", "imported"): ((1, 2), (2, 1), (None, 1), (3, 1)),
+    ("Z_aggregate_composition", "let_where"): ((1, 2, 1), (2, 1, 1), (3, 1, 1)),
+    ("Z_aggregate_composition", "downstream_filter"): ((1, 2),),
+    ("Z_aggregate_joined", "inner_fanout"): ((1, 4), (2, 1), (3, 1)),
+    ("Z_aggregate_joined", "left_nullable"): (
+        (10, 1, 1),
+        (11, 1, 0),
+        (98, 1, 0),
+        (99, 1, 0),
+    ),
+    ("Z_aggregate_joined", "right_accumulated"): ((1, 2), (2, 1), (None, 1), (3, 1)),
+    ("Z_aggregate_joined", "full_restricted"): ((1, 2), (2, 1), (3, 1), (None, 3)),
+    ("Z_aggregate_membership", "semi_global"): ((0,),),
+    ("Z_aggregate_membership", "anti_global"): ((1,), (1,), (None,)),
+    ("Z_aggregate_membership", "semi_grouped"): (),
+    ("Z_aggregate_membership", "anti_grouped"): ((0,), (1,), (1,), (None,)),
+    ("Z_aggregate_membership", "filtered_global"): (),
+    # The retained groups are {2, NULL, 3}; a base-source scan would instead
+    # match the two left `1` occurrences, so this membership is not that.
+    ("Z_aggregate_membership", "satisfying_right"): (),
+    ("Z_aggregate_transport", "outer_null"): (
+        (0, None),
+        (1, 2),
+        (1, 2),
+        (None, None),
+    ),
+}
+AGGREGATE_TYPE_CODES = {
+    "postgres": {"Int": 20, "Bool": 16, "Text": 25, "Decimal": 1700},
+    "mysql": {"Int": 8, "Bool": 1, "Text": 253, "Decimal": 246},
+}
+
+
+def aggregate_rows(target, case, variant):
+    """The exact typed BAG one aggregate case must observe on this target."""
+    if (case, variant) == ("X_aggregate_grouped", "visible"):
+        return [
+            [_bool(target, flag), _maybe(key), _maybe(key), _integer(str(total))]
+            for flag, key, total in (
+                (True, 1, 2),
+                (False, 2, 1),
+                (None, None, 1),
+                (None, 3, 1),
+            )
+        ]
+    if case == "Y_aggregate_domains":
+        if variant == "bool_key":
+            return [
+                [_bool(target, flag), _integer(str(total))]
+                for flag, total in ((True, 2), (False, 1), (None, 2))
+            ]
+        if variant == "text_key":
+            return [
+                [_text(label), _integer(str(total))]
+                for label, total in (("a", 2), ("A", 1), ("a ", 1), ("😀", 1))
+            ]
+        return [
+            [_decimal(amount), _integer(str(total))]
+            for amount, total in (("1.00", 3), ("2.00", 1), ("-0.01", 1))
+        ]
+    if (case, variant) == ("Z_aggregate_composition", "source_keys"):
+        return [
+            [_integer(key), _text(label), _integer(str(total))]
+            for key, label, total in (
+                ("9007199254740993", "trail 😀  ", 2),
+                ("0", "A", 1),
+                ("1", "a ", 1),
+            )
+        ]
+    return [
+        [_maybe(value) for value in row] for row in AGGREGATE_EXPECTED[case, variant]
+    ]
+
+
+def aggregate_types(target, case, variant):
+    codes = AGGREGATE_TYPE_CODES[target]
+    logical = emission.aggregate_labels(emission.AGGREGATE_LOGICAL, case, variant)
+    return [codes[tag] for tag in logical]
+
+
 def parameter_records(document):
     records = []
     for use in document["parameter_uses"]:
@@ -618,6 +819,28 @@ def check_emission_case(case, target):
                 c["logical_type"]["name"] != "Int" for c in document["columns"]
             ):
                 raise ValueError("migrated JOIN logical metadata mismatch")
+            continue
+        if case["id"] in emission.AGGREGATE_CASES:
+            expected_rows = aggregate_rows(target, case["id"], variant["variant"])
+            if Counter(
+                json.dumps(row, sort_keys=True) for row in observation["rows"]
+            ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
+                raise ValueError("aggregate typed BAG mismatch")
+            labels = emission.aggregate_labels(
+                emission.AGGREGATE_LABELS, case["id"], variant["variant"]
+            )
+            logical = emission.aggregate_labels(
+                emission.AGGREGATE_LOGICAL, case["id"], variant["variant"]
+            )
+            metadata = observation["metadata"]
+            if [m[0] for m in metadata] != list(labels) or [
+                m[1] for m in metadata
+            ] != aggregate_types(target, case["id"], variant["variant"]):
+                raise ValueError("aggregate positional physical metadata mismatch")
+            if [c["label"] for c in document["columns"]] != list(labels) or [
+                c["logical_type"]["name"] for c in document["columns"]
+            ] != list(logical):
+                raise ValueError("aggregate positional logical metadata mismatch")
             continue
         if case["id"] in {"T_row_direct", "U_row_named"}:
             expected_rows = row_result_rows(

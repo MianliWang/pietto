@@ -85,7 +85,54 @@ VARIANTS = {
         "between",
         "match_join",
     ),
+    "X_aggregate_global": ("bag", "empty", "all_null", "where_false"),
+    "X_aggregate_grouped": ("hidden", "visible", "empty"),
+    "Y_aggregate_constant": ("grouped", "empty"),
+    "Y_aggregate_satisfying": ("retained", "let_reference", "bind", "before_input"),
+    "Y_aggregate_domains": ("bool_key", "text_key", "decimal_key"),
+    "Z_aggregate_composition": (
+        "named",
+        "imported",
+        "let_where",
+        "downstream_filter",
+        "source_keys",
+    ),
+    "Z_aggregate_joined": (
+        "inner_fanout",
+        "left_nullable",
+        "right_accumulated",
+        "full_restricted",
+    ),
+    "Z_aggregate_membership": (
+        "semi_global",
+        "anti_global",
+        "semi_grouped",
+        "anti_grouped",
+        "filtered_global",
+        "satisfying_right",
+    ),
+    "Z_aggregate_transport": ("outer_null",),
+    "V_aggregate_blocked": (
+        "sum_direct",
+        "avg_direct",
+        "sum_hidden_right",
+        "float_key",
+        "bool_domain_key",
+        "decimal_parameter_key",
+    ),
 }
+AGGREGATE_CASES = (
+    "X_aggregate_global",
+    "X_aggregate_grouped",
+    "Y_aggregate_constant",
+    "Y_aggregate_satisfying",
+    "Y_aggregate_domains",
+    "Z_aggregate_composition",
+    "Z_aggregate_joined",
+    "Z_aggregate_membership",
+    "Z_aggregate_transport",
+    "V_aggregate_blocked",
+)
 LABELS = ("display_text", "record_id", "active", "amount", "ratio")
 LOGICAL = ("Text", "Int", "Bool", "Decimal", "Float")
 CHAIN_LABELS = (*LABELS, "repeated")
@@ -114,6 +161,29 @@ TRUTH_LABELS = (
     "true_or",
     "false_or",
 )
+# One reusable scope/qualifier/column grammar per carried column role.
+CARRIER_ROLES = {
+    "carry_scope": ("carry", "carry_scope", "carry_qualifier", "carry_column"),
+    "group_key_scope": (
+        "group_key",
+        "group_key_scope",
+        "group_key_qualifier",
+        "group_key_column",
+    ),
+    "result_scope": ("result", "result_scope", "result_qualifier", "result_column"),
+}
+CARRIED_KINDS = frozenset({"carry", "group_key", "result"})
+AGGREGATE_SPELLINGS = {"COUNT(": "count", "MIN(": "min", "MAX(": "max"}
+GROUPING_TAGS = frozenset({"Int", "Bool", "Text", "Decimal"})
+COUNT_STORAGE = {"postgres": "pg_int8", "mysql": "my_bigint"}
+COUNT_MAX = (1 << 63) - 1
+AGGREGATE_DEMAND_RULES = {
+    "aggregation": "R12",
+    "group_key": "R12",
+    "aggregate": "R13",
+    "aggregate_projection": "R12",
+    "aggregate_risk": "R12",
+}
 CODES = {
     "PIE-B1001": "SOURCE_REALIZATION",
     "PIE-B1002": "REPRESENTATION",
@@ -156,6 +226,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         return row_fixture(target, case, variant)
     if case in {"W_join_shapes", "W_join_values", "V_join_full"}:
         return join_fixture(target, case, variant)
+    if case in AGGREGATE_CASES:
+        return aggregate_fixture(target, case, variant)
     kind = (
         "table"
         if case in {"G_emission_table_bag", "I_emission_table_empty"}
@@ -538,6 +610,638 @@ def fixed_fixture(target, case, variant):
         "source": source,
         "contract": encoded(contract).decode(),
         "policy": "bind_safe_literals" if bound else "preserve_literals",
+    }
+
+
+# One shape over five modest fixed aggregation inputs. Every case below names the
+# exact relation it reads, so one authored surface covers empty, all-null, fanout
+# and membership inputs without multiplying declarations.
+AGGREGATE_HEADER = """shape Agg:
+    key: Int nullable
+    value: Int nullable
+    flag: Bool nullable
+    label: Text not null
+    amount: Decimal(9, 2) not null
+    ratio: Float not null
+    rid: Int not null
+    unique agg_row on rid
+source agg: Agg is {target}.table("aggregate.locator.not.sql")
+"""
+AGGREGATE_KEYS_SOURCE = 'source keys: Agg is {target}.table("keys.locator.not.sql")\n'
+AGGREGATE_COLUMNS = (
+    ("key", "group key"),
+    ("value", "value é"),
+    ("flag", "flag value"),
+    ("label", 'text `"é'),
+    ("amount", "amount value"),
+    ("ratio", "ratio value"),
+    ("rid", "row id"),
+)
+AGGREGATE_RELATIONS = {
+    "grouped": "phase66 agg é",
+    "empty": "phase66 agg empty é",
+    "trio": "phase66 agg trio é",
+    "nulls": "phase66 agg nulls é",
+    "keys": "phase66 agg keys é",
+}
+# Which fixed relation each variant's `agg` source reads. `keys` is always the
+# four-occurrence left input when a case declares it.
+AGGREGATE_INPUTS = {
+    ("X_aggregate_global", "bag"): "trio",
+    ("X_aggregate_global", "empty"): "empty",
+    ("X_aggregate_global", "all_null"): "nulls",
+    ("X_aggregate_global", "where_false"): "trio",
+    ("X_aggregate_grouped", "empty"): "empty",
+    ("Y_aggregate_constant", "empty"): "empty",
+    ("Z_aggregate_membership", "semi_global"): "empty",
+    ("Z_aggregate_membership", "anti_global"): "empty",
+    ("Z_aggregate_membership", "semi_grouped"): "empty",
+    ("Z_aggregate_membership", "anti_grouped"): "empty",
+    ("Z_aggregate_membership", "filtered_global"): "empty",
+}
+GLOBAL_BODY = """query result:
+    from agg
+{filter}    select:
+        c = count()
+        cf = count(value)
+        cd = count_distinct(value)
+        lo = min(value)
+        hi = max(value)
+"""
+GROUPED_HIDDEN = """query result:
+    from agg
+    group by:
+        key
+    select:
+        total = count()
+        cf = count(value)
+"""
+AGGREGATE_BODIES = {
+    ("X_aggregate_global", "bag"): GLOBAL_BODY.format(filter=""),
+    ("X_aggregate_global", "empty"): GLOBAL_BODY.format(filter=""),
+    ("X_aggregate_global", "all_null"): GLOBAL_BODY.format(filter=""),
+    # A pre-input filter that keeps no row must not erase the one GLOBAL row.
+    ("X_aggregate_global", "where_false"): GLOBAL_BODY.format(
+        filter="    where key > 100\n"
+    ),
+    ("X_aggregate_grouped", "hidden"): GROUPED_HIDDEN,
+    ("X_aggregate_grouped", "empty"): GROUPED_HIDDEN,
+    ("X_aggregate_grouped", "visible"): """query result:
+    from agg
+    group by:
+        key
+        flag
+    select:
+        f = flag
+        renamed = key
+        again = key
+        total = count()
+""",
+    ("Y_aggregate_constant", "empty"): """table marked:
+    from agg
+    select:
+        pid = key
+        marker = 1
+query result:
+    from marked
+    group by:
+        marker
+    select:
+        c0 = marker
+        total = count()
+""",
+    ("Y_aggregate_constant", "grouped"): """table marked:
+    from agg
+    select:
+        pid = key
+        marker = 1
+query result:
+    from marked
+    group by:
+        marker
+    select:
+        c0 = marker
+        total = count()
+""",
+    ("Y_aggregate_satisfying", "retained"): """query result:
+    from agg
+    group by:
+        key
+    select:
+        k = key
+        total = count()
+        lo = min(value)
+    satisfying:
+        total < 2 and lo > 5 and total >= 1
+""",
+    ("Y_aggregate_satisfying", "let_reference"): """query result:
+    from agg
+    let:
+        taken = value
+    group by:
+        key
+    select:
+        k = key
+        total = count(taken)
+    satisfying:
+        total > 0 and count(taken) < 2
+""",
+    ("Y_aggregate_satisfying", "before_input"): """query result:
+    from agg
+    where value > 5
+    group by:
+        key
+    select:
+        k = key
+        total = count()
+        lo = min(value)
+""",
+    ("Y_aggregate_domains", "bool_key"): """query result:
+    from agg
+    group by:
+        flag
+    select:
+        f = flag
+        total = count()
+""",
+    ("Y_aggregate_domains", "text_key"): """query result:
+    from agg
+    group by:
+        label
+    select:
+        t = label
+        total = count()
+""",
+    ("Y_aggregate_domains", "decimal_key"): """query result:
+    from agg
+    group by:
+        amount
+    select:
+        m = amount
+        total = count()
+""",
+    ("Z_aggregate_composition", "let_where"): """query result:
+    from agg
+    let:
+        taken = value
+    where key > 0
+    group by:
+        key
+    select:
+        k = key
+        total = count()
+        cf = count(taken)
+""",
+    ("Z_aggregate_composition", "downstream_filter"): """table grouped:
+    from agg
+    group by:
+        key
+    select:
+        k = key
+        total = count()
+query result:
+    from grouped
+    where total > 1
+    select:
+        a = k
+        b = total
+""",
+    # A non-unique join key multiplies occurrences, so this count is the joined
+    # occurrence count, never a unique base-entity count.
+    ("Z_aggregate_joined", "inner_fanout"): """query result:
+    from agg
+    inner join agg as r:
+        from agg
+        on agg.key == r.key
+    group by:
+        agg.key
+    select:
+        k = agg.key
+        total = count()
+""",
+    # A right-side field aggregate needs the retained unique-row grain, so this
+    # LEFT joins on that unique key: an unmatched left occurrence still counts.
+    ("Z_aggregate_joined", "left_nullable"): """query result:
+    from keys
+    left join agg as r:
+        from keys
+        on keys.rid == r.rid
+    group by:
+        keys.rid
+    select:
+        k = keys.rid
+        total = count()
+        cf = count(r.value)
+""",
+    ("Z_aggregate_transport", "outer_null"): """table grouped:
+    from agg
+    group by:
+        key
+    select:
+        k = key
+        total = count()
+query result:
+    from keys
+    left join grouped as r:
+        from keys
+        on keys.key == r.k
+    select:
+        a = keys.key
+        b = r.total
+""",
+    ("V_aggregate_blocked", "sum_direct"): """query result:
+    from agg
+    select:
+        s = sum(value)
+""",
+    ("V_aggregate_blocked", "avg_direct"): """query result:
+    from agg
+    select:
+        a = avg(value)
+""",
+    ("V_aggregate_blocked", "sum_hidden_right"): """table g:
+    from agg
+    select:
+        total = sum(value)
+query result:
+    from keys
+    semi join g as r:
+        from keys
+        on keys.key == r.total
+    select:
+        a = keys.key
+""",
+    ("V_aggregate_blocked", "float_key"): """query result:
+    from agg
+    group by:
+        ratio
+    select:
+        r = ratio
+        total = count()
+""",
+    ("V_aggregate_blocked", "bool_domain_key"): """query result:
+    from agg
+    group by:
+        flag
+    select:
+        f = flag
+        total = count()
+""",
+    ("V_aggregate_blocked", "decimal_parameter_key"): """query result:
+    from agg
+    group by:
+        amount
+    select:
+        m = amount
+        total = count()
+""",
+}
+AGGREGATE_NAMED = """table grouped:
+    from agg
+    group by:
+        key
+    select:
+        k = key
+        total = count()
+"""
+AGGREGATE_LEFTISH = """table leftish:
+    from agg
+    where key > 1
+    select:
+        lid = rid
+"""
+AGGREGATE_MEMBERSHIP = """query result:
+    from keys
+    {kind} join g as r:
+        from keys
+        on keys.key == r.{port}
+    select:
+        a = keys.key
+"""
+AGGREGATE_LABELS = {
+    ("X_aggregate_global", None): ("c", "cf", "cd", "lo", "hi"),
+    ("X_aggregate_grouped", "hidden"): ("total", "cf"),
+    ("X_aggregate_grouped", "empty"): ("total", "cf"),
+    ("X_aggregate_grouped", "visible"): ("f", "renamed", "again", "total"),
+    ("Y_aggregate_constant", None): ("c0", "total"),
+    ("Y_aggregate_satisfying", "retained"): ("k", "total", "lo"),
+    ("Y_aggregate_satisfying", "bind"): ("k", "total", "lo"),
+    ("Y_aggregate_satisfying", "before_input"): ("k", "total", "lo"),
+    ("Y_aggregate_satisfying", "let_reference"): ("k", "total"),
+    ("Y_aggregate_domains", "bool_key"): ("f", "total"),
+    ("Y_aggregate_domains", "text_key"): ("t", "total"),
+    ("Y_aggregate_domains", "decimal_key"): ("m", "total"),
+    ("Z_aggregate_composition", "named"): ("a", "b"),
+    ("Z_aggregate_composition", "imported"): ("a", "b"),
+    ("Z_aggregate_composition", "let_where"): ("k", "total", "cf"),
+    ("Z_aggregate_composition", "downstream_filter"): ("a", "b"),
+    ("Z_aggregate_composition", "source_keys"): ("i", "t", "total"),
+    ("Z_aggregate_joined", "inner_fanout"): ("k", "total"),
+    ("Z_aggregate_joined", "left_nullable"): ("k", "total", "cf"),
+    ("Z_aggregate_joined", "right_accumulated"): ("k", "total"),
+    ("Z_aggregate_joined", "full_restricted"): ("k", "total"),
+    ("Z_aggregate_membership", None): ("a",),
+    ("Z_aggregate_transport", None): ("a", "b"),
+}
+AGGREGATE_LOGICAL = {
+    ("X_aggregate_global", None): ("Int",) * 5,
+    ("X_aggregate_grouped", "hidden"): ("Int", "Int"),
+    ("X_aggregate_grouped", "empty"): ("Int", "Int"),
+    ("X_aggregate_grouped", "visible"): ("Bool", "Int", "Int", "Int"),
+    ("Y_aggregate_constant", None): ("Int", "Int"),
+    ("Y_aggregate_satisfying", "retained"): ("Int", "Int", "Int"),
+    ("Y_aggregate_satisfying", "bind"): ("Int", "Int", "Int"),
+    ("Y_aggregate_satisfying", "before_input"): ("Int", "Int", "Int"),
+    ("Y_aggregate_satisfying", "let_reference"): ("Int", "Int"),
+    ("Y_aggregate_domains", "bool_key"): ("Bool", "Int"),
+    ("Y_aggregate_domains", "text_key"): ("Text", "Int"),
+    ("Y_aggregate_domains", "decimal_key"): ("Decimal", "Int"),
+    ("Z_aggregate_composition", "named"): ("Int", "Int"),
+    ("Z_aggregate_composition", "imported"): ("Int", "Int"),
+    ("Z_aggregate_composition", "let_where"): ("Int", "Int", "Int"),
+    ("Z_aggregate_composition", "downstream_filter"): ("Int", "Int"),
+    ("Z_aggregate_composition", "source_keys"): ("Int", "Text", "Int"),
+    ("Z_aggregate_joined", "inner_fanout"): ("Int", "Int"),
+    ("Z_aggregate_joined", "left_nullable"): ("Int", "Int", "Int"),
+    ("Z_aggregate_joined", "right_accumulated"): ("Int", "Int"),
+    ("Z_aggregate_joined", "full_restricted"): ("Int", "Int"),
+    ("Z_aggregate_membership", None): ("Int",),
+    ("Z_aggregate_transport", None): ("Int", "Int"),
+}
+
+
+def aggregate_labels(table, case, variant):
+    return table.get((case, variant)) or table[case, None]
+
+
+def aggregate_source(target, case, variant):
+    """The authored module text of one aggregate case, as one string or module map."""
+    if case == "Y_aggregate_satisfying" and variant == "bind":
+        return AGGREGATE_BODIES["Y_aggregate_satisfying", "retained"]
+    if case == "Z_aggregate_membership":
+        if variant == "satisfying_right":
+            producer = (
+                AGGREGATE_NAMED.replace("table grouped:", "table g:")
+                + "    satisfying:\n        total < 2\n"
+            )
+            return producer + AGGREGATE_MEMBERSHIP.format(kind="semi", port="k")
+        if variant == "filtered_global":
+            return (
+                "table g:\n    from agg\n    select:\n        total = count()\n"
+                "table f:\n    from g\n    where total > 0\n"
+                "    select:\n        t = total\n"
+                + AGGREGATE_MEMBERSHIP.format(kind="semi", port="t").replace(
+                    "join g as r", "join f as r"
+                )
+            )
+        if variant.endswith("global"):
+            producer = "table g:\n    from agg\n    select:\n        total = count()\n"
+            port = "total"
+        else:
+            producer = AGGREGATE_NAMED.replace("table grouped:", "table g:")
+            port = "k"
+        kind = "semi" if variant.startswith("semi") else "anti"
+        return producer + AGGREGATE_MEMBERSHIP.format(kind=kind, port=port)
+    if case == "Z_aggregate_joined" and variant in {
+        "right_accumulated",
+        "full_restricted",
+    }:
+        kind = "right" if variant == "right_accumulated" else "full"
+        return (
+            AGGREGATE_LEFTISH
+            + f"""query result:
+    from leftish
+    {kind} join agg as r:
+        from leftish
+        on leftish.lid == r.key
+    group by:
+        r.key
+    select:
+        k = r.key
+        total = count()
+"""
+        )
+    if case == "Z_aggregate_composition" and variant in {"named", "imported"}:
+        consumer = """query result:
+    from grouped
+    select:
+        a = k
+        b = total
+"""
+        if variant == "named":
+            return AGGREGATE_NAMED + consumer
+        return {
+            "a.pietto": "{header}" + AGGREGATE_NAMED + "export:\n    table grouped\n",
+            "b.pietto": 'import "a.pietto":\n    table grouped as Public\n'
+            "export:\n    table Public\n",
+            "main.pietto": 'import "b.pietto":\n    table Public as Alias\n'
+            + consumer.replace("from grouped", "from Alias"),
+        }
+    return AGGREGATE_BODIES[case, variant]
+
+
+def _aggregate_representations(target):
+    integer = {
+        "storage": {"kind": "pg_int8" if target == "postgres" else "my_bigint"},
+        "nullable": True,
+        "domain": {
+            "kind": "int_range",
+            "min": "-9007199254740993",
+            "max": "9007199254740993",
+        },
+    }
+    return (
+        deepcopy(integer),
+        deepcopy(integer),
+        {
+            "storage": {"kind": "pg_bool" if target == "postgres" else "my_bool01"},
+            "nullable": True,
+            "domain": {"kind": "bool01"},
+        },
+        {
+            "storage": {"kind": "pg_text"}
+            if target == "postgres"
+            else {"kind": "my_varchar", "length": 64},
+            "nullable": False,
+            "domain": {
+                "kind": "text",
+                "max_characters": 64,
+                "encoding": "UTF8" if target == "postgres" else "utf8mb4",
+                "collation": "C" if target == "postgres" else "utf8mb4_0900_bin",
+                "padding": "NO PAD",
+            },
+        },
+        {
+            "storage": {
+                "kind": "pg_numeric" if target == "postgres" else "my_decimal",
+                "precision": 9,
+                "scale": 2,
+            },
+            "nullable": False,
+            "domain": {"kind": "decimal", "precision": 9, "scale": 2},
+        },
+        {
+            "storage": {"kind": "pg_float8" if target == "postgres" else "my_double"},
+            "nullable": False,
+            "domain": {"kind": "finite_float", "format": "binary64"},
+        },
+        {
+            "storage": {"kind": "pg_int8" if target == "postgres" else "my_bigint"},
+            "nullable": False,
+            "domain": {
+                "kind": "int_range",
+                "min": "-9007199254740993",
+                "max": "9007199254740993",
+            },
+        },
+    )
+
+
+def _aggregate_descriptor(target, name, relation):
+    return {
+        "selector": {"module": "main.pietto", "kind": "source", "name": name},
+        "relation": {
+            "namespace": "public" if target == "postgres" else "phase66",
+            "name": relation,
+        },
+        "scan": "relation_rows",
+        "fields": [
+            {
+                "ordinal": i,
+                "name": field,
+                "column": column,
+                "representation": representation,
+            }
+            for i, ((field, column), representation) in enumerate(
+                zip(
+                    AGGREGATE_COLUMNS,
+                    _aggregate_representations(target),
+                    strict=True,
+                )
+            )
+        ],
+        "premises": [
+            {"key": key, "scope": "source", "value": True}
+            for key in ("row_domain_matches", "read_only_object")
+        ],
+    }
+
+
+def aggregate_fixture(target, case, variant):
+    """One aggregation case over the fixed inputs, with its own exact contract."""
+    if (case, variant) == ("Z_aggregate_composition", "source_keys"):
+        base = fixture(target)
+        base_source = base["source"]
+        assert type(base_source) is str
+        contract = json.loads(base["contract"])
+        contract["environment"].append(
+            {
+                "key": "identifier_case",
+                "scope": "statement",
+                "value": "quoted_exact"
+                if target == "postgres"
+                else "lower_case_table_names=0",
+            }
+        )
+        source = base_source.split("query result:", 1)[0].split("table result:", 1)[0]
+        source += """query result:
+    from rows
+    group by:
+        id
+        text
+    select:
+        i = id
+        t = text
+        total = count()
+"""
+        return {
+            "source": source,
+            "contract": encoded(contract).decode(),
+            "policy": "preserve_literals",
+        }
+    keyed = (
+        case in {"Z_aggregate_membership", "Z_aggregate_transport"}
+        or (
+            case,
+            variant,
+        )
+        == ("Z_aggregate_joined", "left_nullable")
+        or (
+            case,
+            variant,
+        )
+        == ("V_aggregate_blocked", "sum_hidden_right")
+    )
+    relation = AGGREGATE_RELATIONS[AGGREGATE_INPUTS.get((case, variant), "grouped")]
+    header = AGGREGATE_HEADER.format(target=target)
+    if keyed:
+        header += AGGREGATE_KEYS_SOURCE.format(target=target)
+    body = aggregate_source(target, case, variant)
+    source: str | dict[str, str]
+    if type(body) is dict:
+        modules = {
+            name: content.replace("{header}", header) for name, content in body.items()
+        }
+        modules["main.pietto"] = header + modules["main.pietto"]
+        source = modules
+    else:
+        assert type(body) is str
+        source = header + body
+    contract = {
+        "format": "pietto.emission-contract.v1",
+        "target": {
+            "family": target,
+            "release": "18.6" if target == "postgres" else "8.4.12",
+        },
+        "sources": [_aggregate_descriptor(target, "agg", relation)],
+        "environment": [
+            {
+                "key": "client_encoding",
+                "scope": "statement",
+                "value": "UTF8" if target == "postgres" else "utf8mb4",
+            },
+            {
+                "key": "operator_environment",
+                "scope": "statement",
+                "value": "builtin_only",
+            },
+            {
+                "key": "identifier_case",
+                "scope": "statement",
+                "value": "quoted_exact"
+                if target == "postgres"
+                else "lower_case_table_names=0",
+            },
+        ],
+    }
+    if keyed:
+        contract["sources"].append(
+            _aggregate_descriptor(target, "keys", AGGREGATE_RELATIONS["keys"])
+        )
+    if type(source) is dict:
+        contract["sources"][0]["selector"]["module"] = "a.pietto"
+    if variant == "bind":
+        contract["environment"].append(
+            {
+                "key": "parameter_protocol",
+                "scope": "statement",
+                "value": "postgres_extended"
+                if target == "postgres"
+                else "mysql_prepared",
+            }
+        )
+    if variant == "bool_domain_key":
+        contract["sources"][0]["fields"][2]["representation"]["domain"] = {
+            "kind": "int_range",
+            "min": "0",
+            "max": "2",
+        }
+    elif variant == "decimal_parameter_key":
+        contract["sources"][0]["fields"][4]["representation"]["storage"]["scale"] = 1
+    return {
+        "source": source,
+        "contract": encoded(contract).decode(),
+        "policy": "bind_safe_literals" if variant == "bind" else "preserve_literals",
     }
 
 
@@ -1092,6 +1796,10 @@ MIGRATED_TO_SUCCESS = (
 # typed non-support, so these variants are per-target.
 PER_TARGET_STATUS = {
     ("V_join_full", "restricted"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
+    ("Z_aggregate_joined", "full_restricted"): {
+        "postgres": "VERIFIED",
+        "mysql": "BLOCKED",
+    },
 }
 
 
@@ -1100,7 +1808,7 @@ def expected_status(case, variant, target=None):
         return PER_TARGET_STATUS[case, variant][target]
     if (case, variant) in MIGRATED_TO_SUCCESS:
         return "VERIFIED"
-    if case == "V_row_blocked":
+    if case in {"V_row_blocked", "V_aggregate_blocked"}:
         return "BLOCKED"
     return (
         "INPUT_REJECTED"
@@ -1604,6 +2312,11 @@ def _named_range_provenance(document, descriptors):
         "select_block": ["select_block"],
         "stage_port": ["stage_port"],
         "filter": ["filter"],
+        # Slice8 aggregation stages own their determinants and occurrences.
+        "aggregation": ["aggregation"],
+        "group_key": ["group_key"],
+        "aggregate": ["aggregate"],
+        "aggregate_projection": ["aggregate_projection"],
         # Slice7 JOIN units own their own occurrence, inputs, ports and tail.
         "join": ["join"],
         "join_input": ["join_input"],
@@ -2300,7 +3013,10 @@ def _decode_row_denominators(
         item["subject"]["position"] for item in families.get("expression", ())
     )
     _need(
-        all(item["subject"]["kind"] == "expression" for item in families["expression"])
+        all(
+            item["subject"]["kind"] == "expression"
+            for item in families.get("expression", ())
+        )
         and positions == sorted(walk["expressions"])
         and positions == list(range(len(positions))),
         "expression demands do not match the decoded expressions",
@@ -2332,6 +3048,8 @@ def _decode_row_denominators(
             rule = "R03" if generated_scopes else "R01"
         elif kind == "source_realization":
             rule = "R01"
+        elif kind == "aggregation":
+            rule = AGGREGATE_DEMAND_RULES.get(subject["kind"], "R12")
         else:
             rule = "R02"
         _need(item["rule"] == rule, "original requirement rule")
@@ -2566,7 +3284,10 @@ def _decode_fixed_public(document, limits):
             used_slots.add(slot)
             used += 1
         else:
-            _need(cursor_kind == "literal" and not bound)
+            # Under BIND_SAFE a literal may only survive in a position the
+            # extraction rule never admits as a slot; satisfying is that
+            # position here, and every ordinary one still has to be bound.
+            _need(cursor_kind == "literal" and (not bound or specialized[0]))
             slot = None
             if tag == "Bool":
                 _need(token in {"TRUE", "FALSE"})
@@ -2956,6 +3677,8 @@ def _decode_fixed_public(document, limits):
             index += 1
         return index < len(lexical) and lexical[index][0]["role"] == "anchor_open"
 
+    specialized = [False]
+
     def row_parse(block, port_kind="stage_port"):
         """Parse one admitted value; a matching scope reads pre-match JOIN ports."""
         role, start = peek(), lexical[cursor][0]["start"]
@@ -3186,7 +3909,54 @@ def _decode_fixed_public(document, limits):
             "strict": strict and node["kind"] != "null_test",
         }
 
-    row_counts = {"projection": 0, "result": 0}
+    row_counts = {"projection": 0, "result": 0, "aggregate_projection": 0}
+
+    def aggregate_parse(block):
+        """One aggregate occurrence: exact spelling, DISTINCT role and argument."""
+        start = lexical[cursor][0]["start"]
+        subject = lexical[cursor][0]["subject"]
+        _need(subject["kind"] == "aggregate", "aggregate occurrence kind")
+        _, spelling = take("syntax", "aggregate_open", subject=subject)
+        _need(spelling in AGGREGATE_SPELLINGS, "aggregate spelling")
+        distinct, argument = False, None
+        if peek() == "aggregate_row_count":
+            take("syntax", "aggregate_row_count", "*", subject)
+            _need(spelling == "COUNT(", "only a row count has no argument")
+        else:
+            if peek() == "aggregate_distinct":
+                take("syntax", "aggregate_distinct", "DISTINCT ", subject)
+                distinct = True
+                _need(spelling == "COUNT(", "only count_distinct spells DISTINCT")
+            argument = row_parse(block)
+        closed, _ = take("syntax", "aggregate_close", ")", subject)
+        expected_ranges.append(("aggregate", subject, start, closed["end"]))
+        return {
+            "aggregate": subject,
+            "spelling": spelling,
+            "distinct": distinct,
+            "argument": argument,
+            "function": "count_distinct" if distinct else AGGREGATE_SPELLINGS[spelling],
+        }
+
+    def aggregate_realization(function, argument):
+        """This result's own domain: a count is not its argument's value range."""
+        if function in {"count", "count_distinct"}:
+            return {
+                "tag": "Int",
+                "storage": {"kind": COUNT_STORAGE[family]},
+                "nullable": False,
+                "domain": {"kind": "int_range", "min": "0", "max": str(COUNT_MAX)},
+            }
+        _need(argument is not None, "an extreme value needs its own argument")
+        assert argument is not None
+        # An empty or all-null input has no extreme value, so the result is
+        # nullable even over a non-null source column.
+        return {
+            "tag": argument["tag"],
+            "storage": argument["storage"],
+            "nullable": True,
+            "domain": argument["domain"],
+        }
 
     def row_field_realization(field):
         return {"tag": source_type(field)["name"], **field["representation"]}
@@ -3198,6 +3968,29 @@ def _decode_fixed_public(document, limits):
             "export": export,
             "terminal": terminal,
         }
+
+    row_aggregations: dict[str, Any] = {}
+
+    def aggregate_origin(published, origin):
+        """One aggregate provenance, rebuilt from bytes with one declared owner.
+
+        Everything but the aggregation's own reference is re-derived here; that
+        one reference is read under an exact kind and must stay the single owner
+        of this decoded stage, so a GLOBAL body cannot claim a second one.
+        """
+        declared = published["correspondence"].get("aggregate_origin") or published[
+            "correspondence"
+        ].get("aggregate_transport")
+        _need(type(declared) is dict, "an aggregate output declares its origin")
+        owner = declared.get("aggregation")
+        _reference(owner)
+        _need(owner["kind"] == "aggregation", "aggregation reference kind")
+        key = encoded(origin["stage"]).decode()
+        _need(
+            row_aggregations.setdefault(key, owner) == owner,
+            "one decoded aggregation stage has one owner",
+        )
+        return {"aggregation": owner, **origin}
 
     def row_output(
         position,
@@ -3211,6 +4004,7 @@ def _decode_fixed_public(document, limits):
         export,
         scan,
         alias,
+        origin=None,
     ):
         """Independently rebuild one published output column and compare it."""
         _need(position < len(document["columns"]), "published column denominator")
@@ -3248,6 +4042,44 @@ def _decode_fixed_public(document, limits):
             if realization["tag"] == "Decimal"
             else None,
         }
+        if node["kind"] == "result":
+            assert origin is not None
+            correspondence = {
+                "aggregate_origin": aggregate_origin(published, origin),
+                "input_port": node["port"],
+                "export": export,
+                "projection": ref(
+                    "aggregate_projection",
+                    row_counts["aggregate_projection"] + position,
+                ),
+                "sql_symbol": position + 1,
+            }
+            carried = None if read is None else read.get("literal")
+            if carried is not None:
+                correspondence = {"literal_origin": carried["origin"], **correspondence}
+            expected = {
+                "ordinal": position,
+                "label": label,
+                "logical_type": {
+                    "kind": "builtin",
+                    "name": realization["tag"],
+                    "parameters": {
+                        "precision": realization["domain"]["precision"],
+                        "scale": realization["domain"]["scale"],
+                    }
+                    if realization["tag"] == "Decimal"
+                    else None,
+                },
+                "nullable": realization["nullable"],
+                "representation": {
+                    "storage": realization["storage"],
+                    "nullable": realization["nullable"],
+                    "domain": realization["domain"],
+                },
+                "correspondence": correspondence,
+            }
+            _need(encoded(published) == encoded(expected), "aggregate output published")
+            return realization
         projection = ref("projection", row_counts["projection"] + position)
         link = None
         if scan["kind"] in {"scan", "named"} and root is not None and "read" in root:
@@ -3274,8 +4106,13 @@ def _decode_fixed_public(document, limits):
             "projection": projection,
             "sql_symbol": position + 1,
         }
-        _need(node["kind"] != "carry", "the selected body carries no column")
+        _need(node["kind"] == "value", "the selected body carries no column")
         assert root is not None
+        if origin is not None:
+            correspondence = {
+                "aggregate_transport": aggregate_origin(published, origin),
+                **correspondence,
+            }
         carried = None if read is None else read.get("literal")
         if "value" in root:
             correspondence = {
@@ -3336,14 +4173,16 @@ def _decode_fixed_public(document, limits):
             separator = None
             if parsed:
                 separator, _ = take("syntax", "separator", ", ")
-            if peek() == "carry_scope":
+            carrier = CARRIER_ROLES.get(peek() or "")
+            if carrier is not None:
+                kind, scope_role, qualifier_role, column_role = carrier
                 port = lexical[cursor][0]["subject"]
                 _need(port["kind"] == "stage_port", "carried port kind")
-                _, carry_alias = take("identifier", "carry_scope", subject=port)
-                qualifier, _ = take("syntax", "carry_qualifier", ".")
-                token, name = take("identifier", "carry_column")
+                _, carry_alias = take("identifier", scope_role, subject=port)
+                qualifier, _ = take("syntax", qualifier_role, ".")
+                token, name = take("identifier", column_role)
                 node = {
-                    "kind": "carry",
+                    "kind": kind,
                     "port": port,
                     "name": name,
                     "terminal": token["subject"],
@@ -3351,6 +4190,8 @@ def _decode_fixed_public(document, limits):
                     "qualifier": qualifier["subject"],
                 }
                 row_stage_ports.add(encoded(port).decode())
+            elif peek() == "aggregate_open":
+                node = {"kind": "aggregate", **aggregate_parse(block)}
             else:
                 node = {"kind": "value", "value": row_parse(block)}
             alias_token, _ = take("syntax", "alias", " AS ")
@@ -3359,7 +4200,7 @@ def _decode_fixed_public(document, limits):
             _, label = take("identifier", "label", None, export)
             _need(separator is None or separator["subject"] == export, "separator")
             _need(
-                node["kind"] != "carry" or node["qualifier"] == export,
+                node["kind"] not in CARRIED_KINDS or node["qualifier"] == export,
                 "carried qualifier",
             )
             parsed.append({"node": node, "export": export, "label": label})
@@ -3446,6 +4287,32 @@ def _decode_fixed_public(document, limits):
             scan["use"] = binding
         _need(within(cause(binding), cause(block)))
         row_block[0] = block
+        determinants = []
+        if peek() == "group_by":
+            token, _ = take("syntax", "group_by", " GROUP BY ")
+            _need(token["subject"]["kind"] == "aggregation", "grouping owner kind")
+            while True:
+                if determinants:
+                    take("syntax", "group_separator", ", ")
+                start = lexical[cursor][0]["start"]
+                port = lexical[cursor][0]["subject"]
+                _need(port["kind"] == "stage_port", "grouping input port kind")
+                take("identifier", "grouping_scope", alias, port)
+                qualifier, _ = take("syntax", "grouping_qualifier", ".")
+                key = qualifier["subject"]
+                _need(key["kind"] == "group_key", "grouping determinant kind")
+                column_token, name = take("identifier", "grouping_column")
+                expected_ranges.append(("grouping", key, start, column_token["end"]))
+                determinants.append(
+                    {
+                        "key": key,
+                        "port": port,
+                        "name": name,
+                        "terminal": column_token["subject"],
+                    }
+                )
+                if peek() != "group_separator":
+                    break
         if scan["kind"] == "scan":
             index = scan["index"]
             row_generated.append(("qualified_scan", None, "R01", ("scan", index), None))
@@ -3478,8 +4345,43 @@ def _decode_fixed_public(document, limits):
             all(item["node"]["kind"] == "carry" for item in parsed[:carries]),
             "carried columns precede computed ones",
         )
-        projection_body = carries == 0
+        kinds = [item["node"]["kind"] for item in parsed]
+        aggregate_body = "group_key" in kinds or "aggregate" in kinds
+        result_body = "result" in kinds
+        _need(
+            not (aggregate_body and result_body)
+            and not (aggregate_body and carries)
+            and not (result_body and carries)
+            and (not result_body or set(kinds) == {"result"})
+            and (not aggregate_body or set(kinds) <= {"group_key", "aggregate"})
+            and kinds.count("group_key") == len(determinants)
+            and (aggregate_body or not determinants),
+            "one aggregation stage publishes only its determinants and results",
+        )
+        if aggregate_body:
+            _need(
+                kinds[: len(determinants)] == ["group_key"] * len(determinants)
+                and kinds.count("aggregate") > 0,
+                "determinants precede occurrences and an aggregation has one",
+            )
+        mode = "grouped" if determinants else "global"
+        empty_input = "no_groups" if determinants else "one_global_row"
+        projection_body = carries == 0 and not aggregate_body
         outgoing, columns = [], []
+        if aggregate_body:
+            row_generated.append(
+                (
+                    "aggregation",
+                    None,
+                    "R12",
+                    [
+                        i
+                        for i in statements
+                        if premises[i]["key"] == "operator_environment"
+                    ],
+                    None,
+                )
+            )
         for position, item in enumerate(parsed):
             node, export, label = item["node"], item["export"], item["label"]
             _need(final or label == f"c{position}", "stage column label")
@@ -3488,9 +4390,20 @@ def _decode_fixed_public(document, limits):
                 if projection_body
                 else export
             )
-            if node["kind"] == "carry":
-                _need(position < len(incoming), "carried column beyond the scan")
-                read = incoming[position]
+            origin = None
+            if node["kind"] in CARRIED_KINDS:
+                if node["kind"] == "carry":
+                    _need(position < len(incoming), "carried column beyond the scan")
+                    read = incoming[position]
+                else:
+                    matches = [
+                        c
+                        for c in incoming
+                        if c["name"] == node["name"]
+                        and c["terminal"] == node["terminal"]
+                    ]
+                    _need(len(matches) == 1, "carried column outside the stage scope")
+                    read = matches[0]
                 _need(
                     node["alias"] == alias
                     and node["name"] == read["name"]
@@ -3502,10 +4415,120 @@ def _decode_fixed_public(document, limits):
                     row_port_reads.setdefault(key, read) is read,
                     "carried port binding drift",
                 )
-                row_generated.append(("carry_projection", export, "R05", [], None))
                 realization, field = read["realization"], read["field"]
                 literal = read.get("literal")
+                origin = read.get("origin")
                 root = None
+                if node["kind"] == "carry":
+                    row_generated.append(("carry_projection", export, "R05", [], None))
+                elif node["kind"] == "group_key":
+                    bound = determinants[position]
+                    _need(
+                        bound["port"] == node["port"]
+                        and bound["name"] == node["name"]
+                        and bound["terminal"] == node["terminal"],
+                        "GROUP BY must bind this determinant's own input value",
+                    )
+                    _need(
+                        realization["tag"] in GROUPING_TAGS
+                        and (
+                            realization["tag"] != "Bool"
+                            or realization["domain"]["kind"] == "bool01"
+                        )
+                        and (
+                            realization["tag"] != "Text"
+                            or all(
+                                realization["domain"].get(k) is not None
+                                for k in ("encoding", "collation", "padding")
+                            )
+                        )
+                        and (
+                            realization["tag"] != "Decimal"
+                            or all(
+                                realization["domain"].get(k) is not None
+                                for k in ("precision", "scale")
+                            )
+                        ),
+                        "group determinant comparison domain",
+                    )
+                    origin = {
+                        "role": "group_key",
+                        "mode": mode,
+                        "empty_input": empty_input,
+                        "stage": block,
+                        "function": None,
+                        "determinant": bound["key"],
+                        "aggregate": None,
+                        "arguments": [],
+                        "inputs": [read["terminal"]],
+                        "result": export,
+                    }
+                    row_generated.append(
+                        (
+                            "group_key",
+                            bound["key"],
+                            "R12",
+                            [
+                                i
+                                for i in statements
+                                if premises[i]["key"] == "operator_environment"
+                            ],
+                            None,
+                        )
+                    )
+                else:
+                    _need(origin is not None, "a result column reads a result port")
+                    row_generated.append(
+                        (
+                            "result_projection",
+                            ref(
+                                "aggregate_projection",
+                                row_counts["aggregate_projection"] + position,
+                            ),
+                            "R12",
+                            [],
+                            None,
+                        )
+                    )
+            elif node["kind"] == "aggregate":
+                row_generated.append(
+                    (
+                        "aggregate",
+                        node["aggregate"],
+                        "R13",
+                        [
+                            i
+                            for i in statements
+                            if premises[i]["key"] == "operator_environment"
+                        ],
+                        None,
+                    )
+                )
+                argument = None
+                if node["argument"] is not None:
+                    argument = row_resolve(
+                        node["argument"], incoming, alias, node["aggregate"]
+                    )
+                    _need(
+                        "read" in argument and argument["tag"] == "Int",
+                        "an aggregate argument is one direct established Int field",
+                    )
+                realization = aggregate_realization(node["function"], argument)
+                read, field, literal, root = None, None, None, None
+                origin = {
+                    "role": "aggregate_result",
+                    "mode": mode,
+                    "empty_input": empty_input,
+                    "stage": block,
+                    "function": node["function"],
+                    "determinant": None,
+                    "aggregate": node["aggregate"],
+                    "arguments": [] if argument is None else [argument["root"]],
+                    "inputs": [argument["read"]["terminal"]]
+                    if argument is not None
+                    else [column["terminal"] for column in incoming],
+                    "result": export,
+                }
             else:
                 row_generated.append(("computed_projection", export, "R05", [], None))
                 resolved = row_resolve(node["value"], incoming, alias, export)
@@ -3514,6 +4537,7 @@ def _decode_fixed_public(document, limits):
                 }
                 read = resolved.get("read")
                 field = None if read is None else read["field"]
+                origin = None if read is None else read.get("origin")
                 if "value" in resolved:
                     literal = {
                         **resolved["value"],
@@ -3539,6 +4563,7 @@ def _decode_fixed_public(document, limits):
                     export,
                     scan,
                     alias,
+                    origin,
                 )
             outgoing.append(
                 {
@@ -3548,6 +4573,7 @@ def _decode_fixed_public(document, limits):
                     "realization": realization,
                     "field": field,
                     "literal": literal,
+                    "origin": origin,
                 }
             )
             columns.append(
@@ -3560,19 +4586,22 @@ def _decode_fixed_public(document, limits):
                     "literal": literal,
                     "root": root,
                     "position": position,
+                    "origin": origin,
                 }
             )
-        if peek() == "where":
-            where_token, _ = take("syntax", "where", " WHERE ")
+        if peek() in {"where", "satisfying"}:
+            satisfying = peek() == "satisfying"
+            where_token, _ = take("syntax", peek(), " WHERE ")
             predicate = where_token["subject"]
             _need(predicate["kind"] == "filter", "filter root kind")
             _need(projection_body is False, "a filter body carries its rows")
+            _need(not aggregate_body, "a filter is its own stage, not the grouping")
             row_filters.append(predicate)
             row_generated.append(
                 (
-                    "predicate_root",
+                    "satisfying_root" if satisfying else "predicate_root",
                     predicate,
-                    "R06",
+                    "R12" if satisfying else "R06",
                     [
                         i
                         for i in statements
@@ -3581,16 +4610,28 @@ def _decode_fixed_public(document, limits):
                     None,
                 )
             )
+            specialized[0] = satisfying
             root = row_resolve(row_parse(block), incoming, alias, predicate)
+            specialized[0] = False
             _need(
                 root["tag"] == "Bool" and root["domain"]["kind"] == "bool01",
                 "predicate root is not a Boolean value",
             )
             _need(carries == len(incoming), "a filter body must carry every column")
+            if satisfying:
+                # Only an already-computed aggregate stage value can be filtered
+                # after grouping; a raw input or row LET value cannot reach here.
+                _need(
+                    all(column.get("origin") is not None for column in incoming),
+                    "satisfying reads only established aggregate stage results",
+                )
         row_generated.append(("read_only_select_bytes", None, "R23", [], None))
         if projection_body:
             row_counts["result"] += len(columns)
-            row_counts["projection"] += len(columns)
+            if result_body:
+                row_counts["aggregate_projection"] += len(columns)
+            else:
+                row_counts["projection"] += len(columns)
         body = {
             "block": block,
             "columns": columns,
@@ -3952,6 +4993,9 @@ def _decode_fixed_public(document, limits):
                     "realization": realization,
                     "field": carrier["field"],
                     "literal": carrier["literal"],
+                    # An outer JOIN may null-extend an already computed aggregate
+                    # value; it never recomputes it, so the origin rides along.
+                    "origin": carrier.get("origin"),
                     "nulled": nulled,
                 }
             )

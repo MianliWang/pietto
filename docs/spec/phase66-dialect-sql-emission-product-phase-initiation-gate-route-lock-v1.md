@@ -899,8 +899,10 @@ C09 的 LIMIT/SET/GLOBAL/window 分支需要各自 owner 先交付该 producer �
 Slice7 交付的是 marker/LET/filter/JOIN terminal 分支，以及 base-table shortcut、
 NOT IN、删除 right 依赖与 right output 漏入左 schema 的拒绝控制。
 
-R11/C09 outstanding membership differences: Slice8 GROUPED/GLOBAL; Slice9
-window/QUALIFY; Slice10 LIMIT0/LIMIT1; Slice11 SET.
+Slice8 交付了其中的 GROUPED/GLOBAL right-terminal 分支，其余保持未完成：
+
+R11/C09 outstanding membership differences: Slice9 window/QUALIFY; Slice10
+LIMIT0/LIMIT1; Slice11 SET.
 
 ## Upstream current-route compatibility rule authorized for Slice7
 
@@ -937,6 +939,38 @@ PIE-S2333、不伪造 source field/root/proof：
 None`，该输入依旧不可用，并保留其 `joined_completion_non_concrete` 原因。这是精确的
 上游负例，其 before/after 失败边界被保留，它不是成功的 promoted-`via` 见证，也不抵扣
 任何正面义务。`project_join_conditions.py` 未被修改。
+
+## Upstream aggregate-producer completion route authorized for Slice8
+
+Slice7 的 `_promoted_scalar_producer` 只接纳 ordinary scalar body，因此一个
+GROUPED/GLOBAL no-JOIN producer 的 joined tail 仍然 non-concrete，R12/R13 承诺的
+aggregate right terminal 与 outer-nulled aggregate value 都无法构造。新的 Slice8
+用户执行指令明确授权下述窄修订；Slice7 PASS 本身未授予该修订。N66=16、所有
+operator owners、最终 Phase66 obligations 均不改变。
+
+授权的修订只作用于 completion 的路线选择，不改变任何 lineage status、不抑制
+PIE-S2333、不伪造 source field/root/proof：
+
+1. `_promoted_scalar_producer` 复用既有 `_complete_no_join_output` replay。除既有
+   ordinary scalar body 外，另接纳 mode 为 GROUPED 或 GLOBAL、
+   `aggregate_readiness.status` 为 CONCRETE、`replay.ordering` 与 `replay.limit`
+   均为 None、每个 selected output source 都是 `ProjectNoJoinGroupedOutput`，
+   且确有一个 authored JOIN 直接消费该 producer 的 replay root。只被 SET operand
+   或其他非 JOIN 消费者使用的 grouped producer 保持原 base route 与自身
+   `historical_properties`，其 GLOBAL/FACTORIZED grain 证据不受影响。
+2. window/QUALIFY 排除不变：`window_outputs`、非 ABSENT 的 QUALIFY、
+   `selected_windows` 与 `hidden_attempts` 任一存在即保留原有 base route。
+3. 旧 scalar 路线及其排除原样保留；没有删除任何 aggregate guard，也没有把 replay
+   一律归类为 scalar。
+
+被提升的是 grouped/global 结果本身：GLOBAL 结果不是其 raw source row，带隐藏键的
+GROUPED 结果既不是 GLOBAL 也不是唯一可见 tuple。可传输性不产生
+relationship-endpoint 或 M1/M2/M4 guarantee，joined field aggregate 仍需其既有
+grain/uniqueness 前提，缺少时保持原有 `PIE-S2333` 负例。
+
+Slice7 的 later-owner 排除只迁移其 aggregate 分支为正面行为；window 分支保留为真实
+负例。该排除原有的两个 fixture 都在 parse 阶段失败（`PIE-P1000`），因此两者都已按真实
+可接受的源码表面重写；这是被记录的既有缺陷修复，不改变任何已发布义务。
 
 ## Counterexample obligations
 

@@ -31,6 +31,23 @@ The exact anchor/value/use/provenance contracts and independent oracles are owne
 by the Slice5 contract and current case/probe modules. Final full manifests bind
 final inputs; Part A focused receipts are prerequisite evidence only.
 
+## Current Slice8 extension
+
+The [Slice8 contract](phase66-slice8-grouped-global-satisfying-aggregate-emission-v1.md)
+adds ten aggregation cases — X_aggregate_global, X_aggregate_grouped,
+Y_aggregate_constant, Y_aggregate_satisfying, Y_aggregate_domains,
+Z_aggregate_composition, Z_aggregate_joined, Z_aggregate_membership,
+Z_aggregate_transport and V_aggregate_blocked — over five new fixed relations
+(`phase66 agg é`, `phase66 agg empty é`, `phase66 agg trio é`, `phase66 agg nulls é`,
+`phase66 agg keys é`) loaded by the existing fixture manager with its existing grants.
+The current denominator is exactly V–Z:35 cases and107 public documents per target,
+splitting by target only through the retained R09/R10 FULL domain: postgres81
+VERIFIED,3 INPUT_REJECTED,23 BLOCKED; mysql79 VERIFIED,3 INPUT_REJECTED,25 BLOCKED.
+Every expected row and every positional physical/logical metadata code is stated
+independently in the case module and is never read back from an observation. Pins,
+transport, resource ceilings, generation timeout, recovery/diagnostics/cleanup and
+the workflow commands are unchanged.
+
 ## Historical Slice4 extension
 
 The [Slice4 contract](phase66-slice4-named-shared-producer-scopes-terminal-output-emission-v1.md)

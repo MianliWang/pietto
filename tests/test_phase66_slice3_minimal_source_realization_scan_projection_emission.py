@@ -826,10 +826,48 @@ def test_current_emission_variant_manifest_is_complete():
         "W_join_shapes": ("cross", "inner", "semi", "anti"),
         "W_join_values": ("left_marker", "right_accumulated", "via_refined"),
         "V_join_full": ("restricted",),
+        # Slice8 aggregation: GLOBAL and GROUPED results, satisfying, the
+        # reviewed comparison domains, composition, membership and the exact
+        # first-version non-support set.
+        "X_aggregate_global": ("bag", "empty", "all_null", "where_false"),
+        "X_aggregate_grouped": ("hidden", "visible", "empty"),
+        "Y_aggregate_constant": ("grouped", "empty"),
+        "Y_aggregate_satisfying": ("retained", "let_reference", "bind", "before_input"),
+        "Y_aggregate_domains": ("bool_key", "text_key", "decimal_key"),
+        "Z_aggregate_composition": (
+            "named",
+            "imported",
+            "let_where",
+            "downstream_filter",
+            "source_keys",
+        ),
+        "Z_aggregate_joined": (
+            "inner_fanout",
+            "left_nullable",
+            "right_accumulated",
+            "full_restricted",
+        ),
+        "Z_aggregate_membership": (
+            "semi_global",
+            "anti_global",
+            "semi_grouped",
+            "anti_grouped",
+            "filtered_global",
+            "satisfying_right",
+        ),
+        "Z_aggregate_transport": ("outer_null",),
+        "V_aggregate_blocked": (
+            "sum_direct",
+            "avg_direct",
+            "sum_hidden_right",
+            "float_key",
+            "bool_domain_key",
+            "decimal_parameter_key",
+        ),
     }
     for target in ("postgres", "mysql"):
         inputs = probe.generation_inputs(target)
-        assert len(inputs) == 69
+        assert len(inputs) == 107
         assert (
             sum(
                 item["id"]

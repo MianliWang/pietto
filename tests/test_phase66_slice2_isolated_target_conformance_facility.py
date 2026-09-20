@@ -1018,6 +1018,17 @@ def valid_receipts(
                             str(label) for label in probe.JOIN_LABELS[record["variant"]]
                         ]
                         types = cases.join_metadata(target, record["variant"])
+                    elif case_id in probe.AGGREGATE_CASES:
+                        rows = cases.aggregate_rows(target, case_id, record["variant"])
+                        names = [
+                            str(label)
+                            for label in probe.aggregate_labels(
+                                probe.AGGREGATE_LABELS, case_id, record["variant"]
+                            )
+                        ]
+                        types = cases.aggregate_types(
+                            target, case_id, record["variant"]
+                        )
                     elif (case_id, record["variant"]) in cases.MIGRATED_JOIN_ROWS:
                         rows = cases.MIGRATED_JOIN_ROWS[case_id, record["variant"]]
                         names = [
@@ -1173,7 +1184,11 @@ def valid_receipts(
         ):
             result[target]["setup"][index]["parameters"] = params
             result[target]["setup"][index]["prepared"] = True
-        for index, params in enumerate(cases.emission_setup_parameters(target), 7):
+        loading = [
+            *cases.emission_setup_parameters(target),
+            *cases.aggregate_setup_parameters(target),
+        ]
+        for index, params in enumerate(loading, 7):
             result[target]["setup"][index]["parameters"] = params
             result[target]["setup"][index]["prepared"] = target == "postgres" or bool(
                 params
@@ -1479,10 +1494,20 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "S_fixed_named",
         "T_row_direct",
         "U_row_named",
+        "V_aggregate_blocked",
         "V_join_full",
         "V_row_blocked",
         "W_join_shapes",
         "W_join_values",
+        "X_aggregate_global",
+        "X_aggregate_grouped",
+        "Y_aggregate_constant",
+        "Y_aggregate_domains",
+        "Y_aggregate_satisfying",
+        "Z_aggregate_composition",
+        "Z_aggregate_joined",
+        "Z_aggregate_membership",
+        "Z_aggregate_transport",
     )
     assert resources.ENDPOINT == "unix:///var/run/docker.sock"
     assert resources.STARTUP_SECONDS == 120 and resources.MAX_CONNECT_ATTEMPTS == 3

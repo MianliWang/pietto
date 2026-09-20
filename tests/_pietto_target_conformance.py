@@ -551,6 +551,16 @@ def verify_emission_generation(value, target, expected):
                     # Slice7: `match_join` migrated to VERIFIED, so it no longer
                     # reaches this branch. MySQL keeps FULL as a typed non-support.
                     "restricted": "PIE-B1003",
+                    "full_restricted": "PIE-B1003",
+                    # Slice8: R13 freezes SUM/AVG result realization, R12 keeps
+                    # Float outside group comparison, and a violated Bool or
+                    # Decimal source domain stays a representation failure.
+                    "sum_direct": "PIE-B1003",
+                    "avg_direct": "PIE-B1003",
+                    "sum_hidden_right": "PIE-B1003",
+                    "float_key": "PIE-B1003",
+                    "bool_domain_key": "PIE-B1002",
+                    "decimal_parameter_key": "PIE-B1002",
                 }[record["variant"]]
             )
             if code not in [b["code"] for b in document["blockers"]]:
@@ -1044,6 +1054,7 @@ def _verify_receipt(
             [],
         ]
         + cases.emission_setup_parameters(target)
+        + cases.aggregate_setup_parameters(target)
         + [[], [], []]
         + [[] for _ in setup_sql[len(cases.setup(target)) :]]
     )

@@ -5360,22 +5360,42 @@ def _complete_no_join_output(
     )
 
 
+def _joined_consumer(
+    completion: ProjectCompletion, owner: ProjectDeclarationOccurrence
+) -> bool:
+    """Whether one authored JOIN directly consumes this producer's output."""
+
+    for dependency in completion.dependencies:
+        if dependency.target is not owner:
+            continue
+        definition = dependency.consumer.definition
+        if (
+            type(definition) in {TableDef, QueryDef}
+            and cast(_DerivedRelation, definition).join_clauses
+        ):
+            return True
+    return False
+
+
 def _promoted_scalar_producer(
     *,
     completion: ProjectCompletion,
     base_entry: ProjectExistingEffectiveOutput,
     upstream: ProjectEffectiveOutputCompletionEntry,
 ) -> ProjectCompletedEffectiveOutput | None:
-    """Promote one existing no-JOIN scalar producer onto the current-input route.
+    """Promote one existing no-JOIN producer body onto the current-input route.
 
     A current JOIN input keeps its exact value authority at its completed output
     field, so a producer whose retained relation lineage is an evidenced
     non-concrete fact needs the richer completed route rather than the historical
     source-root projection. The promotion reuses the existing replay builder and is
-    adopted only for an ordinary scalar body: every selected output value is an
-    ordinary scalar expression and the body introduces no aggregate, window or
-    QUALIFY stage, selected or hidden. Every other candidate keeps its established
-    base route, its diagnostics and its historical properties.
+    adopted for exactly two admitted bodies: an ordinary scalar body, whose every
+    selected output value is an ordinary scalar expression and which introduces no
+    later stage at all, and a grouped or global aggregate body whose readiness is
+    concrete and whose every selected output is that stage's own grouped result.
+    A window or QUALIFY stage, selected or hidden, and a relation ORDER or LIMIT
+    barrier still keep their established base route, its diagnostics and its
+    historical properties, as does every other candidate.
     """
 
     definition = base_entry.owner.definition
@@ -5414,19 +5434,38 @@ def _promoted_scalar_producer(
         return None
     root = replay.root
     # Hidden and unselected later-stage values count: a scalar-looking select list
-    # does not prove the body introduces no aggregate, window or QUALIFY stage.
+    # does not prove the body introduces no window or QUALIFY stage.
     if (
         type(root) is not ProjectConcreteNoJoinReplay
-        or root.mode is not ProjectJoinedAggregationMode.ABSENT
-        or root.aggregate_readiness is not None
         or root.window_outputs
         or root.qualify.kind is not ProjectNoJoinQualifyKind.ABSENT
         or root.qualify.selected_windows
         or root.qualify.hidden_attempts
     ):
         return None
+    if root.mode is ProjectJoinedAggregationMode.ABSENT:
+        if root.aggregate_readiness is not None:
+            return None
+        expected: type = ProjectNoJoinScalarExpression
+    else:
+        # A grouped or global result is admitted only with its own successful and
+        # complete readiness, only where no result barrier rides along, and only
+        # where an authored JOIN actually consumes this producer: the replayed
+        # grain, not the raw source row, becomes the transported value, and every
+        # other consumer keeps the producer's own historical properties.
+        readiness = root.aggregate_readiness
+        if (
+            readiness is None
+            or readiness.status
+            is not ProjectAggregateGroupedClauseReadinessStatus.CONCRETE
+            or replay.ordering is not None
+            or replay.limit is not None
+            or not _joined_consumer(completion, base_entry.owner)
+        ):
+            return None
+        expected = ProjectNoJoinGroupedOutput
     if not replay.fields or any(
-        type(item.source) is not ProjectNoJoinScalarExpression for item in replay.fields
+        type(item.source) is not expected for item in replay.fields
     ):
         return None
     return replay

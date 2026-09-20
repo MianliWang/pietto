@@ -146,3 +146,18 @@ queries. R03 repeated/shared JOIN joint execution is delivered here; ORDER and S
 joint execution remain with Slices10/11, and the amended R11/C09 membership differences
 remain with Slices8/9/10/11. Grouping, windows, DISTINCT, ORDER/LIMIT and SET remain
 BLOCKED for their own Slices.
+
+
+The [Slice8 grouped/global aggregate contract](spec/phase66-slice8-grouped-global-satisfying-aggregate-emission-v1.md)
+adds native GROUPED/GLOBAL aggregation, its satisfying stage and the aggregate result
+representations. `GROUP BY` binds the actual input expression rather than an output
+alias or an ordinal, GLOBAL emits none, and ONLY_FULL_GROUP_BY stays on with no
+`ANY_VALUE` or representative-row repair. `count`, `count_distinct`, `min` and `max`
+emit their own spellings; `sum`/`avg` keep one exact typed blocker everywhere,
+including behind a named producer or a membership right side. The current exact
+denominator is V–Z35 cases and107 public documents per target: postgres81 VERIFIED,3
+INPUT_REJECTED,23 BLOCKED; mysql79 VERIFIED,3 INPUT_REJECTED,25 BLOCKED. Five fixed
+aggregation relations are loaded by the same fixture manager. Only the GROUPED/GLOBAL
+branch of the amended R11/C09 ledger closes here; window/QUALIFY, LIMIT and SET
+membership remain with Slices9/10/11, and windows, DISTINCT, ORDER/LIMIT and SET
+remain BLOCKED for their own Slices.

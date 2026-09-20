@@ -18,6 +18,7 @@ from pietto._project.project_sql_emission_scopes import (
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_emission_joins as joining
+from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project.project_sql_emission_contract import (
     Blocker,
     BoundField,
@@ -685,6 +686,9 @@ def original_rule(plan, entry, *, generated_scopes):
     rule = joining.demand_rule(plan, entry)
     if rule is not None:
         return rule
+    rule = grouping.demand_rule(entry)
+    if rule is not None:
+        return rule
     if entry.family.value == "fixed_literal_transport" or (
         entry.family.value == "expression"
         and type(plan.expressions[entry.subject.position])
@@ -692,6 +696,7 @@ def original_rule(plan, entry, *, generated_scopes):
             row.ProjectSQLReference,
             row.ProjectSQLJoinedReference,
             row.ProjectSQLMatchReference,
+            grouping.ProjectSQLResultReference,
         }
     ):
         return "R04"
@@ -813,7 +818,8 @@ ADMITTED_EXPRESSIONS = (
     row.ProjectSQLComparison,
     row.ProjectSQLIsNull,
 )
-STAGE_KINDS = ("let", "where", "projection")
+ADMITTED_STAGE_EXPRESSIONS = (*ADMITTED_EXPRESSIONS, grouping.ProjectSQLResultReference)
+STAGE_KINDS = grouping.STAGE_KINDS
 RETENTION = (("true", True), ("false", False), ("unknown", False))
 
 
@@ -887,6 +893,8 @@ class RowBody:
     final: bool
     symbol: SQLSymbol | None
     cte_columns: tuple[SQLSymbol, ...]
+    aggregation: Any = None
+    """This body's own realized GROUPED/GLOBAL stage, when it has one."""
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -953,21 +961,21 @@ def definition_blocks(request):
 
 
 def admitted_row_shape(plan):
-    """One input relation, ordered LET/WHERE/projection stages, admitted nodes."""
+    """One input relation and ordered LET/WHERE/aggregate/satisfying/projection."""
     named = tuple(
         d
         for d in plan.bindings.definitions
         if type(d.entry.owner.definition) is not SourceDef
     )
-    if (
-        len(plan.sources) != 1
-        or not named
-        or len(plan.input_uses) != len(named)
-        or len(plan.projections) != len(plan.all_exports)
-        or any(
+    return bool(
+        len(plan.sources) == 1
+        and named
+        and len(plan.input_uses) == len(named)
+        and len(plan.projections) + len(plan.aggregate_projections)
+        == len(plan.all_exports)
+        and not any(
             (
                 plan.joins,
-                plan.aggregations,
                 plan.windows,
                 plan.distincts,
                 plan.orders,
@@ -975,39 +983,9 @@ def admitted_row_shape(plan):
                 plan.set_bodies,
             )
         )
-        or any(type(e) not in ADMITTED_EXPRESSIONS for e in plan.expressions)
-    ):
-        return False
-    grouped: dict[Any, list[Any]] = {}
-    for block in plan.blocks:
-        grouped.setdefault(block.definition, []).append(block)
-    if set(grouped) != {d.ref for d in named}:
-        return False
-    for definition in named:
-        blocks = sorted(grouped[definition.ref], key=lambda block: block.position)
-        kinds = tuple(block.kind.value for block in blocks)
-        if (
-            not kinds
-            or kinds[-1] != "projection"
-            or set(kinds) - set(STAGE_KINDS)
-            or kinds.count("projection") != 1
-            or kinds.count("where") > 1
-            or tuple(b.position for b in blocks) != tuple(range(len(blocks)))
-            or set(kinds[: len(kinds) - 1]) - {"let", "where"}
-            or ("where" in kinds and set(kinds[: kinds.index("where")]) - {"let"})
-            or sum(use.consumer is definition.ref for use in plan.input_uses) != 1
-        ):
-            return False
-        for position, block in enumerate(blocks):
-            expected = ("relation_input",) if position == 0 else ()
-            expected += {
-                "let": (),
-                "where": ("row_filter",),
-                "projection": ("final_projection",),
-            }[block.kind.value]
-            if tuple(o.kind.value for o in block.operators) != expected:
-                return False
-    return True
+        and all(type(e) in ADMITTED_STAGE_EXPRESSIONS for e in plan.expressions)
+        and grouping.blocks_admitted(plan, single_input_use=True)
+    )
 
 
 def _stage_read(request, scan, position, port):
@@ -1375,8 +1353,19 @@ def realize_rows(request):
     projections: dict[Any, list[Any]] = {}
     for projection in plan.projections:
         projections.setdefault(projection.block, []).append(projection)
+    stages = grouping.aggregated_definitions(plan)
+    aggregate_keys: dict[Any, list[Any]] = {}
+    for key in plan.group_keys:
+        aggregate_keys.setdefault(key.aggregation, []).append(key)
+    aggregate_values: dict[Any, list[Any]] = {}
+    for value in plan.aggregates:
+        aggregate_values.setdefault(value.aggregation, []).append(value)
+    aggregate_projections: dict[Any, list[Any]] = {}
+    for projection in plan.aggregate_projections:
+        aggregate_projections.setdefault(projection.block, []).append(projection)
     ordered = []
     for definition, blocks in groups:
+        stage = stages.get(definition.original.ref)
         for join in join_groups.get(definition.original.ref, ()):
             if join.on is not None:
                 ordered.append(join.on)
@@ -1384,8 +1373,12 @@ def realize_rows(request):
             kind = block.kind.value
             if kind == "let":
                 ordered.append(lets[block.ref].expression)
-            elif kind == "where":
+            elif kind in {"where", "satisfying"}:
                 ordered.append(filters[block.ref].predicate)
+            elif kind == "aggregate":
+                assert stage is not None
+                for value in aggregate_values.get(stage.ref, ()):
+                    ordered.extend(value.arguments)
             else:
                 ordered.extend(p.expression for p in projections.get(block.ref, ()))
     occurrences = []
@@ -1495,6 +1488,8 @@ def realize_rows(request):
             final = kind == "projection" and (
                 definition.original.entry.owner is plan.scope.selected_owner
             )
+            stage = stages.get(definition.original.ref)
+            aggregate_stage = None
             block_exports: tuple[Any, ...] = ()
             if kind != "projection":
                 resolved = [stage_ports.get(ref) for ref in block.exports]
@@ -1502,38 +1497,84 @@ def realize_rows(request):
                     add("PIE-B1001", "stage_export_not_bound", block.ref)
                     return RowRealization(tuple(problems), None)
                 block_exports = tuple(resolved)
-                for position, read in enumerate(incoming):
-                    label = f"c{position}"
-                    export = block_exports[position]
-                    if export.source is not block.inputs[position]:
-                        add("PIE-B1001", "stage_carry_port_drift", export)
-                        return RowRealization(tuple(problems), None)
-                    columns.append(
-                        RowCarryColumn(
-                            position,
-                            export,
-                            block.inputs[position],
-                            read,
-                            SQLSymbol(position + 1, export.ref, label),
-                            label,
-                            replace(
-                                read, position=position, name=label, terminal=export.ref
-                            ),
+            if kind == "aggregate":
+                assert stage is not None
+                built, aggregate_stage, problem = grouping.build_stage(
+                    request,
+                    stage,
+                    block_exports,
+                    available,
+                    tuple(aggregate_keys.get(stage.ref, ())),
+                    tuple(aggregate_values.get(stage.ref, ())),
+                    uses,
+                    reference_type=reference_type,
+                    symbol=SQLSymbol,
+                )
+                if built is None:
+                    assert problem is not None
+                    add(*problem)
+                    return RowRealization(tuple(problems), None)
+                assert aggregate_stage is not None
+                columns.extend(built)
+                nodes += grouping.node_count(aggregate_stage, _value_node_count)
+                exports: tuple[Any, ...] = ()
+                items: tuple[Any, ...] = ()
+            elif kind == "projection" and stage is not None:
+                built, problem = grouping.build_projections(
+                    request,
+                    stage,
+                    block,
+                    definition.original.exports,
+                    definition.terminals,
+                    available,
+                    tuple(aggregate_projections.get(block.ref, ())),
+                    final,
+                    symbol=SQLSymbol,
+                )
+                if built is None:
+                    assert problem is not None
+                    add(*problem)
+                    return RowRealization(tuple(problems), None)
+                columns.extend(built)
+                exports = ()
+                items = ()
+            else:
+                if kind != "projection":
+                    for position, read in enumerate(incoming):
+                        label = f"c{position}"
+                        export = block_exports[position]
+                        if export.source is not block.inputs[position]:
+                            add("PIE-B1001", "stage_carry_port_drift", export)
+                            return RowRealization(tuple(problems), None)
+                        columns.append(
+                            RowCarryColumn(
+                                position,
+                                export,
+                                block.inputs[position],
+                                read,
+                                SQLSymbol(position + 1, export.ref, label),
+                                label,
+                                replace(
+                                    read,
+                                    position=position,
+                                    name=label,
+                                    terminal=export.ref,
+                                ),
+                            )
                         )
-                    )
-            exports = (
-                definition.original.exports
-                if kind == "projection"
-                else block_exports[len(incoming) :]
-            )
-            items: tuple[Any, ...] = (
-                tuple(projections.get(block.ref, ()))
-                if kind == "projection"
-                else ((lets[block.ref],) if kind == "let" else ())
-            )
-            if len(items) != len(exports):
-                add("PIE-B1001", "stage_export_denominator", block.ref)
-                return RowRealization(tuple(problems), None)
+                exports = (
+                    definition.original.exports
+                    if kind == "projection"
+                    else block_exports[len(incoming) :]
+                )
+                items = (
+                    tuple(projections.get(block.ref, ()))
+                    if kind == "projection"
+                    else ((lets[block.ref],) if kind == "let" else ())
+                )
+                if len(items) != len(exports):
+                    add("PIE-B1001", "stage_export_denominator", block.ref)
+                    return RowRealization(tuple(problems), None)
             for offset, (item, export) in enumerate(zip(items, exports, strict=True)):
                 position = len(columns)
                 label = export.identity.name if final else f"c{position}"
@@ -1585,14 +1626,16 @@ def realize_rows(request):
             if problems:
                 return RowRealization(tuple(problems), None)
             predicate = None
-            if kind == "where":
+            if kind in {"where", "satisfying"}:
                 item = filters[block.ref]
                 value, problem = rows.build_row_value(
                     request,
                     available,
                     item.predicate,
                     uses,
-                    reference_type=reference_type,
+                    reference_type=grouping.ProjectSQLResultReference
+                    if kind == "satisfying"
+                    else reference_type,
                 )
                 if value is None:
                     assert problem is not None
@@ -1635,6 +1678,7 @@ def realize_rows(request):
                     SQLSymbol(i, terminal.ref, f"c{i}")
                     for i, terminal in enumerate(terminals)
                 ),
+                aggregate_stage,
             )
             bodies.append(body)
             units.append(body)
@@ -1877,11 +1921,43 @@ def build_row_requirements(request, query):
                 GeneratedRequirement("stage_terminal", symbol.binding, "R03", naming)
                 for symbol in scan.body.cte_columns
             )
+        operators = tuple(
+            p
+            for p in request.premises
+            if p.scope == "statement" and p.key == "operator_environment"
+        )
+        if body.aggregation is not None:
+            generated.append(
+                GeneratedRequirement(
+                    "aggregation", body.aggregation.aggregation.ref, "R12", operators
+                )
+            )
         for column in body.columns:
             if type(column) is RowCarryColumn:
                 generated.append(
                     GeneratedRequirement(
                         "carry_projection", column.export.ref, "R05", ()
+                    )
+                )
+                continue
+            if type(column) is grouping.AggregateKeyColumn:
+                generated.append(
+                    GeneratedRequirement("group_key", column.key.ref, "R12", operators)
+                )
+                continue
+            if type(column) is grouping.AggregateValueColumn:
+                generated.append(
+                    GeneratedRequirement(
+                        "aggregate", column.aggregate.ref, "R13", operators
+                    )
+                )
+                if column.argument is not None:
+                    generated.extend(value_requirements(request, column.argument))
+                continue
+            if type(column) is grouping.AggregateProjectionColumn:
+                generated.append(
+                    GeneratedRequirement(
+                        "result_projection", column.projection.ref, "R12", ()
                     )
                 )
                 continue
@@ -1892,16 +1968,13 @@ def build_row_requirements(request, query):
             )
             generated.extend(value_requirements(request, column.value))
         if body.predicate is not None:
+            satisfying = body.block.kind.value == "satisfying"
             generated.append(
                 GeneratedRequirement(
-                    "predicate_root",
+                    "satisfying_root" if satisfying else "predicate_root",
                     body.predicate.original.ref,
-                    "R06",
-                    tuple(
-                        p
-                        for p in request.premises
-                        if p.scope == "statement" and p.key == "operator_environment"
-                    ),
+                    "R12" if satisfying else "R06",
+                    operators,
                 )
             )
             generated.extend(value_requirements(request, body.predicate.value))
@@ -1922,11 +1995,15 @@ def row_parameter_leaves(query):
         if type(body) is joining.JoinBody:
             values = [] if body.predicate is None else [body.predicate]
         else:
-            values = [
-                column.value
-                for column in body.columns
-                if type(column) is RowValueColumn
-            ]
+            values = []
+            for column in body.columns:
+                if type(column) is RowValueColumn:
+                    values.append(column.value)
+                elif (
+                    type(column) is grouping.AggregateValueColumn
+                    and column.argument is not None
+                ):
+                    values.append(column.argument)
             if body.predicate is not None:
                 values.append(body.predicate.value)
         for value in values:

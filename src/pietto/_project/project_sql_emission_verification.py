@@ -52,6 +52,8 @@ from pietto._project.project_sql_emission_ast import (
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_emission_joins as joining
+from pietto._project import project_sql_emission_aggregation as grouping
+from pietto._project import project_sql_plan_aggregation as plan_aggregation
 from pietto._project import project_sql_emission_ast as ast
 from pietto._project.project_sql_plan_joins import ProjectSQLJoinPortKind
 from pietto.ast_nodes import AuthoredJoinKind
@@ -537,17 +539,33 @@ def _verify_value(request, value, original, expressions_seen, nodes):
         or not any(leaf.site is site for site in plan.literal_sites)
         or leaf.site.position.expression is not original.ref
         or leaf.site.position.literal is not original.expression
-        or leaf.site.position.role.value not in {"select", "let", "where", "on"}
+        or leaf.site.position.role.value
+        not in {"select", "let", "where", "on", "satisfying"}
     ):
         return False
     expressions_seen.append(original)
     nodes.append(leaf)
     if type(leaf) is parameters.SQLLiteral:
+        # A literal stays a literal under PRESERVE, and under BIND_SAFE only in a
+        # specialized position the extraction rule never admits as a slot. That
+        # eligibility is re-derived from the retained role, never from the builder.
         return (
             type(original) is row.ProjectSQLLiteral
             and parameters.same_value(leaf.value, original.expression.value)
             and leaf.site.disposition.value == "preserved_with_reason"
-            and request.verification.literal_policy.value == "preserve_literals"
+            and (
+                (
+                    leaf.site.reason.value == "preserve_policy"
+                    and request.verification.literal_policy.value == "preserve_literals"
+                )
+                or (
+                    leaf.site.reason.value == "specialized_or_structural_context"
+                    and request.verification.literal_policy.value
+                    == "bind_safe_literals"
+                    and leaf.site.position.role.value
+                    not in {"select", "let", "where", "on", "unknown"}
+                )
+            )
         )
     assert isinstance(leaf, parameters.SQLParameter)
     return (
@@ -1187,8 +1205,271 @@ def _same_read(actual, expected):
         and actual.field is expected.field
         and actual.source_port is expected.source_port
         and actual.literal is expected.literal
+        and _same_origin(actual.aggregate, expected.aggregate)
         and _same_realization(actual.realization, expected.realization)
     )
+
+
+def _same_origin(actual, expected):
+    """One transported value's aggregate provenance, compared structurally."""
+    if actual is None or expected is None:
+        return actual is expected
+    return (
+        type(actual) is grouping.AggregateOrigin
+        and type(expected) is grouping.AggregateOrigin
+        and actual.kind == expected.kind
+        and actual.aggregation is expected.aggregation
+        and actual.result is expected.result
+        and _same(actual.inputs, expected.inputs)
+        and actual.key is expected.key
+        and actual.aggregate is expected.aggregate
+        and actual.function == expected.function
+    )
+
+
+def _aggregate_result_realization(family, function, argument, retained):
+    """Independently re-derive one aggregate result's own physical realization."""
+    tag, nullable = retained
+    if function in grouping.COUNTING_FUNCTIONS:
+        if tag != "Int" or nullable is not False:
+            raise ValueError("count result domain")
+        return rows.Realization(
+            "Int",
+            {"kind": grouping.COUNT_STORAGE[family]},
+            False,
+            {"kind": "int_range", "min": "0", "max": str(grouping.COUNT_MAX)},
+        )
+    if function not in grouping.EXTREMA_FUNCTIONS or argument is None:
+        raise ValueError("aggregate function outside the promised domain")
+    carrier = argument.realization
+    if tag != carrier.tag or nullable is not True:
+        raise ValueError("extrema result domain")
+    return rows.Realization(carrier.tag, carrier.storage, True, carrier.domain)
+
+
+def _verify_body_scope(body, position, state):
+    """One body's own generated CTE name and ordered terminal column symbols."""
+    if body.final:
+        if body.symbol is not None or body.cte_columns != ():
+            raise ValueError("final body publishes no generated scope")
+        return
+    if (
+        body.symbol is None
+        or body.symbol.position != position
+        or body.symbol.binding is not body.block.ref
+        or body.symbol.name != f"p{position}"  # unit index, not body index
+        or len(body.cte_columns) != len(body.terminals)
+    ):
+        raise ValueError("generated stage scope")
+    for index, (symbol, terminal) in enumerate(
+        zip(body.cte_columns, body.terminals, strict=True)
+    ):
+        if (
+            symbol.position != index
+            or symbol.binding is not terminal.ref
+            or symbol.name != f"c{index}"
+        ):
+            raise ValueError("generated terminal column")
+    state["symbols"].extend((body.symbol, *body.cte_columns))
+
+
+def _verify_aggregate_body(
+    request, body, block, stage, keys, values, columns, children, state, reference_type
+):
+    """Independently rebuild one aggregation stage from its retained products."""
+    realized = body.aggregation
+    if (
+        realized is None
+        or type(realized) is not grouping.AggregateStage
+        or realized.aggregation is not stage
+        or realized.mode != stage.mode.value
+        or realized.empty_input != stage.empty_input.value
+        or len(body.columns) != len(keys) + len(values)
+        or tuple(body.columns[: len(keys)]) != realized.keys
+        or tuple(body.columns[len(keys) :]) != realized.values
+        or len(block.exports) != len(body.columns)
+        or len(keys) != len(stage.authority.keys)
+        or len(values) != len(stage.authority.aggregates)
+        # An aggregation stage filters nothing: satisfying is its own later stage.
+        or body.predicate is not None
+        or body.final
+    ):
+        raise ValueError("aggregate stage inventory")
+    ports = {port.ref: port for port in request.plan.stage_ports}
+    for index, (key, column) in enumerate(zip(keys, realized.keys, strict=True)):
+        export = ports.get(block.exports[index])
+        read = columns.get(key.input)
+        retained = grouping.key_logical(key.source)
+        label = f"c{index}"
+        if (
+            type(column) is not grouping.AggregateKeyColumn
+            or column.ordinal != index
+            or column.key is not key
+            or column.input_port is not key.input
+            or key.source is not stage.authority.keys[index]
+            or export is None
+            or export.source is not key.ref
+            or column.export is not export
+            or read is None
+            or not _same_read(column.read, read)
+            or retained is None
+            or (read.realization.tag, read.realization.nullable) != retained
+            or grouping.grouping_problem(read.realization) is not None
+            or column.label != label
+            or column.symbol.position != index + 1
+            or column.symbol.binding is not export.ref
+            or column.symbol.name != label
+            or not identifier_valid(label, request.family)
+            or not identifier_valid(read.name, request.family)
+            or not _same_read(
+                column.column,
+                rows.StageColumn(
+                    index,
+                    label,
+                    export.ref,
+                    read.realization,
+                    field=read.field,
+                    source_port=read.source_port,
+                    literal=read.literal,
+                    aggregate=grouping.AggregateOrigin(
+                        "group_key", stage, export.ref, (read.terminal,), key=key
+                    ),
+                ),
+            )
+            or column.column.scope is not None
+        ):
+            raise ValueError("group determinant")
+        state["nodes"] += 1
+        state["symbols"].append(column.symbol)
+    for offset, (value, column) in enumerate(zip(values, realized.values, strict=True)):
+        index = len(keys) + offset
+        export = ports.get(block.exports[index])
+        function = grouping.function_name(value.source)
+        label = f"c{index}"
+        if function is None or function not in grouping.SPELLING:
+            raise ValueError("aggregate function outside the promised domain")
+        arguments = plan_aggregation.arguments(value.source)
+        if len(arguments) != len(value.arguments) or len(arguments) > 1:
+            raise ValueError("aggregate argument signature")
+        argument = column.argument
+        if value.arguments:
+            if argument is None:
+                raise ValueError("aggregate argument missing")
+            _verify_row_value(
+                request,
+                argument,
+                value.arguments[0],
+                columns,
+                children,
+                state,
+                reference_type=reference_type,
+            )
+            if grouping.argument_problem(function, argument) is not None:
+                raise ValueError("aggregate argument outside its admitted domain")
+        elif argument is not None or function != "count":
+            raise ValueError("row count keeps no scalar argument")
+        retained = grouping.result_value(value.source)
+        if retained is None:
+            raise ValueError("aggregate result logical type evidence")
+        expected = _aggregate_result_realization(
+            request.family, function, argument, retained
+        )
+        if (
+            type(column) is not grouping.AggregateValueColumn
+            or column.ordinal != index
+            or column.aggregate is not value
+            or value.source is not stage.authority.aggregates[offset]
+            or column.function != function
+            or column.spelling != grouping.SPELLING[function]
+            or column.distinct is not (function in grouping.DISTINCT_FUNCTIONS)
+            or export is None
+            or export.source is not value.ref
+            or column.export is not export
+            or column.label != label
+            or column.symbol.position != index + 1
+            or column.symbol.binding is not export.ref
+            or column.symbol.name != label
+            or not identifier_valid(label, request.family)
+            or not _same_read(
+                column.column,
+                rows.StageColumn(
+                    index,
+                    label,
+                    export.ref,
+                    expected,
+                    aggregate=grouping.AggregateOrigin(
+                        "aggregate_result",
+                        stage,
+                        export.ref,
+                        (argument.column.terminal,)
+                        if argument is not None
+                        else tuple(
+                            columns[reference].terminal for reference in block.inputs
+                        ),
+                        aggregate=value,
+                        function=function,
+                    ),
+                ),
+            )
+        ):
+            raise ValueError("aggregate occurrence")
+        state["nodes"] += 1
+        state["symbols"].append(column.symbol)
+
+
+def _verify_aggregate_projection(
+    request, body, block, stage, projections, columns, state
+):
+    """The exact canonical visible mapping; a hidden determinant stays hidden."""
+    exports = body.definition.original.exports
+    terminals = body.definition.terminals
+    if (
+        body.aggregation is not None
+        or len(body.columns) != len(exports)
+        or len(projections) != len(exports)
+        or len(terminals) != len(exports)
+        or body.terminals != terminals
+    ):
+        raise ValueError("aggregate projection denominator")
+    for position, (column, projection, export, terminal) in enumerate(
+        zip(body.columns, projections, exports, terminals, strict=True)
+    ):
+        read = columns.get(projection.input)
+        label = export.identity.name if body.final else f"c{position}"
+        if (
+            type(column) is not grouping.AggregateProjectionColumn
+            or column.ordinal != position
+            or column.projection is not projection
+            or projection.block is not block.ref
+            or projection.aggregation is not stage.ref
+            or projection.export is not export.ref
+            or column.export is not export
+            or column.input_port is not projection.input
+            or read is None
+            or not _same_read(column.read, read)
+            or column.label != label
+            or column.symbol.position != position + 1
+            or column.symbol.binding is not export.ref
+            or column.symbol.name != label
+            or not identifier_valid(label, request.family, label=body.final)
+            or not identifier_valid(read.name, request.family)
+            or not _same_read(
+                column.column,
+                rows.StageColumn(
+                    position,
+                    label,
+                    terminal.ref,
+                    read.realization,
+                    field=read.field,
+                    source_port=read.source_port,
+                    literal=read.literal,
+                    scope=read.scope,
+                    aggregate=read.aggregate,
+                ),
+            )
+        ):
+            raise ValueError("aggregate result projection")
+        state["symbols"].append(column.symbol)
 
 
 def _same_realization(actual, expected):
@@ -1563,6 +1844,16 @@ def verify_row_query(request, query):
         projections: dict[object, list[object]] = {}
         for projection in plan.projections:
             projections.setdefault(projection.block, []).append(projection)
+        stages = grouping.aggregated_definitions(plan)
+        aggregate_keys: dict[object, list[object]] = {}
+        for key in sorted(plan.group_keys, key=lambda item: item.position):
+            aggregate_keys.setdefault(key.aggregation, []).append(key)
+        aggregate_values: dict[object, list[object]] = {}
+        for value in sorted(plan.aggregates, key=lambda item: item.position):
+            aggregate_values.setdefault(value.aggregation, []).append(value)
+        aggregate_projections: dict[object, list[object]] = {}
+        for projection in plan.aggregate_projections:
+            aggregate_projections.setdefault(projection.block, []).append(projection)
         uses_by_consumer = {u.consumer.original.ref: u for u in request.layout.uses}
         uses_by_ref = {u.original.ref: u for u in request.layout.uses}
         source_refs = {source.ref: source for source in plan.sources}
@@ -1686,6 +1977,50 @@ def verify_row_query(request, query):
                 return False
             columns_by_body[position] = columns
             kind = block.kind.value
+            stage = stages.get(definition.original.ref)
+            if (kind == "aggregate") is not (
+                stage is not None and block.ref is stage.block
+            ):
+                return False
+            if kind == "aggregate":
+                assert stage is not None
+                _verify_aggregate_body(
+                    request,
+                    body,
+                    block,
+                    stage,
+                    tuple(aggregate_keys.get(stage.ref, ())),
+                    tuple(aggregate_values.get(stage.ref, ())),
+                    columns,
+                    children,
+                    state,
+                    row.ProjectSQLJoinedReference
+                    if joined_definition
+                    else row.ProjectSQLReference,
+                )
+                if body.terminals != tuple(
+                    stage_ports.get(ref) for ref in block.exports
+                ):
+                    return False
+                _verify_body_scope(body, position, state)
+                continue
+            if kind == "projection" and stage is not None:
+                _verify_aggregate_projection(
+                    request,
+                    body,
+                    block,
+                    stage,
+                    tuple(aggregate_projections.get(block.ref, ())),
+                    columns,
+                    state,
+                )
+                if body.predicate is not None:
+                    return False
+                _verify_body_scope(body, position, state)
+                produced[definition.original.ref] = body
+                continue
+            if body.aggregation is not None or aggregate_projections.get(block.ref):
+                return False
             carries = 0 if kind == "projection" else len(block.inputs)
             items: tuple[Any, ...] = (
                 tuple(projections.get(block.ref, ()))
@@ -1758,7 +2093,7 @@ def verify_row_query(request, query):
                 )
                 state["nodes"] += 1
             if body.predicate is not None:
-                if kind != "where":
+                if kind not in {"where", "satisfying"}:
                     return False
                 item = filters[block.ref]
                 if (
@@ -1773,39 +2108,38 @@ def verify_row_query(request, query):
                     columns,
                     children,
                     state,
-                    reference_type=row.ProjectSQLJoinedReference
+                    reference_type=grouping.ProjectSQLResultReference
+                    if kind == "satisfying"
+                    else row.ProjectSQLJoinedReference
                     if joined_definition
                     else row.ProjectSQLReference,
                 )
-                if realization.tag != "Bool" or tuple(
-                    (effect.truth.value, effect.retain_row)
-                    for effect in item.retention_effects
-                ) != (("true", True), ("false", False), ("unknown", False)):
-                    return False
-            elif kind == "where":
-                return False
-            if body.final:
-                if body.symbol is not None or body.cte_columns != ():
-                    return False
-            else:
+                effects = (
+                    plan_aggregation.satisfying_effects(
+                        stages[definition.original.ref].authority
+                    )
+                    if kind == "satisfying"
+                    else None
+                )
+                expected_effects = (
+                    (("true", True), ("false", False), ("unknown", False))
+                    if effects is None
+                    else tuple(
+                        (effect.truth.value, effect.retain_row) for effect in effects
+                    )
+                )
                 if (
-                    body.symbol is None
-                    or body.symbol.position != position
-                    or body.symbol.binding is not block.ref
-                    or body.symbol.name != f"p{position}"  # unit index, not body index
-                    or len(body.cte_columns) != len(body.terminals)
+                    realization.tag != "Bool"
+                    or tuple(
+                        (effect.truth.value, effect.retain_row)
+                        for effect in item.retention_effects
+                    )
+                    != expected_effects
                 ):
                     return False
-                for i, (symbol, terminal) in enumerate(
-                    zip(body.cte_columns, body.terminals, strict=True)
-                ):
-                    if (
-                        symbol.position != i
-                        or symbol.binding is not terminal.ref
-                        or symbol.name != f"c{i}"
-                    ):
-                        return False
-                symbols.extend((body.symbol, *body.cte_columns))
+            elif kind in {"where", "satisfying"}:
+                return False
+            _verify_body_scope(body, position, state)
             if kind == "projection":
                 produced[definition.original.ref] = body
         if (
@@ -2048,22 +2382,37 @@ def verify_row_bytes(query, rendered):
             for position, column in enumerate(body.columns):
                 if position:
                     take("syntax", "separator", column.export.ref, ", ")
-                if type(column) is RowCarryColumn:
+                carrier = {
+                    RowCarryColumn: ("carry_scope", "carry_qualifier", "carry_column"),
+                    grouping.AggregateKeyColumn: (
+                        "group_key_scope",
+                        "group_key_qualifier",
+                        "group_key_column",
+                    ),
+                    grouping.AggregateProjectionColumn: (
+                        "result_scope",
+                        "result_qualifier",
+                        "result_column",
+                    ),
+                }.get(type(column))
+                if carrier is not None:
                     take(
                         "identifier",
-                        "carry_scope",
+                        carrier[0],
                         column.input_port,
                         alias,
                         identifier=True,
                     )
-                    take("syntax", "carry_qualifier", column.export.ref, ".")
+                    take("syntax", carrier[1], column.export.ref, ".")
                     take(
                         "identifier",
-                        "carry_column",
+                        carrier[2],
                         column.read.terminal,
                         column.read.name,
                         identifier=True,
                     )
+                elif type(column) is grouping.AggregateValueColumn:
+                    aggregate_value(column, alias)
                 else:
                     scalar(column.value, alias)
                 take("syntax", "alias", column.export.ref, " AS ")
@@ -2137,9 +2486,53 @@ def verify_row_bytes(query, rendered):
                 take(
                     "identifier", "stage_scope", scan.block.ref, alias, identifier=True
                 )
+            stage = body.aggregation
+            if stage is not None and stage.keys:
+                take("syntax", "group_by", stage.aggregation.ref, " GROUP BY ")
+                for position, column in enumerate(stage.keys):
+                    if position:
+                        take("syntax", "group_separator", column.key.ref, ", ")
+                    start = offset
+                    take(
+                        "identifier",
+                        "grouping_scope",
+                        column.input_port,
+                        alias,
+                        identifier=True,
+                    )
+                    take("syntax", "grouping_qualifier", column.key.ref, ".")
+                    take(
+                        "identifier",
+                        "grouping_column",
+                        column.read.terminal,
+                        column.read.name,
+                        identifier=True,
+                    )
+                    spans.append(("grouping", column.key.ref, start, offset))
+            elif stage is not None and body.block.kind.value != "aggregate":
+                raise ValueError("grouping outside its aggregation stage")
             if body.predicate is not None:
-                take("syntax", "where", body.predicate.original.ref, " WHERE ")
+                satisfying = body.block.kind.value == "satisfying"
+                take(
+                    "syntax",
+                    "satisfying" if satisfying else "where",
+                    body.predicate.original.ref,
+                    " WHERE ",
+                )
                 scalar(body.predicate.value, alias)
+
+        def aggregate_value(column, alias):
+            reference = column.aggregate.ref
+            start = offset
+            take("syntax", "aggregate_open", reference, column.spelling + "(")
+            if column.argument is None:
+                take("syntax", "aggregate_row_count", reference, "*")
+            else:
+                if column.distinct:
+                    take("syntax", "aggregate_distinct", reference, "DISTINCT ")
+                scalar(column.argument, alias)
+            take("syntax", "aggregate_close", reference, ")")
+            spans.append(("aggregate", reference, start, offset))
 
         def join_relation(item):
             reference = item.original.ref
@@ -2368,7 +2761,11 @@ def verify_row_requirements(request, query, original, generated):
     ):
         return False
     for item, entry, demand in zip(original, entries, plan.demands, strict=True):
-        rule = rows.demand_rule(plan, entry) or joining.demand_rule(plan, entry)
+        rule = (
+            rows.demand_rule(plan, entry)
+            or joining.demand_rule(plan, entry)
+            or grouping.demand_rule(entry)
+        )
         if rule is None:
             rule = (
                 "R04"
@@ -2380,6 +2777,7 @@ def verify_row_requirements(request, query, original, generated):
                         row.ProjectSQLReference,
                         row.ProjectSQLJoinedReference,
                         row.ProjectSQLMatchReference,
+                        grouping.ProjectSQLResultReference,
                     }
                 )
                 else "R03"
@@ -2547,23 +2945,40 @@ def verify_row_requirements(request, query, original, generated):
             expected.append(("stage_use", scan.block.ref, "R03", naming))
             for symbol in scan.body.cte_columns:
                 expected.append(("stage_terminal", symbol.binding, "R03", naming))
+        operators = tuple(
+            p
+            for p in request.premises
+            if p.scope == "statement" and p.key == "operator_environment"
+        )
+        if body.aggregation is not None:
+            expected.append(
+                ("aggregation", body.aggregation.aggregation.ref, "R12", operators)
+            )
         for column in body.columns:
             if type(column) is RowCarryColumn:
                 expected.append(("carry_projection", column.export.ref, "R05", ()))
                 continue
+            if type(column) is grouping.AggregateKeyColumn:
+                expected.append(("group_key", column.key.ref, "R12", operators))
+                continue
+            if type(column) is grouping.AggregateValueColumn:
+                expected.append(("aggregate", column.aggregate.ref, "R13", operators))
+                if column.argument is not None:
+                    node_expectations(column.argument)
+                continue
+            if type(column) is grouping.AggregateProjectionColumn:
+                expected.append(("result_projection", column.projection.ref, "R12", ()))
+                continue
             expected.append(("computed_projection", column.export.ref, "R05", ()))
             node_expectations(column.value)
         if body.predicate is not None:
+            satisfying = body.block.kind.value == "satisfying"
             expected.append(
                 (
-                    "predicate_root",
+                    "satisfying_root" if satisfying else "predicate_root",
                     body.predicate.original.ref,
-                    "R06",
-                    tuple(
-                        p
-                        for p in request.premises
-                        if p.scope == "statement" and p.key == "operator_environment"
-                    ),
+                    "R12" if satisfying else "R06",
+                    operators,
                 )
             )
             node_expectations(body.predicate.value)

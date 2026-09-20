@@ -17,6 +17,11 @@ from pietto._project.project_sql_emission_ast import (
     SQLRowQuery,
     resource_limits,
 )
+from pietto._project.project_sql_emission_aggregation import (
+    AggregateKeyColumn,
+    AggregateProjectionColumn,
+    AggregateValueColumn,
+)
 from pietto._project.project_sql_emission_contract import BoundSource
 from pietto._project.project_sql_emission_joins import (
     JoinBody,
@@ -372,8 +377,25 @@ class _Writer:
         )
 
 
+def _aggregate_value(w: _Writer, column, alias) -> None:
+    """One aggregate occurrence: its own spelling over its own exact argument."""
+    reference = column.aggregate.ref
+    start = w.offset
+    w.emit(column.spelling + "(", "syntax", "aggregate_open", reference)
+    if column.argument is None:
+        # count() consumes the complete input BAG, so COUNT(*) is the whole row
+        # count, never SELECT * and never a column count.
+        w.emit("*", "syntax", "aggregate_row_count", reference)
+    else:
+        if column.distinct:
+            w.emit("DISTINCT ", "syntax", "aggregate_distinct", reference)
+        w.scalar(column.argument, alias)
+    w.emit(")", "syntax", "aggregate_close", reference)
+    w.enclose("aggregate", reference, start)
+
+
 def _row_select(w: _Writer, body) -> None:
-    """One stage body: its columns, its scan and its optional filter."""
+    """One stage body: its columns, its scan, its grouping and its filter."""
     scan = body.scan
     alias = scan.symbol.name
     w.emit("SELECT ", "syntax", "select", body.block.ref)
@@ -384,6 +406,16 @@ def _row_select(w: _Writer, body) -> None:
             w.identifier(alias, "carry_scope", column.input_port)
             w.emit(".", "syntax", "carry_qualifier", column.export.ref)
             w.identifier(column.read.name, "carry_column", column.read.terminal)
+        elif type(column) is AggregateKeyColumn:
+            w.identifier(alias, "group_key_scope", column.input_port)
+            w.emit(".", "syntax", "group_key_qualifier", column.export.ref)
+            w.identifier(column.read.name, "group_key_column", column.read.terminal)
+        elif type(column) is AggregateProjectionColumn:
+            w.identifier(alias, "result_scope", column.input_port)
+            w.emit(".", "syntax", "result_qualifier", column.export.ref)
+            w.identifier(column.read.name, "result_column", column.read.terminal)
+        elif type(column) is AggregateValueColumn:
+            _aggregate_value(w, column, alias)
         else:
             w.scalar(column.value, alias)
         w.emit(" AS ", "syntax", "alias", column.export.ref)
@@ -414,8 +446,27 @@ def _row_select(w: _Writer, body) -> None:
         w.identifier(scan.body.symbol.name, "stage_reference", reference)
         w.emit(" AS ", "syntax", "alias", scan.block.ref)
         w.identifier(alias, "stage_scope", scan.block.ref)
+    stage = body.aggregation
+    if stage is not None and stage.keys:
+        # GROUP BY binds the actual input expressions, never an output alias or
+        # an ordinal: a constant-valued key groups by its established value.
+        w.emit(" GROUP BY ", "syntax", "group_by", stage.aggregation.ref)
+        for position, column in enumerate(stage.keys):
+            if position:
+                w.emit(", ", "syntax", "group_separator", column.key.ref)
+            start = w.offset
+            w.identifier(alias, "grouping_scope", column.input_port)
+            w.emit(".", "syntax", "grouping_qualifier", column.key.ref)
+            w.identifier(column.read.name, "grouping_column", column.read.terminal)
+            w.enclose("grouping", column.key.ref, start)
     if body.predicate is not None:
-        w.emit(" WHERE ", "syntax", "where", body.predicate.original.ref)
+        satisfying = body.block.kind.value == "satisfying"
+        w.emit(
+            " WHERE ",
+            "syntax",
+            "satisfying" if satisfying else "where",
+            body.predicate.original.ref,
+        )
         w.scalar(body.predicate.value, alias)
 
 

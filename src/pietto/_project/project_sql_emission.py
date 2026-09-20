@@ -30,6 +30,7 @@ from pietto._project.project_sql_emission_ast import (
     resource_limits,
     row_parameter_leaves,
 )
+from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project.project_sql_plan_literals import ProjectSQLFixedLiteralValue
@@ -393,6 +394,9 @@ def _row_columns(query, slots):
     for column in body.columns:
         image = column.column
         realization = image.realization
+        if type(column) is grouping.AggregateProjectionColumn:
+            result.append(_aggregate_column(column, image, realization, slots))
+            continue
         link = column.link
         correspondence = {
             "expression": _ref(column.expression),
@@ -407,6 +411,11 @@ def _row_columns(query, slots):
             "projection": _ref(column.projection.ref),
             "sql_symbol": column.symbol.position,
         }
+        if image.aggregate is not None:
+            correspondence = {
+                "aggregate_transport": _aggregate_provenance(image.aggregate),
+                **correspondence,
+            }
         if image.literal is not None:
             origin = image.literal
             leaf = parameters.value_nodes(origin.value)[-1]
@@ -471,6 +480,79 @@ def _row_columns(query, slots):
             }
         )
     return result
+
+
+def _aggregate_provenance(origin):
+    """One grouped determinant or aggregate result, as its retained identity."""
+    stage = origin.aggregation
+    aggregate = origin.aggregate
+    return {
+        "role": origin.kind,
+        "mode": stage.mode.value,
+        "empty_input": stage.empty_input.value,
+        "aggregation": _ref(stage.ref),
+        "stage": _ref(stage.block),
+        "function": origin.function,
+        "determinant": None if origin.key is None else _ref(origin.key.ref),
+        "aggregate": None if aggregate is None else _ref(aggregate.ref),
+        "arguments": []
+        if aggregate is None
+        else [_ref(item) for item in aggregate.arguments],
+        "inputs": [_ref(item) for item in origin.inputs],
+        "result": _ref(origin.result),
+    }
+
+
+def _aggregate_column(column, image, realization, slots):
+    """One canonical visible aggregate output's complete public description."""
+    origin = image.aggregate
+    assert origin is not None
+    correspondence = {
+        "aggregate_origin": _aggregate_provenance(origin),
+        "input_port": _ref(column.input_port),
+        "export": _ref(column.export.ref),
+        "projection": _ref(column.projection.ref),
+        "sql_symbol": column.symbol.position,
+    }
+    if image.literal is not None:
+        # A constant-valued determinant keeps the producing literal's own origin;
+        # grouping by its value never turns it into a fresh constant here.
+        literal = image.literal
+        leaf = parameters.value_nodes(literal.value)[-1]
+        correspondence = {
+            "literal_origin": {
+                "expression": _ref(literal.value.original.ref),
+                "leaf": _ref(leaf.original.ref),
+                "site": _ref(leaf.site.ref),
+                "slot": slots[leaf.fixed.slot]
+                if type(leaf) is parameters.SQLParameter
+                else None,
+                "export": _ref(literal.export.ref),
+                "terminal": _ref(literal.terminal.ref),
+            },
+            **correspondence,
+        }
+    return {
+        "ordinal": column.ordinal,
+        "label": column.label,
+        "logical_type": {
+            "kind": "builtin",
+            "name": realization.tag,
+            "parameters": {
+                "precision": realization.domain["precision"],
+                "scale": realization.domain["scale"],
+            }
+            if realization.tag == "Decimal"
+            else None,
+        },
+        "nullable": realization.nullable,
+        "representation": {
+            "storage": realization.storage,
+            "nullable": realization.nullable,
+            "domain": realization.domain,
+        },
+        "correspondence": correspondence,
+    }
 
 
 def _document(outcome, artifact, request, columns, source_map, slots):
@@ -589,6 +671,10 @@ def _document(outcome, artifact, request, columns, source_map, slots):
                     "membership",
                     "correlation",
                     "sentinel",
+                    "group_key",
+                    "aggregate",
+                    "result_projection",
+                    "satisfying_root",
                     "reference",
                     "arithmetic",
                     "comparison",

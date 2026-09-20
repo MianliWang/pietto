@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import json
 from typing import Any
 
+from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project.model import ProjectResolvedTypeKind
@@ -63,6 +64,8 @@ class StageColumn:
     source_port: Any = None
     literal: Any = None
     scope: Any = None
+    aggregate: Any = None
+    """One grouped determinant or aggregate result this value ultimately is."""
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -214,6 +217,7 @@ type ReferenceNode = (
     type[row.ProjectSQLReference]
     | type[row.ProjectSQLJoinedReference]
     | type[row.ProjectSQLMatchReference]
+    | type[aggregation.ProjectSQLResultReference]
 )
 
 
@@ -263,6 +267,7 @@ def build_row_value(
         row.ProjectSQLReference,
         row.ProjectSQLJoinedReference,
         row.ProjectSQLMatchReference,
+        aggregation.ProjectSQLResultReference,
     }:
         return None, ("PIE-B1001", "reference_outside_its_admitted_scope")
     if type(expression) is row.ProjectSQLUnary:

@@ -12,9 +12,13 @@ import _pietto_phase66_sql_emission_probe as probe
 from pietto._project.model import ProjectRowFieldNullability
 from pietto._project.project_final_outputs import (
     ProjectCompletedEffectiveOutput,
+    ProjectConcreteNoJoinReplay,
+    ProjectEffectiveOutputCompletionTerminal,
     ProjectEffectiveOutputTerminal,
     ProjectExistingEffectiveOutput,
+    ProjectNoJoinGroupedOutput,
 )
+from pietto._project.project_joined_aggregation import ProjectJoinedAggregationMode
 from pietto._project.project_ir_properties import ProjectIRJoinedRowField
 from pietto._project.project_sql_plan import ProjectSQLPlan
 from pietto._project.project_sql_plan_joins import ProjectSQLJoinPortKind
@@ -39,18 +43,22 @@ PRODUCERS = {
 }
 PROMOTED = ("literal", "computed", "let")
 UNCHANGED = ("field_only", "where_only")
-# Excluded bodies: a later-owner stage keeps the historical route even though its
-# select list looks scalar. Slices 8 and 9 own these, not this one.
+# A later-owner stage keeps the historical route even though its select list looks
+# scalar. Slice8 implements the aggregate branch, so only the window body is still
+# excluded here; both sources are authored in the real accepted surface, because a
+# body that never parses would prove nothing about the promotion at all.
 EXCLUDED = {
-    "aggregate": (
-        "table prod:\n    from rhs\n    group by id:\n        pid = id\n"
-        "    select:\n        pid = pid\n        total = count()\n"
-    ),
     "window": (
-        "table prod:\n    from rhs\n    window ranked over (order by id):\n"
-        "        position = row_number()\n    select:\n        pid = id\n        at = position\n"
+        "table prod:\n    from rhs\n    select:\n        pid = id\n"
+        "        at = row_number() window:\n            order by:\n                id\n"
     ),
 }
+# Slice8's authorized aggregate-producer completion route: this body now reaches
+# the current route with its own grouped readiness instead of the base route.
+AGGREGATE_PRODUCER = (
+    "table prod:\n    from rhs\n    group by:\n        id\n"
+    "    select:\n        pid = id\n        total = count()\n"
+)
 
 CONSUMER = """query result:
     from lhs
@@ -66,6 +74,38 @@ CONSUMER = """query result:
 def build(tmp_path, target, source, *, link=False, policy="preserve_literals"):
     item = probe.join_witness(target, source, link=link, policy=policy)
     return probe.build_case(tmp_path, item["source"], item["contract"], item["policy"])
+
+
+def _completed(tmp_path, target, source):
+    """Parse and complete one authored project without reaching emission."""
+    from pietto._project.check import check_project_parse_only
+    from pietto._project.model import build_empty_project_semantic_result
+    from pietto._project.project_completed_semantics import (
+        build_project_completed_semantic_result,
+        ProjectConcreteCompletedSemanticResult,
+    )
+
+    item = probe.join_witness(target, source)
+    directory = tmp_path / "completion"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "pietto.toml").write_text(probe.CONFIG)
+    (directory / "main.pietto").write_text(item["source"], encoding="utf-8")
+    parsed = check_project_parse_only(directory)
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(parsed)
+    )
+    assert type(completed) is ProjectConcreteCompletedSemanticResult
+    return parsed.ok, completed
+
+
+def _entry(completed, name):
+    found = [
+        entry
+        for entry in completed.effective_outputs.entries
+        if entry.owner.definition.name == name
+    ]
+    assert len(found) == 1
+    return found[0]
 
 
 def producer_entry(checked, name="prod"):
@@ -129,11 +169,58 @@ def test_an_already_concrete_producer_keeps_its_established_route(
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("shape", sorted(EXCLUDED))
 def test_a_later_owner_body_is_excluded_from_the_promotion(tmp_path, target, shape):
-    """An aggregate or window producer keeps its route and its own diagnostic."""
-    with pytest.raises(ValueError):
-        # The completion has no concrete root for this input, exactly as before:
-        # the probe refuses to continue rather than inventing a plan.
-        build(tmp_path, target, EXCLUDED[shape] + CONSUMER.format(kind="left"))
+    """A window producer keeps its established route and its own diagnostic.
+
+    The source parses and completes: the producer stays on the base route and the
+    joined tail stays non-concrete with PIE-S2333, so this is a real retained
+    negative rather than an input the harness never accepted.
+    """
+    source = EXCLUDED[shape] + CONSUMER.format(kind="left")
+    parsed, completed = _completed(tmp_path, target, source)
+    assert parsed is True
+    entry = _entry(completed, "prod")
+    assert type(entry) is ProjectExistingEffectiveOutput
+    result = _entry(completed, "result")
+    assert type(result) is ProjectEffectiveOutputCompletionTerminal
+    assert result.reason.value == "current_join_tail_non_concrete"
+    assert [item.code for item in completed.diagnostics] == ["PIE-S2333"]
+    # Emission still receives no usable plan for this input, exactly as before.
+    _, outcome = build(tmp_path / shape, target, source)
+    assert outcome.status == "BLOCKED"
+    assert [item.code for item in outcome.diagnostics] == ["PIE-S2333"]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_an_aggregate_producer_now_reaches_the_current_join_route(tmp_path, target):
+    """Slice8 migrates the aggregate branch of that exclusion to real behavior."""
+    checked, outcome = build(
+        tmp_path, target, AGGREGATE_PRODUCER + CONSUMER.format(kind="left")
+    )
+    entry = producer_entry(checked)
+    assert type(entry) is ProjectCompletedEffectiveOutput
+    root = entry.root
+    assert type(root) is ProjectConcreteNoJoinReplay
+    assert root.mode is ProjectJoinedAggregationMode.GROUPED
+    readiness = root.aggregate_readiness
+    assert readiness is not None and readiness.status.value == "concrete"
+    # The promoted value is the grouped result, never the raw source row.
+    assert all(type(item.source) is ProjectNoJoinGroupedOutput for item in entry.fields)
+    assert outcome.status == "VERIFIED", [
+        (item.code, item.detail) for item in outcome.blockers
+    ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_an_ordered_or_limited_aggregate_producer_keeps_its_base_route(
+    tmp_path, target
+):
+    """A result barrier is not smuggled through the aggregate promotion."""
+    source = AGGREGATE_PRODUCER.replace(
+        "        total = count()\n",
+        "        total = count()\n    order by:\n        pid\n    limit 2\n",
+    )
+    _, completed = _completed(tmp_path, target, source + CONSUMER.format(kind="left"))
+    assert type(_entry(completed, "prod")) is ProjectExistingEffectiveOutput
 
 
 @pytest.mark.parametrize("target", TARGETS)
