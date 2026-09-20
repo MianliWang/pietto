@@ -207,20 +207,22 @@ def test_later_operator_graph_is_structural_only(built, target, variant):
     assert verify_emission_layout(layout, checked)
     assert len(layout.definitions) == len(checked.plan.bindings.definitions)
     assert len(layout.uses) == len(checked.plan.input_uses)
-    if variant == "producer_filter":
-        # Slice6 implements this input's producer filter. The retained source
-        # purpose and its historical BLOCKED outcome are unchanged history; the
-        # named-chain structure this case owns is still checked above.
-        assert outcome.status == "VERIFIED"
+    if variant in {"producer_filter", "self_join"}:
+        # Slice6 implements this input's producer filter and Slice7 implements
+        # the JOIN family that was self_join's only remaining restriction. The
+        # retained source purpose and the historical BLOCKED outcome are
+        # unchanged history; the named-chain structure each case owns is still
+        # checked above, and self_join's shared-producer structure below.
+        assert outcome.status == "VERIFIED", outcome.status
         assert outcome.artifact is not None
         public = probe.decode_public(serialize_project_sql_emission(outcome))
         assert "blockers" not in public
         assert public["sql"] == outcome.artifact.rendered.sql.decode()
-        return
-    assert outcome.status == "BLOCKED" and outcome.artifact is None
-    public = probe.decode_public(serialize_project_sql_emission(outcome))
-    assert "sql" not in public and public["artifact"] is None
-    assert "PIE-B1003" in [b["code"] for b in public["blockers"]]
+    else:
+        assert outcome.status == "BLOCKED" and outcome.artifact is None
+        public = probe.decode_public(serialize_project_sql_emission(outcome))
+        assert "sql" not in public and public["artifact"] is None
+        assert "PIE-B1003" in [b["code"] for b in public["blockers"]]
     if variant in {"self_join", "two_facades", "union_dag"}:
         repeated = [
             (a, b)

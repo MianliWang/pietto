@@ -2632,11 +2632,40 @@ N66 remains16. Do not start Slice7 automatically. Whole JOIN construction and ex
 grouping, windows, DISTINCT, ORDER/LIMIT, SET, public project emit CLI, caller rebind,
 general result decoder and product executor are not added.
 
+Phase66 Slice7 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI
+with Python3.12,Python3.13,both target jobs and the strict v2 aggregate. The
+[value bridge/JOIN/EXISTS contract](spec/phase66-slice7-value-bridge-join-exists-outer-nulling-terminal-output-emission-v1.md)
+emits one generated SELECT per JOIN occurrence over physical sources, named/imported
+producers and an accumulated predecessor, with capture-free `m{n}` input aliases, the
+ordered effective ON of retained relationship equalities then the authored predicate,
+and EXISTS/NOT EXISTS around the complete right terminal with a closed generated
+sentinel. A published port keeps its carrier's storage and value domain and only gains
+the possibility of NULL; a declared source field keeps its own domain. Only a
+matched-pairs INNER narrows a nullable carrier, and only for a direct comparison
+operand of a top-level AND conjunct. An authorized upstream current-route compatibility
+rule makes an ordinary scalar/literal/LET producer transportable through a JOIN, so the
+promised right-side literal marker, computed value and LET result now become NULL on an
+unmatched LEFT row; becoming transportable grants no relationship-endpoint or M1/M2/M4
+guarantee, and that precise upstream negative is retained.
+PostgreSQL admits all seven kinds inside their approved domains including restricted
+FULL; MySQL FULL stays `PIE-B1003 mysql_full_join_approved_non_support` with no usable
+SQL while its neighbouring kinds still emit. The denominator is
+W–V25 cases/69 public documents per target and splits by target for the first time:
+postgres49 VERIFIED,3 INPUT_REJECTED,17 BLOCKED; mysql48 VERIFIED,3 INPUT_REJECTED,18 BLOCKED.
+`self_join` and `match_join` migrate from the not-yet-implemented JOIN blocker to
+independently checked successful queries with their own typed BAG oracles.
+R03 outstanding joint execution: Slice10 ordinary/rebound/completed ORDER and ORDER/LIMIT sharing; Slice11 repeated UNION ALL and two import facades.
+R11/C09 outstanding membership differences: Slice8 GROUPED/GLOBAL; Slice9 window/QUALIFY; Slice10 LIMIT0/LIMIT1; Slice11 SET.
+Phase66 remains `ACTIVE`; Slice8 is `NEXT / NOT IMPLEMENTED`; Slices9–16 remain `NOT IMPLEMENTED`.
+N66 remains16. Do not start Slice8 automatically. Grouping, windows, QUALIFY, DISTINCT,
+ORDER/LIMIT, SET, public project emit CLI, caller rebind, general result decoder and
+product executor are not added.
+
 ## Validation/Test Performance Optimization Interlude III
 
 The Validation/Test Performance Optimization Interlude III interrupts Phase66 for
-exactly one corrective Slice and advances no part of it. Slice7 remains
-`NEXT / NOT IMPLEMENTED` and its preserved candidate is untouched. Interlude III
+exactly one corrective Slice and advanced no part of it. It left Slice7 at its
+frozen checkpoint and changed no byte of its preserved candidate. Interlude III
 Slice1 is a validator concurrency safety correction. The resource-aware policy
 adopted by Interlude Slice5 priced every xdist worker at 512 MiB, selected `-n 15`
 and then `-n 17` on the current 20-CPU guest, and the real differential/acquisition

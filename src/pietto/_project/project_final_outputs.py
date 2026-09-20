@@ -5360,6 +5360,78 @@ def _complete_no_join_output(
     )
 
 
+def _promoted_scalar_producer(
+    *,
+    completion: ProjectCompletion,
+    base_entry: ProjectExistingEffectiveOutput,
+    upstream: ProjectEffectiveOutputCompletionEntry,
+) -> ProjectCompletedEffectiveOutput | None:
+    """Promote one existing no-JOIN scalar producer onto the current-input route.
+
+    A current JOIN input keeps its exact value authority at its completed output
+    field, so a producer whose retained relation lineage is an evidenced
+    non-concrete fact needs the richer completed route rather than the historical
+    source-root projection. The promotion reuses the existing replay builder and is
+    adopted only for an ordinary scalar body: every selected output value is an
+    ordinary scalar expression and the body introduces no aggregate, window or
+    QUALIFY stage, selected or hidden. Every other candidate keeps its established
+    base route, its diagnostics and its historical properties.
+    """
+
+    definition = base_entry.owner.definition
+    if type(definition) not in {TableDef, QueryDef}:
+        return None
+    derived = cast(_DerivedRelation, definition)
+    if derived.join_clauses or type(upstream) not in {
+        ProjectExistingEffectiveOutput,
+        ProjectCompletedEffectiveOutput,
+        ProjectCompletedSetOutput,
+    }:
+        return None
+    lineages = completion.plan.attribution.find_row_lineage(
+        _declaration_identity(base_entry.owner)
+    )
+    # An absent or ambiguous lineage is not an evidenced non-concrete lineage.
+    if (
+        len(lineages) != 1
+        or lineages[0].status is ProjectRelationRowSchemaStatus.CONCRETE
+    ):
+        return None
+    resolution = _semantic_facts(completion, base_entry.owner).resolution
+    if (
+        resolution is None
+        or len(base_entry.dependencies) != 1
+        or base_entry.dependencies[0].evidence is not resolution
+        or base_entry.dependencies[0].target is not upstream.owner
+    ):
+        return None
+    replay = _complete_no_join_output(
+        completion=completion,
+        base_entry=base_entry,
+        upstream_entry=cast(ProjectConcreteEffectiveOutputEntry, upstream),
+    )
+    if type(replay) is not ProjectCompletedEffectiveOutput:
+        return None
+    root = replay.root
+    # Hidden and unselected later-stage values count: a scalar-looking select list
+    # does not prove the body introduces no aggregate, window or QUALIFY stage.
+    if (
+        type(root) is not ProjectConcreteNoJoinReplay
+        or root.mode is not ProjectJoinedAggregationMode.ABSENT
+        or root.aggregate_readiness is not None
+        or root.window_outputs
+        or root.qualify.kind is not ProjectNoJoinQualifyKind.ABSENT
+        or root.qualify.selected_windows
+        or root.qualify.hidden_attempts
+    ):
+        return None
+    if not replay.fields or any(
+        type(item.source) is not ProjectNoJoinScalarExpression for item in replay.fields
+    ):
+        return None
+    return replay
+
+
 def _joined_result_owner(
     result: ProjectJoinedQualifyResult,
 ) -> ProjectDeclarationOccurrence:
@@ -5974,6 +6046,7 @@ def build_project_effective_output_completion(
         or isinstance(owner.definition, (TableDef, QueryDef))
         and owner.definition.distinct_clause is not None
     }
+    optional_current: set[int] = set()
     if join_conditions is not None:
         required_current |= {
             id(item.use.owner)
@@ -5988,6 +6061,15 @@ def build_project_effective_output_completion(
                 AuthoredJoinKind.ANTI,
             }
         }
+        # A relationship-only `via` INNER/LEFT carries no ON clause, so the clause
+        # and kind test above left its owner out of reach of its current pre-match
+        # inputs. Those owners may now use the current route, but they keep their
+        # established route whenever that attempt yields no completed output, so a
+        # relationship guarantee that only the historical properties can justify
+        # stays exactly as available as before.
+        optional_current = {
+            id(item.use.owner) for item in join_conditions.entries
+        } - required_current
         for required_owner in reversed(completion.schedule):
             if id(required_owner) in required_current:
                 required_current.update(
@@ -5995,13 +6077,25 @@ def build_project_effective_output_completion(
                     for dependency in completion.dependencies
                     if dependency.consumer is required_owner
                 )
+            elif id(required_owner) in optional_current:
+                optional_current.update(
+                    id(dependency.target)
+                    for dependency in completion.dependencies
+                    if dependency.consumer is required_owner
+                )
+        optional_current -= required_current
     changed_current: set[int] = set()
     for owner in completion.schedule:
         base_entry = base_by_owner[id(owner)]
         definition = owner.definition
-        current_needed = id(owner) in required_current or any(
-            id(dependency.target) in changed_current
-            for dependency in base_entry.dependencies
+        optional_route = id(owner) in optional_current
+        current_needed = (
+            id(owner) in required_current
+            or optional_route
+            or any(
+                id(dependency.target) in changed_current
+                for dependency in base_entry.dependencies
+            )
         )
         if isinstance(definition, SetRelationDef):
             entry = _complete_set_output(
@@ -6017,7 +6111,9 @@ def build_project_effective_output_completion(
             and current_needed
             else None
         )
-        if current is not None:
+        if current is not None and not (
+            optional_route and type(current) is not ProjectCompletedEffectiveOutput
+        ):
             entry = current
         elif type(base_entry) is ProjectExistingEffectiveOutput:
             changed_upstream = (
@@ -6036,7 +6132,18 @@ def build_project_effective_output_completion(
                 and not changed_upstream
                 and cast(_DerivedRelation, definition).distinct_clause is None
             ):
-                entry: ProjectEffectiveOutputCompletionEntry = base_entry
+                promoted = (
+                    _promoted_scalar_producer(
+                        completion=completion,
+                        base_entry=base_entry,
+                        upstream=built_by_owner[id(base_entry.dependencies[0].target)],
+                    )
+                    if current_needed and len(base_entry.dependencies) == 1
+                    else None
+                )
+                entry: ProjectEffectiveOutputCompletionEntry = (
+                    base_entry if promoted is None else promoted
+                )
             else:
                 dependency = base_entry.dependencies
                 if len(dependency) != 1:

@@ -19,15 +19,17 @@ from pietto._project.project_sql_plan_source_maps import verify_project_sql_sour
 from pietto._project.project_sql_plan_target_assessment import (
     verify_project_sql_target_assessment,
 )
-from pietto._project.project_sql_emission_contract import PreparedEmission
+from pietto._project.project_sql_emission_contract import BoundSource, PreparedEmission
 from pietto._project.project_sql_emission_scopes import verify_emission_layout
 from pietto._project.project_sql_emission_ast import (
     RowScan,
     RowNamedUse,
     RowStageUse,
+    RowJoinUse,
     RowCarryColumn,
     RowValueColumn,
     SQLRowQuery,
+    SQLJoinQuery,
     node_premises,
     row_parameter_leaves,
     admitted_row_shape,
@@ -49,6 +51,10 @@ from pietto._project.project_sql_emission_ast import (
 )
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_rows as rows
+from pietto._project import project_sql_emission_joins as joining
+from pietto._project import project_sql_emission_ast as ast
+from pietto._project.project_sql_plan_joins import ProjectSQLJoinPortKind
+from pietto.ast_nodes import AuthoredJoinKind
 from pietto._project.project_sql_emission_rendering import (
     OPERATORS,
     RenderedSQL,
@@ -531,7 +537,7 @@ def _verify_value(request, value, original, expressions_seen, nodes):
         or not any(leaf.site is site for site in plan.literal_sites)
         or leaf.site.position.expression is not original.ref
         or leaf.site.position.literal is not original.expression
-        or leaf.site.position.role.value not in {"select", "let", "where"}
+        or leaf.site.position.role.value not in {"select", "let", "where", "on"}
     ):
         return False
     expressions_seen.append(original)
@@ -977,7 +983,7 @@ def verify_project_sql_emission(artifact, request):
     issues = []
     try:
         rows_query = type(artifact) is EmissionArtifact and (
-            type(artifact.ast) is SQLRowQuery
+            type(artifact.ast) in {SQLRowQuery, SQLJoinQuery}
         )
         if (
             type(artifact) is not EmissionArtifact
@@ -1194,7 +1200,16 @@ def _same_realization(actual, expected):
     )
 
 
-def _verify_row_value(request, value, reference, columns, children, state):
+def _verify_row_value(
+    request,
+    value,
+    reference,
+    columns,
+    children,
+    state,
+    *,
+    reference_type: rows.ReferenceNode = row.ProjectSQLReference,
+):
     """Walk the supplied tree against retained operand links and stage ports."""
     plan = request.plan
     expression = plan.expressions[reference.position]
@@ -1202,7 +1217,7 @@ def _verify_row_value(request, value, reference, columns, children, state):
         raise ValueError("expression identity")
     if type(value) is rows.SQLStageReference:
         if (
-            type(expression) is not row.ProjectSQLReference
+            type(expression) is not reference_type
             or value.original is not expression
             or value.port is not expression.port
             or reference in children
@@ -1216,6 +1231,8 @@ def _verify_row_value(request, value, reference, columns, children, state):
             raise ValueError("reference type or NULL drift")
         if not _same_realization(value.realization, column.realization):
             raise ValueError("reference realization")
+        if value.scope is not getattr(column, "scope", None):
+            raise ValueError("reference scope")
         state["expressions"].append(expression)
         state["nodes"] += 1
         return value.realization
@@ -1253,7 +1270,15 @@ def _verify_row_value(request, value, reference, columns, children, state):
         if rows.root_expression(operand).ref is not link:
             raise ValueError("operand order")
         operands.append(
-            _verify_row_value(request, operand, link, columns, children, state)
+            _verify_row_value(
+                request,
+                operand,
+                link,
+                columns,
+                children,
+                state,
+                reference_type=reference_type,
+            )
         )
     expected = _row_realization(request, expression, tuple(operands))
     if not _same_realization(value.realization, expected):
@@ -1261,15 +1286,273 @@ def _verify_row_value(request, value, reference, columns, children, state):
     return value.realization
 
 
+def _join_reads(request, original, uses_by_ref, source_refs, produced, by_join, ports):
+    """Independently rebuild one JOIN input's pre-match columns and alias."""
+    alias = ast.SQLSymbol(0, original.ref, f"m{original.ref.position}")
+    reads = []
+    producer: Any = None
+    source_ref: Any = None
+    use = None
+    if original.binding_use is not None:
+        use = uses_by_ref.get(original.binding_use)
+        if use is None:
+            raise ValueError("join input use")
+        if use.original.producer in source_refs:
+            source = source_refs[use.original.producer]
+            bound = tuple(
+                item for item in request.sources if item.owner is source.source.owner
+            )
+            if len(bound) != 1:
+                raise ValueError("join input source mapping")
+            producer = bound[0]
+            source_ref = source.ref
+            for position, reference in enumerate(original.ports):
+                link = use.bindings[position]
+                fields = tuple(
+                    item
+                    for item in producer.fields
+                    if item.field is link.canonical.field
+                )
+                if len(fields) != 1 or link.terminal is not link.canonical:
+                    raise ValueError("join input source field")
+                realization = rows.field_realization(fields[0])
+                if realization is None:
+                    raise ValueError("join input representation")
+                reads.append(
+                    rows.StageColumn(
+                        position,
+                        fields[0].column,
+                        link.canonical.ref,
+                        realization,
+                        field=fields[0],
+                        source_port=link.canonical.ref,
+                        scope=alias,
+                    )
+                )
+        else:
+            producer = produced.get(use.original.producer)
+            if producer is None:
+                raise ValueError("join input producer")
+            for position, reference in enumerate(original.ports):
+                column = producer.columns[position].column
+                if column.terminal is not use.bindings[position].terminal.ref:
+                    raise ValueError("join input terminal")
+                reads.append(
+                    replace(column, position=position, name=f"c{position}", scope=alias)
+                )
+    else:
+        producer = by_join.get(original.predecessor)
+        if producer is None:
+            raise ValueError("join predecessor")
+        for position, reference in enumerate(original.ports):
+            column = producer.columns[position]
+            if column.port.ref is not ports[reference].source:
+                raise ValueError("join predecessor port")
+            reads.append(
+                replace(
+                    column.column, position=position, name=column.label, scope=alias
+                )
+            )
+    columns = []
+    for position, reference in enumerate(original.ports):
+        realization, problem = joining.port_realization(
+            ports[reference], reads[position], outer=False
+        )
+        if realization is None:
+            raise ValueError("pre-match realization")
+        columns.append(replace(reads[position], realization=realization))
+    return alias, producer, use, tuple(columns), source_ref
+
+
+def _verify_join_unit(request, unit, join, index, context, state):
+    """Independent JOIN inventory, scopes, condition and published ports."""
+    plan = request.plan
+    if (
+        type(unit) is not joining.JoinBody
+        or unit.join is not join
+        or unit.index != index
+        or unit.symbol.name != f"p{index}"
+        or unit.symbol.binding is not join.ref
+        or join.kind not in joining.EXPECTED_ROWS
+        or join.rows is not joining.EXPECTED_ROWS[join.kind]
+        or unit.membership != joining.MEMBERSHIP.get(join.kind)
+        or (unit.sentinel is None) != (unit.membership is None)
+        or (unit.sentinel is not None and unit.sentinel is not join.ref)
+    ):
+        raise ValueError("join unit identity")
+    inputs, ports, equalities = (
+        context["inputs"],
+        context["ports"],
+        context["equalities"],
+    )
+    state["nodes"] += joining_node_count(unit)
+    available: dict[Any, Any] = {}
+    if len(unit.inputs) != 2 or len(join.inputs) != 2:
+        raise ValueError("join arity")
+    for ordinal, (reference, item) in enumerate(
+        zip(join.inputs, unit.inputs, strict=True)
+    ):
+        original = inputs[reference]
+        if (
+            type(item) is not joining.JoinInput
+            or item.original is not original
+            or item.ordinal != ordinal
+            or original.ordinal != ordinal
+            or item.ports != tuple(original.ports)
+            or (original.producer is None) == (original.predecessor is None)
+            or (original.binding_use is None) != (original.producer is None)
+        ):
+            raise ValueError("join input identity")
+        alias, producer, use, columns, source_ref = _join_reads(
+            request,
+            original,
+            context["uses_by_ref"],
+            context["source_refs"],
+            context["produced"],
+            context["by_join"],
+            ports,
+        )
+        if (
+            item.symbol.name != alias.name
+            or item.symbol.binding is not original.ref
+            or item.producer is not producer
+            or item.use is not use
+            or item.source is not source_ref
+            or len(item.columns) != len(columns)
+            or any(
+                not _same_read(actual, expected)
+                for actual, expected in zip(item.columns, columns, strict=True)
+            )
+            or any(column.scope is not item.symbol for column in item.columns)
+        ):
+            raise ValueError("join input columns")
+        state["symbols"].append(item.symbol)
+        for reference_port, column in zip(item.ports, item.columns, strict=True):
+            available[reference_port] = column
+    left, right = unit.inputs
+    if len(unit.equalities) != len(join.equalities):
+        raise ValueError("relationship equality denominator")
+    for reference, item in zip(join.equalities, unit.equalities, strict=True):
+        original = equalities[reference]
+        if (
+            type(item) is not joining.JoinEquality
+            or item.original is not original
+            or original.join is not join.ref
+            or item.left_port is not original.left
+            or item.right_port is not original.right
+            or not _same_read(item.left, available[original.left])
+            or not _same_read(item.right, available[original.right])
+            or item.left_scope is not left.symbol
+            or item.right_scope is not right.symbol
+        ):
+            raise ValueError("relationship equality image")
+    if (unit.predicate is None) != (join.on is None):
+        raise ValueError("match condition presence")
+    if join.on is not None:
+        realization = _verify_row_value(
+            request,
+            unit.predicate,
+            join.on,
+            available,
+            context["children"],
+            state,
+            reference_type=row.ProjectSQLMatchReference,
+        )
+        if realization.tag != "Bool" or realization.domain.get("kind") != "bool01":
+            raise ValueError("match condition root")
+        site = join.site
+        if site is None or plan.expressions[join.on.position].site is not site:
+            raise ValueError("match condition site")
+    if join.kind is AuthoredJoinKind.CROSS and (unit.equalities or unit.predicate):
+        raise ValueError("cross join invented a condition")
+    if join.kind is not AuthoredJoinKind.CROSS and not (
+        unit.equalities or unit.predicate is not None
+    ):
+        raise ValueError("missing match condition")
+    if join.kind is AuthoredJoinKind.FULL and (
+        joining.full_admissible(join, unit.equalities, unit.predicate, request.family)
+        is not None
+    ):
+        raise ValueError("full join outside its restricted domain")
+    match = tuple(ports[reference] for reference in (*left.ports, *right.ports))
+    expected = len(left.ports) if unit.membership is not None else len(match)
+    if len(join.outputs) != expected or len(unit.columns) != expected:
+        raise ValueError("join output arity")
+    carriers = (*left.columns, *right.columns)
+    rejected = joining.null_rejected_ports(join, unit.equalities, unit.predicate)
+    match_refs = (*left.ports, *right.ports)
+    for position, (reference, column) in enumerate(
+        zip(join.outputs, unit.columns, strict=True)
+    ):
+        port = ports[reference]
+        realization, problem = joining.port_realization(
+            port,
+            carriers[position],
+            outer=True,
+            proved=match_refs[position] in rejected,
+        )
+        if (
+            realization is None
+            or type(column) is not joining.JoinColumn
+            or column.position != position
+            or column.port is not port
+            or column.match is not match[position]
+            or port.source is not match[position].ref
+            or port.kind is not ProjectSQLJoinPortKind.OUTPUT
+            or port.block is not join.ref
+            or port.position != position
+            or column.label != f"c{position}"
+            or column.symbol.position != position + 1
+            or column.symbol.binding is not port.ref
+            or column.symbol.name != column.label
+            or not _same_read(column.read, carriers[position])
+            or column.scope is not carriers[position].scope
+            or not _same_realization(column.column.realization, realization)
+            or column.column.terminal is not port.ref
+            or column.column.name != column.label
+            or tuple(port.nulling) != tuple(port.field.nulling_joins)
+        ):
+            raise ValueError("join output column")
+        state["symbols"].append(column.symbol)
+    if len(unit.cte_columns) != len(unit.columns):
+        raise ValueError("join cte columns")
+    for position, (symbol, column) in enumerate(
+        zip(unit.cte_columns, unit.columns, strict=True)
+    ):
+        if (
+            symbol.position != position
+            or symbol.binding is not column.port.ref
+            or symbol.name != column.label
+        ):
+            raise ValueError("join cte column symbol")
+    state["symbols"].extend((unit.symbol, *unit.cte_columns))
+
+
+def joining_node_count(unit) -> int:
+    """This unit's own structural nodes; its condition is counted by the walk."""
+    total = 4 + 3 * len(unit.columns) + 2 * len(unit.equalities)
+    if unit.membership is not None:
+        total += 3
+    return total
+
+
 def verify_row_query(request, query):
     """Independent stage schedule, scope, column and expression correspondence."""
     try:
         plan = request.plan
+        joined = type(query) is SQLJoinQuery
         if (
             not prepared_current(request)
-            or type(query) is not SQLRowQuery
+            or type(query) not in {SQLRowQuery, SQLJoinQuery}
             or query.request is not request
-            or not admitted_row_shape(plan)
+            or (
+                joining.admitted_join_shape(plan)
+                if joined
+                else admitted_row_shape(plan)
+            )
+            is False
+            or (joined and admitted_row_shape(plan))
+            or (not joined and plan.joins)
             or projection_chain_shape(plan)
             or emission_blockers(request)
         ):
@@ -1281,26 +1564,48 @@ def verify_row_query(request, query):
         for projection in plan.projections:
             projections.setdefault(projection.block, []).append(projection)
         uses_by_consumer = {u.consumer.original.ref: u for u in request.layout.uses}
+        uses_by_ref = {u.original.ref: u for u in request.layout.uses}
         source_refs = {source.ref: source for source in plan.sources}
+        join_groups = joining.joined_definitions(plan) if joined else {}
+        tails = {tail.definition: tail for tail in plan.join_tails}
+        join_context = {
+            "inputs": {item.ref: item for item in plan.join_inputs},
+            "ports": {port.ref: port for port in plan.join_ports},
+            "equalities": {item.ref: item for item in plan.relationship_matches},
+            "uses_by_ref": uses_by_ref,
+            "source_refs": source_refs,
+            "children": children,
+        }
         expected = []
         for definition, blocks in definition_blocks(request):
+            for join in join_groups.get(definition.original.ref, ()):
+                expected.append((definition, join, None))
             for index, block in enumerate(blocks):
                 expected.append((definition, block, index))
-        if len(expected) != len(query.bodies):
+        units = query.units if joined else query.bodies
+        if len(expected) != len(units):
             return False
-        state = {"expressions": [], "value_nodes": [], "nodes": 0}
-        symbols = []
+        state = {"expressions": [], "value_nodes": [], "nodes": 0, "symbols": []}
+        symbols = state["symbols"]
         produced: dict[object, object] = {}
+        by_join: dict[object, object] = {}
         columns_by_body = {}
+        join_context["produced"] = produced
+        join_context["by_join"] = by_join
         for position, ((definition, block, index), body) in enumerate(
-            zip(expected, query.bodies, strict=True)
+            zip(expected, units, strict=True)
         ):
+            if index is None:
+                _verify_join_unit(request, body, block, position, join_context, state)
+                by_join[block.ref] = body
+                continue
+            joined_definition = bool(join_groups.get(definition.original.ref, ()))
             if (
-                type(body.scan) not in {RowScan, RowNamedUse, RowStageUse}
+                type(body.scan) not in {RowScan, RowNamedUse, RowStageUse, RowJoinUse}
                 or body.definition is not definition
                 or body.block is not block
                 or body.index != index
-                or body.final != (position == len(query.bodies) - 1)
+                or body.final != (position == len(units) - 1)
                 or body.final
                 != (
                     block.kind.value == "projection"
@@ -1308,15 +1613,31 @@ def verify_row_query(request, query):
                 )
             ):
                 return False
-            binding = uses_by_consumer[definition.original.ref]
+            binding = uses_by_consumer.get(definition.original.ref)
             scan = body.scan
-            if index == 0:
+            if index == 0 and joined_definition:
+                tail = tails.get(definition.original.ref)
+                joins = join_groups[definition.original.ref]
+                if (
+                    tail is None
+                    or type(scan) is not RowJoinUse
+                    or scan.tail is not tail
+                    or tail.join is not joins[-1].ref
+                    or scan.body is not by_join.get(joins[-1].ref)
+                    or scan.symbol.binding is not tail.ref
+                    or scan.symbol.name != f"t{tail.ref.position}"
+                ):
+                    return False
+            elif index == 0:
+                if binding is None:
+                    return False
                 use = binding.original
                 if (
                     scan.symbol.name != f"s{use.ref.position}"
                     or scan.symbol.binding is not use.ref
                 ):
                     return False
+                # the producer/source discrimination below is unchanged
                 if use.producer in source_refs:
                     if (
                         type(scan) is not RowScan
@@ -1337,7 +1658,7 @@ def verify_row_query(request, query):
             elif (
                 type(scan) is not RowStageUse
                 or scan.block is not block
-                or scan.body is not query.bodies[position - 1]
+                or scan.body is not units[position - 1]
                 or scan.body.definition is not definition
                 or scan.symbol.binding is not block.ref
                 or scan.symbol.name != f"t{block.ref.position}"
@@ -1349,10 +1670,14 @@ def verify_row_query(request, query):
                 port = stage_ports.get(reference)
                 if port is None or port.block is not block.ref:
                     return False
-                if index == 0:
+                if index == 0 and joined_definition:
+                    if port.source is not tails[definition.original.ref].ports[slot]:
+                        return False
+                elif index == 0:
+                    assert binding is not None
                     if port.source is not binding.bindings[slot].input_port.ref:
                         return False
-                elif port.source is not query.bodies[position - 1].block.exports[slot]:
+                elif port.source is not units[position - 1].block.exports[slot]:
                     return False
             columns = dict(
                 zip(block.inputs, _row_reads(request, scan, block), strict=True)
@@ -1427,6 +1752,9 @@ def verify_row_query(request, query):
                     columns,
                     children,
                     state,
+                    reference_type=row.ProjectSQLJoinedReference
+                    if joined_definition
+                    else row.ProjectSQLReference,
                 )
                 state["nodes"] += 1
             if body.predicate is not None:
@@ -1445,6 +1773,9 @@ def verify_row_query(request, query):
                     columns,
                     children,
                     state,
+                    reference_type=row.ProjectSQLJoinedReference
+                    if joined_definition
+                    else row.ProjectSQLReference,
                 )
                 if realization.tag != "Bool" or tuple(
                     (effect.truth.value, effect.retain_row)
@@ -1461,7 +1792,7 @@ def verify_row_query(request, query):
                     body.symbol is None
                     or body.symbol.position != position
                     or body.symbol.binding is not block.ref
-                    or body.symbol.name != f"p{position}"
+                    or body.symbol.name != f"p{position}"  # unit index, not body index
                     or len(body.cte_columns) != len(body.terminals)
                 ):
                     return False
@@ -1487,11 +1818,12 @@ def verify_row_query(request, query):
         ):
             return False
         limits = resource_limits(request)
+        bodies = query.bodies
         nodes = (
             state["nodes"]
-            + 3 * len(query.bodies)
-            + 2 * sum(len(b.columns) for b in query.bodies)
-            + sum(2 + len(b.columns) for b in query.bodies[:-1])
+            + 3 * len(bodies)
+            + 2 * sum(len(b.columns) for b in bodies)
+            + sum(2 + len(b.columns) for b in bodies[:-1])
         )
         return nodes == query.nodes and nodes <= limits["nodes"]
     except (AttributeError, TypeError, ValueError, IndexError, KeyError):
@@ -1530,6 +1862,17 @@ def _row_reads(request, scan, block):
             if column.terminal is not scan.binding.bindings[position].terminal.ref:
                 return [None]
             reads.append(replace(column, position=position, name=f"c{position}"))
+            continue
+        if type(scan) is RowJoinUse:
+            reference = scan.tail.ports[position]
+            matches = tuple(
+                item for item in scan.body.columns if item.port.ref is reference
+            )
+            if len(matches) != 1:
+                return [None]
+            reads.append(
+                replace(matches[0].column, position=position, name=matches[0].label)
+            )
             continue
         assert type(scan) is RowStageUse
         reads.append(
@@ -1604,7 +1947,13 @@ def verify_row_bytes(query, rendered):
             start = offset
             if type(value) is rows.SQLStageReference:
                 reference = value.original.ref
-                take("identifier", "value_scope", value.port, alias, identifier=True)
+                take(
+                    "identifier",
+                    "value_scope",
+                    value.port,
+                    alias if value.scope is None else value.scope.name,
+                    identifier=True,
+                )
                 take("syntax", "value_qualifier", reference, ".")
                 take(
                     "identifier",
@@ -1760,6 +2109,18 @@ def verify_row_bytes(query, rendered):
                 take(
                     "identifier", "relation_scope", scan.use.ref, alias, identifier=True
                 )
+            elif type(scan) is RowJoinUse:
+                reference = scan.body.join.ref
+                take("syntax", "from", reference, " FROM ")
+                take(
+                    "identifier",
+                    "join_reference",
+                    reference,
+                    scan.body.symbol.name,
+                    identifier=True,
+                )
+                take("syntax", "alias", scan.tail.ref, " AS ")
+                take("identifier", "join_scope", scan.tail.ref, alias, identifier=True)
             else:
                 if type(scan) is not RowStageUse:
                     raise ValueError("unknown SQL relation")
@@ -1780,21 +2141,170 @@ def verify_row_bytes(query, rendered):
                 take("syntax", "where", body.predicate.original.ref, " WHERE ")
                 scalar(body.predicate.value, alias)
 
-        if len(query.bodies) > 1:
+        def join_relation(item):
+            reference = item.original.ref
+            producer = item.producer
+            if type(producer) is BoundSource:
+                relation = item.source
+                take(
+                    "identifier",
+                    "join_namespace",
+                    relation,
+                    producer.namespace,
+                    identifier=True,
+                )
+                take("syntax", "join_qualifier", relation, ".")
+                take(
+                    "identifier",
+                    "join_relation",
+                    relation,
+                    producer.name,
+                    identifier=True,
+                )
+            else:
+                take(
+                    "identifier",
+                    "join_reference",
+                    reference,
+                    producer.symbol.name,
+                    identifier=True,
+                )
+            take("syntax", "join_alias", reference, " AS ")
+            take(
+                "identifier",
+                "join_scope",
+                reference,
+                item.symbol.name,
+                identifier=True,
+            )
+
+        def join_condition(unit):
+            written = 0
+            for item in unit.equalities:
+                reference = item.original.ref
+                if written:
+                    take("syntax", "equality_separator", reference, " AND ")
+                start = offset
+                take("syntax", "equality_open", reference, "(")
+                take(
+                    "identifier",
+                    "equality_scope",
+                    item.left_port,
+                    item.left_scope.name,
+                    identifier=True,
+                )
+                take("syntax", "equality_qualifier", reference, ".")
+                take(
+                    "identifier",
+                    "equality_column",
+                    item.left.terminal,
+                    item.left.name,
+                    identifier=True,
+                )
+                take("syntax", "equality_operator", reference, " = ")
+                take(
+                    "identifier",
+                    "equality_scope",
+                    item.right_port,
+                    item.right_scope.name,
+                    identifier=True,
+                )
+                take("syntax", "equality_qualifier", reference, ".")
+                take(
+                    "identifier",
+                    "equality_column",
+                    item.right.terminal,
+                    item.right.name,
+                    identifier=True,
+                )
+                take("syntax", "equality_close", reference, ")")
+                spans.append(("relationship_equality", reference, start, offset))
+                written += 1
+            if unit.predicate is not None:
+                if written:
+                    take("syntax", "condition_separator", unit.join.on, " AND ")
+                scalar(unit.predicate, "")
+                written += 1
+            if not written:
+                raise ValueError("empty rendered JOIN condition")
+
+        def join_select(unit):
+            reference = unit.join.ref
+            left, right = unit.inputs
+            take("syntax", "select", reference, "SELECT ")
+            for position, column in enumerate(unit.columns):
+                if position:
+                    take("syntax", "separator", column.port.ref, ", ")
+                take(
+                    "identifier",
+                    "join_column_scope",
+                    column.match.ref,
+                    column.scope.name,
+                    identifier=True,
+                )
+                take("syntax", "join_column_qualifier", column.port.ref, ".")
+                take(
+                    "identifier",
+                    "join_column",
+                    column.read.terminal,
+                    column.read.name,
+                    identifier=True,
+                )
+                take("syntax", "alias", column.port.ref, " AS ")
+                take(
+                    "identifier",
+                    "label",
+                    column.port.ref,
+                    column.label,
+                    identifier=True,
+                )
+            take("syntax", "from", reference, " FROM ")
+            join_relation(left)
+            if unit.membership is None:
+                take(
+                    "syntax",
+                    "join_kind",
+                    reference,
+                    " " + joining.NATIVE_KINDS[unit.join.kind] + " ",
+                )
+                join_relation(right)
+                if unit.join.kind is not AuthoredJoinKind.CROSS:
+                    take("syntax", "join_on", reference, " ON ")
+                    join_condition(unit)
+                return
+            take(
+                "syntax",
+                "membership_open",
+                reference,
+                " WHERE EXISTS ("
+                if unit.membership == "exists"
+                else " WHERE NOT EXISTS (",
+            )
+            take("syntax", "membership_select", reference, "SELECT ")
+            take("literal", "membership_sentinel", reference, joining.SENTINEL)
+            take("syntax", "membership_from", reference, " FROM ")
+            join_relation(right)
+            take("syntax", "correlation", reference, " WHERE ")
+            join_condition(unit)
+            take("syntax", "membership_close", reference, ")")
+
+        units = getattr(query, "units", query.bodies)
+        if len(units) > 1:
             take("syntax", "with", request.plan.scope, "WITH ")
-            for index, body in enumerate(query.bodies[:-1]):
-                reference = body.block.ref
+            for index, unit in enumerate(units[:-1]):
+                is_join = type(unit) is joining.JoinBody
+                reference = unit.join.ref if is_join else unit.block.ref
                 if index:
                     take("syntax", "cte_separator", reference, ", ")
                 take(
                     "identifier",
                     "cte_name",
                     reference,
-                    body.symbol.name,
+                    unit.symbol.name,
                     identifier=True,
                 )
                 take("syntax", "cte_columns_open", reference, " (")
-                for position, symbol in enumerate(body.cte_columns):
+                for position, symbol in enumerate(unit.cte_columns):
                     if position:
                         take("syntax", "terminal_separator", symbol.binding, ", ")
                     take(
@@ -1805,10 +2315,13 @@ def verify_row_bytes(query, rendered):
                         identifier=True,
                     )
                 take("syntax", "cte_body_open", reference, ") AS (")
-                select(body)
+                if is_join:
+                    join_select(unit)
+                else:
+                    select(unit)
                 take("syntax", "cte_body_close", reference, ")")
-            take("syntax", "with_body", query.bodies[-1].block.ref, " ")
-        select(query.bodies[-1])
+            take("syntax", "with_body", units[-1].block.ref, " ")
+        select(units[-1])
         if (
             next(events, None) is not None
             or offset != len(data)
@@ -1846,7 +2359,8 @@ def verify_row_requirements(request, query, original, generated):
     """Rebuild both denominators from the actual bodies, nodes and premise domains."""
     plan = request.plan
     entries = request.report.report.entries
-    generated_scopes = len(query.bodies) > 1
+    units = getattr(query, "units", query.bodies)
+    generated_scopes = len(units) > 1
     if (
         type(original) is not tuple
         or len(original) != len(plan.demands)
@@ -1854,7 +2368,7 @@ def verify_row_requirements(request, query, original, generated):
     ):
         return False
     for item, entry, demand in zip(original, entries, plan.demands, strict=True):
-        rule = rows.demand_rule(plan, entry)
+        rule = rows.demand_rule(plan, entry) or joining.demand_rule(plan, entry)
         if rule is None:
             rule = (
                 "R04"
@@ -1862,7 +2376,11 @@ def verify_row_requirements(request, query, original, generated):
                 or (
                     entry.family.value == "expression"
                     and type(plan.expressions[entry.subject.position])
-                    is not row.ProjectSQLReference
+                    not in {
+                        row.ProjectSQLReference,
+                        row.ProjectSQLJoinedReference,
+                        row.ProjectSQLMatchReference,
+                    }
                 )
                 else "R03"
                 if generated_scopes and entry.family.value == "scope"
@@ -1927,11 +2445,75 @@ def verify_row_requirements(request, query, original, generated):
                     )
                 )
 
-    for body in query.bodies[:-1]:
-        expected.append(("cte_definition", body.block.ref, "R03", naming))
-        for symbol in body.cte_columns:
+    def join_expectations(unit):
+        """Independently list what this JOIN occurrence's structure introduces."""
+        join = unit.join
+        expected.append(("join", join.ref, joining.join_rule(join.kind), naming))
+        for item in unit.inputs:
+            expected.append(("join_input", item.original.ref, "R07", naming))
+            if type(item.producer) is BoundSource:
+                expected.append(
+                    (
+                        "qualified_scan",
+                        item,
+                        "R01",
+                        applicable_premises(request, item.producer.owner),
+                    )
+                )
+                for field in item.producer.fields:
+                    expected.append(
+                        (
+                            "source_representation",
+                            field,
+                            "R02",
+                            applicable_premises(request, item.producer.owner, field),
+                        )
+                    )
+        for item in unit.equalities:
+            expected.append(("relationship_equality", item.original.ref, "R07", naming))
+        if unit.predicate is not None:
+            expected.append(
+                (
+                    "match_condition",
+                    join.on,
+                    "R07",
+                    node_premises(
+                        request,
+                        rows.realization_of(unit.predicate, request.family),
+                        (),
+                        "match_condition",
+                    ),
+                )
+            )
+            node_expectations(unit.predicate)
+        if join.kind is AuthoredJoinKind.FULL:
+            expected.append(("full_condition", join.ref, "R09", naming))
+        if unit.membership is not None:
+            expected.append(("membership", join.ref, "R11", naming))
+            expected.append(("correlation", join.ref, "R11", naming))
+            expected.append(("sentinel", unit.sentinel, "R11", naming))
+        for column in unit.columns:
+            expected.append(("join_output", column.port.ref, "R07", naming))
+            if column.port.nulling:
+                expected.append(("null_extension", column.port.ref, "R08", naming))
+
+    for unit in units[:-1]:
+        is_join = type(unit) is joining.JoinBody
+        expected.append(
+            (
+                "cte_definition",
+                unit.join.ref if is_join else unit.block.ref,
+                "R03",
+                naming,
+            )
+        )
+        for symbol in unit.cte_columns:
             expected.append(("terminal_column", symbol.binding, "R03", naming))
-    for body in query.bodies:
+    for unit in units:
+        if type(unit) is joining.JoinBody:
+            join_expectations(unit)
+            continue
+        body = unit
         scan = body.scan
         if type(scan) is RowScan:
             expected.append(
@@ -1957,6 +2539,10 @@ def verify_row_requirements(request, query, original, generated):
                 expected.append(
                     ("immediate_terminal", link.terminal.ref, "R03", naming)
                 )
+        elif type(scan) is RowJoinUse:
+            expected.append(("join_use", scan.tail.ref, "R07", naming))
+            for symbol in scan.body.cte_columns:
+                expected.append(("join_terminal", symbol.binding, "R07", naming))
         else:
             expected.append(("stage_use", scan.block.ref, "R03", naming))
             for symbol in scan.body.cte_columns:

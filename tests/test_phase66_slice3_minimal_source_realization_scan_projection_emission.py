@@ -821,10 +821,15 @@ def test_current_emission_variant_manifest_is_complete():
             "between",
             "match_join",
         ),
+        # Slice7 JOIN/EXISTS: the seven admitted kinds inside their own approved
+        # domains, the outer value transport, and the per-target restricted FULL.
+        "W_join_shapes": ("cross", "inner", "semi", "anti"),
+        "W_join_values": ("left_marker", "right_accumulated", "via_refined"),
+        "V_join_full": ("restricted",),
     }
     for target in ("postgres", "mysql"):
         inputs = probe.generation_inputs(target)
-        assert len(inputs) == 61
+        assert len(inputs) == 69
         assert (
             sum(
                 item["id"]

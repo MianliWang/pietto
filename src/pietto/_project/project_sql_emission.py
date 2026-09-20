@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import json
-from typing import Any
+from typing import Any, cast
 
 from pietto._project.project_sql_emission_contract import (
     Blocker,
@@ -17,7 +17,7 @@ from pietto._project.project_sql_emission_contract import (
     prepare_project_sql_emission,
 )
 from pietto._project.project_sql_emission_ast import (
-    RowScan,
+    SQLJoinQuery,
     SQLSelect,
     SQLLiteralColumn,
     SQLRowQuery,
@@ -36,6 +36,7 @@ from pietto._project.project_sql_plan_literals import ProjectSQLFixedLiteralValu
 from pietto._project.project_sql_emission_rendering import (
     RenderedSQL,
     SQLSizeLimit,
+    render_join_sql,
     render_row_sql,
     render_sql,
 )
@@ -47,17 +48,45 @@ from pietto._project.project_sql_emission_verification import (
 
 __all__: tuple[str, ...] = ()
 FORMAT = "pietto.sql-emission.v1"
+REPR_SCALAR_LIMIT = 32
+
+
+def _repr_scalar(value: Any) -> str:
+    """Bound a status-like scalar before it is escaped, never touching objects."""
+
+    if type(value) is not str:
+        return "?"
+    if len(value) > REPR_SCALAR_LIMIT:
+        return repr(value[:REPR_SCALAR_LIMIT] + "...")
+    return repr(value)
+
+
+def _repr_count(value: Any) -> int | str:
+    """An O(1) length for an exact builtin tuple, never a user-defined traversal."""
+
+    return len(value) if type(value) is tuple else "?"
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class EmissionArtifact:
     request: PreparedEmission
-    ast: SQLSelect | SQLRowQuery
+    ast: SQLSelect | SQLRowQuery | SQLJoinQuery
     rendered: RenderedSQL
     original_requirements: tuple[Any, ...]
     generated_requirements: tuple[Any, ...]
     fixed_values: tuple[ProjectSQLFixedLiteralValue, ...] = ()
     parameter_uses: tuple[parameters.NativeUse, ...] = ()
+
+    def __repr__(self) -> str:
+        """Summarize this artifact in constant work; the graph stays opaque."""
+
+        return (
+            "EmissionArtifact(request=..., ast=..., rendered=..., "
+            f"original_requirements=<{_repr_count(self.original_requirements)}>, "
+            f"generated_requirements=<{_repr_count(self.generated_requirements)}>, "
+            f"fixed_values=<{_repr_count(self.fixed_values)}>, "
+            f"parameter_uses=<{_repr_count(self.parameter_uses)}>)"
+        )
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -67,6 +96,17 @@ class EmissionOutcome:
     artifact: EmissionArtifact | None = None
     blockers: tuple[Blocker, ...] = ()
     cli_errors: tuple[InputError, ...] = ()
+
+    def __repr__(self) -> str:
+        """Summarize this outcome in constant work; no child is formatted."""
+
+        return (
+            f"EmissionOutcome(status={_repr_scalar(self.status)}, "
+            f"diagnostics=<{_repr_count(self.diagnostics)}>, "
+            f"artifact={'present' if self.artifact is not None else 'none'}, "
+            f"blockers=<{_repr_count(self.blockers)}>, "
+            f"cli_errors=<{_repr_count(self.cli_errors)}>)"
+        )
 
 
 def emit_project_sql(verification, contract_bytes, *, target_request=None):
@@ -168,7 +208,10 @@ def _realize_row_query(request, diagnostics):
             blockers=(Blocker("PIE-B1008", "plan_ast_correspondence"),),
         )
     try:
-        rendered = render_row_sql(query)
+        if type(query) is SQLJoinQuery:
+            rendered = render_join_sql(query)
+        else:
+            rendered = render_row_sql(cast(SQLRowQuery, query))
     except SQLSizeLimit:
         return EmissionOutcome(
             "BLOCKED", diagnostics, blockers=(Blocker("PIE-B1007", "sql_byte_limit"),)
@@ -249,7 +292,7 @@ def _public_document(outcome):
     request, ast = artifact.request, artifact.ast
     source_map = request.source_map.source_map
     slots = {slot: i for i, slot in enumerate(request.plan.literal_slots)}
-    if type(ast) is SQLRowQuery:
+    if type(ast) in {SQLRowQuery, SQLJoinQuery}:
         columns = _row_columns(ast, slots)
         return _document(outcome, artifact, request, columns, source_map, slots)
     columns = []
@@ -334,11 +377,18 @@ def _public_document(outcome):
 def _row_columns(query, slots):
     """Public output description for one stage pipeline's final SELECT columns."""
     body = query.bodies[-1]
-    selector = next(
-        json.loads(item.scan.realization.selector)
-        for item in query.bodies
-        if type(item.scan) is RowScan
-    )
+    # Each source port names its own declared source, so a joined column reports the
+    # relation it actually reads instead of whichever source happened to be first.
+    request = query.request
+    selector_of = {}
+    for source in request.plan.sources:
+        bound = [item for item in request.sources if item.owner is source.source.owner]
+        if len(bound) != 1:
+            continue
+        declared = json.loads(bound[0].selector)
+        for port in request.plan.source_ports:
+            if port.owner is source.ref:
+                selector_of[port.ref] = declared
     result = []
     for column in body.columns:
         image = column.column
@@ -387,7 +437,9 @@ def _row_columns(query, slots):
                     "export": _ref(column.export.ref),
                     "terminal": _ref(image.terminal),
                     "operands": [_ref(item) for item in rows.operand_refs(value)],
-                    "source": None if image.field is None else selector,
+                    "source": None
+                    if image.field is None
+                    else selector_of[image.source_port],
                     "field": None if image.field is None else image.field.ordinal,
                     "source_port": None
                     if image.source_port is None
@@ -525,6 +577,18 @@ def _document(outcome, artifact, request, columns, source_map, slots):
                     "carry_projection",
                     "computed_projection",
                     "predicate_root",
+                    "join",
+                    "join_input",
+                    "join_output",
+                    "join_use",
+                    "join_terminal",
+                    "relationship_equality",
+                    "match_condition",
+                    "full_condition",
+                    "null_extension",
+                    "membership",
+                    "correlation",
+                    "sentinel",
                     "reference",
                     "arithmetic",
                     "comparison",

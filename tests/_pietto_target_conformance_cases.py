@@ -363,6 +363,95 @@ def fixed_rows(target, *, named=False, empty=False):
     return [row, row]
 
 
+# Independent JOIN oracles. Every multiset below is stated from the authored table
+# rows alone -- never read back from emitted SQL, a public document or a server.
+# The published source holds, in this order, id = BIG, BIG, 0 and 1.
+def _int(value):
+    return {"kind": "int", "value": value}
+
+
+NULL = {"kind": "null"}
+BIG_TEXT = "9007199254740993"
+
+
+def join_rows(variant):
+    """The exact typed BAG each authored JOIN publishes, by hand."""
+    if variant == "cross":
+        # 4 x 4 ordered pairs; each left id appears once per right row.
+        return (
+            [[_int(BIG_TEXT)] for _ in range(8)] + [[_int("0")]] * 4 + [[_int("1")]] * 4
+        )
+    if variant == "inner":
+        # id = BIG matches its two partners twice; 0 and 1 match once each.
+        return [[_int(BIG_TEXT)] for _ in range(4)] + [[_int("0")], [_int("1")]]
+    if variant == "semi":
+        # Every left row has at least one partner; multiplicity is the left side's.
+        return [[_int(BIG_TEXT)], [_int(BIG_TEXT)], [_int("0")], [_int("1")]]
+    if variant == "anti":
+        # Every left row has a partner, so the complement is empty.
+        return []
+    if variant == "left_marker":
+        # `enriched` keeps id > 0, so the authored id = 0 row has no partner and
+        # null-extends the retained source value, the literal, the computed value
+        # and the LET result together.
+        matched = [
+            _int(BIG_TEXT),
+            _int(BIG_TEXT),
+            _int("1"),
+            _int("18014398509481986"),
+            _int("9007199254740994"),
+        ]
+        return (
+            [matched] * 4
+            + [[_int("0"), NULL, NULL, NULL, NULL]]
+            + [[_int("1"), _int("1"), _int("1"), _int("2"), _int("2")]]
+        )
+    if variant == "right_accumulated":
+        # `leftish` keeps id > 1, so the right rows 0 and 1 null-extend the
+        # accumulated left side while BIG matches both retained left rows.
+        return [[_int(BIG_TEXT), _int(BIG_TEXT)] for _ in range(4)] + [
+            [NULL, _int("0")],
+            [NULL, _int("1")],
+        ]
+    if variant == "via_refined":
+        # The relationship equality on id, refined by an equal amount, keeps the
+        # same matched pairs as the plain INNER self join.
+        return [[_int(BIG_TEXT), _int(BIG_TEXT)] for _ in range(4)] + [
+            [_int("0"), _int("0")],
+            [_int("1"), _int("1")],
+        ]
+    if variant == "restricted":
+        # FULL over the same retained left side: the matched BIG pairs plus the
+        # two right-only rows. This corpus has no left-only partner, so the
+        # left-preserving half stays witnessed by `left_marker`.
+        return [[_int(BIG_TEXT), _int(BIG_TEXT)] for _ in range(4)] + [
+            [NULL, _int("0")],
+            [NULL, _int("1")],
+        ]
+    raise ValueError("unknown JOIN variant")
+
+
+def join_metadata(target, variant):
+    """Physical result metadata: every published JOIN column here is a BIGINT."""
+    width = len(emission.JOIN_LABELS[variant])
+    return [20 if target == "postgres" else 8] * width
+
+
+# The two inputs whose only remaining restriction was the JOIN family. Each one
+# self joins its own source on a non-null identity, so every authored row matches
+# its own duplicates. Stated independently from the authored rows.
+MIGRATED_JOIN_ROWS = {
+    ("O_named_later", "self_join"): [[_int(BIG_TEXT)] for _ in range(4)]
+    + [[_int("0")], [_int("1")]],
+    ("V_row_blocked", "match_join"): [[_int(BIG_TEXT)] for _ in range(4)]
+    + [[_int("0")], [_int("1")]],
+}
+MIGRATED_JOIN_LABELS = {
+    ("O_named_later", "self_join"): ("id",),
+    ("V_row_blocked", "match_join"): ("record_id",),
+}
+
+
 def parameter_records(document):
     records = []
     for use in document["parameter_uses"]:
@@ -421,7 +510,9 @@ def check_emission_case(case, target):
         before, after = variant["submission_before"], variant["submission_after"]
         if type(before) is not int or type(after) is not int or before < 0:
             raise ValueError("submission observation missing")
-        expected_status = emission.expected_status(case["id"], variant["variant"])
+        expected_status = emission.expected_status(
+            case["id"], variant["variant"], target
+        )
         if document["status"] != expected_status or after - before != (
             1 if expected_status == "VERIFIED" else 0
         ):
@@ -493,6 +584,40 @@ def check_emission_case(case, target):
                 "Bool"
             ] * len(emission.TRUTH_LABELS):
                 raise ValueError("three-valued positional logical metadata mismatch")
+            continue
+        if case["id"] in {"W_join_shapes", "W_join_values", "V_join_full"}:
+            expected_rows = join_rows(variant["variant"])
+            if Counter(
+                json.dumps(row, sort_keys=True) for row in observation["rows"]
+            ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
+                raise ValueError("JOIN typed BAG mismatch")
+            labels = emission.JOIN_LABELS[variant["variant"]]
+            metadata = observation["metadata"]
+            if [m[0] for m in metadata] != list(labels) or [
+                m[1] for m in metadata
+            ] != join_metadata(target, variant["variant"]):
+                raise ValueError("JOIN positional physical metadata mismatch")
+            if [c["label"] for c in document["columns"]] != list(labels) or any(
+                c["logical_type"]["name"] != "Int" for c in document["columns"]
+            ):
+                raise ValueError("JOIN positional logical metadata mismatch")
+            continue
+        if (case["id"], variant["variant"]) in MIGRATED_JOIN_ROWS:
+            expected_rows = MIGRATED_JOIN_ROWS[case["id"], variant["variant"]]
+            if Counter(
+                json.dumps(row, sort_keys=True) for row in observation["rows"]
+            ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
+                raise ValueError("migrated JOIN typed BAG mismatch")
+            labels = MIGRATED_JOIN_LABELS[case["id"], variant["variant"]]
+            metadata = observation["metadata"]
+            if [m[0] for m in metadata] != list(labels) or [m[1] for m in metadata] != [
+                20 if target == "postgres" else 8
+            ] * len(labels):
+                raise ValueError("migrated JOIN physical metadata mismatch")
+            if [c["label"] for c in document["columns"]] != list(labels) or any(
+                c["logical_type"]["name"] != "Int" for c in document["columns"]
+            ):
+                raise ValueError("migrated JOIN logical metadata mismatch")
             continue
         if case["id"] in {"T_row_direct", "U_row_named"}:
             expected_rows = row_result_rows(

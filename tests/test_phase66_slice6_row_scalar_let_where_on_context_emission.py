@@ -483,23 +483,41 @@ def test_parameters_bind_in_select_let_and_where(tmp_path, target):
 
 
 # --------------------------------------------------------------------------
-# ON/MATCH context, without whole JOIN emission
+# ON/MATCH context, now carried by whole JOIN emission
 # --------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
-def test_match_context_is_checked_but_no_join_sql_exists(tmp_path, target):
+def test_match_context_is_checked_and_its_join_now_emits(tmp_path, target):
+    # This input's only remaining restriction was the JOIN family, so it is no
+    # longer blocked. Every expectation below is taken from the real emitter and
+    # the published bytes, never from the fixture's own migration table.
     item = probe.fixture(target, "V_row_blocked", "match_join")
     checked, outcome = probe.build_case(
         tmp_path, item["source"], item["contract"], item["policy"]
     )
+    # Bounded scalar comparisons only: an assertion message here must never
+    # format the private emission graph.
     assert checked.verified
-    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert outcome.status == "VERIFIED", outcome.status
+    assert type(outcome.artifact).__name__ == "EmissionArtifact"
+
+    # The independent consumer decodes the actual serialized bytes.
     public = probe.decode_public(serialize_project_sql_emission(outcome))
-    assert "sql" not in public and public["artifact"] is None
-    details = [b["subject"]["detail"] for b in public["blockers"]]
-    assert "join_lowering_requires_slice7" in details
-    # The retained MATCH condition is a real pre-match site, and it is checked.
+    assert public["status"] == "VERIFIED", public["status"]
+    assert "sql" in public and "blockers" not in public
+    assert [column["label"] for column in public["columns"]] == ["record_id"]
+
+    # The published SQL really carries the JOIN and the retained MATCH condition.
+    kinds = {requirement["kind"] for requirement in public["requirements"]}
+    assert "match_condition" in kinds
+    assert {"join", "join_input", "join_output", "join_use"} <= kinds
+    quote = '"' if target == "postgres" else "`"
+    assert public["sql"].startswith(f"WITH {quote}p0{quote} ")
+    assert f"{quote}m0{quote}" in public["sql"]
+
+    # The retained MATCH condition is still a real pre-match site, and the
+    # separate foreign-port control below still proves it is this site's own port.
     plan = checked.plan
     assert type(plan) is ProjectSQLPlan
     assert any(

@@ -62,6 +62,7 @@ class StageColumn:
     field: Any = None
     source_port: Any = None
     literal: Any = None
+    scope: Any = None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -70,6 +71,8 @@ class SQLStageReference:
     port: Any
     column: StageColumn
     realization: Realization
+    scope: Any = None
+    """The relation alias this reference reads, when its body has more than one."""
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -207,8 +210,20 @@ def constant_chains(plan, reference):
     return tuple(result)
 
 
+type ReferenceNode = (
+    type[row.ProjectSQLReference]
+    | type[row.ProjectSQLJoinedReference]
+    | type[row.ProjectSQLMatchReference]
+)
+
+
 def build_row_value(
-    request, columns, reference, uses
+    request,
+    columns,
+    reference,
+    uses,
+    *,
+    reference_type: ReferenceNode = row.ProjectSQLReference,
 ) -> tuple[Any, None] | tuple[None, tuple[str, str]]:
     """Realize one admitted tree; return (value, None) or (None, (code, detail))."""
     plan = request.plan
@@ -228,20 +243,34 @@ def build_row_value(
     tag, nullable = value_tag(expression), value_nullable(expression)
     if tag is None or nullable is None:
         return None, ("PIE-B1004", "expression_logical_type_evidence_missing")
-    if type(expression) is row.ProjectSQLReference:
+    if type(expression) is reference_type:
         column = columns.get(expression.port)
         if column is None:
             return None, ("PIE-B1001", "reference_outside_stage_scope")
         if column.realization.tag != tag or column.realization.nullable != nullable:
             return None, ("PIE-B1002", "reference_logical_type_or_null_drift")
         return (
-            SQLStageReference(expression, expression.port, column, column.realization),
+            SQLStageReference(
+                expression,
+                expression.port,
+                column,
+                column.realization,
+                getattr(column, "scope", None),
+            ),
             None,
         )
+    if type(expression) in {
+        row.ProjectSQLReference,
+        row.ProjectSQLJoinedReference,
+        row.ProjectSQLMatchReference,
+    }:
+        return None, ("PIE-B1001", "reference_outside_its_admitted_scope")
     if type(expression) is row.ProjectSQLUnary:
         if expression.expression.operator not in {"+", "-"}:
             return None, ("PIE-B1003", "unary_operator_not_admitted")
-        operand, problem = build_row_value(request, columns, expression.operand, uses)
+        operand, problem = build_row_value(
+            request, columns, expression.operand, uses, reference_type=reference_type
+        )
         if problem is not None:
             return None, problem
         inner = realization_of(operand, family)
@@ -261,7 +290,9 @@ def build_row_value(
             return None, ("PIE-B1002", "unary_result_outside_physical_range")
         return SQLOperation(expression, "sign", (operand,), checked), None
     if type(expression) is row.ProjectSQLIsNull:
-        operand, problem = build_row_value(request, columns, expression.value, uses)
+        operand, problem = build_row_value(
+            request, columns, expression.value, uses, reference_type=reference_type
+        )
         if problem is not None:
             return None, problem
         if tag != "Bool" or nullable is not False:
@@ -271,9 +302,13 @@ def build_row_value(
             None,
         )
     if type(expression) is row.ProjectSQLBinary:
-        return _binary(request, columns, expression, tag, nullable, uses)
+        return _binary(
+            request, columns, expression, tag, nullable, uses, reference_type
+        )
     if type(expression) is row.ProjectSQLComparison:
-        return _comparison(request, columns, expression, tag, nullable, uses)
+        return _comparison(
+            request, columns, expression, tag, nullable, uses, reference_type
+        )
     return None, ("PIE-B1003", "row_expression_not_admitted_in_slice6")
 
 
@@ -298,11 +333,13 @@ def _checked_int(storage, low, high, nullable) -> Realization | None:
 
 
 def _operands(
-    request, columns, refs, uses
+    request, columns, refs, uses, reference_type
 ) -> tuple[tuple[Any, ...], None] | tuple[None, tuple[str, str]]:
     values = []
     for reference in refs:
-        value, problem = build_row_value(request, columns, reference, uses)
+        value, problem = build_row_value(
+            request, columns, reference, uses, reference_type=reference_type
+        )
         if value is None:
             assert problem is not None
             return None, problem
@@ -311,13 +348,13 @@ def _operands(
 
 
 def _binary(
-    request, columns, expression, tag, nullable, uses
+    request, columns, expression, tag, nullable, uses, reference_type
 ) -> tuple[Any, None] | tuple[None, tuple[str, str]]:
     operator = expression.expression.operator
     if operator not in (*ARITHMETIC, *LOGICAL):
         return None, ("PIE-B1003", "binary_operator_not_admitted")
     values, problem = _operands(
-        request, columns, (expression.left, expression.right), uses
+        request, columns, (expression.left, expression.right), uses, reference_type
     )
     if values is None:
         assert problem is not None
@@ -349,12 +386,12 @@ def _binary(
 
 
 def _comparison(
-    request, columns, expression, tag, nullable, uses
+    request, columns, expression, tag, nullable, uses, reference_type
 ) -> tuple[Any, None] | tuple[None, tuple[str, str]]:
     if expression.expression.operator not in COMPARISONS:
         return None, ("PIE-B1003", "comparison_operator_not_admitted")
     values, problem = _operands(
-        request, columns, (expression.left, expression.right), uses
+        request, columns, (expression.left, expression.right), uses, reference_type
     )
     if values is None:
         assert problem is not None

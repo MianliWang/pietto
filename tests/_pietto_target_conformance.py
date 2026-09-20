@@ -465,7 +465,7 @@ def verify_emission_generation(value, target, expected):
         if record["public_sha256"] != digest(data):
             raise ValueError("serialized emission transfer identity")
         document = emission.decode_public(data)
-        status = emission.expected_status(record["id"], record["variant"])
+        status = emission.expected_status(record["id"], record["variant"], target)
         if document["status"] != status:
             raise ValueError("wrong emission outcome")
         if status == "INPUT_REJECTED":
@@ -546,9 +546,11 @@ def verify_emission_generation(value, target, expected):
                     "bool_comparison": "PIE-B1003",
                     "modulo": "PIE-B1003",
                     "between": "PIE-B1003",
-                    "match_join": "PIE-B1003",
                     "int_overflow": "PIE-B1002",
                     "unary_overflow": "PIE-B1002",
+                    # Slice7: `match_join` migrated to VERIFIED, so it no longer
+                    # reaches this branch. MySQL keeps FULL as a typed non-support.
+                    "restricted": "PIE-B1003",
                 }[record["variant"]]
             )
             if code not in [b["code"] for b in document["blockers"]]:

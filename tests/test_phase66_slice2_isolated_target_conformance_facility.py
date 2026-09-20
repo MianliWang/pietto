@@ -1008,6 +1008,25 @@ def valid_receipts(
                         rows = cases.truth_rows(target)
                         names = [str(label) for label in probe.TRUTH_LABELS]
                         types = [16 if target == "postgres" else 8] * len(names)
+                    if case_id in {
+                        "W_join_shapes",
+                        "W_join_values",
+                        "V_join_full",
+                    }:
+                        rows = cases.join_rows(record["variant"])
+                        names = [
+                            str(label) for label in probe.JOIN_LABELS[record["variant"]]
+                        ]
+                        types = cases.join_metadata(target, record["variant"])
+                    elif (case_id, record["variant"]) in cases.MIGRATED_JOIN_ROWS:
+                        rows = cases.MIGRATED_JOIN_ROWS[case_id, record["variant"]]
+                        names = [
+                            str(label)
+                            for label in cases.MIGRATED_JOIN_LABELS[
+                                case_id, record["variant"]
+                            ]
+                        ]
+                        types = [20 if target == "postgres" else 8] * len(names)
                     observation = _observation(
                         target,
                         document["sql"],
@@ -1460,7 +1479,10 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "S_fixed_named",
         "T_row_direct",
         "U_row_named",
+        "V_join_full",
         "V_row_blocked",
+        "W_join_shapes",
+        "W_join_values",
     )
     assert resources.ENDPOINT == "unix:///var/run/docker.sock"
     assert resources.STARTUP_SECONDS == 120 and resources.MAX_CONNECT_ATTEMPTS == 3

@@ -318,8 +318,8 @@ EXPECTED_STATUS = (
     ("Phase 66 Slice 4", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 5", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 6", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 7", "`NEXT / NOT IMPLEMENTED`"),
-    ("Phase 66 Slice 8", "`NOT IMPLEMENTED`"),
+    ("Phase 66 Slice 7", "`COMPLETED / PUBLISHED`"),
+    ("Phase 66 Slice 8", "`NEXT / NOT IMPLEMENTED`"),
     ("Phase 66 Slice 9", "`NOT IMPLEMENTED`"),
     ("Phase 66 Slice 10", "`NOT IMPLEMENTED`"),
     ("Phase 66 Slice 11", "`NOT IMPLEMENTED`"),
@@ -331,7 +331,7 @@ EXPECTED_STATUS = (
     ("Phase 66 route", "`N=16`"),
     (
         "Next",
-        "`Phase 66 Slice 7 — Supported JOIN emission`",
+        "`Phase 66 Slice 8 — Grouped/global aggregate emission`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -5409,6 +5409,54 @@ def test_phase66_slice5_conditional_publication_preserves_later_boundaries() -> 
         assert "Do not start Slice6 automatically" in document
         assert "N66 remains16" in document
     assert (STATUS.parent / target).is_file()
+
+
+def test_phase66_slice7_join_publication_preserves_later_boundaries() -> None:
+    target = (
+        "spec/phase66-slice7-value-bridge-join-exists-outer-nulling"
+        "-terminal-output-emission-v1.md"
+    )
+    for path in (STATUS, ROADMAP):
+        document = " ".join(_read(path).split())
+        assert f"]({target})" in document
+        assert "Phase66 Slice7 is " in document
+        assert "only upon successful natural exact-head CI" in document
+        assert "strict v2 aggregate" in document
+        assert "W–V25 cases/69 public documents" in document
+        assert (
+            "postgres49 VERIFIED,3 INPUT_REJECTED,17 BLOCKED" in document
+            and "mysql48 VERIFIED,3 INPUT_REJECTED,18 BLOCKED" in document
+        )
+        # The later owners of the two amended ledgers stay visible here.
+        assert (
+            "R03 outstanding joint execution: Slice10 ordinary/rebound/completed"
+            " ORDER and ORDER/LIMIT sharing; Slice11 repeated UNION ALL and two"
+            " import facades." in document
+        )
+        assert (
+            "R11/C09 outstanding membership differences: Slice8 GROUPED/GLOBAL;"
+            " Slice9 window/QUALIFY; Slice10 LIMIT0/LIMIT1; Slice11 SET." in document
+        )
+        assert "Do not start Slice8 automatically" in document
+        assert "N66 remains16" in document
+    assert (STATUS.parent / target).is_file()
+
+
+def test_phase66_slice7_amendments_are_recorded_in_the_route_lock() -> None:
+    route = (
+        STATUS.parent
+        / "spec"
+        / "phase66-dialect-sql-emission-product-phase-initiation-gate-route-lock-v1.md"
+    )
+    document = " ".join(route.read_text(encoding="utf-8").split())
+    assert "## R11/C09 scheduling amendment authorized for Slice7" in document
+    assert (
+        "## Upstream current-route compatibility rule authorized for Slice7" in document
+    )
+    assert (
+        "R11/C09 outstanding membership differences: Slice8 GROUPED/GLOBAL;"
+        " Slice9 window/QUALIFY; Slice10 LIMIT0/LIMIT1; Slice11 SET." in document
+    )
 
 
 def test_phase66_slice6_row_stage_publication_preserves_later_boundaries() -> None:

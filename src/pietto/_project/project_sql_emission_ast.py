@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import json
 from typing import Any
-from pietto.ast_nodes import SourceDef
+from pietto.ast_nodes import AuthoredJoinKind, SourceDef
 
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project.model import ProjectResolvedTypeKind
@@ -17,6 +17,7 @@ from pietto._project.project_sql_emission_scopes import (
 )
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_rows as rows
+from pietto._project import project_sql_emission_joins as joining
 from pietto._project.project_sql_emission_contract import (
     Blocker,
     BoundField,
@@ -329,7 +330,7 @@ def emission_blockers(request: PreparedEmission):
         add("PIE-B1003", "target_release_not_reviewed")
     admitted = projection_chain_shape(plan)
     realization = None
-    if not admitted and admitted_row_shape(plan):
+    if not admitted and (admitted_row_shape(plan) or joining.admitted_join_shape(plan)):
         realization = realize_rows(request)
         result.extend(realization.problems)
     elif not admitted:
@@ -357,7 +358,7 @@ def emission_blockers(request: PreparedEmission):
         for code, detail, subject, location in rows.match_applicability(request):
             add(code, detail, subject, location)
         for join in plan.joins:
-            add("PIE-B1003", "join_lowering_requires_slice7", join.ref)
+            add("PIE-B1003", "join_shape_not_admitted_in_slice7", join.ref)
         if len(result) == shape_start:
             add("PIE-B1003", "non_field_projection_or_later_shape", plan.scope)
     for issue in request.target_request.issues:
@@ -422,7 +423,9 @@ def emission_blockers(request: PreparedEmission):
         query = realization.query
         nodes = query.nodes
         generated_scopes = len(query.bodies) > 1
-        if any(len(body.columns) > limits["columns"] for body in query.bodies):
+        units = getattr(query, "units", query.bodies)
+        generated_scopes = len(units) > 1
+        if any(len(unit.columns) > limits["columns"] for unit in units):
             add("PIE-B1007", "generated_structure_limit", plan.scope)
     if admitted and (
         any(len(d.terminals) > limits["columns"] for d in bodies)
@@ -679,10 +682,17 @@ def original_rule(plan, entry, *, generated_scopes):
     rule = rows.demand_rule(plan, entry)
     if rule is not None:
         return rule
+    rule = joining.demand_rule(plan, entry)
+    if rule is not None:
+        return rule
     if entry.family.value == "fixed_literal_transport" or (
         entry.family.value == "expression"
         and type(plan.expressions[entry.subject.position])
-        is not row.ProjectSQLReference
+        not in {
+            row.ProjectSQLReference,
+            row.ProjectSQLJoinedReference,
+            row.ProjectSQLMatchReference,
+        }
     ):
         return "R04"
     if generated_scopes and entry.family.value == "scope":
@@ -880,10 +890,38 @@ class RowBody:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class RowJoinUse:
+    """A joined definition's first stage body reading its published joined ports."""
+
+    body: Any
+    tail: Any
+    symbol: SQLSymbol
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class SQLRowQuery:
     request: PreparedEmission
     bodies: tuple[RowBody, ...]
     nodes: int
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class SQLJoinQuery:
+    """Ordered generated units: one per JOIN occurrence, then its row stages."""
+
+    request: PreparedEmission
+    units: tuple[Any, ...]
+    nodes: int
+
+    @property
+    def bodies(self) -> tuple[Any, ...]:
+        return tuple(item for item in self.units if type(item) is RowBody)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class JoinRealization:
+    problems: tuple[Blocker, ...]
+    query: SQLJoinQuery | None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -999,9 +1037,319 @@ def _stage_read(request, scan, position, port):
         if column.terminal is not link.terminal.ref:
             return None
         return replace(column, position=position, name=f"c{position}")
+    if type(scan) is RowJoinUse:
+        reference = scan.tail.ports[position]
+        matches = tuple(
+            item for item in scan.body.columns if item.port.ref is reference
+        )
+        if len(matches) != 1:
+            return None
+        return replace(matches[0].column, position=position, name=matches[0].label)
     assert type(scan) is RowStageUse
     column = scan.body.columns[position].column
     return replace(column, position=position, name=f"c{position}")
+
+
+def _join_input(
+    request,
+    join,
+    reference,
+    uses_by_ref,
+    source_refs,
+    by_definition,
+    by_join,
+    join_inputs,
+    join_ports,
+):
+    """One JOIN input relation and the exact pre-match column it publishes."""
+    original = join_inputs[reference]
+    alias = SQLSymbol(0, original.ref, f"m{original.ref.position}")
+    use = None
+    producer: Any = None
+    source_ref: Any = None
+    reads: list[rows.StageColumn] = []
+    if original.binding_use is not None:
+        use = uses_by_ref.get(original.binding_use)
+        if use is None or use.original.consumer is not join.definition:
+            return None, ("PIE-B1001", "join_input_use_not_bound", original.ref, None)
+        if use.original.producer in source_refs:
+            source = source_refs[use.original.producer]
+            matches = tuple(
+                item for item in request.sources if item.owner is source.source.owner
+            )
+            if len(matches) != 1:
+                return None, ("PIE-B1001", "source_mapping_missing", source.ref, None)
+            producer = matches[0]
+            source_ref = source.ref
+            for position, port_ref in enumerate(original.ports):
+                link = use.bindings[position]
+                fields = tuple(
+                    item
+                    for item in producer.fields
+                    if item.field is link.canonical.field
+                )
+                if len(fields) != 1 or link.terminal is not link.canonical:
+                    return None, (
+                        "PIE-B1001",
+                        "join_input_source_field_not_bound",
+                        port_ref,
+                        None,
+                    )
+                realization = rows.field_realization(fields[0])
+                if realization is None:
+                    return None, (
+                        "PIE-B1004",
+                        "join_input_field_representation_missing",
+                        port_ref,
+                        None,
+                    )
+                reads.append(
+                    rows.StageColumn(
+                        position,
+                        fields[0].column,
+                        link.canonical.ref,
+                        realization,
+                        field=fields[0],
+                        source_port=link.canonical.ref,
+                        scope=alias,
+                    )
+                )
+        else:
+            producer = by_definition.get(use.original.producer)
+            if producer is None:
+                return None, (
+                    "PIE-B1001",
+                    "named_producer_not_realized",
+                    original.ref,
+                    None,
+                )
+            for position, port_ref in enumerate(original.ports):
+                column = producer.columns[position].column
+                if column.terminal is not use.bindings[position].terminal.ref:
+                    return None, (
+                        "PIE-B1001",
+                        "join_input_terminal_drift",
+                        port_ref,
+                        None,
+                    )
+                reads.append(
+                    replace(column, position=position, name=f"c{position}", scope=alias)
+                )
+    else:
+        producer = by_join.get(original.predecessor)
+        if producer is None:
+            return None, (
+                "PIE-B1001",
+                "join_predecessor_not_realized",
+                original.ref,
+                None,
+            )
+        for position, port_ref in enumerate(original.ports):
+            column = producer.columns[position]
+            if column.port.ref is not join_ports[port_ref].source:
+                return None, (
+                    "PIE-B1001",
+                    "join_predecessor_port_drift",
+                    port_ref,
+                    None,
+                )
+            reads.append(
+                replace(
+                    column.column, position=position, name=column.label, scope=alias
+                )
+            )
+    columns = []
+    for position, port_ref in enumerate(original.ports):
+        port = join_ports[port_ref]
+        realization, problem = joining.port_realization(
+            port, reads[position], outer=False
+        )
+        if realization is None:
+            assert problem is not None
+            return None, (*problem, port_ref, None)
+        columns.append(replace(reads[position], realization=realization))
+    return (
+        joining.JoinInput(
+            original,
+            original.ordinal,
+            use,
+            producer,
+            alias,
+            tuple(columns),
+            tuple(original.ports),
+            source_ref,
+        ),
+        None,
+    )
+
+
+def _join_body(
+    request,
+    join,
+    index,
+    uses_by_ref,
+    source_refs,
+    by_definition,
+    by_join,
+    join_inputs,
+    join_ports,
+    equalities,
+    uses,
+):
+    """Realize one JOIN occurrence as its own closed generated SELECT."""
+    inputs = []
+    for reference in join.inputs:
+        value, problem = _join_input(
+            request,
+            join,
+            reference,
+            uses_by_ref,
+            source_refs,
+            by_definition,
+            by_join,
+            join_inputs,
+            join_ports,
+        )
+        if value is None:
+            return None, problem
+        inputs.append(value)
+    left, right = inputs
+    available = {}
+    for item in inputs:
+        for port_ref, column in zip(item.ports, item.columns, strict=True):
+            available[port_ref] = column
+    matches = []
+    for reference in join.equalities:
+        original = equalities.get(reference)
+        if original is None or original.join is not join.ref:
+            return None, (
+                "PIE-B1001",
+                "relationship_equality_not_retained",
+                join.ref,
+                None,
+            )
+        pair = (available.get(original.left), available.get(original.right))
+        if pair[0] is None or pair[1] is None:
+            return None, (
+                "PIE-B1001",
+                "relationship_equality_outside_pre_match_scope",
+                reference,
+                None,
+            )
+        if pair[0].realization.tag != pair[1].realization.tag:
+            return None, (
+                "PIE-B1002",
+                "relationship_equality_type_pair_drift",
+                reference,
+                None,
+            )
+        matches.append(
+            joining.JoinEquality(
+                original,
+                pair[0],
+                pair[1],
+                original.left,
+                original.right,
+                pair[0].scope,
+                pair[1].scope,
+            )
+        )
+    predicate = None
+    if join.on is not None:
+        predicate, problem = rows.build_row_value(
+            request,
+            available,
+            join.on,
+            uses,
+            reference_type=row.ProjectSQLMatchReference,
+        )
+        if predicate is None:
+            assert problem is not None
+            site = join.site
+            return None, (
+                *problem,
+                join.on,
+                None if site is None else site.occurrence.span,
+            )
+        realization = rows.realization_of(predicate, request.family)
+        if realization.tag != "Bool" or realization.domain.get("kind") != "bool01":
+            return None, (
+                "PIE-B1002",
+                "match_condition_root_not_bool",
+                join.on,
+                None,
+            )
+    if not matches and predicate is None and join.kind is not AuthoredJoinKind.CROSS:
+        return None, ("PIE-B1004", "match_condition_evidence_missing", join.ref, None)
+    if join.kind is AuthoredJoinKind.FULL:
+        problem = joining.full_admissible(
+            join, tuple(matches), predicate, request.family
+        )
+        if problem is not None:
+            return None, (*problem, join.ref, None)
+    membership = joining.MEMBERSHIP.get(join.kind)
+    if membership is not None and predicate is None and not matches:
+        return None, ("PIE-B1004", "membership_condition_missing", join.ref, None)
+    columns = []
+    ordered = (*left.columns, *right.columns)
+    carriers = (*left.ports, *right.ports)
+    rejected = joining.null_rejected_ports(join, tuple(matches), predicate)
+    for position, reference in enumerate(join.outputs):
+        port = join_ports[reference]
+        read = ordered[position]
+        realization, problem = joining.port_realization(
+            port, read, outer=True, proved=carriers[position] in rejected
+        )
+        if realization is None:
+            assert problem is not None
+            return None, (*problem, reference, None)
+        label = f"c{position}"
+        columns.append(
+            joining.JoinColumn(
+                position,
+                port,
+                join_ports[carriers[position]],
+                label,
+                SQLSymbol(position + 1, port.ref, label),
+                replace(
+                    read,
+                    position=position,
+                    name=label,
+                    terminal=port.ref,
+                    realization=realization,
+                    scope=None,
+                ),
+                read.scope,
+                read,
+            )
+        )
+    return (
+        joining.JoinBody(
+            join,
+            index,
+            (left, right),
+            tuple(matches),
+            predicate,
+            tuple(columns),
+            SQLSymbol(index, join.ref, f"p{index}"),
+            tuple(
+                SQLSymbol(i, item.port.ref, item.label)
+                for i, item in enumerate(columns)
+            ),
+            membership,
+            None if membership is None else join.ref,
+        ),
+        None,
+    )
+
+
+def _join_node_count(unit) -> int:
+    total = 4 + 3 * len(unit.columns) + 2 * len(unit.equalities)
+    if unit.membership is not None:
+        total += 3
+    if unit.predicate is not None:
+        total += _value_node_count(unit.predicate)
+    return total
 
 
 def realize_rows(request):
@@ -1015,14 +1363,23 @@ def realize_rows(request):
 
     groups = definition_blocks(request)
     uses_by_consumer = {u.consumer.original.ref: u for u in request.layout.uses}
+    uses_by_ref = {u.original.ref: u for u in request.layout.uses}
     source_refs = {source.ref: source for source in plan.sources}
     lets = {value.site.block: value for value in plan.let_values}
     filters = {item.site.block: item for item in plan.filters}
+    join_groups = joining.joined_definitions(plan)
+    tails = {tail.definition: tail for tail in plan.join_tails}
+    join_inputs = {item.ref: item for item in plan.join_inputs}
+    join_ports = {port.ref: port for port in plan.join_ports}
+    equalities = {item.ref: item for item in plan.relationship_matches}
     projections: dict[Any, list[Any]] = {}
     for projection in plan.projections:
         projections.setdefault(projection.block, []).append(projection)
     ordered = []
     for definition, blocks in groups:
+        for join in join_groups.get(definition.original.ref, ()):
+            if join.on is not None:
+                ordered.append(join.on)
         for block in blocks:
             kind = block.kind.value
             if kind == "let":
@@ -1058,14 +1415,46 @@ def realize_rows(request):
         )
     uses = {use.original.ref: use for use in allocated}
     stage_ports = {port.ref: port for port in plan.stage_ports}
+    units: list[Any] = []
     bodies: list[RowBody] = []
     by_definition: dict[Any, RowBody] = {}
+    by_join: dict[Any, joining.JoinBody] = {}
     nodes = 0
     for definition, blocks in groups:
-        binding = uses_by_consumer[definition.original.ref]
+        joined = join_groups.get(definition.original.ref, ())
+        for join in joined:
+            unit, problem = _join_body(
+                request,
+                join,
+                len(units),
+                uses_by_ref,
+                source_refs,
+                by_definition,
+                by_join,
+                join_inputs,
+                join_ports,
+                equalities,
+                uses,
+            )
+            if unit is None:
+                assert problem is not None
+                add(*problem[:2], *problem[2:])
+                return RowRealization(tuple(problems), None)
+            units.append(unit)
+            by_join[join.ref] = unit
+            nodes += _join_node_count(unit)
+        binding = uses_by_consumer.get(definition.original.ref)
         previous: RowBody | None = None
         for index, block in enumerate(blocks):
-            if index == 0:
+            if index == 0 and joined:
+                tail = tails[definition.original.ref]
+                scan: Any = RowJoinUse(
+                    by_join[joined[-1].ref],
+                    tail,
+                    SQLSymbol(0, tail.ref, f"t{tail.ref.position}"),
+                )
+            elif index == 0:
+                assert binding is not None
                 use = binding.original
                 alias = SQLSymbol(0, use.ref, f"s{use.ref.position}")
                 if use.producer in source_refs:
@@ -1076,7 +1465,7 @@ def realize_rows(request):
                     if len(matches) != 1:
                         add("PIE-B1001", "source_mapping_missing", source.ref)
                         return RowRealization(tuple(problems), None)
-                    scan: Any = RowScan(source, matches[0], use, alias, binding)
+                    scan = RowScan(source, matches[0], use, alias, binding)
                 else:
                     producer = by_definition.get(use.producer)
                     if producer is None:
@@ -1088,6 +1477,9 @@ def realize_rows(request):
                 scan = RowStageUse(
                     previous, block, SQLSymbol(0, block.ref, f"t{block.ref.position}")
                 )
+            reference_type = (
+                row.ProjectSQLJoinedReference if joined else row.ProjectSQLReference
+            )
             incoming = []
             for position, port in enumerate(block.inputs):
                 read = _stage_read(request, scan, position, port)
@@ -1146,7 +1538,11 @@ def realize_rows(request):
                 position = len(columns)
                 label = export.identity.name if final else f"c{position}"
                 value, problem = rows.build_row_value(
-                    request, available, item.expression, uses
+                    request,
+                    available,
+                    item.expression,
+                    uses,
+                    reference_type=reference_type,
                 )
                 if value is None:
                     # Every unsupported value in this body keeps its own cause.
@@ -1163,7 +1559,12 @@ def realize_rows(request):
                     request, value, position, label, export, terminal, family
                 )
                 link = None
-                if index == 0 and type(value) is rows.SQLStageReference:
+                if (
+                    index == 0
+                    and not joined
+                    and binding is not None
+                    and type(value) is rows.SQLStageReference
+                ):
                     slot = block.inputs.index(value.port)
                     link = binding.bindings[slot]
                 columns.append(
@@ -1187,7 +1588,11 @@ def realize_rows(request):
             if kind == "where":
                 item = filters[block.ref]
                 value, problem = rows.build_row_value(
-                    request, available, item.predicate, uses
+                    request,
+                    available,
+                    item.predicate,
+                    uses,
+                    reference_type=reference_type,
                 )
                 if value is None:
                     assert problem is not None
@@ -1223,7 +1628,7 @@ def realize_rows(request):
                 tuple(terminals),
                 predicate,
                 final,
-                None if final else SQLSymbol(len(bodies), block.ref, f"p{len(bodies)}"),
+                None if final else SQLSymbol(len(units), block.ref, f"p{len(units)}"),
                 ()
                 if final
                 else tuple(
@@ -1232,14 +1637,17 @@ def realize_rows(request):
                 ),
             )
             bodies.append(body)
+            units.append(body)
             previous = body
             if kind == "projection":
                 by_definition[definition.original.ref] = body
-    if not bodies or not bodies[-1].final:
+    if not bodies or not bodies[-1].final or units[-1] is not bodies[-1]:
         add("PIE-B1001", "selected_body_not_last", plan.scope)
         return RowRealization(tuple(problems), None)
     nodes += 3 * len(bodies) + 2 * sum(len(b.columns) for b in bodies)
     nodes += sum(2 + len(b.columns) for b in bodies[:-1])
+    if plan.joins:
+        return JoinRealization((), SQLJoinQuery(request, tuple(units), nodes))
     return RowRealization((), SQLRowQuery(request, tuple(bodies), nodes))
 
 
@@ -1327,8 +1735,76 @@ def value_requirements(request, value):
     return tuple(result)
 
 
+def join_requirements(request, unit, naming):
+    """Every requirement this JOIN occurrence's own structure introduces."""
+    join = unit.join
+    rule = joining.join_rule(join.kind)
+    result = [GeneratedRequirement("join", join.ref, rule, naming)]
+    for item in unit.inputs:
+        result.append(
+            GeneratedRequirement("join_input", item.original.ref, "R07", naming)
+        )
+        # A JOIN input that reaches a physical relation keeps the same source
+        # realization and field representation obligations as any other scan.
+        if type(item.producer) is BoundSource:
+            result.append(
+                GeneratedRequirement(
+                    "qualified_scan",
+                    item,
+                    "R01",
+                    applicable_premises(request, item.producer.owner),
+                )
+            )
+            result.extend(
+                GeneratedRequirement(
+                    "source_representation",
+                    field,
+                    "R02",
+                    applicable_premises(request, item.producer.owner, field),
+                )
+                for field in item.producer.fields
+            )
+    for item in unit.equalities:
+        result.append(
+            GeneratedRequirement(
+                "relationship_equality", item.original.ref, "R07", naming
+            )
+        )
+    if unit.predicate is not None:
+        result.append(
+            GeneratedRequirement(
+                "match_condition",
+                join.on,
+                "R07",
+                node_premises(
+                    request,
+                    rows.realization_of(unit.predicate, request.family),
+                    (),
+                    "match_condition",
+                ),
+            )
+        )
+        result.extend(value_requirements(request, unit.predicate))
+    if join.kind is AuthoredJoinKind.FULL:
+        result.append(GeneratedRequirement("full_condition", join.ref, "R09", naming))
+    if unit.membership is not None:
+        result.append(GeneratedRequirement("membership", join.ref, "R11", naming))
+        result.append(GeneratedRequirement("correlation", join.ref, "R11", naming))
+        result.append(GeneratedRequirement("sentinel", unit.sentinel, "R11", naming))
+    for column in unit.columns:
+        result.append(
+            GeneratedRequirement("join_output", column.port.ref, "R07", naming)
+        )
+        if column.port.nulling:
+            result.append(
+                GeneratedRequirement("null_extension", column.port.ref, "R08", naming)
+            )
+    return tuple(result)
+
+
 def build_row_requirements(request, query):
-    generated_scopes = len(query.bodies) > 1
+    units = getattr(query, "units", query.bodies)
+    generated_scopes = len(units) > 1
     original = tuple(
         OriginalRequirement(
             entry,
@@ -1342,15 +1818,20 @@ def build_row_requirements(request, query):
         if p.scope == "statement" and p.key == "identifier_case"
     )
     generated: list[GeneratedRequirement] = []
-    for body in query.bodies[:-1]:
+    for unit in units[:-1]:
+        reference = unit.join.ref if type(unit) is joining.JoinBody else unit.block.ref
         generated.append(
-            GeneratedRequirement("cte_definition", body.block.ref, "R03", naming)
+            GeneratedRequirement("cte_definition", reference, "R03", naming)
         )
         generated.extend(
             GeneratedRequirement("terminal_column", symbol.binding, "R03", naming)
-            for symbol in body.cte_columns
+            for symbol in unit.cte_columns
         )
-    for body in query.bodies:
+    for unit in units:
+        if type(unit) is joining.JoinBody:
+            generated.extend(join_requirements(request, unit, naming))
+            continue
+        body = unit
         scan = body.scan
         if type(scan) is RowScan:
             generated.append(
@@ -1379,6 +1860,14 @@ def build_row_requirements(request, query):
                     "immediate_terminal", link.terminal.ref, "R03", naming
                 )
                 for link in scan.binding.bindings
+            )
+        elif type(scan) is RowJoinUse:
+            generated.append(
+                GeneratedRequirement("join_use", scan.tail.ref, "R07", naming)
+            )
+            generated.extend(
+                GeneratedRequirement("join_terminal", symbol.binding, "R07", naming)
+                for symbol in scan.body.cte_columns
             )
         else:
             generated.append(
@@ -1427,14 +1916,19 @@ def build_row_requirements(request, query):
 
 
 def row_parameter_leaves(query):
-    """Native parameter leaves in exact rendering order across every stage body."""
+    """Native parameter leaves in exact rendering order across every unit."""
     result = []
-    for body in query.bodies:
-        values = [
-            column.value for column in body.columns if type(column) is RowValueColumn
-        ]
-        if body.predicate is not None:
-            values.append(body.predicate.value)
+    for body in getattr(query, "units", query.bodies):
+        if type(body) is joining.JoinBody:
+            values = [] if body.predicate is None else [body.predicate]
+        else:
+            values = [
+                column.value
+                for column in body.columns
+                if type(column) is RowValueColumn
+            ]
+            if body.predicate is not None:
+                values.append(body.predicate.value)
         for value in values:
             for node in rows.value_nodes(value):
                 if type(node) in {rows.SQLStageReference, rows.SQLOperation}:

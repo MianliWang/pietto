@@ -82,8 +82,11 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
         if "generated" not in path.parts
     )
     test_files = tuple(sorted((REPO_ROOT / "tests").rglob("*.py")))
-    assert len(production_files) == 212
-    assert len(test_files) == 475
+    # Phase66 Slice7 adds one approved production module,
+    # src/pietto/_project/project_sql_emission_joins.py, and its two owned
+    # test files. The inventory stays exact and the scan is unchanged.
+    assert len(production_files) == 213
+    assert len(test_files) == 477
     assert set(production_files).isdisjoint(test_files)
 
 

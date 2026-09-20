@@ -126,4 +126,23 @@ not-yet-implemented WHERE blocker to independently checked successful queries, a
 `T_row_direct/truth_table` witnesses all nine ordered three-valued AND/OR pairs on both
 fixed targets. A focused run of one or more cases uses repeated `--case` arguments and
 its receipt records `full_manifest: false`; only a complete manifest is acceptance
-evidence. Whole JOIN construction and execution remain BLOCKED for Slice7.
+evidence.
+
+
+The [Slice7 value-bridge/JOIN/EXISTS contract](spec/phase66-slice7-value-bridge-join-exists-outer-nulling-terminal-output-emission-v1.md)
+emits one generated SELECT per JOIN occurrence with capture-free `m{n}` input aliases,
+the ordered effective ON of retained relationship equalities then the authored
+predicate, and EXISTS/NOT EXISTS around the complete right terminal. A published port
+keeps its carrier's storage and value domain and only gains the possibility of NULL;
+only a matched-pairs INNER narrows a nullable carrier, and only for a direct comparison
+operand of a top-level AND conjunct. PostgreSQL admits all seven kinds inside their
+approved domains including restricted FULL; MySQL FULL stays a typed non-support with
+no usable SQL while its neighbouring kinds still emit. The current exact denominator is
+W–V25 cases and69 public documents per target, and it splits by target for the first
+time: postgres49 VERIFIED,3 INPUT_REJECTED,17 BLOCKED; mysql48 VERIFIED,3
+INPUT_REJECTED,18 BLOCKED. `O_named_later/self_join` and `V_row_blocked/match_join`
+migrate from the not-yet-implemented JOIN blocker to independently checked successful
+queries. R03 repeated/shared JOIN joint execution is delivered here; ORDER and SET
+joint execution remain with Slices10/11, and the amended R11/C09 membership differences
+remain with Slices8/9/10/11. Grouping, windows, DISTINCT, ORDER/LIMIT and SET remain
+BLOCKED for their own Slices.

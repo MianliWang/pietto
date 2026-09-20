@@ -879,6 +879,65 @@ joint witnesses；其发布不代表完整 R03 target conformance。sole lifecyc
 未完成清单可见，Slice16 completion audit 必须核对各 owner 的实际 joint receipts。
 本修订不将 JOIN、ORDER/LIMIT 或 SET lowering 提前到04。
 
+## R11/C09 scheduling amendment authorized for Slice7
+
+原 Slice1 route 将 R11 的完整 SEMI/ANTI right terminal 义务与 C09 的 right
+LIMIT0/LIMIT1/SET/GLOBAL-empty/window-producer membership 差异一并记在07。新的
+Slice7 用户执行指令明确授权下述窄修订；Slice6 PASS 本身未授予该修订。N66=16、
+所有 operator owners、最终 Phase66 obligations 均不改变。
+
+| Owner | Required R11/C09 delivery |
+| --- | --- |
+| Slice7 | EXISTS/NOT EXISTS 包裹当前已可构造的完整 right terminal：right scan、retained producer filter、ordered LET 与 JOIN terminal；generated correlation/scope/sentinel、right dependency 完整保留、左 schema 不含 right output |
+| Slice8 | right GROUPED/GLOBAL producer 的 membership 差异，含 GLOBAL empty 输入仍产生一 row |
+| Slice9 | right window/QUALIFY producer 的 membership 差异 |
+| Slice10 | right LIMIT0 与 LIMIT1 的 membership 差异 |
+| Slice11 | right SET 结果的 membership 差异 |
+
+C09 的 LIMIT/SET/GLOBAL/window 分支需要各自 owner 先交付该 producer 形状；在那之前
+它们既不是 Slice7 的可构造输入，也不能由 Slice7 以手写 SQL 或 dummy producer 代替。
+Slice7 交付的是 marker/LET/filter/JOIN terminal 分支，以及 base-table shortcut、
+NOT IN、删除 right 依赖与 right output 漏入左 schema 的拒绝控制。
+
+R11/C09 outstanding membership differences: Slice8 GROUPED/GLOBAL; Slice9
+window/QUALIFY; Slice10 LIMIT0/LIMIT1; Slice11 SET.
+
+## Upstream current-route compatibility rule authorized for Slice7
+
+Slice7 之前，JOIN input producer 里任何非 field 输出（authored literal、computed
+value、ordered LET）都会使该 producer 的整行 lineage 变为 non-concrete，joined tail
+随之 non-concrete，emission 根本收不到这种输入。R08/C07 承诺的 “right-side literal
+marker 在未匹配 LEFT row 上变 NULL” 因此无法构造。
+
+授权的窄修订只作用于 completion 的路线选择，不改变任何 lineage status、不抑制
+PIE-S2333、不伪造 source field/root/proof：
+
+1. `optional_current`：仅承载 relationship-only `via` 的 INNER/LEFT JOIN-use owner
+   （无 ON clause，且不是 CROSS/RIGHT/FULL/SEMI/ANTI）与其传递依赖闭包，可以尝试
+   current route。已经强制 current 的既有成员优先，重叠时按 required 处理。
+2. 采纳条件：current 结果必须是完整有效的 `ProjectCompletedEffectiveOutput`。否则
+   保留原有 base route 及其自身 diagnostics，不混合两条路线的部分结果。
+3. `_promoted_scalar_producer`：只有 existing no-JOIN TableDef/QueryDef entry，且其
+   retained relation lineage 是唯一且已证据化的 non-CONCRETE 事实，才走既有
+   `_complete_no_join_output` replay；仅当 replay 的 root 是 mode ABSENT、无 aggregate
+   readiness、无 window outputs、QUALIFY ABSENT 且无 hidden attempts 的
+   `ProjectConcreteNoJoinReplay`，且每个 selected output source 都是
+   `ProjectNoJoinScalarExpression` 时才采纳。
+
+两条 composition 义务必须分开理解，不可互相抵扣：
+
+- 合法的 relationship-endpoint `via`-only INNER/LEFT control 仍是正面见证，其
+  retained equality 必须原样出现在 emission 中；
+- 新提升的 scalar/literal/LET producer 必须经由其 admitted generic ON route 成功
+  composition。**一个值变得可传输并不因此获得 relationship-endpoint 或 M1/M2/M4
+  guarantee。**
+
+保留的上游边界：relationship `via` 的相关 endpoint producer 被提升时，
+`project_join_conditions.py` 仍要求 `item.authority.historical_properties is not
+None`，该输入依旧不可用，并保留其 `joined_completion_non_concrete` 原因。这是精确的
+上游负例，其 before/after 失败边界被保留，它不是成功的 promoted-`via` 见证，也不抵扣
+任何正面义务。`project_join_conditions.py` 未被修改。
+
 ## Counterexample obligations
 
 这些是独立规格例，不是本次Pietto/DB执行结果。不新增evaluator/fuzz平台。
