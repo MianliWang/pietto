@@ -8,6 +8,8 @@ import sys
 from types import ModuleType
 from typing import Any, cast
 
+import pytest
+
 import _pietto_differential_process_acquisition as acquisition
 import _pietto_differential_probe_batch as batch
 from test_validation_performance_interlude_ii_slice2_differential_probe_process_acquisition_optimization import (
@@ -263,12 +265,13 @@ def test_acquisition_invariants_hold_under_the_candidate_scheduler() -> None:
     assert "3 cells correct, wheel-source only" in invariants
 
 
-def test_no_custom_scheduler_or_policy_change_exists() -> None:
+def test_no_custom_scheduler_exists_and_the_retained_policy_is_intact() -> None:
     assert validate.GATES == EXPECTED_GATES
     assert validate.PYTEST_COMMAND == ("uv", "run", "pytest")
     assert validate.PYTEST_DIST_CHOICES == ("loadfile", "loadscope")
     assert validate.PYTEST_WORKER_MEMORY_BYTES == 512 * 1024 * 1024
     assert validate.PYTEST_MIN_MEMORY_RESERVE_BYTES == 1024 * 1024 * 1024
+    assert validate.PYTEST_MAX_RESOURCE_WORKERS == 4
 
     # The retained default is loadfile, and the serial fallback is unchanged.
     command_source = inspect.getsource(validate._pytest_command)
@@ -289,6 +292,64 @@ def test_no_custom_scheduler_or_policy_change_exists() -> None:
         assert token not in scheduling_owners
     for retained in ("worksteal", "loadgroup"):
         assert retained not in VALIDATE_PATH.read_text(encoding="utf-8")
+
+
+def test_resource_worker_ceiling_bounds_every_resource_computation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gib = 1024**3
+    ceiling = validate.PYTEST_MAX_RESOURCE_WORKERS
+
+    # A large host cannot exceed the ceiling however much CPU and RAM it exposes.
+    monkeypatch.setattr(validate, "_usable_cpu_count", lambda: 64)
+    monkeypatch.setattr(validate, "_memory_snapshot", lambda: (128 * gib, 96 * gib))
+    assert validate._resource_worker_count() == ceiling
+    # Identical inputs are deterministic; no history or adaptive state exists.
+    assert validate._resource_worker_count() == ceiling
+
+    # The 512 MiB budget and the 20% reserve still select below the ceiling.
+    # A 1 GiB-only reserve would admit four workers here, so both remain live.
+    monkeypatch.setattr(validate, "_memory_snapshot", lambda: (8 * gib, 3 * gib))
+    assert validate._resource_worker_count() == 2
+
+    # CPU capacity still selects below the ceiling.
+    monkeypatch.setattr(validate, "_usable_cpu_count", lambda: 1)
+    monkeypatch.setattr(validate, "_memory_snapshot", lambda: (128 * gib, 96 * gib))
+    assert validate._resource_worker_count() == 1
+
+    # An explicit lower maximum stays authoritative; a higher one cannot lift it.
+    monkeypatch.setattr(validate, "_usable_cpu_count", lambda: 64)
+    assert validate._resource_worker_count(2) == 2
+    assert validate._resource_worker_count(ceiling * 4) == ceiling
+
+    # The one-worker lower bound and the missing-authority fallback are unchanged.
+    monkeypatch.setattr(validate, "_memory_snapshot", lambda: (8 * gib, gib))
+    assert validate._resource_worker_count() == 1
+    monkeypatch.setattr(validate, "_memory_snapshot", lambda: None)
+    assert validate._resource_worker_count() == 1
+
+
+def test_authoritative_command_reaches_the_ceiling_without_any_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gib = 1024**3
+    parser = validate._build_parser()
+    arguments = parser.parse_args(())
+
+    monkeypatch.setattr(validate, "_usable_cpu_count", lambda: 64)
+    monkeypatch.setattr(validate, "_memory_snapshot", lambda: (128 * gib, 96 * gib))
+    assert validate._pytest_command(arguments, parser) == (
+        "uv",
+        "run",
+        "pytest",
+        "-n",
+        str(validate.PYTEST_MAX_RESOURCE_WORKERS),
+        "--dist=loadfile",
+    )
+
+    # The serial fallback is still reached without any command-line override.
+    monkeypatch.setattr(validate, "_memory_snapshot", lambda: None)
+    assert validate._pytest_command(arguments, parser) == validate.PYTEST_COMMAND
 
 
 def test_no_gain_retention_and_closure_are_exact() -> None:
@@ -423,6 +484,7 @@ def test_isolation_audit_and_measurement_hygiene_are_documented() -> None:
         "import sys",
         "from types import ModuleType",
         "from typing import Any, cast",
+        "import pytest",
         "import _pietto_differential_process_acquisition as acquisition",
         "import _pietto_differential_probe_batch as batch",
         "from test_validation_performance_interlude_ii_slice2_differential_probe_process_acquisition_optimization import (",

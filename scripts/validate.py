@@ -30,6 +30,7 @@ PYTEST_COMMAND = ("uv", "run", "pytest")
 PYTEST_DIST_CHOICES = ("loadfile", "loadscope")
 PYTEST_WORKER_MEMORY_BYTES = 512 * 1024 * 1024
 PYTEST_MIN_MEMORY_RESERVE_BYTES = 1024 * 1024 * 1024
+PYTEST_MAX_RESOURCE_WORKERS = 4
 
 
 def _read_text(path: str) -> str | None:
@@ -112,7 +113,11 @@ def _resource_worker_count(maximum: int | None = None) -> int:
         (available - reserve) // PYTEST_WORKER_MEMORY_BYTES,
         1,
     )
-    workers = min(_usable_cpu_count(), memory_capacity)
+    workers = min(
+        _usable_cpu_count(),
+        memory_capacity,
+        PYTEST_MAX_RESOURCE_WORKERS,
+    )
     if maximum is not None:
         workers = min(workers, maximum)
     return max(workers, 1)

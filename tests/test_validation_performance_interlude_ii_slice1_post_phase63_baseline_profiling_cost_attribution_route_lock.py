@@ -212,6 +212,7 @@ def test_slice1_is_profiling_only_with_zero_delta_policy() -> None:
     assert validate.PYTEST_DIST_CHOICES == ("loadfile", "loadscope")
     assert validate.PYTEST_WORKER_MEMORY_BYTES == 512 * 1024 * 1024
     assert validate.PYTEST_MIN_MEMORY_RESERVE_BYTES == 1024 * 1024 * 1024
+    assert validate.PYTEST_MAX_RESOURCE_WORKERS == 4
 
     workflow = _read(WORKFLOW)
     assert workflow.count("uv run python scripts/validate.py --timings") == 1

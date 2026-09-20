@@ -2632,6 +2632,33 @@ N66 remains16. Do not start Slice7 automatically. Whole JOIN construction and ex
 grouping, windows, DISTINCT, ORDER/LIMIT, SET, public project emit CLI, caller rebind,
 general result decoder and product executor are not added.
 
+## Validation/Test Performance Optimization Interlude III
+
+The Validation/Test Performance Optimization Interlude III interrupts Phase66 for
+exactly one corrective Slice and advances no part of it. Slice7 remains
+`NEXT / NOT IMPLEMENTED` and its preserved candidate is untouched. Interlude III
+Slice1 is a validator concurrency safety correction. The resource-aware policy
+adopted by Interlude Slice5 priced every xdist worker at 512 MiB, selected `-n 15`
+and then `-n 17` on the current 20-CPU guest, and the real differential/acquisition
+workload exhausted both RAM and 48 GiB of swap with one worker at about 6.44 GiB
+RSS, memory PSI `full avg10` at 28.81%, a VMBus page-allocation failure and global
+OOM. The [memory-safe xdist ceiling decision](spec/validation-performance-interlude-iii-slice1-memory-safe-xdist-ceiling-decision-v1.md)
+adds `PYTEST_MAX_RESOURCE_WORKERS = 4` as a fourth term of the existing minimum and
+supersedes only the Slice5 sufficiency clause, retaining every Slice5 measurement as
+historically correct. One controlled calibration at four workers passed 15035 tests
+with minimum `MemAvailable` 8.375 GiB, zero swap delta, memory PSI `full avg10` peak
+0.00% and no OOM, page-allocation or VMBus event, while ordinary workers still peaked
+at 831–1289 MiB, or 1.62x–2.52x the retained 512 MiB budget. The 512 MiB heuristic,
+the reserve, CPU/affinity/cgroup capacity, explicit `--pytest-workers` /
+`--pytest-dist` / `--pytest-maxprocesses` semantics, `loadfile` and the serial
+fallback are all retained, and the authoritative no-override command is unchanged and
+now resolves `-n 4` naturally. No adaptive scheduler, telemetry store, environment
+variable, CLI option or workflow override is added. Interlude III Slice1 is
+`COMPLETED / PUBLISHED` only upon successful natural exact-head CI with Python3.12 and
+Python3.13. It changes no production source, public contract, workflow or generated
+artifact, and deliberately adds no lifecycle-table row: it is a validator safety
+correction projected into documentation, not a Phase-66 Slice.
+
 ## Future Roadmap v6
 
 These rows replace the former broad Phase-63–70 map. They assign one phase-level
