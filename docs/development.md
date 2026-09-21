@@ -63,7 +63,15 @@ keep dirty-stage checks focused, run one complete review, then run the
 authoritative Python 3.13 validator exactly once. Run generated, golden, and
 package-smoke audits locally only when their owned risk surfaces change.
 Natural CI remains the final independent Python 3.12 and 3.13 full-validation
-owner.
+owner, and keeps its existing monolithic per-interpreter validation step.
+
+Do not propose horizontal CI pytest sharding, extra shards, extra pytest workers,
+a different xdist scheduler, or arbitrary heavy-file splitting as a performance
+route. The [CI sharding no-gain record](spec/validation-performance-interlude-iv-slice1-ci-horizontal-sharding-and-gate-decomposition-v1.md)
+measured that route and rejected it: every independent pytest invocation pays a
+shared acquisition floor of roughly 470.64s, which is already above the 55%
+adoption ceiling, so sharding multiplies that floor rather than dividing it. That
+record also states the measured reopening boundary.
 
 
 ## Explicit target conformance

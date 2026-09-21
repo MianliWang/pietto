@@ -5496,6 +5496,78 @@ def test_phase66_target_facility_compatibility_interlude_is_recorded_as_prose() 
     assert "Slice 8.5" not in _read(STATUS) and "Slice 8.5" not in _read(ROADMAP)
 
 
+def test_validation_performance_interlude_iv_no_gain_is_recorded_as_prose() -> None:
+    target = (
+        "spec/validation-performance-interlude-iv-slice1-ci-horizontal-sharding-"
+        "and-gate-decomposition-v1.md"
+    )
+    for path in (STATUS, ROADMAP):
+        document = " ".join(_read(path).split())
+        assert f"]({target})" in document
+        assert (
+            "Validation/Test Performance Optimization Interlude IV evaluated a"
+            " four-way CI pytest sharding decomposition between Slice8 and Slice9"
+            " and returned `NO_GAIN - CI SHARDING NOT PUBLISHED`; it is not a"
+            " numbered Slice, natural CI keeps its existing monolithic"
+            " Python3.12/3.13 validation model, and no executable sharding"
+            " artifact is retained." in document
+        )
+        assert (
+            "conserved the exact denominator at 89 + 4772 + 4156 + 6400 = 15417"
+            in document
+        )
+        assert (
+            "run-level shared acquisition floor of approximately `470.64s`, which"
+            " is 57.1% of the 824.10s complete local wall and therefore already"
+            " above the 55% adoption ceiling" in document
+        )
+        assert (
+            "a CI shard is an independent invocation, so sharding multiplies that"
+            " floor instead of dividing it" in document
+        )
+        assert (
+            "about 1.24s inside the complete run and about 471.88s executed as its"
+            " own pytest run" in document
+        )
+        assert (
+            "four single unparametrized sweep nodes of about 466.53s, 460.77s,"
+            " 449.81s and 326.34s" in document
+        )
+        assert "more CI shards are not currently a solution" in document
+        assert (
+            "`PYTEST_MAX_RESOURCE_WORKERS = 4` and the `loadfile` policy are"
+            " unchanged and `scripts/validate.py` is byte-identical" in document
+        )
+        assert (
+            "roughly `375s` or below on re-profiled evidence; this closure"
+            " authorizes no such work and rewrites no completed Phase63/64/65"
+            " audit identity." in document
+        )
+        assert (
+            "Phase66 remains `ACTIVE`, Slices1\u20138 remain `COMPLETED / PUBLISHED`,"
+            " Slice9 remains `NEXT / NOT IMPLEMENTED`, N66 remains16 and no"
+            " Slice9 implementation occurred." in document
+        )
+    assert (STATUS.parent / target).is_file()
+    # The rejected architecture leaves nothing executable behind, and the exact
+    # status table gains no invented Slice row.
+    assert not (REPO_ROOT / "scripts/ci_pytest_shard.py").exists()
+    assert not (REPO_ROOT / "scripts/ci_pytest_shard_weights.json").exists()
+    workflow = _read(REPO_ROOT / ".github/workflows/ci.yml")
+    for rejected in (
+        "validation_common",
+        "validation_auxiliary",
+        "validation_runtime",
+        "shard-index",
+        "ci_pytest_shard",
+    ):
+        assert rejected not in workflow
+    assert workflow.count("uv run python scripts/validate.py --timings") == 1
+    for document in (_read(STATUS), _read(ROADMAP)):
+        assert "Interlude IV Slice 1 |" not in document
+        assert "Slice 8.5" not in document
+
+
 def test_phase66_slice8_amendment_is_recorded_in_the_route_lock() -> None:
     route = (
         STATUS.parent
