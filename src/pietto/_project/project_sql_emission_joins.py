@@ -8,6 +8,8 @@ from typing import Any
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_emission_aggregation as grouping
+from pietto._project import project_sql_emission_windows as windowing
+from pietto._project import project_sql_plan_windows as plan_windows
 from pietto._project.model import ProjectResolvedTypeKind, ProjectRowFieldNullability
 from pietto._project.project_sql_plan_joins import (
     ProjectSQLJoinPortKind,
@@ -124,7 +126,6 @@ def admitted_join_shape(plan) -> bool:
     """Ordered JOIN chains over admitted inputs with the existing row tail."""
     if not plan.joins or any(
         (
-            plan.windows,
             plan.distincts,
             plan.orders,
             plan.result_limits,
@@ -145,11 +146,12 @@ def admitted_join_shape(plan) -> bool:
             row.ProjectSQLComparison,
             row.ProjectSQLIsNull,
             grouping.ProjectSQLResultReference,
+            plan_windows.ProjectSQLWindowReference,
         }
         for expression in plan.expressions
     ):
         return False
-    if not grouping.blocks_admitted(plan):
+    if not grouping.blocks_admitted(plan) or not windowing.blocks_admitted(plan):
         return False
     grouped = joined_definitions(plan)
     if not grouped:

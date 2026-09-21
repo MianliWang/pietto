@@ -904,6 +904,10 @@ Slice8 交付了其中的 GROUPED/GLOBAL right-terminal 分支，其余保持未
 R11/C09 outstanding membership differences: Slice9 window/QUALIFY; Slice10
 LIMIT0/LIMIT1; Slice11 SET.
 
+Slice9 交付了其中的 window/QUALIFY right-terminal 分支，其余保持未完成：
+
+R11/C09 outstanding membership differences: Slice10 LIMIT0/LIMIT1; Slice11 SET.
+
 ## Upstream current-route compatibility rule authorized for Slice7
 
 Slice7 之前，JOIN input producer 里任何非 field 输出（authored literal、computed
@@ -967,6 +971,31 @@ PIE-S2333、不伪造 source field/root/proof：
 GROUPED 结果既不是 GLOBAL 也不是唯一可见 tuple。可传输性不产生
 relationship-endpoint 或 M1/M2/M4 guarantee，joined field aggregate 仍需其既有
 grain/uniqueness 前提，缺少时保持原有 `PIE-S2333` 负例。
+
+## Upstream window-producer completion route authorized for Slice9
+
+Slice8 的 `_promoted_scalar_producer` 明确保留了 window/QUALIFY 排除，因此一个完成的
+window 或 QUALIFY no-JOIN producer 的 joined tail 仍然 non-concrete，R14/R17 承诺的
+window right terminal 与 outer-nulled window value 都无法构造。新的 Slice9 用户执行指令
+明确授权下述窄修订；Slice8 PASS 本身未授予该修订。N66=16、所有 operator owners、最终
+Phase66 obligations 均不改变。
+
+授权的修订只作用于 completion 的路线选择，不改变任何 lineage status、不抑制 PIE-S2333、
+不伪造 source field/root/proof：
+
+1. `_promoted_scalar_producer` 另接纳一个 body：`root.window_outputs` 存在或
+   `root.qualify.kind` 为 `AUTHORED_QUALIFY`，且 `qualify.concrete`、每个
+   `qualify.hidden_attempts` 的 analysis 均为 `WindowComputationAnalysis`、
+   `replay.ordering` 与 `replay.limit` 均为 None、确有一个 authored JOIN 直接消费该
+   producer，且每个 selected output source 为 `ProjectNoJoinScalarExpression` 或
+   `ProjectModuleWindowOutputFact`。
+2. 其余排除原样保留：relation ORDER/LIMIT barrier、ABSENT-qualify body 仍带
+   `selected_windows`/`hidden_attempts`、旧 scalar 与 Slice8 grouped 分支及其全部条件。
+3. 被提升的是完成的 window 结果本身。可传输性不产生 relationship-endpoint 或
+   M1/M2/M4 guarantee。
+
+Slice7 的 later-owner 排除现已迁移其 window 分支为正面行为；保留的真实负例改为一个
+带 Slice10 relation ORDER barrier 的 window producer。
 
 Slice7 的 later-owner 排除只迁移其 aggregate 分支为正面行为；window 分支保留为真实
 负例。该排除原有的两个 fixture 都在 parse 阶段失败（`PIE-P1000`），因此两者都已按真实

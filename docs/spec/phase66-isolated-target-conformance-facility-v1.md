@@ -284,6 +284,11 @@ aggregate必须显式提供两种prerequisite status，无默认success。receip
 无secrets/PAT/elevated events、dispatch/rerun、branch-protection或CI publication。
 infrastructure逻辑位于四个tested helpers；YAML只组合固定步骤。
 
+Slice9 把 emission denominator 扩到 43 cases/119 public documents per target
+（postgres 90 VERIFIED/3 INPUT_REJECTED/26 BLOCKED；mysql 87/3/29）。窗口族的 row
+oracle 由已发布的四行 source 手工推导，按非空重复键排序以避免任何 target 的 NULL
+posture 改变结果；GROUPS/EXCLUDE 仅 PostgreSQL 为正域。receipt v2 与 pins 不变。
+
 ## Review, validation and publication
 
 独立上限6 root-cause correction groups、4 authoritative starts、每target4 full local

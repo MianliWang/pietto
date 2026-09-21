@@ -1031,6 +1031,11 @@ def valid_receipts(
                             str(label) for label in probe.JOIN_LABELS[record["variant"]]
                         ]
                         types = cases.join_metadata(target, record["variant"])
+                    elif case_id in probe.WINDOW_CASES:
+                        key = cases.window_key(case_id, record["variant"])
+                        rows = cases.WINDOW_EXPECTATIONS[key]
+                        names = [str(label) for label in cases.WINDOW_LABELS[key]]
+                        types = cases.window_metadata(target, key)
                     elif case_id in probe.AGGREGATE_CASES:
                         rows = cases.aggregate_rows(target, case_id, record["variant"])
                         names = [
@@ -1510,6 +1515,13 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
     )
     assert cases.CASE_IDS == (
         *cases.SLICE2_CASE_IDS,
+        "A_window_distribution",
+        "A_window_frame",
+        "A_window_groups",
+        "A_window_named",
+        "A_window_navigation",
+        "A_window_qualify",
+        "A_window_ranking",
         "G_emission_table_bag",
         "H_emission_query_bag",
         "I_emission_table_empty",
@@ -1528,6 +1540,7 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "V_aggregate_blocked",
         "V_join_full",
         "V_row_blocked",
+        "V_window_blocked",
         "W_join_shapes",
         "W_join_values",
         "X_aggregate_global",

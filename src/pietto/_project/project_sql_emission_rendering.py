@@ -22,6 +22,7 @@ from pietto._project.project_sql_emission_aggregation import (
     AggregateProjectionColumn,
     AggregateValueColumn,
 )
+from pietto._project import project_sql_emission_windows as windowing
 from pietto._project.project_sql_emission_contract import BoundSource
 from pietto._project.project_sql_emission_joins import (
     JoinBody,
@@ -394,6 +395,105 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
     w.enclose("aggregate", reference, start)
 
 
+def _window_specification(w: _Writer, specification, reference, alias) -> None:
+    """The exact OVER body, shared by an inline use and a WINDOW definition."""
+
+    if specification.partitions:
+        w.emit("PARTITION BY ", "syntax", "window_partition", reference)
+        for position, (_binding, read) in enumerate(specification.partitions):
+            if position:
+                w.emit(", ", "syntax", "window_partition_separator", reference)
+            w.identifier(alias, "window_partition_scope", read.terminal)
+            w.emit(".", "syntax", "window_partition_qualifier", reference)
+            w.identifier(read.name, "window_partition_column", read.terminal)
+    if specification.orders:
+        if specification.partitions:
+            w.emit(" ", "syntax", "window_spec_separator", reference)
+        w.emit("ORDER BY ", "syntax", "window_order", reference)
+        for item in specification.orders:
+            if item.position:
+                w.emit(", ", "syntax", "window_order_separator", reference)
+            w.identifier(alias, "window_order_scope", item.read.terminal)
+            w.emit(".", "syntax", "window_order_qualifier", reference)
+            w.identifier(item.read.name, "window_order_column", item.read.terminal)
+            w.emit(
+                " ASC" if item.direction == "asc" else " DESC",
+                "syntax",
+                "window_order_direction",
+                reference,
+            )
+    frame = specification.frame
+    if frame is not None:
+        if specification.partitions or specification.orders:
+            w.emit(" ", "syntax", "window_frame_separator", reference)
+        w.emit(
+            windowing.UNIT_SPELLING[frame.unit] + " BETWEEN ",
+            "syntax",
+            "window_frame_unit",
+            reference,
+        )
+        w.emit(frame.start[1], "syntax", "window_frame_start", reference)
+        w.emit(" AND ", "syntax", "window_frame_and", reference)
+        w.emit(frame.end[1], "syntax", "window_frame_end", reference)
+        spelling = windowing.EXCLUSION_SPELLING.get(frame.exclusion)
+        if spelling is not None:
+            w.emit(" " + spelling, "syntax", "window_frame_exclusion", reference)
+
+
+def _window_clause(w: _Writer, stage, alias) -> None:
+    """One generated WINDOW clause listing every named definition in order."""
+
+    if stage is None or not stage.definitions:
+        return
+    w.emit(" WINDOW ", "syntax", "window_clause", stage.ref)
+    for definition in stage.definitions:
+        if definition.index:
+            w.emit(", ", "syntax", "window_clause_separator", stage.ref)
+        reference = definition.symbol.binding
+        w.identifier(definition.symbol.name, "window_definition", reference)
+        w.emit(" AS ", "syntax", "window_definition_as", reference)
+        start = w.offset
+        w.emit("(", "syntax", "window_spec_open", reference)
+        _window_specification(w, definition.specification, reference, alias)
+        w.emit(")", "syntax", "window_spec_close", reference)
+        w.enclose("window_specification", reference, start)
+
+
+def _window_value(w: _Writer, column, alias) -> None:
+    """One window occurrence: its spelling, then its exact OVER specification."""
+
+    reference = column.window.ref
+    start = w.offset
+    w.emit(
+        windowing.SPELLING[column.function] + "(", "syntax", "window_open", reference
+    )
+    for argument in column.arguments:
+        if argument.position:
+            w.emit(", ", "syntax", "window_argument_separator", reference)
+        if argument.read is not None:
+            w.identifier(alias, "window_argument_scope", argument.read.terminal)
+            w.emit(".", "syntax", "window_argument_qualifier", reference)
+            w.identifier(
+                argument.read.name, "window_argument_column", argument.read.terminal
+            )
+        else:
+            assert argument.literal is not None
+            w.emit(argument.literal, "literal", "window_argument_literal", reference)
+    w.emit(")", "syntax", "window_close", reference)
+    w.emit(" OVER ", "syntax", "window_over", reference)
+    specification = column.specification
+    if specification.symbol is not None:
+        w.identifier(specification.symbol.name, "window_reference", reference)
+        w.enclose("window", reference, start)
+        return
+    inner = w.offset
+    w.emit("(", "syntax", "window_spec_open", reference)
+    _window_specification(w, specification, reference, alias)
+    w.emit(")", "syntax", "window_spec_close", reference)
+    w.enclose("window_specification", reference, inner)
+    w.enclose("window", reference, start)
+
+
 def _row_select(w: _Writer, body) -> None:
     """One stage body: its columns, its scan, its grouping and its filter."""
     scan = body.scan
@@ -416,6 +516,12 @@ def _row_select(w: _Writer, body) -> None:
             w.identifier(column.read.name, "result_column", column.read.terminal)
         elif type(column) is AggregateValueColumn:
             _aggregate_value(w, column, alias)
+        elif type(column) is windowing.WindowColumn:
+            _window_value(w, column, alias)
+        elif type(column) is windowing.WindowProjectionColumn:
+            w.identifier(alias, "window_result_scope", column.input_port)
+            w.emit(".", "syntax", "window_result_qualifier", column.export.ref)
+            w.identifier(column.read.name, "window_result_column", column.read.terminal)
         else:
             w.scalar(column.value, alias)
         w.emit(" AS ", "syntax", "alias", column.export.ref)
@@ -459,6 +565,7 @@ def _row_select(w: _Writer, body) -> None:
             w.emit(".", "syntax", "grouping_qualifier", column.key.ref)
             w.identifier(column.read.name, "grouping_column", column.read.terminal)
             w.enclose("grouping", column.key.ref, start)
+    _window_clause(w, body.window, alias)
     if body.predicate is not None:
         satisfying = body.block.kind.value == "satisfying"
         w.emit(

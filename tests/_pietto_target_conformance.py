@@ -561,6 +561,13 @@ def verify_emission_generation(value, target, expected):
                     "float_key": "PIE-B1003",
                     "bool_domain_key": "PIE-B1002",
                     "decimal_parameter_key": "PIE-B1002",
+                    # Slice9: R16 keeps the null and ordering modifiers outside
+                    # the admitted set, C16 refuses an offset RANGE with a second
+                    # ORDER key, and GROUPS/EXCLUDE stays MySQL non-support.
+                    "ignore_nulls": "PIE-B1003",
+                    "from_last": "PIE-B1003",
+                    "offset_range_keys": "PIE-B1003",
+                    "exclude": "PIE-B1003",
                 }[record["variant"]]
             )
             if code not in [b["code"] for b in document["blockers"]]:

@@ -53,6 +53,8 @@ from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_emission_joins as joining
 from pietto._project import project_sql_emission_aggregation as grouping
+from pietto._project import project_sql_emission_windows as windowing
+from pietto._project import project_sql_plan_windows as plan_windows
 from pietto._project import project_sql_plan_aggregation as plan_aggregation
 from pietto._project import project_sql_emission_ast as ast
 from pietto._project.project_sql_plan_joins import ProjectSQLJoinPortKind
@@ -540,7 +542,7 @@ def _verify_value(request, value, original, expressions_seen, nodes):
         or leaf.site.position.expression is not original.ref
         or leaf.site.position.literal is not original.expression
         or leaf.site.position.role.value
-        not in {"select", "let", "where", "on", "satisfying"}
+        not in {"select", "let", "where", "on", "satisfying", "qualify"}
     ):
         return False
     expressions_seen.append(original)
@@ -1227,6 +1229,43 @@ def _same_origin(actual, expected):
     )
 
 
+def _window_result_realization(family, function, arguments, retained):
+    """Independently re-derive one window result's own physical realization."""
+    tag, nullable = retained
+    if function in windowing.RANKING or function == "ntile":
+        if tag != "Int" or nullable is not False:
+            raise ValueError("window rank result domain")
+        storage, bound = (
+            windowing.BUCKET_REALIZATION[family]
+            if function == "ntile"
+            else (windowing.RANK_STORAGE[family], windowing.RANK_MAX)
+        )
+        return rows.Realization(
+            "Int",
+            {"kind": storage},
+            False,
+            {"kind": "int_range", "min": "0", "max": str(bound)},
+        )
+    if function in windowing.DISTRIBUTION:
+        if tag != "Float":
+            raise ValueError("window distribution result domain")
+        return rows.Realization(
+            "Float",
+            {"kind": windowing.FLOAT_STORAGE[family]},
+            bool(nullable),
+            {"kind": "float64"},
+        )
+    values = [item for item in arguments if item.read is not None]
+    if len(values) != 1:
+        raise ValueError("window value result argument")
+    carrier = values[0].read.realization
+    if tag != carrier.tag:
+        raise ValueError("window value result logical type")
+    return rows.Realization(
+        carrier.tag, carrier.storage, bool(nullable), carrier.domain
+    )
+
+
 def _aggregate_result_realization(family, function, argument, retained):
     """Independently re-derive one aggregate result's own physical realization."""
     tag, nullable = retained
@@ -1417,6 +1456,131 @@ def _verify_aggregate_body(
         state["symbols"].append(column.symbol)
 
 
+def _verify_window_column(request, column, window, export, columns, definitions, state):
+    """Re-derive one window result column from the retained plan alone.
+
+    Nothing here calls the construction path: every field is checked against the
+    plan's own authority, so a builder that invented a function, a direction, a
+    partition or a result port cannot certify itself.
+    """
+
+    plan = request.plan
+    policies = windowing.window_policies(plan)
+    uses = windowing.window_uses(plan)
+    arguments = windowing.window_arguments(plan)
+    if type(column) is not windowing.WindowColumn or column.window is not window:
+        return False
+    if export.source is not window.ref:
+        return False
+    function = windowing.function_identity(window)
+    if function is None or function not in windowing.SPELLING:
+        return False
+    if column.function != function or column.selected is not (
+        window.selected is not None
+    ):
+        return False
+    policy = policies.get(window.ref)
+    if policy is None:
+        return False
+    if windowing.unsupported_modifier(policy.modifiers) is not None:
+        return False
+    items = arguments.get(window.ref, ())
+    low, high = windowing.ARITY[function]
+    if (
+        not low <= len(items) <= high
+        or len(items) != len(window.arguments)
+        or len(column.arguments) != len(items)
+    ):
+        return False
+    expected, problem = windowing.independent_arguments(
+        policy, items, uses.get(window.ref, ()), columns
+    )
+    if expected is None or problem is not None:
+        return False
+    for realized, control in zip(column.arguments, expected, strict=True):
+        if (
+            realized.position != control.position
+            or realized.role != control.role
+            or realized.literal != control.literal
+            or (realized.read is None) is not (control.read is None)
+            or (
+                realized.read is not None
+                and not _same_read(realized.read, control.read)
+            )
+        ):
+            return False
+    specification = column.specification
+    if specification.parent is not None:
+        return False
+    named = policy.named_use
+    if named is None:
+        if specification.symbol is not None:
+            return False
+    else:
+        declaration = named.composed.base.target_declaration
+        if declaration is None or specification.symbol is None:
+            return False
+        if specification.symbol.binding is not window.policy and not any(
+            item.symbol is specification.symbol
+            and item.named_use.composed.base.target_declaration is declaration
+            for item in definitions
+        ):
+            return False
+    partitions = [
+        u for u in uses.get(window.ref, ()) if u.role.value == "window_partition"
+    ]
+    orders = [u for u in uses.get(window.ref, ()) if u.role.value == "window_order"]
+    if len(specification.partitions) != len(partitions) or len(
+        specification.orders
+    ) != len(orders):
+        return False
+    for (binding, read), use in zip(specification.partitions, partitions, strict=True):
+        if (
+            binding is not policy.partitions[use.role_position]
+            or not _same_read(read, columns[use.input])
+            or read.realization.tag not in windowing.ORDER_TAGS
+        ):
+            return False
+    for item, use in zip(specification.orders, orders, strict=True):
+        binding = policy.orders[use.role_position]
+        if (
+            item.binding is not binding
+            or item.direction != binding.effective_direction
+            or item.direction not in {"asc", "desc"}
+            or not _same_read(item.read, columns[use.input])
+            or item.read.realization.tag not in windowing.ORDER_TAGS
+        ):
+            return False
+    resolved = getattr(policy.specification.frame, "resolved", None)
+    if resolved is None or resolved.unit is None:
+        if specification.frame is not None:
+            return False
+    else:
+        frame = specification.frame
+        if (
+            frame is None
+            or frame.unit != resolved.unit.value
+            or windowing.frame_problem(frame, request.family) is not None
+            or windowing.offset_range_problem(frame, specification.orders) is not None
+        ):
+            return False
+    if column.column.window is None or column.column.terminal is not export.ref:
+        return False
+    retained = windowing.result_value(window)
+    if retained is None:
+        return False
+    try:
+        realization = _window_result_realization(
+            request.family, function, column.arguments, retained
+        )
+    except ValueError:
+        return False
+    if not _same_realization(column.column.realization, realization):
+        return False
+    state["nodes"] += windowing.column_nodes(column)
+    return True
+
+
 def _verify_aggregate_projection(
     request, body, block, stage, projections, columns, state
 ):
@@ -1498,7 +1662,8 @@ def _verify_row_value(
         raise ValueError("expression identity")
     if type(value) is rows.SQLStageReference:
         if (
-            type(expression) is not reference_type
+            type(expression)
+            not in {reference_type, plan_windows.ProjectSQLWindowReference}
             or value.original is not expression
             or value.port is not expression.port
             or reference in children
@@ -1841,7 +2006,7 @@ def verify_row_query(request, query):
         children = _operand_children(plan)
         lets = {value.site.block: value for value in plan.let_values}
         filters = {item.site.block: item for item in plan.filters}
-        projections: dict[object, list[object]] = {}
+        projections: dict[object, list[Any]] = {}
         for projection in plan.projections:
             projections.setdefault(projection.block, []).append(projection)
         stages = grouping.aggregated_definitions(plan)
@@ -1851,9 +2016,13 @@ def verify_row_query(request, query):
         aggregate_values: dict[object, list[object]] = {}
         for value in sorted(plan.aggregates, key=lambda item: item.position):
             aggregate_values.setdefault(value.aggregation, []).append(value)
-        aggregate_projections: dict[object, list[object]] = {}
+        aggregate_projections: dict[object, list[Any]] = {}
         for projection in plan.aggregate_projections:
             aggregate_projections.setdefault(projection.block, []).append(projection)
+        window_projections: dict[object, list[Any]] = {}
+        for projection in plan.window_projections:
+            window_projections.setdefault(projection.block, []).append(projection)
+        window_blocks = windowing.windowed_blocks(plan)
         uses_by_consumer = {u.consumer.original.ref: u for u in request.layout.uses}
         uses_by_ref = {u.original.ref: u for u in request.layout.uses}
         source_refs = {source.ref: source for source in plan.sources}
@@ -2004,7 +2173,11 @@ def verify_row_query(request, query):
                     return False
                 _verify_body_scope(body, position, state)
                 continue
-            if kind == "projection" and stage is not None:
+            if (
+                kind == "projection"
+                and stage is not None
+                and not window_projections.get(block.ref)
+            ):
                 _verify_aggregate_projection(
                     request,
                     body,
@@ -2019,14 +2192,43 @@ def verify_row_query(request, query):
                 _verify_body_scope(body, position, state)
                 produced[definition.original.ref] = body
                 continue
-            if body.aggregation is not None or aggregate_projections.get(block.ref):
+            if body.aggregation is not None or (
+                aggregate_projections.get(block.ref)
+                and not window_projections.get(block.ref)
+            ):
+                # A mixed visible projection carries both this aggregation's
+                # results and this body's window results; only that shape may
+                # reach the claim-based path.
+                return False
+            if kind == "window" and not window_blocks.get(block.ref):
                 return False
             carries = 0 if kind == "projection" else len(block.inputs)
-            items: tuple[Any, ...] = (
-                tuple(projections.get(block.ref, ()))
-                if kind == "projection"
-                else ((lets[block.ref],) if kind == "let" else ())
-            )
+            if kind == "projection":
+                claims: dict[Any, Any] = {}
+                for entry in projections.get(block.ref, ()):
+                    claims[entry.export] = entry
+                for entry in aggregate_projections.get(block.ref, ()):
+                    if entry.export in claims:
+                        return False
+                    claims[entry.export] = entry
+                for entry in window_projections.get(block.ref, ()):
+                    if entry.export in claims:
+                        return False
+                    claims[entry.export] = entry
+                ordered_items = tuple(
+                    claims.get(export.ref) for export in definition.original.exports
+                )
+                if any(entry is None for entry in ordered_items):
+                    return False
+                items: tuple[Any, ...] = ordered_items
+            else:
+                items = (lets[block.ref],) if kind == "let" else ()
+            if kind == "window":
+                items = tuple(window_blocks.get(block.ref, ()))
+                # Each generated WINDOW definition is its own emitted structure.
+                state["nodes"] += (
+                    0 if body.window is None else len(body.window.definitions)
+                )
             if len(body.columns) != carries + len(items):
                 return False
             block_exports: tuple[Any, ...] = ()
@@ -2067,6 +2269,45 @@ def verify_row_query(request, query):
                         return False
                     continue
                 item = items[ordinal - carries]
+                if kind == "window":
+                    if not _verify_window_column(
+                        request,
+                        column,
+                        item,
+                        export,
+                        columns,
+                        body.window.definitions if body.window is not None else (),
+                        state,
+                    ):
+                        return False
+                    continue
+                if type(item) is grouping.plan_projection_type():
+                    if (
+                        type(column) is not grouping.AggregateProjectionColumn
+                        or column.projection is not item
+                        or column.input_port is not item.input
+                        or not _same_read(column.read, columns[item.input])
+                        or stage is None
+                        or item.aggregation is not stage.ref
+                        or item.block is not block.ref
+                        or item.export is not export.ref
+                    ):
+                        return False
+                    continue
+                if type(item) is windowing.plan_projection_type():
+                    if (
+                        type(column) is not windowing.WindowProjectionColumn
+                        or column.projection is not item
+                        or column.input_port is not item.input
+                        or not _same_read(column.read, columns[item.input])
+                        or column.read.window is None
+                        or item.block is not block.ref
+                        or item.export is not export.ref
+                    ):
+                        return False
+                    # The window stage already counted this result; carrying it
+                    # into the visible projection introduces no new node.
+                    continue
                 if (
                     type(column) is not RowValueColumn
                     or column.site is not item.site
@@ -2093,7 +2334,7 @@ def verify_row_query(request, query):
                 )
                 state["nodes"] += 1
             if body.predicate is not None:
-                if kind not in {"where", "satisfying"}:
+                if kind not in {"where", "satisfying", "qualify"}:
                     return False
                 item = filters[block.ref]
                 if (
@@ -2137,7 +2378,7 @@ def verify_row_query(request, query):
                     != expected_effects
                 ):
                     return False
-            elif kind in {"where", "satisfying"}:
+            elif kind in {"where", "satisfying", "qualify"}:
                 return False
             _verify_body_scope(body, position, state)
             if kind == "projection":
@@ -2394,6 +2635,11 @@ def verify_row_bytes(query, rendered):
                         "result_qualifier",
                         "result_column",
                     ),
+                    windowing.WindowProjectionColumn: (
+                        "window_result_scope",
+                        "window_result_qualifier",
+                        "window_result_column",
+                    ),
                 }.get(type(column))
                 if carrier is not None:
                     take(
@@ -2413,6 +2659,8 @@ def verify_row_bytes(query, rendered):
                     )
                 elif type(column) is grouping.AggregateValueColumn:
                     aggregate_value(column, alias)
+                elif type(column) is windowing.WindowColumn:
+                    window_value(column, alias)
                 else:
                     scalar(column.value, alias)
                 take("syntax", "alias", column.export.ref, " AS ")
@@ -2511,6 +2759,7 @@ def verify_row_bytes(query, rendered):
                     spans.append(("grouping", column.key.ref, start, offset))
             elif stage is not None and body.block.kind.value != "aggregate":
                 raise ValueError("grouping outside its aggregation stage")
+            window_clause(body.window, alias)
             if body.predicate is not None:
                 satisfying = body.block.kind.value == "satisfying"
                 take(
@@ -2533,6 +2782,152 @@ def verify_row_bytes(query, rendered):
                 scalar(column.argument, alias)
             take("syntax", "aggregate_close", reference, ")")
             spans.append(("aggregate", reference, start, offset))
+
+        def window_specification(specification, reference, alias):
+            """The exact OVER body, shared by an inline use and a definition."""
+            if specification.partitions:
+                take("syntax", "window_partition", reference, "PARTITION BY ")
+                for position, (_binding, read) in enumerate(specification.partitions):
+                    if position:
+                        take("syntax", "window_partition_separator", reference, ", ")
+                    take(
+                        "identifier",
+                        "window_partition_scope",
+                        read.terminal,
+                        alias,
+                        identifier=True,
+                    )
+                    take("syntax", "window_partition_qualifier", reference, ".")
+                    take(
+                        "identifier",
+                        "window_partition_column",
+                        read.terminal,
+                        read.name,
+                        identifier=True,
+                    )
+            if specification.orders:
+                if specification.partitions:
+                    take("syntax", "window_spec_separator", reference, " ")
+                take("syntax", "window_order", reference, "ORDER BY ")
+                for item in specification.orders:
+                    if item.position:
+                        take("syntax", "window_order_separator", reference, ", ")
+                    take(
+                        "identifier",
+                        "window_order_scope",
+                        item.read.terminal,
+                        alias,
+                        identifier=True,
+                    )
+                    take("syntax", "window_order_qualifier", reference, ".")
+                    take(
+                        "identifier",
+                        "window_order_column",
+                        item.read.terminal,
+                        item.read.name,
+                        identifier=True,
+                    )
+                    take(
+                        "syntax",
+                        "window_order_direction",
+                        reference,
+                        " ASC" if item.direction == "asc" else " DESC",
+                    )
+            frame = specification.frame
+            if frame is not None:
+                if specification.partitions or specification.orders:
+                    take("syntax", "window_frame_separator", reference, " ")
+                take(
+                    "syntax",
+                    "window_frame_unit",
+                    reference,
+                    windowing.UNIT_SPELLING[frame.unit] + " BETWEEN ",
+                )
+                take("syntax", "window_frame_start", reference, frame.start[1])
+                take("syntax", "window_frame_and", reference, " AND ")
+                take("syntax", "window_frame_end", reference, frame.end[1])
+                spelling = windowing.EXCLUSION_SPELLING.get(frame.exclusion)
+                if spelling is not None:
+                    take("syntax", "window_frame_exclusion", reference, " " + spelling)
+
+        def window_clause(stage, alias):
+            """Re-derive the generated WINDOW clause, definition by definition."""
+            if stage is None or not stage.definitions:
+                return
+            take("syntax", "window_clause", stage.ref, " WINDOW ")
+            for definition in stage.definitions:
+                if definition.index:
+                    take("syntax", "window_clause_separator", stage.ref, ", ")
+                reference = definition.symbol.binding
+                take(
+                    "identifier",
+                    "window_definition",
+                    reference,
+                    definition.symbol.name,
+                    identifier=True,
+                )
+                take("syntax", "window_definition_as", reference, " AS ")
+                start = offset
+                take("syntax", "window_spec_open", reference, "(")
+                window_specification(definition.specification, reference, alias)
+                take("syntax", "window_spec_close", reference, ")")
+                spans.append(("window_specification", reference, start, offset))
+
+        def window_value(column, alias):
+            """Re-derive one window occurrence's exact bytes from its own plan."""
+            reference = column.window.ref
+            start = offset
+            take(
+                "syntax",
+                "window_open",
+                reference,
+                windowing.SPELLING[column.function] + "(",
+            )
+            for argument in column.arguments:
+                if argument.position:
+                    take("syntax", "window_argument_separator", reference, ", ")
+                if argument.read is not None:
+                    take(
+                        "identifier",
+                        "window_argument_scope",
+                        argument.read.terminal,
+                        alias,
+                        identifier=True,
+                    )
+                    take("syntax", "window_argument_qualifier", reference, ".")
+                    take(
+                        "identifier",
+                        "window_argument_column",
+                        argument.read.terminal,
+                        argument.read.name,
+                        identifier=True,
+                    )
+                else:
+                    take(
+                        "literal",
+                        "window_argument_literal",
+                        reference,
+                        argument.literal,
+                    )
+            take("syntax", "window_close", reference, ")")
+            take("syntax", "window_over", reference, " OVER ")
+            specification = column.specification
+            if specification.symbol is not None:
+                take(
+                    "identifier",
+                    "window_reference",
+                    reference,
+                    specification.symbol.name,
+                    identifier=True,
+                )
+                spans.append(("window", reference, start, offset))
+                return
+            inner = offset
+            take("syntax", "window_spec_open", reference, "(")
+            window_specification(specification, reference, alias)
+            take("syntax", "window_spec_close", reference, ")")
+            spans.append(("window_specification", reference, inner, offset))
+            spans.append(("window", reference, start, offset))
 
         def join_relation(item):
             reference = item.original.ref
@@ -2765,6 +3160,7 @@ def verify_row_requirements(request, query, original, generated):
             rows.demand_rule(plan, entry)
             or joining.demand_rule(plan, entry)
             or grouping.demand_rule(entry)
+            or windowing.demand_rule(entry)
         )
         if rule is None:
             rule = (
@@ -2778,6 +3174,7 @@ def verify_row_requirements(request, query, original, generated):
                         row.ProjectSQLJoinedReference,
                         row.ProjectSQLMatchReference,
                         grouping.ProjectSQLResultReference,
+                        plan_windows.ProjectSQLWindowReference,
                     }
                 )
                 else "R03"
@@ -2968,6 +3365,27 @@ def verify_row_requirements(request, query, original, generated):
                 continue
             if type(column) is grouping.AggregateProjectionColumn:
                 expected.append(("result_projection", column.projection.ref, "R12", ()))
+                continue
+            if type(column) is windowing.WindowColumn:
+                expected.append(
+                    ("window_computation", column.window.ref, "R14", operators)
+                )
+                expected.append(
+                    ("window_specification", column.window.policy, "R15", ())
+                )
+                for _binding, read in column.specification.partitions:
+                    expected.append(
+                        ("window_partition_comparison", read.terminal, "R14", ())
+                    )
+                for item in column.specification.orders:
+                    expected.append(
+                        ("window_order_comparison", item.read.terminal, "R14", ())
+                    )
+                continue
+            if type(column) is windowing.WindowProjectionColumn:
+                expected.append(
+                    ("window_result_projection", column.projection.ref, "R17", ())
+                )
                 continue
             expected.append(("computed_projection", column.export.ref, "R05", ()))
             node_expectations(column.value)

@@ -860,6 +860,26 @@ def check_emission_case(case, target):
             ) or [c["label"] for c in document["columns"]] != list(emission.ROW_LABELS):
                 raise ValueError("row stage positional logical metadata mismatch")
             continue
+        if case["id"] in emission.WINDOW_CASES:
+            key = window_key(case["id"], variant["variant"])
+            expected = WINDOW_EXPECTATIONS[key]
+            if Counter(
+                json.dumps(row, sort_keys=True) for row in observation["rows"]
+            ) != Counter(json.dumps(row, sort_keys=True) for row in expected):
+                raise ValueError("window typed row multiset mismatch")
+            metadata = observation["metadata"]
+            labels = WINDOW_LABELS[key]
+            logical = WINDOW_COLUMNS[key]
+            physical = window_metadata(target, key)
+            if [m[0] for m in metadata] != list(labels) or [
+                m[1] for m in metadata
+            ] != physical:
+                raise ValueError("window positional physical metadata mismatch")
+            if [c["logical_type"]["name"] for c in document["columns"]] != list(
+                logical
+            ) or [c["label"] for c in document["columns"]] != list(labels):
+                raise ValueError("window positional logical metadata mismatch")
+            continue
         named = case["id"] in {"M_named_chain", "N_imported_chain", "O_named_later"}
         expected_rows = (chain_rows if named else emission_rows)(
             target, empty=variant["variant"] == "empty"
@@ -896,6 +916,132 @@ def _integer(value: str) -> dict[str, str]:
 
 def _text(value: str) -> dict[str, str]:
     return {"kind": "text", "value": value}
+
+
+# Slice9 window oracles. The emission source holds four rows whose `order.id`
+# values are 0, 1 and a duplicated 9007199254740993, so ordering by that
+# non-null key gives one peer group and no target's NULL posture can move a
+# result. Every value below is derived from those rows by hand.
+WINDOW_BIG = "9007199254740993"
+
+
+def _float(value: float) -> dict[str, str]:
+    return {"kind": "float", "value": float.hex(value)}
+
+
+WINDOW_EXPECTATIONS = {
+    # row_number numbers the peers 3 and 4 while rank and dense_rank both give
+    # them 3, which is exactly what separates the three identities.
+    "A_window_ranking": [
+        [_integer("0"), _integer("1"), _integer("1"), _integer("1")],
+        [_integer("1"), _integer("2"), _integer("2"), _integer("2")],
+        [_integer(WINDOW_BIG), _integer("3"), _integer("3"), _integer("3")],
+        [_integer(WINDOW_BIG), _integer("4"), _integer("3"), _integer("3")],
+    ],
+    # Each partition is its own key, so every row is the only peer rank in its
+    # partition: percent_rank is 0 and cume_dist is 1, both exact in binary64.
+    # ntile(2) splits the four ordered rows into two buckets of two.
+    "A_window_distribution": [
+        [_integer("0"), _float(0.0), _float(1.0), _integer("1")],
+        [_integer("1"), _float(0.0), _float(1.0), _integer("1")],
+        [_integer(WINDOW_BIG), _float(0.0), _float(1.0), _integer("2")],
+        [_integer(WINDOW_BIG), _float(0.0), _float(1.0), _integer("2")],
+    ],
+    # lag carries its explicit 0 default at the first row; lead has no default
+    # and is NULL past the last row.
+    "A_window_navigation": [
+        [_integer("0"), _integer("0"), _integer("1")],
+        [_integer("1"), _integer("0"), _integer(WINDOW_BIG)],
+        [_integer(WINDOW_BIG), _integer("1"), _integer(WINDOW_BIG)],
+        [_integer(WINDOW_BIG), _integer(WINDOW_BIG), {"kind": "null"}],
+    ],
+}
+# ROWS BETWEEN 1 PRECEDING AND CURRENT ROW is a physical two-row frame, so the
+# duplicated key does not merge the last two frames.
+WINDOW_EXPECTATIONS["A_window_frame_rows"] = [
+    [_integer("0"), _integer("0"), _integer("0")],
+    [_integer("1"), _integer("0"), _integer("1")],
+    [_integer(WINDOW_BIG), _integer("1"), _integer(WINDOW_BIG)],
+    [_integer(WINDOW_BIG), _integer(WINDOW_BIG), _integer(WINDOW_BIG)],
+]
+# RANGE BETWEEN 1 PRECEDING AND CURRENT ROW is a value frame over the key, so
+# both peers see only the peer group itself.
+WINDOW_EXPECTATIONS["A_window_frame_range"] = [
+    [_integer("0"), _integer("0")],
+    [_integer("1"), _integer("0")],
+    [_integer(WINDOW_BIG), _integer(WINDOW_BIG)],
+    [_integer(WINDOW_BIG), _integer(WINDOW_BIG)],
+]
+# GROUPS counts peer groups and EXCLUDE CURRENT ROW removes only this row, so a
+# peer of the same group stays in the frame and the first row's frame is empty.
+WINDOW_EXPECTATIONS["A_window_groups"] = [
+    [_integer("0"), {"kind": "null"}],
+    [_integer("1"), _integer("0")],
+    [_integer(WINDOW_BIG), _integer("1")],
+    [_integer(WINDOW_BIG), _integer("1")],
+]
+# Two uses of one named declaration observe the same specification.
+WINDOW_EXPECTATIONS["A_window_named"] = [
+    [_integer("0"), _integer("1"), _integer("1")],
+    [_integer("1"), _integer("2"), _integer("2")],
+    [_integer(WINDOW_BIG), _integer("3"), _integer("3")],
+    [_integer(WINDOW_BIG), _integer("3"), _integer("3")],
+]
+# QUALIFY keeps only the rows whose window result is TRUE for the predicate.
+WINDOW_EXPECTATIONS["A_window_qualify_selected"] = [
+    [_integer("0"), _integer("1")],
+    [_integer("1"), _integer("2")],
+]
+WINDOW_EXPECTATIONS["A_window_qualify_hidden"] = [
+    [_integer("0")],
+    [_integer("1")],
+]
+# PostgreSQL int8 is OID 20 and float8 is OID 701; MySQL LONGLONG is 8 and
+# DOUBLE is 5. A ranking or bucket result is the target's own signed64.
+WINDOW_PHYSICAL = {
+    "postgres": {"Int": 20, "Float": 701, "Bucket": 23},
+    "mysql": {"Int": 8, "Float": 5, "Bucket": 8},
+}
+# A bucket result is not an ordinary Int on every target: PostgreSQL's ntile
+# sends int4 where its ranking functions send int8.
+WINDOW_WIDTHS = {"A_window_distribution": ("Int", "Float", "Float", "Bucket")}
+WINDOW_COLUMNS = {
+    "A_window_ranking": ("Int", "Int", "Int", "Int"),
+    "A_window_distribution": ("Int", "Float", "Float", "Int"),
+    "A_window_navigation": ("Int", "Int", "Int"),
+    "A_window_frame_rows": ("Int", "Int", "Int"),
+    "A_window_frame_range": ("Int", "Int"),
+    "A_window_groups": ("Int", "Int"),
+    "A_window_named": ("Int", "Int", "Int"),
+    "A_window_qualify_selected": ("Int", "Int"),
+    "A_window_qualify_hidden": ("Int",),
+}
+WINDOW_LABELS = {
+    "A_window_ranking": ("record_id", "numbered", "ranked", "densely"),
+    "A_window_distribution": ("record_id", "fraction", "cumulative", "bucket"),
+    "A_window_navigation": ("record_id", "previous", "upcoming"),
+    "A_window_frame_rows": ("record_id", "earliest", "latest"),
+    "A_window_frame_range": ("record_id", "earliest"),
+    "A_window_groups": ("record_id", "peers"),
+    "A_window_named": ("record_id", "ranked", "densely"),
+    "A_window_qualify_selected": ("record_id", "numbered"),
+    "A_window_qualify_hidden": ("record_id",),
+}
+
+
+def window_metadata(target: str, key: str) -> list[int]:
+    """The physical type each window output column actually arrives as."""
+
+    widths = WINDOW_WIDTHS.get(key) or WINDOW_COLUMNS[key]
+    return [WINDOW_PHYSICAL[target][name] for name in widths]
+
+
+def window_key(case_id: str, variant: str) -> str:
+    """The oracle key for one window case, splitting the two-variant families."""
+
+    if case_id in {"A_window_frame", "A_window_qualify"}:
+        return f"{case_id}_{variant}"
+    return case_id
 
 
 def expected_rows(case: str) -> list[list[dict[str, str]]]:

@@ -112,6 +112,14 @@ VARIANTS = {
         "satisfying_right",
     ),
     "Z_aggregate_transport": ("outer_null",),
+    "A_window_ranking": ("peers",),
+    "A_window_distribution": ("spread",),
+    "A_window_navigation": ("offsets",),
+    "A_window_frame": ("rows", "range"),
+    "A_window_groups": ("exclude",),
+    "A_window_named": ("shared",),
+    "A_window_qualify": ("selected", "hidden"),
+    "V_window_blocked": ("ignore_nulls", "from_last", "offset_range_keys"),
     "V_aggregate_blocked": (
         "sum_direct",
         "avg_direct",
@@ -171,9 +179,32 @@ CARRIER_ROLES = {
         "group_key_column",
     ),
     "result_scope": ("result", "result_scope", "result_qualifier", "result_column"),
+    "window_result_scope": (
+        "window_result",
+        "window_result_scope",
+        "window_result_qualifier",
+        "window_result_column",
+    ),
 }
-CARRIED_KINDS = frozenset({"carry", "group_key", "result"})
+CARRIED_KINDS = frozenset({"carry", "group_key", "result", "window_result"})
+WINDOW_RANK_FUNCTIONS = frozenset({"row_number", "rank", "dense_rank", "ntile"})
+WINDOW_DISTRIBUTION_FUNCTIONS = frozenset({"percent_rank", "cume_dist"})
 AGGREGATE_SPELLINGS = {"COUNT(": "count", "MIN(": "min", "MAX(": "max"}
+# The eleven admitted Slice9 identities, keyed by the exact emitted call token.
+WINDOW_SPELLINGS = {
+    "ROW_NUMBER(": "row_number",
+    "RANK(": "rank",
+    "DENSE_RANK(": "dense_rank",
+    "PERCENT_RANK(": "percent_rank",
+    "CUME_DIST(": "cume_dist",
+    "NTILE(": "ntile",
+    "LAG(": "lag",
+    "LEAD(": "lead",
+    "FIRST_VALUE(": "first_value",
+    "LAST_VALUE(": "last_value",
+    "NTH_VALUE(": "nth_value",
+}
+WINDOW_FRAME_UNITS = ("ROWS BETWEEN ", "RANGE BETWEEN ", "GROUPS BETWEEN ")
 GROUPING_TAGS = frozenset({"Int", "Bool", "Text", "Decimal"})
 COUNT_STORAGE = {"postgres": "pg_int8", "mysql": "my_bigint"}
 COUNT_MAX = (1 << 63) - 1
@@ -184,6 +215,16 @@ AGGREGATE_DEMAND_RULES = {
     "aggregate_projection": "R12",
     "aggregate_risk": "R12",
 }
+# R14 owns the occurrence, its input uses and its arguments, R15 the realized
+# frame, modifiers and named components, R17 the visible result projection.
+WINDOW_DEMAND_RULES = {
+    "window": "R14",
+    "window_use": "R14",
+    "window_argument": "R14",
+    "window_policy": "R15",
+    "window_projection": "R17",
+}
+WINDOW_NAVIGATION_FUNCTIONS = frozenset({"lag", "lead"})
 CODES = {
     "PIE-B1001": "SOURCE_REALIZATION",
     "PIE-B1002": "REPRESENTATION",
@@ -224,6 +265,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         return chain_fixture(target, case, variant)
     if case in {"T_row_direct", "U_row_named", "V_row_blocked"}:
         return row_fixture(target, case, variant)
+    if case in WINDOW_CASES:
+        return window_fixture(target, case, variant)
     if case in {"W_join_shapes", "W_join_values", "V_join_full"}:
         return join_fixture(target, case, variant)
     if case in AGGREGATE_CASES:
@@ -1468,6 +1511,179 @@ ROW_BLOCKED_BODY = {
 }
 
 
+WINDOW_CASES = frozenset(
+    {
+        "A_window_ranking",
+        "A_window_distribution",
+        "A_window_navigation",
+        "A_window_frame",
+        "A_window_groups",
+        "A_window_named",
+        "A_window_qualify",
+        "V_window_blocked",
+    }
+)
+# One authored body per admitted law. Peers are what separate row_number, rank
+# and dense_rank, so the ranking witness orders by a duplicated key.
+WINDOW_BODIES = {
+    ("A_window_ranking", "peers"): """query result:
+    from rows
+    select:
+        record_id = id
+        numbered = row_number() window:
+            order by:
+                id
+        ranked = rank() window:
+            order by:
+                id
+        densely = dense_rank() window:
+            order by:
+                id
+""",
+    ("A_window_distribution", "spread"): """query result:
+    from rows
+    select:
+        record_id = id
+        fraction = percent_rank() window:
+            partition by:
+                id
+            order by:
+                id
+        cumulative = cume_dist() window:
+            partition by:
+                id
+            order by:
+                id
+        bucket = ntile(2) window:
+            order by:
+                id
+""",
+    ("A_window_navigation", "offsets"): """query result:
+    from rows
+    select:
+        record_id = id
+        previous = lag(id, 1, 0) window:
+            order by:
+                id
+        upcoming = lead(id, 1) window:
+            order by:
+                id
+""",
+    ("A_window_frame", "rows"): """query result:
+    from rows
+    select:
+        record_id = id
+        earliest = first_value(id) window:
+            order by:
+                id
+            rows between 1 preceding and current row
+        latest = last_value(id) window:
+            order by:
+                id
+            rows between 1 preceding and current row
+""",
+    ("A_window_frame", "range"): """query result:
+    from rows
+    select:
+        record_id = id
+        earliest = first_value(id) window:
+            order by:
+                id
+            range between 1 preceding and current row
+""",
+    ("A_window_groups", "exclude"): """query result:
+    from rows
+    select:
+        record_id = id
+        peers = first_value(id) window:
+            order by:
+                id
+            groups between 1 preceding and current row exclude current row
+""",
+    ("A_window_named", "shared"): """query result:
+    from rows
+    select:
+        record_id = id
+        ranked = rank() window ordered
+        densely = dense_rank() window ordered
+    window ordered:
+        order by:
+            id
+""",
+    ("A_window_qualify", "selected"): """query result:
+    from rows
+    select:
+        record_id = id
+        numbered = row_number() window:
+            order by:
+                id
+    qualify:
+        numbered <= 2
+""",
+    ("A_window_qualify", "hidden"): """query result:
+    from rows
+    select:
+        record_id = id
+    qualify:
+        row_number() window:
+            order by:
+                id
+        <= 2
+""",
+    ("V_window_blocked", "ignore_nulls"): """query result:
+    from rows
+    select:
+        record_id = id
+        earliest = first_value(id) ignore nulls window:
+            order by:
+                id
+            rows between unbounded preceding and current row
+""",
+    ("V_window_blocked", "from_last"): """query result:
+    from rows
+    select:
+        record_id = id
+        second = nth_value(id, 2) from last window:
+            order by:
+                id
+            rows between unbounded preceding and current row
+""",
+    ("V_window_blocked", "offset_range_keys"): """query result:
+    from rows
+    select:
+        record_id = id
+        earliest = first_value(id) window:
+            order by:
+                id
+                flag
+            range between 1 preceding and current row
+""",
+}
+
+
+def window_fixture(target, case, variant):
+    """One admitted window body over the published emission source shape."""
+    base = fixture(target)
+    base_source = base["source"]
+    assert type(base_source) is str
+    header = base_source.split("table result:", 1)[0]
+    contract = json.loads(base["contract"])
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        }
+    )
+    return {
+        "source": header + WINDOW_BODIES[case, variant],
+        "contract": encoded(contract).decode(),
+        "policy": "preserve_literals",
+    }
+
+
 def row_fixture(target, case, variant):
     """Ordered LET stages, a retained filter and admitted scalar projections."""
     base = fixture(target)
@@ -1800,6 +2016,9 @@ PER_TARGET_STATUS = {
         "postgres": "VERIFIED",
         "mysql": "BLOCKED",
     },
+    # R15 admits GROUPS and its exclusion on PostgreSQL only; MySQL keeps a
+    # typed blocker and is never given an emulation.
+    ("A_window_groups", "exclude"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
 }
 
 
@@ -1808,7 +2027,7 @@ def expected_status(case, variant, target=None):
         return PER_TARGET_STATUS[case, variant][target]
     if (case, variant) in MIGRATED_TO_SUCCESS:
         return "VERIFIED"
-    if case in {"V_row_blocked", "V_aggregate_blocked"}:
+    if case in {"V_row_blocked", "V_aggregate_blocked", "V_window_blocked"}:
         return "BLOCKED"
     return (
         "INPUT_REJECTED"
@@ -2317,6 +2536,9 @@ def _named_range_provenance(document, descriptors):
         "group_key": ["group_key"],
         "aggregate": ["aggregate"],
         "aggregate_projection": ["aggregate_projection"],
+        # Slice9 window stages own their own occurrence and its policy.
+        "window": ["window"],
+        "window_policy": ["window_policy"],
         # Slice7 JOIN units own their own occurrence, inputs, ports and tail.
         "join": ["join"],
         "join_input": ["join_input"],
@@ -2333,6 +2555,12 @@ def _named_range_provenance(document, descriptors):
         "import_item",
         "export_item",
         "source_connector",
+        # Slice9 window provenance associates an effective occurrence with its
+        # authored one, each component with the occurrence that authored or
+        # inherited it, and a named use with its declaration.
+        "effective_to_authored_window",
+        "authored_or_inherited_window_component",
+        "named_window_declaration",
     }
     for interval in _records(document["ranges"]):
         _reference(interval["subject"])
@@ -3050,6 +3278,8 @@ def _decode_row_denominators(
             rule = "R01"
         elif kind == "aggregation":
             rule = AGGREGATE_DEMAND_RULES.get(subject["kind"], "R12")
+        elif kind == "window":
+            rule = WINDOW_DEMAND_RULES.get(subject["kind"], "R14")
         else:
             rule = "R02"
         _need(item["rule"] == rule, "original requirement rule")
@@ -3909,7 +4139,142 @@ def _decode_fixed_public(document, limits):
             "strict": strict and node["kind"] != "null_test",
         }
 
-    row_counts = {"projection": 0, "result": 0, "aggregate_projection": 0}
+    row_counts = {
+        "projection": 0,
+        "result": 0,
+        "aggregate_projection": 0,
+        "window_projection": 0,
+    }
+
+    def window_specification_parse(subject):
+        """One OVER body: partitions, orders and an optional exact frame."""
+        partitions, orders = [], []
+        if peek() == "window_partition":
+            take("syntax", "window_partition", "PARTITION BY ", subject)
+            while True:
+                _, alias = take("identifier", "window_partition_scope")
+                take("syntax", "window_partition_qualifier", ".", subject)
+                token, name = take("identifier", "window_partition_column")
+                partitions.append(
+                    {"alias": alias, "name": name, "terminal": token["subject"]}
+                )
+                if peek() != "window_partition_separator":
+                    break
+                take("syntax", "window_partition_separator", ", ", subject)
+        if peek() == "window_spec_separator":
+            take("syntax", "window_spec_separator", " ", subject)
+        if peek() == "window_order":
+            take("syntax", "window_order", "ORDER BY ", subject)
+            while True:
+                _, alias = take("identifier", "window_order_scope")
+                take("syntax", "window_order_qualifier", ".", subject)
+                token, name = take("identifier", "window_order_column")
+                _, direction = take("syntax", "window_order_direction", subject=subject)
+                _need(direction in {" ASC", " DESC"}, "window order direction")
+                orders.append(
+                    {
+                        "alias": alias,
+                        "name": name,
+                        "terminal": token["subject"],
+                        "direction": direction.strip().lower(),
+                    }
+                )
+                if peek() != "window_order_separator":
+                    break
+                take("syntax", "window_order_separator", ", ", subject)
+        frame = None
+        if peek() == "window_frame_separator":
+            take("syntax", "window_frame_separator", " ", subject)
+        if peek() == "window_frame_unit":
+            _, unit = take("syntax", "window_frame_unit", subject=subject)
+            _need(unit in WINDOW_FRAME_UNITS, "window frame unit")
+            _, start_bound = take("syntax", "window_frame_start", subject=subject)
+            take("syntax", "window_frame_and", " AND ", subject)
+            _, end_bound = take("syntax", "window_frame_end", subject=subject)
+            exclusion = None
+            if peek() == "window_frame_exclusion":
+                _, exclusion = take("syntax", "window_frame_exclusion", subject=subject)
+                _need(
+                    exclusion
+                    in {" EXCLUDE CURRENT ROW", " EXCLUDE GROUP", " EXCLUDE TIES"},
+                    "window frame exclusion",
+                )
+            frame = {
+                "unit": unit.split(" ")[0].lower(),
+                "start": start_bound,
+                "end": end_bound,
+                "exclusion": exclusion,
+            }
+        return {"partitions": partitions, "orders": orders, "frame": frame}
+
+    def window_parse(block):
+        """One window occurrence: its spelling, arguments and OVER specification."""
+        start = lexical[cursor][0]["start"]
+        subject = lexical[cursor][0]["subject"]
+        _need(subject["kind"] == "window", "window occurrence kind")
+        _, spelling = take("syntax", "window_open", subject=subject)
+        _need(spelling in WINDOW_SPELLINGS, "window spelling")
+        arguments = []
+        while peek() not in {"window_close", None}:
+            if peek() == "window_argument_separator":
+                take("syntax", "window_argument_separator", ", ", subject)
+            if peek() == "window_argument_scope":
+                _, alias = take("identifier", "window_argument_scope")
+                take("syntax", "window_argument_qualifier", ".", subject)
+                token, name = take("identifier", "window_argument_column")
+                arguments.append({"kind": "port", "alias": alias, "name": name})
+            else:
+                _, literal = take("literal", "window_argument_literal", subject=subject)
+                arguments.append({"kind": "literal", "value": literal})
+        take("syntax", "window_close", ")", subject)
+        take("syntax", "window_over", " OVER ", subject)
+        if peek() == "window_reference":
+            _, symbol = take("identifier", "window_reference")
+            specification = {"reference": symbol}
+        else:
+            inner = lexical[cursor][0]["start"]
+            take("syntax", "window_spec_open", "(", subject)
+            specification = window_specification_parse(subject)
+            closed, _ = take("syntax", "window_spec_close", ")", subject)
+            expected_ranges.append(
+                ("window_specification", subject, inner, closed["end"])
+            )
+        end = lexical[cursor - 1][0]["end"]
+        expected_ranges.append(("window", subject, start, end))
+        return {
+            "window": subject,
+            "spelling": spelling,
+            "arguments": arguments,
+            "specification": specification,
+        }
+
+    def window_clause_parse():
+        """The generated WINDOW clause, definition by definition."""
+        if peek() != "window_clause":
+            return []
+        stage, _ = take("syntax", "window_clause", " WINDOW ")
+        definitions = []
+        while True:
+            token, symbol = take("identifier", "window_definition")
+            subject = token["subject"]
+            take("syntax", "window_definition_as", " AS ", subject)
+            start = lexical[cursor][0]["start"]
+            take("syntax", "window_spec_open", "(", subject)
+            specification = window_specification_parse(subject)
+            closed, _ = take("syntax", "window_spec_close", ")", subject)
+            expected_ranges.append(
+                ("window_specification", subject, start, closed["end"])
+            )
+            definitions.append({"symbol": symbol, "specification": specification})
+            if peek() != "window_clause_separator":
+                break
+            take("syntax", "window_clause_separator", ", ", stage["subject"])
+        _need(
+            [item["symbol"] for item in definitions]
+            == [f"w{index}" for index in range(len(definitions))],
+            "generated window symbols",
+        )
+        return definitions
 
     def aggregate_parse(block):
         """One aggregate occurrence: exact spelling, DISTINCT role and argument."""
@@ -3958,6 +4323,48 @@ def _decode_fixed_public(document, limits):
             "domain": argument["domain"],
         }
 
+    def window_realization(function, value, default=None):
+        """This window result's own domain, derived here and not read back.
+
+        A ranking or bucket result is the target's own signed64; a distribution
+        result is its own double; a navigation or frame-sensitive result carries
+        its value argument and gains only the possibility of NULL.
+        """
+        if function in WINDOW_RANK_FUNCTIONS:
+            # A bucket result is the width the target itself returns: PostgreSQL's
+            # ntile sends int4 where its ranking functions send int8.
+            bucket = function == "ntile" and family == "postgres"
+            storage = "pg_int4" if bucket else COUNT_STORAGE[family]
+            bound = (1 << 31) - 1 if bucket else COUNT_MAX
+            return {
+                "tag": "Int",
+                "storage": {"kind": storage},
+                "nullable": False,
+                "domain": {"kind": "int_range", "min": "0", "max": str(bound)},
+            }
+        if function in WINDOW_DISTRIBUTION_FUNCTIONS:
+            return {
+                "tag": "Float",
+                "storage": {
+                    "kind": "pg_float8" if family == "postgres" else "my_double"
+                },
+                "nullable": False,
+                "domain": {"kind": "float64"},
+            }
+        _need(value is not None, "a window value result needs its own argument")
+        assert value is not None
+        # A navigation offset or a frame position may address no row at all, so
+        # this result gains NULL over a non-null source column unless the
+        # occurrence names its own default for that missing row.
+        return {
+            "tag": value["realization"]["tag"],
+            "storage": value["realization"]["storage"],
+            "nullable": True
+            if default is None
+            else bool(value["realization"]["nullable"] or default),
+            "domain": value["realization"]["domain"],
+        }
+
     def row_field_realization(field):
         return {"tag": source_type(field)["name"], **field["representation"]}
 
@@ -3991,6 +4398,110 @@ def _decode_fixed_public(document, limits):
             "one decoded aggregation stage has one owner",
         )
         return {"aggregation": owner, **origin}
+
+    row_window_owner: dict[str, Any] = {}
+    row_window_policies: dict[str, Any] = {}
+    row_window_shape: dict[str, tuple[int, int, int]] = {}
+    row_window_bags: dict[str, Any] = {}
+    row_window_components: set[str] = set()
+
+    def window_origin(published, origin):
+        """One window provenance, rebuilt from bytes with declared plan identities.
+
+        The occurrence, its stage, its input BAG and its own result are all
+        re-derived here. The plan identities it retains - one owning definition,
+        one policy per occurrence, its arguments and its uses - are read under
+        exact kinds and must stay unique and agree with the emitted arity, so no
+        two occurrences can claim one policy, one argument or one use.
+        """
+        declared = published["correspondence"].get("window_origin") or published[
+            "correspondence"
+        ].get("window_transport")
+        _need(type(declared) is dict, "a window output declares its origin")
+        _keys(
+            declared,
+            (
+                "role",
+                "function",
+                "selected",
+                "window",
+                "stage",
+                "definition",
+                "policy",
+                "arguments",
+                "uses",
+                "inputs",
+                "result",
+            ),
+        )
+        definition = declared["definition"]
+        _reference(definition)
+        _need(definition["kind"] == "definition", "window definition kind")
+        _need(
+            row_window_owner.setdefault("definition", definition) == definition,
+            "one decoded selection owns every window",
+        )
+        policy = declared["policy"]
+        _reference(policy)
+        _need(policy["kind"] == "window_policy", "window policy kind")
+        key = encoded(origin["window"]).decode()
+        _need(
+            row_window_policies.setdefault(key, policy) == policy,
+            "one window occurrence has one policy",
+        )
+        _need(
+            sum(1 for item in row_window_policies.values() if item == policy) == 1,
+            "one policy has one window occurrence",
+        )
+        arity, components, width = row_window_shape[key]
+        inputs = cast(list[Any], declared["inputs"])
+        _need(
+            type(inputs) is list and len(inputs) == width,
+            "a window reads its whole established row shape",
+        )
+        for item in inputs:
+            _reference(item)
+            _need(item["kind"] == "stage_port", "window input port kind")
+        stage = encoded(origin["stage"]).decode()
+        _need(
+            encoded(row_window_bags.setdefault(stage, inputs)) == encoded(inputs),
+            "one window stage has one input BAG",
+        )
+        _need(
+            encoded(origin["result"]) not in {encoded(item) for item in inputs},
+            "a window result is never its own input",
+        )
+        arguments = cast(list[Any], declared["arguments"])
+        uses = cast(list[Any], declared["uses"])
+        _need(
+            type(arguments) is list and len(arguments) == arity,
+            "window argument denominator",
+        )
+        _need(
+            type(uses) is list and len(uses) >= components,
+            "window use denominator",
+        )
+        for item in arguments:
+            _reference(item)
+            _need(item["kind"] == "window_argument", "window argument kind")
+        for item in uses:
+            _reference(item)
+            _need(item["kind"] == "window_use", "window use kind")
+        for item in (*arguments, *uses):
+            token = encoded(item).decode()
+            _need(
+                token not in row_window_components,
+                "a window component has one owner",
+            )
+            row_window_components.add(token)
+        return {
+            "definition": definition,
+            "policy": policy,
+            "arguments": arguments,
+            "uses": uses,
+            "inputs": inputs,
+            **origin,
+        }
 
     def row_output(
         position,
@@ -4079,6 +4590,31 @@ def _decode_fixed_public(document, limits):
                 "correspondence": correspondence,
             }
             _need(encoded(published) == encoded(expected), "aggregate output published")
+            return realization
+        if node["kind"] == "window_result":
+            assert origin is not None
+            expected = {
+                "ordinal": position,
+                "label": label,
+                "logical_type": logical,
+                "nullable": realization["nullable"],
+                "representation": {
+                    "storage": realization["storage"],
+                    "nullable": realization["nullable"],
+                    "domain": realization["domain"],
+                },
+                "correspondence": {
+                    "window_origin": window_origin(published, origin),
+                    "input_port": node["port"],
+                    "export": export,
+                    "projection": ref(
+                        "window_projection", row_counts["window_projection"]
+                    ),
+                    "sql_symbol": position + 1,
+                },
+            }
+            row_counts["window_projection"] += 1
+            _need(encoded(published) == encoded(expected), "window output published")
             return realization
         projection = ref("projection", row_counts["projection"] + position)
         link = None
@@ -4169,6 +4705,7 @@ def _decode_fixed_public(document, limits):
         """One stage body: parse its columns, bind its scan, then realize them."""
         take("syntax", "select", "SELECT ", block)
         parsed = []
+        windows_seen: list[dict[str, Any]] = []
         while True:
             separator = None
             if parsed:
@@ -4192,6 +4729,8 @@ def _decode_fixed_public(document, limits):
                 row_stage_ports.add(encoded(port).decode())
             elif peek() == "aggregate_open":
                 node = {"kind": "aggregate", **aggregate_parse(block)}
+            elif peek() == "window_open":
+                node = {"kind": "window", **window_parse(block)}
             else:
                 node = {"kind": "value", "value": row_parse(block)}
             alias_token, _ = take("syntax", "alias", " AS ")
@@ -4204,6 +4743,8 @@ def _decode_fixed_public(document, limits):
                 "carried qualifier",
             )
             parsed.append({"node": node, "export": export, "label": label})
+            if node["kind"] == "window":
+                windows_seen.append(node)
             if peek() != "separator":
                 break
         from_token, _ = take("syntax", "from", " FROM ")
@@ -4367,6 +4908,19 @@ def _decode_fixed_public(document, limits):
         mode = "grouped" if determinants else "global"
         empty_input = "no_groups" if determinants else "one_global_row"
         projection_body = carries == 0 and not aggregate_body
+        window_definitions = window_clause_parse()
+        window_declared = {
+            item["symbol"]: item["specification"] for item in window_definitions
+        }
+        referenced = {
+            node["specification"]["reference"]
+            for node in windows_seen
+            if "reference" in node["specification"]
+        }
+        # A named use may only read a definition this body actually declared, and
+        # a declaration that nothing uses is never emitted.
+        _need(referenced <= set(window_declared), "window reference outside its clause")
+        _need(set(window_declared) <= referenced, "unused generated window definition")
         outgoing, columns = [], []
         if aggregate_body:
             row_generated.append(
@@ -4476,6 +5030,14 @@ def _decode_fixed_public(document, limits):
                             None,
                         )
                     )
+                elif node["kind"] == "window_result":
+                    _need(
+                        origin is not None and origin["role"] == "window_result",
+                        "a window projection reads an established window result",
+                    )
+                    row_generated.append(
+                        ("window_result_projection", None, "R17", [], None)
+                    )
                 else:
                     _need(origin is not None, "a result column reads a result port")
                     row_generated.append(
@@ -4529,6 +5091,88 @@ def _decode_fixed_public(document, limits):
                     else [column["terminal"] for column in incoming],
                     "result": export,
                 }
+            elif node["kind"] == "window":
+                function = WINDOW_SPELLINGS[node["spelling"]]
+                specification = node["specification"]
+                if "reference" in specification:
+                    resolved = window_declared.get(specification["reference"])
+                    _need(
+                        resolved is not None,
+                        "a named window use reads its own declaration",
+                    )
+                    assert resolved is not None
+                    specification = resolved
+                operators = [
+                    i
+                    for i in statements
+                    if premises[i]["key"] == "operator_environment"
+                ]
+                # R14 owns the computation and its comparison domains, R15 owns the
+                # realized specification, so each structure keeps its own cause.
+                row_generated.append(
+                    ("window_computation", None, "R14", operators, None)
+                )
+                row_generated.append(("window_specification", None, "R15", [], None))
+                for _binding in specification["partitions"]:
+                    row_generated.append(
+                        ("window_partition_comparison", None, "R14", [], None)
+                    )
+                for _item in specification["orders"]:
+                    row_generated.append(
+                        ("window_order_comparison", None, "R14", [], None)
+                    )
+
+                def window_input(binding):
+                    """The one established input column this component reads."""
+                    _need(binding["alias"] == alias, "window component scope")
+                    matched = [
+                        column
+                        for column in incoming
+                        if column["name"] == binding["name"]
+                    ]
+                    _need(
+                        len(matched) == 1,
+                        "a window component reads one established input column",
+                    )
+                    return matched[0]
+
+                for binding in (
+                    *specification["partitions"],
+                    *specification["orders"],
+                ):
+                    window_input(binding)
+                ports = [
+                    window_input(item)
+                    for item in node["arguments"]
+                    if item["kind"] == "port"
+                ]
+                value = ports[0] if ports else None
+                default = None
+                if (
+                    function in WINDOW_NAVIGATION_FUNCTIONS
+                    and len(node["arguments"]) == 3
+                ):
+                    third = node["arguments"][2]
+                    default = (
+                        window_input(third)["realization"]["nullable"]
+                        if third["kind"] == "port"
+                        else False
+                    )
+                realization = window_realization(function, value, default)
+                read, field, literal, root = None, None, None, None
+                origin = {
+                    "role": "window_result",
+                    "function": function,
+                    "selected": True,
+                    "window": node["window"],
+                    "stage": block,
+                    "result": export,
+                }
+                row_window_shape[encoded(node["window"]).decode()] = (
+                    len(node["arguments"]),
+                    len(specification["partitions"]) + len(specification["orders"]),
+                    len(incoming),
+                )
             else:
                 row_generated.append(("computed_projection", export, "R05", [], None))
                 resolved = row_resolve(node["value"], incoming, alias, export)

@@ -5435,13 +5435,36 @@ def _promoted_scalar_producer(
     root = replay.root
     # Hidden and unselected later-stage values count: a scalar-looking select list
     # does not prove the body introduces no window or QUALIFY stage.
-    if (
-        type(root) is not ProjectConcreteNoJoinReplay
-        or root.window_outputs
-        or root.qualify.kind is not ProjectNoJoinQualifyKind.ABSENT
-        or root.qualify.selected_windows
-        or root.qualify.hidden_attempts
-    ):
+    if type(root) is not ProjectConcreteNoJoinReplay:
+        return None
+    qualify = root.qualify
+    if root.window_outputs or qualify.kind is not ProjectNoJoinQualifyKind.ABSENT:
+        # A completed window or QUALIFY body transports its own window results, so
+        # the joined consumer reads the established stage output instead of the
+        # historical source-root projection. Admission stays narrow: the QUALIFY
+        # predicate must be concrete, every hidden attempt must have resolved to a
+        # real computation rather than an unsupported or absent site, no relation
+        # ORDER or LIMIT barrier may ride along, and an authored JOIN must actually
+        # consume this producer. A selected output is then either an ordinary
+        # carried scalar or this stage's own window result.
+        if (
+            replay.ordering is not None
+            or replay.limit is not None
+            or not qualify.concrete
+            or any(
+                type(attempt.analysis) is not WindowComputationAnalysis
+                for attempt in qualify.hidden_attempts
+            )
+            or not _joined_consumer(completion, base_entry.owner)
+        ):
+            return None
+        admitted = {ProjectNoJoinScalarExpression, ProjectModuleWindowOutputFact}
+        if not replay.fields or any(
+            type(item.source) not in admitted for item in replay.fields
+        ):
+            return None
+        return replay
+    if qualify.selected_windows or qualify.hidden_attempts:
         return None
     if root.mode is ProjectJoinedAggregationMode.ABSENT:
         if root.aggregate_readiness is not None:

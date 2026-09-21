@@ -31,6 +31,7 @@ from pietto._project.project_sql_emission_ast import (
     row_parameter_leaves,
 )
 from pietto._project import project_sql_emission_aggregation as grouping
+from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project.project_sql_plan_literals import ProjectSQLFixedLiteralValue
@@ -397,6 +398,9 @@ def _row_columns(query, slots):
         if type(column) is grouping.AggregateProjectionColumn:
             result.append(_aggregate_column(column, image, realization, slots))
             continue
+        if type(column) is windowing.WindowProjectionColumn:
+            result.append(_window_column(column, image, realization))
+            continue
         link = column.link
         correspondence = {
             "expression": _ref(column.expression),
@@ -414,6 +418,11 @@ def _row_columns(query, slots):
         if image.aggregate is not None:
             correspondence = {
                 "aggregate_transport": _aggregate_provenance(image.aggregate),
+                **correspondence,
+            }
+        if image.window is not None:
+            correspondence = {
+                "window_transport": _window_provenance(image.window),
                 **correspondence,
             }
         if image.literal is not None:
@@ -500,6 +509,59 @@ def _aggregate_provenance(origin):
         else [_ref(item) for item in aggregate.arguments],
         "inputs": [_ref(item) for item in origin.inputs],
         "result": _ref(origin.result),
+    }
+
+
+def _window_provenance(origin):
+    """One window occurrence result, as its retained identity."""
+
+    window = origin.window
+    return {
+        "role": origin.kind,
+        "function": origin.function,
+        "selected": origin.selected,
+        "window": _ref(window.ref),
+        "stage": _ref(window.block),
+        "definition": _ref(window.definition),
+        "policy": _ref(window.policy),
+        "arguments": [_ref(item) for item in window.arguments],
+        "uses": [_ref(item) for item in window.uses],
+        "inputs": [_ref(item) for item in origin.inputs],
+        "result": _ref(origin.result),
+    }
+
+
+def _window_column(column, image, realization):
+    """One canonical visible window output's complete public description."""
+
+    origin = image.window
+    assert origin is not None
+    return {
+        "ordinal": column.ordinal,
+        "label": column.label,
+        "logical_type": {
+            "kind": "builtin",
+            "name": realization.tag,
+            "parameters": {
+                "precision": realization.domain["precision"],
+                "scale": realization.domain["scale"],
+            }
+            if realization.tag == "Decimal"
+            else None,
+        },
+        "nullable": realization.nullable,
+        "representation": {
+            "storage": realization.storage,
+            "nullable": realization.nullable,
+            "domain": realization.domain,
+        },
+        "correspondence": {
+            "window_origin": _window_provenance(origin),
+            "input_port": _ref(column.input_port),
+            "export": _ref(column.export.ref),
+            "projection": _ref(column.projection.ref),
+            "sql_symbol": column.symbol.position,
+        },
     }
 
 

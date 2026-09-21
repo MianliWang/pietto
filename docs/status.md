@@ -76,8 +76,8 @@ documentation does not supersede that evidence.
 | Phase 66 Slice 6 | `COMPLETED / PUBLISHED` |
 | Phase 66 Slice 7 | `COMPLETED / PUBLISHED` |
 | Phase 66 Slice 8 | `COMPLETED / PUBLISHED` |
-| Phase 66 Slice 9 | `NEXT / NOT IMPLEMENTED` |
-| Phase 66 Slice 10 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 9 | `COMPLETED / PUBLISHED` |
+| Phase 66 Slice 10 | `NEXT / NOT IMPLEMENTED` |
 | Phase 66 Slice 11 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 12 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 13 | `NOT IMPLEMENTED` |
@@ -85,7 +85,7 @@ documentation does not supersede that evidence.
 | Phase 66 Slice 15 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 16 | `NOT IMPLEMENTED` |
 | Phase 66 route | `N=16` |
-| Next | `Phase 66 Slice 9 — Admitted windows, named uses and QUALIFY` |
+| Next | `Phase 66 Slice 10 — DISTINCT, ORDER and LIMIT result boundaries` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -1313,3 +1313,37 @@ evidence; this closure authorizes no such work and rewrites no completed Phase63
 audit identity. Like Interlude III it deliberately adds no lifecycle-table row. Phase66
 remains `ACTIVE`, Slices1–8 remain `COMPLETED / PUBLISHED`, Slice9 remains
 `NEXT / NOT IMPLEMENTED`, N66 remains16 and no Slice9 implementation occurred.
+
+Phase66 Slice9 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI
+with Python3.12,Python3.13,both target jobs and the strict v2 aggregate. The
+[admitted window contract](spec/phase66-slice9-admitted-windows-named-windows-frames-qualify-emission-v1.md)
+emits the eleven admitted R14/R15 identities over their exact pre-window input, with
+PARTITION BY, the retained window ORDER direction, ROWS and RANGE finite static bounds,
+offset RANGE only under its single non-null Int key premise, and a native WINDOW clause
+whose generated `w0` symbols are capture-safe so two uses of one declaration share one
+definition while two declarations never merge. Every window result publishes its own
+physical representation instead of inheriting an input's: ranking results are the
+target's own non-null signed64, a bucket result is the non-null integer width that target
+returns (int4 on PostgreSQL, a bigint on MySQL), distribution results are its own double
+through the V06 boundary, and navigation and frame-sensitive results carry their value argument and
+gain only the possibility of NULL. QUALIFY is the outer TRUE-only filter over established
+window ports; it never moves before the window, never recomputes it, and a hidden result
+filters rows without entering the public schema, while a selected and a hidden sibling
+with identical spellings remain two computations. PostgreSQL additionally realizes GROUPS
+and EXCLUDE; MySQL keeps `window_frame_groups_approved_non_support_on_mysql` while its
+adjacent ROWS and RANGE windows still emit, and IGNORE NULLS and FROM LAST stay exact
+typed blockers on both targets with no emulation. An authorized narrow upstream route now
+transports a fully completed window/QUALIFY producer onto the current-input route, so
+aggregate->window, JOIN->window and window->outer-JOIN compose and an outer-nulled window
+value becomes NULL as a port rather than being recomputed above the JOIN; lineage status,
+`PIE-S2333` and every relationship boundary are unchanged, and transportability grants no
+relationship-endpoint or M1/M2/M4 guarantee. Slice9 closes the window/QUALIFY member of
+R11/C09: SEMI and ANTI wrap the complete right terminal with its own window and QUALIFY,
+and the right's selected or hidden result never reaches the left schema. The denominator
+is 43 cases/119 public documents per target: postgres90 VERIFIED,3 INPUT_REJECTED,26
+BLOCKED; mysql87 VERIFIED,3 INPUT_REJECTED,29 BLOCKED.
+R03 outstanding joint execution: Slice10 ordinary/rebound/completed ORDER and ORDER/LIMIT sharing; Slice11 repeated UNION ALL and two import facades.
+R11/C09 outstanding membership differences: Slice10 LIMIT0/LIMIT1; Slice11 SET.
+Phase66 remains `ACTIVE`; Slice10 is `NEXT / NOT IMPLEMENTED`; Slices11–16 remain `NOT IMPLEMENTED`.
+N66 remains16. Do not start Slice10 automatically. DISTINCT, ORDER/LIMIT, SET, public
+project emit CLI, caller rebind, general result decoder and product executor are not added.

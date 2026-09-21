@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from pietto._project import project_sql_plan_aggregation as aggregation
+from pietto._project import project_sql_plan_windows as plan_windows
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project.model import ProjectResolvedTypeKind
@@ -66,6 +67,8 @@ class StageColumn:
     scope: Any = None
     aggregate: Any = None
     """One grouped determinant or aggregate result this value ultimately is."""
+    window: Any = None
+    """One window occurrence result this value ultimately is."""
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -218,6 +221,7 @@ type ReferenceNode = (
     | type[row.ProjectSQLJoinedReference]
     | type[row.ProjectSQLMatchReference]
     | type[aggregation.ProjectSQLResultReference]
+    | type[plan_windows.ProjectSQLWindowReference]
 )
 
 
@@ -247,7 +251,12 @@ def build_row_value(
     tag, nullable = value_tag(expression), value_nullable(expression)
     if tag is None or nullable is None:
         return None, ("PIE-B1004", "expression_logical_type_evidence_missing")
-    if type(expression) is reference_type:
+    if (
+        type(expression) is reference_type
+        or type(expression) is plan_windows.ProjectSQLWindowReference
+    ):
+        # A QUALIFY reference is always a read of an established window result
+        # port, whatever reference kind the surrounding stage uses.
         column = columns.get(expression.port)
         if column is None:
             return None, ("PIE-B1001", "reference_outside_stage_scope")
@@ -268,6 +277,7 @@ def build_row_value(
         row.ProjectSQLJoinedReference,
         row.ProjectSQLMatchReference,
         aggregation.ProjectSQLResultReference,
+        plan_windows.ProjectSQLWindowReference,
     }:
         return None, ("PIE-B1001", "reference_outside_its_admitted_scope")
     if type(expression) is row.ProjectSQLUnary:

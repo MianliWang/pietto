@@ -752,6 +752,16 @@ def test_public_premise_types_are_closed(built, key, value):
 
 def test_current_emission_variant_manifest_is_complete():
     assert probe.VARIANTS == {
+        # Slice9 windows: the admitted R14 families, R15 frames and named
+        # windows, R17 selected/hidden QUALIFY, and the exact refusal set.
+        "A_window_ranking": ("peers",),
+        "A_window_distribution": ("spread",),
+        "A_window_navigation": ("offsets",),
+        "A_window_frame": ("rows", "range"),
+        "A_window_groups": ("exclude",),
+        "A_window_named": ("shared",),
+        "A_window_qualify": ("selected", "hidden"),
+        "V_window_blocked": ("ignore_nulls", "from_last", "offset_range_keys"),
         "G_emission_table_bag": ("bag",),
         "H_emission_query_bag": ("bag",),
         "I_emission_table_empty": ("empty",),
@@ -867,7 +877,7 @@ def test_current_emission_variant_manifest_is_complete():
     }
     for target in ("postgres", "mysql"):
         inputs = probe.generation_inputs(target)
-        assert len(inputs) == 107
+        assert len(inputs) == 119
         assert (
             sum(
                 item["id"]

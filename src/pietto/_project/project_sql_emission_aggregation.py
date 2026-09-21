@@ -31,15 +31,25 @@ COUNT_MAX = (1 << 63) - 1
 GROUPING_TAGS = frozenset({"Int", "Bool", "Text", "Decimal"})
 TEXT_DOMAIN_KEYS = ("encoding", "collation", "padding")
 DECIMAL_DOMAIN_KEYS = ("precision", "scale")
-STAGE_KINDS = ("let", "where", "aggregate", "satisfying", "projection")
+STAGE_KINDS = (
+    "let",
+    "where",
+    "aggregate",
+    "satisfying",
+    "window",
+    "qualify",
+    "projection",
+)
 # The one admitted stage schedule: ordered LET, one WHERE, the aggregation, its
-# own satisfying, then the exact visible projection.
+# own satisfying, the window stage, QUALIFY, then the exact visible projection.
 STAGE_ORDER = {kind: position for position, kind in enumerate(STAGE_KINDS)}
 OPERATORS = {
     "let": (),
     "where": ("row_filter",),
     "aggregate": ("group_aggregate",),
     "satisfying": ("result_filter",),
+    "window": ("window_evaluation",),
+    "qualify": ("qualify",),
     "projection": ("final_projection",),
 }
 FIELD_NULLABILITY = {
@@ -222,7 +232,9 @@ def aggregated_definitions(plan) -> dict[Any, Any]:
     return result
 
 
-def stage_schedule_valid(kinds: tuple[str, ...], *, aggregated: bool) -> bool:
+def stage_schedule_valid(
+    kinds: tuple[str, ...], *, aggregated: bool, windowed: bool = False
+) -> bool:
     """The exact admitted stage order for one definition, and nothing else."""
     if (
         not kinds
@@ -232,8 +244,12 @@ def stage_schedule_valid(kinds: tuple[str, ...], *, aggregated: bool) -> bool:
         or kinds.count("where") > 1
         or kinds.count("aggregate") > 1
         or kinds.count("satisfying") > 1
+        or kinds.count("window") > 1
+        or kinds.count("qualify") > 1
         or ("aggregate" in kinds) is not aggregated
+        or ("window" in kinds) is not windowed
         or ("satisfying" in kinds and "aggregate" not in kinds)
+        or ("qualify" in kinds and "window" not in kinds)
     ):
         return False
     positions = [STAGE_ORDER[kind] for kind in kinds]
@@ -391,9 +407,12 @@ def blocks_admitted(plan, *, single_input_use: bool = False) -> bool:
     for definition in named:
         blocks = sorted(blocks_by_definition[definition.ref], key=lambda b: b.position)
         kinds = tuple(block.kind.value for block in blocks)
+        windowed = "window" in kinds
         stage = stages.get(definition.ref)
         if (
-            not stage_schedule_valid(kinds, aggregated=stage is not None)
+            not stage_schedule_valid(
+                kinds, aggregated=stage is not None, windowed=windowed
+            )
             or tuple(block.position for block in blocks) != tuple(range(len(blocks)))
             or (
                 single_input_use
@@ -409,7 +428,10 @@ def blocks_admitted(plan, *, single_input_use: bool = False) -> bool:
                 if position == 0 and definition.ref not in joined
                 else ()
             )
-            expected += OPERATORS[block.kind.value]
+            operators = OPERATORS.get(block.kind.value)
+            if operators is None:
+                return False
+            expected += operators
             if tuple(item.kind.value for item in block.operators) != expected:
                 return False
         if stage is None:
@@ -419,9 +441,17 @@ def blocks_admitted(plan, *, single_input_use: bool = False) -> bool:
         if not _stage_bound(stage, blocks[kinds.index("aggregate")], keys, values):
             return False
         items = projections.get(blocks[-1].ref, ())
-        if len(items) != len(definition.exports) or any(
-            item.aggregation is not stage.ref or item.export is not export.ref
-            for item, export in zip(items, definition.exports, strict=True)
+        # A windowed body's visible projection mixes this aggregation's results
+        # with its own window results, so each aggregate projection is checked
+        # against the export it actually claims rather than by position.
+        claimed = {item.export: item for item in items}
+        if len(claimed) != len(items) or any(
+            item.aggregation is not stage.ref for item in items
+        ):
+            return False
+        if not windowed and (
+            len(items) != len(definition.exports)
+            or any(export.ref not in claimed for export in definition.exports)
         ):
             return False
     return True
@@ -701,3 +731,9 @@ def build_projections(
             )
         )
     return tuple(columns), None
+
+
+def plan_projection_type():
+    """The retained aggregate projection type, for exact dispatch by identity."""
+
+    return aggregation.ProjectSQLAggregateProjection

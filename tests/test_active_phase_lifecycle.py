@@ -320,8 +320,8 @@ EXPECTED_STATUS = (
     ("Phase 66 Slice 6", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 7", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 8", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 9", "`NEXT / NOT IMPLEMENTED`"),
-    ("Phase 66 Slice 10", "`NOT IMPLEMENTED`"),
+    ("Phase 66 Slice 9", "`COMPLETED / PUBLISHED`"),
+    ("Phase 66 Slice 10", "`NEXT / NOT IMPLEMENTED`"),
     ("Phase 66 Slice 11", "`NOT IMPLEMENTED`"),
     ("Phase 66 Slice 12", "`NOT IMPLEMENTED`"),
     ("Phase 66 Slice 13", "`NOT IMPLEMENTED`"),
@@ -331,7 +331,7 @@ EXPECTED_STATUS = (
     ("Phase 66 route", "`N=16`"),
     (
         "Next",
-        "`Phase 66 Slice 9 — Admitted windows, named uses and QUALIFY`",
+        "`Phase 66 Slice 10 — DISTINCT, ORDER and LIMIT result boundaries`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -5566,6 +5566,71 @@ def test_validation_performance_interlude_iv_no_gain_is_recorded_as_prose() -> N
     for document in (_read(STATUS), _read(ROADMAP)):
         assert "Interlude IV Slice 1 |" not in document
         assert "Slice 8.5" not in document
+
+
+def test_phase66_slice9_is_recorded_with_its_exact_denominator() -> None:
+    target = (
+        "spec/phase66-slice9-admitted-windows-named-windows-frames-qualify-"
+        "emission-v1.md"
+    )
+    for path in (STATUS, ROADMAP):
+        document = " ".join(_read(path).split())
+        assert f"]({target})" in document
+        assert (
+            "Phase66 Slice9 is `COMPLETED / PUBLISHED` only upon successful"
+            " natural exact-head CI" in document
+        )
+        assert (
+            "two uses of one declaration share one definition while two"
+            " declarations never merge" in document
+        )
+        assert "ranking results are the" in document
+        assert (
+            "a bucket result is the non-null integer width that target"
+            " returns (int4 on PostgreSQL, a bigint on MySQL)" in document
+        )
+        assert (
+            "a hidden result filters rows without entering the public schema"
+            in document
+        )
+        assert (
+            "`window_frame_groups_approved_non_support_on_mysql` while its"
+            " adjacent ROWS and RANGE windows still emit" in document
+        )
+        assert (
+            "the right's selected or hidden result never reaches the left schema"
+            in document
+        )
+        assert (
+            "The denominator is 43 cases/119 public documents per target:"
+            " postgres90 VERIFIED,3 INPUT_REJECTED,26 BLOCKED; mysql87"
+            " VERIFIED,3 INPUT_REJECTED,29 BLOCKED." in document
+        )
+        assert (
+            "R11/C09 outstanding membership differences: Slice10 LIMIT0/LIMIT1;"
+            " Slice11 SET." in document
+        )
+        assert (
+            "Phase66 remains `ACTIVE`; Slice10 is `NEXT / NOT IMPLEMENTED`;"
+            " Slices11\u201316 remain `NOT IMPLEMENTED`." in document
+        )
+    assert (STATUS.parent / target).is_file()
+
+
+def test_phase66_slice9_amendment_is_recorded_in_the_route_lock() -> None:
+    route = (
+        STATUS.parent
+        / "spec"
+        / "phase66-dialect-sql-emission-product-phase-initiation-gate-route-lock-v1.md"
+    )
+    document = " ".join(route.read_text(encoding="utf-8").split())
+    assert (
+        "## Upstream window-producer completion route authorized for Slice9" in document
+    )
+    assert (
+        "R11/C09 outstanding membership differences: Slice10 LIMIT0/LIMIT1;"
+        " Slice11 SET." in document
+    )
 
 
 def test_phase66_slice8_amendment_is_recorded_in_the_route_lock() -> None:

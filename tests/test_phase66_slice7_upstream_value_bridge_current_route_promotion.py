@@ -47,12 +47,22 @@ UNCHANGED = ("field_only", "where_only")
 # scalar. Slice8 implements the aggregate branch, so only the window body is still
 # excluded here; both sources are authored in the real accepted surface, because a
 # body that never parses would prove nothing about the promotion at all.
+# Slice9 implemented the window branch of this exclusion, so the retained
+# negative is now a window producer that still carries a later relation barrier.
+# Its ORDER belongs to Slice10, so the body keeps its established base route.
 EXCLUDED = {
-    "window": (
+    "window_order": (
         "table prod:\n    from rhs\n    select:\n        pid = id\n"
         "        at = row_number() window:\n            order by:\n                id\n"
+        "    order by:\n        pid\n"
     ),
 }
+# Slice9's authorized window-producer completion route: this body now reaches
+# the current route with its own completed window results.
+WINDOW_PRODUCER = (
+    "table prod:\n    from rhs\n    select:\n        pid = id\n"
+    "        at = row_number() window:\n            order by:\n                id\n"
+)
 # Slice8's authorized aggregate-producer completion route: this body now reaches
 # the current route with its own grouped readiness instead of the base route.
 AGGREGATE_PRODUCER = (
@@ -169,7 +179,7 @@ def test_an_already_concrete_producer_keeps_its_established_route(
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("shape", sorted(EXCLUDED))
 def test_a_later_owner_body_is_excluded_from_the_promotion(tmp_path, target, shape):
-    """A window producer keeps its established route and its own diagnostic.
+    """A later-barrier body keeps its established route and its own diagnostic.
 
     The source parses and completes: the producer stays on the base route and the
     joined tail stays non-concrete with PIE-S2333, so this is a real retained
@@ -188,6 +198,26 @@ def test_a_later_owner_body_is_excluded_from_the_promotion(tmp_path, target, sha
     _, outcome = build(tmp_path / shape, target, source)
     assert outcome.status == "BLOCKED"
     assert [item.code for item in outcome.diagnostics] == ["PIE-S2333"]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_window_producer_now_reaches_the_current_join_route(tmp_path, target):
+    """Slice9 migrates the window branch of that exclusion to real behavior.
+
+    The producer's own completed window result is what the JOIN transports, so
+    the consumer reads the established stage output rather than the historical
+    source-root projection. Transportability still grants no relationship
+    endpoint and no M1/M2/M4 guarantee.
+    """
+    checked, outcome = build(
+        tmp_path, target, WINDOW_PRODUCER + CONSUMER.format(kind="left")
+    )
+    entry = producer_entry(checked)
+    assert type(entry) is ProjectCompletedEffectiveOutput
+    assert outcome.status == "VERIFIED"
+    artifact = outcome.artifact
+    assert artifact is not None
+    assert "ROW_NUMBER()" in artifact.rendered.sql.decode()
 
 
 @pytest.mark.parametrize("target", TARGETS)
