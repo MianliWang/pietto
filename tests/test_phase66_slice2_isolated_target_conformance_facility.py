@@ -659,6 +659,7 @@ def valid_receipts(
                     "_verification",
                     "_scopes",
                     "_parameters",
+                    "_inspection",
                 )
             },
             "probe_sha256": expected["harness"][
@@ -1803,6 +1804,7 @@ def test_mysql_connection_keeps_ca_verification_and_explicit_modern_tls(
     "mutation",
     (
         "emission_origin",
+        "missing_inspection_origin",
         "source_hash",
         "contract_hash",
         "probe_hash",
@@ -1828,6 +1830,10 @@ def test_new_installed_public_chain_corruptions_are_rejected(
         emission["origins"]["pietto._project.project_sql_emission"]["member"] = (
             "checkout/project_sql_emission.py"
         )
+    elif mutation == "missing_inspection_origin":
+        # Slice12: the generation child must have imported the inspection module
+        # from the installed wheel; a receipt without that origin is incomplete.
+        del emission["origins"]["pietto._project.project_sql_emission_inspection"]
     elif mutation == "source_hash":
         record["source_sha256"] = "0" * 64
     elif mutation == "contract_hash":

@@ -79,13 +79,13 @@ documentation does not supersede that evidence.
 | Phase 66 Slice 9 | `COMPLETED / PUBLISHED` |
 | Phase 66 Slice 10 | `COMPLETED / PUBLISHED` |
 | Phase 66 Slice 11 | `COMPLETED / PUBLISHED` |
-| Phase 66 Slice 12 | `NEXT / NOT IMPLEMENTED` |
-| Phase 66 Slice 13 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 12 | `COMPLETED / PUBLISHED` |
+| Phase 66 Slice 13 | `NEXT / NOT IMPLEMENTED` |
 | Phase 66 Slice 14 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 15 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 16 | `NOT IMPLEMENTED` |
 | Phase 66 route | `N=16` |
-| Next | `Phase 66 Slice 12 — Complete emission artifact, dual-denominator closure and SQL-range queries` |
+| Next | `Phase 66 Slice 13 — Project emit-SQL, explicit contract input, public output and legacy compatibility` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -1402,3 +1402,29 @@ Phase66 remains `ACTIVE`; Slice12 is `NEXT / NOT IMPLEMENTED`; Slices13–16 rem
 N66 remains16. Do not start Slice12 automatically. BY NAME, implicit quantifiers, common-type
 inference, SET-local ORDER/LIMIT, public project emit CLI, caller rebind, general result
 decoder and product executor are not added; Slice11 completion is not Phase66 completion.
+
+Phase66 Slice12 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI
+with Python3.12,Python3.13,both target jobs and the strict v2 aggregate. The
+[complete-artifact contract](spec/phase66-slice12-complete-emission-artifact-dual-denominator-sql-range-queries-v1.md)
+closes the emission artifact across the admitted Slice3–11 shapes without a new
+representation: one private immutable inspection view binds the exact verified runtime
+artifact to its prepared request only after the complete verifier passes, and refuses
+malformed, stale, foreign and decoded-document roots. Both requirement denominators stay
+independently re-enumerated from the retained plan demands and from the actual generated
+SQL structures, with every premise an exact retained declaration root, so removing one
+entry, removing matching entries from both lists, duplicating, reordering or substituting
+a foreign subject or a rule-to-rule reference is refused. Forward SQL-range lookup from
+an exact subject or origin returns all its token events and expression overlays with
+their retained source associations; reverse lookup takes a byte position
+(`start <= p < end`) or a nonempty half-open byte interval and returns every overlapping
+range in retained rendering order, tokens before overlays, rejecting Bool-as-int,
+negative, reversed and out-of-buffer coordinates. The installed emission probe exercises
+the view in the generation child over every document before export, and the required
+same-child origins include `project_sql_emission_inspection`. The denominator is
+unchanged: 60 cases/181 public documents per target: postgres150 VERIFIED,3
+INPUT_REJECTED,28 BLOCKED; mysql147 VERIFIED,3 INPUT_REJECTED,31 BLOCKED.
+Phase66 remains `ACTIVE`; Slice13 is `NEXT / NOT IMPLEMENTED`; Slices14–16 remain `NOT IMPLEMENTED`.
+N66 remains16. Do not start Slice13 automatically. The public project emit-SQL CLI, the
+private observation format, database error-position mapping, caller rebind, general
+result decoder and product executor are not added; Slice12 completion is not Phase66
+completion.

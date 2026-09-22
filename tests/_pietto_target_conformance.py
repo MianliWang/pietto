@@ -425,6 +425,7 @@ def verify_emission_generation(value, target, expected):
             "_verification",
             "_scopes",
             "_parameters",
+            "_inspection",
         )
     }
     if not required <= value["origins"].keys():

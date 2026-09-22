@@ -900,6 +900,25 @@ exact-head CI 成功后：
 
 R03 outstanding joint execution: none.
 
+## R23 Slice12 delivery
+
+Slice12 按 [Slice12 contract](phase66-slice12-complete-emission-artifact-dual-denominator-sql-range-queries-v1.md)
+整合 R23：不新增表示，而是把 Slice3–11 已发布的独立 plan→AST、events→bytes、双 denominator 与
+parameter/result verifiers 汇总为一个 artifact-bound 的私有 inspection 视图
+（`project_sql_emission_inspection`），并补齐 C20–C25/C31 的集成见证与 forward/reverse SQL-range
+查询。C20：两清单各自从实际结构独立枚举，单删、互删、重复、重排、foreign subject 均拒绝。C21：同
+statement scope 的不同声明为 PIE-B1005 `inconsistent_declared_scope`，source-local 合法差异
+（`max_characters`）不构成 global conflict，跨源操作各自的 compatibility rule
+（`text_comparison_domain_conflict`、`set_column_physical_representation_mismatch`）保留。C22：closed
+representation 只有直接 accepted roots（retained `Premise`、report entry、AST subject），不能表达
+rule→rule 引用，复制、替换或 rule 引用即拒绝，不引入 proof graph。C23：fresh explicit target
+preparation 可复用不变的 neutral plan，old artifact 不因此重获 validity，foreign/stale/decoded root
+拒绝。C24/C25：sidecar 正确而 SQL bytes 被改、mid-codepoint endpoint、JSON 或 parser 坐标冒充 SQL
+byte offsets 均拒绝；byte 地址查询可命中 interior byte 所在 range，但 emitted endpoints 保持字符边界。
+C31：LEGAL_UNPROVED 为 PIE-B1006 `original_enforcement_not_fulfilled` 且原 warning 保留，EXCEPT-right
+`complete_right_terminal` 与 LIMIT0 operand 的原 demands 不可删，ordinary aggregate risk 不升级为义务。
+installed probe 在 generation child 内于导出前消费该视图；denominator 保持 60/181。
+
 ## R11/C09 scheduling amendment authorized for Slice7
 
 原 Slice1 route 将 R11 的完整 SEMI/ANTI right terminal 义务与 C09 的 right

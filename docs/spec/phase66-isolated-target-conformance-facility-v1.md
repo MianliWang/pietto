@@ -312,6 +312,14 @@ recovery/cleanup 上限与串行执行不变。超时仍是 generation 阶段的
 任何 case，receipt 经既有 failure/cleanup 路径记为 failed，无 partial-batch success、retry
 或 override。上文历史章节的 generation30s 记录保留为当时事实；此修复不承诺任何提速。
 
+Slice12 不改变 denominator（60 cases/181 public documents per target；postgres 150/3/28；
+mysql 147/3/31）。已安装 emission probe 在 generation child 内、每个 record 导出前，对 VERIFIED
+artifact 构造私有 inspection 视图（`pietto._project.project_sql_emission_inspection`）并做有界一致性
+检查：ranges/columns/parameter uses 与 data-only 解码结果逐项对应，parameter token 与首尾 range 的
+forward/reverse 查询命中，EOF 无命中；任何 drift 使整批 generation 失败。同一子进程的 required
+installed origins 因此包含 `project_sql_emission_inspection`。receipt v2、pins、deadlines 与 workflow
+不变。
+
 ## Review, validation and publication
 
 独立上限6 root-cause correction groups、4 authoritative starts、每target4 full local

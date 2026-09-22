@@ -177,3 +177,14 @@ aggregation relations are loaded by the same fixture manager. Only the GROUPED/G
 branch of the amended R11/C09 ledger closes here; window/QUALIFY, LIMIT and SET
 membership remain with Slices9/10/11, and windows, DISTINCT, ORDER/LIMIT and SET
 remain BLOCKED for their own Slices.
+
+
+The [Slice12 complete-artifact contract](spec/phase66-slice12-complete-emission-artifact-dual-denominator-sql-range-queries-v1.md)
+adds no emitter, no public format change and no target case. It adds one private
+inspection module, `project_sql_emission_inspection`, whose factory binds a runtime
+artifact to its prepared request only after the complete verifier passes and then answers
+forward (subject or origin to SQL ranges with their source associations) and reverse (byte
+position or half-open byte interval to every overlapping range) queries by bounded linear
+scans of the retained ranges. The installed emission probe exercises that view inside the
+generation child before export, so the required same-child origins include it; the target
+denominator stays 60 cases and 181 public documents per target.

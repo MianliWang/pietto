@@ -8028,6 +8028,72 @@ def decode_public(data: bytes) -> dict[str, Any]:
         raise ValueError("malformed public emission artifact") from error
 
 
+def inspect_case(outcome, data):
+    """Exercise the private runtime view against the data-only decoding of `data`.
+
+    Runs inside the generation child while the runtime artifact still exists, so
+    the view is bound before the public record leaves the process. Every check is
+    a bounded scan of the retained ranges; a drift raises and fails generation.
+    A failure outcome has no artifact and no view.
+    """
+    from pietto._project.project_sql_emission_inspection import (
+        inspect_project_sql_emission,
+    )
+
+    artifact = outcome.artifact
+    if artifact is None:
+        return None
+    view = inspect_project_sql_emission(artifact, artifact.request)
+    document = decode_public(data)
+    drift = "runtime inspection drift"
+    _need(document["status"] == "VERIFIED", drift)
+    _need(view.sql == document["sql"].encode("utf-8"), drift)
+    _need(len(view.ranges) == len(document["ranges"]), drift)
+    for item, described in zip(view.ranges, document["ranges"], strict=True):
+        _need(
+            (item.start, item.end, item.kind, item.role)
+            == (
+                described["start"],
+                described["end"],
+                described["kind"],
+                described["role"],
+            ),
+            drift,
+        )
+        _need(len(item.origins) == len(described["origins"]), drift)
+        for (entry, associations), origin in zip(
+            item.origins, described["origins"], strict=True
+        ):
+            _need(entry.position == origin["position"], drift)
+            _need(len(associations) == len(origin["sources"]), drift)
+    _need(
+        [column.label for column in view.columns]
+        == [column["label"] for column in document["columns"]],
+        drift,
+    )
+    _need(len(view.parameter_uses) == len(document["parameter_uses"]), drift)
+    for (use, token), described in zip(
+        view.parameter_uses, document["parameter_uses"], strict=True
+    ):
+        _need(
+            (use.server_index, token.start, token.end)
+            == (
+                described["server_index"],
+                described["range"]["start"],
+                described["range"]["end"],
+            ),
+            drift,
+        )
+        _need(token in view.at(token.start), drift)
+        _need(token in view.ranges_of(token.subject), drift)
+    for item in (view.ranges[0], view.ranges[-1]):
+        _need(item in view.at(item.start), drift)
+        _need(item in view.overlapping(item.start, item.end), drift)
+        _need(item in view.ranges_of(item.subject), drift)
+    _need(view.at(len(view.sql)) == (), drift)
+    return view
+
+
 def build_case(
     directory, source, contract, policy="preserve_literals", *, target_request=None
 ):
@@ -8100,6 +8166,9 @@ def main():
                 Path(scratch), item["source"], item["contract"], item["policy"]
             )
             data = serialize_project_sql_emission(outcome)
+            # The runtime view is bound and checked here, in the same child,
+            # before this case's public record is exported.
+            inspect_case(outcome, data)
             records.append(
                 {
                     "id": item["id"],
