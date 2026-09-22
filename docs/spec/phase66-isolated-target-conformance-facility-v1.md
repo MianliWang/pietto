@@ -305,6 +305,13 @@ C17 六式基础对、multiplicity、positional 全行比较、V01–V04/Float �
 `phase66 set right é`、`phase66 set sextet é`、`phase66 set outer é` 承载见证；oracle 按
 已发布 multiplicity laws 手工陈述。receipt v2 与 pins 不变。
 
+Slice11 发布后修复：已安装 emission probe 子进程（`emission_probe.py <target>`，整批 181
+documents 串行生成）的整批 deadline 由 30s 提高到 120s，两 target 同一常数；legacy
+`GENERATION_CHILD` 仍为 30s，wheel build120s/install180s、Docker/readiness/query/fetch/
+recovery/cleanup 上限与串行执行不变。超时仍是 generation 阶段的 `TimeoutExpired`：不执行
+任何 case，receipt 经既有 failure/cleanup 路径记为 failed，无 partial-batch success、retry
+或 override。上文历史章节的 generation30s 记录保留为当时事实；此修复不承诺任何提速。
+
 ## Review, validation and publication
 
 独立上限6 root-cause correction groups、4 authoritative starts、每target4 full local

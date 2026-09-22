@@ -335,7 +335,7 @@ def installed_generation(
     copied_probe.write_bytes(probe_bytes)
     result["emission"] = json.loads(
         command(
-            [str(python), "-I", str(copied_probe), target], cwd=scratch, timeout=30
+            [str(python), "-I", str(copied_probe), target], cwd=scratch, timeout=120
         ),
         object_pairs_hook=pairs,
     )

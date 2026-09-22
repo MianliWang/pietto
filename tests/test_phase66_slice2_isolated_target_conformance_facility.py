@@ -6,8 +6,10 @@ import argparse
 from copy import deepcopy
 import json
 from pathlib import Path
+import subprocess
 from types import SimpleNamespace
 from typing import Any
+import zipfile
 
 import pytest
 
@@ -284,13 +286,8 @@ def test_owned_cleanup_retains_failures_and_never_deletes_foreign_resources(
     assert not any(command[1] in {"stop", "rm"} for command in foreign.commands)
 
 
-def test_setup_failure_still_cleans_acquired_resources_and_writes_failure_receipt(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _injected_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     pins, pins_digest = facility.load_pins(facility.PINS)
-    monkeypatch.setattr(facility, "Resources", FakeResources)
-    monkeypatch.setattr(facility, "installed_generation", lambda *args: {})
-    monkeypatch.setattr(facility, "driver_info", lambda *args: {})
     monkeypatch.setattr(
         facility,
         "sys",
@@ -310,8 +307,90 @@ def test_setup_failure_still_cleans_acquired_resources_and_writes_failure_receip
     receipt, _ = facility.read_json(
         args.evidence_dir / "phase66-postgres-injected-1.json"
     )
+    return receipt
+
+
+def test_setup_failure_still_cleans_acquired_resources_and_writes_failure_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(facility, "Resources", FakeResources)
+    monkeypatch.setattr(facility, "installed_generation", lambda *args: {})
+    monkeypatch.setattr(facility, "driver_info", lambda *args: {})
+    receipt = _injected_run(tmp_path, monkeypatch)
     assert receipt["status"] == "failed" and receipt["cleanup"]["status"] == "success"
     assert receipt["failures"][0]["category"] == "INFRASTRUCTURE_FAILURE"
+    assert receipt["cleanup"]["absent"] == {"container": True, "network": True}
+
+
+def test_generation_children_run_serially_with_their_own_deadlines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[list[str], Path, int]] = []
+
+    def fake_command(
+        argv: list[str], *, cwd: Path, timeout: int, stdin: str | None = None
+    ) -> bytes:
+        calls.append((argv, cwd, timeout))
+        if argv[0] == "uv":
+            if argv[1] == "build":
+                with zipfile.ZipFile(Path(argv[-1]) / "pietto.whl", "w") as archive:
+                    archive.writestr("pietto/__init__.py", b"")
+            return b""
+        if argv[2] == "-c":
+            return b'{"stdout": ""}'
+        raise subprocess.TimeoutExpired(argv, timeout)
+
+    monkeypatch.setattr(facility, "command", fake_command)
+    monkeypatch.setattr(
+        facility,
+        "venv",
+        SimpleNamespace(EnvBuilder=lambda **_: SimpleNamespace(create=lambda _: None)),
+    )
+    (tmp_path / "private").mkdir()
+    probe = facility.EMISSION_PROBE
+    expected = {
+        "package_members": {"pietto/__init__.py": facility.digest(b"")},
+        "harness": {
+            probe.relative_to(facility.ROOT).as_posix(): facility.digest(
+                probe.read_bytes()
+            )
+        },
+    }
+    with pytest.raises(subprocess.TimeoutExpired):
+        facility.installed_generation("postgres", tmp_path, expected)
+    scratch = tmp_path / "private" / "scratch"
+    python = str(tmp_path / "private" / "venv" / "bin" / "python")
+    assert [call[0][:2] for call in calls] == [
+        ["uv", "build"],
+        ["uv", "pip"],
+        [python, "-I"],
+        [python, "-I"],
+    ]
+    legacy, emission = calls[2:]
+    assert legacy[0][2] == "-c" and legacy[1:] == (scratch, 30)
+    assert emission == (
+        [python, "-I", str(scratch / "emission_probe.py"), "postgres"],
+        scratch,
+        120,
+    )
+    assert (scratch / "emission_probe.py").read_bytes() == probe.read_bytes()
+
+
+def test_generation_timeout_prevents_case_execution_and_fails_the_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def timed_out(*args: Any) -> dict[str, Any]:
+        raise subprocess.TimeoutExpired(["emission_probe.py", "postgres"], 120)
+
+    monkeypatch.setattr(facility, "installed_generation", timed_out)
+    receipt = _injected_run(tmp_path, monkeypatch)
+    assert receipt["status"] == "failed" and receipt["generation"] is None
+    assert receipt["cases"] == [] and receipt["drivers"] is None
+    assert [
+        (failure["stage"], failure["kind"], failure["category"])
+        for failure in receipt["failures"]
+    ] == [("generation", "TimeoutExpired", "UNRESOLVED_ATTRIBUTION")]
+    assert receipt["cleanup"]["status"] == "success"
     assert receipt["cleanup"]["absent"] == {"container": True, "network": True}
 
 
