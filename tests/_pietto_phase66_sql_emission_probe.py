@@ -140,7 +140,74 @@ VARIANTS = {
     "O_result_membership": ("semi_limit1", "anti_limit1", "semi_limit0", "anti_limit0"),
     "O_result_window": ("qualify_distinct", "selected_order", "qualify_order_limit"),
     "V_result_blocked": ("hidden_strict_fd", "float_distinct", "order_expression"),
+    "S_set_forms": (
+        "union_all",
+        "union_distinct",
+        "intersect_all",
+        "intersect_distinct",
+        "except_all",
+        "except_distinct",
+    ),
+    "S_set_multiplicity": (
+        "intersect_all",
+        "intersect_distinct",
+        "empty_left",
+        "empty_right",
+    ),
+    "S_set_positions": (
+        "two_column_intersect_distinct",
+        "two_column_except_all",
+        "renamed_labels_union_all",
+    ),
+    "S_set_domains": (
+        "text_union_distinct",
+        "decimal_intersect_all",
+        "big_int_except_all",
+        "bool_union_distinct",
+        "float_union_all",
+    ),
+    "S_set_nesting": ("left_fold_except", "right_nested_except", "mixed_union_except"),
+    "S_set_boundaries": (
+        "ordered_operands",
+        "limit_zero_operand",
+        "distinct_operand",
+        "outer_consumer",
+    ),
+    "S_set_producers": (
+        "grouped_union",
+        "global_empty_union",
+        "satisfying_union",
+        "window_union_distinct",
+        "set_to_window",
+    ),
+    "S_set_membership": (
+        "semi_except",
+        "anti_except",
+        "semi_intersect",
+        "anti_intersect",
+    ),
+    "S_set_literals": ("preserve", "bind"),
+    "V_set_blocked": (
+        "physical_mismatch",
+        "float_intersect_all",
+        "arity_mismatch",
+        "type_mismatch",
+    ),
 }
+SET_CASES = frozenset(
+    {
+        "S_set_forms",
+        "S_set_multiplicity",
+        "S_set_positions",
+        "S_set_domains",
+        "S_set_nesting",
+        "S_set_boundaries",
+        "S_set_producers",
+        "S_set_membership",
+        "S_set_literals",
+        "V_set_blocked",
+    }
+)
 RESULT_CASES = frozenset(
     {
         "O_result_distinct",
@@ -251,6 +318,8 @@ WINDOW_NAVIGATION_FUNCTIONS = frozenset({"lag", "lead"})
 # Slice10 result demands: R18 owns the quotient, R19 relation ORDER, R20 the
 # pending hidden requirement and R21 the static LIMIT; a boundary is a generated
 # scope (R03) and every other result witness keeps the prior generic rule.
+# Slice11: every retained SET demand belongs to R22.
+SET_DEMAND_RULE = "R22"
 RESULT_DEMAND_RULES = {
     "result_boundary": "R03",
     "distinct": "R18",
@@ -306,6 +375,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         return window_fixture(target, case, variant)
     if case in RESULT_CASES:
         return result_fixture(target, case, variant)
+    if case in SET_CASES:
+        return set_fixture(target, case, variant)
     if case in {"W_join_shapes", "W_join_values", "V_join_full"}:
         return join_fixture(target, case, variant)
     if case in AGGREGATE_CASES:
@@ -726,6 +797,12 @@ AGGREGATE_RELATIONS = {
     "nulls": "phase66 agg nulls é",
     "keys": "phase66 agg keys é",
     "dupes": "phase66 agg dupes é",
+    # Slice11 SET witnesses: C17 operands, a common-class multiplicity partner
+    # and the membership left side.
+    "sa": "phase66 set left é",
+    "sb": "phase66 set right é",
+    "sc": "phase66 set sextet é",
+    "sl": "phase66 set outer é",
 }
 # Which fixed relation each variant's `agg` source reads. `keys` is always the
 # four-occurrence left input when a case declares it.
@@ -1951,6 +2028,284 @@ def result_fixture(target, case, variant):
     }
 
 
+# Slice11 SET witnesses. `agg` bodies read the fixed SET relations through the
+# Agg shape; `rows` bodies read the published emission source. Every operand is
+# a named producer, every SET owner is `query result`, and the C17 base pair is
+# SA.key = [1, 1, NULL] against SB.key = [1, NULL, NULL].
+SET_ONE = (
+    "table {name}:\n    from sb\n    where key == 1\n    select:\n        k = key\n"
+)
+SET_KEYS = (
+    "table a:\n    from sa\n    select:\n        k = key\n"
+    "table b:\n    from sb\n    select:\n        k = key\n"
+)
+SET_ROWS_AB = (
+    "table a:\n    from rows\n    select:\n        k = id\n"
+    "table b:\n    from rows\n    where id > 0\n    select:\n        k = id\n"
+)
+SET_BODIES = {
+    ("S_set_multiplicity", "intersect_all"): (
+        ("dupes", "sc"),
+        "table a:\n    from dupes\n    select:\n        v = value\n"
+        "table b:\n    from sc\n    select:\n        v = key\n"
+        "query result:\n    intersect all:\n        from a\n        from b\n",
+    ),
+    ("S_set_multiplicity", "intersect_distinct"): (
+        ("dupes", "sc"),
+        "table a:\n    from dupes\n    select:\n        v = value\n"
+        "table b:\n    from sc\n    select:\n        v = key\n"
+        "query result:\n    intersect distinct:\n        from a\n        from b\n",
+    ),
+    ("S_set_multiplicity", "empty_left"): (
+        ("empty", "sa"),
+        "table a:\n    from empty\n    select:\n        k = key\n"
+        "table b:\n    from sa\n    select:\n        k = key\n"
+        "query result:\n    except all:\n        from a\n        from b\n",
+    ),
+    ("S_set_multiplicity", "empty_right"): (
+        ("empty", "sa"),
+        "table a:\n    from empty\n    select:\n        k = key\n"
+        "table b:\n    from sa\n    select:\n        k = key\n"
+        "query result:\n    except all:\n        from b\n        from a\n",
+    ),
+    ("S_set_positions", "two_column_intersect_distinct"): (
+        ("sa", "sb"),
+        "table a:\n    from sa\n    select:\n        v = value\n        t = label\n"
+        "table b:\n    from sb\n    select:\n        v = value\n        t = label\n"
+        "query result:\n    intersect distinct:\n        from a\n        from b\n",
+    ),
+    ("S_set_positions", "two_column_except_all"): (
+        ("sa", "sb"),
+        "table a:\n    from sa\n    select:\n        v = value\n        t = label\n"
+        "table b:\n    from sb\n    select:\n        v = value\n        t = label\n"
+        "query result:\n    except all:\n        from a\n        from b\n",
+    ),
+    ("S_set_positions", "renamed_labels_union_all"): (
+        ("sa", "sb"),
+        "table a:\n    from sa\n    select:\n        k = key\n        t = label\n"
+        "table b:\n    from sb\n    select:\n        n = key\n        s = label\n"
+        "query result:\n    union all:\n        from a\n        from b\n",
+    ),
+    ("S_set_domains", "text_union_distinct"): (
+        (),
+        "table a:\n    from rows\n    select:\n        t = text\n"
+        "query result:\n    union distinct:\n        from a\n        from a\n",
+    ),
+    ("S_set_domains", "decimal_intersect_all"): (
+        (),
+        "table a:\n    from rows\n    select:\n        m = money\n"
+        "table b:\n    from rows\n    where id > 0\n    select:\n        m = money\n"
+        "query result:\n    intersect all:\n        from a\n        from b\n",
+    ),
+    ("S_set_domains", "big_int_except_all"): (
+        (),
+        "table a:\n    from rows\n    select:\n        k = id\n"
+        "table b:\n    from rows\n    where id > 1\n    select:\n        k = id\n"
+        "query result:\n    except all:\n        from a\n        from b\n",
+    ),
+    ("S_set_domains", "bool_union_distinct"): (
+        (),
+        "table a:\n    from rows\n    select:\n        f = flag\n"
+        "query result:\n    union distinct:\n        from a\n        from a\n",
+    ),
+    ("S_set_domains", "float_union_all"): (
+        (),
+        "table a:\n    from rows\n    select:\n        r = ratio\n"
+        "query result:\n    union all:\n        from a\n        from a\n",
+    ),
+    ("S_set_nesting", "left_fold_except"): (
+        ("sb",),
+        SET_ONE.format(name="a")
+        + SET_ONE.format(name="b")
+        + SET_ONE.format(name="c")
+        + "query result:\n    except distinct:\n        from a\n        from b\n        from c\n",
+    ),
+    ("S_set_nesting", "right_nested_except"): (
+        ("sb",),
+        SET_ONE.format(name="a")
+        + SET_ONE.format(name="b")
+        + SET_ONE.format(name="c")
+        + "table bc:\n    except distinct:\n        from b\n        from c\n"
+        "query result:\n    except distinct:\n        from a\n        from bc\n",
+    ),
+    ("S_set_nesting", "mixed_union_except"): (
+        ("sb",),
+        SET_ONE.format(name="a")
+        + SET_ONE.format(name="b")
+        + "table u:\n    union all:\n        from a\n        from a\n"
+        "query result:\n    except all:\n        from u\n        from b\n",
+    ),
+    ("S_set_boundaries", "ordered_operands"): (
+        (),
+        "table top:\n    from rows\n    select:\n        k = id\n    order by:\n        id\n    limit 2\n"
+        "query result:\n    union all:\n        from top\n        from top\n",
+    ),
+    ("S_set_boundaries", "limit_zero_operand"): (
+        (),
+        "table a:\n    from rows\n    select:\n        k = id\n"
+        "table none:\n    from rows\n    select:\n        k = id\n    limit 0\n"
+        "query result:\n    union all:\n        from a\n        from none\n",
+    ),
+    ("S_set_boundaries", "distinct_operand"): (
+        (),
+        "table d:\n    from rows\n    select distinct:\n        k = id\n"
+        "query result:\n    union all:\n        from d\n        from d\n",
+    ),
+    ("S_set_boundaries", "outer_consumer"): (
+        (),
+        SET_ROWS_AB + "table u:\n    union all:\n        from a\n        from b\n"
+        "query result:\n    from u\n    where k > 0\n    select:\n        k\n"
+        "    order by:\n        k\n    limit 1\n",
+    ),
+    ("S_set_producers", "grouped_union"): (
+        (),
+        "table g:\n    from rows\n    group by:\n        id\n    select:\n        k = id\n        total = count()\n"
+        "query result:\n    union all:\n        from g\n        from g\n",
+    ),
+    ("S_set_producers", "global_empty_union"): (
+        ("empty",),
+        "table ge:\n    from empty\n    select:\n        c = count()\n"
+        "query result:\n    union all:\n        from ge\n        from ge\n",
+    ),
+    ("S_set_producers", "satisfying_union"): (
+        (),
+        "table s:\n    from rows\n    group by:\n        id\n    select:\n        k = id\n        total = count()\n"
+        "    satisfying:\n        total > 1\n"
+        "query result:\n    union all:\n        from s\n        from s\n",
+    ),
+    ("S_set_producers", "window_union_distinct"): (
+        (),
+        "table w:\n    from rows\n    select:\n        k = id\n    qualify:\n"
+        "        row_number() window:\n            order by:\n                id\n        <= 2\n"
+        "table top:\n    from rows\n    select:\n        k = id\n    order by:\n        id\n    limit 2\n"
+        "query result:\n    union distinct:\n        from w\n        from top\n",
+    ),
+    ("S_set_producers", "set_to_window"): (
+        (),
+        SET_ROWS_AB + "table u:\n    union all:\n        from a\n        from b\n"
+        "query result:\n    from u\n    select:\n        k\n"
+        "        n = row_number() window:\n            order by:\n                k\n",
+    ),
+    ("S_set_literals", "preserve"): (
+        (),
+        "table lit:\n    from rows\n    select:\n        k = id\n        m = 1\n"
+        "query result:\n    union all:\n        from lit\n        from lit\n",
+    ),
+    ("S_set_literals", "bind"): (
+        (),
+        "table lit:\n    from rows\n    select:\n        k = id\n        m = 1\n"
+        "query result:\n    union all:\n        from lit\n        from lit\n",
+    ),
+    ("V_set_blocked", "physical_mismatch"): (
+        ("second",),
+        "table a:\n    from rows\n    select:\n        k = id\n"
+        "table b:\n    from second\n    select:\n        k = id\n"
+        "query result:\n    union all:\n        from a\n        from b\n",
+    ),
+    ("V_set_blocked", "float_intersect_all"): (
+        (),
+        "table a:\n    from rows\n    select:\n        r = ratio\n"
+        "query result:\n    intersect all:\n        from a\n        from a\n",
+    ),
+    ("V_set_blocked", "arity_mismatch"): (
+        (),
+        "table a:\n    from rows\n    select:\n        k = id\n"
+        "table two:\n    from rows\n    select:\n        k = id\n        t = text\n"
+        "query result:\n    union all:\n        from a\n        from two\n",
+    ),
+    ("V_set_blocked", "type_mismatch"): (
+        (),
+        "table a:\n    from rows\n    select:\n        k = id\n"
+        "table txt:\n    from rows\n    select:\n        t = text\n"
+        "query result:\n    union all:\n        from a\n        from txt\n",
+    ),
+}
+SET_AGG_SOURCES = frozenset({"sa", "sb", "sc", "sl", "dupes", "empty"})
+
+
+def set_body(case, variant):
+    if case == "S_set_forms":
+        kind, quantifier = variant.split("_", 1)
+        return ("sa", "sb"), SET_KEYS + (
+            f"query result:\n    {kind} {quantifier}:\n        from a\n        from b\n"
+        )
+    if case == "S_set_membership":
+        join, kind = variant.split("_", 1)
+        return ("sl", "sa", "sb"), (
+            "table a:\n    from sa\n    select:\n        v = value\n"
+            "table b:\n    from sb\n    select:\n        v = key\n"
+            f"table r:\n    {kind} distinct:\n        from a\n        from b\n"
+            f"query result:\n    from sl\n    {join} join r as x:\n        from sl\n"
+            "        on sl.key == x.v\n    select:\n        a = sl.key\n"
+        )
+    return SET_BODIES[case, variant]
+
+
+def set_fixture(target, case, variant):
+    """One Slice11 SET witness over the fixed relations or the emission source."""
+    sources, body = set_body(case, variant)
+    if sources and set(sources) <= SET_AGG_SOURCES:
+        header = AGGREGATE_HEADER.format(target=target).split("source agg:", 1)[0]
+        header += "".join(
+            f'source {name}: Agg is {target}.table("{name}.locator.not.sql")\n'
+            for name in sources
+        )
+        contract = json.loads(
+            aggregate_fixture(target, "X_aggregate_global", "bag")["contract"]
+        )
+        contract["sources"] = [
+            _aggregate_descriptor(target, name, AGGREGATE_RELATIONS[name])
+            for name in sources
+        ]
+        return {
+            "source": header + body,
+            "contract": encoded(contract).decode(),
+            "policy": "preserve_literals",
+        }
+    base = fixture(target)
+    base_source = base["source"]
+    assert type(base_source) is str
+    header = base_source.split("table result:", 1)[0]
+    contract = json.loads(base["contract"])
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        }
+    )
+    if sources == ("second",):
+        # A second physical relation whose Int field is a narrower valid
+        # representation: each operand is admitted alone, the pair is not.
+        second = deepcopy(contract["sources"][0])
+        second["selector"]["name"] = "second"
+        second["relation"]["name"] = "p0"
+        second["fields"][0]["representation"] = {
+            "storage": {"kind": "pg_int4" if target == "postgres" else "my_int"},
+            "nullable": False,
+            "domain": {"kind": "int_range", "min": "-2147483648", "max": "2147483647"},
+        }
+        contract["sources"].append(second)
+        header += f'source second: Row is {target}.table("second.locator.not.sql")\n'
+    if variant == "bind":
+        contract["environment"].append(
+            {
+                "key": "parameter_protocol",
+                "scope": "statement",
+                "value": "postgres_extended"
+                if target == "postgres"
+                else "mysql_prepared",
+            }
+        )
+    return {
+        "source": header + body,
+        "contract": encoded(contract).decode(),
+        "policy": "bind_safe_literals" if variant == "bind" else "preserve_literals",
+    }
+
+
 def row_fixture(target, case, variant):
     """Ordered LET stages, a retained filter and admitted scalar projections."""
     base = fixture(target)
@@ -2279,6 +2634,10 @@ MIGRATED_TO_SUCCESS = (
     ("O_named_later", "order_ordinary"),
     ("O_named_later", "order_rebound"),
     ("O_named_later", "order_completed"),
+    # Slice11 realizes the repeated UNION ALL graph and the two import facades
+    # these inputs retained for structural inspection only.
+    ("O_named_later", "union_dag"),
+    ("O_named_later", "two_facades"),
 )
 # PostgreSQL alone admits the published restricted FULL domain; MySQL keeps its
 # typed non-support, so these variants are per-target.
@@ -2304,6 +2663,7 @@ def expected_status(case, variant, target=None):
         "V_aggregate_blocked",
         "V_window_blocked",
         "V_result_blocked",
+        "V_set_blocked",
     }:
         return "BLOCKED"
     return (
@@ -2800,7 +3160,9 @@ def _named_range_provenance(document, descriptors):
         "input_use": ["input_use"],
         "input_port": ["input_port"],
         "projection": ["projection"],
-        "export": ["stage_export", "export"],
+        # A SELECT export is both a stage export and an export; a SET-owned
+        # export has no SELECT stage behind it.
+        "export": (["stage_export", "export"], ["stage_export"]),
         "expression": ["expression"],
         "literal_site": ["literal_site"],
         # Slice6 stage bodies own their own generated scope, carried stage ports
@@ -2829,6 +3191,10 @@ def _named_range_provenance(document, descriptors):
         "relation_order": ["relation_order"],
         "order_item": ["order_item"],
         "result_limit": ["result_limit"],
+        # Slice11 SET units own their body, each operand use and each input.
+        "set_body": ["set_body"],
+        "set_operand": ["set_operand"],
+        "set_input": ["set_input"],
     }
     associations = {
         "authored_cause",
@@ -2855,8 +3221,9 @@ def _named_range_provenance(document, descriptors):
             if key[0] == "definition" and key[1] in descriptors
             else roles.get(key[0])
         )
+        alternatives = expected if type(expected) is tuple else (expected,)
         _need(
-            expected is not None and [o.get("role") for o in origins] == expected,
+            expected is not None and [o.get("role") for o in origins] in alternatives,
             "range origin roles",
         )
         _need(
@@ -3514,7 +3881,7 @@ def _decode_row_denominators(
     blocks = [
         body["block"]
         for body in bodies
-        if not body.get("join") and not body.get("result")
+        if not body.get("join") and not body.get("result") and not body.get("set")
     ]
     families: dict[str, list[dict[str, Any]]] = {}
     for item in originals:
@@ -3578,6 +3945,8 @@ def _decode_row_denominators(
             rule = WINDOW_DEMAND_RULES.get(subject["kind"], "R14")
         elif kind == "result":
             rule = RESULT_DEMAND_RULES.get(subject["kind"], "R02")
+        elif kind == "set":
+            rule = SET_DEMAND_RULE
         else:
             rule = "R02"
         _need(item["rule"] == rule, "original requirement rule")
@@ -3602,7 +3971,11 @@ def _decode_fixed_public(document, limits):
     scan_occurrences, statements = _scan_occurrences(
         document, contract, premises, family
     )
-    if not joined:
+    setted = any(
+        r.get("denominator") == "generated" and r.get("kind") == "set_operation"
+        for r in document["requirements"]
+    )
+    if not joined and not setted:
         _need(len(scan_occurrences) == 1, "one physical scan without a JOIN")
     description, source_positions = scan_occurrences[0]
     scan_order = list(scan_occurrences)
@@ -4443,6 +4816,7 @@ def _decode_fixed_public(document, limits):
         "aggregate_projection": 0,
         "window_projection": 0,
         "quotient_field": 0,
+        "set_column": 0,
     }
     result_nodes = [0]
 
@@ -5100,7 +5474,7 @@ def _decode_fixed_public(document, limits):
             scan = {"kind": "join", "body": source_body}
         elif peek() == "cte_reference":
             _need(
-                producer["kind"] in {"select_block", "result_boundary"},
+                producer["kind"] in {"select_block", "result_boundary", "set_body"},
                 "named producer kind",
             )
             _, name = take("identifier", "cte_reference", subject=producer)
@@ -5109,8 +5483,14 @@ def _decode_fixed_public(document, limits):
                 source_body is not None
                 and source_body["block"] == producer
                 and source_body["projection"]
-                and (producer["kind"] == "select_block")
-                != bool(source_body.get("result")),
+                and producer["kind"]
+                == (
+                    "set_body"
+                    if source_body.get("set")
+                    else "result_boundary"
+                    if source_body.get("result")
+                    else "select_block"
+                ),
                 "named use must read a complete definition terminal",
             )
             assert source_body is not None
@@ -5998,6 +6378,416 @@ def _decode_fixed_public(document, limits):
         row_bodies.append(body)
         return body
 
+    def set_realization(kind, quantifier, reads):
+        """Independently derive one SET output's realization from operand reads."""
+        tags = {read["realization"]["tag"] for read in reads}
+        _need(len(tags) == 1, "SET column logical tags")
+        (tag,) = tags
+        union_all = (kind, quantifier) == ("union", "all")
+        _need(
+            tag in {"Int", "Bool", "Text", "Decimal"} or (union_all and tag == "Float"),
+            "SET comparison domain",
+        )
+        first = reads[0]["realization"]
+        storage = first["storage"]
+        domain = dict(first["domain"])
+        widths = {
+            "pg_int2": 16,
+            "pg_int4": 32,
+            "pg_int8": 64,
+            "my_smallint": 16,
+            "my_int": 32,
+            "my_bigint": 64,
+            "my_signed_int": 64,
+        }
+        if tag == "Int":
+            _need(
+                len({widths.get(r["realization"]["storage"]["kind"]) for r in reads})
+                == 1
+                and all(
+                    r["realization"]["domain"]["kind"] == "int_range" for r in reads
+                ),
+                "SET Int width",
+            )
+            domain = {
+                "kind": "int_range",
+                "min": str(min(int(r["realization"]["domain"]["min"]) for r in reads)),
+                "max": str(max(int(r["realization"]["domain"]["max"]) for r in reads)),
+            }
+        else:
+            _need(
+                all(r["realization"]["storage"] == storage for r in reads),
+                "SET storage",
+            )
+            if tag == "Text":
+                keys = ("encoding", "collation", "padding")
+                _need(
+                    len(
+                        {
+                            tuple(r["realization"]["domain"].get(k) for k in keys)
+                            for r in reads
+                        }
+                    )
+                    == 1,
+                    "SET text domain",
+                )
+                domain["max_characters"] = max(
+                    int(r["realization"]["domain"].get("max_characters", 0))
+                    for r in reads
+                )
+            elif tag == "Decimal":
+                _need(
+                    len(
+                        {
+                            (
+                                r["realization"]["domain"].get("precision"),
+                                r["realization"]["domain"].get("scale"),
+                            )
+                            for r in reads
+                        }
+                    )
+                    == 1,
+                    "SET decimal parameters",
+                )
+            else:
+                _need(
+                    all(r["realization"]["domain"] == first["domain"] for r in reads),
+                    "SET domain",
+                )
+        states = tuple(r["realization"]["nullable"] for r in reads)
+        if kind == "except":
+            nullable = states[0]
+        elif kind == "intersect" and False in states:
+            nullable = False
+        elif all(state is False for state in states):
+            nullable = False
+        elif "unknown" in states:
+            nullable = "unknown"
+        else:
+            nullable = True
+        return {"tag": tag, "storage": storage, "nullable": nullable, "domain": domain}
+
+    def set_select(block, final, cte_terminals):
+        """One SET unit: explicitly grouped operand SELECTs over complete terminals.
+
+        The operator, quantifier, explicit left-fold grouping, every operand's
+        immediate terminal read, the positional column map and the SET-owned
+        labels are re-derived from the token order alone; an operand body is
+        never inlined and no column is compared independently of its tuple.
+        """
+        _need(block["kind"] == "set_body", "SET body scope")
+        opened = 0
+        while peek() == "set_fold_open":
+            token, _ = take("syntax", "set_fold_open", "(")
+            _need(token["subject"] == block, "SET fold subject")
+            opened += 1
+        operands = []
+        operator = None
+
+        def operand_select():
+            open_token, _ = take("syntax", "set_operand_open", "(")
+            reference = open_token["subject"]
+            _need(reference["kind"] == "set_operand", "SET operand subject kind")
+            take("syntax", "select", "SELECT ", reference)
+            parsed = []
+            while True:
+                separator = None
+                if parsed:
+                    separator, _ = take("syntax", "separator", ", ")
+                scope_token, alias = take("identifier", "set_input_scope")
+                subject = scope_token["subject"]
+                _need(subject["kind"] == "set_input", "SET input subject kind")
+                _need(
+                    separator is None or separator["subject"] == subject,
+                    "SET separator",
+                )
+                take("syntax", "set_input_qualifier", ".", subject)
+                column_token, name = take("identifier", "set_input_column")
+                take("syntax", "alias", " AS ", subject)
+                label_token, label = take("identifier", "label")
+                export = label_token["subject"]
+                _need(export["kind"] == "export", "SET label export kind")
+                parsed.append(
+                    {
+                        "input": subject,
+                        "alias": alias,
+                        "name": name,
+                        "terminal": column_token["subject"],
+                        "export": export,
+                        "label": label,
+                    }
+                )
+                if peek() != "separator":
+                    break
+            take("syntax", "from", " FROM ", reference)
+            reads = []
+            if peek() == "set_namespace":
+                relation = lexical[cursor][0]["subject"]
+                item, index = bind_scan(relation)
+                take(
+                    "identifier",
+                    "set_namespace",
+                    item["relation"]["namespace"],
+                    relation,
+                )
+                take("syntax", "set_qualifier", ".", relation)
+                take("identifier", "set_relation", item["relation"]["name"], relation)
+                _need(cause(relation)["path"] == item["selector"]["module"])
+                for field in item["fields"]:
+                    reads.append(
+                        {
+                            "name": field["column"],
+                            "terminal": source_port(relation, field),
+                            "source_port": source_port(relation, field),
+                            "realization": row_field_realization(field),
+                            "field": field,
+                            "literal": None,
+                        }
+                    )
+                scan = {"kind": "scan", "description": item, "index": index}
+            else:
+                producer_token, name = take("identifier", "set_reference")
+                producer = producer_token["subject"]
+                body = row_ctes.get(name)
+                _need(
+                    body is not None
+                    and body["block"] == producer
+                    and body["projection"]
+                    and not body["final"],
+                    "a SET operand reads a complete definition terminal",
+                )
+                assert body is not None
+                reads = list(body["outgoing"])
+                scan = {"kind": "named", "body": body}
+            alias_token, _ = take("syntax", "set_alias", " AS ")
+            _need(alias_token["subject"] == reference, "SET alias subject")
+            _, alias = take("identifier", "set_scope", None, reference)
+            _need(alias == f"o{reference['position']}", "SET operand alias spelling")
+            _need(
+                len(parsed) == len(reads)
+                and all(
+                    item["alias"] == alias
+                    and item["name"] == read["name"]
+                    and item["terminal"] == read["terminal"]
+                    for item, read in zip(parsed, reads, strict=True)
+                ),
+                "a SET operand carries exactly its producer's terminal columns",
+            )
+            take("syntax", "set_operand_close", ")", reference)
+            return {
+                "operand": reference,
+                "columns": parsed,
+                "reads": reads,
+                "scan": scan,
+            }
+
+        operands.append(operand_select())
+        closed = 0
+        while peek() == "set_operator":
+            token, text = take("syntax", "set_operator")
+            _need(token["subject"] == block, "SET operator subject")
+            _need(operator is None or text == operator, "one operator per SET body")
+            operator = text
+            operands.append(operand_select())
+            if peek() == "set_fold_close":
+                token, _ = take("syntax", "set_fold_close", ")")
+                _need(token["subject"] == block, "SET fold close subject")
+                closed += 1
+        count = len(operands)
+        _need(count >= 2 and operator is not None, "a SET body has two operands")
+        assert operator is not None
+        _need(
+            opened == count - 2 and closed == count - 2,
+            "explicit left-fold grouping",
+        )
+        spelled = operator.strip().split(" ")
+        _need(
+            len(spelled) == 2
+            and spelled[0] in {"UNION", "INTERSECT", "EXCEPT"}
+            and spelled[1] in {"ALL", "DISTINCT"},
+            "SET operator spelling",
+        )
+        kind, quantifier = spelled[0].lower(), spelled[1].lower()
+        width = len(operands[0]["columns"])
+        _need(
+            width > 0 and all(len(item["columns"]) == width for item in operands),
+            "SET positional arity",
+        )
+        labels = [item["label"] for item in operands[0]["columns"]]
+        exports = [item["export"] for item in operands[0]["columns"]]
+        _need(
+            all(
+                [c["label"] for c in item["columns"]] == labels
+                and [c["export"] for c in item["columns"]] == exports
+                for item in operands
+            ),
+            "every operand carries the SET-owned labels",
+        )
+        _need(final or labels == [f"c{i}" for i in range(width)], "SET column labels")
+        base = row_counts["result"]
+        terminals = [ref("result_port", base + i) for i in range(width)]
+        row_counts["result"] += width
+        column_base = row_counts["set_column"]
+        row_counts["set_column"] += width
+        if cte_terminals is not None:
+            _need(cte_terminals == terminals, "declared SET terminals")
+        naming_key = "naming"
+        row_generated.append(
+            (
+                "set_operation",
+                block,
+                "R22",
+                naming_key,
+                {
+                    "kind": kind,
+                    "quantifier": quantifier,
+                    "operands": count,
+                    "fold": "source_order_left_fold",
+                },
+            )
+        )
+        for item in operands:
+            row_generated.append(
+                ("set_operand", item["operand"], "R22", naming_key, None)
+            )
+            scan = item["scan"]
+            if scan["kind"] == "scan":
+                index = scan["index"]
+                row_generated.append(
+                    ("qualified_scan", None, "R01", ("scan", index), None)
+                )
+                for field in scan["description"]["fields"]:
+                    row_generated.append(
+                        (
+                            "source_representation",
+                            None,
+                            "R02",
+                            ("field", index, field["ordinal"]),
+                            None,
+                        )
+                    )
+        encoding = [i for i in statements if premises[i]["key"] == "client_encoding"]
+        outgoing, columns = [], []
+        for position in range(width):
+            reads = [item["reads"][position] for item in operands]
+            realization = set_realization(kind, quantifier, reads)
+            row_generated.append(
+                (
+                    "set_column",
+                    ref("set_column", column_base + position),
+                    "R22",
+                    encoding if realization["tag"] == "Text" else [],
+                    {
+                        "position": position,
+                        "tag": realization["tag"],
+                        "nullable": realization["nullable"],
+                    },
+                )
+            )
+            terminal = terminals[position]
+            if final:
+                _need(position < len(document["columns"]), "published SET columns")
+                published = document["columns"][position]
+                expected = {
+                    "ordinal": position,
+                    "label": labels[position],
+                    "logical_type": {
+                        "kind": "builtin",
+                        "name": realization["tag"],
+                        "parameters": {
+                            "precision": realization["domain"]["precision"],
+                            "scale": realization["domain"]["scale"],
+                        }
+                        if realization["tag"] == "Decimal"
+                        else None,
+                    },
+                    "nullable": realization["nullable"],
+                    "representation": {
+                        "storage": realization["storage"],
+                        "nullable": realization["nullable"],
+                        "domain": realization["domain"],
+                    },
+                    "correspondence": {
+                        "set_origin": {
+                            "body": block,
+                            "column": ref("set_column", column_base + position),
+                            "kind": kind,
+                            "quantifier": quantifier,
+                            "fold": "source_order_left_fold",
+                            "operands": [
+                                {
+                                    "operand": item["operand"],
+                                    "input": item["columns"][position]["input"],
+                                    "terminal": item["columns"][position]["terminal"],
+                                }
+                                for item in operands
+                            ],
+                            "terminal": terminal,
+                        },
+                        "export": exports[position],
+                        "sql_symbol": position + 1,
+                    },
+                }
+                _need(encoded(published) == encoded(expected), "SET output published")
+            outgoing.append(
+                {
+                    "name": f"c{position}",
+                    "terminal": terminal,
+                    "source_port": None,
+                    "realization": realization,
+                    "field": None,
+                    "literal": None,
+                    "origin": None,
+                    "helper": False,
+                }
+            )
+            columns.append(
+                {
+                    "label": labels[position],
+                    "export": exports[position],
+                    "terminal": terminal,
+                    "realization": realization,
+                    "field": None,
+                    "literal": None,
+                    "root": None,
+                    "position": position,
+                    "origin": None,
+                }
+            )
+        if final:
+            _need(len(document["columns"]) == width, "published SET columns")
+        if (kind, quantifier) != ("union", "all"):
+            row_generated.append(
+                (
+                    "set_row_equivalence",
+                    block,
+                    "R22",
+                    [],
+                    {
+                        "kind": kind,
+                        "quantifier": quantifier,
+                        "operands": count,
+                        "fold": "source_order_left_fold",
+                    },
+                )
+            )
+        row_generated.append(("read_only_select_bytes", None, "R23", [], None))
+        result_nodes[0] += 3 + count * (2 + width)
+        body = {
+            "block": block,
+            "columns": columns,
+            "outgoing": outgoing,
+            "projection": True,
+            "final": final,
+            "scan": {"kind": "set"},
+            "header": cte_terminals,
+            "deferred": [],
+            "helpers": 0,
+            "set": True,
+        }
+        row_bodies.append(body)
+        return body
+
     row_ctes: dict[str, Any] = {}
     row_scopes: list[Any] = []
     row_source_definitions: list[Any] = []
@@ -6444,7 +7234,9 @@ def _decode_fixed_public(document, limits):
             row_generated.append(("correlation", join_ref, "R11", "naming", None))
             row_generated.append(("sentinel", join_ref, "R11", "naming", None))
             right = inputs[1]
-            if right.get("body") is not None and right["body"].get("result"):
+            if right.get("body") is not None and (
+                right["body"].get("result") or right["body"].get("set")
+            ):
                 # The right side is a complete post-DISTINCT/ORDER/LIMIT terminal.
                 row_generated.append(
                     ("complete_right_terminal", right["input"], "R11", "naming", None)
@@ -6473,8 +7265,9 @@ def _decode_fixed_public(document, limits):
             name_token, name = take("identifier", "cte_name")
             block = name_token["subject"]
             _need(
-                block["kind"] in {"select_block", "join", "result_boundary"},
-                "a generated CTE binds a select block, one JOIN or a result body",
+                block["kind"]
+                in {"select_block", "join", "result_boundary", "set_body"},
+                "a generated CTE binds a select block, one JOIN, a result or SET body",
             )
             _need(name == f"p{index}" and name not in row_ctes, "stage CTE name")
             _need(separator is None or separator["subject"] == block, "CTE separator")
@@ -6511,6 +7304,8 @@ def _decode_fixed_public(document, limits):
                 if block["kind"] == "join"
                 else result_select(block, False, header)
                 if block["kind"] == "result_boundary"
+                else set_select(block, False, header)
+                if block["kind"] == "set_body"
                 else row_select(block, False, header)
             )
             take("syntax", "cte_body_close", ")", block)
@@ -6519,11 +7314,13 @@ def _decode_fixed_public(document, limits):
         final_token, _ = take("syntax", "with_body", " ")
         final_block = final_token["subject"]
         _need(
-            final_block["kind"] in {"select_block", "result_boundary"},
+            final_block["kind"] in {"select_block", "result_boundary", "set_body"},
             "final stage scope",
         )
         if final_block["kind"] == "result_boundary":
             result_select(final_block, True, None)
+        elif final_block["kind"] == "set_body":
+            set_select(final_block, True, None)
         else:
             row_select(final_block, True, None)
 

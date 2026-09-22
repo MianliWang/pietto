@@ -33,6 +33,7 @@ from pietto._project.project_sql_emission_ast import (
 from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
+from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project.project_sql_plan_literals import ProjectSQLFixedLiteralValue
@@ -398,9 +399,63 @@ def _result_origin(column):
     }
 
 
+def _set_columns(unit):
+    """Public description of a final SET unit's SET-owned output columns."""
+    result = []
+    for column in unit.columns:
+        realization = column.realization
+        result.append(
+            {
+                "ordinal": column.ordinal,
+                "label": column.label,
+                "logical_type": {
+                    "kind": "builtin",
+                    "name": realization.tag,
+                    "parameters": {
+                        "precision": realization.domain["precision"],
+                        "scale": realization.domain["scale"],
+                    }
+                    if realization.tag == "Decimal"
+                    else None,
+                },
+                "nullable": realization.nullable,
+                "representation": {
+                    "storage": realization.storage,
+                    "nullable": realization.nullable,
+                    "domain": realization.domain,
+                },
+                "correspondence": {
+                    "set_origin": {
+                        "body": _ref(unit.body.ref),
+                        "column": _ref(column.source.ref),
+                        "kind": unit.kind.value,
+                        "quantifier": unit.quantifier.value,
+                        "fold": unit.body.fold,
+                        "operands": [
+                            {
+                                "operand": _ref(operand.operand.ref),
+                                "input": _ref(operand.inputs[column.ordinal].ref),
+                                "terminal": _ref(
+                                    operand.inputs[column.ordinal].terminal.ref
+                                ),
+                            }
+                            for operand in unit.operands
+                        ],
+                        "terminal": _ref(column.output.ref),
+                    },
+                    "export": _ref(column.export.ref),
+                    "sql_symbol": column.symbol.position,
+                },
+            }
+        )
+    return result
+
+
 def _row_columns(query, slots):
     """Public output description for one stage pipeline's final SELECT columns."""
-    body = query.bodies[-1]
+    body = getattr(query, "units", query.bodies)[-1]
+    if type(body) is setting.SetBody:
+        return _set_columns(body)
     if type(body) is resulting.RowResultBody:
         # The terminal is the result body; each column keeps the description of
         # the projection column it carries and adds its result-stage image.
@@ -765,6 +820,8 @@ def _document(outcome, artifact, request, columns, source_map, slots):
             "static_limit",
         }:
             evidence = resulting.requirement_evidence(artifact.ast, item)
+        elif item.kind in {"set_operation", "set_row_equivalence", "set_column"}:
+            evidence = setting.requirement_evidence(artifact.ast, item)
         requirements.append(
             {
                 "denominator": "generated",
@@ -817,6 +874,10 @@ def _document(outcome, artifact, request, columns, source_map, slots):
                     "inner_result_boundary",
                     "result_terminal_column",
                     "complete_right_terminal",
+                    "set_operation",
+                    "set_operand",
+                    "set_column",
+                    "set_row_equivalence",
                 }
                 else {"kind": item.kind, "position": i},
                 "rule": item.rule,

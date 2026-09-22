@@ -78,9 +78,9 @@ record also states the measured reopening boundary.
 
 After the Phase66 Slice2 infrastructure publication, applicable acceptance needs
 both the existing compiler gates and successful PostgreSQL/MySQL conformance.
-Since Slice10 the target denominator is 50 cases and 141 public documents per
+Since Slice11 the target denominator is 60 cases and 181 public documents per
 target, including the admitted window families, the DISTINCT/ORDER/LIMIT result
-boundaries and their exact non-support boundaries.
+boundaries, the six SET forms and their exact non-support boundaries.
 Default pytest remains offline; it runs the fixture/observer/config/receipt unit
 checks without Docker or database discovery. Real execution is explicit:
 

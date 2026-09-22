@@ -1063,6 +1063,13 @@ def valid_receipts(
                             target, case_id, record["variant"]
                         )
                         names = [str(label) for label in labels]
+                    elif case_id in probe.SET_CASES or (
+                        (case_id, record["variant"]) in cases.SET_MIGRATED
+                    ):
+                        rows, labels, types, _, _ = cases.set_expectation(
+                            target, case_id, record["variant"]
+                        )
+                        names = [str(label) for label in labels]
                     observation = _observation(
                         target,
                         document["sql"],
@@ -1548,12 +1555,22 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "Q_native_lifecycle",
         "R_fixed_direct",
         "S_fixed_named",
+        "S_set_boundaries",
+        "S_set_domains",
+        "S_set_forms",
+        "S_set_literals",
+        "S_set_membership",
+        "S_set_multiplicity",
+        "S_set_nesting",
+        "S_set_positions",
+        "S_set_producers",
         "T_row_direct",
         "U_row_named",
         "V_aggregate_blocked",
         "V_join_full",
         "V_result_blocked",
         "V_row_blocked",
+        "V_set_blocked",
         "V_window_blocked",
         "W_join_shapes",
         "W_join_values",

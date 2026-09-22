@@ -322,8 +322,8 @@ EXPECTED_STATUS = (
     ("Phase 66 Slice 8", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 9", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 10", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 11", "`NEXT / NOT IMPLEMENTED`"),
-    ("Phase 66 Slice 12", "`NOT IMPLEMENTED`"),
+    ("Phase 66 Slice 11", "`COMPLETED / PUBLISHED`"),
+    ("Phase 66 Slice 12", "`NEXT / NOT IMPLEMENTED`"),
     ("Phase 66 Slice 13", "`NOT IMPLEMENTED`"),
     ("Phase 66 Slice 14", "`NOT IMPLEMENTED`"),
     ("Phase 66 Slice 15", "`NOT IMPLEMENTED`"),
@@ -331,8 +331,8 @@ EXPECTED_STATUS = (
     ("Phase 66 route", "`N=16`"),
     (
         "Next",
-        "`Phase 66 Slice 11 — Six SET forms, positional types and operand-local"
-        " boundaries`",
+        "`Phase 66 Slice 12 — Complete emission artifact, dual-denominator closure"
+        " and SQL-range queries`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -5616,6 +5616,52 @@ def test_phase66_slice9_is_recorded_with_its_exact_denominator() -> None:
             " Slices11\u201316 remain `NOT IMPLEMENTED`." in document
         )
     assert (STATUS.parent / target).is_file()
+
+
+def test_phase66_slice11_is_recorded_with_its_exact_denominator() -> None:
+    target = (
+        "spec/phase66-slice11-six-set-forms-positional-types-operand-local-"
+        "boundaries-v1.md"
+    )
+    for path in (STATUS, ROADMAP):
+        document = " ".join(_read(path).split())
+        assert f"]({target})" in document
+        assert (
+            "Phase66 Slice11 is `COMPLETED / PUBLISHED` only upon successful"
+            " natural exact-head CI" in document
+        )
+        assert (
+            "emits the six native SET forms with their explicit quantifier" in document
+        )
+        assert "keeping every nested SET as its own CTE" in document
+        assert "align by position with the first-authored labels" in document
+        assert "finite Float transport through UNION ALL only" in document
+        assert "`set_column_physical_representation_mismatch`" in document
+        assert "the repeated UNION ALL graph and the two import facades" in document
+        assert "SEMI and ANTI wrap the complete right SET terminal" in document
+        assert (
+            "The denominator is 60 cases/181 public documents per target:"
+            " postgres150 VERIFIED,3 INPUT_REJECTED,28 BLOCKED; mysql147"
+            " VERIFIED,3 INPUT_REJECTED,31 BLOCKED." in document
+        )
+        assert "R03 outstanding joint execution: none." in document
+        assert "R11/C09 outstanding membership differences: none." in document
+        assert (
+            "Phase66 remains `ACTIVE`; Slice12 is `NEXT / NOT IMPLEMENTED`;"
+            " Slices13–16 remain `NOT IMPLEMENTED`." in document
+        )
+        assert "Do not start Slice12 automatically" in document
+        assert "Slice11 completion is not Phase66 completion" in document
+    assert (STATUS.parent / target).is_file()
+    route = (
+        STATUS.parent
+        / "spec"
+        / "phase66-dialect-sql-emission-product-phase-initiation-gate-route-lock-v1.md"
+    )
+    document = " ".join(route.read_text(encoding="utf-8").split())
+    assert "## R03 Slice11 delivery" in document
+    assert "R03 outstanding joint execution: none." in document
+    assert "R11/C09 outstanding membership differences: none." in document
 
 
 def test_phase66_slice10_is_recorded_with_its_exact_denominator() -> None:

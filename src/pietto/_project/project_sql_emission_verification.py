@@ -56,6 +56,7 @@ from pietto._project import project_sql_emission_joins as joining
 from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
+from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_plan_windows as plan_windows
 from pietto._project import project_sql_plan_aggregation as plan_aggregation
 from pietto._project import project_sql_emission_ast as ast
@@ -2376,15 +2377,261 @@ def _verify_result_body(
     _verify_body_scope(body, position, state)
 
 
+def _set_column_realization(kind, quantifier, column, reads, evidence):
+    """Independently re-derive one SET output's realization from operand reads."""
+    from pietto.ast_nodes import SetOperationKind as Kind
+    from pietto.ast_nodes import SetOperationQuantifier as Quantifier
+
+    tags = {read.realization.tag for read in reads}
+    if len(tags) != 1:
+        raise ValueError("set column tags")
+    (tag,) = tags
+    union_all = (kind, quantifier) == (Kind.UNION, Quantifier.ALL)
+    if tag not in {"Int", "Bool", "Text", "Decimal"} and not (
+        union_all and tag == "Float"
+    ):
+        raise ValueError("set comparison domain")
+    if not union_all and any(item.reason is not None for item in evidence):
+        raise ValueError("set equivalence evidence")
+    first = reads[0].realization
+    storage = first.storage
+    domain = dict(first.domain)
+    if tag == "Int":
+        widths = {rows.INT_WIDTHS.get(r.realization.storage["kind"]) for r in reads}
+        bounds = [rows.int_bounds(r.realization) for r in reads]
+        if None in widths or len(widths) != 1 or any(b is None for b in bounds):
+            raise ValueError("set int width")
+        low = min(b[0] for b in bounds if b is not None)
+        high = max(b[1] for b in bounds if b is not None)
+        domain = {"kind": "int_range", "min": str(low), "max": str(high)}
+    else:
+        if any(r.realization.storage != storage for r in reads):
+            raise ValueError("set storage")
+        if tag == "Text":
+            keys = ("encoding", "collation", "padding")
+            if (
+                len({tuple(r.realization.domain.get(k) for k in keys) for r in reads})
+                != 1
+            ):
+                raise ValueError("set text domain")
+            domain["max_characters"] = max(
+                int(r.realization.domain.get("max_characters", 0)) for r in reads
+            )
+        elif tag == "Decimal":
+            pairs = {
+                (
+                    r.realization.domain.get("precision"),
+                    r.realization.domain.get("scale"),
+                )
+                for r in reads
+            }
+            if len(pairs) != 1 or None in next(iter(pairs)):
+                raise ValueError("set decimal parameters")
+        elif any(r.realization.domain != first.domain for r in reads):
+            raise ValueError("set domain")
+    states = tuple(r.realization.nullable for r in reads)
+    if kind is Kind.EXCEPT:
+        nullable = states[0]
+    elif kind is Kind.INTERSECT and False in states:
+        nullable = False
+    elif all(state is False for state in states):
+        nullable = False
+    elif "unknown" in states:
+        nullable = "unknown"
+    else:
+        nullable = True
+    expected = setting.NULLABILITY[column.source.nullability]
+    if nullable != expected:
+        raise ValueError("set nullability")
+    return rows.Realization(tag, storage, nullable, domain)
+
+
+def _verify_set_unit(request, unit, definition, body, position, produced, last, state):
+    """Independent SET correspondence from the retained plan alone.
+
+    The operand inventory, each operand's complete terminal read, the
+    positional column map, every output's realization and the terminal image
+    are re-derived here from the plan collections; the builder's walk and the
+    renderer are never reused.
+    """
+    plan = request.plan
+    family = request.family
+    exports = definition.original.exports
+    uses_by_ref = {u.original.ref: u for u in request.layout.uses}
+    source_refs = {source.ref: source for source in plan.sources}
+    if (
+        type(unit) is not setting.SetBody
+        or unit.definition is not definition
+        or unit.body is not body
+        or unit.index != position
+        or unit.final != last
+        or unit.final != (definition.original.entry.owner is plan.scope.selected_owner)
+        or unit.kind is not body.kind
+        or unit.quantifier is not body.quantifier
+        or body.fold != "source_order_left_fold"
+        or unit.predicate is not None
+        or unit.aggregation is not None
+        or unit.window is not None
+    ):
+        raise ValueError("set unit placement")
+    operands = sorted(
+        (o for o in plan.set_operands if o.body is body.ref), key=lambda o: o.position
+    )
+    inputs = {i.ref: i for i in plan.set_inputs}
+    columns = sorted(
+        (c for c in plan.set_columns if c.body is body.ref), key=lambda c: c.position
+    )
+    if (
+        tuple(o.ref for o in operands) != tuple(body.operands)
+        or tuple(c.ref for c in columns) != tuple(body.columns)
+        or len(operands) < 2
+        or len(unit.operands) != len(operands)
+        or len(unit.columns) != len(columns)
+        or len(columns) != len(exports)
+    ):
+        raise ValueError("set inventory")
+    reads_by_operand = []
+    for realized, operand in zip(unit.operands, operands, strict=True):
+        use = uses_by_ref[operand.use.ref]
+        if (
+            type(realized) is not setting.SetOperandBody
+            or realized.operand is not operand
+            or realized.position != operand.position
+            or realized.use is not use
+            or use.original.consumer is not definition.original.ref
+            or realized.symbol.position != 0
+            or realized.symbol.binding is not operand.ref
+            or realized.symbol.name != f"o{operand.ref.position}"
+            or tuple(f.ref for f in realized.inputs) != tuple(operand.fields)
+            or len(realized.columns) != len(operand.fields)
+            or len(use.bindings) != len(operand.fields)
+        ):
+            raise ValueError("set operand")
+        state["symbols"].append(realized.symbol)
+        reads = []
+        if use.original.producer in source_refs:
+            source = source_refs[use.original.producer]
+            bound = tuple(
+                item for item in request.sources if item.owner is source.source.owner
+            )
+            if (
+                len(bound) != 1
+                or realized.producer is not bound[0]
+                or realized.source is not source
+            ):
+                raise ValueError("set operand source")
+            for slot, (ref, link) in enumerate(
+                zip(operand.fields, use.bindings, strict=True)
+            ):
+                field = inputs[ref]
+                matches = tuple(
+                    item
+                    for item in bound[0].fields
+                    if item.field is link.canonical.field
+                )
+                if (
+                    len(matches) != 1
+                    or link.terminal is not link.canonical
+                    or field.terminal is not link.terminal
+                    or field.binding is not link.input_port
+                    or field.operand is not operand.ref
+                    or field.position != slot
+                ):
+                    raise ValueError("set operand field")
+                realization = rows.field_realization(matches[0])
+                if realization is None:
+                    raise ValueError("set operand representation")
+                reads.append(
+                    rows.StageColumn(
+                        slot,
+                        matches[0].column,
+                        link.canonical.ref,
+                        realization,
+                        field=matches[0],
+                        source_port=link.canonical.ref,
+                    )
+                )
+        else:
+            producer = produced.get(use.original.producer)
+            if (
+                producer is None
+                or realized.producer is not producer
+                or realized.source is not None
+                or getattr(producer, "final", True)
+            ):
+                raise ValueError("set operand producer")
+            for slot, (ref, link) in enumerate(
+                zip(operand.fields, use.bindings, strict=True)
+            ):
+                field = inputs[ref]
+                column = producer.columns[slot].column
+                if (
+                    column.terminal is not link.terminal.ref
+                    or field.terminal is not link.terminal
+                    or field.binding is not link.input_port
+                    or field.operand is not operand.ref
+                    or field.position != slot
+                ):
+                    raise ValueError("set operand terminal")
+                reads.append(replace(column, position=slot, name=f"c{slot}"))
+        if any(
+            not _same_read(actual, expected)
+            for actual, expected in zip(realized.columns, reads, strict=True)
+        ):
+            raise ValueError("set operand columns")
+        reads_by_operand.append(reads)
+    for ordinal, (realized, column, export, terminal) in enumerate(
+        zip(unit.columns, columns, exports, definition.terminals, strict=True)
+    ):
+        reads = tuple(item[ordinal] for item in reads_by_operand)
+        evidence = tuple(inputs[ref].evidence for ref in column.inputs)
+        realization = _set_column_realization(
+            body.kind, body.quantifier, column, reads, evidence
+        )
+        label = export.identity.name if unit.final else f"c{ordinal}"
+        if (
+            type(realized) is not setting.SetColumn
+            or realized.ordinal != ordinal
+            or realized.source is not column
+            or realized.export is not export
+            or realized.output is not terminal
+            or column.output is not terminal.ref
+            or terminal.canonical is not export
+            or column.position != ordinal
+            or tuple(column.inputs) != tuple(o.fields[ordinal] for o in operands)
+            or any(
+                not _same_read(actual, expected)
+                for actual, expected in zip(realized.inputs, reads, strict=True)
+            )
+            or not _same_realization(realized.realization, realization)
+            or realized.label != label
+            or realized.symbol.position != ordinal + 1
+            or realized.symbol.binding is not export.ref
+            or realized.symbol.name != label
+            or not identifier_valid(label, family, label=unit.final)
+            or not _same_read(
+                realized.column,
+                rows.StageColumn(ordinal, label, terminal.ref, realization),
+            )
+        ):
+            raise ValueError("set column")
+        state["symbols"].append(realized.symbol)
+    if unit.terminals != tuple(definition.terminals):
+        raise ValueError("set terminals")
+    _verify_body_scope(unit, position, state)
+    state["nodes"] += setting.node_count(unit)
+
+
 def verify_row_query(request, query):
     """Independent stage schedule, scope, column and expression correspondence."""
     try:
         plan = request.plan
-        joined = type(query) is SQLJoinQuery
+        joined = bool(plan.joins)
         if (
             not prepared_current(request)
             or type(query) not in {SQLRowQuery, SQLJoinQuery}
             or query.request is not request
+            or (type(query) is SQLJoinQuery) != bool(plan.joins or plan.set_bodies)
             or (
                 joining.admitted_join_shape(plan)
                 if joined
@@ -2392,7 +2639,6 @@ def verify_row_query(request, query):
             )
             is False
             or (joined and admitted_row_shape(plan))
-            or (not joined and plan.joins)
             or projection_chain_shape(plan)
             or emission_blockers(request)
         ):
@@ -2431,8 +2677,15 @@ def verify_row_query(request, query):
             "children": children,
         }
         result_groups = resulting.boundaries_by_definition(plan)
+        set_groups = setting.bodies_by_definition(plan)
         expected = []
         for definition, blocks in definition_blocks(request):
+            set_body = set_groups.get(definition.original.ref)
+            if set_body is not None:
+                if blocks or join_groups.get(definition.original.ref):
+                    return False
+                expected.append((definition, set_body, "set"))
+                continue
             for join in join_groups.get(definition.original.ref, ()):
                 expected.append((definition, join, None))
             for index, block in enumerate(blocks):
@@ -2442,7 +2695,7 @@ def verify_row_query(request, query):
                 # The result body follows the visible projection of its own
                 # definition and is that definition's terminal producer.
                 expected.append((definition, boundaries, "result"))
-        units = query.units if joined else query.bodies
+        units = query.units if type(query) is SQLJoinQuery else query.bodies
         if len(expected) != len(units):
             return False
         state = {"expressions": [], "value_nodes": [], "nodes": 0, "symbols": []}
@@ -2458,6 +2711,19 @@ def verify_row_query(request, query):
             if index is None:
                 _verify_join_unit(request, body, block, position, join_context, state)
                 by_join[block.ref] = body
+                continue
+            if index == "set":
+                _verify_set_unit(
+                    request,
+                    body,
+                    definition,
+                    block,
+                    position,
+                    produced,
+                    position == len(units) - 1,
+                    state,
+                )
+                produced[definition.original.ref] = body
                 continue
             if index == "result":
                 _verify_result_body(
@@ -2851,7 +3117,7 @@ def verify_row_query(request, query):
             state["nodes"]
             + 3 * len(bodies)
             + 2 * sum(len(b.columns) for b in bodies)
-            + sum(2 + len(b.columns) for b in bodies[:-1])
+            + sum(2 + len(b.columns) for b in bodies if not b.final)
         )
         return nodes == query.nodes and nodes <= limits["nodes"]
     except (AttributeError, TypeError, ValueError, IndexError, KeyError):
@@ -3475,6 +3741,86 @@ def verify_row_bytes(query, rendered):
                 ):
                     raise ValueError("static limit spelling")
 
+        def set_operand_select(unit, operand):
+            reference = operand.operand.ref
+            alias = operand.symbol.name
+            take("syntax", "set_operand_open", reference, "(")
+            take("syntax", "select", reference, "SELECT ")
+            for position, column in enumerate(operand.columns):
+                subject = operand.inputs[position].ref
+                if position:
+                    take("syntax", "separator", subject, ", ")
+                take("identifier", "set_input_scope", subject, alias, identifier=True)
+                take("syntax", "set_input_qualifier", subject, ".")
+                take(
+                    "identifier",
+                    "set_input_column",
+                    column.terminal,
+                    column.name,
+                    identifier=True,
+                )
+                take("syntax", "alias", subject, " AS ")
+                take(
+                    "identifier",
+                    "label",
+                    unit.columns[position].export.ref,
+                    unit.columns[position].label,
+                    identifier=True,
+                )
+            take("syntax", "from", reference, " FROM ")
+            producer = operand.producer
+            if type(producer) is BoundSource:
+                relation = operand.source.ref
+                take(
+                    "identifier",
+                    "set_namespace",
+                    relation,
+                    producer.namespace,
+                    identifier=True,
+                )
+                take("syntax", "set_qualifier", relation, ".")
+                take(
+                    "identifier",
+                    "set_relation",
+                    relation,
+                    producer.name,
+                    identifier=True,
+                )
+            else:
+                take(
+                    "identifier",
+                    "set_reference",
+                    producer.block.ref,
+                    producer.symbol.name,
+                    identifier=True,
+                )
+            take("syntax", "set_alias", reference, " AS ")
+            take("identifier", "set_scope", reference, alias, identifier=True)
+            take("syntax", "set_operand_close", reference, ")")
+
+        def set_select(unit):
+            reference = unit.body.ref
+            operator = (
+                " "
+                + {"union": "UNION", "intersect": "INTERSECT", "except": "EXCEPT"}[
+                    unit.kind.value
+                ]
+                + " "
+                + {"all": "ALL", "distinct": "DISTINCT"}[unit.quantifier.value]
+                + " "
+            )
+            count = len(unit.operands)
+            if count < 2:
+                raise ValueError("set arity")
+            for _ in range(count - 2):
+                take("syntax", "set_fold_open", reference, "(")
+            set_operand_select(unit, unit.operands[0])
+            for position, operand in enumerate(unit.operands[1:], start=1):
+                take("syntax", "set_operator", reference, operator)
+                set_operand_select(unit, operand)
+                if position < count - 1:
+                    take("syntax", "set_fold_close", reference, ")")
+
         def join_relation(item):
             reference = item.original.ref
             producer = item.producer
@@ -3653,12 +3999,16 @@ def verify_row_bytes(query, rendered):
                     join_select(unit)
                 elif type(unit) is resulting.RowResultBody:
                     result_select(unit)
+                elif type(unit) is setting.SetBody:
+                    set_select(unit)
                 else:
                     select(unit)
                 take("syntax", "cte_body_close", reference, ")")
             take("syntax", "with_body", units[-1].block.ref, " ")
         if type(units[-1]) is resulting.RowResultBody:
             result_select(units[-1])
+        elif type(units[-1]) is setting.SetBody:
+            set_select(units[-1])
         else:
             select(units[-1])
         if (
@@ -3713,6 +4063,7 @@ def verify_row_requirements(request, query, original, generated):
             or grouping.demand_rule(entry)
             or windowing.demand_rule(entry)
             or resulting.demand_rule(entry)
+            or setting.demand_rule(entry)
         )
         if rule is None:
             rule = (
@@ -3839,7 +4190,10 @@ def verify_row_requirements(request, query, original, generated):
             expected.append(("membership", join.ref, "R11", naming))
             expected.append(("correlation", join.ref, "R11", naming))
             expected.append(("sentinel", unit.sentinel, "R11", naming))
-            if type(unit.inputs[1].producer) is resulting.RowResultBody:
+            if type(unit.inputs[1].producer) in {
+                resulting.RowResultBody,
+                setting.SetBody,
+            }:
                 expected.append(
                     (
                         "complete_right_terminal",
@@ -3912,9 +4266,48 @@ def verify_row_requirements(request, query, original, generated):
             )
         expected.append(("read_only_select_bytes", unit, "R23", ()))
 
+    def set_expectations(unit):
+        """Independently list what one SET unit's own structures introduce."""
+        expected.append(("set_operation", unit.body.ref, "R22", naming))
+        for operand in unit.operands:
+            expected.append(("set_operand", operand.operand.ref, "R22", naming))
+            if operand.source is not None:
+                expected.append(
+                    (
+                        "qualified_scan",
+                        operand.producer,
+                        "R01",
+                        applicable_premises(request, operand.producer.owner),
+                    )
+                )
+                for field in operand.producer.fields:
+                    expected.append(
+                        (
+                            "source_representation",
+                            field,
+                            "R02",
+                            applicable_premises(request, operand.producer.owner, field),
+                        )
+                    )
+        for column in unit.columns:
+            expected.append(
+                (
+                    "set_column",
+                    column.source.ref,
+                    "R22",
+                    encoding if column.realization.tag == "Text" else (),
+                )
+            )
+        if unit.body.requires_equivalence:
+            expected.append(("set_row_equivalence", unit.body.ref, "R22", ()))
+        expected.append(("read_only_select_bytes", unit, "R23", ()))
+
     for unit in units:
         if type(unit) is joining.JoinBody:
             join_expectations(unit)
+            continue
+        if type(unit) is setting.SetBody:
+            set_expectations(unit)
             continue
         if type(unit) is resulting.RowResultBody:
             result_expectations(unit)

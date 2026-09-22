@@ -10,6 +10,7 @@ from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
+from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_plan_windows as plan_windows
 from pietto._project.model import ProjectResolvedTypeKind, ProjectRowFieldNullability
 from pietto._project.project_sql_plan_joins import (
@@ -125,7 +126,9 @@ def joined_definitions(plan) -> dict[Any, tuple[Any, ...]]:
 
 def admitted_join_shape(plan) -> bool:
     """Ordered JOIN chains over admitted inputs with the existing row tail."""
-    if not plan.joins or plan.set_bodies or not resulting.boundaries_admitted(plan):
+    if not plan.joins or not resulting.boundaries_admitted(plan):
+        return False
+    if not setting.bodies_admitted(plan):
         return False
     if any(
         type(expression)

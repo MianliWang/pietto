@@ -174,6 +174,28 @@ AGGREGATE_TABLE_ROWS = {
         (None, None, None, "d", Decimal("0.00"), 0.0, 42),
         (None, None, None, "d", Decimal("0.00"), 0.0, 43),
     ),
+    # Slice11 R22/C17: SA.key = [1, 1, NULL] against SB.key = [1, NULL, NULL];
+    # SA.value = [1, 2, NULL] is the membership right A, (value, label) pairs
+    # differ only as full tuples, SC carries the common-class multiplicity
+    # partner [1, 1, 1, NULL, NULL, NULL] and SL the membership left [1, 1, 2, NULL].
+    "phase66 set left é": (
+        (1, 1, True, "a", Decimal("1.25"), 1.5, 60),
+        (1, 2, True, "b", Decimal("2.50"), -0.0, 61),
+        (None, None, None, "c", Decimal("1.25"), 0.0, 62),
+    ),
+    "phase66 set right é": (
+        (1, 1, False, "b", Decimal("1.25"), 1.5, 70),
+        (None, 2, False, "a", Decimal("2.50"), 0.0, 71),
+        (None, None, None, "c", Decimal("9.99"), 0.0, 72),
+    ),
+    "phase66 set sextet é": tuple(
+        (key, key, None, "s", Decimal("0.00"), 0.0, 80 + i)
+        for i, key in enumerate((1, 1, 1, None, None, None))
+    ),
+    "phase66 set outer é": tuple(
+        (key, key, None, "l", Decimal("0.00"), 0.0, 90 + i)
+        for i, key in enumerate((1, 1, 2, None))
+    ),
 }
 
 
@@ -790,6 +812,183 @@ def result_expectation(target, case, variant):
     return [[big], [one]], ["record_id"], [i], ["Int"], True
 
 
+# Slice11 SET oracles, stated by hand from the fixture rows and the published
+# multiplicity laws (UNION ALL m+n, UNION DISTINCT 1, INTERSECT ALL min, INTERSECT
+# DISTINCT 1 iff both, EXCEPT ALL max(m-n,0), EXCEPT DISTINCT 1 iff right absent).
+# Nothing here is read back from an observation.
+SET_MIGRATED = {("O_named_later", "union_dag"), ("O_named_later", "two_facades")}
+
+
+def _set_chain_rows(target, copies):
+    """The `first` producer's seven columns, `copies` times, as a BAG."""
+    rows = []
+    for row in emission_rows(target):
+        text, ident, flag, money, ratio = row
+        rows.append([text, ident, money, flag, money, ratio, text])
+    return rows * copies
+
+
+def set_expectation(target, case, variant):
+    """(rows, labels, physical types, logical tags, ordered) for one SET case."""
+    i = _int_type(target)
+    big, zero, one, two = (
+        _integer(BIG_TEXT),
+        _integer("0"),
+        _integer("1"),
+        _integer("2"),
+    )
+    null = dict(NULL)
+    text_type = 25 if target == "postgres" else 253
+    if (case, variant) in SET_MIGRATED:
+        chain_types = (
+            [25, 20, 1700, 16, 1700, 701, 25]
+            if target == "postgres"
+            else [253, 8, 246, 1, 246, 5, 253]
+        )
+        labels = [
+            "TextValue",
+            "Key",
+            "key",
+            "FlagValue",
+            "AmountValue",
+            "RatioValue",
+            "omitted",
+        ]
+        logical = ["Text", "Int", "Decimal", "Bool", "Decimal", "Float", "Text"]
+        if variant == "two_facades":
+            return _set_chain_rows(target, 2), labels, chain_types, logical, False
+        # union_dag: three self UNION ALL levels over `first`, then Key alone.
+        return (
+            [[row[1]] for row in _set_chain_rows(target, 8)],
+            ["Key"],
+            [i],
+            ["Int"],
+            False,
+        )
+    if case == "S_set_forms":
+        rows = {
+            "union_all": [[one]] * 3 + [[null]] * 3,
+            "union_distinct": [[one], [null]],
+            "intersect_all": [[one], [null]],
+            "intersect_distinct": [[one], [null]],
+            "except_all": [[one]],
+            "except_distinct": [],
+        }[variant]
+        return rows, ["k"], [i], ["Int"], False
+    if case == "S_set_multiplicity":
+        rows = {
+            "intersect_all": [[one], [one], [null], [null]],
+            "intersect_distinct": [[one], [null]],
+            "empty_left": [],
+            "empty_right": [[one], [one], [null]],
+        }[variant]
+        label = "v" if variant.startswith("intersect") else "k"
+        return rows, [label], [i], ["Int"], False
+    if case == "S_set_positions":
+        a, b, c = _text("a"), _text("b"), _text("c")
+        if variant == "two_column_intersect_distinct":
+            rows = [[null, c]]
+        elif variant == "two_column_except_all":
+            rows = [[one, a], [two, b]]
+        else:
+            rows = [[one, a], [one, b], [null, c], [one, b], [null, a], [null, c]]
+        labels = ["k", "t"] if variant == "renamed_labels_union_all" else ["v", "t"]
+        return rows, labels, [i, text_type], ["Int", "Text"], False
+    if case == "S_set_domains":
+        if variant == "text_union_distinct":
+            rows = [[_text("trail 😀  ")], [_text("A")], [_text("a ")]]
+            return rows, ["t"], [text_type], ["Text"], False
+        if variant == "decimal_intersect_all":
+            rows = [[_decimal("12.30")], [_decimal("12.30")], [_decimal("-0.01")]]
+            return (
+                rows,
+                ["m"],
+                [1700 if target == "postgres" else 246],
+                ["Decimal"],
+                False,
+            )
+        if variant == "big_int_except_all":
+            return [[zero], [one]], ["k"], [i], ["Int"], False
+        if variant == "bool_union_distinct":
+            rows = [[_bool(target, True)], [_bool(target, False)], [null]]
+            return rows, ["f"], [16 if target == "postgres" else 1], ["Bool"], False
+        rows = [[_float(-0.0)]] * 4 + [[_float(1.5)]] * 2 + [[_float(0.0)]] * 2
+        return rows, ["r"], [701 if target == "postgres" else 5], ["Float"], False
+    if case == "S_set_nesting":
+        rows = {
+            "left_fold_except": [],
+            "right_nested_except": [[one]],
+            "mixed_union_except": [[one]],
+        }[variant]
+        return rows, ["k"], [i], ["Int"], False
+    if case == "S_set_boundaries":
+        if variant == "ordered_operands":
+            return [[zero], [zero], [one], [one]], ["k"], [i], ["Int"], False
+        if variant == "limit_zero_operand":
+            return [[big], [big], [zero], [one]], ["k"], [i], ["Int"], False
+        if variant == "distinct_operand":
+            return (
+                [[big], [big], [zero], [zero], [one], [one]],
+                ["k"],
+                [i],
+                ["Int"],
+                False,
+            )
+        # outer_consumer: u = [BIG, BIG, 0, 1, BIG, BIG, 1]; k > 0; ORDER BY k LIMIT 1.
+        return [[one]], ["k"], [i], ["Int"], True
+    if case == "S_set_producers":
+        if variant == "grouped_union":
+            rows = [[big, two], [zero, one], [one, one]] * 2
+            return rows, ["k", "total"], [i, i], ["Int", "Int"], False
+        if variant == "global_empty_union":
+            return [[zero], [zero]], ["c"], [i], ["Int"], False
+        if variant == "satisfying_union":
+            return (
+                [[big, two], [big, two]],
+                ["k", "total"],
+                [i, i],
+                ["Int", "Int"],
+                False,
+            )
+        if variant == "window_union_distinct":
+            return [[zero], [one]], ["k"], [i], ["Int"], False
+        # set_to_window: row_number over k of [BIG, BIG, 0, 1, BIG, BIG, 1].
+        rows = [[zero, one], [one, two], [one, _integer("3")]] + [
+            [big, _integer(str(n))] for n in (4, 5, 6, 7)
+        ]
+        return rows, ["k", "n"], [i, i], ["Int", "Int"], False
+    if case == "S_set_membership":
+        rows = {
+            "semi_except": [[two]],
+            "anti_except": [[one], [one], [null]],
+            "semi_intersect": [[one], [one]],
+            "anti_intersect": [[two], [null]],
+        }[variant]
+        return rows, ["a"], [i], ["Int"], False
+    assert case == "S_set_literals"
+    rows = [[big, one]] * 4 + [[zero, one]] * 2 + [[one, one]] * 2
+    return rows, ["k", "m"], [i, i], ["Int", "Int"], False
+
+
+def check_set_case(observation, document, target, case_id, variant):
+    rows, labels, physical, logical, ordered = set_expectation(target, case_id, variant)
+    actual = observation["rows"]
+    if ordered:
+        if actual != rows:
+            raise ValueError("SET ordered row mismatch")
+    elif Counter(json.dumps(row, sort_keys=True) for row in actual) != Counter(
+        json.dumps(row, sort_keys=True) for row in rows
+    ):
+        raise ValueError("SET typed BAG mismatch")
+    metadata = observation["metadata"]
+    if [m[0] for m in metadata] != labels or [m[1] for m in metadata] != physical:
+        raise ValueError("SET positional physical metadata mismatch")
+    if [c["label"] for c in document["columns"]] != labels or [
+        c["logical_type"]["name"] for c in document["columns"]
+    ] != logical:
+        raise ValueError("SET positional logical metadata mismatch")
+
+
 def check_result_case(observation, document, target, case_id, variant):
     rows, labels, physical, logical, ordered = result_expectation(
         target, case_id, variant
@@ -981,6 +1180,13 @@ def check_emission_case(case, target):
                 emission.ROW_LOGICAL
             ) or [c["label"] for c in document["columns"]] != list(emission.ROW_LABELS):
                 raise ValueError("row stage positional logical metadata mismatch")
+            continue
+        if case["id"] in emission.SET_CASES or (
+            (case["id"], variant["variant"]) in SET_MIGRATED
+        ):
+            check_set_case(
+                observation, document, target, case["id"], variant["variant"]
+            )
             continue
         if case["id"] in emission.RESULT_CASES or (
             (case["id"], variant["variant"]) in RESULT_MIGRATED

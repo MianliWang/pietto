@@ -213,10 +213,13 @@ def test_later_operator_graph_is_structural_only(built, target, variant):
         "order_ordinary",
         "order_rebound",
         "order_completed",
+        "union_dag",
+        "two_facades",
     }:
         # Slice6 implements this input's producer filter, Slice7 implements
-        # the JOIN family that was self_join's only remaining restriction and
-        # Slice10 realizes the three relation ORDER carriers. The retained
+        # the JOIN family that was self_join's only remaining restriction,
+        # Slice10 realizes the three relation ORDER carriers and Slice11 the
+        # repeated UNION ALL graph and the two import facades. The retained
         # source purpose and the historical BLOCKED outcome are unchanged
         # history; the named-chain structure each case owns is still checked
         # above, self_join's shared-producer structure and the ORDER carrier

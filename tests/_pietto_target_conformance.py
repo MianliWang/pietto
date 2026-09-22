@@ -574,6 +574,13 @@ def verify_emission_generation(value, target, expected):
                     "hidden_strict_fd": "PIE-B1003",
                     "float_distinct": "PIE-B1003",
                     "order_expression": "PIE-B1003",
+                    # Slice11: R22 refuses a physical representation mismatch
+                    # at emission; Float equality forms, arity and logical type
+                    # mismatches stay upstream semantic rejections.
+                    "physical_mismatch": "PIE-B1002",
+                    "float_intersect_all": "PIE-B1003",
+                    "arity_mismatch": "PIE-B1003",
+                    "type_mismatch": "PIE-B1003",
                 }[record["variant"]]
             )
             if code not in [b["code"] for b in document["blockers"]]:

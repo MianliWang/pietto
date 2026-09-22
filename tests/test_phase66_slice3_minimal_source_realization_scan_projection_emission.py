@@ -903,10 +903,70 @@ def test_current_emission_variant_manifest_is_complete():
             "qualify_order_limit",
         ),
         "V_result_blocked": ("hidden_strict_fd", "float_distinct", "order_expression"),
+        # Slice11 SET forms: the C17 base pair, multiplicity, positions, domains,
+        # nesting, operand-local boundaries, producers, membership, literals and
+        # the exact refusal set.
+        "S_set_forms": (
+            "union_all",
+            "union_distinct",
+            "intersect_all",
+            "intersect_distinct",
+            "except_all",
+            "except_distinct",
+        ),
+        "S_set_multiplicity": (
+            "intersect_all",
+            "intersect_distinct",
+            "empty_left",
+            "empty_right",
+        ),
+        "S_set_positions": (
+            "two_column_intersect_distinct",
+            "two_column_except_all",
+            "renamed_labels_union_all",
+        ),
+        "S_set_domains": (
+            "text_union_distinct",
+            "decimal_intersect_all",
+            "big_int_except_all",
+            "bool_union_distinct",
+            "float_union_all",
+        ),
+        "S_set_nesting": (
+            "left_fold_except",
+            "right_nested_except",
+            "mixed_union_except",
+        ),
+        "S_set_boundaries": (
+            "ordered_operands",
+            "limit_zero_operand",
+            "distinct_operand",
+            "outer_consumer",
+        ),
+        "S_set_producers": (
+            "grouped_union",
+            "global_empty_union",
+            "satisfying_union",
+            "window_union_distinct",
+            "set_to_window",
+        ),
+        "S_set_membership": (
+            "semi_except",
+            "anti_except",
+            "semi_intersect",
+            "anti_intersect",
+        ),
+        "S_set_literals": ("preserve", "bind"),
+        "V_set_blocked": (
+            "physical_mismatch",
+            "float_intersect_all",
+            "arity_mismatch",
+            "type_mismatch",
+        ),
     }
     for target in ("postgres", "mysql"):
         inputs = probe.generation_inputs(target)
-        assert len(inputs) == 141
+        assert len(inputs) == 181
         assert (
             sum(
                 item["id"]

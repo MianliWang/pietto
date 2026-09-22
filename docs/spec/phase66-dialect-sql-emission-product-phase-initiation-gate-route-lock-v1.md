@@ -890,6 +890,16 @@ INNER self join 的两个 use 各自绑定同一 post-LIMIT terminal）。未修
 
 R03 outstanding joint execution: Slice11 repeated UNION ALL and two import facades.
 
+## R03 Slice11 delivery
+
+Slice11 按 [Slice11 contract](phase66-slice11-six-set-forms-positional-types-operand-local-boundaries-v1.md)
+交付了 repeated/shared UNION ALL（`O_named_later/union_dag`）与 two import facades
+（`O_named_later/two_facades`）的 installed real-target joint execution：共享 definition 只
+生成一次 CTE，每个 use 是独立 operand，facade 经真实 module 解析到同一 definition。自然
+exact-head CI 成功后：
+
+R03 outstanding joint execution: none.
+
 ## R11/C09 scheduling amendment authorized for Slice7
 
 原 Slice1 route 将 R11 的完整 SEMI/ANTI right terminal 义务与 C09 的 right
@@ -924,6 +934,12 @@ Slice10 交付了其中的 right LIMIT0/LIMIT1 分支：SEMI/ANTI 包裹完整�
 `ORDER BY … LIMIT 1` 只选出一个 membership key；其余保持未完成：
 
 R11/C09 outstanding membership differences: Slice11 SET.
+
+Slice11 交付了最后的 right SET 分支：SEMI/ANTI 包裹完整的 right SET terminal（其自身的
+EXCEPT/INTERSECT DISTINCT 语义与 NULL 等价保留），不用 NOT IN、不漏 right 列、不短路到
+operand 或 base scan。自然 exact-head CI 成功后：
+
+R11/C09 outstanding membership differences: none.
 
 ## Upstream current-route compatibility rule authorized for Slice7
 

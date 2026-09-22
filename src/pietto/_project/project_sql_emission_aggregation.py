@@ -385,10 +385,13 @@ def blocks_admitted(plan, *, single_input_use: bool = False) -> bool:
     stages = aggregated_definitions(plan)
     if len(stages) != len(plan.aggregations):
         return False
+    # A SET definition owns no stage block and one input use per operand; its
+    # own admission belongs to the SET owner.
+    sets = {body.definition for body in plan.set_bodies}
     named = tuple(
         item
         for item in plan.bindings.definitions
-        if type(item.entry.owner.definition) is not SourceDef
+        if type(item.entry.owner.definition) is not SourceDef and item.ref not in sets
     )
     blocks_by_definition: dict[Any, list[Any]] = {}
     for block in plan.blocks:

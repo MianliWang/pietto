@@ -24,6 +24,7 @@ from pietto._project.project_sql_emission_aggregation import (
 )
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
+from pietto._project import project_sql_emission_sets as setting
 from pietto._project.project_sql_emission_contract import BoundSource
 from pietto._project.project_sql_emission_joins import (
     JoinBody,
@@ -628,11 +629,67 @@ def _result_select(w: _Writer, body) -> None:
         w.emit(str(body.limit.value), "literal", "limit_value", reference)
 
 
+def _set_operand_select(w: _Writer, unit, operand) -> None:
+    """One operand: a wrapper SELECT over its producer's complete terminal.
+
+    Every operand labels its positional columns with the SET-owned output labels,
+    so the result set carries the SET's names on both targets.
+    """
+    reference = operand.operand.ref
+    alias = operand.symbol.name
+    w.emit("(", "syntax", "set_operand_open", reference)
+    w.emit("SELECT ", "syntax", "select", reference)
+    for position, column in enumerate(operand.columns):
+        subject = operand.inputs[position].ref
+        if position:
+            w.emit(", ", "syntax", "separator", subject)
+        w.identifier(alias, "set_input_scope", subject)
+        w.emit(".", "syntax", "set_input_qualifier", subject)
+        w.identifier(column.name, "set_input_column", column.terminal)
+        w.emit(" AS ", "syntax", "alias", subject)
+        w.identifier(
+            unit.columns[position].label, "label", unit.columns[position].export.ref
+        )
+    w.emit(" FROM ", "syntax", "from", reference)
+    producer = operand.producer
+    if type(producer) is BoundSource:
+        relation = operand.source.ref
+        w.identifier(producer.namespace, "set_namespace", relation)
+        w.emit(".", "syntax", "set_qualifier", relation)
+        w.identifier(producer.name, "set_relation", relation)
+    else:
+        w.identifier(producer.symbol.name, "set_reference", producer.block.ref)
+    w.emit(" AS ", "syntax", "set_alias", reference)
+    w.identifier(alias, "set_scope", reference)
+    w.emit(")", "syntax", "set_operand_close", reference)
+
+
+def _set_select(w: _Writer, unit) -> None:
+    """One SET unit: explicit left-fold grouping of operand SELECTs.
+
+    `(o0) OP (o1)` for two operands and `((o0) OP (o1)) OP (o2)` beyond, so the
+    authored source-order left fold is spelled rather than left to precedence.
+    """
+    reference = unit.body.ref
+    operator = " " + setting.operator_spelling(unit.kind, unit.quantifier) + " "
+    count = len(unit.operands)
+    for _ in range(count - 2):
+        w.emit("(", "syntax", "set_fold_open", reference)
+    _set_operand_select(w, unit, unit.operands[0])
+    for position, operand in enumerate(unit.operands[1:], start=1):
+        w.emit(operator, "syntax", "set_operator", reference)
+        _set_operand_select(w, unit, operand)
+        if position < count - 1:
+            w.emit(")", "syntax", "set_fold_close", reference)
+
+
 def _unit_select(w: _Writer, unit) -> None:
     if type(unit) is JoinBody:
         _join_select(w, unit)
     elif type(unit) is resulting.RowResultBody:
         _result_select(w, unit)
+    elif type(unit) is setting.SetBody:
+        _set_select(w, unit)
     else:
         _row_select(w, unit)
 

@@ -254,8 +254,6 @@ def projection_terminals(plan, block_ref) -> tuple[Any, ...]:
 def boundaries_admitted(plan) -> bool:
     """Whether every result boundary has the closed chain shape this owner emits."""
 
-    if plan.set_bodies:
-        return False
     projections = {
         block.definition: block
         for block in plan.blocks

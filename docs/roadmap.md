@@ -2906,3 +2906,30 @@ R11/C09 outstanding membership differences: Slice11 SET.
 Phase66 remains `ACTIVE`; Slice11 is `NEXT / NOT IMPLEMENTED`; Slices12–16 remain `NOT IMPLEMENTED`.
 N66 remains16. Do not start Slice11 automatically. SET lowering, OFFSET, FETCH, DISTINCT ON,
 public project emit CLI, caller rebind, general result decoder and product executor are not added.
+
+Phase66 Slice11 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI
+with Python3.12,Python3.13,both target jobs and the strict v2 aggregate. The
+[SET-form contract](spec/phase66-slice11-six-set-forms-positional-types-operand-local-boundaries-v1.md)
+emits the six native SET forms with their explicit quantifier as one unit per SET
+definition, spelling the source-order left fold with explicit grouping and keeping every
+nested SET as its own CTE, so precedence never reassociates an authored nesting. Every
+operand is a wrapper SELECT over its producer's complete terminal, corresponding columns
+align by position with the first-authored labels and SET-owned identities, and each
+output's physical representation is independently re-derived: width-equal Int with merged
+exact ranges, identical Bool/Text/Decimal storage and premises, the published
+operation-specific nullability rule, and finite Float transport through UNION ALL only.
+ORDER, LIMIT and DISTINCT stay inside their operand and an outer consumer keeps its own
+clauses above the SET; a physical representation mismatch between individually valid
+operands is `set_column_physical_representation_mismatch`, and Float equality forms,
+arity and logical-type mismatches remain the upstream `PIE-S2344`/`PIE-S2342`/`PIE-S2343`.
+Slice11 executes the last R03 members, the repeated UNION ALL graph and the two import
+facades, through the installed pipeline on both targets, and closes the last R11/C09
+member: SEMI and ANTI wrap the complete right SET terminal. No upstream completion route
+changed. The denominator is 60 cases/181 public documents per target: postgres150
+VERIFIED,3 INPUT_REJECTED,28 BLOCKED; mysql147 VERIFIED,3 INPUT_REJECTED,31 BLOCKED.
+R03 outstanding joint execution: none.
+R11/C09 outstanding membership differences: none.
+Phase66 remains `ACTIVE`; Slice12 is `NEXT / NOT IMPLEMENTED`; Slices13–16 remain `NOT IMPLEMENTED`.
+N66 remains16. Do not start Slice12 automatically. BY NAME, implicit quantifiers, common-type
+inference, SET-local ORDER/LIMIT, public project emit CLI, caller rebind, general result
+decoder and product executor are not added; Slice11 completion is not Phase66 completion.

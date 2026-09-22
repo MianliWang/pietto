@@ -21,6 +21,7 @@ from pietto._project import project_sql_emission_joins as joining
 from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
+from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_plan_windows as plan_windows
 from pietto._project.project_sql_emission_contract import (
     Blocker,
@@ -356,8 +357,9 @@ def emission_blockers(request: PreparedEmission):
                     projection.ref,
                     projection.site.occurrence.span,
                 )
-        for body in plan.set_bodies:
-            add("PIE-B1003", "set_lowering_requires_slice11", body.ref)
+        if not setting.bodies_admitted(plan):
+            for body in plan.set_bodies:
+                add("PIE-B1003", "set_body_shape_not_admitted", body.ref)
         # A retained MATCH exercises the same scalar domain; no JOIN SQL exists.
         for code, detail, subject, location in rows.match_applicability(request):
             add(code, detail, subject, location)
@@ -695,7 +697,7 @@ def original_rule(plan, entry, *, generated_scopes):
     rule = windowing.demand_rule(entry)
     if rule is not None:
         return rule
-    rule = resulting.demand_rule(entry)
+    rule = resulting.demand_rule(entry) or setting.demand_rule(entry)
     if rule is not None:
         return rule
     if entry.family.value == "fixed_literal_transport" or (
@@ -988,18 +990,22 @@ def admitted_row_shape(plan):
         if type(d.entry.owner.definition) is not SourceDef
     )
     return bool(
-        len(plan.sources) == 1
+        plan.sources
+        and (len(plan.sources) == 1 or plan.set_bodies)
         and named
-        and len(plan.input_uses) == len(named)
+        and len(plan.input_uses)
+        == len(named) + sum(len(body.operands) - 1 for body in plan.set_bodies)
         and len(plan.projections)
         + len(plan.aggregate_projections)
         + len(plan.window_projections)
+        + sum(len(body.columns) for body in plan.set_bodies)
         == len(plan.all_exports)
-        and not any((plan.joins, plan.set_bodies))
+        and not plan.joins
         and all(type(e) in ADMITTED_STAGE_EXPRESSIONS for e in plan.expressions)
         and grouping.blocks_admitted(plan, single_input_use=True)
         and windowing.blocks_admitted(plan)
         and resulting.boundaries_admitted(plan)
+        and setting.bodies_admitted(plan)
     )
 
 
@@ -1386,6 +1392,7 @@ def realize_rows(request):
     for entry in plan.window_projections:
         window_projection.setdefault(entry.block, []).append(entry)
     result_groups = resulting.boundaries_by_definition(plan)
+    set_groups = setting.bodies_by_definition(plan)
     ordered = []
     for definition, blocks in groups:
         stage = stages.get(definition.original.ref)
@@ -1438,6 +1445,28 @@ def realize_rows(request):
     by_join: dict[Any, joining.JoinBody] = {}
     nodes = 0
     for definition, blocks in groups:
+        set_body = set_groups.get(definition.original.ref)
+        if set_body is not None:
+            # A SET definition is one closed unit over its operands' terminals.
+            unit, problem = setting.build_set_unit(
+                request,
+                definition,
+                set_body,
+                uses_by_ref=uses_by_ref,
+                source_refs=source_refs,
+                by_definition=by_definition,
+                index=len(units),
+                final=definition.original.entry.owner is plan.scope.selected_owner,
+                symbol=SQLSymbol,
+            )
+            if unit is None:
+                assert problem is not None
+                add(*problem)
+                return RowRealization(tuple(problems), None)
+            units.append(unit)
+            by_definition[definition.original.ref] = unit
+            nodes += setting.node_count(unit)
+            continue
         joined = join_groups.get(definition.original.ref, ())
         for join in joined:
             unit, problem = _join_body(
@@ -1851,12 +1880,12 @@ def realize_rows(request):
                 by_definition[definition.original.ref] = result
             elif kind == "projection":
                 by_definition[definition.original.ref] = body
-    if not bodies or not bodies[-1].final or units[-1] is not bodies[-1]:
+    if not units or not getattr(units[-1], "final", False):
         add("PIE-B1001", "selected_body_not_last", plan.scope)
         return RowRealization(tuple(problems), None)
     nodes += 3 * len(bodies) + 2 * sum(len(b.columns) for b in bodies)
-    nodes += sum(2 + len(b.columns) for b in bodies[:-1])
-    if plan.joins:
+    nodes += sum(2 + len(b.columns) for b in bodies if not b.final)
+    if plan.joins or plan.set_bodies:
         return JoinRealization((), SQLJoinQuery(request, tuple(units), nodes))
     return RowRealization((), SQLRowQuery(request, tuple(bodies), nodes))
 
@@ -1945,6 +1974,28 @@ def value_requirements(request, value):
     return tuple(result)
 
 
+def scan_requirements(request, producer):
+    """A physical relation read keeps its source realization and field
+    representation obligations wherever it is scanned."""
+    return (
+        GeneratedRequirement(
+            "qualified_scan",
+            producer,
+            "R01",
+            applicable_premises(request, producer.owner),
+        ),
+        *(
+            GeneratedRequirement(
+                "source_representation",
+                field,
+                "R02",
+                applicable_premises(request, producer.owner, field),
+            )
+            for field in producer.fields
+        ),
+    )
+
+
 def join_requirements(request, unit, naming):
     """Every requirement this JOIN occurrence's own structure introduces."""
     join = unit.join
@@ -2001,9 +2052,10 @@ def join_requirements(request, unit, naming):
         result.append(GeneratedRequirement("membership", join.ref, "R11", naming))
         result.append(GeneratedRequirement("correlation", join.ref, "R11", naming))
         result.append(GeneratedRequirement("sentinel", unit.sentinel, "R11", naming))
-        if type(unit.inputs[1].producer) is resulting.RowResultBody:
-            # The right side is a complete post-DISTINCT/ORDER/LIMIT terminal;
-            # membership wraps that terminal, never its projection or source.
+        if type(unit.inputs[1].producer) in {resulting.RowResultBody, setting.SetBody}:
+            # The right side is a complete post-DISTINCT/ORDER/LIMIT or SET
+            # terminal; membership wraps that terminal, never its projection,
+            # an operand or a source.
             result.append(
                 GeneratedRequirement(
                     "complete_right_terminal",
@@ -2051,6 +2103,14 @@ def build_row_requirements(request, query):
     for unit in units:
         if type(unit) is joining.JoinBody:
             generated.extend(join_requirements(request, unit, naming))
+            continue
+        if type(unit) is setting.SetBody:
+            generated.extend(
+                setting.requirements(request, unit, naming, GeneratedRequirement)
+            )
+            generated.append(
+                GeneratedRequirement("read_only_select_bytes", unit, "R23", ())
+            )
             continue
         if type(unit) is resulting.RowResultBody:
             generated.append(

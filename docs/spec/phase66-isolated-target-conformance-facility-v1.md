@@ -297,6 +297,14 @@ right LIMIT0/LIMIT1 membership 与 Slice9 组合；`O_named_later` 三个 ORDER 
 承载 R18 的精确 witness；nullable Bool key 的 oracle 按 target 各自的 native NULL
 posture 分别陈述，不发明任何 NULLS 拼写。receipt v2 与 pins 不变。
 
+Slice11 把 emission denominator 扩到 60 cases/181 public documents per target
+（postgres 150 VERIFIED/3 INPUT_REJECTED/28 BLOCKED；mysql 147/3/31）。十个 SET cases 覆盖
+C17 六式基础对、multiplicity、positional 全行比较、V01–V04/Float 域、嵌套、operand-local
+边界、producers、right-SET membership、fixed literals 与精确拒绝集；`O_named_later` 的
+`union_dag`/`two_facades` 迁移为 VERIFIED。新增四个 relation `phase66 set left é`、
+`phase66 set right é`、`phase66 set sextet é`、`phase66 set outer é` 承载见证；oracle 按
+已发布 multiplicity laws 手工陈述。receipt v2 与 pins 不变。
+
 ## Review, validation and publication
 
 独立上限6 root-cause correction groups、4 authoritative starts、每target4 full local
