@@ -20,7 +20,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 target-conformance = [
-    "psycopg[binary]==3.3.5",
+    "psycopg[binary]==3.3.6",
     "mysql-connector-python==26.7.0",
 ]
 dev = [
