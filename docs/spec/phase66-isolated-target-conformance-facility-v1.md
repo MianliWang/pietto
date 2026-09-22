@@ -289,6 +289,14 @@ Slice9 把 emission denominator 扩到 43 cases/119 public documents per target
 oracle 由已发布的四行 source 手工推导，按非空重复键排序以避免任何 target 的 NULL
 posture 改变结果；GROUPS/EXCLUDE 仅 PostgreSQL 为正域。receipt v2 与 pins 不变。
 
+Slice10 把 emission denominator 扩到 50 cases/141 public documents per target
+（postgres 112 VERIFIED/3 INPUT_REJECTED/26 BLOCKED；mysql 109/3/29）。七个 result
+cases 覆盖 visible DISTINCT、三类 ORDER carrier、static LIMIT、ORDER/LIMIT sharing、
+right LIMIT0/LIMIT1 membership 与 Slice9 组合；`O_named_later` 三个 ORDER variants
+迁移为 VERIFIED。新增一个四行 relation `phase66 agg dupes é`（value = 1,1,NULL,NULL）
+承载 R18 的精确 witness；nullable Bool key 的 oracle 按 target 各自的 native NULL
+posture 分别陈述，不发明任何 NULLS 拼写。receipt v2 与 pins 不变。
+
 ## Review, validation and publication
 
 独立上限6 root-cause correction groups、4 authoritative starts、每target4 full local

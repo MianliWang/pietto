@@ -82,11 +82,11 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
         if "generated" not in path.parts
     )
     test_files = tuple(sorted((REPO_ROOT / "tests").rglob("*.py")))
-    # Phase66 Slice9 adds one production emission module and its two owned test
-    # files. The inventory stays exact and the two-stage typing scan is
-    # unchanged.
-    assert len(production_files) == 215
-    assert len(test_files) == 482
+    # Phase66 Slice10 adds one production result-boundary emission module and
+    # its two owned test files. The inventory stays exact and the two-stage
+    # typing scan is unchanged.
+    assert len(production_files) == 216
+    assert len(test_files) == 484
     assert set(production_files).isdisjoint(test_files)
 
 

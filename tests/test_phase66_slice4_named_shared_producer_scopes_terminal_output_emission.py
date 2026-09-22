@@ -207,12 +207,20 @@ def test_later_operator_graph_is_structural_only(built, target, variant):
     assert verify_emission_layout(layout, checked)
     assert len(layout.definitions) == len(checked.plan.bindings.definitions)
     assert len(layout.uses) == len(checked.plan.input_uses)
-    if variant in {"producer_filter", "self_join"}:
-        # Slice6 implements this input's producer filter and Slice7 implements
-        # the JOIN family that was self_join's only remaining restriction. The
-        # retained source purpose and the historical BLOCKED outcome are
-        # unchanged history; the named-chain structure each case owns is still
-        # checked above, and self_join's shared-producer structure below.
+    if variant in {
+        "producer_filter",
+        "self_join",
+        "order_ordinary",
+        "order_rebound",
+        "order_completed",
+    }:
+        # Slice6 implements this input's producer filter, Slice7 implements
+        # the JOIN family that was self_join's only remaining restriction and
+        # Slice10 realizes the three relation ORDER carriers. The retained
+        # source purpose and the historical BLOCKED outcome are unchanged
+        # history; the named-chain structure each case owns is still checked
+        # above, self_join's shared-producer structure and the ORDER carrier
+        # structure below.
         assert outcome.status == "VERIFIED", outcome.status
         assert outcome.artifact is not None
         public = probe.decode_public(serialize_project_sql_emission(outcome))

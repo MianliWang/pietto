@@ -321,8 +321,8 @@ EXPECTED_STATUS = (
     ("Phase 66 Slice 7", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 8", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 9", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 10", "`NEXT / NOT IMPLEMENTED`"),
-    ("Phase 66 Slice 11", "`NOT IMPLEMENTED`"),
+    ("Phase 66 Slice 10", "`COMPLETED / PUBLISHED`"),
+    ("Phase 66 Slice 11", "`NEXT / NOT IMPLEMENTED`"),
     ("Phase 66 Slice 12", "`NOT IMPLEMENTED`"),
     ("Phase 66 Slice 13", "`NOT IMPLEMENTED`"),
     ("Phase 66 Slice 14", "`NOT IMPLEMENTED`"),
@@ -331,7 +331,8 @@ EXPECTED_STATUS = (
     ("Phase 66 route", "`N=16`"),
     (
         "Next",
-        "`Phase 66 Slice 10 — DISTINCT, ORDER and LIMIT result boundaries`",
+        "`Phase 66 Slice 11 — Six SET forms, positional types and operand-local"
+        " boundaries`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -5615,6 +5616,58 @@ def test_phase66_slice9_is_recorded_with_its_exact_denominator() -> None:
             " Slices11\u201316 remain `NOT IMPLEMENTED`." in document
         )
     assert (STATUS.parent / target).is_file()
+
+
+def test_phase66_slice10_is_recorded_with_its_exact_denominator() -> None:
+    target = (
+        "spec/phase66-slice10-distinct-order-limit-result-boundaries-emission-v1.md"
+    )
+    for path in (STATUS, ROADMAP):
+        document = " ".join(_read(path).split())
+        assert f"]({target})" in document
+        assert (
+            "Phase66 Slice10 is `COMPLETED / PUBLISHED` only upon successful"
+            " natural exact-head CI" in document
+        )
+        assert "native DISTINCT over exactly the visible positional tuple" in document
+        assert (
+            "three relation ORDER carriers (ordinary, rebound and completed)"
+            in document
+        )
+        assert "never an ordinal" in document
+        assert "no NULLS spelling and no MySQL discriminator" in document
+        assert "`hidden_strict_fd_order_approved_non_support`" in document
+        assert "`LIMIT 1` then a filter is empty" in document
+        assert "binds the post-LIMIT terminal" in document
+        assert "without any upstream completion change" in document
+        assert (
+            "The denominator is 50 cases/141 public documents per target:"
+            " postgres112 VERIFIED,3 INPUT_REJECTED,26 BLOCKED; mysql109"
+            " VERIFIED,3 INPUT_REJECTED,29 BLOCKED." in document
+        )
+        assert (
+            "R03 outstanding joint execution: Slice11 repeated UNION ALL and two"
+            " import facades." in document
+        )
+        assert "R11/C09 outstanding membership differences: Slice11 SET." in document
+        assert (
+            "Phase66 remains `ACTIVE`; Slice11 is `NEXT / NOT IMPLEMENTED`;"
+            " Slices12–16 remain `NOT IMPLEMENTED`." in document
+        )
+        assert "Do not start Slice11 automatically" in document
+    assert (STATUS.parent / target).is_file()
+    route = (
+        STATUS.parent
+        / "spec"
+        / "phase66-dialect-sql-emission-product-phase-initiation-gate-route-lock-v1.md"
+    )
+    document = " ".join(route.read_text(encoding="utf-8").split())
+    assert "## R03 Slice10 delivery" in document
+    assert (
+        "R03 outstanding joint execution: Slice11 repeated UNION ALL and two"
+        " import facades." in document
+    )
+    assert "R11/C09 outstanding membership differences: Slice11 SET." in document
 
 
 def test_phase66_slice9_amendment_is_recorded_in_the_route_lock() -> None:

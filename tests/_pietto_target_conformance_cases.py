@@ -167,6 +167,13 @@ AGGREGATE_TABLE_ROWS = {
         (1, None, None, "k", Decimal("0.00"), 0.0, 98),
         (None, None, None, "k", Decimal("0.00"), 0.0, 99),
     ),
+    # Slice10 R18: the exact published DISTINCT witness [1, 1, NULL, NULL].
+    "phase66 agg dupes é": (
+        (1, 1, None, "d", Decimal("0.00"), 0.0, 40),
+        (1, 1, None, "d", Decimal("0.00"), 0.0, 41),
+        (None, None, None, "d", Decimal("0.00"), 0.0, 42),
+        (None, None, None, "d", Decimal("0.00"), 0.0, 43),
+    ),
 }
 
 
@@ -689,6 +696,121 @@ def fixed_metadata(target, *, named):
     return [mapping[tag] for tag in tags]
 
 
+# Slice10 result-boundary oracles, stated by hand from the four published
+# emission rows (id = BIG, BIG, 0, 1; flag = true, true, false, NULL; text =
+# "trail 😀  " x2, "A", "a "), the dupes relation and the published rules. An
+# ordered oracle is a list in the exact required order; an unordered one is a
+# BAG. Nothing here is read back from an observation.
+RESULT_MIGRATED = {
+    ("O_named_later", "order_ordinary"),
+    ("O_named_later", "order_rebound"),
+    ("O_named_later", "order_completed"),
+}
+
+
+def _int_type(target):
+    return 20 if target == "postgres" else 8
+
+
+def result_expectation(target, case, variant):
+    """(rows, labels, physical types, logical tags, ordered) for one result case."""
+    big, zero, one = _integer(BIG_TEXT), _integer("0"), _integer("1")
+    i = _int_type(target)
+    if (case, variant) == ("O_named_later", "order_ordinary"):
+        return [[zero], [one], [big], [big]], ["Key"], [i], ["Int"], True
+    if (case, variant) == ("O_named_later", "order_rebound"):
+        # The upstream keeps row_number <= 3 and w <= 2: ids 0 and 1; LIMIT 1
+        # after ORDER BY id keeps 0.
+        return [[zero]], ["id"], [i], ["Int"], True
+    if (case, variant) == ("O_named_later", "order_completed"):
+        # 4 x 4 CROSS JOIN rows, ordered by the left id.
+        return (
+            [[zero]] * 4 + [[one]] * 4 + [[big]] * 8,
+            ["id"],
+            [i],
+            ["Int"],
+            True,
+        )
+    if case == "O_result_distinct":
+        if variant == "visible_int":
+            return [[big], [zero], [one]], ["record_id"], [i], ["Int"], False
+        if variant == "null_duplicates":
+            return [[one], [dict(NULL)]], ["v"], [i], ["Int"], False
+        # Groups BIG -> 2, 0 -> 1, 1 -> 1; the hidden key never enters the tuple.
+        return [[_integer("2")], [one]], ["total"], [i], ["Int"], False
+    if case == "O_result_order":
+        if variant == "ordinary_desc":
+            return [[big], [big], [one], [zero]], ["record_id"], [i], ["Int"], True
+        if variant == "nullable_key":
+            # Each target's own native NULL posture for an ascending key:
+            # PostgreSQL sorts NULL last, MySQL sorts NULL first.
+            true, false = _bool(target, True), _bool(target, False)
+            body = [[zero, false], [big, true], [big, true]]
+            null_row = [one, dict(NULL)]
+            rows = body + [null_row] if target == "postgres" else [null_row] + body
+            bool_type = 16 if target == "postgres" else 1
+            return rows, ["record_id", "active"], [i, bool_type], ["Int", "Bool"], True
+        if variant == "constant_key":
+            return [[big], [big], [one], [zero]], ["record_id"], [i], ["Int"], True
+        # helper_hidden: binary collation orders "A" < "a " < "trail 😀  ".
+        return [[zero], [one], [big], [big]], ["record_id"], [i], ["Int"], True
+    if case == "O_result_limit":
+        if variant == "positive":
+            return [[zero], [one]], ["record_id"], [i], ["Int"], True
+        if variant == "zero":
+            return [], ["record_id"], [i], ["Int"], True
+        if variant == "inner_then_filter":
+            # LIMIT 1 after ORDER BY id keeps 0; the outer filter id > 0 drops it.
+            return [], ["rid"], [i], ["Int"], True
+        # filter_then_limit: id > 0 first, then ORDER BY id LIMIT 1 keeps 1.
+        return [[one]], ["rid"], [i], ["Int"], True
+    if case == "O_result_sharing":
+        # One producer ORDER BY id LIMIT 2 = {0, 1}; the self join pairs them.
+        return [[zero, zero], [one, one]], ["a", "b"], [i, i], ["Int", "Int"], False
+    if case == "O_result_membership":
+        kind, right = variant.split("_", 1)
+        if right == "limit0":
+            rows = [] if kind == "semi" else [[big], [big], [zero], [one]]
+        else:
+            rows = [[zero]] if kind == "semi" else [[big], [big], [one]]
+        return rows, ["a"], [i], ["Int"], False
+    assert case == "O_result_window"
+    if variant == "qualify_distinct":
+        return [[big], [zero], [one]], ["record_id"], [i], ["Int"], False
+    if variant == "selected_order":
+        # row_number over id: 0 -> 1, 1 -> 2, BIG -> 3 and 4; DESC LIMIT 2.
+        return (
+            [[big, _integer("4")], [big, _integer("3")]],
+            ["record_id", "n"],
+            [i, i],
+            ["Int", "Int"],
+            True,
+        )
+    # qualify_order_limit: rows 0, 1, BIG survive; DISTINCT; ORDER BY id DESC LIMIT 2.
+    return [[big], [one]], ["record_id"], [i], ["Int"], True
+
+
+def check_result_case(observation, document, target, case_id, variant):
+    rows, labels, physical, logical, ordered = result_expectation(
+        target, case_id, variant
+    )
+    actual = observation["rows"]
+    if ordered:
+        if actual != rows:
+            raise ValueError("result boundary ordered row mismatch")
+    elif Counter(json.dumps(row, sort_keys=True) for row in actual) != Counter(
+        json.dumps(row, sort_keys=True) for row in rows
+    ):
+        raise ValueError("result boundary typed BAG mismatch")
+    metadata = observation["metadata"]
+    if [m[0] for m in metadata] != labels or [m[1] for m in metadata] != physical:
+        raise ValueError("result boundary positional physical metadata mismatch")
+    if [c["label"] for c in document["columns"]] != labels or [
+        c["logical_type"]["name"] for c in document["columns"]
+    ] != logical:
+        raise ValueError("result boundary positional logical metadata mismatch")
+
+
 def check_emission_case(case, target):
     if set(case) != {"id", "observations", "variants"} or [
         v["variant"] for v in case["variants"]
@@ -859,6 +981,13 @@ def check_emission_case(case, target):
                 emission.ROW_LOGICAL
             ) or [c["label"] for c in document["columns"]] != list(emission.ROW_LABELS):
                 raise ValueError("row stage positional logical metadata mismatch")
+            continue
+        if case["id"] in emission.RESULT_CASES or (
+            (case["id"], variant["variant"]) in RESULT_MIGRATED
+        ):
+            check_result_case(
+                observation, document, target, case["id"], variant["variant"]
+            )
             continue
         if case["id"] in emission.WINDOW_CASES:
             key = window_key(case["id"], variant["variant"])

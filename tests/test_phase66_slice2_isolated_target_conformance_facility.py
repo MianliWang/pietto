@@ -1056,6 +1056,13 @@ def valid_receipts(
                             ]
                         ]
                         types = [20 if target == "postgres" else 8] * len(names)
+                    elif case_id in probe.RESULT_CASES or (
+                        (case_id, record["variant"]) in cases.RESULT_MIGRATED
+                    ):
+                        rows, labels, types, _, _ = cases.result_expectation(
+                            target, case_id, record["variant"]
+                        )
+                        names = [str(label) for label in labels]
                     observation = _observation(
                         target,
                         document["sql"],
@@ -1531,6 +1538,12 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "M_named_chain",
         "N_imported_chain",
         "O_named_later",
+        "O_result_distinct",
+        "O_result_limit",
+        "O_result_membership",
+        "O_result_order",
+        "O_result_sharing",
+        "O_result_window",
         "P_native_identifiers",
         "Q_native_lifecycle",
         "R_fixed_direct",
@@ -1539,6 +1552,7 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "U_row_named",
         "V_aggregate_blocked",
         "V_join_full",
+        "V_result_blocked",
         "V_row_blocked",
         "V_window_blocked",
         "W_join_shapes",

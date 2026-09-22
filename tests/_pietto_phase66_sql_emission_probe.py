@@ -128,7 +128,30 @@ VARIANTS = {
         "bool_domain_key",
         "decimal_parameter_key",
     ),
+    "O_result_distinct": ("visible_int", "null_duplicates", "hidden_group"),
+    "O_result_order": (
+        "ordinary_desc",
+        "nullable_key",
+        "constant_key",
+        "helper_hidden",
+    ),
+    "O_result_limit": ("positive", "zero", "inner_then_filter", "filter_then_limit"),
+    "O_result_sharing": ("order_limit_self_join",),
+    "O_result_membership": ("semi_limit1", "anti_limit1", "semi_limit0", "anti_limit0"),
+    "O_result_window": ("qualify_distinct", "selected_order", "qualify_order_limit"),
+    "V_result_blocked": ("hidden_strict_fd", "float_distinct", "order_expression"),
 }
+RESULT_CASES = frozenset(
+    {
+        "O_result_distinct",
+        "O_result_order",
+        "O_result_limit",
+        "O_result_sharing",
+        "O_result_membership",
+        "O_result_window",
+        "V_result_blocked",
+    }
+)
 AGGREGATE_CASES = (
     "X_aggregate_global",
     "X_aggregate_grouped",
@@ -225,6 +248,20 @@ WINDOW_DEMAND_RULES = {
     "window_projection": "R17",
 }
 WINDOW_NAVIGATION_FUNCTIONS = frozenset({"lag", "lead"})
+# Slice10 result demands: R18 owns the quotient, R19 relation ORDER, R20 the
+# pending hidden requirement and R21 the static LIMIT; a boundary is a generated
+# scope (R03) and every other result witness keeps the prior generic rule.
+RESULT_DEMAND_RULES = {
+    "result_boundary": "R03",
+    "distinct": "R18",
+    "quotient_field": "R18",
+    "relation_order": "R19",
+    "order_item": "R19",
+    "order_expression": "R19",
+    "order_use": "R19",
+    "hidden_order_requirement": "R20",
+    "result_limit": "R21",
+}
 CODES = {
     "PIE-B1001": "SOURCE_REALIZATION",
     "PIE-B1002": "REPRESENTATION",
@@ -267,6 +304,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         return row_fixture(target, case, variant)
     if case in WINDOW_CASES:
         return window_fixture(target, case, variant)
+    if case in RESULT_CASES:
+        return result_fixture(target, case, variant)
     if case in {"W_join_shapes", "W_join_values", "V_join_full"}:
         return join_fixture(target, case, variant)
     if case in AGGREGATE_CASES:
@@ -686,6 +725,7 @@ AGGREGATE_RELATIONS = {
     "trio": "phase66 agg trio é",
     "nulls": "phase66 agg nulls é",
     "keys": "phase66 agg keys é",
+    "dupes": "phase66 agg dupes é",
 }
 # Which fixed relation each variant's `agg` source reads. `keys` is always the
 # four-occurrence left input when a case declares it.
@@ -1684,6 +1724,233 @@ def window_fixture(target, case, variant):
     }
 
 
+# Slice10 result boundaries over the published emission source. Every ORDER key
+# is an input-scope value, a constant key is first established through LET, and
+# the C13 witnesses author the same filter on both sides of a LIMIT boundary.
+RESULT_BODIES = {
+    ("O_result_distinct", "visible_int"): """query result:
+    from rows
+    select distinct:
+        record_id = id
+""",
+    ("O_result_distinct", "null_duplicates"): """query result:
+    from agg
+    select distinct:
+        v = value
+""",
+    ("O_result_distinct", "hidden_group"): """query result:
+    from rows
+    group by:
+        id
+    select distinct:
+        total = count()
+""",
+    ("O_result_order", "ordinary_desc"): """query result:
+    from rows
+    select:
+        record_id = id
+    order by:
+        id desc
+""",
+    ("O_result_order", "nullable_key"): """query result:
+    from rows
+    select:
+        record_id = id
+        active = flag
+    order by:
+        flag
+        id
+""",
+    ("O_result_order", "constant_key"): """query result:
+    from rows
+    let:
+        one = 1
+    select:
+        record_id = id
+    order by:
+        one
+        id desc
+""",
+    ("O_result_order", "helper_hidden"): """query result:
+    from rows
+    select:
+        record_id = id
+    order by:
+        text
+        id desc
+""",
+    ("O_result_limit", "positive"): """query result:
+    from rows
+    select:
+        record_id = id
+    order by:
+        id
+    limit 2
+""",
+    ("O_result_limit", "zero"): """query result:
+    from rows
+    select:
+        record_id = id
+    limit 0
+""",
+    ("O_result_limit", "inner_then_filter"): """table top:
+    from rows
+    select:
+        rid = id
+    order by:
+        id
+    limit 1
+query result:
+    from top
+    where rid > 0
+    select:
+        rid
+""",
+    ("O_result_limit", "filter_then_limit"): """query result:
+    from rows
+    where id > 0
+    select:
+        rid = id
+    order by:
+        id
+    limit 1
+""",
+    ("O_result_sharing", "order_limit_self_join"): """table top:
+    from rows
+    select:
+        rid = id
+    order by:
+        id
+    limit 2
+query result:
+    from top
+    inner join top as r:
+        from top
+        on top.rid == r.rid
+    select:
+        a = top.rid
+        b = r.rid
+""",
+    ("O_result_window", "qualify_distinct"): """query result:
+    from rows
+    select distinct:
+        record_id = id
+    qualify:
+        row_number() window:
+            order by:
+                id
+        <= 4
+""",
+    ("O_result_window", "selected_order"): """query result:
+    from rows
+    select:
+        record_id = id
+        n = row_number() window:
+            order by:
+                id
+    order by:
+        n desc
+    limit 2
+""",
+    ("O_result_window", "qualify_order_limit"): """query result:
+    from rows
+    select distinct:
+        record_id = id
+    qualify:
+        row_number() window:
+            order by:
+                id
+        <= 3
+    order by:
+        id desc
+    limit 2
+""",
+    ("V_result_blocked", "hidden_strict_fd"): """query result:
+    from rows
+    select distinct:
+        record_id = id
+    order by:
+        text
+""",
+    ("V_result_blocked", "float_distinct"): """query result:
+    from rows
+    select distinct:
+        r = ratio
+""",
+    ("V_result_blocked", "order_expression"): """query result:
+    from rows
+    select:
+        record_id = id
+    order by:
+        id + 1
+""",
+}
+MEMBERSHIP_RIGHT = {
+    "limit1": "table ranked:\n    from rows\n    select:\n        rid = id\n"
+    "    order by:\n        id\n    limit 1\n",
+    "limit0": "table ranked:\n    from rows\n    select:\n        rid = id\n"
+    "    limit 0\n",
+}
+
+
+def membership_body(variant):
+    kind, right = variant.split("_", 1)
+    return MEMBERSHIP_RIGHT[right] + (
+        f"query result:\n    from rows\n    {kind} join ranked as r:\n"
+        "        from rows\n        on rows.id == r.rid\n    select:\n"
+        "        a = rows.id\n"
+    )
+
+
+def result_fixture(target, case, variant):
+    """One Slice10 result-boundary body over the published sources."""
+    if (case, variant) == ("O_result_distinct", "null_duplicates"):
+        # The exact R18 witness: value = [1, 1, NULL, NULL] collapses to [1, NULL].
+        contract = json.loads(
+            aggregate_fixture(target, "X_aggregate_global", "bag")["contract"]
+        )
+        contract["sources"] = [
+            _aggregate_descriptor(target, "agg", AGGREGATE_RELATIONS["dupes"])
+        ]
+        return {
+            "source": AGGREGATE_HEADER.format(target=target)
+            + RESULT_BODIES[case, variant],
+            "contract": encoded(contract).decode(),
+            "policy": "preserve_literals",
+        }
+    base = fixture(target)
+    base_source = base["source"]
+    assert type(base_source) is str
+    header = base_source.split("table result:", 1)[0]
+    if (case, variant) == ("V_result_blocked", "hidden_strict_fd"):
+        # The visible key is unique, so the hidden Text key is STRICT-FD
+        # determined: exactly the R20 pending requirement.
+        header = header.replace(
+            "shape Row:\n    id: Int not null\n",
+            "shape Row:\n    id: Int not null\n    unique by_id on id\n",
+        )
+    contract = json.loads(base["contract"])
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        }
+    )
+    body = (
+        membership_body(variant)
+        if case == "O_result_membership"
+        else RESULT_BODIES[case, variant]
+    )
+    return {
+        "source": header + body,
+        "contract": encoded(contract).decode(),
+        "policy": "preserve_literals",
+    }
+
+
 def row_fixture(target, case, variant):
     """Ordered LET stages, a retained filter and admitted scalar projections."""
     base = fixture(target)
@@ -2007,6 +2274,11 @@ MIGRATED_TO_SUCCESS = (
     # containing blocked or later is not outcome authority.
     ("O_named_later", "self_join"),
     ("V_row_blocked", "match_join"),
+    # Slice10 realizes the three relation ORDER carriers these inputs retained
+    # for structural inspection only; their source purpose is unchanged history.
+    ("O_named_later", "order_ordinary"),
+    ("O_named_later", "order_rebound"),
+    ("O_named_later", "order_completed"),
 )
 # PostgreSQL alone admits the published restricted FULL domain; MySQL keeps its
 # typed non-support, so these variants are per-target.
@@ -2027,7 +2299,12 @@ def expected_status(case, variant, target=None):
         return PER_TARGET_STATUS[case, variant][target]
     if (case, variant) in MIGRATED_TO_SUCCESS:
         return "VERIFIED"
-    if case in {"V_row_blocked", "V_aggregate_blocked", "V_window_blocked"}:
+    if case in {
+        "V_row_blocked",
+        "V_aggregate_blocked",
+        "V_window_blocked",
+        "V_result_blocked",
+    }:
         return "BLOCKED"
     return (
         "INPUT_REJECTED"
@@ -2545,6 +2822,13 @@ def _named_range_provenance(document, descriptors):
         "join_port": ["join_port"],
         "join_tail": ["join_tail"],
         "relationship_match": ["relationship_match"],
+        # Slice10 result boundaries own their own boundary, quotient, ORDER
+        # occurrence/items and static LIMIT.
+        "result_boundary": ["result_boundary"],
+        "distinct": ["distinct"],
+        "relation_order": ["relation_order"],
+        "order_item": ["order_item"],
+        "result_limit": ["result_limit"],
     }
     associations = {
         "authored_cause",
@@ -3205,6 +3489,14 @@ def _decode_row_denominators(
             continue
         elif type(evidence) is dict:
             _need(item["evidence"] == [evidence], "generated operator evidence")
+        elif type(evidence) is tuple and evidence[0] == "result":
+            _need(len(item["evidence"]) == 1, "result requirement evidence")
+            entry = cast(dict[str, Any], item["evidence"][0])
+            _need(
+                entry.get("carrier") in {"ordinary", "rebound", "completed"}
+                and all(entry.get(k) == v for k, v in evidence[1].items()),
+                "result requirement evidence",
+            )
         else:
             _, block, expression = evidence
             _need(len(item["evidence"]) == 1, "reference evidence")
@@ -3219,7 +3511,11 @@ def _decode_row_denominators(
     # Original demands: every family keeps its own re-derived rule and no premise.
     # A JOIN unit is its own generated scope, not an authored stage block, so the
     # retained scope demands cover exactly the emitted stage bodies.
-    blocks = [body["block"] for body in bodies if not body.get("join")]
+    blocks = [
+        body["block"]
+        for body in bodies
+        if not body.get("join") and not body.get("result")
+    ]
     families: dict[str, list[dict[str, Any]]] = {}
     for item in originals:
         families.setdefault(item["kind"], []).append(item)
@@ -3280,6 +3576,8 @@ def _decode_row_denominators(
             rule = AGGREGATE_DEMAND_RULES.get(subject["kind"], "R12")
         elif kind == "window":
             rule = WINDOW_DEMAND_RULES.get(subject["kind"], "R14")
+        elif kind == "result":
+            rule = RESULT_DEMAND_RULES.get(subject["kind"], "R02")
         else:
             rule = "R02"
         _need(item["rule"] == rule, "original requirement rule")
@@ -4144,7 +4442,9 @@ def _decode_fixed_public(document, limits):
         "result": 0,
         "aggregate_projection": 0,
         "window_projection": 0,
+        "quotient_field": 0,
     }
+    result_nodes = [0]
 
     def window_specification_parse(subject):
         """One OVER body: partitions, orders and an optional exact frame."""
@@ -4516,10 +4816,20 @@ def _decode_fixed_public(document, limits):
         scan,
         alias,
         origin=None,
+        *,
+        published=None,
+        bases=None,
     ):
-        """Independently rebuild one published output column and compare it."""
+        """Independently rebuild one published output column and compare it.
+
+        A result body publishes the columns of the closed projection it reads,
+        so that projection's description is checked later against the published
+        column with its result stages removed and its own counters restored.
+        """
         _need(position < len(document["columns"]), "published column denominator")
-        published = document["columns"][position]
+        if published is None:
+            published = document["columns"][position]
+        counts = row_counts if bases is None else bases
         _keys(
             published,
             (
@@ -4561,7 +4871,7 @@ def _decode_fixed_public(document, limits):
                 "export": export,
                 "projection": ref(
                     "aggregate_projection",
-                    row_counts["aggregate_projection"] + position,
+                    counts["aggregate_projection"] + position,
                 ),
                 "sql_symbol": position + 1,
             }
@@ -4607,16 +4917,14 @@ def _decode_fixed_public(document, limits):
                     "window_origin": window_origin(published, origin),
                     "input_port": node["port"],
                     "export": export,
-                    "projection": ref(
-                        "window_projection", row_counts["window_projection"]
-                    ),
+                    "projection": ref("window_projection", counts["window_projection"]),
                     "sql_symbol": position + 1,
                 },
             }
-            row_counts["window_projection"] += 1
+            counts["window_projection"] += 1
             _need(encoded(published) == encoded(expected), "window output published")
             return realization
-        projection = ref("projection", row_counts["projection"] + position)
+        projection = ref("projection", counts["projection"] + position)
         link = None
         if scan["kind"] in {"scan", "named"} and root is not None and "read" in root:
             correspondence_link = published["correspondence"]
@@ -4735,14 +5043,20 @@ def _decode_fixed_public(document, limits):
                 node = {"kind": "value", "value": row_parse(block)}
             alias_token, _ = take("syntax", "alias", " AS ")
             export = alias_token["subject"]
-            _need(export["kind"] in {"stage_port", "export"}, "export kind")
+            # A closed projection stage may end with hidden ORDER helpers: exact
+            # carries of pre-projection ports whose export is a projection-role
+            # result port rather than a canonical export.
+            helper = node["kind"] == "carry" and export["kind"] == "result_port"
+            _need(helper or export["kind"] in {"stage_port", "export"}, "export kind")
             _, label = take("identifier", "label", None, export)
             _need(separator is None or separator["subject"] == export, "separator")
             _need(
                 node["kind"] not in CARRIED_KINDS or node["qualifier"] == export,
                 "carried qualifier",
             )
-            parsed.append({"node": node, "export": export, "label": label})
+            parsed.append(
+                {"node": node, "export": export, "label": label, "helper": helper}
+            )
             if node["kind"] == "window":
                 windows_seen.append(node)
             if peek() != "separator":
@@ -4785,13 +5099,18 @@ def _decode_fixed_public(document, limits):
             incoming = source_body["outgoing"]
             scan = {"kind": "join", "body": source_body}
         elif peek() == "cte_reference":
-            _need(producer["kind"] == "select_block", "named producer kind")
+            _need(
+                producer["kind"] in {"select_block", "result_boundary"},
+                "named producer kind",
+            )
             _, name = take("identifier", "cte_reference", subject=producer)
             source_body = row_ctes.get(name)
             _need(
                 source_body is not None
                 and source_body["block"] == producer
-                and source_body["projection"],
+                and source_body["projection"]
+                and (producer["kind"] == "select_block")
+                != bool(source_body.get("result")),
                 "named use must read a complete definition terminal",
             )
             assert source_body is not None
@@ -4881,12 +5200,19 @@ def _decode_fixed_public(document, limits):
             row_generated.append(("stage_use", block, "R03", "naming", None))
             for column in scan["body"]["header"]:
                 row_generated.append(("stage_terminal", column, "R03", "naming", None))
-        carries = sum(1 for item in parsed if item["node"]["kind"] == "carry")
+        helpers = sum(1 for item in parsed if item["helper"])
         _need(
-            all(item["node"]["kind"] == "carry" for item in parsed[:carries]),
+            all(item["helper"] for item in parsed[len(parsed) - helpers :])
+            and (helpers == 0 or not final),
+            "hidden ORDER helpers trail the visible columns of a closed stage",
+        )
+        visible_items = parsed[: len(parsed) - helpers]
+        carries = sum(1 for item in visible_items if item["node"]["kind"] == "carry")
+        _need(
+            all(item["node"]["kind"] == "carry" for item in visible_items[:carries]),
             "carried columns precede computed ones",
         )
-        kinds = [item["node"]["kind"] for item in parsed]
+        kinds = [item["node"]["kind"] for item in visible_items]
         aggregate_body = "group_key" in kinds or "aggregate" in kinds
         result_body = "result" in kinds
         _need(
@@ -4921,7 +5247,7 @@ def _decode_fixed_public(document, limits):
         # a declaration that nothing uses is never emitted.
         _need(referenced <= set(window_declared), "window reference outside its clause")
         _need(set(window_declared) <= referenced, "unused generated window definition")
-        outgoing, columns = [], []
+        outgoing, columns, deferred = [], [], []
         if aggregate_body:
             row_generated.append(
                 (
@@ -4946,7 +5272,7 @@ def _decode_fixed_public(document, limits):
             )
             origin = None
             if node["kind"] in CARRIED_KINDS:
-                if node["kind"] == "carry":
+                if node["kind"] == "carry" and not item["helper"]:
                     _need(position < len(incoming), "carried column beyond the scan")
                     read = incoming[position]
                 else:
@@ -5209,6 +5535,23 @@ def _decode_fixed_public(document, limits):
                     alias,
                     origin,
                 )
+            elif projection_body and not item["helper"]:
+                deferred.append(
+                    (
+                        position,
+                        node,
+                        root,
+                        read,
+                        realization,
+                        block,
+                        terminal,
+                        export,
+                        scan,
+                        alias,
+                        origin,
+                        dict(row_counts),
+                    )
+                )
             outgoing.append(
                 {
                     "name": f"c{position}",
@@ -5218,6 +5561,7 @@ def _decode_fixed_public(document, limits):
                     "field": field,
                     "literal": literal,
                     "origin": origin,
+                    "helper": item["helper"],
                 }
             )
             columns.append(
@@ -5271,11 +5615,17 @@ def _decode_fixed_public(document, limits):
                 )
         row_generated.append(("read_only_select_bytes", None, "R23", [], None))
         if projection_body:
+            # Hidden helpers are projection-role result ports, never projections.
             row_counts["result"] += len(columns)
             if result_body:
-                row_counts["aggregate_projection"] += len(columns)
+                row_counts["aggregate_projection"] += len(columns) - helpers
             else:
-                row_counts["projection"] += len(columns)
+                # A window result carries its own window projection identity.
+                row_counts["projection"] += sum(
+                    1
+                    for item in visible_items
+                    if item["node"]["kind"] != "window_result"
+                )
         body = {
             "block": block,
             "columns": columns,
@@ -5284,9 +5634,368 @@ def _decode_fixed_public(document, limits):
             "final": final,
             "scan": scan,
             "header": cte_terminals,
+            "deferred": deferred,
+            "helpers": helpers,
         }
         row_bodies.append(body)
         _need(len(columns) <= limits["columns"])
+        return body
+
+    def result_select(block, final, cte_terminals):
+        """One result body: DISTINCT, the carried visible tuple, ORDER BY, LIMIT.
+
+        The stage law is re-derived from the token order alone: the body reads
+        its own closed projection, DISTINCT precedes the columns, ORDER BY
+        follows the scan and LIMIT closes the body; every ORDER key is a quoted
+        carried column of the stage alias, never an ordinal or a label, and no
+        NULLS spelling exists. Result ports are counted independently from the
+        projection width, so a terminal cannot silently skip a boundary.
+        """
+        _need(block["kind"] == "result_boundary", "result body scope")
+        take("syntax", "select", "SELECT ", block)
+        distinct = None
+        if peek() == "distinct":
+            token, _ = take("syntax", "distinct", "DISTINCT ")
+            distinct = token["subject"]
+            _need(distinct["kind"] == "distinct", "DISTINCT subject kind")
+        parsed = []
+        while True:
+            separator = None
+            if parsed:
+                separator, _ = take("syntax", "separator", ", ")
+            scope_token, carry_alias = take("identifier", "result_carry_scope")
+            projection_port = scope_token["subject"]
+            _need(projection_port["kind"] == "result_port", "result carry port kind")
+            qualifier, _ = take("syntax", "result_carry_qualifier", ".")
+            export = qualifier["subject"]
+            _need(export["kind"] == "export", "result carry export kind")
+            column_token, name = take("identifier", "result_carry_column")
+            _need(
+                column_token["subject"] == projection_port,
+                "a result column reads exactly its own projection port",
+            )
+            alias_token, _ = take("syntax", "alias", " AS ")
+            _need(alias_token["subject"] == export, "result column alias subject")
+            _, label = take("identifier", "label", None, export)
+            _need(separator is None or separator["subject"] == export, "separator")
+            _need(final or label == f"c{len(parsed)}", "result column label")
+            parsed.append(
+                {
+                    "port": projection_port,
+                    "export": export,
+                    "name": name,
+                    "label": label,
+                    "alias": carry_alias,
+                }
+            )
+            if peek() != "separator":
+                break
+        from_token, _ = take("syntax", "from", " FROM ")
+        producer = from_token["subject"]
+        _need(producer["kind"] == "select_block", "result producer kind")
+        _, name = take("identifier", "stage_reference", subject=producer)
+        source_body = row_ctes.get(name)
+        _need(
+            source_body is not None
+            and source_body is row_bodies[-1]
+            and source_body["block"] == producer
+            and source_body["projection"]
+            and not source_body["final"],
+            "a result body reads its own immediately preceding closed projection",
+        )
+        assert source_body is not None
+        alias_token, _ = take("syntax", "alias", " AS ")
+        _need(alias_token["subject"] == block, "result scope binding")
+        _, alias = take("identifier", "result_scope", None, block)
+        _need(alias == f"t{block['position']}", "result scope spelling")
+        incoming = source_body["outgoing"]
+        visible = [column for column in incoming if not column["helper"]]
+        _need(
+            len(parsed) == len(visible)
+            and all(
+                item["alias"] == alias
+                and item["name"] == column["name"]
+                and item["port"] == column["terminal"]
+                for item, column in zip(parsed, visible, strict=True)
+            ),
+            "the result tuple is exactly the visible projection, in order",
+        )
+        width = len(incoming)
+        encoding = [i for i in statements if premises[i]["key"] == "client_encoding"]
+        order_items = []
+        order_ref = None
+        if peek() == "order_by":
+            token, _ = take("syntax", "order_by", " ORDER BY ")
+            order_ref = token["subject"]
+            _need(order_ref["kind"] == "relation_order", "ORDER BY subject kind")
+            while True:
+                if order_items:
+                    separator, _ = take("syntax", "order_separator", ", ")
+                start = lexical[cursor][0]["start"]
+                scope_token, scope_alias = take("identifier", "order_scope")
+                port = scope_token["subject"]
+                _need(
+                    scope_alias == alias and port["kind"] == "result_port",
+                    "an ORDER key reads the result scope through a result port",
+                )
+                qualifier, _ = take("syntax", "order_qualifier", ".")
+                item = qualifier["subject"]
+                _need(item["kind"] == "order_item", "ORDER item subject kind")
+                _need(
+                    not order_items
+                    or (separator is not None and separator["subject"] == item),
+                    "ORDER separator subject",
+                )
+                column_token, column_name = take("identifier", "order_column")
+                matches = [
+                    column
+                    for column in incoming
+                    if column["name"] == column_name
+                    and column["terminal"] == column_token["subject"]
+                ]
+                _need(len(matches) == 1, "an ORDER key is one established column")
+                read = matches[0]
+                _need(
+                    read["realization"]["tag"] in ("Int", "Bool", "Text", "Decimal"),
+                    "relation ORDER comparison domain",
+                )
+                _need(
+                    distinct is None or not read["helper"],
+                    "DISTINCT ORDER keys are visible quotient columns",
+                )
+                direction_token, direction = take("syntax", "order_direction")
+                _need(
+                    direction in {" ASC", " DESC"}
+                    and direction_token["subject"] == item,
+                    "ORDER direction spelling",
+                )
+                expected_ranges.append(
+                    ("order_item", item, start, direction_token["end"])
+                )
+                order_items.append(
+                    {
+                        "item": item,
+                        "port": port,
+                        "read": read,
+                        "direction": direction.strip().lower(),
+                    }
+                )
+                if peek() != "order_separator":
+                    break
+        limit = None
+        if peek() == "limit":
+            token, _ = take("syntax", "limit", " LIMIT ")
+            limit_ref = token["subject"]
+            _need(limit_ref["kind"] == "result_limit", "LIMIT subject kind")
+            _, text = take("literal", "limit_value", None, limit_ref)
+            _need(re.fullmatch(r"0|[1-9][0-9]*", text) is not None, "LIMIT spelling")
+            limit = {"limit": limit_ref, "value": int(text)}
+        # Independent result-port accounting: every boundary consumes its inputs
+        # and re-publishes the visible outputs; the terminal is the last output.
+        cursor_position = row_counts["result"]
+        stages = []
+        boundary_position = block["position"]
+        for present, kind in (
+            (distinct is not None, "distinct"),
+            (order_ref is not None, "relation_ordering"),
+            (limit is not None, "limit"),
+        ):
+            if not present:
+                continue
+            inputs = [ref("result_port", cursor_position + i) for i in range(width)]
+            outputs = [
+                ref("result_port", cursor_position + width + i)
+                for i in range(len(visible))
+            ]
+            stages.append(
+                {
+                    "kind": kind,
+                    "boundary": ref("result_boundary", boundary_position),
+                    "inputs": inputs,
+                    "outputs": outputs,
+                }
+            )
+            cursor_position += width + len(visible)
+            width = len(visible)
+            boundary_position += 1
+        _need(stages and stages[0]["boundary"] == block, "result boundary chain")
+        for entry in order_items:
+            order_stage = [
+                stage for stage in stages if stage["kind"] == "relation_ordering"
+            ]
+            _need(
+                entry["port"] in order_stage[0]["inputs"],
+                "an ORDER key binds an input port of its own boundary",
+            )
+        terminals = stages[-1]["outputs"]
+        if cte_terminals is not None:
+            _need(cte_terminals == terminals, "declared result terminals")
+        row_counts["result"] = cursor_position
+        quotient_base = row_counts["quotient_field"]
+        if distinct is not None:
+            row_counts["quotient_field"] += len(visible)
+        row_generated.append(("stage_use", producer, "R03", "naming", None))
+        row_generated.extend(
+            ("stage_terminal", column, "R03", "naming", None)
+            for column in source_body["header"]
+        )
+        if distinct is not None:
+            row_generated.append(
+                ("distinct_quotient", distinct, "R18", [], {"fields": len(visible)})
+            )
+            for i, column in enumerate(visible):
+                row_generated.append(
+                    (
+                        "quotient_field_comparison",
+                        ref("quotient_field", quotient_base + i),
+                        "R18",
+                        encoding if column["realization"]["tag"] == "Text" else [],
+                        None,
+                    )
+                )
+        if order_ref is not None:
+            row_generated.append(
+                (
+                    "relation_ordering",
+                    order_ref,
+                    "R19",
+                    [],
+                    ("result", {"items": len(order_items)}),
+                )
+            )
+            for entry in order_items:
+                evidence = (
+                    "result",
+                    {
+                        "direction": entry["direction"],
+                        "nulls": "target_defined",
+                        "value_port": entry["port"],
+                    },
+                )
+                row_generated.append(
+                    (
+                        "order_item",
+                        entry["item"],
+                        "R19",
+                        encoding
+                        if entry["read"]["realization"]["tag"] == "Text"
+                        else [],
+                        evidence,
+                    )
+                )
+                if entry["read"]["realization"]["nullable"] is not False:
+                    row_generated.append(
+                        ("order_null_posture", entry["item"], "R19", [], evidence)
+                    )
+        if limit is not None:
+            row_generated.append(
+                ("static_limit", limit["limit"], "R21", [], {"value": limit["value"]})
+            )
+        if not final and (order_ref is not None or limit is not None):
+            row_generated.append(
+                ("inner_result_boundary", block, "R21", "naming", None)
+            )
+        for terminal in terminals:
+            row_generated.append(
+                ("result_terminal_column", terminal, "R03", "naming", None)
+            )
+        row_generated.append(("read_only_select_bytes", None, "R23", [], None))
+        result_nodes[0] += (
+            (0 if distinct is None else 1)
+            + len(order_items)
+            + (0 if limit is None else 1)
+        )
+        outgoing, columns = [], []
+        for position, (item, column) in enumerate(zip(parsed, visible, strict=True)):
+            terminal = terminals[position]
+            if final:
+                _need(position < len(document["columns"]), "published columns")
+                published = document["columns"][position]
+                correspondence = dict(published["correspondence"])
+                origin = correspondence.pop("result_origin", None)
+                _keys(origin, ("terminal", "projection_port", "stages"))
+                expected_stages = [
+                    {
+                        "kind": stage["kind"],
+                        "boundary": stage["boundary"],
+                        "input_port": stage["inputs"][position],
+                        "output_port": stage["outputs"][position],
+                        "quotient_field": ref(
+                            "quotient_field", quotient_base + position
+                        )
+                        if stage["kind"] == "distinct"
+                        else None,
+                    }
+                    for stage in stages
+                ]
+                _need(
+                    origin["terminal"] == terminal
+                    and origin["projection_port"] == item["port"]
+                    and origin["stages"] == expected_stages,
+                    "result origin",
+                )
+                stripped = {**published, "correspondence": correspondence}
+                deferred = source_body["deferred"][position]
+                (
+                    inner_position,
+                    node,
+                    root,
+                    read,
+                    realization,
+                    inner_block,
+                    inner_terminal,
+                    export,
+                    scan,
+                    inner_alias,
+                    inner_origin,
+                    bases,
+                ) = deferred
+                _need(inner_position == position and export == item["export"])
+                row_output(
+                    position,
+                    item["label"],
+                    node,
+                    root,
+                    read,
+                    realization,
+                    inner_block,
+                    inner_terminal,
+                    export,
+                    scan,
+                    inner_alias,
+                    inner_origin,
+                    published=stripped,
+                    bases=bases,
+                )
+            outgoing.append({**column, "name": f"c{position}", "terminal": terminal})
+            columns.append(
+                {
+                    "label": item["label"],
+                    "export": item["export"],
+                    "terminal": terminal,
+                    "realization": column["realization"],
+                    "field": column["field"],
+                    "literal": column["literal"],
+                    "root": None,
+                    "position": position,
+                    "origin": column["origin"],
+                }
+            )
+        if final:
+            _need(len(document["columns"]) == len(columns), "published columns")
+        body = {
+            "block": block,
+            "columns": columns,
+            "outgoing": outgoing,
+            "projection": True,
+            "final": final,
+            "scan": {"kind": "result", "body": source_body},
+            "header": cte_terminals,
+            "deferred": [],
+            "helpers": 0,
+            "result": True,
+        }
+        row_bodies.append(body)
         return body
 
     row_ctes: dict[str, Any] = {}
@@ -5734,6 +6443,12 @@ def _decode_fixed_public(document, limits):
             row_generated.append(("membership", join_ref, "R11", "naming", None))
             row_generated.append(("correlation", join_ref, "R11", "naming", None))
             row_generated.append(("sentinel", join_ref, "R11", "naming", None))
+            right = inputs[1]
+            if right.get("body") is not None and right["body"].get("result"):
+                # The right side is a complete post-DISTINCT/ORDER/LIMIT terminal.
+                row_generated.append(
+                    ("complete_right_terminal", right["input"], "R11", "naming", None)
+                )
         for item in columns:
             row_generated.append(("join_output", item["port"], "R07", "naming", None))
             if item["nulled"]:
@@ -5758,8 +6473,8 @@ def _decode_fixed_public(document, limits):
             name_token, name = take("identifier", "cte_name")
             block = name_token["subject"]
             _need(
-                block["kind"] in {"select_block", "join"},
-                "a generated CTE binds a select block or one JOIN",
+                block["kind"] in {"select_block", "join", "result_boundary"},
+                "a generated CTE binds a select block, one JOIN or a result body",
             )
             _need(name == f"p{index}" and name not in row_ctes, "stage CTE name")
             _need(separator is None or separator["subject"] == block, "CTE separator")
@@ -5794,14 +6509,23 @@ def _decode_fixed_public(document, limits):
             row_ctes[name] = (
                 join_select(block, header)
                 if block["kind"] == "join"
+                else result_select(block, False, header)
+                if block["kind"] == "result_boundary"
                 else row_select(block, False, header)
             )
             take("syntax", "cte_body_close", ")", block)
             if peek() != "cte_separator":
                 break
         final_token, _ = take("syntax", "with_body", " ")
-        _need(final_token["subject"]["kind"] == "select_block", "final stage scope")
-        row_select(final_token["subject"], True, None)
+        final_block = final_token["subject"]
+        _need(
+            final_block["kind"] in {"select_block", "result_boundary"},
+            "final stage scope",
+        )
+        if final_block["kind"] == "result_boundary":
+            result_select(final_block, True, None)
+        else:
+            row_select(final_block, True, None)
 
     row_grammar = any(
         interval["role"] == "select" and interval["subject"]["kind"] == "select_block"
@@ -5896,7 +6620,7 @@ def _decode_fixed_public(document, limits):
                 "ports": row_stage_ports,
                 "expressions": seen_expressions,
                 "fixed": fixed,
-                "scalar_nodes": scalar_nodes,
+                "scalar_nodes": scalar_nodes + result_nodes[0],
                 "ctes": row_ctes,
             },
         )

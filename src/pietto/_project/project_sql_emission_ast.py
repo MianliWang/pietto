@@ -20,6 +20,7 @@ from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_emission_joins as joining
 from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_windows as windowing
+from pietto._project import project_sql_emission_results as resulting
 from pietto._project import project_sql_plan_windows as plan_windows
 from pietto._project.project_sql_emission_contract import (
     Blocker,
@@ -694,6 +695,9 @@ def original_rule(plan, entry, *, generated_scopes):
     rule = windowing.demand_rule(entry)
     if rule is not None:
         return rule
+    rule = resulting.demand_rule(entry)
+    if rule is not None:
+        return rule
     if entry.family.value == "fixed_literal_transport" or (
         entry.family.value == "expression"
         and type(plan.expressions[entry.subject.position])
@@ -935,7 +939,11 @@ class SQLJoinQuery:
 
     @property
     def bodies(self) -> tuple[Any, ...]:
-        return tuple(item for item in self.units if type(item) is RowBody)
+        return tuple(
+            item
+            for item in self.units
+            if type(item) in {RowBody, resulting.RowResultBody}
+        )
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -987,18 +995,11 @@ def admitted_row_shape(plan):
         + len(plan.aggregate_projections)
         + len(plan.window_projections)
         == len(plan.all_exports)
-        and not any(
-            (
-                plan.joins,
-                plan.distincts,
-                plan.orders,
-                plan.result_limits,
-                plan.set_bodies,
-            )
-        )
+        and not any((plan.joins, plan.set_bodies))
         and all(type(e) in ADMITTED_STAGE_EXPRESSIONS for e in plan.expressions)
         and grouping.blocks_admitted(plan, single_input_use=True)
         and windowing.blocks_admitted(plan)
+        and resulting.boundaries_admitted(plan)
     )
 
 
@@ -1384,6 +1385,7 @@ def realize_rows(request):
     window_projection: dict[Any, list[Any]] = {}
     for entry in plan.window_projections:
         window_projection.setdefault(entry.block, []).append(entry)
+    result_groups = resulting.boundaries_by_definition(plan)
     ordered = []
     for definition, blocks in groups:
         stage = stages.get(definition.original.ref)
@@ -1507,8 +1509,16 @@ def realize_rows(request):
                 port: read for port, read in zip(block.inputs, incoming, strict=True)
             }
             kind = block.kind.value
-            final = kind == "projection" and (
-                definition.original.entry.owner is plan.scope.selected_owner
+            # A definition with result boundaries ends in its result body, so
+            # its visible projection is a closed stage whose terminals are the
+            # PROJECTION-role result ports rather than the canonical terminals.
+            result_boundaries = result_groups.get(definition.original.ref, ())
+            selected = definition.original.entry.owner is plan.scope.selected_owner
+            final = kind == "projection" and selected and not result_boundaries
+            projection_terminals = (
+                resulting.projection_terminals(plan, block.ref)
+                if kind == "projection" and result_boundaries
+                else definition.terminals
             )
             stage = stages.get(definition.original.ref)
             aggregate_stage = None
@@ -1552,7 +1562,7 @@ def realize_rows(request):
                     stage,
                     block,
                     definition.original.exports,
-                    definition.terminals,
+                    projection_terminals[: len(definition.original.exports)],
                     available,
                     tuple(aggregate_projections.get(block.ref, ())),
                     final,
@@ -1654,7 +1664,7 @@ def realize_rows(request):
                     ):
                         add("PIE-B1001", "aggregate_projection_drift", item.ref)
                         return RowRealization(tuple(problems), None)
-                    terminal = definition.terminals[position]
+                    terminal = projection_terminals[position]
                     columns.append(
                         grouping.AggregateProjectionColumn(
                             position,
@@ -1679,7 +1689,7 @@ def realize_rows(request):
                         block,
                         item,
                         export,
-                        definition.terminals[position],
+                        projection_terminals[position],
                         available,
                         position,
                         label,
@@ -1707,7 +1717,7 @@ def realize_rows(request):
                     add("PIE-B1001", "let_export_expression_drift", export)
                     return RowRealization(tuple(problems), None)
                 terminal = (
-                    definition.terminals[position] if kind == "projection" else export
+                    projection_terminals[position] if kind == "projection" else export
                 )
                 column = _value_column_image(
                     request, value, position, label, export, terminal, family
@@ -1771,7 +1781,31 @@ def realize_rows(request):
                     return RowRealization(tuple(problems), None)
                 predicate = RowPredicate(item, item.predicate, value)
                 nodes += _value_node_count(value)
-            terminals = definition.terminals if kind == "projection" else block_exports
+            if kind == "projection" and result_boundaries:
+                # ORDER without DISTINCT reads pre-projection values through
+                # hidden helper ports; each one is carried as its own column of
+                # this closed stage and never reaches the visible tuple.
+                for helper in projection_terminals[len(columns) :]:
+                    read = available.get(helper.source)
+                    if helper.canonical is not None or read is None:
+                        add("PIE-B1001", "result_helper_port_not_bound", helper.ref)
+                        return RowRealization(tuple(problems), None)
+                    position = len(columns)
+                    label = f"c{position}"
+                    columns.append(
+                        RowCarryColumn(
+                            position,
+                            helper,
+                            helper.source,
+                            read,
+                            SQLSymbol(position + 1, helper.ref, label),
+                            label,
+                            replace(
+                                read, position=position, name=label, terminal=helper.ref
+                            ),
+                        )
+                    )
+            terminals = projection_terminals if kind == "projection" else block_exports
             if len(terminals) != len(columns):
                 add("PIE-B1001", "stage_terminal_denominator", block.ref)
                 return RowRealization(tuple(problems), None)
@@ -1797,7 +1831,25 @@ def realize_rows(request):
             bodies.append(body)
             units.append(body)
             previous = body
-            if kind == "projection":
+            if kind == "projection" and result_boundaries:
+                result, problem = resulting.build_result_body(
+                    request,
+                    definition,
+                    result_boundaries,
+                    body,
+                    index=len(units),
+                    final=selected,
+                    symbol=SQLSymbol,
+                )
+                if result is None:
+                    assert problem is not None
+                    add(*problem)
+                    return RowRealization(tuple(problems), None)
+                nodes += resulting.node_count(result)
+                bodies.append(result)
+                units.append(result)
+                by_definition[definition.original.ref] = result
+            elif kind == "projection":
                 by_definition[definition.original.ref] = body
     if not bodies or not bodies[-1].final or units[-1] is not bodies[-1]:
         add("PIE-B1001", "selected_body_not_last", plan.scope)
@@ -1949,6 +2001,17 @@ def join_requirements(request, unit, naming):
         result.append(GeneratedRequirement("membership", join.ref, "R11", naming))
         result.append(GeneratedRequirement("correlation", join.ref, "R11", naming))
         result.append(GeneratedRequirement("sentinel", unit.sentinel, "R11", naming))
+        if type(unit.inputs[1].producer) is resulting.RowResultBody:
+            # The right side is a complete post-DISTINCT/ORDER/LIMIT terminal;
+            # membership wraps that terminal, never its projection or source.
+            result.append(
+                GeneratedRequirement(
+                    "complete_right_terminal",
+                    unit.inputs[1].original.ref,
+                    "R11",
+                    naming,
+                )
+            )
     for column in unit.columns:
         result.append(
             GeneratedRequirement("join_output", column.port.ref, "R07", naming)
@@ -1988,6 +2051,23 @@ def build_row_requirements(request, query):
     for unit in units:
         if type(unit) is joining.JoinBody:
             generated.extend(join_requirements(request, unit, naming))
+            continue
+        if type(unit) is resulting.RowResultBody:
+            generated.append(
+                GeneratedRequirement(
+                    "stage_use", unit.scan.body.block.ref, "R03", naming
+                )
+            )
+            generated.extend(
+                GeneratedRequirement("stage_terminal", symbol.binding, "R03", naming)
+                for symbol in unit.scan.body.cte_columns
+            )
+            generated.extend(
+                resulting.requirements(request, unit, naming, GeneratedRequirement)
+            )
+            generated.append(
+                GeneratedRequirement("read_only_select_bytes", unit, "R23", ())
+            )
             continue
         body = unit
         scan = body.scan

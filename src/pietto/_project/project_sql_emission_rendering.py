@@ -23,6 +23,7 @@ from pietto._project.project_sql_emission_aggregation import (
     AggregateValueColumn,
 )
 from pietto._project import project_sql_emission_windows as windowing
+from pietto._project import project_sql_emission_results as resulting
 from pietto._project.project_sql_emission_contract import BoundSource
 from pietto._project.project_sql_emission_joins import (
     JoinBody,
@@ -577,6 +578,65 @@ def _row_select(w: _Writer, body) -> None:
         w.scalar(body.predicate.value, alias)
 
 
+def _result_select(w: _Writer, body) -> None:
+    """One result body: DISTINCT, the carried visible tuple, ORDER BY and LIMIT.
+
+    The scan is the definition's own closed projection stage. Every ORDER key is
+    an exact carried column of that stage read through the stage alias, so a
+    constant key is a value column and never an ordinal, and no NULLS spelling is
+    generated because the retained policy requires no posture.
+    """
+    scan = body.scan
+    alias = scan.symbol.name
+    reference = body.block.ref
+    w.emit("SELECT ", "syntax", "select", reference)
+    if body.distinct is not None:
+        w.emit("DISTINCT ", "syntax", "distinct", body.distinct.distinct.ref)
+    for position, column in enumerate(body.columns):
+        if position:
+            w.emit(", ", "syntax", "separator", column.export.ref)
+        w.identifier(alias, "result_carry_scope", column.projection_port.ref)
+        w.emit(".", "syntax", "result_carry_qualifier", column.export.ref)
+        w.identifier(column.read.name, "result_carry_column", column.read.terminal)
+        w.emit(" AS ", "syntax", "alias", column.export.ref)
+        w.identifier(column.label, "label", column.export.ref)
+    w.emit(" FROM ", "syntax", "from", scan.body.block.ref)
+    w.identifier(scan.body.symbol.name, "stage_reference", scan.body.block.ref)
+    w.emit(" AS ", "syntax", "alias", scan.boundary.ref)
+    w.identifier(alias, "result_scope", scan.boundary.ref)
+    order = body.order
+    if order is not None:
+        w.emit(" ORDER BY ", "syntax", "order_by", order.order.ref)
+        for item in order.items:
+            reference = item.item.ref
+            if item.position:
+                w.emit(", ", "syntax", "order_separator", reference)
+            start = w.offset
+            w.identifier(alias, "order_scope", item.port.ref)
+            w.emit(".", "syntax", "order_qualifier", reference)
+            w.identifier(item.read.name, "order_column", item.read.terminal)
+            w.emit(
+                " " + resulting.DIRECTIONS[item.direction],
+                "syntax",
+                "order_direction",
+                reference,
+            )
+            w.enclose("order_item", reference, start)
+    if body.limit is not None:
+        reference = body.limit.limit.ref
+        w.emit(" LIMIT ", "syntax", "limit", reference)
+        w.emit(str(body.limit.value), "literal", "limit_value", reference)
+
+
+def _unit_select(w: _Writer, unit) -> None:
+    if type(unit) is JoinBody:
+        _join_select(w, unit)
+    elif type(unit) is resulting.RowResultBody:
+        _result_select(w, unit)
+    else:
+        _row_select(w, unit)
+
+
 def render_row_sql(query: SQLRowQuery) -> RenderedSQL:
     """Render ordered stage bodies; every range is a final UTF-8 byte interval."""
     w = _Writer(query.request)
@@ -595,10 +655,10 @@ def render_row_sql(query: SQLRowQuery) -> RenderedSQL:
                     w.emit(", ", "syntax", "terminal_separator", symbol.binding)
                 w.identifier(symbol.name, "terminal_column", symbol.binding)
             w.emit(") AS (", "syntax", "cte_body_open", reference)
-            _row_select(w, body)
+            _unit_select(w, body)
             w.emit(")", "syntax", "cte_body_close", reference)
         w.emit(" ", "syntax", "with_body", final_body.block.ref)
-    _row_select(w, final_body)
+    _unit_select(w, final_body)
     return w.rendered(query)
 
 
@@ -702,11 +762,8 @@ def render_join_sql(query) -> RenderedSQL:
                     w.emit(", ", "syntax", "terminal_separator", symbol.binding)
                 w.identifier(symbol.name, "terminal_column", symbol.binding)
             w.emit(") AS (", "syntax", "cte_body_open", reference)
-            if type(unit) is JoinBody:
-                _join_select(w, unit)
-            else:
-                _row_select(w, unit)
+            _unit_select(w, unit)
             w.emit(")", "syntax", "cte_body_close", reference)
         w.emit(" ", "syntax", "with_body", final_body.block.ref)
-    _row_select(w, final_body)
+    _unit_select(w, final_body)
     return w.rendered(query)

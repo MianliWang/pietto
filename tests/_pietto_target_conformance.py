@@ -568,6 +568,12 @@ def verify_emission_generation(value, target, expected):
                     "from_last": "PIE-B1003",
                     "offset_range_keys": "PIE-B1003",
                     "exclude": "PIE-B1003",
+                    # Slice10: R20 keeps the hidden STRICT-FD ORDER pending,
+                    # D07 keeps Float outside row equivalence upstream, and a
+                    # computed ORDER key needs an established port.
+                    "hidden_strict_fd": "PIE-B1003",
+                    "float_distinct": "PIE-B1003",
+                    "order_expression": "PIE-B1003",
                 }[record["variant"]]
             )
             if code not in [b["code"] for b in document["blockers"]]:

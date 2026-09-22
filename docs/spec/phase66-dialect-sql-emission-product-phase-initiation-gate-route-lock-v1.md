@@ -879,6 +879,17 @@ joint witnesses；其发布不代表完整 R03 target conformance。sole lifecyc
 未完成清单可见，Slice16 completion audit 必须核对各 owner 的实际 joint receipts。
 本修订不将 JOIN、ORDER/LIMIT 或 SET lowering 提前到04。
 
+## R03 Slice10 delivery
+
+Slice10 按 [Slice10 contract](phase66-slice10-distinct-order-limit-result-boundaries-emission-v1.md)
+交付了 ordinary/rebound/completed 三类 ORDER carrier 的 installed real-target joint
+execution（`O_named_later` 三个 ORDER variants 迁移为 VERIFIED，各自保留不同的
+carrier authority），以及 ORDER/LIMIT sharing（一个 ordered+limited producer 被
+INNER self join 的两个 use 各自绑定同一 post-LIMIT terminal）。未修改上游 completion。
+其余保持未完成：
+
+R03 outstanding joint execution: Slice11 repeated UNION ALL and two import facades.
+
 ## R11/C09 scheduling amendment authorized for Slice7
 
 原 Slice1 route 将 R11 的完整 SEMI/ANTI right terminal 义务与 C09 的 right
@@ -907,6 +918,12 @@ LIMIT0/LIMIT1; Slice11 SET.
 Slice9 交付了其中的 window/QUALIFY right-terminal 分支，其余保持未完成：
 
 R11/C09 outstanding membership differences: Slice10 LIMIT0/LIMIT1; Slice11 SET.
+
+Slice10 交付了其中的 right LIMIT0/LIMIT1 分支：SEMI/ANTI 包裹完整的 right result body
+（post-LIMIT terminal），right `LIMIT 0` 使 SEMI 为空、ANTI 为完整左 BAG，right
+`ORDER BY … LIMIT 1` 只选出一个 membership key；其余保持未完成：
+
+R11/C09 outstanding membership differences: Slice11 SET.
 
 ## Upstream current-route compatibility rule authorized for Slice7
 

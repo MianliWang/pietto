@@ -874,10 +874,39 @@ def test_current_emission_variant_manifest_is_complete():
             "bool_domain_key",
             "decimal_parameter_key",
         ),
+        # Slice10 result boundaries: visible DISTINCT, the three ORDER carriers
+        # and static LIMIT, their sharing/membership witnesses, the Slice9
+        # composition and the exact refusal set.
+        "O_result_distinct": ("visible_int", "null_duplicates", "hidden_group"),
+        "O_result_order": (
+            "ordinary_desc",
+            "nullable_key",
+            "constant_key",
+            "helper_hidden",
+        ),
+        "O_result_limit": (
+            "positive",
+            "zero",
+            "inner_then_filter",
+            "filter_then_limit",
+        ),
+        "O_result_sharing": ("order_limit_self_join",),
+        "O_result_membership": (
+            "semi_limit1",
+            "anti_limit1",
+            "semi_limit0",
+            "anti_limit0",
+        ),
+        "O_result_window": (
+            "qualify_distinct",
+            "selected_order",
+            "qualify_order_limit",
+        ),
+        "V_result_blocked": ("hidden_strict_fd", "float_distinct", "order_expression"),
     }
     for target in ("postgres", "mysql"):
         inputs = probe.generation_inputs(target)
-        assert len(inputs) == 119
+        assert len(inputs) == 141
         assert (
             sum(
                 item["id"]

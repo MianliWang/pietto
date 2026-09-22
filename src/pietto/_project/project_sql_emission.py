@@ -32,6 +32,7 @@ from pietto._project.project_sql_emission_ast import (
 )
 from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_windows as windowing
+from pietto._project import project_sql_emission_results as resulting
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project.project_sql_plan_literals import ProjectSQLFixedLiteralValue
@@ -376,9 +377,62 @@ def _public_document(outcome):
     return _document(outcome, artifact, request, columns, source_map, slots)
 
 
+def _result_origin(column):
+    """One terminal column's exact image through every result boundary."""
+
+    return {
+        "terminal": _ref(column.output.ref),
+        "projection_port": _ref(column.projection_port.ref),
+        "stages": [
+            {
+                "kind": stage.boundary.kind.value,
+                "boundary": _ref(stage.boundary.ref),
+                "input_port": _ref(stage.input_port.ref),
+                "output_port": _ref(stage.output_port.ref),
+                "quotient_field": None
+                if stage.quotient_field is None
+                else _ref(stage.quotient_field.ref),
+            }
+            for stage in column.stages
+        ],
+    }
+
+
 def _row_columns(query, slots):
     """Public output description for one stage pipeline's final SELECT columns."""
     body = query.bodies[-1]
+    if type(body) is resulting.RowResultBody:
+        # The terminal is the result body; each column keeps the description of
+        # the projection column it carries and adds its result-stage image.
+        described = _stage_columns(
+            query, body.scan.body, slots, count=len(body.columns)
+        )
+        result = []
+        for column, inner in zip(body.columns, described, strict=True):
+            correspondence = {
+                "result_origin": _result_origin(column),
+                **inner["correspondence"],
+                "export": _ref(column.export.ref),
+                "sql_symbol": column.symbol.position,
+            }
+            result.append(
+                {
+                    **inner,
+                    "ordinal": column.ordinal,
+                    "label": column.label,
+                    "correspondence": correspondence,
+                }
+            )
+        return result
+    return _stage_columns(query, body, slots)
+
+
+def _stage_columns(query, body, slots, *, count=None):
+    """Public description of one stage body's own SELECT columns.
+
+    `count` limits the description to the visible prefix of a closed projection
+    stage; its hidden ORDER helper columns are never public output.
+    """
     # Each source port names its own declared source, so a joined column reports the
     # relation it actually reads instead of whichever source happened to be first.
     request = query.request
@@ -392,7 +446,7 @@ def _row_columns(query, slots):
             if port.owner is source.ref:
                 selector_of[port.ref] = declared
     result = []
-    for column in body.columns:
+    for column in body.columns[:count]:
         image = column.column
         realization = image.realization
         if type(column) is grouping.AggregateProjectionColumn:
@@ -703,6 +757,14 @@ def _document(outcome, artifact, request, columns, source_map, slots):
                 ]
             else:
                 evidence = [{"operator": expression.expression.operator}]
+        elif item.kind in {
+            "distinct_quotient",
+            "relation_ordering",
+            "order_item",
+            "order_null_posture",
+            "static_limit",
+        }:
+            evidence = resulting.requirement_evidence(artifact.ast, item)
         requirements.append(
             {
                 "denominator": "generated",
@@ -746,6 +808,15 @@ def _document(outcome, artifact, request, columns, source_map, slots):
                     "parameter",
                     "type_anchor",
                     "unary",
+                    "distinct_quotient",
+                    "quotient_field_comparison",
+                    "relation_ordering",
+                    "order_item",
+                    "order_null_posture",
+                    "static_limit",
+                    "inner_result_boundary",
+                    "result_terminal_column",
+                    "complete_right_terminal",
                 }
                 else {"kind": item.kind, "position": i},
                 "rule": item.rule,

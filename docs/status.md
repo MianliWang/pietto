@@ -77,15 +77,15 @@ documentation does not supersede that evidence.
 | Phase 66 Slice 7 | `COMPLETED / PUBLISHED` |
 | Phase 66 Slice 8 | `COMPLETED / PUBLISHED` |
 | Phase 66 Slice 9 | `COMPLETED / PUBLISHED` |
-| Phase 66 Slice 10 | `NEXT / NOT IMPLEMENTED` |
-| Phase 66 Slice 11 | `NOT IMPLEMENTED` |
+| Phase 66 Slice 10 | `COMPLETED / PUBLISHED` |
+| Phase 66 Slice 11 | `NEXT / NOT IMPLEMENTED` |
 | Phase 66 Slice 12 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 13 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 14 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 15 | `NOT IMPLEMENTED` |
 | Phase 66 Slice 16 | `NOT IMPLEMENTED` |
 | Phase 66 route | `N=16` |
-| Next | `Phase 66 Slice 10 — DISTINCT, ORDER and LIMIT result boundaries` |
+| Next | `Phase 66 Slice 11 — Six SET forms, positional types and operand-local boundaries` |
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
 completed by live Git and successful natural exact-head CI. Phase 60 and all 13
@@ -1347,3 +1347,31 @@ R11/C09 outstanding membership differences: Slice10 LIMIT0/LIMIT1; Slice11 SET.
 Phase66 remains `ACTIVE`; Slice10 is `NEXT / NOT IMPLEMENTED`; Slices11–16 remain `NOT IMPLEMENTED`.
 N66 remains16. Do not start Slice10 automatically. DISTINCT, ORDER/LIMIT, SET, public
 project emit CLI, caller rebind, general result decoder and product executor are not added.
+
+Phase66 Slice10 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI
+with Python3.12,Python3.13,both target jobs and the strict v2 aggregate. The
+[result-boundary contract](spec/phase66-slice10-distinct-order-limit-result-boundaries-emission-v1.md)
+emits native DISTINCT over exactly the visible positional tuple after projection, the
+three relation ORDER carriers (ordinary, rebound and completed) as separately classified
+carriers over exact established value ports, and the static LIMIT at the result boundary,
+in one result body per definition whose SQL evaluation order is the retained plan order
+`visible projection -> DISTINCT -> relation ORDER -> LIMIT -> terminal`. A hidden window
+result, a hidden grouping determinant and a hidden ORDER helper never enter the quotient
+or the public tuple; a LET-established constant key is a value column and never an
+ordinal; the authored NULL posture is unspecified, so no NULLS spelling and no MySQL
+discriminator is generated and each target's native posture is observed separately.
+The hidden STRICT-FD ORDER stays `hidden_strict_fd_order_approved_non_support` while
+its visible-key neighbour succeeds; a computed ORDER tree and a Float key are exact typed
+blockers, and Float DISTINCT remains the upstream `PIE-S2339` error. A non-final
+definition keeps its ORDER/LIMIT inside its own CTE, so `LIMIT 1` then a filter is empty
+while the filter then `LIMIT 1` yields one row, and every named use, JOIN input and
+SEMI/ANTI right side binds the post-LIMIT terminal. Slice10 closes the R03 ORDER
+carriers and ORDER/LIMIT sharing members and the R11/C09 LIMIT0/LIMIT1 member without
+any upstream completion change. The denominator is 50 cases/141 public documents per
+target: postgres112 VERIFIED,3 INPUT_REJECTED,26 BLOCKED; mysql109 VERIFIED,3
+INPUT_REJECTED,29 BLOCKED.
+R03 outstanding joint execution: Slice11 repeated UNION ALL and two import facades.
+R11/C09 outstanding membership differences: Slice11 SET.
+Phase66 remains `ACTIVE`; Slice11 is `NEXT / NOT IMPLEMENTED`; Slices12–16 remain `NOT IMPLEMENTED`.
+N66 remains16. Do not start Slice11 automatically. SET lowering, OFFSET, FETCH, DISTINCT ON,
+public project emit CLI, caller rebind, general result decoder and product executor are not added.

@@ -22,6 +22,7 @@ from pietto._project.project_sql_plan_target_assessment import (
 from pietto._project.project_sql_emission_contract import BoundSource, PreparedEmission
 from pietto._project.project_sql_emission_scopes import verify_emission_layout
 from pietto._project.project_sql_emission_ast import (
+    RowBody,
     RowScan,
     RowNamedUse,
     RowStageUse,
@@ -54,6 +55,7 @@ from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_emission_joins as joining
 from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_windows as windowing
+from pietto._project import project_sql_emission_results as resulting
 from pietto._project import project_sql_plan_windows as plan_windows
 from pietto._project import project_sql_plan_aggregation as plan_aggregation
 from pietto._project import project_sql_emission_ast as ast
@@ -1581,22 +1583,60 @@ def _verify_window_column(request, column, window, export, columns, definitions,
     return True
 
 
+def _verify_helper_carry(column, ordinal, helper, columns) -> bool:
+    """A hidden ORDER helper: an exact carry of one pre-projection stage port.
+
+    It is labelled as the closed projection stage's own column and is never a
+    canonical export, so it can be read by ORDER BY without entering the
+    visible tuple.
+    """
+    label = f"c{ordinal}"
+    read = columns.get(helper.source)
+    return (
+        helper.canonical is None
+        and read is not None
+        and type(column) is RowCarryColumn
+        and column.ordinal == ordinal
+        and column.export is helper
+        and column.input_port is helper.source
+        and column.label == label
+        and column.symbol.position == ordinal + 1
+        and column.symbol.binding is helper.ref
+        and column.symbol.name == label
+        and _same_read(column.read, read)
+        and _same_read(
+            column.column,
+            replace(read, position=ordinal, name=label, terminal=helper.ref),
+        )
+    )
+
+
 def _verify_aggregate_projection(
-    request, body, block, stage, projections, columns, state
+    request, body, block, stage, projections, columns, state, *, terminals=None
 ):
     """The exact canonical visible mapping; a hidden determinant stays hidden."""
     exports = body.definition.original.exports
-    terminals = body.definition.terminals
+    if terminals is None:
+        terminals = body.definition.terminals
+    helpers = terminals[len(exports) :]
     if (
         body.aggregation is not None
-        or len(body.columns) != len(exports)
+        or len(body.columns) != len(exports) + len(helpers)
         or len(projections) != len(exports)
-        or len(terminals) != len(exports)
+        or len(terminals) < len(exports)
         or body.terminals != terminals
     ):
         raise ValueError("aggregate projection denominator")
+    for offset, (column, helper) in enumerate(
+        zip(body.columns[len(exports) :], helpers, strict=True)
+    ):
+        if body.final or not _verify_helper_carry(
+            column, len(exports) + offset, helper, columns
+        ):
+            raise ValueError("aggregate projection helper carry")
+        state["symbols"].append(column.symbol)
     for position, (column, projection, export, terminal) in enumerate(
-        zip(body.columns, projections, exports, terminals, strict=True)
+        zip(body.columns[: len(exports)], projections, exports, terminals, strict=True)
     ):
         read = columns.get(projection.input)
         label = export.identity.name if body.final else f"c{position}"
@@ -1982,6 +2022,360 @@ def joining_node_count(unit) -> int:
     return total
 
 
+def _result_ports(plan):
+    grouped: dict[tuple[Any, Any], list[Any]] = {}
+    for port in plan.result_ports:
+        grouped.setdefault((port.boundary, port.role), []).append(port)
+
+    def ordered(boundary, role):
+        items = sorted(grouped.get((boundary, role), ()), key=lambda p: p.position)
+        if [p.position for p in items] != list(range(len(items))):
+            raise ValueError("result port positions")
+        return tuple(items)
+
+    return ordered
+
+
+def _result_carrier(entry, boundary, order) -> str:
+    """Independently classify the ORDER carrier from the entry's own authority."""
+    from pietto._project.project_final_outputs import ProjectRelationOrdering
+    from pietto._project.project_ir_properties import (
+        ProjectIRProvidedRelationOrdering,
+    )
+    from pietto._project.project_query_block_ir import (
+        ProjectIRCompletedQueryBlockOutput,
+        ProjectIRReboundExistingOutput,
+    )
+
+    source = order.source
+    if type(source) is not ProjectRelationOrdering or source.inputs is None:
+        raise ValueError("relation ordering authority")
+    properties = boundary.properties
+    if type(entry) is ProjectIRCompletedQueryBlockOutput:
+        if (
+            boundary.operator.evidence is not source
+            or properties.ordering is not source
+        ):
+            raise ValueError("completed ORDER carrier")
+        return resulting.COMPLETED
+    active = entry.active_properties.ordering
+    if (
+        type(active) is not ProjectIRProvidedRelationOrdering
+        or active.output is not entry.active_output
+        or active.items is not source.clause.items
+    ):
+        raise ValueError("active ORDER authority")
+    if type(entry) is ProjectIRReusedEffectiveOutput:
+        stage = entry.semantic_entry.fragment.property_stage
+        provided = [
+            p
+            for p in stage.provided
+            if type(p) is ProjectIRProvidedRelationOrdering
+            and p.output.occurrence.producer is boundary.operator.node
+        ]
+        if (
+            properties is not stage
+            or len(provided) != 1
+            or provided[0].items is not source.clause.items
+        ):
+            raise ValueError("ordinary ORDER carrier")
+        return resulting.ORDINARY
+    if type(entry) is ProjectIRReboundExistingOutput:
+        provided = properties.ordering
+        if (
+            type(provided) is not ProjectIRProvidedRelationOrdering
+            or provided.items is not source.clause.items
+            or provided.output is not properties.relational.output
+            or all(properties is not p for p in entry.row_properties)
+            or entry.active_output is entry.semantic_entry.output
+        ):
+            raise ValueError("rebound ORDER carrier")
+        return resulting.REBOUND
+    raise ValueError("ORDER carrier")
+
+
+def _verify_result_body(
+    request, body, definition, boundaries, position, previous, last, state
+):
+    """Independent result-boundary correspondence from the retained plan alone.
+
+    The visible tuple, the DISTINCT quotient, every ORDER key's exact port and
+    direction, the static LIMIT and the terminal image are re-derived here from
+    the plan collections; the builder's own walk is never reused.
+    """
+    plan = request.plan
+    family = request.family
+    entry = definition.original.entry
+    exports = definition.original.exports
+    authored = entry.owner.definition
+    kinds = resulting.KINDS
+    roles = resulting.ROLES
+    if (
+        type(body) is not resulting.RowResultBody
+        or body.definition is not definition
+        or body.boundaries != tuple(boundaries)
+        or body.index != position
+        or body.final != last
+        or body.final != (entry.owner is plan.scope.selected_owner)
+        or type(previous) is not RowBody
+        or previous.definition is not definition
+        or previous.block.kind.value != "projection"
+        or previous.final
+        or previous.symbol is None
+    ):
+        raise ValueError("result body placement")
+    scan = body.scan
+    first = boundaries[0]
+    if (
+        type(scan) is not resulting.RowResultUse
+        or scan.body is not previous
+        or scan.boundary is not first
+        or scan.symbol.position != 0
+        or scan.symbol.binding is not first.ref
+        or scan.symbol.name != f"t{first.ref.position}"
+    ):
+        raise ValueError("result scan")
+    state["symbols"].append(scan.symbol)
+    ordered = _result_ports(plan)
+    carried = ordered(previous.block.ref, roles.PROJECTION)
+    if len(carried) != len(previous.columns) or previous.terminals != carried:
+        raise ValueError("result projection inventory")
+    reads: dict[Any, tuple[Any, Any]] = {}
+    for port, column in zip(carried, previous.columns, strict=True):
+        if column.column.terminal is not port.ref or port.definition is not (
+            definition.original.ref
+        ):
+            raise ValueError("result projection port")
+        reads[port.ref] = (port, column.column)
+    traces: dict[Any, tuple[Any, ...]] = {
+        port.ref: () for port in carried if port.canonical is not None
+    }
+    seen: set[Any] = set()
+    predecessor = previous.block.ref
+    distinct = order = limit = None
+    for index, boundary in enumerate(boundaries):
+        if (
+            boundary.definition is not definition.original.ref
+            or boundary.position != index
+            or boundary.predecessor is not predecessor
+            or boundary.kind not in set(kinds)
+            or boundary.kind in seen
+        ):
+            raise ValueError("result boundary chain")
+        seen.add(boundary.kind)
+        inputs = ordered(boundary.ref, roles.INPUT)
+        outputs = ordered(boundary.ref, roles.OUTPUT)
+        if len(inputs) != len(carried) or any(
+            port.source is not previous_port.ref
+            or port.canonical is not previous_port.canonical
+            or port.key is not previous_port.key
+            or port.definition is not definition.original.ref
+            for port, previous_port in zip(inputs, carried, strict=True)
+        ):
+            raise ValueError("result boundary inputs")
+        visible = tuple(port for port in inputs if port.canonical is not None)
+        if (
+            len(outputs) != len(visible)
+            or any(
+                port.source is not previous_port.ref
+                or port.canonical is not previous_port.canonical
+                for port, previous_port in zip(outputs, visible, strict=True)
+            )
+            or tuple(port.canonical for port in visible) != tuple(exports)
+        ):
+            raise ValueError("result boundary outputs")
+        for port, previous_port in zip(inputs, carried, strict=True):
+            reads[port.ref] = reads[previous_port.ref]
+            if previous_port.ref in traces:
+                traces[port.ref] = traces[previous_port.ref]
+        fields_by_input: dict[Any, Any] = {}
+        if boundary.kind is kinds.DISTINCT:
+            (value,) = tuple(d for d in plan.distincts if d.boundary is boundary.ref)
+            fields = sorted(
+                (f for f in plan.quotient_fields if f.distinct is value.ref),
+                key=lambda f: f.position,
+            )
+            if (
+                distinct is not None
+                or len(visible) != len(inputs)
+                or len(fields) != len(inputs)
+                or tuple(f.ref for f in fields) != tuple(value.fields)
+                or any(
+                    f.position != i
+                    or f.input is not inputs[i].ref
+                    or f.output is not outputs[i].ref
+                    or f.canonical is not exports[i]
+                    or f.equivalence.reason is not None
+                    or reads[inputs[i].ref][1].realization.tag
+                    not in resulting.ORDER_TAGS
+                    for i, f in enumerate(fields)
+                )
+            ):
+                raise ValueError("distinct quotient")
+            if distinct is not None:
+                raise ValueError("distinct image")
+            distinct = body.distinct
+            if (
+                type(distinct) is not resulting.ResultDistinct
+                or distinct.distinct is not value
+                or distinct.boundary is not boundary
+                or distinct.fields != tuple(fields)
+            ):
+                raise ValueError("distinct image")
+            fields_by_input = {
+                port.ref: f for port, f in zip(inputs, fields, strict=True)
+            }
+            state["nodes"] += 1
+        elif boundary.kind is kinds.ORDER:
+            (value,) = tuple(o for o in plan.orders if o.boundary is boundary.ref)
+            carrier = _result_carrier(entry, boundary, value)
+            items = sorted(
+                (i for i in plan.order_items if i.ordering is value.ref),
+                key=lambda i: i.position,
+            )
+            hidden = {h.item for h in plan.hidden_order_requirements}
+            if order is not None or type(body.order) is not resulting.ResultOrder:
+                raise ValueError("order image")
+            order = body.order
+            if (
+                order.order is not value
+                or order.boundary is not boundary
+                or order.carrier != carrier
+                or tuple(i.ref for i in items) != tuple(value.items)
+                or len(order.items) != len(items)
+                or not items
+            ):
+                raise ValueError("order inventory")
+            expressions = {e.ref: e for e in plan.order_expressions}
+            uses = {u.ref: u for u in plan.order_uses}
+            by_ref = {port.ref: port for port in inputs}
+            for position_, (item, realized) in enumerate(
+                zip(items, order.items, strict=True)
+            ):
+                root = expressions.get(item.expression)
+                use = None if root is None or root.use is None else uses.get(root.use)
+                if (
+                    type(realized) is not resulting.ResultOrderItem
+                    or realized.item is not item
+                    or realized.position != position_
+                    or item.position != position_
+                    or item.value is not item.expression
+                    or item.ref in hidden
+                    or root is None
+                    or root.item is not item.ref
+                    or root.expression is not item.source.expression
+                    or root.operands != ()
+                    or use is None
+                    or use.item is not item.ref
+                    or use.scope is not boundary.ref
+                    or use.requirement is not None
+                    or use.source.expression is not root.expression
+                    or realized.expression is not root
+                    or realized.use is not use
+                    or not use.ports
+                    or any(ref not in by_ref for ref in use.ports)
+                ):
+                    raise ValueError("order item authority")
+                port = min((by_ref[ref] for ref in use.ports), key=lambda p: p.position)
+                read = reads[port.ref][1]
+                direction = item.source.direction.value
+                if (
+                    realized.port is not port
+                    or not _same_read(realized.read, read)
+                    or realized.direction != direction
+                    or direction not in {"asc", "desc"}
+                    or (
+                        item.source.item.direction is not None
+                        and item.source.item.direction != direction
+                    )
+                    or realized.nulls is not None
+                    or realized.carrier != carrier
+                    or read.realization.tag not in resulting.ORDER_TAGS
+                    or rows.value_tag(item.source) != read.realization.tag
+                ):
+                    raise ValueError("order item binding")
+                state["nodes"] += 1
+        else:
+            (value,) = tuple(
+                v for v in plan.result_limits if v.boundary is boundary.ref
+            )
+            if limit is not None:
+                raise ValueError("limit image")
+            limit = body.limit
+            if (
+                type(limit) is not resulting.ResultLimit
+                or limit.limit is not value
+                or limit.boundary is not boundary
+                or value.clause is not authored.limit_clause
+                or value.literal is not value.clause.expression
+                or type(value.value) is not int
+                or isinstance(value.value, bool)
+                or limit.value != value.value
+                or value.value != value.literal.value
+                or not 0 <= value.value <= value.maximum
+                or value.row_count_upper_bound != value.value
+            ):
+                raise ValueError("static limit")
+            state["nodes"] += 1
+        for port, previous_port in zip(outputs, visible, strict=True):
+            reads[port.ref] = reads[previous_port.ref]
+            traces[port.ref] = (
+                *traces[previous_port.ref],
+                (boundary, previous_port, port, fields_by_input.get(previous_port.ref)),
+            )
+        carried = outputs
+        predecessor = boundary.ref
+    if (body.distinct is None) != (distinct is None) or (
+        (body.order is None) != (order is None)
+        or (body.limit is None) != (limit is None)
+    ):
+        raise ValueError("result stage denominator")
+    if (
+        carried != tuple(definition.terminals)
+        or body.terminals != carried
+        or len(body.columns) != len(carried)
+        or len(carried) != len(exports)
+    ):
+        raise ValueError("result terminal inventory")
+    for ordinal, (column, port, export) in enumerate(
+        zip(body.columns, carried, exports, strict=True)
+    ):
+        projection_port, read = reads[port.ref]
+        label = export.identity.name if body.final else f"c{ordinal}"
+        trace = traces[port.ref]
+        if (
+            type(column) is not resulting.ResultColumn
+            or column.ordinal != ordinal
+            or column.export is not export
+            or port.canonical is not export
+            or column.projection_port is not projection_port
+            or column.output is not port
+            or not _same_read(column.read, read)
+            or not _same_read(
+                column.column,
+                replace(read, position=ordinal, name=label, terminal=port.ref),
+            )
+            or column.label != label
+            or column.symbol.position != ordinal + 1
+            or column.symbol.binding is not export.ref
+            or column.symbol.name != label
+            or not identifier_valid(label, family, label=body.final)
+            or not identifier_valid(read.name, family)
+            or len(column.stages) != len(trace)
+            or any(
+                type(stage) is not resulting.ResultStage
+                or stage.boundary is not expected[0]
+                or stage.input_port is not expected[1]
+                or stage.output_port is not expected[2]
+                or stage.quotient_field is not expected[3]
+                for stage, expected in zip(column.stages, trace, strict=True)
+            )
+        ):
+            raise ValueError("result column")
+        state["symbols"].append(column.symbol)
+    _verify_body_scope(body, position, state)
+
+
 def verify_row_query(request, query):
     """Independent stage schedule, scope, column and expression correspondence."""
     try:
@@ -2036,12 +2430,18 @@ def verify_row_query(request, query):
             "source_refs": source_refs,
             "children": children,
         }
+        result_groups = resulting.boundaries_by_definition(plan)
         expected = []
         for definition, blocks in definition_blocks(request):
             for join in join_groups.get(definition.original.ref, ()):
                 expected.append((definition, join, None))
             for index, block in enumerate(blocks):
                 expected.append((definition, block, index))
+            boundaries = result_groups.get(definition.original.ref, ())
+            if boundaries:
+                # The result body follows the visible projection of its own
+                # definition and is that definition's terminal producer.
+                expected.append((definition, boundaries, "result"))
         units = query.units if joined else query.bodies
         if len(expected) != len(units):
             return False
@@ -2059,7 +2459,22 @@ def verify_row_query(request, query):
                 _verify_join_unit(request, body, block, position, join_context, state)
                 by_join[block.ref] = body
                 continue
+            if index == "result":
+                _verify_result_body(
+                    request,
+                    body,
+                    definition,
+                    block,
+                    position,
+                    units[position - 1],
+                    position == len(units) - 1,
+                    state,
+                )
+                produced[definition.original.ref] = body
+                continue
             joined_definition = bool(join_groups.get(definition.original.ref, ()))
+            result_boundaries = result_groups.get(definition.original.ref, ())
+            selected = definition.original.entry.owner is plan.scope.selected_owner
             if (
                 type(body.scan) not in {RowScan, RowNamedUse, RowStageUse, RowJoinUse}
                 or body.definition is not definition
@@ -2069,7 +2484,8 @@ def verify_row_query(request, query):
                 or body.final
                 != (
                     block.kind.value == "projection"
-                    and definition.original.entry.owner is plan.scope.selected_owner
+                    and selected
+                    and not result_boundaries
                 )
             ):
                 return False
@@ -2186,6 +2602,11 @@ def verify_row_query(request, query):
                     tuple(aggregate_projections.get(block.ref, ())),
                     columns,
                     state,
+                    terminals=(
+                        resulting.projection_terminals(plan, block.ref)
+                        if result_boundaries
+                        else definition.terminals
+                    ),
                 )
                 if body.predicate is not None:
                     return False
@@ -2229,7 +2650,12 @@ def verify_row_query(request, query):
                 state["nodes"] += (
                     0 if body.window is None else len(body.window.definitions)
                 )
-            if len(body.columns) != carries + len(items):
+            if len(body.columns) != carries + len(items) + (
+                len(resulting.projection_terminals(plan, block.ref))
+                - len(definition.original.exports)
+                if kind == "projection" and result_boundaries
+                else 0
+            ):
                 return False
             block_exports: tuple[Any, ...] = ()
             if kind != "projection":
@@ -2240,11 +2666,38 @@ def verify_row_query(request, query):
             terminals: tuple[Any, ...] = (
                 definition.original.exports if kind == "projection" else block_exports
             )
-            if body.terminals != (
+            helpers: tuple[Any, ...] = ()
+            if kind == "projection" and result_boundaries:
+                projection_ports = resulting.projection_terminals(plan, block.ref)
+                visible_count = len(definition.original.exports)
+                if (
+                    body.terminals != projection_ports
+                    or len(projection_ports) < visible_count
+                    or any(
+                        port.canonical is not export
+                        for port, export in zip(
+                            projection_ports[:visible_count],
+                            definition.original.exports,
+                            strict=True,
+                        )
+                    )
+                    or len(body.columns) != len(projection_ports)
+                ):
+                    return False
+                helpers = projection_ports[visible_count:]
+            elif body.terminals != (
                 definition.terminals if kind == "projection" else block_exports
             ):
                 return False
             for ordinal, column in enumerate(body.columns):
+                if ordinal >= len(terminals) and helpers:
+                    helper = helpers[ordinal - len(terminals)]
+                    if body.final or not _verify_helper_carry(
+                        column, ordinal, helper, columns
+                    ):
+                        return False
+                    symbols.append(column.symbol)
+                    continue
                 export = terminals[ordinal]
                 label = export.identity.name if body.final else f"c{ordinal}"
                 if (
@@ -2929,6 +3382,99 @@ def verify_row_bytes(query, rendered):
             spans.append(("window_specification", reference, inner, offset))
             spans.append(("window", reference, start, offset))
 
+        def result_select(body):
+            scan = body.scan
+            alias = scan.symbol.name
+            reference = body.block.ref
+            take("syntax", "select", reference, "SELECT ")
+            if body.distinct is not None:
+                take("syntax", "distinct", body.distinct.distinct.ref, "DISTINCT ")
+            for position, column in enumerate(body.columns):
+                if position:
+                    take("syntax", "separator", column.export.ref, ", ")
+                take(
+                    "identifier",
+                    "result_carry_scope",
+                    column.projection_port.ref,
+                    alias,
+                    identifier=True,
+                )
+                take("syntax", "result_carry_qualifier", column.export.ref, ".")
+                take(
+                    "identifier",
+                    "result_carry_column",
+                    column.read.terminal,
+                    column.read.name,
+                    identifier=True,
+                )
+                take("syntax", "alias", column.export.ref, " AS ")
+                take(
+                    "identifier",
+                    "label",
+                    column.export.ref,
+                    column.label,
+                    identifier=True,
+                )
+            take("syntax", "from", scan.body.block.ref, " FROM ")
+            take(
+                "identifier",
+                "stage_reference",
+                scan.body.block.ref,
+                scan.body.symbol.name,
+                identifier=True,
+            )
+            take("syntax", "alias", scan.boundary.ref, " AS ")
+            take(
+                "identifier", "result_scope", scan.boundary.ref, alias, identifier=True
+            )
+            if body.order is not None:
+                take("syntax", "order_by", body.order.order.ref, " ORDER BY ")
+                for item in body.order.items:
+                    reference = item.item.ref
+                    if item.position:
+                        take("syntax", "order_separator", reference, ", ")
+                    start = offset
+                    # Every key is a quoted carried column of the stage alias:
+                    # a bare ordinal or an output label cannot pass here.
+                    take(
+                        "identifier",
+                        "order_scope",
+                        item.port.ref,
+                        alias,
+                        identifier=True,
+                    )
+                    take("syntax", "order_qualifier", reference, ".")
+                    take(
+                        "identifier",
+                        "order_column",
+                        item.read.terminal,
+                        item.read.name,
+                        identifier=True,
+                    )
+                    if item.nulls is not None:
+                        raise ValueError("NULL posture spelling")
+                    take(
+                        "syntax",
+                        "order_direction",
+                        reference,
+                        {"asc": " ASC", "desc": " DESC"}[item.direction],
+                    )
+                    spans.append(("order_item", reference, start, offset))
+            if body.limit is not None:
+                reference = body.limit.limit.ref
+                take("syntax", "limit", reference, " LIMIT ")
+                value = body.limit.limit.value
+                if type(value) is not int or isinstance(value, bool) or value < 0:
+                    raise ValueError("static limit value")
+                event = take("literal", "limit_value", reference, str(value))
+                token = data[event.start : event.end].decode("utf-8")
+                if (
+                    re.fullmatch(r"0|[1-9][0-9]*", token) is None
+                    or int(token) != value
+                    or body.limit.value != value
+                ):
+                    raise ValueError("static limit spelling")
+
         def join_relation(item):
             reference = item.original.ref
             producer = item.producer
@@ -3105,11 +3651,16 @@ def verify_row_bytes(query, rendered):
                 take("syntax", "cte_body_open", reference, ") AS (")
                 if is_join:
                     join_select(unit)
+                elif type(unit) is resulting.RowResultBody:
+                    result_select(unit)
                 else:
                     select(unit)
                 take("syntax", "cte_body_close", reference, ")")
             take("syntax", "with_body", units[-1].block.ref, " ")
-        select(units[-1])
+        if type(units[-1]) is resulting.RowResultBody:
+            result_select(units[-1])
+        else:
+            select(units[-1])
         if (
             next(events, None) is not None
             or offset != len(data)
@@ -3161,6 +3712,7 @@ def verify_row_requirements(request, query, original, generated):
             or joining.demand_rule(plan, entry)
             or grouping.demand_rule(entry)
             or windowing.demand_rule(entry)
+            or resulting.demand_rule(entry)
         )
         if rule is None:
             rule = (
@@ -3287,6 +3839,15 @@ def verify_row_requirements(request, query, original, generated):
             expected.append(("membership", join.ref, "R11", naming))
             expected.append(("correlation", join.ref, "R11", naming))
             expected.append(("sentinel", unit.sentinel, "R11", naming))
+            if type(unit.inputs[1].producer) is resulting.RowResultBody:
+                expected.append(
+                    (
+                        "complete_right_terminal",
+                        unit.inputs[1].original.ref,
+                        "R11",
+                        naming,
+                    )
+                )
         for column in unit.columns:
             expected.append(("join_output", column.port.ref, "R07", naming))
             if column.port.nulling:
@@ -3304,9 +3865,59 @@ def verify_row_requirements(request, query, original, generated):
         )
         for symbol in unit.cte_columns:
             expected.append(("terminal_column", symbol.binding, "R03", naming))
+    encoding = tuple(
+        p
+        for p in request.premises
+        if p.scope == "statement" and p.key == "client_encoding"
+    )
+
+    def result_expectations(unit):
+        """Independently list what one result body's own structures introduce."""
+        expected.append(("stage_use", unit.scan.body.block.ref, "R03", naming))
+        for symbol in unit.scan.body.cte_columns:
+            expected.append(("stage_terminal", symbol.binding, "R03", naming))
+        if unit.distinct is not None:
+            expected.append(
+                ("distinct_quotient", unit.distinct.distinct.ref, "R18", ())
+            )
+            for field, column in zip(unit.distinct.fields, unit.columns, strict=True):
+                expected.append(
+                    (
+                        "quotient_field_comparison",
+                        field.ref,
+                        "R18",
+                        encoding if column.read.realization.tag == "Text" else (),
+                    )
+                )
+        if unit.order is not None:
+            expected.append(("relation_ordering", unit.order.order.ref, "R19", ()))
+            for item in unit.order.items:
+                expected.append(
+                    (
+                        "order_item",
+                        item.item.ref,
+                        "R19",
+                        encoding if item.read.realization.tag == "Text" else (),
+                    )
+                )
+                if item.read.realization.nullable is not False:
+                    expected.append(("order_null_posture", item.item.ref, "R19", ()))
+        if unit.limit is not None:
+            expected.append(("static_limit", unit.limit.limit.ref, "R21", ()))
+        if not unit.final and (unit.order is not None or unit.limit is not None):
+            expected.append(("inner_result_boundary", unit.block.ref, "R21", naming))
+        for column in unit.columns:
+            expected.append(
+                ("result_terminal_column", column.output.ref, "R03", naming)
+            )
+        expected.append(("read_only_select_bytes", unit, "R23", ()))
+
     for unit in units:
         if type(unit) is joining.JoinBody:
             join_expectations(unit)
+            continue
+        if type(unit) is resulting.RowResultBody:
+            result_expectations(unit)
             continue
         body = unit
         scan = body.scan
