@@ -200,3 +200,16 @@ The target facility adds the `CLI_console_emission` case: the copied emission pr
 installed interpreter for six frozen witnesses, and the receipt identifies each console
 document by SHA-256 against the API record of the same input. The target denominator is
 61 cases and 187 public documents per target (181 API-generated and 6 console documents).
+
+
+The [Slice14 private emission observation contract](spec/phase66-slice14-private-emission-observation-process-integration-v1.md)
+adds three private modules: `project_sql_emission_portable_schema` (the closed record table,
+limits and primitive encoders, data only), `project_sql_emission_pure_boundary` (bounded raw
+and parsed-mapping decoding, documented relations and the immutable range-lookup view; it
+imports only the schema) and `project_sql_emission_portable` (runtime export from a verified
+artifact and independent runtime correspondence). The differential process registry gains
+the `phase66` matrix family, whose probe copies `_pietto_phase66_sql_emission_probe.py` and
+`_pietto_phase66_sql_emission_differential_probe.py` into relocated and installed cells and
+reports the three modules' same-child origins under `phase66_module_import_origins`. Six
+requests are added per available interpreter and no cells; the target denominator is
+unchanged and no private document enters a receipt.

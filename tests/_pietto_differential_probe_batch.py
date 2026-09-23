@@ -27,6 +27,7 @@ FAMILY_MODULES: dict[str, str] = {
     "phase63": "_pietto_phase63_query_block_ir_differential_probe",
     "phase64": "_pietto_phase64_flat_ir_differential_probe",
     "phase65": "_pietto_phase65_sql_plan_differential_probe",
+    "phase66": "_pietto_phase66_sql_emission_differential_probe",
 }
 FAMILY_AMBIENT: dict[str, str] = {
     "phase58": "PIETTO_SLICE16_IRRELEVANT",
@@ -37,11 +38,17 @@ FAMILY_AMBIENT: dict[str, str] = {
     "phase63": "PIETTO_PHASE63_SLICE15_AMBIENT",
     "phase64": "PIETTO_PHASE64_SLICE10_AMBIENT",
     "phase65": "PIETTO_PHASE65_SLICE14_AMBIENT",
+    "phase66": "PIETTO_PHASE66_SLICE14_AMBIENT",
 }
 PHASE65_MODULES = (
     "pietto._project.project_sql_plan_portable",
     "pietto._project.project_sql_plan_pure_boundary",
     "pietto._project.project_sql_plan_portable_schema",
+)
+PHASE66_MODULES = (
+    "pietto._project.project_sql_emission_portable",
+    "pietto._project.project_sql_emission_portable_schema",
+    "pietto._project.project_sql_emission_pure_boundary",
 )
 # Only these families reach the CLI through `_run_cli_pair`, so only these may
 # be served by one explicit CLI worker session.
@@ -90,6 +97,20 @@ def _acquire(request: dict[str, object]) -> bytes:
     return document
 
 
+def _module_origins(names: tuple[str, ...], family: str) -> dict[str, str]:
+    """Origins of modules this child actually loaded; never imported here."""
+    origins = {}
+    for name in names:
+        module = sys.modules.get(name)
+        origin = None if module is None else getattr(module, "__file__", None)
+        if type(origin) is not str:
+            raise AssertionError(
+                f"{family} observation omitted a required import origin."
+            )
+        origins[name] = str(Path(origin).resolve())
+    return origins
+
+
 def _import_origin() -> str:
     import pietto
 
@@ -133,16 +154,11 @@ def run(manifest: dict[str, object]) -> dict[str, object]:
         "executable": sys.executable,
     }
     if "phase65" in families:
-        origins = {}
-        for name in PHASE65_MODULES:
-            module = sys.modules.get(name)
-            origin = None if module is None else getattr(module, "__file__", None)
-            if type(origin) is not str:
-                raise AssertionError(
-                    "Phase65 observation omitted a required import origin."
-                )
-            origins[name] = str(Path(origin).resolve())
-        payload["module_import_origins"] = origins
+        payload["module_import_origins"] = _module_origins(PHASE65_MODULES, "Phase65")
+    if "phase66" in families:
+        payload["phase66_module_import_origins"] = _module_origins(
+            PHASE66_MODULES, "Phase66"
+        )
     return payload
 
 

@@ -23,6 +23,7 @@ import _pietto_phase62_join_differential_probe as phase62_probe
 import _pietto_phase63_query_block_ir_differential_probe as phase63_probe
 import _pietto_phase64_flat_ir_differential_probe as phase64_probe
 import _pietto_phase65_sql_plan_differential_probe as phase65_probe
+import _pietto_phase66_sql_emission_differential_probe as phase66_probe
 import _pietto_project_explain_differential_probe as phase58_probe
 import _pietto_project_explain_scenarios as scenarios
 
@@ -43,6 +44,7 @@ DIFFERENTIAL_TESTS = (
     "tests/test_phase63_slice15_inspection_pure_boundary_real_e2e_differential_metamorphic_assurance.py",
     "tests/test_phase64_slice10_ir_observation_and_differential.py",
     "tests/test_phase65_slice14_portable_boundary_minimal_process_integration.py",
+    "tests/test_phase66_slice14_private_emission_observation_process_integration.py",
 )
 PROBES = {
     "phase58": phase58_probe,
@@ -53,11 +55,13 @@ PROBES = {
     "phase63": phase63_probe,
     "phase64": phase64_probe,
     "phase65": phase65_probe,
+    "phase66": phase66_probe,
 }
 TWO_INTERPRETERS = {(3, 13): "python3.13", (3, 12): "python3.12"}
 HISTORICAL_FAMILIES = ("phase58", "phase59", "phase60", "phase61", "phase62", "phase63")
 PREVIOUS_FAMILIES = (*HISTORICAL_FAMILIES, "phase64")
-CURRENT_FAMILIES = (*PREVIOUS_FAMILIES, "phase65")
+PHASE65_FAMILIES = (*PREVIOUS_FAMILIES, "phase65")
+CURRENT_FAMILIES = (*PHASE65_FAMILIES, "phase66")
 EXPECTED_SUPPORT_MANIFEST = (
     "_pietto_differential_probe_batch.py",
     "_pietto_project_explain_scenarios.py",
@@ -69,6 +73,14 @@ EXPECTED_SUPPORT_MANIFEST = (
     "_pietto_phase63_query_block_ir_differential_probe.py",
     "_pietto_phase64_flat_ir_differential_probe.py",
     "_pietto_phase65_sql_plan_differential_probe.py",
+    "_pietto_phase66_sql_emission_probe.py",
+    "_pietto_phase66_sql_emission_differential_probe.py",
+)
+# Copied support files that are not themselves family probes.
+SUPPORT_ONLY = (
+    "_pietto_differential_probe_batch.py",
+    "_pietto_project_explain_scenarios.py",
+    "_pietto_phase66_sql_emission_probe.py",
 )
 
 
@@ -313,9 +325,12 @@ def test_logical_request_matrices_and_witness_cells_are_unchanged() -> None:
     assert actual == EXPECTED_REQUESTS
     assert sum(row[0] in HISTORICAL_FAMILIES for row in actual) == 62
     assert sum(row[0] in PREVIOUS_FAMILIES for row in actual) == 74
+    assert sum(row[0] in PHASE65_FAMILIES for row in actual) == 86
     assert acquisition.RELOCATION_SUPPORT_MANIFEST == EXPECTED_SUPPORT_MANIFEST
     assert tuple(batch.FAMILY_MODULES.values()) == tuple(
-        name.removesuffix(".py") for name in EXPECTED_SUPPORT_MANIFEST[2:]
+        name.removesuffix(".py")
+        for name in EXPECTED_SUPPORT_MANIFEST
+        if name not in SUPPORT_ONLY
     )
     assert set(batch.FAMILY_MODULES) == set(PROBES)
     assert batch.CLI_SESSION_FAMILIES == frozenset({"phase58", "phase59", "phase60"})

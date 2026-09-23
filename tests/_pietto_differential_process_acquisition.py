@@ -40,6 +40,7 @@ FAMILY_ORDER = (
     "phase63",
     "phase64",
     "phase65",
+    "phase66",
 )
 MODES = ("checkout", "relocated", "installed")
 # Every file a relocated or installed batch cell may import outside the
@@ -55,6 +56,8 @@ RELOCATION_SUPPORT_MANIFEST = (
     "_pietto_phase63_query_block_ir_differential_probe.py",
     "_pietto_phase64_flat_ir_differential_probe.py",
     "_pietto_phase65_sql_plan_differential_probe.py",
+    "_pietto_phase66_sql_emission_probe.py",
+    "_pietto_phase66_sql_emission_differential_probe.py",
 )
 COMBINED_RELOCATED_CELLS = (((3, 12), "1"), ((3, 13), "4294967295"))
 ACQUISITION_TIMEOUT_SECONDS = 900.0
@@ -222,7 +225,7 @@ def family_requests(
         return _explain_family_requests(family, interpreters, combined=False)
     if family in {"phase59", "phase60", "phase61"}:
         return _explain_family_requests(family, interpreters, combined=True)
-    if family in {"phase62", "phase63", "phase64", "phase65"}:
+    if family in {"phase62", "phase63", "phase64", "phase65", "phase66"}:
         return _matrix_family_requests(family, interpreters)
     raise KeyError(f"Unknown differential family: {family!r}")
 
@@ -550,6 +553,16 @@ class DifferentialAcquisition:
         """Origins measured in the same child that produced Phase65 records."""
         payload = self._cell_payload(cell)
         origins = payload.get("module_import_origins", {})
+        assert type(origins) is dict
+        assert all(
+            type(name) is str and type(path) is str for name, path in origins.items()
+        )
+        return {name: Path(path) for name, path in origins.items()}
+
+    def phase66_module_import_origins(self, cell: Cell) -> dict[str, Path]:
+        """Origins measured in the same child that produced Phase66 documents."""
+        payload = self._cell_payload(cell)
+        origins = payload["phase66_module_import_origins"]
         assert type(origins) is dict
         assert all(
             type(name) is str and type(path) is str for name, path in origins.items()

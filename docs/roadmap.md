@@ -2986,3 +2986,27 @@ Phase66 remains `ACTIVE`; Slice14 is `NEXT / NOT IMPLEMENTED`; Slices15–16 rem
 N66 remains16. Do not start Slice14 automatically. The private observation format, database
 error-position mapping, caller rebind, SQL-only BIND export, general result decoder and
 product executor are not added; Slice13 completion is not Phase66 completion.
+
+Phase66 Slice14 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI
+with Python3.12,Python3.13,both target jobs and the strict v2 aggregate. The
+[private emission observation contract](spec/phase66-slice14-private-emission-observation-process-integration-v1.md)
+adds the private `pietto.sql-emission-observation.v1` document over the complete verified
+emission artifact. `project_sql_emission_portable` exports it from the exact runtime artifact
+and its request through the existing read-only verifier and independently checks
+correspondence by binding every record back to exactly one runtime object and comparing the
+existing public artifact projection and the Slice12 inspection view;
+`project_sql_emission_pure_boundary` decodes it data-only against the closed
+`project_sql_emission_portable_schema`, checks the documented token, range, value and
+dual-denominator relations and returns an immutable range-lookup view. Pure consistency is
+not authenticity. All 297 VERIFIED generation inputs export, correspond and decode with
+byte-identical canonical re-encoding. The first `phase66` differential process family runs
+through the existing matrix acquisition in checkout, relocated and installed-wheel cells with
+standalone and forward/reverse batch byte parity and same-child origins of the three new
+modules, adding six requests per available interpreter and no cells. The database
+denominator is unchanged: 61 cases/187 public documents per target: postgres154 VERIFIED,4
+INPUT_REJECTED,29 BLOCKED; mysql151 VERIFIED,4 INPUT_REJECTED,32 BLOCKED; no private
+document enters a receipt.
+Phase66 remains `ACTIVE`; Slice15 is `NEXT / NOT IMPLEMENTED`; Slice16 remains `NOT IMPLEMENTED`.
+N66 remains16. Do not start Slice15 automatically. Database error-position mapping, caller
+rebind, SQL-only BIND export, general result decoder and product executor are not added;
+Slice14 completion is not Phase66 completion.

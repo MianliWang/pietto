@@ -82,11 +82,11 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
         if "generated" not in path.parts
     )
     test_files = tuple(sorted((REPO_ROOT / "tests").rglob("*.py")))
-    # Phase66 Slice13 adds one private project emit-sql CLI coordinator and its
-    # owned test file. The inventory stays exact and the two-stage typing scan
-    # is unchanged.
-    assert len(production_files) == 219
-    assert len(test_files) == 487
+    # Phase66 Slice14 adds the private emission observation schema, pure boundary
+    # and runtime modules, one process probe and its owned test file. The
+    # inventory stays exact and the two-stage typing scan is unchanged.
+    assert len(production_files) == 222
+    assert len(test_files) == 489
     assert set(production_files).isdisjoint(test_files)
 
 

@@ -390,7 +390,7 @@ def _available_request_manifest(interpreters):
     expected = []
     for family in dict.fromkeys(row[0] for row in rows):
         family_rows = [row for row in rows if row[0] == family]
-        if family in ("phase62", "phase63", "phase64", "phase65"):
+        if family in ("phase62", "phase63", "phase64", "phase65", "phase66"):
             # The historical template fixes 3.13/3.12; matrix requests preserve
             # the supplied available-interpreter order within each mode.
             family_rows.sort(

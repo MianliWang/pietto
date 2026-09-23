@@ -325,14 +325,14 @@ EXPECTED_STATUS = (
     ("Phase 66 Slice 11", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 12", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 13", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 14", "`NEXT / NOT IMPLEMENTED`"),
-    ("Phase 66 Slice 15", "`NOT IMPLEMENTED`"),
+    ("Phase 66 Slice 14", "`COMPLETED / PUBLISHED`"),
+    ("Phase 66 Slice 15", "`NEXT / NOT IMPLEMENTED`"),
     ("Phase 66 Slice 16", "`NOT IMPLEMENTED`"),
     ("Phase 66 route", "`N=16`"),
     (
         "Next",
-        "`Phase 66 Slice 14 — Private emission observation and first real"
-        " process/relocation/wheel integration`",
+        "`Phase 66 Slice 15 — Expanded target/differential conformance and"
+        " historical compatibility`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -5708,7 +5708,6 @@ def test_phase66_slice13_is_recorded_with_its_exact_denominator() -> None:
     assert (STATUS.parent / target).is_file()
     status = " ".join(_read(STATUS).split())
     assert "| Phase 66 Slice 13 | `COMPLETED / PUBLISHED` |" in status
-    assert "| Phase 66 Slice 14 | `NEXT / NOT IMPLEMENTED` |" in status
     route = (
         STATUS.parent
         / "spec"
@@ -5718,6 +5717,49 @@ def test_phase66_slice13_is_recorded_with_its_exact_denominator() -> None:
     assert "## R24 Slice13 delivery" in document
     assert "project_sql_emission_cli" in document
     assert "CLI_console_emission" in document
+
+
+def test_phase66_slice14_is_recorded_with_its_unchanged_denominator() -> None:
+    target = (
+        "spec/phase66-slice14-private-emission-observation-process-integration-v1.md"
+    )
+    for path in (STATUS, ROADMAP):
+        document = " ".join(_read(path).split())
+        assert f"]({target})" in document
+        assert (
+            "Phase66 Slice14 is `COMPLETED / PUBLISHED` only upon successful"
+            " natural exact-head CI" in document
+        )
+        assert "private `pietto.sql-emission-observation.v1` document" in document
+        assert "Pure consistency is not authenticity" in document
+        assert "All 297 VERIFIED generation inputs export, correspond and decode" in (
+            document
+        )
+        assert "adding six requests per available interpreter and no cells" in document
+        assert (
+            "The database denominator is unchanged: 61 cases/187 public documents per"
+            " target: postgres154 VERIFIED,4 INPUT_REJECTED,29 BLOCKED; mysql151"
+            " VERIFIED,4 INPUT_REJECTED,32 BLOCKED; no private document enters a"
+            " receipt." in document
+        )
+        assert (
+            "Phase66 remains `ACTIVE`; Slice15 is `NEXT / NOT IMPLEMENTED`;"
+            " Slice16 remains `NOT IMPLEMENTED`." in document
+        )
+        assert "Do not start Slice15 automatically" in document
+        assert "Slice14 completion is not Phase66 completion" in document
+    assert (STATUS.parent / target).is_file()
+    status = " ".join(_read(STATUS).split())
+    assert "| Phase 66 Slice 14 | `COMPLETED / PUBLISHED` |" in status
+    assert "| Phase 66 Slice 15 | `NEXT / NOT IMPLEMENTED` |" in status
+    route = (
+        STATUS.parent
+        / "spec"
+        / "phase66-dialect-sql-emission-product-phase-initiation-gate-route-lock-v1.md"
+    )
+    document = " ".join(route.read_text(encoding="utf-8").split())
+    assert "## R26 Slice14 delivery" in document
+    assert "project_sql_emission_pure_boundary" in document
 
 
 def test_phase66_slice12_is_recorded_with_its_unchanged_denominator() -> None:

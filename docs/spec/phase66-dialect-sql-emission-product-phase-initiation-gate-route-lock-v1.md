@@ -937,6 +937,21 @@ installed interpreter 通过 runpy 运行真实 console entrypoint，同 child o
 cli_errors allowlist 扩为本文 15 种 kind。不新增 emitter、public Python API、executor 或 private
 observation format。
 
+## R26 Slice14 delivery
+
+Slice14 按 [Slice14 contract](phase66-slice14-private-emission-observation-process-integration-v1.md)
+交付 R26 与 C29/C32：私有 `pietto.sql-emission-observation.v1` 覆盖完整 admitted emission 表示
+（73 个闭合 record kind，typed local refs，plan refs 为 Phase65 plan 身份），runtime 导出
+（`project_sql_emission_portable`，只读既有 verifier）、独立 runtime correspondence（文档驱动双向
+绑定 + 公共 artifact 与 Slice12 inspection 投影）与 data-only pure consistency
+（`project_sql_emission_pure_boundary`，只导入 `project_sql_emission_portable_schema`）三者分离；
+coherent alternative 通过 pure 而 correspondence 失败，pure consistency 不是 authenticity。
+C32：ordinary/rebound/completed ORDER carriers 与其 items 的 carrier 一致、port/read 经 order_item
+overlay token 绑定，协调改写只能被 correspondence 拒绝。C29：首个 `phase66` 差分进程 family 在
+checkout/relocated/installed-wheel cells 中 standalone 与正反 batch 字节一致，同 child origins 为三个
+新模块。297 个 VERIFIED generation inputs 全部导出、对应、解码；DB denominator 不变（61/187），私有
+文档不进入 receipt。
+
 ## R11/C09 scheduling amendment authorized for Slice7
 
 原 Slice1 route 将 R11 的完整 SEMI/ANTI right terminal 义务与 C09 的 right
