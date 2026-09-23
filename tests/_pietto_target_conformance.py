@@ -37,7 +37,7 @@ from _pietto_target_conformance_resources import (
 ROOT = Path(__file__).resolve().parents[1]
 PINS = Path(__file__).with_name("phase66_target_pins.json")
 FORMAT = "pietto.target-conformance-receipt.v2"
-MAX_RECEIPT = 32 * 1024 * 1024
+MAX_RECEIPT = 33 * 1024 * 1024
 HELPERS = tuple(
     Path(__file__).with_name("_pietto_target_conformance" + suffix + ".py")
     for suffix in ("", "_resources", "_observation", "_cases")
@@ -1295,6 +1295,8 @@ def _verify_receipt(
             raise ValueError("installed console artifact/case substitution")
         if case["id"] == "F_privilege_cleanup":
             verify_privileges(case["privilege_observations"], target)
+    if not native_prerequisite:
+        cases.check_relations(receipt["cases"])
     cleanup = receipt["cleanup"]
     closed = [
         event
@@ -1595,6 +1597,8 @@ def run_target(args: argparse.Namespace, pins: dict[str, Any], pins_digest: str)
                 case_id, args.target, query, manager, receipt["generation"], result
             )
             cases.check_case(result, args.target, receipt["generation"])
+        if receipt["full_manifest"]:
+            cases.check_relations(receipt["cases"])
         if inputs() != expected:
             raise ValueError("applicable inputs changed during target execution")
     except BaseException as error:

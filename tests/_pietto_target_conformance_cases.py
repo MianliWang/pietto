@@ -738,6 +738,19 @@ def _int_type(target):
     return 20 if target == "postgres" else 8
 
 
+def metamorphic_expectation(target, variant):
+    """(rows, labels, physical types) of one Slice15 premise, derived by hand.
+
+    phase66_rows holds ids 1, 1: `rows.id > r.id` never holds, so every LEFT row
+    null-extends `r` and the RIGHT match on that NULL keeps each `last` row alone.
+    The native table holds (id 11, neighbor NULL) twice: both UNION forms keep
+    only the two id rows.
+    """
+    if variant == "join_chain_accumulated":
+        return [[NULL, _integer("1")]] * 2, ("a", "b"), [_int_type(target)] * 2
+    return [[_integer("11")]] * 2, ("k",), [_int_type(target)]
+
+
 def result_expectation(target, case, variant):
     """(rows, labels, physical types, logical tags, ordered) for one result case."""
     big, zero, one = _integer(BIG_TEXT), _integer("0"), _integer("1")
@@ -1174,6 +1187,17 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
         ] != list(logical):
             raise ValueError("aggregate positional logical metadata mismatch")
         return
+    if case_id == "M_metamorphic_composition":
+        expected_rows, labels, physical = metamorphic_expectation(target, variant_name)
+        if (
+            _bag(observation["rows"]) != _bag(expected_rows)
+            or [m[:2] for m in observation["metadata"]]
+            != [list(pair) for pair in zip(labels, physical, strict=True)]
+            or [(c["label"], c["logical_type"]["name"]) for c in document["columns"]]
+            != [(label, "Int") for label in labels]
+        ):
+            raise ValueError("metamorphic premise typed BAG or metadata mismatch")
+        return
     if case_id in {"T_row_direct", "U_row_named"}:
         expected_rows = row_result_rows(target, empty=variant_name.startswith("empty"))
         if Counter(
@@ -1240,6 +1264,177 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
         raise ValueError("emission positional logical metadata mismatch")
     if target == "postgres" and any(m[6] is not None for m in metadata):
         raise ValueError("unavailable nullability was invented")
+
+
+def _bag(rows):
+    return Counter(json.dumps(row, sort_keys=True) for row in rows)
+
+
+def _support(bag):
+    return Counter(set(bag))
+
+
+def check_relations(receipt_cases):
+    """Slice15 metamorphic laws over one full run's own VERIFIED submissions.
+
+    Every law relates executions of distinct generated artifacts and reads no case
+    oracle, so an oracle that agrees with a wrong result still has to satisfy it.
+    Each premise is stated beside its law; it holds by the authored sources alone.
+    """
+    rows = {}
+    for case in receipt_cases:
+        observed = iter(case["observations"])
+        if case["id"] == "A_legacy":
+            rows["A_legacy", ""] = next(observed)["rows"]
+        elif case["id"] in emission.VARIANTS:
+            for variant in case["variants"]:
+                if variant["submission_after"] != variant["submission_before"]:
+                    rows[case["id"], variant["variant"]] = next(observed)["rows"]
+
+    def bag(case, variant=""):
+        return _bag(rows[case, variant])
+
+    def columns(case, variant, *positions):
+        return _bag([[row[i] for i in positions] for row in rows[case, variant]])
+
+    # L: every rows.id; an ANTI join against an empty right input keeps them all.
+    left = bag("O_result_membership", "anti_limit0")
+    # A = sa.key (`b except all a` with an empty a); S_set_forms unions A with B.
+    union_all = bag("S_set_forms", "union_all")
+    a = bag("S_set_multiplicity", "empty_right")
+    b = union_all - a
+    forms = {v: bag("S_set_forms", v) for v in emission.VARIANTS["S_set_forms"]}
+    nesting = {v: bag("S_set_nesting", v) for v in emission.VARIANTS["S_set_nesting"]}
+    limits = {v: bag("O_result_limit", v) for v in emission.VARIANTS["O_result_limit"]}
+    ranking = [
+        [int(value["value"]) for value in row]
+        for row in rows["A_window_ranking", "peers"]
+    ]
+    ids = [row[0] for row in ranking]
+    laws = {
+        # F1: binding an eligible literal as a parameter never changes the rows.
+        **{
+            f"F1 {case} {variant}": bag(case, variant)
+            == bag(case, variant.replace("preserve", "bind"))
+            for case in (
+                "P_native_identifiers",
+                "R_fixed_direct",
+                "S_fixed_named",
+                "S_set_literals",
+            )
+            for variant in emission.VARIANTS[case]
+            if "preserve" in variant
+        },
+        # F2: renaming through a producer or moving it to another module is invisible;
+        # naming a different column is not.
+        "F2 named producer": bag("P_native_identifiers", "named_preserve")
+        == bag("P_native_identifiers", "preserve"),
+        "F2 imported module": bag("S_fixed_named", "named_preserve")
+        == bag("S_fixed_named", "imported_preserve"),
+        "F2 row producer": bag("U_row_named", "named_preserve")
+        == bag("T_row_direct", "table_preserve")
+        and bag("U_row_named", "imported_bind") == bag("T_row_direct", "query_bind")
+        and bag("U_row_named", "empty_preserve")
+        == bag("T_row_direct", "empty_preserve"),
+        "F2 column identity": bag("P_native_identifiers", "plain_preserve")
+        != bag("P_native_identifiers", "preserve"),
+        # F3: the six SET forms follow from the two operand BAGs; X op X laws.
+        "F3 operands": a <= union_all,
+        "F3 intersect": forms["intersect_all"] == a & b
+        and forms["intersect_distinct"] == _support(a & b),
+        "F3 except": forms["except_all"] == a - b
+        and forms["except_distinct"] == _support(a) - _support(b),
+        "F3 union distinct": forms["union_distinct"] == _support(union_all),
+        "F3 distinct quotient": bag("S_set_multiplicity", "intersect_distinct")
+        == _support(bag("S_set_multiplicity", "intersect_all")),
+        "F3 empty operand": bag("S_set_multiplicity", "empty_left") == Counter(),
+        "F3 self union all": all(
+            count % 2 == 0
+            for case, variant in (
+                ("S_set_domains", "float_union_all"),
+                ("S_set_boundaries", "ordered_operands"),
+                ("S_set_producers", "grouped_union"),
+                ("S_set_producers", "satisfying_union"),
+                ("S_set_literals", "preserve"),
+            )
+            for count in bag(case, variant).values()
+        )
+        and set(bag("S_set_boundaries", "distinct_operand").values()) == {2},
+        "F3 self union distinct": all(
+            set(bag("S_set_domains", v).values()) == {1}
+            for v in ("text_union_distinct", "bool_union_distinct")
+        ),
+        "F3 distinct support": bag("O_result_distinct", "visible_int")
+        == _support(left),
+        # F4: a filter commutes with UNION ALL, NULL-dropping included.
+        "F4 filter over union": bag("M_metamorphic_composition", "union_filter_outer")
+        == bag("M_metamorphic_composition", "union_filter_operands"),
+        # F5: SEMI and ANTI against one right input partition the left BAG.
+        "F5 empty right": bag("O_result_membership", "semi_limit0") == Counter(),
+        "F5 limited right": bag("O_result_membership", "semi_limit1")
+        + bag("O_result_membership", "anti_limit1")
+        == left,
+        "F5 join partition": bag("W_join_shapes", "semi") + bag("W_join_shapes", "anti")
+        == left
+        and _support(bag("W_join_shapes", "semi"))
+        == _support(bag("W_join_shapes", "inner")),
+        "F5 cross": bag("W_join_shapes", "cross")
+        == Counter({row: count * left.total() for row, count in left.items()}),
+        "F5 set membership": bag("S_set_membership", "semi_except")
+        + bag("S_set_membership", "anti_except")
+        == bag("S_set_membership", "semi_intersect")
+        + bag("S_set_membership", "anti_intersect"),
+        # F6: LIMIT over the same order does not commute with a filter.
+        "F6 limit": limits["zero"] == Counter()
+        and limits["positive"] <= left
+        and limits["positive"].total() <= 2,
+        "F6 noncommutation": limits["inner_then_filter"] <= limits["filter_then_limit"]
+        and limits["inner_then_filter"] != limits["filter_then_limit"],
+        # F7: GLOBAL over no row is one row; GROUPED over no row is none.
+        "F7 global": bag("X_aggregate_global", "where_false")
+        == bag("X_aggregate_global", "empty")
+        and bag("X_aggregate_global", "empty").total() == 1,
+        "F7 grouped": bag("X_aggregate_grouped", "empty") == Counter()
+        and bag("Y_aggregate_constant", "empty") == Counter(),
+        "F7 global operand": bag("S_set_producers", "global_empty_union")
+        == Counter({row: 2 for row in columns("X_aggregate_global", "empty", 0)}),
+        # F8: a, b and c are one authored body, so A-A-A is empty while A-(A-A)
+        # and (A+A)-A are A; SET columns are positional.
+        "F8 nesting": nesting["left_fold_except"] == Counter()
+        and nesting["right_nested_except"] == _support(nesting["mixed_union_except"])
+        and nesting["right_nested_except"] != nesting["left_fold_except"],
+        "F8 position": columns("S_set_positions", "renamed_labels_union_all", 0)
+        == union_all,
+        # F9: a named window equals its inline twin; hiding a QUALIFY value keeps
+        # the rows; ranks follow peers.
+        "F9 named window": bag("A_window_named", "shared")
+        == columns("A_window_ranking", "peers", 0, 2, 3),
+        "F9 hidden qualify": bag("A_window_qualify", "hidden")
+        == columns("A_window_qualify", "selected", 0),
+        "F9 peers": sorted(row[1] for row in ranking) == list(range(1, len(ids) + 1))
+        and all(
+            row[2] == 1 + sum(i < row[0] for i in ids)
+            and row[3] == 1 + len({i for i in ids if i < row[0]})
+            for row in ranking
+        ),
+        # F10: outer JOINs keep their preserved side and null-extend jointly.
+        "F10 left": all(
+            len({row[i] == NULL for i in (1, 2, 3, 4)}) == 1
+            for row in rows["W_join_values", "left_marker"]
+        )
+        and _support(columns("W_join_values", "left_marker", 0)) == _support(left),
+        "F10 right": _support(columns("W_join_values", "right_accumulated", 1))
+        == _support(left),
+        "F10 chain": _support(
+            columns("M_metamorphic_composition", "join_chain_accumulated", 1)
+        )
+        == _support(bag("A_legacy"))
+        and bag("M_metamorphic_composition", "join_chain_accumulated").total()
+        >= bag("A_legacy").total(),
+    }
+    broken = [name for name, holds in laws.items() if not holds]
+    if broken:
+        raise ValueError("metamorphic relation violated: " + ", ".join(broken))
 
 
 def check_console_case(case, target, generation):

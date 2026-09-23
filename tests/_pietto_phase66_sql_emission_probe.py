@@ -193,6 +193,12 @@ VARIANTS = {
         "arity_mismatch",
         "type_mismatch",
     ),
+    # Slice15: executed premises of target-side metamorphic laws.
+    "M_metamorphic_composition": (
+        "join_chain_accumulated",
+        "union_filter_outer",
+        "union_filter_operands",
+    ),
 }
 SET_CASES = frozenset(
     {
@@ -365,6 +371,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         raise ValueError("unknown emission fixture")
     if case == "P_native_identifiers":
         return native_fixture(target, variant)
+    if case == "M_metamorphic_composition":
+        return metamorphic_fixture(target, variant)
     if case in {"R_fixed_direct", "S_fixed_named"}:
         return fixed_fixture(target, case, variant)
     if case in {"M_named_chain", "N_imported_chain", "O_named_later"}:
@@ -621,6 +629,79 @@ query result:
         "policy": "bind_safe_literals"
         if variant.endswith("bind")
         else "preserve_literals",
+    }
+
+
+# Slice15. The chain's second JOIN reads the first JOIN unit as its left input, so
+# the LEFT nulling must survive into the RIGHT match. The two UNION ALL forms place
+# the same NULL-dropping filter over the union or inside each operand.
+METAMORPHIC_BODIES = {
+    "join_chain_accumulated": """query result:
+    from rows
+    left join rows as r:
+        from rows
+        on rows.id > r.id
+    right join rows as last:
+        from rows
+        on r.id == last.id
+    select:
+        a = rows.id
+        b = last.id
+""",
+    "union_filter_outer": """table a:
+    from rows
+    select:
+        k = neighbor
+table b:
+    from rows
+    select:
+        k = id
+table u:
+    union all:
+        from a
+        from b
+query result:
+    from u
+    where k > 10
+    select:
+        k
+""",
+    "union_filter_operands": """table a:
+    from rows
+    where neighbor > 10
+    select:
+        k = neighbor
+table b:
+    from rows
+    where id > 10
+    select:
+        k = id
+query result:
+    union all:
+        from a
+        from b
+""",
+}
+
+
+def metamorphic_fixture(target, variant):
+    """The native table, or its one-column `phase66_rows` relative for the chain."""
+    base = native_fixture(target, "preserve")
+    contract = json.loads(base["contract"])
+    header = base["source"].split("query result:", 1)[0]
+    if variant == "join_chain_accumulated":
+        source = contract["sources"][0]
+        source["relation"]["name"] = "phase66_rows"
+        source["fields"] = source["fields"][:1]
+        source["fields"][0]["column"] = "id"
+        header = (
+            "shape One:\n    id: Int not null\n"
+            f'source rows: One is {target}.table("opaque")\n'
+        )
+    return {
+        "source": header + METAMORPHIC_BODIES[variant],
+        "contract": encoded(contract).decode(),
+        "policy": "preserve_literals",
     }
 
 

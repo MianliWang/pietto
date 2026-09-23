@@ -3010,3 +3010,25 @@ Phase66 remains `ACTIVE`; Slice15 is `NEXT / NOT IMPLEMENTED`; Slice16 remains `
 N66 remains16. Do not start Slice15 automatically. Database error-position mapping, caller
 rebind, SQL-only BIND export, general result decoder and product executor are not added;
 Slice14 completion is not Phase66 completion.
+
+Phase66 Slice15 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI
+with Python3.12,Python3.13,both target jobs and the strict v2 aggregate. The
+[expanded target, differential and metamorphic conformance contract](spec/phase66-slice15-expanded-target-differential-metamorphic-conformance-v1.md)
+adds the target case `M_metamorphic_composition`: an executed JOIN chain whose RIGHT JOIN
+unit reads the preceding LEFT JOIN unit, and two UNION ALL forms with one NULL-dropping
+filter over the union or inside its operands. Predecessor JOIN inputs are reachable through
+in-definition JOIN chains; the Slice14 statement that only multi-hop paths produce them is
+corrected, and two-hop paths stay `BLOCKED`. Ten metamorphic law families (literal policy,
+alpha renaming and context, BAG duplication, filter over BAG union, SEMI/ANTI partition,
+result-stage noncommutation, emptiness, SET nesting and position, window peers and reuse,
+outer null extension) run over every full target run's own VERIFIED submissions without
+reading case oracles or adding receipt bytes; a violation is an `UNRESOLVED_ATTRIBUTION`
+case-execution failure. Coordinated AST, SQL and requirement drift and an injected
+constructor fault meet only the independent plan correspondence. By explicit decision the
+receipt ceiling is 33 MiB; receipt v2 is otherwise unchanged. The denominator is 62
+cases/190 public documents per target: postgres157 VERIFIED,4 INPUT_REJECTED,29 BLOCKED;
+mysql154 VERIFIED,4 INPUT_REJECTED,32 BLOCKED.
+Phase66 remains `ACTIVE`; Slice16 is `NEXT / NOT IMPLEMENTED` and audit-only.
+N66 remains16. Do not start Slice16 automatically. Database error-position mapping, caller
+rebind, SQL-only BIND export, general result decoder and product executor are not added;
+Slice15 completion is not Phase66 completion.

@@ -213,3 +213,11 @@ the `phase66` matrix family, whose probe copies `_pietto_phase66_sql_emission_pr
 reports the three modules' same-child origins under `phase66_module_import_origins`. Six
 requests are added per available interpreter and no cells; the target denominator is
 unchanged and no private document enters a receipt.
+
+The [Slice15 conformance contract](spec/phase66-slice15-expanded-target-differential-metamorphic-conformance-v1.md)
+adds the target case `M_metamorphic_composition` and `cases.check_relations`, which checks
+ten metamorphic law families across the VERIFIED submissions of every full-manifest run
+(after the case loop, as a `case_execution` failure) and in strict receipt verification;
+the laws read no case oracle and add no receipt bytes. The receipt file ceiling is 33 MiB
+(34,603,008 bytes). The target denominator is 62 cases and 190 public documents per target
+(184 API-generated and 6 console documents).

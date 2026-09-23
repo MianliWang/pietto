@@ -952,6 +952,20 @@ checkout/relocated/installed-wheel cells 中 standalone 与正反 batch 字节�
 新模块。297 个 VERIFIED generation inputs 全部导出、对应、解码；DB denominator 不变（61/187），私有
 文档不进入 receipt。
 
+## R25 Slice15 delivery
+
+Slice15 按 [Slice15 contract](phase66-slice15-expanded-target-differential-metamorphic-conformance-v1.md)
+扩大 C01–C32 组合并交付 C30 路由：新 target case `M_metamorphic_composition`（执行的 JOIN chain，
+其 RIGHT JOIN unit 读取前一 LEFT JOIN unit；两种 UNION ALL filter 位置），以及 `check_relations`
+在每个完整 target run 内对全部 VERIFIED 提交检查十族 metamorphic 定律（F1–F10），不读取 case
+oracle、不增加 receipt 字节，违反即 `case_execution` 的 `UNRESOLVED_ATTRIBUTION`。independence：
+row verifier 仅以 `emission_blockers`/`realize_rows` 共享 applicability gate，协调漂移只被
+`plan_ast_correspondence` 拒绝，注入的 constructor fault 为 BLOCKED PIE-B1008。Slice14 关于
+predecessor JOIN inputs 只来自 multi-hop path 的表述更正为 in-definition chain 可达；two-hop `via`
+仍在 Slice7 finite JOIN input domain 之外（BLOCKED PIE-B1003）。receipt 上限经用户决定为 33 MiB，
+receipt v2 其余不变；denominator 62 cases/190 public documents per target（postgres 157/4/29；
+mysql 154/4/32）。无 production 变更、无新 process family；Slice16 为 audit-only。
+
 ## R11/C09 scheduling amendment authorized for Slice7
 
 原 Slice1 route 将 R11 的完整 SEMI/ANTI right terminal 义务与 C09 的 right

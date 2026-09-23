@@ -184,7 +184,8 @@ status参数必须来自实际完成的对应检查；CI分别传入`needs.valid
 `needs.target_conformance.result`，只有两者均为`success`才可接受完整收据。
 MY只替换target。`--case`只接受下列固定case ID；省略为完整manifest，选择全部case也计完整
 run。receipt verification是data-only；单target post-upload校验还要求artifact-id/digest，
-aggregate校验两目标完整收据及compiler/target prerequisite outcomes。receipt文件上限32MiB，
+aggregate校验两目标完整收据及compiler/target prerequisite outcomes。receipt文件上限33MiB
+（34,603,008 B；Slice15 经用户决定由 32MiB 上调，格式与含义不变），
 为最大16MiB失败结果前缀及完整诊断/cleanup证据预留空间。没有数据库或Docker
 连接、镜像获取、driver操作或重跑。未知/重复JSON keys、extra/missing字段、过期identity、
 变更SQL/parameters、空/重复/缺失case、错误pins/build或cleanup未知均拒绝。
@@ -333,6 +334,15 @@ owners 加 `pietto.cli` 与 `project_sql_emission_cli`（`_inspection` 仍仅为
 denominator 变为 61 cases/187 public documents per target（181 API + 6 console）：postgres 154
 VERIFIED/4 INPUT_REJECTED/29 BLOCKED；mysql 151/4/32。receipt v2、pins、120 s probe deadline 与
 workflow 不变。
+
+Slice15 新增 case `M_metamorphic_composition`（JOIN chain `join_chain_accumulated` 读取
+`phase66_rows`，`union_filter_outer`/`union_filter_operands` 读取 native 表），其独立 oracle 位于
+cases owner。`cases.check_relations` 在每个完整 manifest 的 case loop 之后（失败记为
+`case_execution`/`UNRESOLVED_ATTRIBUTION`）以及严格 receipt 校验中，对同一 run 的全部 VERIFIED
+提交检查十族 metamorphic 定律，不读取 case oracle，不新增 receipt 字节。receipt 上限为 33 MiB，
+receipt v2 结构与含义、pins、deadlines 与 workflow 不变。denominator 变为 62 cases/190 public
+documents per target（184 API + 6 console）：postgres 157 VERIFIED/4 INPUT_REJECTED/29 BLOCKED；
+mysql 154/4/32。
 
 ## Review, validation and publication
 

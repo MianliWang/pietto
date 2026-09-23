@@ -334,8 +334,8 @@ def test_every_admitted_artifact_exports_corresponds_and_decodes(
     assert (
         sum(status == "VERIFIED" for status in statuses.values())
         == {
-            "postgres": 150,
-            "mysql": 147,
+            "postgres": 153,
+            "mysql": 150,
         }[target]
     )
     # Every record kind the closed schema describes occurs in real output,
@@ -1361,9 +1361,9 @@ def test_variants_outside_the_generation_corpus_have_real_witnesses(
 ):
     from pietto._project.project_sql_emission import emit_project_sql
 
-    # A multi-hop path JOIN is the only source of predecessor JOIN inputs. It
-    # stays outside the admitted emission domain, so it has no artifact and no
-    # private document; the exporter refuses its outcome.
+    # A multi-hop path JOIN stays outside the admitted emission domain, so it has
+    # no artifact and no private document; the exporter refuses its outcome.
+    # Predecessor JOIN inputs come from in-definition JOIN chains (Slice15).
     item = emission.join_witness(
         target,
         "query result:\n    from lhs\n"

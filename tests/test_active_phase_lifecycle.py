@@ -326,13 +326,12 @@ EXPECTED_STATUS = (
     ("Phase 66 Slice 12", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 13", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 14", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 15", "`NEXT / NOT IMPLEMENTED`"),
-    ("Phase 66 Slice 16", "`NOT IMPLEMENTED`"),
+    ("Phase 66 Slice 15", "`COMPLETED / PUBLISHED`"),
+    ("Phase 66 Slice 16", "`NEXT / NOT IMPLEMENTED`"),
     ("Phase 66 route", "`N=16`"),
     (
         "Next",
-        "`Phase 66 Slice 15 — Expanded target/differential conformance and"
-        " historical compatibility`",
+        "`Phase 66 Slice 16 — Completion audit and exact Phase67/68/later handoff`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -5751,7 +5750,6 @@ def test_phase66_slice14_is_recorded_with_its_unchanged_denominator() -> None:
     assert (STATUS.parent / target).is_file()
     status = " ".join(_read(STATUS).split())
     assert "| Phase 66 Slice 14 | `COMPLETED / PUBLISHED` |" in status
-    assert "| Phase 66 Slice 15 | `NEXT / NOT IMPLEMENTED` |" in status
     route = (
         STATUS.parent
         / "spec"
@@ -5760,6 +5758,49 @@ def test_phase66_slice14_is_recorded_with_its_unchanged_denominator() -> None:
     document = " ".join(route.read_text(encoding="utf-8").split())
     assert "## R26 Slice14 delivery" in document
     assert "project_sql_emission_pure_boundary" in document
+
+
+def test_phase66_slice15_is_recorded_with_its_expanded_denominator() -> None:
+    target = (
+        "spec/phase66-slice15-expanded-target-differential-metamorphic-"
+        "conformance-v1.md"
+    )
+    for path in (STATUS, ROADMAP):
+        document = " ".join(_read(path).split())
+        assert f"]({target})" in document
+        assert (
+            "Phase66 Slice15 is `COMPLETED / PUBLISHED` only upon successful"
+            " natural exact-head CI" in document
+        )
+        assert "adds the target case `M_metamorphic_composition`" in document
+        assert "the Slice14 statement that only multi-hop paths produce them is" in (
+            document
+        )
+        assert "Ten metamorphic law families" in document
+        assert "By explicit decision the receipt ceiling is 33 MiB" in document
+        assert (
+            "The denominator is 62 cases/190 public documents per target:"
+            " postgres157 VERIFIED,4 INPUT_REJECTED,29 BLOCKED; mysql154"
+            " VERIFIED,4 INPUT_REJECTED,32 BLOCKED." in document
+        )
+        assert (
+            "Phase66 remains `ACTIVE`; Slice16 is `NEXT / NOT IMPLEMENTED` and"
+            " audit-only." in document
+        )
+        assert "Do not start Slice16 automatically" in document
+        assert "Slice15 completion is not Phase66 completion" in document
+    assert (STATUS.parent / target).is_file()
+    status = " ".join(_read(STATUS).split())
+    assert "| Phase 66 Slice 15 | `COMPLETED / PUBLISHED` |" in status
+    assert "| Phase 66 Slice 16 | `NEXT / NOT IMPLEMENTED` |" in status
+    route = (
+        STATUS.parent
+        / "spec"
+        / "phase66-dialect-sql-emission-product-phase-initiation-gate-route-lock-v1.md"
+    )
+    document = " ".join(route.read_text(encoding="utf-8").split())
+    assert "## R25 Slice15 delivery" in document
+    assert "M_metamorphic_composition" in document
 
 
 def test_phase66_slice12_is_recorded_with_its_unchanged_denominator() -> None:

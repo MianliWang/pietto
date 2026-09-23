@@ -1242,6 +1242,11 @@ def valid_receipts(
                             ]
                         ]
                         types = [20 if target == "postgres" else 8] * len(names)
+                    elif case_id == "M_metamorphic_composition":
+                        rows, labels, types = cases.metamorphic_expectation(
+                            target, record["variant"]
+                        )
+                        names = list(labels)
                     elif case_id in probe.RESULT_CASES or (
                         (case_id, record["variant"]) in cases.RESULT_MIGRATED
                     ):
@@ -1756,6 +1761,7 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "J_emission_query_empty",
         "K_emission_rejected",
         "L_emission_blocked",
+        "M_metamorphic_composition",
         "M_named_chain",
         "N_imported_chain",
         "O_named_later",
@@ -2265,3 +2271,54 @@ def test_fixed_value_receipt_keeps_every_other_expectation(
         named = fixed_case(receipt, "S_fixed_named")["observations"][0]
         named["metadata"][-1][1] = 254
     reject_receipt(receipt, valid_receipts)
+
+
+@pytest.mark.parametrize("law", ("F4", "F5", "F9"))
+@pytest.mark.parametrize("target", cases.TARGETS)
+def test_metamorphic_laws_catch_an_oracle_that_agrees_with_a_wrong_result(
+    valid_receipts: Any, monkeypatch: pytest.MonkeyPatch, target: str, law: str
+) -> None:
+    """Slice15: the observation and its own case oracle drift together."""
+    pins, pins_digest, expected, receipts = valid_receipts
+    receipt = deepcopy(receipts[target])
+    one, zero = [[{"kind": "int", "value": "11"}]], [[{"kind": "int", "value": "0"}]]
+    window = cases.window_key("A_window_named", "shared")
+    named = cases.WINDOW_EXPECTATIONS[window][:-1]
+    case_id, variant, wrong = {
+        "F4": ("M_metamorphic_composition", "union_filter_operands", one),
+        "F5": ("W_join_shapes", "anti", zero),
+        "F9": ("A_window_named", "shared", named),
+    }[law]
+    if law == "F4":
+        metamorphic = cases.metamorphic_expectation
+        monkeypatch.setattr(
+            cases,
+            "metamorphic_expectation",
+            lambda t, v: (
+                (wrong, *metamorphic(t, v)[1:]) if v == variant else metamorphic(t, v)
+            ),
+        )
+    elif law == "F5":
+        join_rows = cases.join_rows
+        monkeypatch.setattr(
+            cases, "join_rows", lambda v: wrong if v == variant else join_rows(v)
+        )
+    else:
+        monkeypatch.setitem(cases.WINDOW_EXPECTATIONS, window, named)
+    # A MySQL observation also replays its native wire rows; that transport check
+    # is orthogonal to this control, which drifts only the decoded result.
+    monkeypatch.setattr(cases, "verify_native", lambda observation: None)
+    case = next(c for c in receipt["cases"] if c["id"] == case_id)
+    verified = [
+        v["variant"]
+        for v in case["variants"]
+        if v["submission_after"] != v["submission_before"]
+    ]
+    case["observations"][verified.index(variant)]["rows"] = deepcopy(wrong)
+    cases.check_case(case, target, receipt["generation"])
+    with pytest.raises(ValueError, match="metamorphic relation violated: " + law):
+        cases.check_relations(receipt["cases"])
+    with pytest.raises(ValueError, match="invalid target receipt"):
+        facility.verify_receipt(
+            receipt, target, pins, pins_digest, expected, "1" * 40, "synthetic", 1
+        )

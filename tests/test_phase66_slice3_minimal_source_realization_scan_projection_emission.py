@@ -963,10 +963,16 @@ def test_current_emission_variant_manifest_is_complete():
             "arity_mismatch",
             "type_mismatch",
         ),
+        # Slice15: executed premises of the target-side metamorphic laws.
+        "M_metamorphic_composition": (
+            "join_chain_accumulated",
+            "union_filter_outer",
+            "union_filter_operands",
+        ),
     }
     for target in ("postgres", "mysql"):
         inputs = probe.generation_inputs(target)
-        assert len(inputs) == 181
+        assert len(inputs) == 184
         assert (
             sum(
                 item["id"]
