@@ -207,6 +207,9 @@ def inputs() -> dict[str, Any]:
             ]
             for target in cases.TARGETS
         },
+        "console_inputs": {
+            target: emission.console_inputs(target) for target in cases.TARGETS
+        },
     }
 
 
@@ -339,6 +342,23 @@ def installed_generation(
         ),
         object_pairs_hook=pairs,
     )
+    # Slice13: the same copied probe drives the installed console entrypoint
+    # with real argv over real project/contract files from an unrelated cwd.
+    result["console"] = json.loads(
+        command(
+            [
+                str(python),
+                "-I",
+                str(copied_probe),
+                target,
+                "console",
+                str(environment / "bin/pietto"),
+            ],
+            cwd=scratch,
+            timeout=30,
+        ),
+        object_pairs_hook=pairs,
+    )
     verify_generation(result, target, expected)
     return result
 
@@ -402,6 +422,129 @@ def verify_generation(
     ]:
         raise ValueError("wrong legacy query artifact")
     verify_emission_generation(generation["emission"], target, expected)
+    verify_console_generation(
+        generation["console"], target, expected, generation["emission"]["records"]
+    )
+
+
+def verify_installed_origins(origins, expected, required, failure):
+    if not required <= origins.keys():
+        raise ValueError(failure)
+    for name, origin in origins.items():
+        if (
+            set(origin) != {"member", "sha256"}
+            or origin["member"] not in expected["package_members"]
+            or origin["sha256"] != expected["package_members"][origin["member"]]
+        ):
+            raise ValueError("foreign emission installed origin")
+        module_member = name.replace(".", "/")
+        if origin["member"] not in {
+            module_member + ".py",
+            module_member + "/__init__.py",
+        }:
+            raise ValueError("emission module/member identity mismatch")
+
+
+EMISSION_MODULES = frozenset(
+    "pietto._project.project_sql_emission" + suffix
+    for suffix in (
+        "",
+        "_contract",
+        "_ast",
+        "_rendering",
+        "_verification",
+        "_scopes",
+        "_parameters",
+        "_inspection",
+    )
+)
+# The installed console loads the production emission owners; the private
+# inspection view is consumed only by the probe's generation child.
+CONSOLE_MODULES = (
+    EMISSION_MODULES - {"pietto._project.project_sql_emission_inspection"}
+) | {
+    "pietto",
+    "pietto.cli",
+    "pietto._project.project_sql_emission_cli",
+}
+EXIT_CODES = {"VERIFIED": 0, "BLOCKED": 1, "INPUT_REJECTED": 2}
+
+
+def verify_console_generation(value, target, expected, api_records):
+    if (
+        set(value)
+        != {
+            "records",
+            "origins",
+            "isolated",
+            "probe_sha256",
+            "config_sha256",
+            "console_sha256",
+        }
+        or value["isolated"] != 1
+    ):
+        raise ValueError("console generation envelope")
+    if value["probe_sha256"] != expected["harness"][
+        EMISSION_PROBE.relative_to(ROOT).as_posix()
+    ] or value["config_sha256"] != digest(emission.CONFIG.encode()):
+        raise ValueError("console probe/config input substitution")
+    if re.fullmatch(r"[0-9a-f]{64}", str(value["console_sha256"])) is None:
+        raise ValueError("missing console transfer identity")
+    verify_installed_origins(
+        value["origins"],
+        expected,
+        CONSOLE_MODULES,
+        "same-child console origins incomplete",
+    )
+    records = value["records"]
+    inputs = expected["console_inputs"][target]
+    if len(records) != len(inputs):
+        raise ValueError("console witness denominator mismatch")
+    api = {(r["id"], r["variant"]): r for r in api_records}
+    for record, item in zip(records, inputs, strict=True):
+        if set(record) != set(item) | {
+            "exit_code",
+            "stderr",
+            "stdout",
+            "stdout_sha256",
+            "artifact_sha256",
+            "public_sha256",
+        } or any(record[key] != item[key] for key in item):
+            raise ValueError("console generation input substitution")
+        # The console must publish exactly the installed pipeline's artifact:
+        # the receipt carries that API record in full and the console bytes by
+        # SHA-256, the facility's transfer identity.
+        api_record = api[item["id"], item["variant"]]
+        if record["public_sha256"] != api_record["public_sha256"] or api_record[
+            "public_sha256"
+        ] != digest(api_record["public"].encode("utf-8")):
+            raise ValueError("console artifact differs from the API artifact")
+        document = emission.decode_public(api_record["public"].encode("utf-8"))
+        status = emission.expected_status(item["id"], item["variant"], target)
+        if (
+            document["status"] != status
+            or record["exit_code"] != EXIT_CODES[status]
+            or record["stderr"] != ""
+        ):
+            raise ValueError("wrong console outcome, exit code or stderr")
+        if item["output"]:
+            if record["artifact_sha256"] != record["public_sha256"]:
+                raise ValueError("console artifact file identity mismatch")
+        elif record["artifact_sha256"] is not None:
+            raise ValueError("console wrote an unrequested file")
+        if item["format"] == "json":
+            if record["stdout"] is not None or (
+                record["stdout_sha256"] != record["public_sha256"]
+            ):
+                raise ValueError("console JSON stdout is not the artifact")
+        elif (
+            status != "VERIFIED"
+            or type(record["stdout"]) is not str
+            or digest(record["stdout"].encode("utf-8")) != record["stdout_sha256"]
+            or not record["stdout"].startswith("pietto.sql-emission.v1 VERIFIED\n")
+            or "\nsql:\n" + document["sql"] + "\nend sql\n" not in record["stdout"]
+        ):
+            raise ValueError("console text presentation mismatch")
 
 
 def verify_emission_generation(value, target, expected):
@@ -415,34 +558,12 @@ def verify_emission_generation(value, target, expected):
         EMISSION_PROBE.relative_to(ROOT).as_posix()
     ] or value["config_sha256"] != digest(emission.CONFIG.encode()):
         raise ValueError("emission probe/config input substitution")
-    required = {
-        "pietto._project.project_sql_emission" + suffix
-        for suffix in (
-            "",
-            "_contract",
-            "_ast",
-            "_rendering",
-            "_verification",
-            "_scopes",
-            "_parameters",
-            "_inspection",
-        )
-    }
-    if not required <= value["origins"].keys():
-        raise ValueError("same-child emission origins incomplete")
-    for name, origin in value["origins"].items():
-        if (
-            set(origin) != {"member", "sha256"}
-            or origin["member"] not in expected["package_members"]
-            or origin["sha256"] != expected["package_members"][origin["member"]]
-        ):
-            raise ValueError("foreign emission installed origin")
-        module_member = name.replace(".", "/")
-        if origin["member"] not in {
-            module_member + ".py",
-            module_member + "/__init__.py",
-        }:
-            raise ValueError("emission module/member identity mismatch")
+    verify_installed_origins(
+        value["origins"],
+        expected,
+        EMISSION_MODULES,
+        "same-child emission origins incomplete",
+    )
     records = value["records"]
     inputs = expected["emission_inputs"][target]
     if len(records) != len(inputs):
@@ -854,6 +975,33 @@ def execute_case(
                     "submission_after": query.submission_count,
                 }
             )
+    elif case_id == emission.CONSOLE_CASE:
+        result["witnesses"] = []
+        api = {(r["id"], r["variant"]): r for r in generation["emission"]["records"]}
+        for record in generation["console"]["records"]:
+            api_record = api[record["id"], record["variant"]]
+            if record["public_sha256"] != api_record["public_sha256"]:
+                raise ValueError("console artifact differs from the API artifact")
+            document = emission.decode_public(api_record["public"].encode())
+            before = query.submission_count
+            if document["status"] == "VERIFIED":
+                result["observations"].append(
+                    query.capture(
+                        document["sql"],
+                        emission.decoded_arguments(document),
+                        prepared=True,
+                    )
+                )
+            result["witnesses"].append(
+                {
+                    "witness": record["witness"],
+                    "id": record["id"],
+                    "variant": record["variant"],
+                    "public_sha256": record["public_sha256"],
+                    "submission_before": before,
+                    "submission_after": query.submission_count,
+                }
+            )
     elif case_id in cases.SLICE2_CASE_IDS[:3]:
         sql, params = (
             (json.loads(generation["stdout"])["artifacts"][0]["sql"], ())
@@ -1126,7 +1274,7 @@ def _verify_receipt(
     if [case["id"] for case in receipt["cases"]] != list(wanted):
         raise ValueError("missing/duplicate/reordered case receipts")
     for case in receipt["cases"]:
-        cases.check_case(case, target)
+        cases.check_case(case, target, receipt["generation"])
         if case["id"] in emission.VARIANTS:
             records = [
                 r
@@ -1138,6 +1286,13 @@ def _verify_receipt(
                 for v in case["variants"]
             ] != [(r["variant"], r["public"], r["public_sha256"]) for r in records]:
                 raise ValueError("installed public artifact/case substitution")
+        if case["id"] == emission.CONSOLE_CASE and [
+            (w["witness"], w["public_sha256"]) for w in case["witnesses"]
+        ] != [
+            (r["witness"], r["public_sha256"])
+            for r in receipt["generation"]["console"]["records"]
+        ]:
+            raise ValueError("installed console artifact/case substitution")
         if case["id"] == "F_privilege_cleanup":
             verify_privileges(case["privilege_observations"], target)
     cleanup = receipt["cleanup"]
@@ -1439,7 +1594,7 @@ def run_target(args: argparse.Namespace, pins: dict[str, Any], pins_digest: str)
             execute_case(
                 case_id, args.target, query, manager, receipt["generation"], result
             )
-            cases.check_case(result, args.target)
+            cases.check_case(result, args.target, receipt["generation"])
         if inputs() != expected:
             raise ValueError("applicable inputs changed during target execution")
     except BaseException as error:

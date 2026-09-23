@@ -239,17 +239,44 @@ def test_single_file_json_v1_and_artifact_v1_surfaces_remain_separate(
     assert "mode" not in explain_document
 
 
-def test_project_flag_remains_rejected_by_emit_sql(
+def test_incomplete_project_emit_sql_is_a_closed_usage_rejection(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    # Slice13 introduced `emit-sql --project`; an incomplete invocation is now
+    # the closed pietto.sql-emission.v1 usage rejection, not an argparse banner.
     root = _project_root(tmp_path / "project")
 
     assert cli.main(["emit-sql", "--project", str(root)]) == 2
 
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert "usage: pietto" in captured.err
+    document = _read_json_document(capsys)
+
+    assert set(document) == {
+        "format",
+        "status",
+        "artifact",
+        "blockers",
+        "diagnostics",
+        "cli_errors",
+    }
+    assert document["format"] == "pietto.sql-emission.v1"
+    assert document["status"] == "INPUT_REJECTED"
+    assert document["artifact"] is None
+    assert document["blockers"] == [] and document["diagnostics"] == []
+    cli_errors = document["cli_errors"]
+    assert isinstance(cli_errors, list) and len(cli_errors) == 1
+    assert cli_errors[0]["kind"] == "usage" and cli_errors[0]["path"] is None
+    assert "the following arguments are required" in cli_errors[0]["message"]
+    assert str(root) not in json.dumps(document)
+    # The missing arguments are discovered without opening any project root.
+    assert cli.main(["emit-sql", "--project", str(tmp_path / "absent")]) == 2
+    assert (
+        capsys.readouterr().out
+        == json.dumps(
+            document, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
+        + "\n"
+    )
 
 
 def test_installed_package_smoke_locks_project_text_and_json_success() -> None:

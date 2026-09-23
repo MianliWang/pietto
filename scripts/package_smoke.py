@@ -29,6 +29,64 @@ MYSQL_INPUT = Path("tests/fixtures/mysql/compatibility_ordering_metadata.pietto"
 MYSQL_GOLDEN = Path(
     "tests/fixtures/golden/emit_mysql_compatibility_ordering_metadata.json"
 )
+# The README "Project SQL emission" example, exercised through the installed
+# console entrypoint as a real subprocess from an unrelated working directory.
+PROJECT_EMIT_CONFIG = 'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n'
+PROJECT_EMIT_SOURCE = """shape Item:
+    id: Int not null
+    label: Text not null
+
+source items: Item is postgres.table("fixture.items")
+
+table active_items:
+    from items
+    select:
+        id
+        label
+"""
+PROJECT_EMIT_CONTRACT = """{
+  "format": "pietto.emission-contract.v1",
+  "target": {"family": "postgres", "release": "18.6"},
+  "sources": [{
+    "selector": {"module": "main.pietto", "kind": "source", "name": "items"},
+    "relation": {"namespace": "fixture", "name": "items"},
+    "scan": "relation_rows",
+    "fields": [
+      {"ordinal": 0, "name": "id", "column": "item_id",
+       "representation": {"storage": {"kind": "pg_int8"}, "nullable": false,
+                          "domain": {"kind": "int_range", "min": "0", "max": "100"}}},
+      {"ordinal": 1, "name": "label", "column": "item_label",
+       "representation": {"storage": {"kind": "pg_text"}, "nullable": false,
+                          "domain": {"kind": "text", "max_characters": 64,
+                                     "encoding": "UTF8", "collation": "C",
+                                     "padding": "NO PAD"}}}
+    ],
+    "premises": [
+      {"key": "row_domain_matches", "scope": "source", "value": true},
+      {"key": "read_only_object", "scope": "source", "value": true}
+    ]
+  }],
+  "environment": [
+    {"key": "client_encoding", "scope": "statement", "value": "UTF8"},
+    {"key": "operator_environment", "scope": "statement", "value": "builtin_only"}
+  ]
+}
+"""
+PROJECT_EMIT_ARGUMENTS = (
+    "emit-sql",
+    "--project",
+    "demo-emit",
+    "--module",
+    "main.pietto",
+    "--kind",
+    "table",
+    "--name",
+    "active_items",
+    "--dialect",
+    "postgres",
+    "--emission-contract",
+    "contract.json",
+)
 
 GENERATED_FILES = frozenset(
     {
@@ -915,13 +973,106 @@ def _smoke_installed_cli(
             "installed MySQL JSON v1 output differs structurally from reviewed golden"
         )
 
+    _smoke_project_emit_sql(cli_path, scratch_dir, environment)
+
     print(f"[package-smoke] installed CLI version: {version.stdout.decode().strip()}")
     print(
         "[package-smoke] installed CLI verified: --help, check, project check, "
         "single-file and project explain, PostgreSQL byte-exact text, "
-        "MySQL JSON v1 structure",
+        "MySQL JSON v1 structure, project emit-sql JSON/text/atomic file",
         flush=True,
     )
+
+
+def _smoke_project_emit_sql(
+    cli_path: Path, scratch_dir: Path, environment: dict[str, str]
+) -> None:
+    """Run the installed project emit-sql command over real files (Slice13)."""
+
+    project_root = scratch_dir / "demo-emit"
+    project_root.mkdir()
+    (project_root / "pietto.toml").write_text(PROJECT_EMIT_CONFIG, encoding="utf-8")
+    (project_root / "main.pietto").write_text(PROJECT_EMIT_SOURCE, encoding="utf-8")
+    (project_root / "contract.json").write_text(PROJECT_EMIT_CONTRACT, encoding="utf-8")
+    as_json = _run_installed_cli(
+        cli_path,
+        PROJECT_EMIT_ARGUMENTS,
+        scratch_dir=scratch_dir,
+        stage="installed project emit-sql JSON",
+        environment=environment,
+    )
+    try:
+        document = json.loads(as_json.stdout)
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise SmokeFailure(f"cannot decode project emit-sql output: {error}") from error
+    if (
+        as_json.stderr
+        or not as_json.stdout.endswith(b"\n")
+        or as_json.stdout.count(b"\n") != 1
+        or document.get("format") != "pietto.sql-emission.v1"
+        or document.get("status") != "VERIFIED"
+        or set(document)
+        != {
+            "format",
+            "status",
+            "target",
+            "request",
+            "sql",
+            "fixed_values",
+            "parameter_uses",
+            "columns",
+            "ranges",
+            "requirements",
+            "diagnostics",
+        }
+        or not str(document.get("sql", "")).startswith("SELECT ")
+        or document["request"]["owner"]
+        != {"module": "main.pietto", "kind": "table", "name": "active_items"}
+        or document["request"]["literal_policy"] != "preserve_literals"
+    ):
+        raise SmokeFailure("installed project emit-sql JSON document is unexpected")
+    as_text = _run_installed_cli(
+        cli_path,
+        (*PROJECT_EMIT_ARGUMENTS, "--format", "text", "--output", "artifact.json"),
+        scratch_dir=scratch_dir,
+        stage="installed project emit-sql text with atomic artifact file",
+        environment=environment,
+    )
+    if (
+        as_text.stderr
+        or not as_text.stdout.startswith(b"pietto.sql-emission.v1 VERIFIED\n")
+        or document["sql"].encode("utf-8") not in as_text.stdout
+        or (scratch_dir / "artifact.json").read_bytes() != as_json.stdout
+        or any(path.suffix == ".tmp" for path in scratch_dir.iterdir())
+    ):
+        raise SmokeFailure("installed project emit-sql text/file output is unexpected")
+    rejected = subprocess.run(
+        (
+            str(cli_path),
+            *PROJECT_EMIT_ARGUMENTS[:8],
+            "missing",
+            *PROJECT_EMIT_ARGUMENTS[9:],
+        ),
+        cwd=scratch_dir,
+        check=False,
+        capture_output=True,
+        env=environment,
+    )
+    try:
+        failure = json.loads(rejected.stdout)
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise SmokeFailure(
+            f"cannot decode project emit-sql rejection: {error}"
+        ) from error
+    if (
+        rejected.returncode != 2
+        or rejected.stderr
+        or failure.get("status") != "INPUT_REJECTED"
+        or failure.get("artifact") is not None
+        or [error.get("kind") for error in failure.get("cli_errors", [])]
+        != ["emission_selector"]
+    ):
+        raise SmokeFailure("installed project emit-sql rejection is unexpected")
 
 
 def main() -> int:

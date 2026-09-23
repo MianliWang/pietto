@@ -338,6 +338,8 @@ def test_generation_children_run_serially_with_their_own_deadlines(
             return b""
         if argv[2] == "-c":
             return b'{"stdout": ""}'
+        if len(argv) == 4:
+            return b"{}"
         raise subprocess.TimeoutExpired(argv, timeout)
 
     monkeypatch.setattr(facility, "command", fake_command)
@@ -365,13 +367,28 @@ def test_generation_children_run_serially_with_their_own_deadlines(
         ["uv", "pip"],
         [python, "-I"],
         [python, "-I"],
+        [python, "-I"],
     ]
-    legacy, emission = calls[2:]
+    legacy, emission, console = calls[2:]
     assert legacy[0][2] == "-c" and legacy[1:] == (scratch, 30)
     assert emission == (
         [python, "-I", str(scratch / "emission_probe.py"), "postgres"],
         scratch,
         120,
+    )
+    # Slice13: the console child follows the probe child serially with the
+    # legacy child's 30 s deadline and names the installed console file.
+    assert console == (
+        [
+            python,
+            "-I",
+            str(scratch / "emission_probe.py"),
+            "postgres",
+            "console",
+            str(tmp_path / "private" / "venv" / "bin" / "pietto"),
+        ],
+        scratch,
+        30,
     )
     assert (scratch / "emission_probe.py").read_bytes() == probe.read_bytes()
 
@@ -563,6 +580,66 @@ def _native_control_data(target):
     }
 
 
+def _console_record(
+    target: str, item: dict[str, Any], directory: Path
+) -> dict[str, Any]:
+    """Run the real CLI in-process over real files; the installed child does the
+    same through the console entrypoint, so the record shapes are identical."""
+    import contextlib
+    import io
+
+    from pietto import cli
+
+    probe = facility.emission
+    fixture_item = probe.fixture(target, item["id"], item["variant"])
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "pietto.toml").write_text(probe.CONFIG)
+    for name, content in sorted(probe.source_files(fixture_item["source"]).items()):
+        (directory / name).write_text(content, encoding="utf-8")
+    (directory / "contract.json").write_text(fixture_item["contract"], encoding="utf-8")
+    artifact = directory / "artifact.json"
+    argv = [
+        "emit-sql",
+        "--project",
+        str(directory),
+        "--module",
+        "main.pietto",
+        "--kind",
+        item["kind"],
+        "--name",
+        "result",
+        "--dialect",
+        target,
+        "--emission-contract",
+        "contract.json",
+        "--format",
+        item["format"],
+    ]
+    if item["policy"] == "bind_safe_literals":
+        argv += ["--literal-policy", "bind-safe"]
+    if item["output"]:
+        argv += ["--output", str(artifact)]
+    out = io.TextIOWrapper(io.BytesIO(), encoding="utf-8", newline="")
+    err = io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        status = cli.main(argv)
+    out.flush()
+    stdout = out.buffer.getvalue().decode("utf-8")
+    artifact_text = artifact.read_text(encoding="utf-8") if artifact.exists() else None
+    public = artifact_text if item["output"] else stdout
+    return {
+        **item,
+        "exit_code": status,
+        "stderr": err.getvalue(),
+        "stdout": stdout if item["format"] == "text" else None,
+        "stdout_sha256": facility.digest(stdout.encode()),
+        "artifact_sha256": None
+        if artifact_text is None
+        else facility.digest(artifact_text.encode()),
+        "public_sha256": facility.digest((public or "").encode()),
+    }
+
+
 @pytest.fixture(scope="module")
 def valid_receipts(
     tmp_path_factory: pytest.TempPathFactory,
@@ -667,6 +744,35 @@ def valid_receipts(
             ],
             "config_sha256": facility.digest(probe.CONFIG.encode()),
         }
+        console_records = [
+            _console_record(target, item, tmp_path_factory.mktemp("synthetic-console"))
+            for item in probe.console_inputs(target)
+        ]
+        generation["console"] = {
+            "records": console_records,
+            "isolated": 1,
+            "origins": {
+                name: {
+                    "member": member,
+                    "sha256": members[member],
+                }
+                for name, member in (
+                    (
+                        name,
+                        "pietto/__init__.py"
+                        if name == "pietto"
+                        else name.replace(".", "/") + ".py",
+                    )
+                    for name in sorted(facility.CONSOLE_MODULES)
+                )
+            },
+            "probe_sha256": expected["harness"][
+                facility.EMISSION_PROBE.relative_to(facility.ROOT).as_posix()
+            ],
+            "config_sha256": facility.digest(probe.CONFIG.encode()),
+            "console_sha256": "c" * 64,
+        }
+        synthetic_observations: dict[tuple[str, str], dict[str, Any]] = {}
         case_rows = []
         for case_id in cases.CASE_IDS[:3]:
             sql = (
@@ -1203,6 +1309,7 @@ def valid_receipts(
                     if target == "postgres":
                         observation["api"] = observation["cursor_type"]
                     row["observations"].append(observation)
+                    synthetic_observations[case_id, record["variant"]] = observation
                     submissions += 1
                 row["variants"].append(
                     {
@@ -1214,6 +1321,33 @@ def valid_receipts(
                     }
                 )
             case_rows.append(row)
+        console_row: dict[str, Any] = {
+            "id": probe.CONSOLE_CASE,
+            "observations": [],
+            "witnesses": [],
+        }
+        api_by_input = {(r["id"], r["variant"]): r for r in emission_records}
+        for record in console_records:
+            before = submissions
+            api_record = api_by_input[record["id"], record["variant"]]
+            assert record["public_sha256"] == api_record["public_sha256"]
+            document = probe.decode_public(api_record["public"].encode())
+            if document["status"] == "VERIFIED":
+                console_row["observations"].append(
+                    deepcopy(synthetic_observations[record["id"], record["variant"]])
+                )
+                submissions += 1
+            console_row["witnesses"].append(
+                {
+                    "witness": record["witness"],
+                    "id": record["id"],
+                    "variant": record["variant"],
+                    "public_sha256": record["public_sha256"],
+                    "submission_before": before,
+                    "submission_after": submissions,
+                }
+            )
+        case_rows.append(console_row)
         case_rows.append(_native_control_data(target))
         case_rows.sort(key=lambda case: cases.CASE_IDS.index(case["id"]))
         events[4:4] = [
@@ -1663,6 +1797,7 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "Z_aggregate_joined",
         "Z_aggregate_membership",
         "Z_aggregate_transport",
+        "CLI_console_emission",
     )
     assert resources.ENDPOINT == "unix:///var/run/docker.sock"
     assert resources.STARTUP_SECONDS == 120 and resources.MAX_CONNECT_ATTEMPTS == 3
@@ -1816,6 +1951,12 @@ def test_mysql_connection_keeps_ca_verification_and_explicit_modern_tls(
         "missing_new_case",
         "missing_variant",
         "wrong_rejection_path",
+        "console_origin",
+        "console_public",
+        "console_exit_code",
+        "console_stdout_file",
+        "console_witness_missing",
+        "console_negative_submission",
     ),
 )
 @pytest.mark.parametrize("target", cases.TARGETS)
@@ -1875,6 +2016,24 @@ def test_new_installed_public_chain_corruptions_are_rejected(
         receipt["cases"].pop()
     elif mutation == "missing_variant":
         emission["records"].pop()
+    # Slice13: the installed-console chain is verified with the same strictness.
+    console = receipt["generation"]["console"]
+    if mutation == "console_origin":
+        console["origins"]["pietto._project.project_sql_emission_cli"]["member"] = (
+            "checkout/project_sql_emission_cli.py"
+        )
+    elif mutation == "console_public":
+        # A real API artifact, but not the one produced from the same input.
+        console["records"][0]["public_sha256"] = emission["records"][1]["public_sha256"]
+    elif mutation == "console_exit_code":
+        console["records"][0]["exit_code"] = 1
+    elif mutation == "console_stdout_file":
+        console["records"][1]["stdout_sha256"] = console["records"][0]["stdout_sha256"]
+    elif mutation == "console_witness_missing":
+        console["records"].pop()
+    elif mutation == "console_negative_submission":
+        case = next(c for c in receipt["cases"] if c["id"] == "CLI_console_emission")
+        case["witnesses"][-1]["submission_after"] += 1
     with pytest.raises(ValueError):
         facility.verify_receipt(
             receipt, target, pins, pins_digest, expected, "1" * 40, "synthetic", 1

@@ -48,20 +48,21 @@ Their compatibility rules are:
 
 Phase 8 adds no command or option to this baseline.
 
-## Future Project Invocation
+## Project Invocation
 
-The accepted first project-mode direction is:
+The implemented project commands are:
 
 ```bash
 pietto check --project ROOT
 pietto check --project ROOT --format json
-pietto emit-sql --project ROOT --dialect postgres
-pietto emit-sql --project ROOT --dialect postgres --format json
-pietto emit-sql --project ROOT --dialect postgres --output out.sql
-pietto emit-sql --project ROOT --dialect postgres --format json --output out.sql
+pietto explain --project ROOT
+pietto explain --project ROOT --format json
+pietto emit-sql --project ROOT --module LOGICAL_MODULE --kind {table,query} \
+    --name NAME --dialect {postgres,mysql} --emission-contract FILE \
+    [--literal-policy {preserve,bind-safe}] [--format {text,json}] [--output FILE]
 ```
 
-The future argument rules are:
+The argument rules are:
 
 - `--project ROOT` explicitly selects project mode;
 - `--project ROOT` and the positional single-file `path` are mutually
@@ -71,17 +72,17 @@ The future argument rules are:
   not an implicit project request;
 - project mode performs no parent-directory discovery;
 - `ROOT` must contain the required `pietto.toml`;
-- the first implementation has no configless project mode;
-- the first implementation has no separate `--config` option;
+- there is no configless project mode and no separate `--config` option;
 - current `--format`, `--dialect`, and `--output` spellings retain their
   command-local meaning.
 
-For project `emit-sql`, an explicit `--dialect` overrides
-`project.default_dialect`. If neither supplies a dialect, the command is a
-usage/configuration error with exit code `2`. The initial accepted dialect
-remains only `postgres`.
-
-These forms are a future contract, not implemented CLI syntax.
+Project `emit-sql` is not a JSON v2 command. D66.13 superseded the earlier
+unimplemented proposal of a postgres-only whole-project emit envelope with a
+`project.default_dialect` fallback: the implemented command selects exactly one
+owner, requires an explicit `--dialect` and an explicit `--emission-contract`,
+and emits the `pietto.sql-emission.v1` artifact documented in the
+[Slice13 contract](phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md).
+Its exit codes follow the same classes as below.
 
 ## Exit Codes
 
@@ -247,42 +248,11 @@ reason, or private diagnostic metadata.
 
 ## Emit-SQL Result
 
-The planned project emit shape is:
-
-```json
-{
-  "schema_version": 2,
-  "command": "emit-sql",
-  "mode": "project",
-  "ok": true,
-  "project": {
-    "root": ".",
-    "config_path": "pietto.toml"
-  },
-  "dialect": "postgres",
-  "inputs": [
-    {
-      "path": "models/users.pietto",
-      "status": "parsed"
-    }
-  ],
-  "diagnostics": [],
-  "cli_errors": [],
-  "artifacts": [
-    {
-      "kind": "relation",
-      "name": "active_users",
-      "source_path": "queries/active_users.pietto",
-      "source_definition": "active_users",
-      "sql": "SELECT ..."
-    }
-  ],
-  "output": null
-}
-```
-
-The top-level `dialect`, `artifacts`, and `output` fields are always present
-for project `emit-sql`.
+Project `emit-sql` does not produce this schema. Its output is the closed
+`pietto.sql-emission.v1` tagged union (`VERIFIED`, `INPUT_REJECTED`,
+`BLOCKED`) frozen by the Phase66 route lock and delivered by the
+[Slice13 contract](phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md);
+the `mode: "project"` JSON v2 envelope applies to `check` only.
 
 ## Input File Object
 

@@ -324,15 +324,15 @@ EXPECTED_STATUS = (
     ("Phase 66 Slice 10", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 11", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 12", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 13", "`NEXT / NOT IMPLEMENTED`"),
-    ("Phase 66 Slice 14", "`NOT IMPLEMENTED`"),
+    ("Phase 66 Slice 13", "`COMPLETED / PUBLISHED`"),
+    ("Phase 66 Slice 14", "`NEXT / NOT IMPLEMENTED`"),
     ("Phase 66 Slice 15", "`NOT IMPLEMENTED`"),
     ("Phase 66 Slice 16", "`NOT IMPLEMENTED`"),
     ("Phase 66 route", "`N=16`"),
     (
         "Next",
-        "`Phase 66 Slice 13 — Project emit-SQL, explicit contract input, public"
-        " output and legacy compatibility`",
+        "`Phase 66 Slice 14 — Private emission observation and first real"
+        " process/relocation/wheel integration`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -5662,6 +5662,62 @@ def test_phase66_slice11_is_recorded_with_its_exact_denominator() -> None:
     assert "## R03 Slice11 delivery" in document
     assert "R03 outstanding joint execution: none." in document
     assert "R11/C09 outstanding membership differences: none." in document
+
+
+def test_phase66_slice13_is_recorded_with_its_exact_denominator() -> None:
+    target = (
+        "spec/phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-"
+        "output-v1.md"
+    )
+    for path in (STATUS, ROADMAP):
+        document = " ".join(_read(path).split())
+        assert f"]({target})" in document
+        assert (
+            "Phase66 Slice13 is `COMPLETED / PUBLISHED` only upon successful"
+            " natural exact-head CI" in document
+        )
+        assert (
+            "`pietto emit-sql --project PATH --module LOGICAL_MODULE --kind"
+            " {table,query} --name NAME --dialect {postgres,mysql}"
+            " --emission-contract FILE`" in document
+        )
+        assert "defaults to `--format json` and `--literal-policy preserve`" in document
+        assert (
+            "selects exactly one current declaration occurrence by logical module,"
+            " declaration kind and name" in document
+        )
+        assert "1 MiB ceiling enforced while reading" in document
+        assert "byte-identical to the installed API artifact" in document
+        assert (
+            "same-directory temporary file and one atomic replacement only for"
+            " VERIFIED" in document
+        )
+        assert "without rolling the file back" in document
+        assert "add `pietto.cli` and `project_sql_emission_cli`" in document
+        assert (
+            "The denominator is 61 cases/187 public documents per target:"
+            " postgres154 VERIFIED,4 INPUT_REJECTED,29 BLOCKED; mysql151"
+            " VERIFIED,4 INPUT_REJECTED,32 BLOCKED." in document
+        )
+        assert (
+            "Phase66 remains `ACTIVE`; Slice14 is `NEXT / NOT IMPLEMENTED`;"
+            " Slices15–16 remain `NOT IMPLEMENTED`." in document
+        )
+        assert "Do not start Slice14 automatically" in document
+        assert "Slice13 completion is not Phase66 completion" in document
+    assert (STATUS.parent / target).is_file()
+    status = " ".join(_read(STATUS).split())
+    assert "| Phase 66 Slice 13 | `COMPLETED / PUBLISHED` |" in status
+    assert "| Phase 66 Slice 14 | `NEXT / NOT IMPLEMENTED` |" in status
+    route = (
+        STATUS.parent
+        / "spec"
+        / "phase66-dialect-sql-emission-product-phase-initiation-gate-route-lock-v1.md"
+    )
+    document = " ".join(route.read_text(encoding="utf-8").split())
+    assert "## R24 Slice13 delivery" in document
+    assert "project_sql_emission_cli" in document
+    assert "CLI_console_emission" in document
 
 
 def test_phase66_slice12_is_recorded_with_its_unchanged_denominator() -> None:

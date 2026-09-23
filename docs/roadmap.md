@@ -2959,3 +2959,30 @@ N66 remains16. Do not start Slice13 automatically. The public project emit-SQL C
 private observation format, database error-position mapping, caller rebind, general
 result decoder and product executor are not added; Slice12 completion is not Phase66
 completion.
+
+Phase66 Slice13 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI
+with Python3.12,Python3.13,both target jobs and the strict v2 aggregate. The
+[project emit-SQL CLI contract](spec/phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md)
+adds the installed public command `pietto emit-sql --project PATH --module LOGICAL_MODULE
+--kind {table,query} --name NAME --dialect {postgres,mysql} --emission-contract FILE`, which
+defaults to `--format json` and `--literal-policy preserve`, selects exactly one current
+declaration occurrence by logical module, declaration kind and name, reads the emission
+contract once as a normalized project-relative path through the pinned-root open contract
+with the 1 MiB ceiling enforced while reading, and reuses the existing plan, emission,
+verification and serialization owners so that every public document is byte-identical to
+the installed API artifact for the same input. JSON stdout is the serializer's single
+document; text is a labeled presentation of the already-serialized data with the complete
+SQL, fixed values and parameter uses; `--output` publishes the same JSON artifact through a
+same-directory temporary file and one atomic replacement only for VERIFIED, refusing the
+configuration, every project source, the contract and their hard, symbolic and normalized
+aliases; a stdout failure after replacement is reported without rolling the file back.
+Legacy single-file emit-sql, CLI JSON v1 and project check JSON v2 are unchanged. The
+installed console is exercised by the package smoke as a real subprocess and by the target
+facility's new `CLI_console_emission` case through the isolated installed interpreter, whose
+required same-child origins add `pietto.cli` and `project_sql_emission_cli`. The denominator
+is 61 cases/187 public documents per target: postgres154 VERIFIED,4 INPUT_REJECTED,29
+BLOCKED; mysql151 VERIFIED,4 INPUT_REJECTED,32 BLOCKED.
+Phase66 remains `ACTIVE`; Slice14 is `NEXT / NOT IMPLEMENTED`; Slices15–16 remain `NOT IMPLEMENTED`.
+N66 remains16. Do not start Slice14 automatically. The private observation format, database
+error-position mapping, caller rebind, SQL-only BIND export, general result decoder and
+product executor are not added; Slice13 completion is not Phase66 completion.

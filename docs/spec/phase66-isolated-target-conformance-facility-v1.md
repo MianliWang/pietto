@@ -320,6 +320,20 @@ forward/reverse 查询命中，EOF 无命中；任何 drift 使整批 generation
 installed origins 因此包含 `project_sql_emission_inspection`。receipt v2、pins、deadlines 与 workflow
 不变。
 
+Slice13 新增 case `CLI_console_emission`：同一份拷贝的 probe 以 `console` 模式（`emission_probe.py
+<target> console <console>`，deadline 30 s，与 legacy child 相同）在 isolated installed interpreter 内通过
+runpy 运行真实 console entrypoint，对六个冻结 witness 以真实 argv、真实 project/contract 文件、无关
+cwd 调用 `pietto emit-sql --project ...`（text+`--output`、bind-safe json+`--output`、imported、SET、
+INPUT_REJECTED、BLOCKED）。为守住 32 MiB receipt 上限，console record 只记录 exit code、stderr 与
+stdout/artifact/document 的 SHA-256（text witness 另保留 stdout 原文），console 文档以 SHA-256 对照同
+输入的 API 记录（收据携带其全文）；harness 要求 digest 相等、期望 status/exit、stderr 为空、json+
+`--output` 时 stdout==file、无 `--output` 时无文件、text 呈现含完整 SQL；提交使用该 identity 的 API
+bytes 解码结果与既有 per-variant oracle。required same-child console origins 为 CLI 加载的 emission
+owners 加 `pietto.cli` 与 `project_sql_emission_cli`（`_inspection` 仍仅为 probe child origin）。
+denominator 变为 61 cases/187 public documents per target（181 API + 6 console）：postgres 154
+VERIFIED/4 INPUT_REJECTED/29 BLOCKED；mysql 151/4/32。receipt v2、pins、120 s probe deadline 与
+workflow 不变。
+
 ## Review, validation and publication
 
 独立上限6 root-cause correction groups、4 authoritative starts、每target4 full local

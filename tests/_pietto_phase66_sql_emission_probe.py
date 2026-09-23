@@ -2683,6 +2683,81 @@ def generation_inputs(target):
     ]
 
 
+# Slice13: the finite installed-console witnesses. Each one drives the real
+# installed `pietto emit-sql --project ...` command over an already-published
+# fixture, so every console document must be byte-identical to the API record
+# of the same (id, variant). Six public documents, four VERIFIED submissions.
+CONSOLE_WITNESSES = (
+    ("W1_table_text_output", "G_emission_table_bag", "bag", "table", "text", True),
+    (
+        "W2_fixed_bind_json_output",
+        "R_fixed_direct",
+        "table_bind",
+        "table",
+        "json",
+        True,
+    ),
+    ("W3_imported_json", "N_imported_chain", "bag", "query", "json", False),
+    ("W4_set_json", "S_set_forms", "union_all", "query", "json", False),
+    (
+        "W5_rejected_json",
+        "K_emission_rejected",
+        "duplicate_selector",
+        "query",
+        "json",
+        False,
+    ),
+    ("W6_blocked_json", "L_emission_blocked", "missing_source", "query", "json", False),
+)
+CONSOLE_CASE = "CLI_console_emission"
+
+
+def console_inputs(target):
+    result = []
+    for witness, case, variant, kind, presentation, output in CONSOLE_WITNESSES:
+        item = fixture(target, case, variant)
+        result.append(
+            {
+                "witness": witness,
+                "id": case,
+                "variant": variant,
+                "kind": kind,
+                "format": presentation,
+                "output": output,
+                "policy": item["policy"],
+                "source_sha256": hashlib.sha256(
+                    source_bytes(item["source"])
+                ).hexdigest(),
+                "contract_sha256": hashlib.sha256(
+                    item["contract"].encode()
+                ).hexdigest(),
+            }
+        )
+    return result
+
+
+# The closed CLI error vocabulary of the public emission family (Slice13).
+CLI_ERROR_KINDS = frozenset(
+    {
+        "usage",
+        "unsupported_dialect",
+        "project_root",
+        "config_read",
+        "config_parse",
+        "config_schema",
+        "project_path",
+        "project_glob",
+        "project_resource",
+        "source_read",
+        "output_path",
+        "output_write",
+        "emission_contract_read",
+        "emission_contract_schema",
+        "emission_selector",
+    }
+)
+
+
 def _need(value, message="invalid public artifact"):
     if not value:
         raise ValueError(message)
@@ -7613,8 +7688,7 @@ def decode_public(data: bytes) -> dict[str, Any]:
             for error in _records(document["cli_errors"]):
                 _keys(error, ("kind", "message", "path"))
                 _need(
-                    error["kind"] in {"emission_contract_schema", "emission_selector"}
-                    and type(error["message"]) is str
+                    error["kind"] in CLI_ERROR_KINDS and type(error["message"]) is str
                 )
                 _need(error["path"] is None or type(error["path"]) is str)
             _need(bool(document["cli_errors"]) == (status == "INPUT_REJECTED"))
@@ -8149,14 +8223,131 @@ def build_case(
     )
 
 
+def installed_origins():
+    """Wheel-relative origins of every pietto module this child actually loaded."""
+    origins = {}
+    prefix = Path(sys.prefix).resolve()
+    for name, module in tuple(sys.modules.items()):
+        if name == "pietto" or name.startswith("pietto."):
+            filename = getattr(module, "__file__", None)
+            if filename:
+                path = Path(filename).resolve()
+                if not path.is_relative_to(prefix) or "site-packages" not in path.parts:
+                    raise ValueError("checkout production import")
+                index = path.parts.index("site-packages")
+                origins[name] = {
+                    "member": "/".join(path.parts[index + 1 :]),
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                }
+    return origins
+
+
+def console_main(target, console):
+    """Run the installed console entrypoint with real argv over real project files."""
+    import contextlib
+    import io
+    import runpy
+
+    console_path = Path(console).resolve()
+    if not console_path.is_relative_to(Path(sys.prefix).resolve()):
+        raise ValueError("foreign console")
+    records = []
+    for item, (_, case, variant, kind, presentation, output) in zip(
+        console_inputs(target), CONSOLE_WITNESSES, strict=True
+    ):
+        fixture_item = fixture(target, case, variant)
+        with TemporaryDirectory(prefix="console-", dir=Path.cwd()) as scratch:
+            root = Path(scratch)
+            (root / "pietto.toml").write_text(CONFIG)
+            for name, content in sorted(source_files(fixture_item["source"]).items()):
+                (root / name).write_text(content, encoding="utf-8")
+            (root / "contract.json").write_text(
+                fixture_item["contract"], encoding="utf-8"
+            )
+            artifact = root / "artifact.json"
+            argv = [
+                str(console_path),
+                "emit-sql",
+                "--project",
+                root.name,
+                "--module",
+                "main.pietto",
+                "--kind",
+                kind,
+                "--name",
+                "result",
+                "--dialect",
+                target,
+                "--emission-contract",
+                "contract.json",
+                "--format",
+                presentation,
+            ]
+            if fixture_item["policy"] == "bind_safe_literals":
+                argv += ["--literal-policy", "bind-safe"]
+            if output:
+                argv += ["--output", str(Path(root.name) / "artifact.json")]
+            out = io.TextIOWrapper(io.BytesIO(), encoding="utf-8", newline="")
+            err = io.StringIO()
+            saved = sys.argv
+            sys.argv = argv
+            try:
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    try:
+                        runpy.run_path(str(console_path), run_name="__main__")
+                    except SystemExit as exit_request:
+                        code = exit_request.code
+                        status = code if type(code) is int else 0 if code is None else 1
+                    else:
+                        status = 0
+            finally:
+                sys.argv = saved
+            out.flush()
+            stdout = out.buffer.getvalue().decode("utf-8")
+            artifact_text = (
+                artifact.read_text(encoding="utf-8") if artifact.exists() else None
+            )
+        # The receipt keeps the console document by SHA-256 against the API record
+        # of the same input (whose full bytes the receipt already carries); only
+        # the text presentation is retained verbatim.
+        public = artifact_text if output else stdout
+        records.append(
+            {
+                **item,
+                "exit_code": status,
+                "stderr": err.getvalue(),
+                "stdout": stdout if presentation == "text" else None,
+                "stdout_sha256": hashlib.sha256(stdout.encode()).hexdigest(),
+                "artifact_sha256": None
+                if artifact_text is None
+                else hashlib.sha256(artifact_text.encode()).hexdigest(),
+                "public_sha256": hashlib.sha256((public or "").encode()).hexdigest(),
+            }
+        )
+    print(
+        encoded(
+            {
+                "records": records,
+                "origins": installed_origins(),
+                "isolated": sys.flags.isolated,
+                "probe_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                "config_sha256": hashlib.sha256(CONFIG.encode()).hexdigest(),
+                "console_sha256": hashlib.sha256(console_path.read_bytes()).hexdigest(),
+            }
+        ).decode(),
+        end="",
+    )
+
+
 def main():
     from pietto._project.project_sql_emission import serialize_project_sql_emission
 
-    if (
-        len(sys.argv) != 2
-        or sys.argv[1] not in {"postgres", "mysql"}
-        or sys.flags.isolated != 1
-    ):
+    if sys.flags.isolated != 1 or sys.argv[1:2] not in (["postgres"], ["mysql"]):
+        raise ValueError("closed isolated emission probe required")
+    if len(sys.argv) == 4 and sys.argv[2] == "console":
+        console_main(sys.argv[1], sys.argv[3])
+        return
+    if len(sys.argv) != 2:
         raise ValueError("closed isolated emission probe required")
     target = sys.argv[1]
     records = []
@@ -8183,25 +8374,11 @@ def main():
                     "public_sha256": hashlib.sha256(data).hexdigest(),
                 }
             )
-    origins = {}
-    prefix = Path(sys.prefix).resolve()
-    for name, module in tuple(sys.modules.items()):
-        if name == "pietto" or name.startswith("pietto."):
-            filename = getattr(module, "__file__", None)
-            if filename:
-                path = Path(filename).resolve()
-                if not path.is_relative_to(prefix) or "site-packages" not in path.parts:
-                    raise ValueError("checkout production import")
-                index = path.parts.index("site-packages")
-                origins[name] = {
-                    "member": "/".join(path.parts[index + 1 :]),
-                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-                }
     print(
         encoded(
             {
                 "records": records,
-                "origins": origins,
+                "origins": installed_origins(),
                 "isolated": sys.flags.isolated,
                 "probe_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                 "config_sha256": hashlib.sha256(CONFIG.encode()).hexdigest(),

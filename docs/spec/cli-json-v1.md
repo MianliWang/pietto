@@ -28,6 +28,12 @@ does not imply or provide:
 - LSP/editor integration;
 - `compile_to_ir()` or `compile_to_sql()`.
 
+This contract covers the single-file forms only. The explicit-project form,
+`pietto emit-sql --project ...`, emits the separate `pietto.sql-emission.v1`
+family described by the
+[Slice13 contract](phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md)
+and never this v1 envelope; its own error kinds are not v1 kinds.
+
 `emit-sql` generates SQL artifacts only. Even when `--output` is used, Pietto
 writes SQL text to a local file and does not execute it.
 

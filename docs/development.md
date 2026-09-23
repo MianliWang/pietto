@@ -188,3 +188,15 @@ position or half-open byte interval to every overlapping range) queries by bound
 scans of the retained ranges. The installed emission probe exercises that view inside the
 generation child before export, so the required same-child origins include it; the target
 denominator stays 60 cases and 181 public documents per target.
+
+
+The [Slice13 project emit-SQL CLI contract](spec/phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md)
+adds the installed public `pietto emit-sql --project ...` command through one private
+coordinator, `project_sql_emission_cli`, over the unchanged plan, emission, verification
+and serialization owners. The package smoke runs the installed console as a real
+subprocess over the README example project (JSON, text with `--output`, one rejection).
+The target facility adds the `CLI_console_emission` case: the copied emission probe in
+`console` mode runs the installed console entrypoint through `runpy` inside the isolated
+installed interpreter for six frozen witnesses, and the receipt identifies each console
+document by SHA-256 against the API record of the same input. The target denominator is
+61 cases and 187 public documents per target (181 API-generated and 6 console documents).

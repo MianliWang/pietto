@@ -240,3 +240,13 @@ and test paths as evidence identity. Those paths remain tracked until a
 separately authorized product change migrates the facts and their consumers.
 Their historical-looking names do not make them lifecycle status authority;
 [status](status.md) and live Git/CI own lifecycle state.
+
+## Project SQL emission
+
+`pietto emit-sql --project ROOT --module LOGICAL_MODULE --kind {table,query} --name NAME
+--dialect {postgres,mysql} --emission-contract FILE` compiles exactly one declaration of an
+explicit-module project (`schema_version = 2`) into the `pietto.sql-emission.v1` artifact.
+The emission contract is a normalized project-relative JSON file read once through the
+same pinned-root trust rules as project sources; legacy-flat and package-root projects are
+rejected as `config_schema`. See the [README example](../README.md#project-sql-emission)
+and the [Slice13 contract](spec/phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md).

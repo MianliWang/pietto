@@ -33,6 +33,10 @@ from pietto._project.json_v2 import (
     render_project_json_document,
 )
 from pietto._project.module_carrier import ProjectCompilationMode
+from pietto._project.project_sql_emission_cli import (
+    project_mode_requested,
+    run_project_emit_sql,
+)
 from pietto._project_explain.json_v1 import serialize_project_explain_json_document
 from pietto._project_explain.runtime_builder import (
     ProjectExplainRuntimeOutcome,
@@ -53,6 +57,12 @@ _EXIT_USAGE_ERROR = 2
 _FORMAT_TEXT = "text"
 _FORMAT_JSON = "json"
 _ENABLED_SQL_DIALECTS = ("postgres", "mysql")
+_PROJECT_EMIT_SQL_USAGE = (
+    "project mode: pietto emit-sql --project PATH --module LOGICAL_MODULE"
+    " --kind {table,query} --name NAME --dialect {postgres,mysql}"
+    " --emission-contract FILE [--literal-policy {preserve,bind-safe}]"
+    " [--format {text,json}] [--output FILE]"
+)
 _METADATA_FAILURE_MESSAGES = {
     "parse": "Semantic Metadata Artifact v1 metadata is unavailable because parsing failed.",
     "semantic": "Semantic Metadata Artifact v1 metadata is unavailable because semantic analysis failed.",
@@ -106,6 +116,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _system_exit_code(error)
         return _run_check(namespace.path, output_format=_FORMAT_JSON)
 
+    if arguments[0] == "emit-sql" and project_mode_requested(arguments[1:]):
+        return _run_project_emit_sql(arguments[1:])
+
     if _is_emit_sql_json_request(arguments):
         return _run_emit_sql_json_command(arguments[1:])
 
@@ -146,7 +159,8 @@ def _build_parser() -> argparse.ArgumentParser:
     _configure_check_parser(check_parser)
     emit_parser = subparsers.add_parser(
         "emit-sql",
-        help="emit SQL for one Pietto file",
+        help="emit SQL for one Pietto file or one explicit project owner",
+        epilog=_PROJECT_EMIT_SQL_USAGE,
     )
     _configure_emit_sql_parser(emit_parser)
     explain_parser = subparsers.add_parser(
@@ -951,6 +965,34 @@ def _print_emit_sql_json(
         output=output,
     )
     print(cli_json.render_json_document(document), end="")
+
+
+def _run_project_emit_sql(arguments: Sequence[str]) -> int:
+    """Run the explicit project emit-sql mode and write its exact stream bytes."""
+
+    result = run_project_emit_sql(arguments)
+    if isinstance(result, int):
+        return result
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
+    if result.stdout:
+        try:
+            buffer = getattr(sys.stdout, "buffer", None)
+            if buffer is None:
+                sys.stdout.write(result.stdout.decode("utf-8"))
+            else:
+                buffer.write(result.stdout)
+            sys.stdout.flush()
+        except (OSError, ValueError):
+            note = "pietto emit-sql: error: standard output could not be written"
+            if result.written:
+                note += "; the replaced artifact file is kept"
+            try:
+                print(note, file=sys.stderr)
+            except (OSError, ValueError):
+                pass
+            return _EXIT_USAGE_ERROR
+    return result.exit_code
 
 
 def _unwritten_output(output_path: Path | None) -> cli_json.OutputStatus | None:

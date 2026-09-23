@@ -20,6 +20,9 @@ explicit CLI lowering with a private emitter surface.
   where the relevant stage has them.
 - Single-file `check`, `explain`, and `emit-sql` commands, with applicable JSON
   output.
+- Explicit-project `emit-sql` for one selected table or query, one selected
+  dialect and an explicit emission contract, producing the versioned
+  `pietto.sql-emission.v1` artifact.
 - Deterministic project checking from an explicit `pietto.toml` root, including
   legacy-flat projects and the current explicit-module foundation.
 - Compile-time validation and fail-closed lowering for unsupported syntax,
@@ -115,7 +118,106 @@ uv run pietto check --project demo-project
 ```
 
 Project input selection and diagnostics are deterministic. Project checking is
-not project SQL generation.
+not SQL generation; project SQL emission is a separate explicit command.
+
+## Project SQL emission
+
+`emit-sql --project` compiles one explicitly selected `table` or `query` of an
+explicit-module project into the versioned `pietto.sql-emission.v1` artifact
+for one explicitly selected dialect. The physical relation and column names,
+storage types and value premises come from an emission contract you write for
+your database; the compiler never connects to it.
+
+```text
+demo-emit/
+├── pietto.toml
+├── main.pietto
+└── contract.json
+```
+
+`pietto.toml` selects the explicit-module project mode:
+
+```toml
+schema_version = 2
+
+[sources]
+include = ["*.pietto"]
+```
+
+`main.pietto`:
+
+```pietto
+shape Item:
+    id: Int not null
+    label: Text not null
+
+source items: Item is postgres.table("fixture.items")
+
+table active_items:
+    from items
+    select:
+        id
+        label
+```
+
+`contract.json` maps the logical source `items` to the physical relation
+`fixture.items` and each field to its column and representation:
+
+```json
+{
+  "format": "pietto.emission-contract.v1",
+  "target": {"family": "postgres", "release": "18.6"},
+  "sources": [{
+    "selector": {"module": "main.pietto", "kind": "source", "name": "items"},
+    "relation": {"namespace": "fixture", "name": "items"},
+    "scan": "relation_rows",
+    "fields": [
+      {"ordinal": 0, "name": "id", "column": "item_id",
+       "representation": {"storage": {"kind": "pg_int8"}, "nullable": false,
+                          "domain": {"kind": "int_range", "min": "0", "max": "100"}}},
+      {"ordinal": 1, "name": "label", "column": "item_label",
+       "representation": {"storage": {"kind": "pg_text"}, "nullable": false,
+                          "domain": {"kind": "text", "max_characters": 64,
+                                     "encoding": "UTF8", "collation": "C",
+                                     "padding": "NO PAD"}}}
+    ],
+    "premises": [
+      {"key": "row_domain_matches", "scope": "source", "value": true},
+      {"key": "read_only_object", "scope": "source", "value": true}
+    ]
+  }],
+  "environment": [
+    {"key": "client_encoding", "scope": "statement", "value": "UTF8"},
+    {"key": "operator_environment", "scope": "statement", "value": "builtin_only"}
+  ]
+}
+```
+
+Emit the artifact as JSON on stdout (`--format json` and
+`--literal-policy preserve` are the defaults; the contract path is relative to
+the project root):
+
+```bash
+uv run pietto emit-sql --project demo-emit --module main.pietto --kind table \
+    --name active_items --dialect postgres --emission-contract contract.json
+```
+
+Show the readable presentation on stdout and atomically write the same JSON
+artifact to a file:
+
+```bash
+uv run pietto emit-sql --project demo-emit --module main.pietto --kind table \
+    --name active_items --dialect postgres --emission-contract contract.json \
+    --format text --output active_items.sql-emission.json
+```
+
+Exit codes are `0` for a VERIFIED artifact, `1` for BLOCKED (typed blockers or
+project diagnostics) and `2` for INPUT_REJECTED (usage, project, contract or
+output errors); failures carry no candidate SQL. A `--literal-policy bind-safe`
+artifact must be consumed together with its `fixed_values` and
+`parameter_uses`; its SQL alone is not a complete statement. The complete
+contract is the
+[Slice13 specification](docs/spec/phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md).
 
 ## Documentation
 

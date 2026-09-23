@@ -19,7 +19,11 @@ SLICE2_CASE_IDS = (
     "E_recovery",
     "F_privilege_cleanup",
 )
-CASE_IDS = (*SLICE2_CASE_IDS, *sorted((*emission.VARIANTS, "Q_native_lifecycle")))
+CASE_IDS = (
+    *SLICE2_CASE_IDS,
+    *sorted((*emission.VARIANTS, "Q_native_lifecycle")),
+    emission.CONSOLE_CASE,
+)
 BIG = 9007199254740993
 TEXT = "雪?%s e\u0301 😀"
 
@@ -1041,208 +1045,252 @@ def check_emission_case(case, target):
             raise ValueError("compiler failure submitted or wrong outcome")
         if expected_status != "VERIFIED":
             continue
-        observation = next(observed, None)
-        if (
-            observation is None
-            or observation["sql"].encode() != document["sql"].encode()
-            or observation["parameters"] != parameter_records(document)
-        ):
-            raise ValueError("emitted artifact/submission mismatch")
-        check_complete(observation)
-        check_identity(observation, target, "query", prepared=True)
-        if case["id"] in {"R_fixed_direct", "S_fixed_named"}:
-            named = case["id"] == "S_fixed_named"
-            expected_rows = fixed_rows(
-                target, named=named, empty=variant["variant"].startswith("empty")
-            )
-            if Counter(
-                json.dumps(row, sort_keys=True) for row in observation["rows"]
-            ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
-                raise ValueError("fixed-value typed BAG mismatch")
-            labels = emission.FIXED_NAMED_LABELS if named else emission.FIXED_LABELS
-            tags = emission.FIXED_NAMED_TAGS if named else emission.FIXED_TAGS
-            types = fixed_metadata(target, named=named)
-            if (
-                [m[0] for m in observation["metadata"]] != list(labels)
-                or [m[1] for m in observation["metadata"]] != types
-                or [c["logical_type"]["name"] for c in document["columns"]]
-                != list(tags)
-            ):
-                raise ValueError("fixed-value positional physical/logical metadata")
-            if target == "mysql" and any(
-                len(m) != 9 or m[8] != 309
-                for m, tag in zip(observation["metadata"], tags, strict=True)
-                if tag == "Text"
-            ):
-                raise ValueError("fixed text result encoding metadata")
-            continue
-        if case["id"] == "P_native_identifiers":
-            number = "7" if variant["variant"].startswith("plain") else "11"
-            expected_rows = (
-                []
-                if variant["variant"].startswith("empty")
-                else [[_integer(number)], [_integer(number)]]
-            )
-            if observation["rows"] != expected_rows:
-                raise ValueError("native wrong-column regression")
-            if [m[:2] for m in observation["metadata"]] != [
-                ["id", 20 if target == "postgres" else 8]
-            ]:
-                raise ValueError("native identifier metadata")
-            continue
-        if variant["variant"] == "truth_table":
-            expected_rows = truth_rows(target)
-            # BAG multiplicity, not order: this query authors no ordering.
-            if Counter(
-                json.dumps(row, sort_keys=True) for row in observation["rows"]
-            ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
-                raise ValueError("three-valued AND/OR table mismatch")
-            metadata = observation["metadata"]
-            if [m[0] for m in metadata] != list(emission.TRUTH_LABELS) or [
-                m[1] for m in metadata
-            ] != [16 if target == "postgres" else 8] * len(emission.TRUTH_LABELS):
-                raise ValueError("three-valued positional physical metadata mismatch")
-            if [c["logical_type"]["name"] for c in document["columns"]] != [
-                "Bool"
-            ] * len(emission.TRUTH_LABELS):
-                raise ValueError("three-valued positional logical metadata mismatch")
-            continue
-        if case["id"] in {"W_join_shapes", "W_join_values", "V_join_full"}:
-            expected_rows = join_rows(variant["variant"])
-            if Counter(
-                json.dumps(row, sort_keys=True) for row in observation["rows"]
-            ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
-                raise ValueError("JOIN typed BAG mismatch")
-            labels = emission.JOIN_LABELS[variant["variant"]]
-            metadata = observation["metadata"]
-            if [m[0] for m in metadata] != list(labels) or [
-                m[1] for m in metadata
-            ] != join_metadata(target, variant["variant"]):
-                raise ValueError("JOIN positional physical metadata mismatch")
-            if [c["label"] for c in document["columns"]] != list(labels) or any(
-                c["logical_type"]["name"] != "Int" for c in document["columns"]
-            ):
-                raise ValueError("JOIN positional logical metadata mismatch")
-            continue
-        if (case["id"], variant["variant"]) in MIGRATED_JOIN_ROWS:
-            expected_rows = MIGRATED_JOIN_ROWS[case["id"], variant["variant"]]
-            if Counter(
-                json.dumps(row, sort_keys=True) for row in observation["rows"]
-            ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
-                raise ValueError("migrated JOIN typed BAG mismatch")
-            labels = MIGRATED_JOIN_LABELS[case["id"], variant["variant"]]
-            metadata = observation["metadata"]
-            if [m[0] for m in metadata] != list(labels) or [m[1] for m in metadata] != [
-                20 if target == "postgres" else 8
-            ] * len(labels):
-                raise ValueError("migrated JOIN physical metadata mismatch")
-            if [c["label"] for c in document["columns"]] != list(labels) or any(
-                c["logical_type"]["name"] != "Int" for c in document["columns"]
-            ):
-                raise ValueError("migrated JOIN logical metadata mismatch")
-            continue
-        if case["id"] in emission.AGGREGATE_CASES:
-            expected_rows = aggregate_rows(target, case["id"], variant["variant"])
-            if Counter(
-                json.dumps(row, sort_keys=True) for row in observation["rows"]
-            ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
-                raise ValueError("aggregate typed BAG mismatch")
-            labels = emission.aggregate_labels(
-                emission.AGGREGATE_LABELS, case["id"], variant["variant"]
-            )
-            logical = emission.aggregate_labels(
-                emission.AGGREGATE_LOGICAL, case["id"], variant["variant"]
-            )
-            metadata = observation["metadata"]
-            if [m[0] for m in metadata] != list(labels) or [
-                m[1] for m in metadata
-            ] != aggregate_types(target, case["id"], variant["variant"]):
-                raise ValueError("aggregate positional physical metadata mismatch")
-            if [c["label"] for c in document["columns"]] != list(labels) or [
-                c["logical_type"]["name"] for c in document["columns"]
-            ] != list(logical):
-                raise ValueError("aggregate positional logical metadata mismatch")
-            continue
-        if case["id"] in {"T_row_direct", "U_row_named"}:
-            expected_rows = row_result_rows(
-                target, empty=variant["variant"].startswith("empty")
-            )
-            if Counter(
-                json.dumps(row, sort_keys=True) for row in observation["rows"]
-            ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
-                raise ValueError("row stage typed BAG mismatch")
-            metadata = observation["metadata"]
-            if [m[0] for m in metadata] != list(emission.ROW_LABELS) or [
-                m[1] for m in metadata
-            ] != row_result_metadata(target):
-                raise ValueError("row stage positional physical metadata mismatch")
-            if [c["logical_type"]["name"] for c in document["columns"]] != list(
-                emission.ROW_LOGICAL
-            ) or [c["label"] for c in document["columns"]] != list(emission.ROW_LABELS):
-                raise ValueError("row stage positional logical metadata mismatch")
-            continue
-        if case["id"] in emission.SET_CASES or (
-            (case["id"], variant["variant"]) in SET_MIGRATED
-        ):
-            check_set_case(
-                observation, document, target, case["id"], variant["variant"]
-            )
-            continue
-        if case["id"] in emission.RESULT_CASES or (
-            (case["id"], variant["variant"]) in RESULT_MIGRATED
-        ):
-            check_result_case(
-                observation, document, target, case["id"], variant["variant"]
-            )
-            continue
-        if case["id"] in emission.WINDOW_CASES:
-            key = window_key(case["id"], variant["variant"])
-            expected = WINDOW_EXPECTATIONS[key]
-            if Counter(
-                json.dumps(row, sort_keys=True) for row in observation["rows"]
-            ) != Counter(json.dumps(row, sort_keys=True) for row in expected):
-                raise ValueError("window typed row multiset mismatch")
-            metadata = observation["metadata"]
-            labels = WINDOW_LABELS[key]
-            logical = WINDOW_COLUMNS[key]
-            physical = window_metadata(target, key)
-            if [m[0] for m in metadata] != list(labels) or [
-                m[1] for m in metadata
-            ] != physical:
-                raise ValueError("window positional physical metadata mismatch")
-            if [c["logical_type"]["name"] for c in document["columns"]] != list(
-                logical
-            ) or [c["label"] for c in document["columns"]] != list(labels):
-                raise ValueError("window positional logical metadata mismatch")
-            continue
-        named = case["id"] in {"M_named_chain", "N_imported_chain", "O_named_later"}
-        expected_rows = (chain_rows if named else emission_rows)(
-            target, empty=variant["variant"] == "empty"
+        check_emission_variant(
+            next(observed, None), document, target, case["id"], variant["variant"]
         )
-        if (case["id"], variant["variant"]) in FILTERED_VARIANTS:
-            expected_rows = positive_id_rows(expected_rows)
+    if next(observed, None) is not None:
+        raise ValueError("extra submitted query observations")
+
+
+def check_emission_variant(observation, document, target, case_id, variant_name):
+    """The independent row/metadata oracle for one VERIFIED emission submission."""
+    if (
+        observation is None
+        or observation["sql"].encode() != document["sql"].encode()
+        or observation["parameters"] != parameter_records(document)
+    ):
+        raise ValueError("emitted artifact/submission mismatch")
+    check_complete(observation)
+    check_identity(observation, target, "query", prepared=True)
+    if case_id in {"R_fixed_direct", "S_fixed_named"}:
+        named = case_id == "S_fixed_named"
+        expected_rows = fixed_rows(
+            target, named=named, empty=variant_name.startswith("empty")
+        )
         if Counter(
             json.dumps(row, sort_keys=True) for row in observation["rows"]
         ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
-            raise ValueError("emission typed row multiset mismatch")
+            raise ValueError("fixed-value typed BAG mismatch")
+        labels = emission.FIXED_NAMED_LABELS if named else emission.FIXED_LABELS
+        tags = emission.FIXED_NAMED_TAGS if named else emission.FIXED_TAGS
+        types = fixed_metadata(target, named=named)
+        if (
+            [m[0] for m in observation["metadata"]] != list(labels)
+            or [m[1] for m in observation["metadata"]] != types
+            or [c["logical_type"]["name"] for c in document["columns"]] != list(tags)
+        ):
+            raise ValueError("fixed-value positional physical/logical metadata")
+        if target == "mysql" and any(
+            len(m) != 9 or m[8] != 309
+            for m, tag in zip(observation["metadata"], tags, strict=True)
+            if tag == "Text"
+        ):
+            raise ValueError("fixed text result encoding metadata")
+        return
+    if case_id == "P_native_identifiers":
+        number = "7" if variant_name.startswith("plain") else "11"
+        expected_rows = (
+            []
+            if variant_name.startswith("empty")
+            else [[_integer(number)], [_integer(number)]]
+        )
+        if observation["rows"] != expected_rows:
+            raise ValueError("native wrong-column regression")
+        if [m[:2] for m in observation["metadata"]] != [
+            ["id", 20 if target == "postgres" else 8]
+        ]:
+            raise ValueError("native identifier metadata")
+        return
+    if variant_name == "truth_table":
+        expected_rows = truth_rows(target)
+        # BAG multiplicity, not order: this query authors no ordering.
+        if Counter(
+            json.dumps(row, sort_keys=True) for row in observation["rows"]
+        ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
+            raise ValueError("three-valued AND/OR table mismatch")
         metadata = observation["metadata"]
-        types = [25, 20, 16, 1700, 701] if target == "postgres" else [253, 8, 1, 246, 5]
-        labels = emission.CHAIN_LABELS if named else emission.LABELS
-        logical = emission.CHAIN_LOGICAL if named else emission.LOGICAL
-        if named:
-            types.append(20 if target == "postgres" else 8)
+        if [m[0] for m in metadata] != list(emission.TRUTH_LABELS) or [
+            m[1] for m in metadata
+        ] != [16 if target == "postgres" else 8] * len(emission.TRUTH_LABELS):
+            raise ValueError("three-valued positional physical metadata mismatch")
+        if [c["logical_type"]["name"] for c in document["columns"]] != ["Bool"] * len(
+            emission.TRUTH_LABELS
+        ):
+            raise ValueError("three-valued positional logical metadata mismatch")
+        return
+    if case_id in {"W_join_shapes", "W_join_values", "V_join_full"}:
+        expected_rows = join_rows(variant_name)
+        if Counter(
+            json.dumps(row, sort_keys=True) for row in observation["rows"]
+        ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
+            raise ValueError("JOIN typed BAG mismatch")
+        labels = emission.JOIN_LABELS[variant_name]
+        metadata = observation["metadata"]
         if [m[0] for m in metadata] != list(labels) or [
             m[1] for m in metadata
-        ] != types:
-            raise ValueError("emission positional physical metadata mismatch")
+        ] != join_metadata(target, variant_name):
+            raise ValueError("JOIN positional physical metadata mismatch")
+        if [c["label"] for c in document["columns"]] != list(labels) or any(
+            c["logical_type"]["name"] != "Int" for c in document["columns"]
+        ):
+            raise ValueError("JOIN positional logical metadata mismatch")
+        return
+    if (case_id, variant_name) in MIGRATED_JOIN_ROWS:
+        expected_rows = MIGRATED_JOIN_ROWS[case_id, variant_name]
+        if Counter(
+            json.dumps(row, sort_keys=True) for row in observation["rows"]
+        ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
+            raise ValueError("migrated JOIN typed BAG mismatch")
+        labels = MIGRATED_JOIN_LABELS[case_id, variant_name]
+        metadata = observation["metadata"]
+        if [m[0] for m in metadata] != list(labels) or [m[1] for m in metadata] != [
+            20 if target == "postgres" else 8
+        ] * len(labels):
+            raise ValueError("migrated JOIN physical metadata mismatch")
+        if [c["label"] for c in document["columns"]] != list(labels) or any(
+            c["logical_type"]["name"] != "Int" for c in document["columns"]
+        ):
+            raise ValueError("migrated JOIN logical metadata mismatch")
+        return
+    if case_id in emission.AGGREGATE_CASES:
+        expected_rows = aggregate_rows(target, case_id, variant_name)
+        if Counter(
+            json.dumps(row, sort_keys=True) for row in observation["rows"]
+        ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
+            raise ValueError("aggregate typed BAG mismatch")
+        labels = emission.aggregate_labels(
+            emission.AGGREGATE_LABELS, case_id, variant_name
+        )
+        logical = emission.aggregate_labels(
+            emission.AGGREGATE_LOGICAL, case_id, variant_name
+        )
+        metadata = observation["metadata"]
+        if [m[0] for m in metadata] != list(labels) or [
+            m[1] for m in metadata
+        ] != aggregate_types(target, case_id, variant_name):
+            raise ValueError("aggregate positional physical metadata mismatch")
+        if [c["label"] for c in document["columns"]] != list(labels) or [
+            c["logical_type"]["name"] for c in document["columns"]
+        ] != list(logical):
+            raise ValueError("aggregate positional logical metadata mismatch")
+        return
+    if case_id in {"T_row_direct", "U_row_named"}:
+        expected_rows = row_result_rows(target, empty=variant_name.startswith("empty"))
+        if Counter(
+            json.dumps(row, sort_keys=True) for row in observation["rows"]
+        ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
+            raise ValueError("row stage typed BAG mismatch")
+        metadata = observation["metadata"]
+        if [m[0] for m in metadata] != list(emission.ROW_LABELS) or [
+            m[1] for m in metadata
+        ] != row_result_metadata(target):
+            raise ValueError("row stage positional physical metadata mismatch")
+        if [c["logical_type"]["name"] for c in document["columns"]] != list(
+            emission.ROW_LOGICAL
+        ) or [c["label"] for c in document["columns"]] != list(emission.ROW_LABELS):
+            raise ValueError("row stage positional logical metadata mismatch")
+        return
+    if case_id in emission.SET_CASES or ((case_id, variant_name) in SET_MIGRATED):
+        check_set_case(observation, document, target, case_id, variant_name)
+        return
+    if case_id in emission.RESULT_CASES or ((case_id, variant_name) in RESULT_MIGRATED):
+        check_result_case(observation, document, target, case_id, variant_name)
+        return
+    if case_id in emission.WINDOW_CASES:
+        key = window_key(case_id, variant_name)
+        expected = WINDOW_EXPECTATIONS[key]
+        if Counter(
+            json.dumps(row, sort_keys=True) for row in observation["rows"]
+        ) != Counter(json.dumps(row, sort_keys=True) for row in expected):
+            raise ValueError("window typed row multiset mismatch")
+        metadata = observation["metadata"]
+        labels = WINDOW_LABELS[key]
+        logical = WINDOW_COLUMNS[key]
+        physical = window_metadata(target, key)
+        if [m[0] for m in metadata] != list(labels) or [
+            m[1] for m in metadata
+        ] != physical:
+            raise ValueError("window positional physical metadata mismatch")
         if [c["logical_type"]["name"] for c in document["columns"]] != list(
             logical
         ) or [c["label"] for c in document["columns"]] != list(labels):
-            raise ValueError("emission positional logical metadata mismatch")
-        if target == "postgres" and any(m[6] is not None for m in metadata):
-            raise ValueError("unavailable nullability was invented")
+            raise ValueError("window positional logical metadata mismatch")
+        return
+    named = case_id in {"M_named_chain", "N_imported_chain", "O_named_later"}
+    expected_rows = (chain_rows if named else emission_rows)(
+        target, empty=variant_name == "empty"
+    )
+    if (case_id, variant_name) in FILTERED_VARIANTS:
+        expected_rows = positive_id_rows(expected_rows)
+    if Counter(
+        json.dumps(row, sort_keys=True) for row in observation["rows"]
+    ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
+        raise ValueError("emission typed row multiset mismatch")
+    metadata = observation["metadata"]
+    types = [25, 20, 16, 1700, 701] if target == "postgres" else [253, 8, 1, 246, 5]
+    labels = emission.CHAIN_LABELS if named else emission.LABELS
+    logical = emission.CHAIN_LOGICAL if named else emission.LOGICAL
+    if named:
+        types.append(20 if target == "postgres" else 8)
+    if [m[0] for m in metadata] != list(labels) or [m[1] for m in metadata] != types:
+        raise ValueError("emission positional physical metadata mismatch")
+    if [c["logical_type"]["name"] for c in document["columns"]] != list(logical) or [
+        c["label"] for c in document["columns"]
+    ] != list(labels):
+        raise ValueError("emission positional logical metadata mismatch")
+    if target == "postgres" and any(m[6] is not None for m in metadata):
+        raise ValueError("unavailable nullability was invented")
+
+
+def check_console_case(case, target, generation):
+    """Slice13: installed-console documents consumed exactly like API documents.
+
+    The console bytes are identified by SHA-256 against the API record of the
+    same input, whose full bytes the receipt carries."""
+    expected = emission.console_inputs(target)
+    if (
+        generation is None
+        or set(case) != {"id", "observations", "witnesses"}
+        or [(w["witness"], w["id"], w["variant"]) for w in case["witnesses"]]
+        != [(i["witness"], i["id"], i["variant"]) for i in expected]
+    ):
+        raise ValueError("console case denominator mismatch")
+    api = {(r["id"], r["variant"]): r for r in generation["emission"]["records"]}
+    console = {r["witness"]: r for r in generation["console"]["records"]}
+    observed = iter(case["observations"])
+    for witness, item in zip(case["witnesses"], expected, strict=True):
+        if set(witness) != {
+            "witness",
+            "id",
+            "variant",
+            "public_sha256",
+            "submission_before",
+            "submission_after",
+        }:
+            raise ValueError("console transfer fields")
+        api_record = api[item["id"], item["variant"]]
+        data = api_record["public"].encode("utf-8")
+        if (
+            witness["public_sha256"] != hashlib.sha256(data).hexdigest()
+            or witness["public_sha256"] != console[item["witness"]]["public_sha256"]
+        ):
+            raise ValueError("console artifact transfer substitution")
+        document = emission.decode_public(data)
+        before, after = witness["submission_before"], witness["submission_after"]
+        if type(before) is not int or type(after) is not int or before < 0:
+            raise ValueError("console submission observation missing")
+        expected_status = emission.expected_status(item["id"], item["variant"], target)
+        if document["status"] != expected_status or after - before != (
+            1 if expected_status == "VERIFIED" else 0
+        ):
+            raise ValueError("console compiler failure submitted or wrong outcome")
+        if expected_status != "VERIFIED":
+            continue
+        check_emission_variant(
+            next(observed, None), document, target, item["id"], item["variant"]
+        )
     if next(observed, None) is not None:
-        raise ValueError("extra submitted query observations")
+        raise ValueError("extra submitted console observations")
 
 
 def _integer(value: str) -> dict[str, str]:
@@ -1596,11 +1644,13 @@ def check_server_error(
             raise ValueError("server error diagnostic loss")
 
 
-def check_case(case: dict[str, Any], target: str) -> None:
+def check_case(case: dict[str, Any], target: str, generation: Any = None) -> None:
     case_id = case.get("id")
     observations = case.get("observations", [])
     if case_id in emission.VARIANTS:
         check_emission_case(case, target)
+    elif case_id == emission.CONSOLE_CASE:
+        check_console_case(case, target, generation)
     elif case_id in SLICE2_CASE_IDS[:3]:
         if len(observations) != 1:
             raise ValueError("wrong observation denominator")

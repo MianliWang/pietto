@@ -919,6 +919,24 @@ C31：LEGAL_UNPROVED 为 PIE-B1006 `original_enforcement_not_fulfilled` 且原 w
 `complete_right_terminal` 与 LIMIT0 operand 的原 demands 不可删，ordinary aggregate risk 不升级为义务。
 installed probe 在 generation child 内于导出前消费该视图；denominator 保持 60/181。
 
+## R24 Slice13 delivery
+
+Slice13 按 [Slice13 contract](phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md)
+交付 R24/E08：installed public `pietto emit-sql --project PATH --module LOGICAL_MODULE --kind
+{table,query} --name NAME --dialect {postgres,mysql} --emission-contract FILE`（私有协调器
+`src/pietto/_project/project_sql_emission_cli.py` 加 `cli.py` 的 project-mode 分派）在既有 verified
+pipeline 之上提供 explicit owner/dialect/contract 输入、closed public union 输出（JSON stdout、text
+presentation、atomic `--output` 文件）与 legacy 兼容；默认 `--format json`、`--literal-policy preserve`；
+owner 按 logical module、declaration kind、name 唯一选择；contract 为 normalized project-relative
+路径，经 pinned-root open contract 读取一次并在读取时执行 1 MiB 上限；每个公共文档与同输入的
+installed API artifact 逐字节相同。C03：large Int decimal 文本、Bool/Int/Float tags、signed zero 以
+unary 结构保留经公共 CLI 见证。C29：target facility 新增 `CLI_console_emission` case，isolated
+installed interpreter 通过 runpy 运行真实 console entrypoint，同 child origins 必含 `pietto.cli` 与
+`project_sql_emission_cli`，console 文档以 SHA-256 对照同输入 API 记录（收据全文携带）。denominator
+61 cases/187 public documents per target（postgres 154/4/29；mysql 151/4/32）。public decoder 的
+cli_errors allowlist 扩为本文 15 种 kind。不新增 emitter、public Python API、executor 或 private
+observation format。
+
 ## R11/C09 scheduling amendment authorized for Slice7
 
 原 Slice1 route 将 R11 的完整 SEMI/ANTI right terminal 义务与 C09 的 right
