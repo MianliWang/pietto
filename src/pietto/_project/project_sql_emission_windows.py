@@ -116,11 +116,27 @@ ORDER_TAGS = frozenset({"Int", "Bool", "Text", "Decimal"})
 # sends a bigint, so each family publishes what it actually sends.
 RANK_STORAGE = {"postgres": "pg_int8", "mysql": "my_bigint"}
 RANK_MAX = (1 << 63) - 1
+# R15-INT-OFFSET-V1: every finite frame offset is a signed64 count or distance,
+# and every RANGE threshold an exact signed64 value, on both targets.
+I64_MIN = -(1 << 63)
+I64_MAX = (1 << 63) - 1
 BUCKET_REALIZATION = {
     "postgres": ("pg_int4", (1 << 31) - 1),
     "mysql": ("my_bigint", (1 << 63) - 1),
 }
 FLOAT_STORAGE = {"postgres": "pg_float8", "mysql": "my_double"}
+# R14-PG-NAVIGATION-RESULT-V1: PostgreSQL's three-argument lag/lead take an
+# anycompatible default, so an uncast integer default literal - int4, or int8
+# beyond signed32 - joins the value in choosing the result's integer width.
+PG_INT_ORDER = ("pg_int2", "pg_int4", "pg_int8")
+I32_MIN = -(1 << 31)
+I32_MAX = (1 << 31) - 1
+# R15-MYSQL-WINDOW-RESULT-V1: MySQL materializes a signed integer window value
+# as INT below ten display characters and as BIGINT from ten. Only a source
+# column or an earlier window result has a reviewed display - its own field
+# class's - and a non-negative LAG/LEAD default literal of d digits displays d+1.
+MYSQL_DISPLAY = {"my_smallint": 6, "my_int": 11, "my_bigint": 20}
+MYSQL_BIGINT_DISPLAY = 10
 VALUE_NULLABILITY = {
     EffectiveNullability.NON_NULL: False,
     EffectiveNullability.NULLABLE: True,
@@ -367,6 +383,60 @@ def offset_range_problem(frame, orders) -> tuple[str, str] | None:
     return None
 
 
+def range_arithmetic_problem(frame, offsets, orders) -> tuple[str, str] | None:
+    """R15-INT-OFFSET-V1: each finite RANGE threshold stays an exact signed64 value.
+
+    The threshold is compared with the key, never stored in it, so an offset may
+    be wider than the key's own storage. The key's retained domain must sit
+    inside that storage, and each actual endpoint's direction-sensitive
+    translation of the whole domain must stay inside signed64.
+    """
+
+    if frame is None or frame.unit != "range" or not offsets:
+        return None
+    key = orders[0]
+    storage = rows.signed_range(key.read.realization.storage)
+    domain = rows.int_bounds(key.read.realization)
+    if storage is None or domain is None or domain[0] > domain[1]:
+        return "PIE-B1004", "window_range_arithmetic_evidence_missing"
+    low, high = domain
+    if low < storage[0] or high > storage[1]:
+        return "PIE-B1002", "window_range_key_domain_out_of_storage_range"
+    for kind, offset in offsets:
+        # ASC PRECEDING and DESC FOLLOWING look below the key; the other two above.
+        sign = -1 if (kind == "offset_preceding") == (key.direction == "asc") else 1
+        if low + sign * offset < I64_MIN or high + sign * offset > I64_MAX:
+            return "PIE-B1002", "window_range_boundary_out_of_signed64_range"
+    return None
+
+
+def same_specification(left, right) -> bool:
+    """Whether two realized specifications are one complete OVER clause.
+
+    Partition and order reads are compared by identity, directions and NULL
+    posture by value, and frames by their realized bound kinds, exact offsets and
+    exclusion, so sharing a generated definition never rests on rendered text or
+    on declaration identity alone.
+    """
+
+    return (
+        len(left.partitions) == len(right.partitions)
+        and all(a[1] is b[1] for a, b in zip(left.partitions, right.partitions))
+        and len(left.orders) == len(right.orders)
+        and all(
+            a.read is b.read and a.direction == b.direction and a.nulls == b.nulls
+            for a, b in zip(left.orders, right.orders)
+        )
+        and _frame_identity(left.frame) == _frame_identity(right.frame)
+    )
+
+
+def _frame_identity(frame):
+    if frame is None:
+        return None
+    return frame.unit, frame.start, frame.end, frame.exclusion
+
+
 def resource_problem(target: str, count: int) -> tuple[str, str] | None:
     """R15: MySQL refuses more than 127 windows in one SELECT."""
 
@@ -537,10 +607,12 @@ def _specification(policy, reads, target: str):
         if direction not in {"asc", "desc"}:
             return None, ("PIE-B1004", "window_order_direction_evidence_missing")
         orders.append(WindowOrderItem(position, read, direction, None, binding))
-    frame, problem = _frame(policy, target)
+    frame, offsets, problem = _frame(policy, target)
     if problem is not None:
         return None, problem
-    problem = offset_range_problem(frame, orders)
+    problem = offset_range_problem(frame, orders) or range_arithmetic_problem(
+        frame, offsets, orders
+    )
     if problem is not None:
         return None, problem
     return (
@@ -550,17 +622,22 @@ def _specification(policy, reads, target: str):
 
 
 def _frame(policy, target: str):
-    """One realized frame, or None where the retained policy has no frame."""
+    """One realized frame and its finite offsets, or None without a frame.
+
+    A finite offset is an exact non-negative integer count (ROWS, GROUPS) or
+    distance (RANGE) inside signed64; it is never bounded by the ORDER key.
+    """
 
     validated = policy.specification.frame
     resolved = getattr(validated, "resolved", None)
     if resolved is None or resolved.unit is None:
-        return None, None
+        return None, (), None
     unit = resolved.unit.value
     start, end = resolved.start, resolved.end
     if start is None or end is None:
-        return None, ("PIE-B1004", "window_frame_bound_evidence_missing")
+        return None, (), ("PIE-B1004", "window_frame_bound_evidence_missing")
     bounds = []
+    offsets = []
     for bound in (start, end):
         kind = bound.kind.value
         if kind in BOUND_SPELLING:
@@ -569,11 +646,14 @@ def _frame(policy, target: str):
         suffix = OFFSET_BOUNDS.get(kind)
         literal = _integer_literal(getattr(bound.offset, "value", None))
         if suffix is None or literal is None or int(literal) < 0:
-            return None, ("PIE-B1004", "window_frame_offset_evidence_missing")
+            return None, (), ("PIE-B1004", "window_frame_offset_evidence_missing")
         bounds.append((kind, f"{literal} {suffix}"))
+        offsets.append((kind, int(literal)))
     frame = WindowFrameSpec(unit, bounds[0], bounds[1], resolved.exclusion)
     problem = frame_problem(frame, target)
-    return (None, problem) if problem is not None else (frame, None)
+    if problem is None and any(offset > I64_MAX for _, offset in offsets):
+        problem = "PIE-B1002", "window_frame_offset_out_of_signed64_range"
+    return (None, (), problem) if problem is not None else (frame, tuple(offsets), None)
 
 
 def build_stage(
@@ -599,10 +679,12 @@ def build_stage(
     target = request.family
     columns: list[WindowColumn] = []
     definitions: list[WindowDefinition] = []
-    # One generated definition per retained named declaration, in first-use
-    # order. Two uses of one declaration share a symbol; two distinct
-    # declarations never merge because their effective specs look alike.
-    declared: dict[int, WindowDefinition] = {}
+    # One generated definition per retained named declaration and complete
+    # realized specification, in first-use order. Uses that agree on both share
+    # a symbol; a use that extends or refines its declaration keeps its own
+    # complete definition, and two distinct declarations never merge because
+    # their effective specs look alike.
+    declared: list[tuple[Any, WindowDefinition]] = []
     if len(occurrences) != len(exports):
         return None, None, ("PIE-B1001", "window_export_denominator", block.ref, None)
     count = len(occurrences)
@@ -658,7 +740,15 @@ def build_stage(
                         location,
                     ),
                 )
-            existing = declared.get(id(declaration))
+            existing = next(
+                (
+                    item
+                    for owner, item in declared
+                    if owner is declaration
+                    and same_specification(item.specification, specification)
+                ),
+                None,
+            )
             if existing is None:
                 index = len(definitions)
                 label = f"w{index}"
@@ -670,7 +760,7 @@ def build_stage(
                     named,
                 )
                 definitions.append(existing)
-                declared[id(declaration)] = existing
+                declared.append((declaration, existing))
             specification = replace(specification, symbol=existing.symbol)
         items = arguments.get(window.ref, ())
         low, high = ARITY[function]
@@ -794,8 +884,9 @@ def result_realization(family: str, function: str, arguments, retained):
     result is the non-null integer width that target returns, both bounded by
     R14's declared premise rather than by any input's value range. A distribution
     result is the target's own double, travelling only through the V06 boundary.
-    A navigation or frame-sensitive result carries its own value argument's
-    representation and gains only the possibility of NULL.
+    A navigation or frame-sensitive result carries its value argument's logical
+    type and gains only the possibility of NULL; an Int result's width and
+    interval follow its target's own rule over the value and any default.
     """
 
     tag, nullable = retained
@@ -831,13 +922,81 @@ def result_realization(family: str, function: str, arguments, retained):
     values = [item for item in arguments if item.read is not None]
     if len(values) != 1:
         return None, ("PIE-B1004", "window_value_argument_evidence_missing")
-    carrier = values[0].read.realization
+    read = values[0].read
+    carrier = read.realization
     if tag != carrier.tag:
         return None, ("PIE-B1002", "window_result_logical_type_drift")
+    if family == "mysql" and tag == "Bool":
+        # B1: MySQL returns a Bool value's window result as an INT 0/1/NULL,
+        # which no reviewed storage describes, so it stays a typed boundary.
+        return None, (
+            "PIE-B1002",
+            "mysql_bool_window_result_representation_not_supported_in_phase66",
+        )
+    if tag != "Int":
+        return (
+            rows.Realization(tag, carrier.storage, bool(nullable), carrier.domain),
+            None,
+        )
+    default = next((item.literal for item in arguments if item.role == "default"), None)
+    representation, problem = integer_value_result(family, read, default)
+    if representation is None:
+        return None, problem
+    storage, domain = representation
+    return rows.Realization("Int", storage, bool(nullable), domain), None
+
+
+def integer_value_result(family: str, read, default: str | None):
+    """One Int navigation or frame-value result's storage and interval enclosure.
+
+    A non-null integer default may be returned, so the interval is the least
+    enclosure of the value's interval and that default - never the whole storage
+    range, and never the input interval alone. An omitted or NULL default adds
+    no value. The storage is the target's own documented choice for this value
+    carrier and default literal, never a range read from the data.
+    """
+
+    bounds = rows.int_bounds(read.realization)
+    kind = read.realization.storage.get("kind")
+    number = None if default is None or default == "NULL" else int(default)
+    if bounds is None:
+        return None, ("PIE-B1004", "window_value_argument_evidence_missing")
+    if number is not None and not I64_MIN <= number <= I64_MAX:
+        return None, ("PIE-B1002", "window_default_integer_out_of_signed64_range")
+    low, high = bounds
+    if number is not None:
+        low, high = min(low, number), max(high, number)
+    if family == "postgres":
+        if kind not in PG_INT_ORDER:
+            return None, ("PIE-B1004", "window_value_argument_evidence_missing")
+        rank = PG_INT_ORDER.index(kind)
+        if number is not None:
+            rank = max(rank, 1 if I32_MIN <= number <= I32_MAX else 2)
+        storage = PG_INT_ORDER[rank]
+    else:
+        reviewed = (read.field is None) is not (read.window is None)
+        display = MYSQL_DISPLAY.get(kind) if reviewed else None
+        if display is None or read.aggregate is not None or read.literal is not None:
+            return None, (
+                "PIE-B1002",
+                "mysql_window_integer_result_origin_not_supported_in_phase66",
+            )
+        if number is not None:
+            if number < 0:
+                return None, (
+                    "PIE-B1003",
+                    "window_default_literal_kind_not_realized_yet",
+                )
+            display = max(display, len(str(number)) + 1)
+        storage = "my_int" if display < MYSQL_BIGINT_DISPLAY else "my_bigint"
+    limits = rows.signed_range({"kind": storage})
+    assert limits is not None
+    if low < limits[0] or high > limits[1]:
+        return None, ("PIE-B1002", "window_value_domain_out_of_storage_range")
     return (
-        rows.Realization(carrier.tag, carrier.storage, bool(nullable), carrier.domain),
-        None,
-    )
+        {"kind": storage},
+        {"kind": "int_range", "min": str(low), "max": str(high)},
+    ), None
 
 
 def plan_projection_type():

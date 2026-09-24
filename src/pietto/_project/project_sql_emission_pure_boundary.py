@@ -108,6 +108,115 @@ class Outcome:
 
 # -- raw JSON boundary -------------------------------------------------------
 
+_I64_MIN = -(1 << 63)
+_I64_MAX = (1 << 63) - 1
+# The reviewed signed Int storages a window ORDER key may carry, by width.
+_SIGNED_STORAGE_BITS = {
+    "pg_int2": 16,
+    "pg_int4": 32,
+    "pg_int8": 64,
+    "my_smallint": 16,
+    "my_int": 32,
+    "my_bigint": 64,
+    "my_signed_int": 64,
+}
+
+
+def _frame_offsets(frame) -> tuple[tuple[str, int], ...]:
+    """Each finite endpoint of one documented frame, in retained order."""
+
+    return tuple(
+        (kind, int(str(text).split(" ", 1)[0]))
+        for kind, text in (frame["start"], frame["end"])
+        if kind in schema.FRAME_OFFSETS
+    )
+
+
+def _thresholds_exact(realization, direction, offsets) -> bool:
+    """Whether a documented RANGE key domain keeps every threshold in signed64."""
+
+    storage, domain = realization["storage"], realization["domain"]
+    kind = storage.get("kind") if isinstance(storage, Mapping) else None
+    bits = _SIGNED_STORAGE_BITS.get(kind) if type(kind) is str else None
+    if bits is None or not isinstance(domain, Mapping):
+        return False
+    if domain.get("kind") != "int_range":
+        return False
+    try:
+        low, high = int(domain["min"]), int(domain["max"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    if not -(1 << (bits - 1)) <= low <= high <= (1 << (bits - 1)) - 1:
+        return False
+    for kind, offset in offsets:
+        below = (kind == "offset_preceding") == (direction == "asc")
+        lower, upper = (
+            (low - offset, high - offset) if below else (low + offset, high + offset)
+        )
+        if lower < _I64_MIN or upper > _I64_MAX:
+            return False
+    return True
+
+
+_VALUE_WINDOWS = frozenset({"lag", "lead", "first_value", "last_value", "nth_value"})
+_PG_INT_OF_BITS = {16: "pg_int2", 32: "pg_int4", 64: "pg_int8"}
+_MYSQL_FIELD_DISPLAY = {"my_smallint": 6, "my_int": 11, "my_bigint": 20}
+
+
+def _window_value_representation(family, read, carrier, default):
+    """The (storage, domain) one documented window value result must publish.
+
+    Data-only consistency over the serialized facts: the carrier's own class,
+    width and interval and the default literal decide it; None marks a
+    combination no Phase66 rule publishes (a MySQL Bool value, or a MySQL Int
+    carrier outside the reviewed source-column and window-result classes).
+    """
+
+    storage, domain = carrier["storage"], carrier["domain"]
+    if not isinstance(storage, Mapping) or not isinstance(domain, Mapping):
+        return None
+    if family == "mysql" and carrier["tag"] == "Bool":
+        return None
+    if carrier["tag"] != "Int":
+        return dict(storage), dict(domain)
+    kind = storage.get("kind")
+    if domain.get("kind") != "int_range" or type(kind) is not str:
+        return None
+    low, high = int(domain["min"]), int(domain["max"])
+    number = None
+    if default is not None and default != "NULL":
+        if re.fullmatch(r"-?(0|[1-9][0-9]*)", str(default)) is None:
+            return None
+        number = int(default)
+        if not _I64_MIN <= number <= _I64_MAX:
+            return None
+        low, high = min(low, number), max(high, number)
+    if family == "postgres":
+        bits = _SIGNED_STORAGE_BITS.get(kind) if kind.startswith("pg_") else None
+        if bits is None:
+            return None
+        if number is not None:
+            bits = max(bits, 32 if -(1 << 31) <= number < 1 << 31 else 64)
+        result = _PG_INT_OF_BITS[bits]
+    else:
+        display = _MYSQL_FIELD_DISPLAY.get(kind)
+        if (
+            display is None
+            or (read["field"] is None) is (read["window"] is None)
+            or read["aggregate"] is not None
+            or read["literal"] is not None
+            or (number is not None and number < 0)
+        ):
+            return None
+        if number is not None:
+            display = max(display, len(str(number)) + 1)
+        result = "my_int" if display < 10 else "my_bigint"
+    bits = _SIGNED_STORAGE_BITS[result]
+    if not -(1 << (bits - 1)) <= low <= high <= (1 << (bits - 1)) - 1:
+        return None
+    return {"kind": result}, {"kind": "int_range", "min": str(low), "max": str(high)}
+
+
 _STRING = re.compile(r'"[^"\\]*(?:\\.[^"\\]*)*"', re.S)
 _BRACKETS = re.compile(r"[\[\]{}]")
 _NAT = re.compile(r"0|[1-9][0-9]*")
@@ -931,9 +1040,29 @@ class _Check:
                     suffix = schema.FRAME_OFFSETS.get(kind)
                     _require(
                         suffix is not None
-                        and re.fullmatch(r"(0|[1-9][0-9]*) " + suffix, str(text)),
+                        and re.fullmatch(r"(0|[1-9][0-9]*) " + suffix, str(text))
+                        and int(str(text).split(" ", 1)[0]) <= _I64_MAX,
                         "frame offset",
                     )
+        # R15-INT-OFFSET-V1 over the serialized facts alone: each finite RANGE
+        # threshold of the documented key domain stays inside signed64. This is
+        # data consistency, not proof that the source domain holds in a database.
+        for ref in doc.all("window_specification"):
+            spec = doc[ref]
+            if spec["frame"] is None:
+                continue
+            frame = doc[spec["frame"]]
+            offsets = _frame_offsets(frame)
+            if frame["unit"] != "range" or not offsets:
+                continue
+            _require(len(spec["orders"]) == 1, "range threshold key")
+            order = doc[spec["orders"][0]]
+            _require(
+                _thresholds_exact(
+                    doc[doc[order["read"]]["realization"]], order["direction"], offsets
+                ),
+                "range threshold arithmetic",
+            )
         for kind in ("window_order_item", "window_partition"):
             for ref in doc.all(kind):
                 binding = doc[ref]["binding"]
@@ -956,6 +1085,33 @@ class _Check:
             _require(
                 not column["distinct"] or column["argument"] is not None,
                 "aggregate distinct",
+            )
+        # R14-PG-NAVIGATION-RESULT-V1, R15-MYSQL-WINDOW-RESULT-V1 and the B1
+        # boundary: each value-window result publishes exactly the width and
+        # interval its documented carrier and default literal imply.
+        for ref in doc.all("window_column"):
+            column = doc[ref]
+            if column["function"] not in _VALUE_WINDOWS:
+                continue
+            arguments = [doc[item] for item in column["arguments"]]
+            reads = [
+                doc[item["read"]] for item in arguments if item["read"] is not None
+            ]
+            _require(len(reads) == 1, "window value carrier")
+            defaults = [
+                item["literal"] for item in arguments if item["role"] == "default"
+            ]
+            result = doc[doc[column["column"]]["realization"]]
+            expected = _window_value_representation(
+                self.family,
+                reads[0],
+                doc[reads[0]["realization"]],
+                defaults[0] if defaults else None,
+            )
+            _require(
+                expected is not None
+                and expected == (dict(result["storage"]), dict(result["domain"])),
+                "window value result representation",
             )
 
     def run(self) -> None:
@@ -1790,6 +1946,18 @@ class _Requirements:
                     spec = doc[item["specification"]]
                     self.add("window_computation", item["window"], "R14", operators)
                     self.add("window_specification", origin["policy"], "R15", ())
+                    frame = None if spec["frame"] is None else doc[spec["frame"]]
+                    if frame is not None and _frame_offsets(frame):
+                        self.add(
+                            "window_frame_offset_domain", origin["policy"], "R15", ()
+                        )
+                        if frame["unit"] == "range":
+                            self.add(
+                                "window_range_arithmetic",
+                                origin["policy"],
+                                "R15",
+                                operators,
+                            )
                     for partition in spec["partitions"]:
                         read = doc[doc[partition]["read"]]
                         self.add(

@@ -674,6 +674,9 @@ def verify_emission_generation(value, target, expected):
                     # reaches this branch. MySQL keeps FULL as a typed non-support.
                     "restricted": "PIE-B1003",
                     "full_restricted": "PIE-B1003",
+                    # Corrective closure: the NULL-key FULL minimum positive keeps
+                    # MySQL's approved FULL non-support.
+                    "null_keys": "PIE-B1003",
                     # Slice8: R13 freezes SUM/AVG result realization, R12 keeps
                     # Float outside group comparison, and a violated Bool or
                     # Decimal source domain stays a representation failure.
@@ -1262,6 +1265,7 @@ def _verify_receipt(
         + cases.emission_setup_parameters(target)
         + cases.aggregate_setup_parameters(target)
         + [[], [], []]
+        + [[] for _ in cases.row_domain_setup(target)]
         + [[] for _ in setup_sql[len(cases.setup(target)) :]]
     )
     for observation, parameters in zip(receipt["setup"], fixture_params, strict=True):

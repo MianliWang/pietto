@@ -1261,12 +1261,72 @@ def _window_result_realization(family, function, arguments, retained):
     values = [item for item in arguments if item.read is not None]
     if len(values) != 1:
         raise ValueError("window value result argument")
-    carrier = values[0].read.realization
+    read = values[0].read
+    carrier = read.realization
     if tag != carrier.tag:
         raise ValueError("window value result logical type")
-    return rows.Realization(
-        carrier.tag, carrier.storage, bool(nullable), carrier.domain
+    if family == "mysql" and tag == "Bool":
+        raise ValueError("MySQL Bool window value result outside Phase66")
+    if tag != "Int":
+        return rows.Realization(tag, carrier.storage, bool(nullable), carrier.domain)
+    defaults = [item.literal for item in arguments if item.role == "default"]
+    storage, domain = _window_integer_result(
+        family, read, defaults[0] if defaults else None
     )
+    return rows.Realization("Int", storage, bool(nullable), domain)
+
+
+# Independent tables for R14-PG-NAVIGATION-RESULT-V1 and R15-MYSQL-WINDOW-RESULT-V1.
+_PG_INT_BITS = {"pg_int2": 16, "pg_int4": 32, "pg_int8": 64}
+_PG_INT_OF_BITS = {16: "pg_int2", 32: "pg_int4", 64: "pg_int8"}
+_MYSQL_FIELD_DISPLAY = {"my_smallint": 6, "my_int": 11, "my_bigint": 20}
+
+
+def _window_integer_result(family, read, default):
+    """Re-derive one Int navigation/frame-value result's width and enclosure.
+
+    PostgreSQL's anycompatible lag/lead default joins the width choice through
+    its own literal type; MySQL's is INT below ten display characters of the
+    reviewed carrier column or non-negative default literal, BIGINT from ten.
+    """
+    domain = read.realization.domain
+    kind = read.realization.storage.get("kind")
+    if domain.get("kind") != "int_range":
+        raise ValueError("window value interval")
+    low, high = int(domain["min"]), int(domain["max"])
+    number = None
+    if default is not None and default != "NULL":
+        if re.fullmatch(r"-?(0|[1-9][0-9]*)", default) is None:
+            raise ValueError("window default literal form")
+        number = int(default)
+        if not _I64_MIN <= number <= _I64_MAX:
+            raise ValueError("window default outside signed64")
+        low, high = min(low, number), max(high, number)
+    if family == "postgres":
+        bits = _PG_INT_BITS.get(kind)
+        if bits is None:
+            raise ValueError("PostgreSQL window value width")
+        if number is not None:
+            bits = max(bits, 32 if -(1 << 31) <= number < 1 << 31 else 64)
+        storage = _PG_INT_OF_BITS[bits]
+    else:
+        display = _MYSQL_FIELD_DISPLAY.get(kind)
+        if (
+            display is None
+            or (read.field is None) is (read.window is None)
+            or read.aggregate is not None
+            or read.literal is not None
+        ):
+            raise ValueError("MySQL window value carrier outside the reviewed classes")
+        if number is not None:
+            if number < 0:
+                raise ValueError("MySQL window default literal form")
+            display = max(display, len(str(number)) + 1)
+        storage = "my_int" if display < 10 else "my_bigint"
+    limits = rows.signed_range({"kind": storage})
+    if limits is None or low < limits[0] or high > limits[1]:
+        raise ValueError("window value interval outside its storage")
+    return {"kind": storage}, {"kind": "int_range", "min": str(low), "max": str(high)}
 
 
 def _aggregate_result_realization(family, function, argument, retained):
@@ -1459,6 +1519,73 @@ def _verify_aggregate_body(
         state["symbols"].append(column.symbol)
 
 
+_I64_MIN = -(1 << 63)
+_I64_MAX = (1 << 63) - 1
+
+
+def _window_frame_expectation(policy):
+    """The retained frame re-derived from its policy alone.
+
+    Returns the unit, both exact bounds and the exclusion, plus every finite
+    offset in retained order, or None without a frame. A finite offset must be
+    an exact non-negative integer inside signed64 (R15-INT-OFFSET-V1).
+    """
+
+    resolved = getattr(policy.specification.frame, "resolved", None)
+    if resolved is None or resolved.unit is None:
+        return None, ()
+    bounds = []
+    offsets = []
+    for bound in (resolved.start, resolved.end):
+        if bound is None:
+            raise ValueError("window frame bound evidence")
+        kind = bound.kind.value
+        if kind in windowing.BOUND_SPELLING:
+            bounds.append((kind, windowing.BOUND_SPELLING[kind]))
+            continue
+        suffix = windowing.OFFSET_BOUNDS.get(kind)
+        value = getattr(bound.offset, "value", None)
+        if suffix is None or type(value) is not int or not 0 <= value <= _I64_MAX:
+            raise ValueError("window frame offset domain")
+        bounds.append((kind, f"{value} {suffix}"))
+        offsets.append((kind, value))
+    return (
+        (resolved.unit.value, bounds[0], bounds[1], resolved.exclusion),
+        tuple(offsets),
+    )
+
+
+def _range_thresholds_exact(unit, offsets, orders) -> bool:
+    """Each finite RANGE threshold re-checked from the occurrence's own key read.
+
+    The key's retained domain must sit inside its reviewed signed storage, and
+    every endpoint's direction-sensitive translation of that whole domain must
+    stay inside signed64; the threshold itself may be wider than the key.
+    """
+
+    if unit != "range" or not offsets:
+        return True
+    if len(orders) != 1:
+        return False
+    key = orders[0]
+    realization = key.read.realization
+    bits = rows.INT_WIDTHS.get(realization.storage.get("kind"))
+    domain = realization.domain
+    if bits is None or domain.get("kind") != "int_range":
+        return False
+    low, high = int(domain["min"]), int(domain["max"])
+    if not -(1 << (bits - 1)) <= low <= high <= (1 << (bits - 1)) - 1:
+        return False
+    for kind, offset in offsets:
+        below = (kind == "offset_preceding") is (key.direction == "asc")
+        lower, upper = (
+            (low - offset, high - offset) if below else (low + offset, high + offset)
+        )
+        if lower < _I64_MIN or upper > _I64_MAX:
+            return False
+    return True
+
+
 def _verify_window_column(request, column, window, export, columns, definitions, state):
     """Re-derive one window result column from the retained plan alone.
 
@@ -1516,55 +1643,69 @@ def _verify_window_column(request, column, window, export, columns, definitions,
     if specification.parent is not None:
         return False
     named = policy.named_use
+    referenced = None
     if named is None:
         if specification.symbol is not None:
             return False
     else:
+        # The occurrence's own complete specification is the authority: the one
+        # generated definition its symbol names must be that same specification,
+        # not merely a definition of the same declaration.
         declaration = named.composed.base.target_declaration
         if declaration is None or specification.symbol is None:
             return False
-        if specification.symbol.binding is not window.policy and not any(
-            item.symbol is specification.symbol
-            and item.named_use.composed.base.target_declaration is declaration
-            for item in definitions
+        matches = [item for item in definitions if item.symbol is specification.symbol]
+        if (
+            len(matches) != 1
+            or matches[0].named_use.composed.base.target_declaration is not declaration
+            or matches[0].specification.symbol is not None
+            or matches[0].specification.parent is not None
         ):
             return False
+        referenced = matches[0].specification
     partitions = [
         u for u in uses.get(window.ref, ()) if u.role.value == "window_partition"
     ]
     orders = [u for u in uses.get(window.ref, ()) if u.role.value == "window_order"]
-    if len(specification.partitions) != len(partitions) or len(
-        specification.orders
-    ) != len(orders):
+    try:
+        frame_expected, offsets = _window_frame_expectation(policy)
+    except ValueError:
         return False
-    for (binding, read), use in zip(specification.partitions, partitions, strict=True):
-        if (
-            binding is not policy.partitions[use.role_position]
-            or not _same_read(read, columns[use.input])
-            or read.realization.tag not in windowing.ORDER_TAGS
+    for candidate in (specification, *(() if referenced is None else (referenced,))):
+        own = candidate is specification
+        if len(candidate.partitions) != len(partitions) or len(candidate.orders) != len(
+            orders
         ):
             return False
-    for item, use in zip(specification.orders, orders, strict=True):
-        binding = policy.orders[use.role_position]
-        if (
-            item.binding is not binding
-            or item.direction != binding.effective_direction
-            or item.direction not in {"asc", "desc"}
-            or not _same_read(item.read, columns[use.input])
-            or item.read.realization.tag not in windowing.ORDER_TAGS
-        ):
-            return False
-    resolved = getattr(policy.specification.frame, "resolved", None)
-    if resolved is None or resolved.unit is None:
-        if specification.frame is not None:
-            return False
-    else:
-        frame = specification.frame
-        if (
+        for (binding, read), use in zip(candidate.partitions, partitions, strict=True):
+            if (
+                (own and binding is not policy.partitions[use.role_position])
+                or not _same_read(read, columns[use.input])
+                or read.realization.tag not in windowing.ORDER_TAGS
+            ):
+                return False
+        for item, use in zip(candidate.orders, orders, strict=True):
+            binding = policy.orders[use.role_position]
+            if (
+                (own and item.binding is not binding)
+                or item.direction != binding.effective_direction
+                or item.direction not in {"asc", "desc"}
+                or item.nulls is not None
+                or not _same_read(item.read, columns[use.input])
+                or item.read.realization.tag not in windowing.ORDER_TAGS
+            ):
+                return False
+        frame = candidate.frame
+        if frame_expected is None:
+            if frame is not None:
+                return False
+        elif (
             frame is None
-            or frame.unit != resolved.unit.value
+            or (frame.unit, frame.start, frame.end) != frame_expected[:3]
+            or frame.exclusion is not frame_expected[3]
             or windowing.frame_problem(frame, request.family) is not None
-            or windowing.offset_range_problem(frame, specification.orders) is not None
+            or windowing.offset_range_problem(frame, candidate.orders) is not None
+            or not _range_thresholds_exact(frame.unit, offsets, candidate.orders)
         ):
             return False
     if column.column.window is None or column.column.terminal is not export.ref:
@@ -1573,8 +1714,10 @@ def _verify_window_column(request, column, window, export, columns, definitions,
     if retained is None:
         return False
     try:
+        # The control arguments read the verifier's own stage columns, so a
+        # carrier's origin class is never taken from the artifact's own claim.
         realization = _window_result_realization(
-            request.family, function, column.arguments, retained
+            request.family, function, expected, retained
         )
     except ValueError:
         return False
@@ -3052,6 +3195,25 @@ def verify_row_query(request, query):
                     else row.ProjectSQLReference,
                 )
                 state["nodes"] += 1
+            if kind == "window" and body.window is not None:
+                # Every generated definition is named by one of this stage's own
+                # occurrences, in its exact generated order and spelling.
+                named_symbols = {
+                    id(column.specification.symbol)
+                    for column in body.columns
+                    if type(column) is windowing.WindowColumn
+                    and column.specification.symbol is not None
+                }
+                for index, generated in enumerate(body.window.definitions):
+                    if (
+                        type(generated) is not windowing.WindowDefinition
+                        or generated.index != index
+                        or generated.label != f"w{index}"
+                        or generated.symbol.name != generated.label
+                        or generated.symbol.position != index + 1
+                        or id(generated.symbol) not in named_symbols
+                    ):
+                        return False
             if body.predicate is not None:
                 if kind not in {"where", "satisfying", "qualify"}:
                     return False
@@ -4377,6 +4539,27 @@ def verify_row_requirements(request, query, original, generated):
                 expected.append(
                     ("window_specification", column.window.policy, "R15", ())
                 )
+                # R15-INT-OFFSET-V1, enumerated from the retained policy's own
+                # frame rather than from the candidate's rendered bounds.
+                try:
+                    frame, offsets = _window_frame_expectation(
+                        windowing.window_policies(request.plan)[column.window.ref]
+                    )
+                except (KeyError, ValueError):
+                    frame, offsets = None, ()
+                if offsets:
+                    expected.append(
+                        ("window_frame_offset_domain", column.window.policy, "R15", ())
+                    )
+                    if frame is not None and frame[0] == "range":
+                        expected.append(
+                            (
+                                "window_range_arithmetic",
+                                column.window.policy,
+                                "R15",
+                                operators,
+                            )
+                        )
                 for _binding, read in column.specification.partitions:
                     expected.append(
                         ("window_partition_comparison", read.terminal, "R14", ())

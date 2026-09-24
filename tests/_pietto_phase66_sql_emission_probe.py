@@ -16,6 +16,10 @@ from typing import Any, cast
 CONFIG = 'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
 VARIANTS = {
     "G_emission_table_bag": ("bag",),
+    # Pre-Slice16 corrective closure: C06 physical row domains (inheritance,
+    # view, partition root), carrying the G6 bind-safe LIMIT and the G3
+    # narrow-key wide-offset witnesses.
+    "G_scan_row_domains": ("inherited_parent", "view_rows", "partitioned_root"),
     "H_emission_query_bag": ("bag",),
     "I_emission_table_empty": ("empty",),
     "J_emission_query_empty": ("empty",),
@@ -74,7 +78,7 @@ VARIANTS = {
     "U_row_named": ("named_preserve", "imported_bind", "empty_preserve"),
     "W_join_shapes": ("cross", "inner", "semi", "anti"),
     "W_join_values": ("left_marker", "right_accumulated", "via_refined"),
-    "V_join_full": ("restricted",),
+    "V_join_full": ("restricted", "null_keys"),
     "V_row_blocked": (
         "float_arithmetic",
         "float_comparison",
@@ -117,7 +121,7 @@ VARIANTS = {
     "A_window_navigation": ("offsets",),
     "A_window_frame": ("rows", "range"),
     "A_window_groups": ("exclude",),
-    "A_window_named": ("shared",),
+    "A_window_named": ("shared", "use_local"),
     "A_window_qualify": ("selected", "hidden"),
     "V_window_blocked": ("ignore_nulls", "from_last", "offset_range_keys"),
     "V_aggregate_blocked": (
@@ -301,6 +305,42 @@ WINDOW_SPELLINGS = {
     "NTH_VALUE(": "nth_value",
 }
 WINDOW_FRAME_UNITS = ("ROWS BETWEEN ", "RANGE BETWEEN ", "GROUPS BETWEEN ")
+I64_MIN, I64_MAX = -(1 << 63), (1 << 63) - 1
+SIGNED_BITS = {
+    "pg_int2": 16,
+    "pg_int4": 32,
+    "pg_int8": 64,
+    "my_smallint": 16,
+    "my_int": 32,
+    "my_bigint": 64,
+    "my_signed_int": 64,
+}
+
+
+def range_thresholds_exact(realization, direction, offsets):
+    """R15-INT-OFFSET-V1 from the decoded key alone, independent of production.
+
+    The key's documented domain sits inside its signed storage, and each finite
+    endpoint's translation of that whole domain (below the key for ASC PRECEDING
+    and DESC FOLLOWING, above it otherwise) stays inside signed64.
+    """
+    bits = SIGNED_BITS.get(realization["storage"].get("kind"))
+    domain = realization["domain"]
+    if bits is None or domain.get("kind") != "int_range":
+        return False
+    low, high = int(domain["min"]), int(domain["max"])
+    if not -(1 << (bits - 1)) <= low <= high <= (1 << (bits - 1)) - 1:
+        return False
+    for suffix, offset in offsets:
+        below = (suffix == "PRECEDING") == (direction == "asc")
+        lower, upper = (
+            (low - offset, high - offset) if below else (low + offset, high + offset)
+        )
+        if lower < I64_MIN or upper > I64_MAX:
+            return False
+    return True
+
+
 GROUPING_TAGS = frozenset({"Int", "Bool", "Text", "Decimal"})
 COUNT_STORAGE = {"postgres": "pg_int8", "mysql": "my_bigint"}
 COUNT_MAX = (1 << 63) - 1
@@ -369,6 +409,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         or variant not in VARIANTS[case]
     ):
         raise ValueError("unknown emission fixture")
+    if (case, variant) in CORRECTIVE_BODIES:
+        return corrective_fixture(target, case, variant)
     if case == "P_native_identifiers":
         return native_fixture(target, variant)
     if case == "M_metamorphic_composition":
@@ -2498,6 +2540,7 @@ JOIN_LABELS = {
     "right_accumulated": ("a", "b"),
     "via_refined": ("a", "k"),
     "restricted": ("a", "b"),
+    "null_keys": ("a", "b"),
 }
 # One filtered producer carrying, in one row, a retained source value, an authored
 # literal, a computed value and an ordered LET result. A LEFT row with no match
@@ -2600,6 +2643,204 @@ query result:
         b = r.id
 """,
 }
+
+
+# Pre-Slice16 corrective closure witnesses. Each one declares only the fields it
+# reads of an existing relation, or of one of the finite row-domain relations the
+# facility creates, so every document stays small inside the receipt ceiling.
+CORRECTIVE_BODIES = {
+    # G1 + G4: `base` is used plainly first and extended by a frame second, so
+    # each occurrence keeps its own complete window (a first-use collapse would
+    # give `earliest` the default frame); the nullable value distinguishes the
+    # NULL-respecting results. The other encounter order, a PARTITION extension
+    # and equal-content declarations are offline witnesses.
+    ("A_window_named", "use_local"): """query result:
+    from agg
+    select:
+        record_id = rid
+        previous = lag(value) window base
+        earliest = first_value(value) window base:
+            rows between 1 preceding and current row
+    window base:
+        order by:
+            rid
+""",
+    # G2 / R09: left keys [1,2,NULL] against a filtered producer's [2,NULL,3].
+    ("V_join_full", "null_keys"): """table rr:
+    from agg
+    where rid > 11
+    select:
+        rk = key
+query result:
+    from sa
+    full join rr as r:
+        from sa
+        on sa.value == r.rk
+    select:
+        a = sa.value
+        b = r.rk
+""",
+    # G5 / C06 + G6: the declared relation's whole exposed domain, including a
+    # duplicate key across parent and child, under BIND_SAFE with a bound data
+    # literal and a structural LIMIT larger than the domain.
+    ("G_scan_row_domains", "inherited_parent"): """query result:
+    from rows
+    where id > 0
+    select:
+        id
+    order by:
+        id
+    limit 5
+""",
+    ("G_scan_row_domains", "view_rows"): """query result:
+    from rows
+    select:
+        id
+""",
+    # G5 + G3: a SMALLINT partition root under an offset RANGE whose threshold is
+    # wider than the key's own storage.
+    ("G_scan_row_domains", "partitioned_root"): """query result:
+    from rows
+    select:
+        id
+        low = first_value(id) window:
+            order by:
+                id
+            range between 40000 preceding and current row
+        high = lag(id, 1, 999999999) window:
+            order by:
+                id
+""",
+}
+ROW_DOMAIN_RELATIONS = {
+    ("postgres", "inherited_parent"): "phase66 parent",
+    ("mysql", "inherited_parent"): "phase66 family",
+    ("postgres", "view_rows"): "phase66 parent only",
+    ("mysql", "view_rows"): "phase66 parent only",
+    ("postgres", "partitioned_root"): "phase66 part",
+    ("mysql", "partitioned_root"): "phase66 part",
+}
+
+
+def _int_field(target, name, column, *, nullable, low, high, width=64):
+    storage = {
+        ("postgres", 16): "pg_int2",
+        ("postgres", 64): "pg_int8",
+        ("mysql", 16): "my_smallint",
+        ("mysql", 64): "my_bigint",
+    }[target, width]
+    return {
+        "name": name,
+        "column": column,
+        "representation": {
+            "storage": {"kind": storage},
+            "nullable": nullable,
+            "domain": {"kind": "int_range", "min": str(low), "max": str(high)},
+        },
+    }
+
+
+def _declared_source(target, name, relation, fields):
+    return {
+        "selector": {"module": "main.pietto", "kind": "source", "name": name},
+        "relation": {
+            "namespace": "public" if target == "postgres" else "phase66",
+            "name": relation,
+        },
+        "scan": "relation_rows",
+        "fields": [{"ordinal": i, **field} for i, field in enumerate(fields)],
+        "premises": [
+            {"key": key, "scope": "source", "value": True}
+            for key in ("row_domain_matches", "read_only_object")
+        ],
+    }
+
+
+def corrective_fixture(target, case, variant):
+    """One corrective witness over its exactly declared fields and relations."""
+    wide = {"low": -9007199254740993, "high": 9007199254740993}
+    policy = "preserve_literals"
+    if case == "A_window_named":
+        header = (
+            "shape Keyed:\n    key: Int nullable\n    value: Int nullable\n"
+            "    rid: Int not null\n"
+            f'source agg: Keyed is {target}.table("aggregate.locator.not.sql")\n'
+        )
+        sources = [
+            _declared_source(
+                target,
+                "agg",
+                AGGREGATE_RELATIONS["grouped"],
+                [
+                    _int_field(target, "key", "group key", nullable=True, **wide),
+                    _int_field(target, "value", "value é", nullable=True, **wide),
+                    _int_field(target, "rid", "row id", nullable=False, **wide),
+                ],
+            )
+        ]
+    elif case == "V_join_full":
+        header = (
+            "shape Left:\n    value: Int nullable\n"
+            "shape Keyed:\n    key: Int nullable\n    rid: Int not null\n"
+            f'source sa: Left is {target}.table("sa.locator.not.sql")\n'
+            f'source agg: Keyed is {target}.table("aggregate.locator.not.sql")\n'
+        )
+        sources = [
+            _declared_source(
+                target,
+                "sa",
+                AGGREGATE_RELATIONS["sa"],
+                [_int_field(target, "value", "value é", nullable=True, **wide)],
+            ),
+            _declared_source(
+                target,
+                "agg",
+                AGGREGATE_RELATIONS["grouped"],
+                [
+                    _int_field(target, "key", "group key", nullable=True, **wide),
+                    _int_field(target, "rid", "row id", nullable=False, **wide),
+                ],
+            ),
+        ]
+    else:
+        header = (
+            "shape One:\n    id: Int not null\n"
+            f'source rows: One is {target}.table("row.domain.locator.not.sql")\n'
+        )
+        width = 16 if variant == "partitioned_root" else 64
+        sources = [
+            _declared_source(
+                target,
+                "rows",
+                ROW_DOMAIN_RELATIONS[target, variant],
+                [
+                    _int_field(
+                        target, "id", "id", nullable=False, low=0, high=99, width=width
+                    )
+                ],
+            )
+        ]
+        if variant == "inherited_parent":
+            policy = "bind_safe_literals"
+    contract = json.loads(
+        aggregate_fixture(target, "X_aggregate_global", "bag")["contract"]
+    )
+    contract["sources"] = sources
+    if policy == "bind_safe_literals":
+        contract["environment"].append(
+            {
+                "key": "parameter_protocol",
+                "scope": "statement",
+                "value": "postgres_extended"
+                if target == "postgres"
+                else "mysql_prepared",
+            }
+        )
+    return {
+        "source": header + CORRECTIVE_BODIES[case, variant],
+        "contract": encoded(contract).decode(),
+        "policy": policy,
+    }
 
 
 def join_fixture(target, case, variant):
@@ -2731,6 +2972,9 @@ PER_TARGET_STATUS = {
     # R15 admits GROUPS and its exclusion on PostgreSQL only; MySQL keeps a
     # typed blocker and is never given an emulation.
     ("A_window_groups", "exclude"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
+    # R09: the NULL-key FULL minimum positive is PostgreSQL only; MySQL keeps
+    # its approved FULL non-support.
+    ("V_join_full", "null_keys"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
 }
 
 
@@ -5153,7 +5397,7 @@ def _decode_fixed_public(document, limits):
             "domain": argument["domain"],
         }
 
-    def window_realization(function, value, default=None):
+    def window_realization(function, value, default=None, literal=None):
         """This window result's own domain, derived here and not read back.
 
         A ranking or bucket result is the target's own signed64; a distribution
@@ -5183,16 +5427,86 @@ def _decode_fixed_public(document, limits):
             }
         _need(value is not None, "a window value result needs its own argument")
         assert value is not None
+        tag = value["realization"]["tag"]
+        # B1: MySQL returns a Bool value's window result as an INT, which no
+        # reviewed storage describes, so no Phase66 document may publish one.
+        _need(
+            family != "mysql" or tag != "Bool",
+            "MySQL publishes no Bool window value result in Phase66",
+        )
+        storage, domain = (
+            value["realization"]["storage"],
+            value["realization"]["domain"],
+        )
+        if tag == "Int":
+            storage, domain = window_integer(value, literal)
         # A navigation offset or a frame position may address no row at all, so
         # this result gains NULL over a non-null source column unless the
         # occurrence names its own default for that missing row.
         return {
-            "tag": value["realization"]["tag"],
-            "storage": value["realization"]["storage"],
+            "tag": tag,
+            "storage": storage,
             "nullable": True
             if default is None
             else bool(value["realization"]["nullable"] or default),
-            "domain": value["realization"]["domain"],
+            "domain": domain,
+        }
+
+    def window_integer(value, literal):
+        """One Int value-window result's width and interval, re-derived here.
+
+        PostgreSQL's anycompatible lag/lead default joins the width through its
+        own literal type (int4, int8 beyond signed32). MySQL's result is INT
+        below ten display characters of a source column or earlier window result
+        (6, 11, 20 by field class) or of a d-digit default literal (d + 1), and
+        BIGINT from ten; any other MySQL carrier publishes nothing. A non-null
+        default widens the interval to its least enclosure, never further.
+        """
+        carrier = value["realization"]
+        kind = carrier["storage"]["kind"]
+        low, high = int(carrier["domain"]["min"]), int(carrier["domain"]["max"])
+        number = None
+        if literal is not None and literal != "NULL":
+            _need(
+                re.fullmatch(r"0|[1-9][0-9]*", literal) is not None
+                and int(literal) <= I64_MAX,
+                "an integer window default stays a signed64 literal",
+            )
+            number = int(literal)
+            low, high = min(low, number), max(high, number)
+        if family == "postgres":
+            _need(kind in {"pg_int2", "pg_int4", "pg_int8"}, "PostgreSQL window width")
+            bits = SIGNED_BITS[kind]
+            if number is not None:
+                bits = max(bits, 32 if number < 1 << 31 else 64)
+            result = {16: "pg_int2", 32: "pg_int4", 64: "pg_int8"}[bits]
+        else:
+            origin = value.get("origin")
+            reviewed = (
+                value["field"] is not None
+                and origin is None
+                or value["field"] is None
+                and origin is not None
+                and origin["role"] == "window_result"
+            )
+            display = {"my_smallint": 6, "my_int": 11, "my_bigint": 20}.get(kind)
+            _need(
+                reviewed and value.get("literal") is None and display is not None,
+                "a MySQL window value reads a reviewed carrier",
+            )
+            assert display is not None
+            if number is not None:
+                display = max(display, len(str(number)) + 1)
+            result = "my_int" if display < 10 else "my_bigint"
+        bits = SIGNED_BITS[result]
+        _need(
+            -(1 << (bits - 1)) <= low and high <= (1 << (bits - 1)) - 1,
+            "a window value interval stays inside its storage",
+        )
+        return {"kind": result}, {
+            "kind": "int_range",
+            "min": str(low),
+            "max": str(high),
         }
 
     def row_field_realization(field):
@@ -5483,10 +5797,14 @@ def _decode_fixed_public(document, limits):
         _need(node["kind"] == "value", "the selected body carries no column")
         assert root is not None
         if origin is not None:
-            correspondence = {
-                "aggregate_transport": aggregate_origin(published, origin),
-                **correspondence,
-            }
+            # A carried result keeps its producer's own provenance: a window
+            # result travels as its window, anything else as its aggregation.
+            transport = (
+                {"window_transport": window_origin(published, origin)}
+                if origin["role"] == "window_result"
+                else {"aggregate_transport": aggregate_origin(published, origin)}
+            )
+            correspondence = {**transport, **correspondence}
         carried = None if read is None else read.get("literal")
         if "value" in root:
             correspondence = {
@@ -5975,6 +6293,28 @@ def _decode_fixed_public(document, limits):
                     ("window_computation", None, "R14", operators, None)
                 )
                 row_generated.append(("window_specification", None, "R15", [], None))
+                # R15-INT-OFFSET-V1: a finite offset is an exact signed64 count or
+                # distance, and a RANGE one also owns its threshold arithmetic.
+                offsets = []
+                frame = specification["frame"]
+                for bound in () if frame is None else (frame["start"], frame["end"]):
+                    head, _, tail = bound.partition(" ")
+                    if head.isdigit():
+                        _need(
+                            re.fullmatch(r"0|[1-9][0-9]*", head) is not None
+                            and tail in {"PRECEDING", "FOLLOWING"}
+                            and int(head) <= I64_MAX,
+                            "a finite frame offset stays inside signed64",
+                        )
+                        offsets.append((tail, int(head)))
+                if offsets and frame is not None:
+                    row_generated.append(
+                        ("window_frame_offset_domain", None, "R15", [], None)
+                    )
+                    if frame["unit"] == "range":
+                        row_generated.append(
+                            ("window_range_arithmetic", None, "R15", operators, None)
+                        )
                 for _binding in specification["partitions"]:
                     row_generated.append(
                         ("window_partition_comparison", None, "R14", [], None)
@@ -6003,24 +6343,37 @@ def _decode_fixed_public(document, limits):
                     *specification["orders"],
                 ):
                     window_input(binding)
+                if offsets and frame is not None and frame["unit"] == "range":
+                    _need(
+                        len(specification["orders"]) == 1,
+                        "an offset RANGE keeps one ORDER key",
+                    )
+                    key = specification["orders"][0]
+                    _need(
+                        range_thresholds_exact(
+                            window_input(key)["realization"], key["direction"], offsets
+                        ),
+                        "every RANGE threshold of the key domain stays inside signed64",
+                    )
                 ports = [
                     window_input(item)
                     for item in node["arguments"]
                     if item["kind"] == "port"
                 ]
                 value = ports[0] if ports else None
-                default = None
+                default = literal = None
                 if (
                     function in WINDOW_NAVIGATION_FUNCTIONS
                     and len(node["arguments"]) == 3
                 ):
                     third = node["arguments"][2]
-                    default = (
-                        window_input(third)["realization"]["nullable"]
-                        if third["kind"] == "port"
-                        else False
-                    )
-                realization = window_realization(function, value, default)
+                    if third["kind"] == "port":
+                        default = window_input(third)["realization"]["nullable"]
+                    else:
+                        # A NULL default is itself returned for a missing row.
+                        literal = third["value"]
+                        default = literal == "NULL"
+                realization = window_realization(function, value, default, literal)
                 read, field, literal, root = None, None, None, None
                 origin = {
                     "role": "window_result",
@@ -6162,6 +6515,14 @@ def _decode_fixed_public(document, limits):
                     for item in visible_items
                     if item["node"]["kind"] != "window_result"
                 )
+                if not final:
+                    # Its outputs are checked later against a snapshot, so the
+                    # next body's window projections number after this one's.
+                    row_counts["window_projection"] += sum(
+                        1
+                        for item in visible_items
+                        if item["node"]["kind"] == "window_result"
+                    )
         body = {
             "block": block,
             "columns": columns,

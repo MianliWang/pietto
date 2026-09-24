@@ -334,8 +334,8 @@ def test_every_admitted_artifact_exports_corresponds_and_decodes(
     assert (
         sum(status == "VERIFIED" for status in statuses.values())
         == {
-            "postgres": 153,
-            "mysql": 150,
+            "postgres": 158,
+            "mysql": 154,
         }[target]
     )
     # Every record kind the closed schema describes occurs in real output,

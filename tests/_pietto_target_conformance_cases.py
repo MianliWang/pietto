@@ -85,6 +85,7 @@ def setup(target: str) -> tuple[tuple[str, tuple[object, ...]], ...]:
         )
         + emission_setup(target)
         + native_setup(target)
+        + row_domain_setup(target)
     )
 
 
@@ -106,6 +107,96 @@ def native_setup(target):
             (),
         ),
     )
+
+
+def row_domain_setup(target):
+    """C06 physical row domains, appended after every inherited relation.
+
+    PostgreSQL: a keyed parent whose INHERITS child repeats key 1, a view over
+    the parent alone, and a SMALLINT LIST-partitioned root. MySQL has no
+    inheritance: its declared family is a view over two separately keyed tables,
+    beside the same parent-only view and partitioned root. Every row below is the
+    oracle; the query role's grants are issued after this setup.
+    """
+    if target == "postgres":
+        return (
+            ('CREATE TABLE "phase66 parent" ("id" BIGINT NOT NULL PRIMARY KEY)', ()),
+            ('CREATE TABLE "phase66 child" () INHERITS ("phase66 parent")', ()),
+            ('INSERT INTO "phase66 parent" VALUES (1), (2)', ()),
+            ('INSERT INTO "phase66 child" VALUES (1)', ()),
+            (
+                'CREATE VIEW "phase66 parent only" AS SELECT "id" FROM ONLY "phase66 parent"',
+                (),
+            ),
+            (
+                'CREATE TABLE "phase66 part" ("id" SMALLINT NOT NULL) PARTITION BY LIST ("id")',
+                (),
+            ),
+            (
+                'CREATE TABLE "phase66 part one" PARTITION OF "phase66 part" FOR VALUES IN (1)',
+                (),
+            ),
+            (
+                'CREATE TABLE "phase66 part two" PARTITION OF "phase66 part" FOR VALUES IN (2)',
+                (),
+            ),
+            ('INSERT INTO "phase66 part" VALUES (1), (1), (2)', ()),
+        )
+    return (
+        ("CREATE TABLE `phase66 parent` (`id` BIGINT NOT NULL PRIMARY KEY)", ()),
+        ("CREATE TABLE `phase66 child` (`id` BIGINT NOT NULL PRIMARY KEY)", ()),
+        ("INSERT INTO `phase66 parent` VALUES (1), (2)", ()),
+        ("INSERT INTO `phase66 child` VALUES (1)", ()),
+        (
+            "CREATE VIEW `phase66 family` AS SELECT `id` FROM `phase66 parent`"
+            " UNION ALL SELECT `id` FROM `phase66 child`",
+            (),
+        ),
+        (
+            "CREATE VIEW `phase66 parent only` AS SELECT `id` FROM `phase66 parent`",
+            (),
+        ),
+        (
+            "CREATE TABLE `phase66 part` (`id` SMALLINT NOT NULL) PARTITION BY LIST"
+            " (`id`) (PARTITION `one` VALUES IN (1), PARTITION `two` VALUES IN (2))",
+            (),
+        ),
+        ("INSERT INTO `phase66 part` VALUES (1), (1), (2)", ()),
+    )
+
+
+def row_domain_expectation(target, variant):
+    """(rows, labels, physical types, ordered) of one C06 row-domain witness.
+
+    The declared parent/family domain keeps key 1 from both parent and child, so
+    neither ONLY nor a parent-only uniqueness constraint narrows it; the view is
+    the parent alone; the partition root is every partition's rows, and its
+    offset RANGE of 40000 over a SMALLINT key reaches every preceding row. The
+    first row in key order has no predecessor, so it alone returns the default.
+
+    The window types are each target's own rule, never the observed server's:
+    PostgreSQL's first_value keeps int2 and its anycompatible lag takes the int4
+    literal 999999999; MySQL materializes the 6-character SMALLINT first_value
+    as INT and the 10-character default (nine digits and a sign place) as BIGINT.
+    """
+    bigint = 20 if target == "postgres" else 8
+    smallint = 21 if target == "postgres" else 2
+    if variant == "inherited_parent":
+        return [[_int("1")], [_int("1")], [_int("2")]], ("id",), [bigint], True
+    if variant == "view_rows":
+        return [[_int("1")], [_int("2")]], ("id",), [bigint], False
+    if variant == "partitioned_root":
+        return (
+            [
+                [_int("1"), _int("1"), _int("999999999")],
+                [_int("1"), _int("1"), _int("1")],
+                [_int("2"), _int("1"), _int("1")],
+            ],
+            ("id", "low", "high"),
+            [smallint, smallint, 23] if target == "postgres" else [smallint, 3, 8],
+            False,
+        )
+    raise ValueError("unknown row-domain variant")
 
 
 def emission_setup(target):
@@ -538,6 +629,17 @@ def join_rows(variant):
         return [[_int(BIG_TEXT), _int(BIG_TEXT)] for _ in range(4)] + [
             [_int("0"), _int("0")],
             [_int("1"), _int("1")],
+        ]
+    if variant == "null_keys":
+        # R09 minimum positive: left [1, 2, NULL] against right [2, NULL, 3]. 2
+        # matches; 1 and 3 each null-extend the other side; the two NULL keys
+        # never match each other, so they stay two distinct unmatched rows.
+        return [
+            [_int("2"), _int("2")],
+            [_int("1"), NULL],
+            [NULL, _int("3")],
+            [NULL, NULL],
+            [NULL, NULL],
         ]
     if variant == "restricted":
         # FULL over the same retained left side: the matched BIG pairs plus the
@@ -1187,6 +1289,24 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
         ] != list(logical):
             raise ValueError("aggregate positional logical metadata mismatch")
         return
+    if case_id == "G_scan_row_domains":
+        expected_rows, labels, physical, ordered = row_domain_expectation(
+            target, variant_name
+        )
+        rows_match = (
+            observation["rows"] == expected_rows
+            if ordered
+            else _bag(observation["rows"]) == _bag(expected_rows)
+        )
+        if (
+            not rows_match
+            or [m[:2] for m in observation["metadata"]]
+            != [list(pair) for pair in zip(labels, physical, strict=True)]
+            or [(c["label"], c["logical_type"]["name"]) for c in document["columns"]]
+            != [(label, "Int") for label in labels]
+        ):
+            raise ValueError("row-domain typed rows or metadata mismatch")
+        return
     if case_id == "M_metamorphic_composition":
         expected_rows, labels, physical = metamorphic_expectation(target, variant_name)
         if (
@@ -1565,6 +1685,18 @@ WINDOW_EXPECTATIONS["A_window_named"] = [
     [_integer(WINDOW_BIG), _integer("3"), _integer("3")],
     [_integer(WINDOW_BIG), _integer("3"), _integer("3")],
 ]
+# G1/G4 over "phase66 agg é" by rid 10..14 (value 10,NULL,20,NULL,30): each use
+# keeps its own complete window. `earliest` keeps its one-preceding-row frame (a
+# collapse onto the plain use's default frame would read 10 on every row), and
+# lag and first_value respect NULL values (ignoring them would give rid 12 ->
+# 10/20 and rid 14 -> 20/30).
+WINDOW_EXPECTATIONS["A_window_named_use_local"] = [
+    [_integer("10"), {"kind": "null"}, _integer("10")],
+    [_integer("11"), _integer("10"), _integer("10")],
+    [_integer("12"), {"kind": "null"}, {"kind": "null"}],
+    [_integer("13"), _integer("20"), _integer("20")],
+    [_integer("14"), {"kind": "null"}, {"kind": "null"}],
+]
 # QUALIFY keeps only the rows whose window result is TRUE for the predicate.
 WINDOW_EXPECTATIONS["A_window_qualify_selected"] = [
     [_integer("0"), _integer("1")],
@@ -1591,6 +1723,7 @@ WINDOW_COLUMNS = {
     "A_window_frame_range": ("Int", "Int"),
     "A_window_groups": ("Int", "Int"),
     "A_window_named": ("Int", "Int", "Int"),
+    "A_window_named_use_local": ("Int", "Int", "Int"),
     "A_window_qualify_selected": ("Int", "Int"),
     "A_window_qualify_hidden": ("Int",),
 }
@@ -1602,6 +1735,7 @@ WINDOW_LABELS = {
     "A_window_frame_range": ("record_id", "earliest"),
     "A_window_groups": ("record_id", "peers"),
     "A_window_named": ("record_id", "ranked", "densely"),
+    "A_window_named_use_local": ("record_id", "previous", "earliest"),
     "A_window_qualify_selected": ("record_id", "numbered"),
     "A_window_qualify_hidden": ("record_id",),
 }
@@ -1619,6 +1753,8 @@ def window_key(case_id: str, variant: str) -> str:
 
     if case_id in {"A_window_frame", "A_window_qualify"}:
         return f"{case_id}_{variant}"
+    if (case_id, variant) == ("A_window_named", "use_local"):
+        return "A_window_named_use_local"
     return case_id
 
 

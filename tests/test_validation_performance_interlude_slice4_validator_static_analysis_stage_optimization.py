@@ -83,11 +83,11 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
     )
     test_files = tuple(sorted((REPO_ROOT / "tests").rglob("*.py")))
     # Phase66 Slice14 adds the private emission observation schema, pure boundary
-    # and runtime modules, one process probe and its owned test file; Slice15 adds
-    # only its owned test file. The inventory stays exact and the two-stage typing
-    # scan is unchanged.
+    # and runtime modules, one process probe and its owned test file; Slice15 and
+    # the unnumbered pre-Slice16 corrective closure each add only their owned test
+    # file. The inventory stays exact and the two-stage typing scan is unchanged.
     assert len(production_files) == 222
-    assert len(test_files) == 490
+    assert len(test_files) == 491
     assert set(production_files).isdisjoint(test_files)
 
 

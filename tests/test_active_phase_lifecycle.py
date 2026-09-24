@@ -5803,6 +5803,55 @@ def test_phase66_slice15_is_recorded_with_its_expanded_denominator() -> None:
     assert "M_metamorphic_composition" in document
 
 
+def test_phase66_pre_slice16_corrective_closure_is_recorded_as_prose() -> None:
+    target = "spec/phase66-pre-slice16-completion-corrective-closure-v1.md"
+    for path in (STATUS, ROADMAP):
+        document = " ".join(_read(path).split())
+        assert f"]({target})" in document
+        for phrase in (
+            "The Phase66 pre-Slice16 completion corrective closure is an unnumbered"
+            " corrective delivery between the Slice16 HOLD and the reissued Slice16"
+            " audit, and is not a numbered Slice.",
+            "It is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI"
+            " on its ordinary commit",
+            "R15-INT-OFFSET-V1",
+            "(G1)",
+            "(G3)",
+            "(G2, G4–G6)",
+            "(G7)",
+            "(P)",
+            "(B1)",
+            "`mysql_bool_window_result_representation_not_supported_in_phase66`",
+            "The denominator is 63 cases/195 public documents per target:"
+            " postgres162 VERIFIED,4 INPUT_REJECTED,29 BLOCKED; mysql158 VERIFIED,4"
+            " INPUT_REJECTED,33 BLOCKED; the receipt ceiling stays 33 MiB.",
+            "Phase66 remains `ACTIVE`, Slices1–15 remain `COMPLETED / PUBLISHED`,"
+            " Slice16 remains `NEXT / NOT IMPLEMENTED` and its prior attempt stays"
+            " HOLD pending a new baseline-bound audit, N66 remains16, Phase67 is not"
+            " started and the package remains 0.1.0.",
+        ):
+            assert phrase in document, phrase
+        # The Slice15 lifecycle statement stays the current Slice16 boundary.
+        assert (
+            "Phase66 remains `ACTIVE`; Slice16 is `NEXT / NOT IMPLEMENTED` and"
+            " audit-only." in document
+        )
+    assert (STATUS.parent / target).is_file()
+    status = _read(STATUS)
+    assert "| Phase 66 Slice 16 | `NEXT / NOT IMPLEMENTED` |" in status
+    assert "corrective" not in " ".join(
+        line for line in status.splitlines() if line.startswith("| ")
+    )
+    route = (
+        STATUS.parent
+        / "spec"
+        / "phase66-dialect-sql-emission-product-phase-initiation-gate-route-lock-v1.md"
+    )
+    document = " ".join(route.read_text(encoding="utf-8").split())
+    assert "## R15-INT-OFFSET-V1 and pre-Slice16 corrective disposition" in document
+    assert f"]({target.removeprefix('spec/')})" in document
+
+
 def test_phase66_slice12_is_recorded_with_its_unchanged_denominator() -> None:
     target = (
         "spec/phase66-slice12-complete-emission-artifact-dual-denominator-"

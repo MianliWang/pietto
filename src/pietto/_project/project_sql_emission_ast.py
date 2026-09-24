@@ -2229,6 +2229,30 @@ def build_row_requirements(request, query):
                         "window_specification", column.window.policy, "R15", ()
                     )
                 )
+                # R15-INT-OFFSET-V1: a finite offset keeps its signed64 domain
+                # obligation, and a RANGE offset its threshold arithmetic, per use.
+                frame = column.specification.frame
+                if frame is not None and any(
+                    kind in windowing.OFFSET_BOUNDS
+                    for kind, _ in (frame.start, frame.end)
+                ):
+                    generated.append(
+                        GeneratedRequirement(
+                            "window_frame_offset_domain",
+                            column.window.policy,
+                            "R15",
+                            (),
+                        )
+                    )
+                    if frame.unit == "range":
+                        generated.append(
+                            GeneratedRequirement(
+                                "window_range_arithmetic",
+                                column.window.policy,
+                                "R15",
+                                operators,
+                            )
+                        )
                 for _binding, read in column.specification.partitions:
                     generated.append(
                         GeneratedRequirement(

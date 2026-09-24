@@ -221,3 +221,12 @@ ten metamorphic law families across the VERIFIED submissions of every full-manif
 the laws read no case oracle and add no receipt bytes. The receipt file ceiling is 33 MiB
 (34,603,008 bytes). The target denominator is 62 cases and 190 public documents per target
 (184 API-generated and 6 console documents).
+
+The unnumbered [pre-Slice16 corrective closure](spec/phase66-pre-slice16-completion-corrective-closure-v1.md)
+adds the case `G_scan_row_domains` (PostgreSQL inheritance, a view and a partitioned root,
+created by `cases.row_domain_setup` after every inherited relation) and the variants
+`A_window_named/use_local` and `V_join_full/null_keys`; each witness declares only the
+fields it reads so every document stays inside the unchanged 33 MiB ceiling. The target
+denominator is 63 cases and 195 public documents per target (189 API-generated and 6
+console documents). Its partitioned-root witness also executes a wide `lag` default, so each
+target's own window value width is checked by the full manifest.

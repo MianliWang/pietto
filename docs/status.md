@@ -1501,3 +1501,28 @@ Phase66 remains `ACTIVE`; Slice16 is `NEXT / NOT IMPLEMENTED` and audit-only.
 N66 remains16. Do not start Slice16 automatically. Database error-position mapping, caller
 rebind, SQL-only BIND export, general result decoder and product executor are not added;
 Slice15 completion is not Phase66 completion.
+
+The Phase66 pre-Slice16 completion corrective closure is an unnumbered corrective
+delivery between the Slice16 HOLD and the reissued Slice16 audit, and is not a numbered
+Slice. It is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI on its
+ordinary commit with Python3.12, Python3.13, both target jobs and the strict v2 aggregate.
+Its [corrective closure contract](spec/phase66-pre-slice16-completion-corrective-closure-v1.md)
+repairs two audit-discovered Phase66 defects: a named window declaration no longer shares
+one generated definition across distinct use-local specifications (G1), and
+R15-INT-OFFSET-V1 keeps every finite frame offset an exact signed64 count or distance and
+every RANGE threshold an exact signed64 value, with two new generated R15 requirements per
+applicable use (G3). It closes the restricted PostgreSQL FULL NULL-key minimum positive,
+nullable navigation identity, PostgreSQL inheritance/partition/view row domains and
+bind-safe structural LIMIT witnesses with evidence only (G2, G4–G6). Its first MySQL full
+run found that window value results copied their input's width, so each such result now
+follows its target's own rule, MySQL's materialized width (G7) and PostgreSQL's
+`anycompatible` lag/lead default width (P), with a default-enclosing interval on both
+targets. The closure also adds one new explicit MySQL boundary (B1): Bool-valued
+`first_value`, `last_value`, `nth_value`, `lag` and `lead` are `PIE-B1002`
+`mysql_bool_window_result_representation_not_supported_in_phase66`, leaving accurate
+MySQL Bool window results to a later MySQL-depth decision. The denominator is 63
+cases/195 public documents per target: postgres162 VERIFIED,4 INPUT_REJECTED,29 BLOCKED;
+mysql158 VERIFIED,4 INPUT_REJECTED,33 BLOCKED; the receipt ceiling stays 33 MiB.
+Phase66 remains `ACTIVE`, Slices1–15 remain `COMPLETED / PUBLISHED`, Slice16 remains
+`NEXT / NOT IMPLEMENTED` and its prior attempt stays HOLD pending a new baseline-bound
+audit, N66 remains16, Phase67 is not started and the package remains 0.1.0.

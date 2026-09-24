@@ -1247,6 +1247,11 @@ def valid_receipts(
                             target, record["variant"]
                         )
                         names = list(labels)
+                    elif case_id == "G_scan_row_domains":
+                        rows, labels, types, _ = cases.row_domain_expectation(
+                            target, record["variant"]
+                        )
+                        names = list(labels)
                     elif case_id in probe.RESULT_CASES or (
                         (case_id, record["variant"]) in cases.RESULT_MIGRATED
                     ):
@@ -1756,6 +1761,7 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
         "A_window_qualify",
         "A_window_ranking",
         "G_emission_table_bag",
+        "G_scan_row_domains",
         "H_emission_query_bag",
         "I_emission_table_empty",
         "J_emission_query_empty",

@@ -344,6 +344,16 @@ receipt v2 结构与含义、pins、deadlines 与 workflow 不变。denominator 
 documents per target（184 API + 6 console）：postgres 157 VERIFIED/4 INPUT_REJECTED/29 BLOCKED；
 mysql 154/4/32。
 
+不编号的 [pre-Slice16 corrective closure](phase66-pre-slice16-completion-corrective-closure-v1.md)
+在全部既有 relation 之后、query role 授权之前，由 `cases.row_domain_setup` 在本次 owned
+container 内创建 C06 row-domain relations：PostgreSQL 的 keyed parent 及其 INHERITS child、
+parent-only view 与 SMALLINT LIST-partitioned root；MySQL 为两张 keyed 表上的 family view、
+parent-only view 与同样的 partitioned root。它们随 owned container 一并清理，授权语句、pins、
+deadlines、receipt v2 与上限均不变。新增 case `G_scan_row_domains` 与 variants
+`A_window_named/use_local`、`V_join_full/null_keys`；denominator 变为 63 cases/195 public
+documents per target（189 API + 6 console）：postgres 162 VERIFIED/4 INPUT_REJECTED/29 BLOCKED；
+mysql 158/4/33。
+
 ## Review, validation and publication
 
 独立上限6 root-cause correction groups、4 authoritative starts、每target4 full local

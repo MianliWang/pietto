@@ -966,6 +966,41 @@ predecessor JOIN inputs 只来自 multi-hop path 的表述更正为 in-definitio
 receipt v2 其余不变；denominator 62 cases/190 public documents per target（postgres 157/4/29；
 mysql 154/4/32）。无 production 变更、无新 process family；Slice16 为 audit-only。
 
+## R15-INT-OFFSET-V1 and pre-Slice16 corrective disposition
+
+首次 Slice16 completion audit 以 HOLD 结束：发现 R14/D66.07 的 named window 首用塌缩缺陷（G1）、
+R15 精确算术前提未实现（G3），以及 R09/C14、R16、C06、R21/R04 的承诺见证缺失（G2、G4–G6）。
+用户随后授权一个不编号的 corrective closure（不是 Slice16/17，N66=16 不变），按
+[corrective closure contract](phase66-pre-slice16-completion-corrective-closure-v1.md) 修复 G1、G3
+并以证据关闭 G2、G4–G6；上文原承诺全部保持，本节不声称 G3 曾在更早 Slice 实现。
+
+R15-INT-OFFSET-V1 是用户对 R15 “精确算术前提”的具体决定：每个 finite frame offset 为精确非负
+signed64 整数（ROWS/PG GROUPS 为计数，不受 ORDER key storage 约束）；offset RANGE 的 key domain
+须在其 reviewed storage 内，且每个实际 endpoint 按方向平移的整个 domain 区间在 signed64 内，
+threshold 可宽于 key storage。越界 offset 为 `PIE-B1002 window_frame_offset_out_of_signed64_range`，
+缺可用 domain 为 `PIE-B1004 window_range_arithmetic_evidence_missing`，domain 越出 storage 为
+`PIE-B1002 window_range_key_domain_out_of_storage_range`，平移越界为
+`PIE-B1002 window_range_boundary_out_of_signed64_range`；每个 use 在其 `window_specification`
+之后新增 `window_frame_offset_domain` 与（RANGE 时）`window_range_arithmetic` 两个 R15 generated
+requirements。G1 修复后，named declaration 只在完整 use-local specification 相同时共享生成定义。
+
+同一 closure 的首次 MySQL 全量运行发现 G7：window value 结果（lag/lead/first/last/nth_value）照抄输入的
+storage 与区间。用户随后决定三项同源处置。第一，R14-PG-NAVIGATION-RESULT-V1：PostgreSQL 三参数
+lag/lead 为 `anycompatible`，未 cast 的整数 default 以其自身 literal 类型（signed32 内 int4，否则 int8）
+与 value 的 `pg_int2 < pg_int4 < pg_int8` 取较宽者；offset 不参与，其他窗口/聚合/SET 宽度不变。第二，
+R15-MYSQL-WINDOW-RESULT-V1：MySQL 物化的整数 window value 在显示长度 < 10 时为 INT、≥ 10 时为
+BIGINT，其中 SMALLINT/INT/BIGINT 列分别为 6/11/20，d 位 default 为 d+1；只审阅 source field 与既有
+window result 两类 carrier，其余 MySQL Int carrier 为
+`PIE-B1002 mysql_window_integer_result_origin_not_supported_in_phase66`。两目标上的非 NULL default 都把
+区间扩为最小包络 [min(L,d), max(U,d)]；超出 signed64 的 default 为
+`PIE-B1002 window_default_integer_out_of_signed64_range`，包络越出所选 storage 为
+`PIE-B1002 window_value_domain_out_of_storage_range`。第三，B1 是新的显式支持决定（B 原是已存在的错误
+成功，并非一直是边界）：MySQL 上 Bool 值的五种 value window 为
+`PIE-B1002 mysql_bool_window_result_representation_not_supported_in_phase66`，不新增 storage 词汇、
+CAST 或 Int 重解释；准确的 MySQL Bool window 表示留待今后的 MySQL-depth 决定。
+denominator 变为 63 cases/195 public documents per target（postgres 162/4/29；mysql 158/4/33）。
+Phase66 仍 `ACTIVE`，Slice16 仍 `NEXT / NOT IMPLEMENTED`，须对新基线重新审计。
+
 ## R11/C09 scheduling amendment authorized for Slice7
 
 原 Slice1 route 将 R11 的完整 SEMI/ANTI right terminal 义务与 C09 的 right

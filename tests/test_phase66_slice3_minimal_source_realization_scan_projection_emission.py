@@ -759,10 +759,11 @@ def test_current_emission_variant_manifest_is_complete():
         "A_window_navigation": ("offsets",),
         "A_window_frame": ("rows", "range"),
         "A_window_groups": ("exclude",),
-        "A_window_named": ("shared",),
+        "A_window_named": ("shared", "use_local"),
         "A_window_qualify": ("selected", "hidden"),
         "V_window_blocked": ("ignore_nulls", "from_last", "offset_range_keys"),
         "G_emission_table_bag": ("bag",),
+        "G_scan_row_domains": ("inherited_parent", "view_rows", "partitioned_root"),
         "H_emission_query_bag": ("bag",),
         "I_emission_table_empty": ("empty",),
         "J_emission_query_empty": ("empty",),
@@ -835,7 +836,7 @@ def test_current_emission_variant_manifest_is_complete():
         # domains, the outer value transport, and the per-target restricted FULL.
         "W_join_shapes": ("cross", "inner", "semi", "anti"),
         "W_join_values": ("left_marker", "right_accumulated", "via_refined"),
-        "V_join_full": ("restricted",),
+        "V_join_full": ("restricted", "null_keys"),
         # Slice8 aggregation: GLOBAL and GROUPED results, satisfying, the
         # reviewed comparison domains, composition, membership and the exact
         # first-version non-support set.
@@ -972,7 +973,7 @@ def test_current_emission_variant_manifest_is_complete():
     }
     for target in ("postgres", "mysql"):
         inputs = probe.generation_inputs(target)
-        assert len(inputs) == 184
+        assert len(inputs) == 189
         assert (
             sum(
                 item["id"]
