@@ -534,9 +534,21 @@ class DifferentialAcquisition:
     def documents(self, family: str) -> dict[str, bytes]:
         """Return every exact family observation document by historical key."""
 
+        requests = family_requests(family, self.interpreters)
+        cells = tuple(dict.fromkeys(request.cell for request in requests))
+        worker = os.environ.get("PYTEST_XDIST_WORKER")
+        offset = 0
+        if worker is not None:
+            count = int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1"))
+            offset = (int(worker.removeprefix("gw")) * len(cells) // count) % len(cells)
+        # Existing workers start at different needed cells instead of all waiting
+        # on the same producer. Locks still own acquisition; no extra child pool.
+        payloads = {
+            cell: self._cell_payload(cell) for cell in cells[offset:] + cells[:offset]
+        }
         documents: dict[str, bytes] = {}
-        for request in family_requests(family, self.interpreters):
-            payload = self._cell_payload(request.cell)
+        for request in requests:
+            payload = payloads[request.cell]
             results = cast(dict[str, str], payload["results"])
             document = base64.b64decode(results[request.request_id])
             assert document.endswith(b"\n") and not document.endswith(b"\n\n")

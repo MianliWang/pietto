@@ -87,9 +87,10 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
     # the unnumbered pre-Slice16 corrective closure each add only their owned test
     # file. Interlude V Slice1 adds its runtime-guard test; the two-stage
     # typing scan and production inventory are unchanged. Slice16 adds its
-    # bounded static completion-audit principal.
+    # bounded static completion-audit principal. Interlude V Slice2 adds one
+    # cell-coordination behavior principal without changing typing authority.
     assert len(production_files) == 222
-    assert len(test_files) == 493
+    assert len(test_files) == 494
     assert set(production_files).isdisjoint(test_files)
 
 

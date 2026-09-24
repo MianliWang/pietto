@@ -252,10 +252,13 @@ validation start and must be recorded distinctly as exit 75 / `RESOURCE_PRESSURE
 There is no automatic retry or dynamic resizing; later recovery requires explicit task
 authority. Missing optional PSI/events does not disable available-memory protection.
 This safety guard claims no speed gain or guarantee against every OOM. Interlude IV's
-NO_GAIN sharding conclusion and reopening boundary remain intact.
+NO_GAIN sharding conclusion remains historical; S2's current evidence can inform a
+separately dispatched S3 decision without changing CI here.
 
 
 ## Phase66 G8 native window membership evidence
+
+本节保留 G8 当时的交付边界；当前 Phase66 已完成，后续安排见下方 Interlude V three-Slice route。
 
 [Unnumbered G8 evidence closure](spec/phase66-pre-slice16-g8-window-qualify-native-membership-evidence-closure-v1.md)
 补齐 R11/C09 的 native window/QUALIFY membership witness；原 Slice16 re-audit HOLD 是
@@ -268,6 +271,31 @@ G8 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI and str
 receipt verification on its ordinary publication. Phase66 remains `ACTIVE`; Slice16
 requires a fresh re-audit from the G8 publication; its prior HOLD remains history.
 N66=16，package/CLI=0.1.0。Phase67 NOT STARTED；v4 planning accepted candidate, not activated。
-此前进一步 Interlude V 或回归审计的选择已经由本任务明确解决为 G8 evidence closure；
+G8 历史交付当时选择先完成 evidence closure；下列调度状态不替代当前 Interlude V route：
 Interlude V Slice1 COMPLETED / PUBLISHED，future slices NOT AUTHORIZED / NOT STARTED。
 不要自动重启 Slice16 或 Phase67，也不重新贴回旧 HOLD candidate。
+
+
+## Interlude V three-Slice execution route
+
+当前 Interlude V `ACTIVE`, total route = 3：S1 OOM guard 已发布；
+[S2 current-suite measurement and runtime optimization](spec/validation-performance-interlude-v-slice2-runtime-cost-reduction-v1.md)
+把测量与单一 cell-coordination 优化合并交付，`performance_outcome=MEASURED_GAIN`；
+S2 `COMPLETED / PUBLISHED` 以 guarded validation、ordinary publication、自然 exact-head
+五-job CI 和 fresh raw receipts strict verification 为条件。S3 `NEXT / NOT STARTED`，
+将 CI gate decomposition、evidence-dependent sharding、Dependabot grouping、最终 benchmark
+和 closure 合为一个另行 dispatch 的 Slice。Phase66 COMPLETED / N66=16；Phase67 NOT STARTED；
+accepted v4 retained；package/CLI=0.1.0。
+
+同四个消费者的 pytest 观察为 562.66s → 176.46s，16 cells/98 requests 在本机可用解释器集合下
+逐 request 身份、cell 内顺序和原始输出不变。共享 acquisition 生产窗口为 553.711s → 168.707s，
+生产 wall 之和为 568.418s → 656.885s；收益来自已有四 workers 重叠生产，未减少观察工作。
+无新增 pool、持久结果 cache、阈值或 admission policy。短实验不能替代 full suite/CI 时间。
+
+本次两次自动重建 `.venv` 是保留的执行偏差；用户只前瞻接受已重建的 CPython3.13.13/locked
+环境继续同一 S2。before/after 存在 environment/cache instance discontinuity，不是 fully controlled
+比较，不能把数值差异全部归因于补丁。当前依赖版本/import locations 已核对，旧环境未保留的
+metadata 仍未知。任务外部 launcher 对所有 project-level uv 命令统一设置 `UV_PYTHON=3.13.13`；
+廉价 Ruff 使用已核验 `.venv/bin/ruff`。仅 `--locked` 不禁止环境同步，`--no-sync` 也不证明环境正确。
+解释器固定应覆盖所有工具；显式 3.12/3.13 probe children、seed/mode 和 fixture-owned 安装保持不变。
+详见 S2 spec 对 Phase66 J04/J05/J06 的消费和 S3 cost/coverage handoff。

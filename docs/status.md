@@ -87,21 +87,42 @@ documentation does not supersede that evidence.
 | Phase 66 route | `N=16` |
 | Phase 67 | `NEXT / NOT STARTED` |
 | Phase 67 planning | `ACCEPTED / PRE-ACTIVATION CANDIDATE` |
-| Next | `Rebind and publish the accepted Phase67 v4 plan before Slice1` |
+| Interlude V | `ACTIVE` |
+| Interlude V route | `N=3` |
+| Interlude V Slice 1 | `COMPLETED / PUBLISHED` |
+| Interlude V Slice 2 | `COMPLETED / PUBLISHED` |
+| Interlude V performance outcome | `MEASURED_GAIN` |
+| Interlude V Slice 3 | `NEXT / NOT STARTED` |
+| Next | `Interlude V S3 requires its own dispatch` |
 
-[Slice16 completion audit](spec/phase66-completion-audit-phase67-handoff-v1.md) 已完成材料复审：
-E01–E10 在明确批准的支持域内为10/10，Phase66 self-owned-open = 0；G8 以两目标同次
-native window/QUALIFY membership witnesses 关闭，原两次 Slice16 HOLD 均保留历史。
-本页 Phase66 COMPLETED、Slices1–16 COMPLETED / PUBLISHED 是 conditional completion：
-只有本候选全部本地 gates、ordinary sealed publication、natural exact-head 五-job CI 和
-fresh raw receipts strict verification 成功后才生效。在此之前外部状态为 ACTIVE / AUDIT CANDIDATE，
-不是已发生的发布；N66=16，package/CLI=0.1.0，无 status-only follow-up commit。
+## Interlude V current route
+
+Validation/Test Performance Optimization Interlude V is `ACTIVE`; total route = 3.
+[S2 runtime cost reduction](spec/validation-performance-interlude-v-slice2-runtime-cost-reduction-v1.md)
+只调整已有 xdist workers 对独立 process cells 的访问起点，保留全部 observation、独立
+assertions 和 exact bytes。`performance_outcome=MEASURED_GAIN` 带已披露的 environment/cache
+instance 差异限定，不能将 observed timing difference 全部归因于代码。
+
+- S1 `COMPLETED / PUBLISHED`: local runtime OOM emergency guard。
+- S2 `COMPLETED / PUBLISHED` 仅在本候选完成 guarded local validation、ordinary sealed
+  publication、natural exact-head 五-job CI 和 fresh raw receipt verification 后生效；此前为
+  `ACTIVE / CANDIDATE`。S2 包含测量和实施，不另设 profiling Slice。
+- S3 `NEXT / NOT STARTED`: CI gate decomposition、evidence-dependent sharding、Dependabot
+  grouping、final benchmark 和 Interlude closure 合为一个 Slice；execution requires its own dispatch。
+
+Phase66 remains `COMPLETED`, N66=16；Phase67 `NEXT / NOT STARTED`，accepted v4 retained，
+不自动激活或发布规划。package/CLI=0.1.0。本次不执行 S3，也不新增第四个 Slice。
+
+[Slice16 completion audit](spec/phase66-completion-audit-phase67-handoff-v1.md) 已由
+`25c595f8673845b2a20f6ea800171452a4498ef4`、natural exact-head 五-job CI `36047376458`
+及 fresh raw receipts strict verification 完成 ordinary sealed publication。
+Phase66 COMPLETED、Slices1–16 COMPLETED / PUBLISHED；E01–E10 在明确批准的支持域内为10/10，
+Phase66 self-owned-open = 0。G8 已关闭，原两次 Slice16 HOLD 均保留历史；N66=16，package/CLI=0.1.0。
 Phase67 NEXT / NOT STARTED；Macro-planning decisions ACCEPTED；v4 16-Slice plan 是
 pre-activation candidate，尚未 repository freeze/activation，不创建 N67。
-下一单独授权任务先 rebind 已讨论的 v4 plan、应用 audit deltas、发布 planning/lesson records，
+未来获得单独授权后，先 rebind v4 plan、应用 audit deltas、发布 planning/lesson records，
 再展开 Slice1。[Phase66 retrospective and engineering lessons](spec/phase66-completion-audit-phase67-handoff-v1.md#phase66-retrospective-and-engineering-lessons)
-须供后续任务消费。Interlude V ACTIVE、Slice1 COMPLETED / PUBLISHED；进一步 slices
-NOT AUTHORIZED / NOT STARTED，不是 Phase67 的隐藏前提。以下逐 Slice 段落保留当时历史。
+须供后续任务消费。当前 Interlude V 三-Slice 调度见 current route；以下逐 Slice 段落保留当时历史。
 
 
 Phase 59 and the Validation/Test Performance Optimization Interlude are
@@ -1562,10 +1583,10 @@ Validation/Test Performance Optimization Interlude V is `ACTIVE`. Its
 is `COMPLETED / PUBLISHED` only after its ordinary sealed publication and successful
 natural exact-head CI. It adds local emergency protection, not performance acceleration;
 startup worker selection, the four-worker ceiling, loadfile, CI behavior and target
-semantics remain unchanged. Future Interlude V slices are `NOT AUTHORIZED / NOT STARTED`;
-no total Slice count is approved. 这条 Interlude 发布曾留下 Phase66 ACTIVE、Slice16 pending
-fresh audit；本次明确返回 Slice16，当前条件状态见 completion audit。Phase67 规划已接受，
-实现仍未开始；N66=16，package/CLI remain 0.1.0。后续 Interlude 优化需要单独明确授权。
+semantics remain unchanged. Slice1 当时尚未批准后续 Slice 或总数；当前三-Slice route
+已由 S2 dispatch 明确批准。此前的 Phase66 ACTIVE、Slice16 pending fresh audit 是历史，
+已被完成审计的发布关闭。Phase67 规划已接受，实现仍未开始；N66=16，package/CLI remain 0.1.0。
+S3 的执行仍需要单独 dispatch。
 
 
 ## Phase66 G8 native window membership evidence
@@ -1582,6 +1603,6 @@ G8 已由 `3b6351bae5f3a33641362edf1895746c5949022e` 与 natural CI `35988785626
 G8 publication left Phase66 ACTIVE and Slice16 requiring a fresh re-audit;
 its prior HOLD remains history。本次 Slice16 复审的条件性完成见 completion audit。
 N66=16，package/CLI=0.1.0。Phase67 NOT STARTED；v4 planning accepted candidate, not activated。
-此前选择先完成 G8 evidence closure，本次已明确返回 Slice16 审计；
+G8 历史交付当时选择先完成 evidence closure、再返回 Slice16 审计；
 Interlude V Slice1 COMPLETED / PUBLISHED，future slices NOT AUTHORIZED / NOT STARTED。
 不启动 Phase67，不重新贴回旧 HOLD candidate。

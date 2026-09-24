@@ -331,10 +331,13 @@ EXPECTED_STATUS = (
     ("Phase 66 route", "`N=16`"),
     ("Phase 67", "`NEXT / NOT STARTED`"),
     ("Phase 67 planning", "`ACCEPTED / PRE-ACTIVATION CANDIDATE`"),
-    (
-        "Next",
-        "`Rebind and publish the accepted Phase67 v4 plan before Slice1`",
-    ),
+    ("Interlude V", "`ACTIVE`"),
+    ("Interlude V route", "`N=3`"),
+    ("Interlude V Slice 1", "`COMPLETED / PUBLISHED`"),
+    ("Interlude V Slice 2", "`COMPLETED / PUBLISHED`"),
+    ("Interlude V performance outcome", "`MEASURED_GAIN`"),
+    ("Interlude V Slice 3", "`NEXT / NOT STARTED`"),
+    ("Next", "`Interlude V S3 requires its own dispatch`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
@@ -1463,9 +1466,8 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
 EXPECTED_CURRENT_OWNER_SENTENCE = (
-    "The next owner is Phase67, which is `NEXT / NOT STARTED`; its accepted v4 plan "
-    "awaits a fresh repository baseline and explicit planning publication before "
-    "Slice1 expansion."
+    "The next owner is Interlude V S3, which is `NEXT / NOT STARTED` and requires "
+    "its own dispatch."
 )
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
@@ -6028,12 +6030,13 @@ def test_interlude_v_runtime_guard_keeps_future_work_unauthorized() -> None:
             "Validation/Test Performance Optimization Interlude V is `ACTIVE`",
             "validation-performance-interlude-v-slice1-wsl-oom-emergency-guard-v1.md",
             "local emergency protection, not performance acceleration",
-            "Future Interlude V slices are `NOT AUTHORIZED / NOT STARTED`",
-            "no total Slice count is approved",
-            "本次明确返回 Slice16",
+            "total route = 3",
+            "S3 `NEXT / NOT STARTED`",
+            "execution requires its own dispatch",
+            "S2 包含测量和实施，不另设 profiling Slice",
+            "不新增第四个 Slice",
             "Phase67 规划已接受",
             "N66=16",
-            "后续 Interlude 优化需要单独明确授权",
         ):
             assert phrase in document
 
@@ -6067,19 +6070,20 @@ def test_phase66_slice16_completion_and_accepted_phase67_plan_are_conditional() 
         assert f"]({target})" in document
         assert f"]({target}#phase66-retrospective-and-engineering-lessons)" in document
         for phrase in (
-            "conditional completion",
+            "25c595f8673845b2a20f6ea800171452a4498ef4",
+            "36047376458",
+            "Phase66 COMPLETED、Slices1–16 COMPLETED / PUBLISHED",
             "Phase66 self-owned-open = 0",
             "原两次 Slice16 HOLD 均保留历史",
             "natural exact-head 五-job CI",
             "fresh raw receipts strict verification",
-            "ACTIVE / AUDIT CANDIDATE",
             "Phase67 NEXT / NOT STARTED",
             "Macro-planning decisions ACCEPTED",
             "v4 16-Slice plan",
             "pre-activation candidate",
             "不创建 N67",
             "再展开 Slice1",
-            "进一步 slices NOT AUTHORIZED / NOT STARTED",
+            "当前 Interlude V 三-Slice 调度见 current route",
         ):
             assert phrase in document, phrase
     assert (STATUS.parent / target).is_file()
