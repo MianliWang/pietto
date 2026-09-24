@@ -313,6 +313,8 @@ MUTATIONS = {
     "F8 nesting": ("S_set_nesting", "left_fold_except", "one"),
     "F9 named window": ("A_window_named", "shared", "drop"),
     "F9 peers": ("A_window_ranking", "peers", "rank"),
+    "F9 qualify partition": ("A_window_qualify", "hidden", "drop"),
+    "F9 qualify selection": ("A_window_qualify", "selected", "drop"),
     "F10 left": ("W_join_values", "left_marker", "marker"),
     "F10 chain": (CASE, "join_chain_accumulated", "zero_b"),
 }
@@ -409,3 +411,14 @@ def test_slice15_contract_records_its_denominator_and_boundaries() -> None:
     for family in ("F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10"):
         assert f"| {family} |" in document
     assert facility.MAX_RECEIPT == 34_603_008
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_g8_coordinated_base_scan_shortcut_fails_the_independent_ranking(target):
+    receipt_cases = _oracle_cases(target)
+    left = deepcopy(_rows(receipt_cases, "O_result_membership", "anti_limit0")["rows"])
+    _rows(receipt_cases, "A_window_qualify", "selected")["rows"] = left
+    _rows(receipt_cases, "A_window_qualify", "hidden")["rows"] = []
+    # Partition/disjointness alone would accept this coordinated wrong result.
+    with pytest.raises(ValueError, match="F9 qualify selection"):
+        cases.check_relations(receipt_cases)

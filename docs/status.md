@@ -1549,3 +1549,21 @@ semantics remain unchanged. Future Interlude V slices are `NOT AUTHORIZED / NOT 
 no total Slice count is approved. Phase66 remains `ACTIVE`, Slice16 is pending a fresh
 completion audit, Phase67 is `NOT STARTED`, N66=16 and package/CLI remain 0.1.0. The next
 user decision is further Interlude V work or returning to the Phase66 Slice16 audit.
+
+
+## Phase66 G8 native window membership evidence
+
+[Unnumbered G8 evidence closure](spec/phase66-pre-slice16-g8-window-qualify-native-membership-evidence-closure-v1.md)
+补齐 R11/C09 的 native window/QUALIFY membership witness；原 Slice16 re-audit HOLD 是
+证据缺口，发现时没有证明 product defect。只加强 A_window_qualify 的两个既有 variants：
+selected→SEMI、hidden→ANTI，完整 right terminal 决定 membership，最终只输出左列。
+独立 BAG 分别为 [0,1] 与 [BIG,BIG]，F9 同时检查分区、disjoint supports 和独立 ranking。
+63 cases/195 documents、189 API+6 console、原 status counts 和33 MiB ceiling 全部不变。
+
+G8 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI and strict raw
+receipt verification on its ordinary publication. Phase66 remains `ACTIVE`; Slice16
+requires a fresh re-audit from the G8 publication; its prior HOLD remains history.
+N66=16，package/CLI=0.1.0。Phase67 NOT STARTED；v4 planning accepted candidate, not activated。
+此前进一步 Interlude V 或回归审计的选择已经由本任务明确解决为 G8 evidence closure；
+Interlude V Slice1 COMPLETED / PUBLISHED，future slices NOT AUTHORIZED / NOT STARTED。
+不要自动重启 Slice16 或 Phase67，也不重新贴回旧 HOLD candidate。

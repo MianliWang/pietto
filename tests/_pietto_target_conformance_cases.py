@@ -1525,12 +1525,26 @@ def check_relations(receipt_cases):
         and nesting["right_nested_except"] != nesting["left_fold_except"],
         "F8 position": columns("S_set_positions", "renamed_labels_union_all", 0)
         == union_all,
-        # F9: a named window equals its inline twin; hiding a QUALIFY value keeps
-        # the rows; ranks follow peers.
+        # F9: selected/hidden QUALIFY define the same right membership set.
+        # SEMI and ANTI partition the left BAG; an independently executed ranking
+        # selects its first two rows, so a coordinated base-scan shortcut fails.
+        # Named windows still equal their inline twins and ranks follow peers.
         "F9 named window": bag("A_window_named", "shared")
         == columns("A_window_ranking", "peers", 0, 2, 3),
-        "F9 hidden qualify": bag("A_window_qualify", "hidden")
-        == columns("A_window_qualify", "selected", 0),
+        "F9 qualify partition": bag("A_window_qualify", "selected")
+        + bag("A_window_qualify", "hidden")
+        == left
+        and not (
+            bag("A_window_qualify", "selected") & bag("A_window_qualify", "hidden")
+        ),
+        "F9 qualify selection": bag("A_window_qualify", "selected")
+        == _bag(
+            [
+                [row[0]]
+                for row in rows["A_window_ranking", "peers"]
+                if int(row[1]["value"]) <= 2
+            ]
+        ),
         "F9 peers": sorted(row[1] for row in ranking) == list(range(1, len(ids) + 1))
         and all(
             row[2] == 1 + sum(i < row[0] for i in ids)
@@ -1697,14 +1711,15 @@ WINDOW_EXPECTATIONS["A_window_named_use_local"] = [
     [_integer("13"), _integer("20"), _integer("20")],
     [_integer("14"), {"kind": "null"}, {"kind": "null"}],
 ]
-# QUALIFY keeps only the rows whose window result is TRUE for the predicate.
+# G8: right QUALIFY retains keys 0 and 1. SEMI keeps those left rows;
+# ANTI keeps both BIG occurrences. A base-table shortcut yields all / none.
 WINDOW_EXPECTATIONS["A_window_qualify_selected"] = [
-    [_integer("0"), _integer("1")],
-    [_integer("1"), _integer("2")],
-]
-WINDOW_EXPECTATIONS["A_window_qualify_hidden"] = [
     [_integer("0")],
     [_integer("1")],
+]
+WINDOW_EXPECTATIONS["A_window_qualify_hidden"] = [
+    [_integer(WINDOW_BIG)],
+    [_integer(WINDOW_BIG)],
 ]
 # PostgreSQL int8 is OID 20 and float8 is OID 701; MySQL LONGLONG is 8 and
 # DOUBLE is 5. A ranking or bucket result is the target's own signed64.
@@ -1724,7 +1739,7 @@ WINDOW_COLUMNS = {
     "A_window_groups": ("Int", "Int"),
     "A_window_named": ("Int", "Int", "Int"),
     "A_window_named_use_local": ("Int", "Int", "Int"),
-    "A_window_qualify_selected": ("Int", "Int"),
+    "A_window_qualify_selected": ("Int",),
     "A_window_qualify_hidden": ("Int",),
 }
 WINDOW_LABELS = {
@@ -1736,7 +1751,7 @@ WINDOW_LABELS = {
     "A_window_groups": ("record_id", "peers"),
     "A_window_named": ("record_id", "ranked", "densely"),
     "A_window_named_use_local": ("record_id", "previous", "earliest"),
-    "A_window_qualify_selected": ("record_id", "numbered"),
+    "A_window_qualify_selected": ("record_id",),
     "A_window_qualify_hidden": ("record_id",),
 }
 

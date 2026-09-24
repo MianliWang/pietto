@@ -1918,6 +1918,21 @@ def window_fixture(target, case, variant):
         }
     )
     body = WINDOW_BODIES[case, variant]
+    if case == "A_window_qualify":
+        # G8: the same selected/hidden QUALIFY decides outer membership.
+        # Both sources read only id from the unchanged four physical rows.
+        contract["sources"][0]["fields"] = contract["sources"][0]["fields"][:1]
+        header = (
+            "shape One:\n    id: Int not null\n"
+            f'source rows: One is {target}.table("opaque")\n'
+        )
+        kind = "semi" if variant == "selected" else "anti"
+        body = body.replace("query result:", "table ranked:", 1) + (
+            "query result:\n    from rows\n"
+            f"    {kind} join ranked as r:\n        from rows\n"
+            "        on rows.id == r.record_id\n"
+            "    select:\n        record_id = rows.id\n"
+        )
     if (case, variant) == ("A_window_frame", "range"):
         # Every old RANGE row/column remains; the extra column realizes an
         # anchored literal through a named producer and a window.

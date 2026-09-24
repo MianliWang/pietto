@@ -264,3 +264,76 @@ def test_a_window_producer_is_consumed_by_an_ordinary_named_use(target):
     sql = sql_of(outcome)
     assert sql.count("ROW_NUMBER()") == 1
     assert labels(outcome) == ["a", "b"]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "variant,kind,marker",
+    (
+        ("selected", "semi", "EXISTS ("),
+        ("hidden", "anti", "NOT EXISTS ("),
+    ),
+)
+def test_g8_native_fixture_reads_the_complete_window_qualify_terminal(
+    tmp_path, target, variant, kind, marker
+):
+    from dataclasses import replace
+
+    import _pietto_target_conformance_cases as cases
+    from pietto._project.project_sql_emission_ast import SQLJoinQuery
+    from pietto._project.project_sql_emission_verification import verify_row_query
+
+    item = probe.fixture(target, "A_window_qualify", variant)
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    assert outcome.status == "VERIFIED", blockers(outcome)
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    sql = public["sql"]
+    assert "ROW_NUMBER() OVER (ORDER BY " in sql and f" WHERE {marker}" in sql
+    assert [column["label"] for column in public["columns"]] == ["record_id"]
+    assert public["columns"][0]["logical_type"]["name"] == "Int"
+    assert public["columns"][0]["representation"]["storage"]["kind"] == (
+        "pg_int8" if target == "postgres" else "my_bigint"
+    )
+    artifact = outcome.artifact
+    assert artifact is not None
+    query = artifact.ast
+    assert type(query) is SQLJoinQuery
+    units = query.units
+    join = next(unit for unit in units if hasattr(unit, "membership"))
+    window = next(unit for unit in units if getattr(unit, "window", None) is not None)
+    qualify = next(
+        unit
+        for unit in units
+        if getattr(getattr(unit, "block", None), "kind", None) is not None
+        and unit.block.kind.value == "qualify"
+    )
+    right = join.inputs[1]
+    assert join.join.kind.value == kind
+    assert qualify.scan.body is window
+    assert right.producer.scan.body is qualify
+    assert len(right.columns) == (2 if variant == "selected" else 1)
+    assert [column.selected for column in window.window.columns] == [
+        variant == "selected"
+    ]
+    assert right.columns[0].terminal is right.producer.columns[0].column.terminal
+    # A coherent-looking input that skips QUALIFY cannot retain the right terminal.
+    shortcut = replace(join, inputs=(join.inputs[0], replace(right, producer=window)))
+    assert not verify_row_query(
+        artifact.request,
+        replace(query, units=tuple(shortcut if u is join else u for u in units)),
+    )
+    key = cases.window_key("A_window_qualify", variant)
+    expected = [
+        [cases._integer(v)]
+        for v in (
+            ("0", "1")
+            if variant == "selected"
+            else (cases.WINDOW_BIG, cases.WINDOW_BIG)
+        )
+    ]
+    assert cases.WINDOW_EXPECTATIONS[key] == expected
+    assert cases.window_metadata(target, key) == [20 if target == "postgres" else 8]
+    assert cases.WINDOW_LABELS[key] == ("record_id",)
+    assert cases.WINDOW_COLUMNS[key] == ("Int",)
