@@ -230,3 +230,12 @@ fields it reads so every document stays inside the unchanged 33 MiB ceiling. The
 denominator is 63 cases and 195 public documents per target (189 API-generated and 6
 console documents). Its partitioned-root witness also executes a wide `lag` default, so each
 target's own window value width is checked by the full manifest.
+
+
+The post-publication residual supplement keeps that denominator and receipt format. Its
+`A_window_frame/range` witness retains both original outputs and adds one literal-carrier
+window output with an independent all-ones/int8-or-LONGLONG oracle. R-A expression versus
+materialized-field rules, R-B independent row images and R-C multiple scoped window owners
+are documented in the [current corrective disposition](spec/phase66-pre-slice16-completion-corrective-closure-v1.md#post-publication-residual-supplement).
+Changed production or authenticated probe bytes require fresh full target receipts; old
+successful receipts remain historical evidence, not proof of the supplement.

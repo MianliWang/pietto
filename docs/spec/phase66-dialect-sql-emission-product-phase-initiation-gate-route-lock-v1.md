@@ -1473,3 +1473,19 @@ Phase66 completed；发布成功后也不自动开始Slice2。
 - [CLI JSON v1](cli-json-v1.md) / [Project JSON v2](project-cli-json-v2.md)
 - [Configuration](pietto-config-v1.md) / [Diagnostics](diagnostics.md)
 - [Metadata artifact](semantic-metadata-artifact-v1.md) / [Golden policy](golden-fixture-policy-v1.md)
+
+
+## Post-publication R14/R15/R23/R24/R26 residual disposition
+
+The [post-publication supplement](phase66-pre-slice16-completion-corrective-closure-v1.md#post-publication-residual-supplement)
+corrects the earlier agent's interpretation of the MySQL origin restriction: admitted
+literal and materialized aggregate carriers remain inside R14/R15's finite promise.
+Retained expression metadata and the actual generated materialization boundary determine
+the window result; storage tags alone do not prove an expression's server metadata.
+R23 independently binds each row result image to its verified expression/input. R24/R26
+consume all supported window-owning definitions in their own scopes, with complete
+statement inventories and independent corruption controls. B1, G1, R15-INT-OFFSET-V1,
+P/default enclosure, G2/G4/G5/G6 and all other approved boundaries remain unchanged.
+The successful predecessor `fa44de88` and its raw receipts are retained; this supplement
+needs a separate ordinary successor and fresh exact-head compiler/package/target evidence.
+It changes no macro phase decision, numbered Slice, public format or package version.

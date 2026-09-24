@@ -184,3 +184,90 @@ they read so that every required document is carried in full inside that ceiling
 - [Slice2 isolated target facility](phase66-isolated-target-conformance-facility-v1.md)
 - [Slice9 window contract](phase66-slice9-admitted-windows-named-windows-frames-qualify-emission-v1.md)
 - [Slice15 conformance contract](phase66-slice15-expanded-target-differential-metamorphic-conformance-v1.md)
+
+
+## Post-publication residual supplement
+
+`PHASE66_POST_PUBLICATION_RESIDUAL_CLOSURE` is a separately authorized ordinary
+successor to `fa44de88305832e98cd077400da28ca7d2228a48` (tree
+`a47f5de0fd7880b1ec41a79d913447542f49442e`, natural push CI `35950488233`, attempt 1,
+success). That predecessor and its receipts remain published evidence. This supplement
+is complete only after its own compiler/package gates, fresh complete PostgreSQL and
+MySQL manifests, ordinary publication, successful natural exact-head CI and strict raw
+receipt verification. It does not complete Slice16 or start Phase67.
+
+**R-A: origin restriction correction.** The earlier two-carrier paragraph records the
+predecessor implementation; its blanket literal/aggregate exclusion is superseded here.
+The earlier instruction to implement demonstrated classes limited unsupported claims;
+the agent interpreted it as permission to withdraw admitted compositions. Those are
+separate facts, and the restriction was not an explicitly approved non-support policy.
+The preserved M12 ledger says `generated my_signed_int`, `not observed`, `source only`;
+the saved native manifest has no M12 statement. No historical native run or exact M12
+program is inferred from that entry. The published `COMPUTED` example (`rid + 1` through
+a named producer) is refused upstream with `semantic_result_unsuccessful` and
+`active_output_unavailable` on both targets. The independently admitted `LITERAL` and
+`GROUPED` examples reached the new MySQL origin blocker and need the restoration below.
+
+A literal reaches this emitter through its retained SIGNED anchor and optional unary
+signs. MySQL `Item_typecast_signed` inherits `Item_int_func`, whose
+`set_data_type_longlong` sets display length 21; it is not an uncast d-digit `Item_int`.
+The existing anchor is retained without adding a CAST. A grouped/aggregate producer is
+a materialization boundary, so its consumer reads the resulting field: SMALLINT 6,
+INT 11, BIGINT 20; a materialized signed anchor is BIGINT. This restores admitted
+literal, group-key, MIN/MAX and COUNT/COUNT_DISTINCT carriers through exact carries.
+The width threshold and default enclosure stay unchanged. An impossible or unestablished
+origin still fails closed; it is not a blanket refusal of admitted literals/aggregates.
+The owner, runtime walk, public decoder and private pure checker derive the same target
+rule independently from their own retained expression/provenance evidence.
+
+Source basis remains MySQL commit `99960bf74fa919347e4f4e3ca47672f333d6e91f`:
+[`item_func.h`](https://github.com/mysql/mysql-server/blob/99960bf74fa919347e4f4e3ca47672f333d6e91f/sql/item_func.h)
+(`Item_typecast_signed`, `Item_int_func`),
+[`item.h`](https://github.com/mysql/mysql-server/blob/99960bf74fa919347e4f4e3ca47672f333d6e91f/sql/item.h)
+(`set_data_type_longlong`) and
+[`sql_tmp_table.cc`](https://github.com/mysql/mysql-server/blob/99960bf74fa919347e4f4e3ca47672f333d6e91f/sql/sql_tmp_table.cc)
+(`create_tmp_field_from_item`). New focused native evidence consists of five unchanged
+generated queries: literal preserve/bind (LONGLONG), MAX(SMALLINT) followed by FIRST_VALUE
+(LONG), COUNT followed by FIRST_VALUE (LONGLONG), and three successive window owners
+(LONG, LONGLONG, LONGLONG). Their row BAGs, positional metadata and result intervals are
+separate checks. The last query newly observes its own BIGINT window-result carrier;
+the predecessor's source-only entry remains source-only historical evidence. MIN,
+COUNT_DISTINCT, other literal values/signs and the other admitted signatures have
+source-derived and offline coverage, not a newly claimed broad native grid. Existing
+8/9/10-digit default observations and B1 remain unchanged.
+
+The ordinary full manifest extends `A_window_frame/range` with a named `one = 1` carrier
+and `w = first_value(one)`. Both old output columns, every old row, and the RANGE1 peer
+oracle remain; the new column is four integer ones with native int8/LONGLONG metadata.
+Only unread input declarations are omitted. No case, variant, old witness, receipt field
+or receipt byte ceiling is removed; the denominator remains 63 cases / 195 documents.
+
+**R-B: independently checked row images.** A real LET and downstream projection showed
+that coordinated constructor faults could pass the complete runtime verifier with an
+incorrect result image's realization, terminal or source port. Public decoding rejected
+those material faults, so this was a runtime verification gap, not a demonstrated public
+false accept. The existing row verifier now checks each `RowValueColumn.column` against
+the retained output port, ordinal/name, independently verified expression and input.
+It checks source, literal, aggregate and window provenance and scope as well as the full
+realization. A coordinated downstream width graft meets `plan_ast_correspondence` before
+emission; direct forgeries also fail inspection and private export. Serialization of the
+emitter's refused outcome contains no usable SQL. Serialization of an arbitrary replaced
+Python outcome is not itself an independent verification boundary.
+
+**R-C: definition-scoped window decoding.** A normally admitted query publishing both
+an earlier `v` and its own `first_value(v)` reproduced the predecessor decoder error
+`one decoded selection owns every window` on both targets. The decoder now reconstructs
+owning definitions from the emitted dependency schedule and the complete source-definition
+inventory. Stage-local inputs and SQL symbols stay local; occurrence, policy, argument,
+use and projection inventories cover the whole statement. Each projection family advances
+for its own columns, including a window before ordinary columns and repeated carries.
+Two and three window owners pass runtime verification, emission, public serialization,
+independent decoding and private correspondence/pure checking; owner, input-port, width
+substitutions and missing statement demands are rejected. The earlier carried and
+two-window-stage regressions remain. No maximum of two owners or public format is added.
+
+Author and Ponytail review are self-review, not third-party verification. Current local
+records use the distinct `pietto-phase66-astra-residual-*` prefix in the existing external
+evidence directory. Publication facts and material acceptance remain separate. Phase66
+stays ACTIVE, N66=16, Slices1–15 published, Slice16 pending a new audit, Phase67 NOT STARTED,
+and package/CLI version 0.1.0.

@@ -1917,8 +1917,21 @@ def window_fixture(target, case, variant):
             else "lower_case_table_names=0",
         }
     )
+    body = WINDOW_BODIES[case, variant]
+    if (case, variant) == ("A_window_frame", "range"):
+        # Every old RANGE row/column remains; the extra column realizes an
+        # anchored literal through a named producer and a window.
+        contract["sources"][0]["fields"] = contract["sources"][0]["fields"][:1]
+        header = (
+            "shape One:\n    id: Int not null\n"
+            f'source rows: One is {target}.table("opaque")\n'
+            "table input:\n    from rows\n    select:\n        id\n        one = 1\n"
+        )
+        body = body.replace("from rows", "from input", 1) + (
+            "        w = first_value(one) window:\n            order by:\n                id\n"
+        )
     return {
-        "source": header + WINDOW_BODIES[case, variant],
+        "source": header + body,
         "contract": encoded(contract).decode(),
         "policy": "preserve_literals",
     }
@@ -5459,7 +5472,8 @@ def _decode_fixed_public(document, limits):
         own literal type (int4, int8 beyond signed32). MySQL's result is INT
         below ten display characters of a source column or earlier window result
         (6, 11, 20 by field class) or of a d-digit default literal (d + 1), and
-        BIGINT from ten; any other MySQL carrier publishes nothing. A non-null
+        BIGINT from ten. Grouped results read materialized fields; literal
+        carriers retain their checked SIGNED anchor (display 21). A non-null
         default widens the interval to its least enclosure, never further.
         """
         carrier = value["realization"]
@@ -5482,18 +5496,26 @@ def _decode_fixed_public(document, limits):
             result = {16: "pg_int2", 32: "pg_int4", 64: "pg_int8"}[bits]
         else:
             origin = value.get("origin")
-            reviewed = (
-                value["field"] is not None
-                and origin is None
-                or value["field"] is None
-                and origin is not None
-                and origin["role"] == "window_result"
-            )
-            display = {"my_smallint": 6, "my_int": 11, "my_bigint": 20}.get(kind)
-            _need(
-                reviewed and value.get("literal") is None and display is not None,
-                "a MySQL window value reads a reviewed carrier",
-            )
+            fields = {"my_smallint": 6, "my_int": 11, "my_bigint": 20}
+            if origin is not None and origin["role"] in {
+                "aggregate_result",
+                "group_key",
+            }:
+                display = {**fields, "my_signed_int": 20}.get(kind)
+            elif value.get("literal") is not None:
+                # row_parse already checked the emitted SIGNED anchor, including
+                # its literal/native parameter and every unary sign.
+                display = 21 if kind == "my_signed_int" else None
+            else:
+                reviewed = (
+                    value["field"] is not None
+                    and origin is None
+                    or value["field"] is None
+                    and origin is not None
+                    and origin["role"] == "window_result"
+                )
+                display = fields.get(kind) if reviewed else None
+            _need(display is not None, "a MySQL window value reads a reviewed carrier")
             assert display is not None
             if number is not None:
                 display = max(display, len(str(number)) + 1)
@@ -5543,11 +5565,20 @@ def _decode_fixed_public(document, limits):
         )
         return {"aggregation": owner, **origin}
 
-    row_window_owner: dict[str, Any] = {}
-    row_window_policies: dict[str, Any] = {}
+    row_definition_count = [0]
+    source_definition_positions = {position for position, _ in scan_definitions}
+
+    def next_row_definition():
+        while row_definition_count[0] in source_definition_positions:
+            row_definition_count[0] += 1
+        owner = ref("definition", row_definition_count[0])
+        row_definition_count[0] += 1
+        return owner
+
+    row_window_arguments: dict[str, list[dict[str, Any]]] = {}
+    row_window_uses: dict[str, list[dict[str, Any]]] = {}
+    row_window_projection_count = [0]
     row_window_shape: dict[str, tuple[int, int, int]] = {}
-    row_window_bags: dict[str, Any] = {}
-    row_window_components: set[str] = set()
 
     def window_origin(published, origin):
         """One window provenance, rebuilt from bytes with declared plan identities.
@@ -5582,35 +5613,27 @@ def _decode_fixed_public(document, limits):
         _reference(definition)
         _need(definition["kind"] == "definition", "window definition kind")
         _need(
-            row_window_owner.setdefault("definition", definition) == definition,
-            "one decoded selection owns every window",
+            definition == origin["definition"],
+            "a window belongs to its decoded definition",
         )
         policy = declared["policy"]
         _reference(policy)
-        _need(policy["kind"] == "window_policy", "window policy kind")
+        _need(
+            policy == ref("window_policy", origin["window"]["position"]),
+            "window policy belongs to its occurrence",
+        )
         key = encoded(origin["window"]).decode()
-        _need(
-            row_window_policies.setdefault(key, policy) == policy,
-            "one window occurrence has one policy",
-        )
-        _need(
-            sum(1 for item in row_window_policies.values() if item == policy) == 1,
-            "one policy has one window occurrence",
-        )
         arity, components, width = row_window_shape[key]
         inputs = cast(list[Any], declared["inputs"])
         _need(
-            type(inputs) is list and len(inputs) == width,
+            type(inputs) is list
+            and len(inputs) == width
+            and inputs == origin["inputs"],
             "a window reads its whole established row shape",
         )
         for item in inputs:
             _reference(item)
             _need(item["kind"] == "stage_port", "window input port kind")
-        stage = encoded(origin["stage"]).decode()
-        _need(
-            encoded(row_window_bags.setdefault(stage, inputs)) == encoded(inputs),
-            "one window stage has one input BAG",
-        )
         _need(
             encoded(origin["result"]) not in {encoded(item) for item in inputs},
             "a window result is never its own input",
@@ -5618,11 +5641,15 @@ def _decode_fixed_public(document, limits):
         arguments = cast(list[Any], declared["arguments"])
         uses = cast(list[Any], declared["uses"])
         _need(
-            type(arguments) is list and len(arguments) == arity,
+            type(arguments) is list
+            and len(arguments) == arity
+            and arguments == row_window_arguments[key],
             "window argument denominator",
         )
         _need(
-            type(uses) is list and len(uses) >= components,
+            type(uses) is list
+            and len(uses) == components
+            and uses == row_window_uses[key],
             "window use denominator",
         )
         for item in arguments:
@@ -5631,13 +5658,6 @@ def _decode_fixed_public(document, limits):
         for item in uses:
             _reference(item)
             _need(item["kind"] == "window_use", "window use kind")
-        for item in (*arguments, *uses):
-            token = encoded(item).decode()
-            _need(
-                token not in row_window_components,
-                "a window component has one owner",
-            )
-            row_window_components.add(token)
         return {
             "definition": definition,
             "policy": policy,
@@ -5715,7 +5735,7 @@ def _decode_fixed_public(document, limits):
                 "export": export,
                 "projection": ref(
                     "aggregate_projection",
-                    counts["aggregate_projection"] + position,
+                    counts["aggregate_projection"],
                 ),
                 "sql_symbol": position + 1,
             }
@@ -5765,10 +5785,9 @@ def _decode_fixed_public(document, limits):
                     "sql_symbol": position + 1,
                 },
             }
-            counts["window_projection"] += 1
             _need(encoded(published) == encoded(expected), "window output published")
             return realization
-        projection = ref("projection", counts["projection"] + position)
+        projection = ref("projection", counts["projection"])
         link = None
         if scan["kind"] in {"scan", "named"} and root is not None and "read" in root:
             correspondence_link = published["correspondence"]
@@ -6000,6 +6019,11 @@ def _decode_fixed_public(document, limits):
             _need(alias == f"s{binding['position']}", "relation scope spelling")
             scan["use"] = binding
         _need(within(cause(binding), cause(block)))
+        owner = (
+            scan["body"]["definition"]
+            if scan["kind"] == "stage"
+            else next_row_definition()
+        )
         row_block[0] = block
         determinants = []
         if peek() == "group_by":
@@ -6211,6 +6235,7 @@ def _decode_fixed_public(document, limits):
                         )
                     )
                 elif node["kind"] == "window_result":
+                    row_window_projection_count[0] += 1
                     _need(
                         origin is not None and origin["role"] == "window_result",
                         "a window projection reads an established window result",
@@ -6225,7 +6250,7 @@ def _decode_fixed_public(document, limits):
                             "result_projection",
                             ref(
                                 "aggregate_projection",
-                                row_counts["aggregate_projection"] + position,
+                                row_counts["aggregate_projection"],
                             ),
                             "R12",
                             [],
@@ -6381,11 +6406,35 @@ def _decode_fixed_public(document, limits):
                     "selected": True,
                     "window": node["window"],
                     "stage": block,
+                    "definition": owner,
+                    "inputs": [
+                        item["node"]["port"] for item in parsed[: len(incoming)]
+                    ],
                     "result": export,
                 }
-                row_window_shape[encoded(node["window"]).decode()] = (
+                window_key = encoded(node["window"]).decode()
+                _need(window_key not in row_window_shape, "duplicate window occurrence")
+                argument_base = sum(
+                    len(items) for items in row_window_arguments.values()
+                )
+                row_window_arguments[window_key] = [
+                    ref("window_argument", argument_base + i)
+                    for i in range(len(node["arguments"]))
+                ]
+                # Ranking/distribution calls without a scalar read retain one
+                # relation-input dependency; value calls retain their read(s).
+                use_count = (
+                    max(1, len(ports))
+                    + len(specification["partitions"])
+                    + len(specification["orders"])
+                )
+                use_base = sum(len(items) for items in row_window_uses.values())
+                row_window_uses[window_key] = [
+                    ref("window_use", use_base + i) for i in range(use_count)
+                ]
+                row_window_shape[window_key] = (
                     len(node["arguments"]),
-                    len(specification["partitions"]) + len(specification["orders"]),
+                    use_count,
                     len(incoming),
                 )
             else:
@@ -6441,6 +6490,12 @@ def _decode_fixed_public(document, limits):
                         dict(row_counts),
                     )
                 )
+            if projection_body and not item["helper"]:
+                counter = {
+                    "window_result": "window_projection",
+                    "result": "aggregate_projection",
+                }.get(node["kind"], "projection")
+                row_counts[counter] += 1
             outgoing.append(
                 {
                     "name": f"c{position}",
@@ -6506,28 +6561,12 @@ def _decode_fixed_public(document, limits):
         if projection_body:
             # Hidden helpers are projection-role result ports, never projections.
             row_counts["result"] += len(columns)
-            if result_body:
-                row_counts["aggregate_projection"] += len(columns) - helpers
-            else:
-                # A window result carries its own window projection identity.
-                row_counts["projection"] += sum(
-                    1
-                    for item in visible_items
-                    if item["node"]["kind"] != "window_result"
-                )
-                if not final:
-                    # Its outputs are checked later against a snapshot, so the
-                    # next body's window projections number after this one's.
-                    row_counts["window_projection"] += sum(
-                        1
-                        for item in visible_items
-                        if item["node"]["kind"] == "window_result"
-                    )
         body = {
             "block": block,
             "columns": columns,
             "outgoing": outgoing,
             "projection": projection_body,
+            "definition": owner,
             "final": final,
             "scan": scan,
             "header": cte_terminals,
@@ -6886,6 +6925,7 @@ def _decode_fixed_public(document, limits):
             "outgoing": outgoing,
             "projection": True,
             "final": final,
+            "definition": source_body["definition"],
             "scan": {"kind": "result", "body": source_body},
             "header": cte_terminals,
             "deferred": [],
@@ -7296,6 +7336,7 @@ def _decode_fixed_public(document, limits):
             "outgoing": outgoing,
             "projection": True,
             "final": final,
+            "definition": next_row_definition(),
             "scan": {"kind": "set"},
             "header": cte_terminals,
             "deferred": [],
@@ -7917,6 +7958,34 @@ def _decode_fixed_public(document, limits):
         )
     decoded_arguments(document)
     if row_grammar:
+        # Check complete statement inventories, including windows whose results
+        # are consumed by a later body rather than published as final columns.
+        window_demands: dict[str, list[Any]] = {}
+        for requirement in document["requirements"]:
+            if (
+                requirement["denominator"] == "original"
+                and requirement["kind"] == "window"
+            ):
+                subject = requirement["subject"]
+                window_demands.setdefault(subject["kind"], []).append(subject)
+        expected_windows = [json.loads(key) for key in row_window_shape]
+        _need(
+            window_demands.get("window", []) == expected_windows,
+            "statement window inventory",
+        )
+        for kind, count in (
+            ("window_policy", len(expected_windows)),
+            (
+                "window_argument",
+                sum(len(items) for items in row_window_arguments.values()),
+            ),
+            ("window_projection", row_window_projection_count[0]),
+            ("window_use", sum(len(items) for items in row_window_uses.values())),
+        ):
+            _need(
+                window_demands.get(kind, []) == [ref(kind, i) for i in range(count)],
+                "statement window component inventory",
+            )
         _decode_row_denominators(
             document,
             limits,

@@ -1665,10 +1665,10 @@ WINDOW_EXPECTATIONS["A_window_frame_rows"] = [
 # RANGE BETWEEN 1 PRECEDING AND CURRENT ROW is a value frame over the key, so
 # both peers see only the peer group itself.
 WINDOW_EXPECTATIONS["A_window_frame_range"] = [
-    [_integer("0"), _integer("0")],
-    [_integer("1"), _integer("0")],
-    [_integer(WINDOW_BIG), _integer(WINDOW_BIG)],
-    [_integer(WINDOW_BIG), _integer(WINDOW_BIG)],
+    [_integer("0"), _integer("0"), _integer("1")],
+    [_integer("1"), _integer("0"), _integer("1")],
+    [_integer(WINDOW_BIG), _integer(WINDOW_BIG), _integer("1")],
+    [_integer(WINDOW_BIG), _integer(WINDOW_BIG), _integer("1")],
 ]
 # GROUPS counts peer groups and EXCLUDE CURRENT ROW removes only this row, so a
 # peer of the same group stays in the frame and the first row's frame is empty.
@@ -1720,7 +1720,7 @@ WINDOW_COLUMNS = {
     "A_window_distribution": ("Int", "Float", "Float", "Int"),
     "A_window_navigation": ("Int", "Int", "Int"),
     "A_window_frame_rows": ("Int", "Int", "Int"),
-    "A_window_frame_range": ("Int", "Int"),
+    "A_window_frame_range": ("Int", "Int", "Int"),
     "A_window_groups": ("Int", "Int"),
     "A_window_named": ("Int", "Int", "Int"),
     "A_window_named_use_local": ("Int", "Int", "Int"),
@@ -1732,7 +1732,7 @@ WINDOW_LABELS = {
     "A_window_distribution": ("record_id", "fraction", "cumulative", "bucket"),
     "A_window_navigation": ("record_id", "previous", "upcoming"),
     "A_window_frame_rows": ("record_id", "earliest", "latest"),
-    "A_window_frame_range": ("record_id", "earliest"),
+    "A_window_frame_range": ("record_id", "earliest", "w"),
     "A_window_groups": ("record_id", "peers"),
     "A_window_named": ("record_id", "ranked", "densely"),
     "A_window_named_use_local": ("record_id", "previous", "earliest"),

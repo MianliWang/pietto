@@ -163,13 +163,13 @@ _PG_INT_OF_BITS = {16: "pg_int2", 32: "pg_int4", 64: "pg_int8"}
 _MYSQL_FIELD_DISPLAY = {"my_smallint": 6, "my_int": 11, "my_bigint": 20}
 
 
-def _window_value_representation(family, read, carrier, default):
+def _window_value_representation(family, read, carrier, default, doc):
     """The (storage, domain) one documented window value result must publish.
 
     Data-only consistency over the serialized facts: the carrier's own class,
     width and interval and the default literal decide it; None marks a
-    combination no Phase66 rule publishes (a MySQL Bool value, or a MySQL Int
-    carrier outside the reviewed source-column and window-result classes).
+    combination no Phase66 rule publishes (a MySQL Bool value or an Int carrier
+    without an established field/materialization/anchored-expression origin).
     """
 
     storage, domain = carrier["storage"], carrier["domain"]
@@ -199,14 +199,26 @@ def _window_value_representation(family, read, carrier, default):
             bits = max(bits, 32 if -(1 << 31) <= number < 1 << 31 else 64)
         result = _PG_INT_OF_BITS[bits]
     else:
-        display = _MYSQL_FIELD_DISPLAY.get(kind)
-        if (
-            display is None
-            or (read["field"] is None) is (read["window"] is None)
-            or read["aggregate"] is not None
-            or read["literal"] is not None
-            or (number is not None and number < 0)
-        ):
+        if read["aggregate"] is not None:
+            display = {**_MYSQL_FIELD_DISPLAY, "my_signed_int": 20}.get(kind)
+        elif read["literal"] is not None:
+            value = doc[read["literal"]]["value"]
+            while value.kind == "sql_unary":
+                value = doc[value]["operand"]
+            display = (
+                21
+                if value.kind == "sql_anchor"
+                and doc[value]["physical_type"] == "my_signed_int"
+                and kind == "my_signed_int"
+                else None
+            )
+        else:
+            display = (
+                _MYSQL_FIELD_DISPLAY.get(kind)
+                if (read["field"] is None) is not (read["window"] is None)
+                else None
+            )
+        if display is None or (number is not None and number < 0):
             return None
         if number is not None:
             display = max(display, len(str(number)) + 1)
@@ -1107,6 +1119,7 @@ class _Check:
                 reads[0],
                 doc[reads[0]["realization"]],
                 defaults[0] if defaults else None,
+                doc,
             )
             _require(
                 expected is not None

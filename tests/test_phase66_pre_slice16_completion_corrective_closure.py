@@ -648,6 +648,7 @@ def test_offset_requirements_sit_beside_each_use_specification(target):
                 "window_specification",
                 "window_frame_offset_domain",
                 "window_range_arithmetic",
+                "window_specification",
             ],
         ),
     ):
@@ -1586,12 +1587,21 @@ ORIGIN_BLOCKED = (
 )
 
 
+@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("body", (LITERAL, GROUPED))
-def test_mysql_int_carriers_outside_the_reviewed_classes_are_blocked(body):
-    blocked = _build(_widths_item("mysql", body))
-    assert blocked.status == "BLOCKED" and blocked.artifact is None
-    assert _refusal(blocked) == [ORIGIN_BLOCKED]
-    assert _build(_widths_item("postgres", body)).status == "VERIFIED"
+def test_admitted_literal_and_materialized_aggregate_window_carriers(target, body):
+    outcome = _build(_widths_item(target, body))
+    kind = (
+        ("pg_int8" if body == LITERAL else "pg_int2")
+        if target == "postgres"
+        else ("my_bigint" if body == LITERAL else "my_int")
+    )
+    domain = (1, 1) if body == LITERAL else (3, 7)
+    assert _representations(outcome)["w"] == _int_representation(kind, *domain)
+    assert verification.verify_project_sql_emission(
+        outcome.artifact, outcome.artifact.request
+    ).verified
+    assert _pure(_observation(outcome.artifact))[0] is pure.Status.OK
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -1765,3 +1775,351 @@ def test_the_corrective_contract_records_its_decisions_and_lifecycle():
         "not a numbered Slice",
     ):
         assert phrase in document, phrase
+
+
+# Post-publication residuals: real sources and independent image/owner corruptions.
+MIXED = TWO_STAGE.replace(
+    "        w = first_value(v)", "        v\n        w = first_value(v)"
+)
+THREE_OWNERS = (
+    MIXED.replace("query result:", "table second:")
+    + """query result:
+    from second
+    select:
+        record_id
+        v
+        w
+        z = first_value(w) window:
+            order by:
+                record_id
+"""
+)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("body", (MIXED, THREE_OWNERS))
+def test_mixed_window_definitions_keep_their_own_origins_and_ports(target, body):
+    outcome = _build(_widths_item(target, body))
+    assert outcome.status == "VERIFIED", _refusal(outcome)
+    artifact = outcome.artifact
+    assert verification.verify_project_sql_emission(artifact, artifact.request).verified
+    assert _pure(_observation(artifact))[0] is pure.Status.OK
+    document = _public(outcome)
+    assert _decodes(document) is None
+    origins = [
+        c["correspondence"].get("window_origin")
+        or c["correspondence"].get("window_transport")
+        for c in document["columns"][1:]
+    ]
+    assert len({o["definition"]["position"] for o in origins}) == len(origins)
+    for mutation in ("owner", "port", "width", "policy", "arguments", "uses"):
+        forged = json.loads(json.dumps(document))
+        origin = forged["columns"][-1]["correspondence"]["window_origin"]
+        if mutation == "owner":
+            origin["definition"] = origins[0]["definition"]
+        elif mutation == "port":
+            origin["inputs"][0] = origins[0]["inputs"][0]
+        elif mutation in {"policy", "arguments", "uses"}:
+            origin[mutation] = origins[0][mutation]
+        else:
+            forged["columns"][-1]["representation"]["storage"] = {
+                "kind": "pg_int4" if target == "postgres" else "my_int"
+            }
+        assert _decodes(forged) is not None, mutation
+
+
+IMAGE_BODY = """query result:
+    from rows
+    let:
+        x = rid + 1
+    select:
+        record_id = x
+"""
+
+
+def _image_faults(artifact):
+    image = artifact.ast.bodies[-1].columns[0].column
+    literal = _build(_widths_item("postgres", LITERAL)).artifact
+    aggregate = _build(_widths_item("postgres", GROUPED)).artifact
+    window = _build(_widths_item("postgres", CARRIED)).artifact
+    literal_origin = next(
+        c.column.literal
+        for b in literal.ast.bodies
+        for c in b.columns
+        if c.column.literal is not None
+    )
+    aggregate_origin = next(
+        c.column.aggregate
+        for b in aggregate.ast.bodies
+        for c in b.columns
+        if c.column.aggregate is not None
+    )
+    window_origin = next(
+        c.column.window
+        for b in window.ast.bodies
+        for c in b.columns
+        if c.column.window is not None
+    )
+    return {
+        "position": 99,
+        "name": "foreign",
+        "terminal": artifact.ast.bodies[0].columns[0].column.terminal,
+        "realization": replace(image.realization, storage={"kind": "pg_int2"}),
+        "field": artifact.request.sources[0].fields[0],
+        "source_port": artifact.ast.bodies[0].columns[0].column.source_port,
+        "literal": literal_origin,
+        "aggregate": aggregate_origin,
+        "window": window_origin,
+        "scope": artifact.ast.bodies[0].scan.symbol,
+    }
+
+
+def test_row_value_images_are_checked_before_inspection_and_serialization(monkeypatch):
+    from pietto._project.project_sql_emission_inspection import (
+        inspect_project_sql_emission,
+    )
+
+    outcome = _build(_widths_item("postgres", IMAGE_BODY))
+    assert outcome.status == "VERIFIED", _refusal(outcome)
+    artifact = outcome.artifact
+    assert verification.verify_project_sql_emission(artifact, artifact.request).verified
+    assert _decodes(_public(outcome)) is None
+    assert _pure(_observation(artifact))[0] is pure.Status.OK
+    body = artifact.ast.bodies[-1]
+    column = body.columns[0]
+    for field, value in _image_faults(artifact).items():
+        assert getattr(column.column, field) is not value, field
+        changed = replace(column, column=replace(column.column, **{field: value}))
+        ast = replace(
+            artifact.ast,
+            bodies=(*artifact.ast.bodies[:-1], replace(body, columns=(changed,))),
+        )
+        forged = replace(artifact, ast=ast)
+        assert not verification.verify_row_query(artifact.request, ast), field
+        assert (
+            "plan_ast_correspondence"
+            in verification.verify_project_sql_emission(forged, artifact.request).issues
+        )
+        with pytest.raises(ValueError, match="verified artifact"):
+            inspect_project_sql_emission(forged, artifact.request)
+        assert (
+            portable.export_emission_observation(forged, artifact.request).status
+            is not portable.ObservationStatus.OK
+        )
+    # Coordinate a producer image and every downstream read using a constructor
+    # fault. No unchanged sibling read can be the reason this width is rejected.
+    original = sql_ast._value_column_image
+
+    def fault(*args):
+        image = original(*args)
+        if type(args[1]) is rows.SQLOperation:
+            return replace(
+                image,
+                realization=replace(image.realization, storage={"kind": "pg_int2"}),
+            )
+        return image
+
+    monkeypatch.setattr(sql_ast, "_value_column_image", fault)
+    refused = _build(_widths_item("postgres", IMAGE_BODY))
+    assert _refusal(refused) == [("PIE-B1008", "plan_ast_correspondence")]
+    assert _public(refused)["status"] == "BLOCKED"
+    assert "sql" not in _public(refused)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_restored_literal_class_has_a_full_manifest_native_oracle(target):
+    item = probe.fixture(target, "A_window_frame", "range")
+    outcome = _build(item)
+    assert _representations(outcome)["w"] == _int_representation(
+        "pg_int8" if target == "postgres" else "my_bigint", 1, 1
+    )
+    assert _pure(_observation(outcome.artifact))[0] is pure.Status.OK
+    expected = cases.WINDOW_EXPECTATIONS["A_window_frame_range"]
+    assert [row[-1] for row in expected] == [{"kind": "int", "value": "1"}] * 4
+    assert cases.window_metadata(target, "A_window_frame_range") == (
+        [20, 20, 20] if target == "postgres" else [8, 8, 8]
+    )
+
+
+def _residual_carrier_item(target: str, body: str, *, bound=False) -> dict:
+    item = _widths_item(target, body)
+    if bound:
+        contract = json.loads(item["contract"])
+        contract["environment"].append(
+            {
+                "key": "parameter_protocol",
+                "scope": "statement",
+                "value": "postgres_extended"
+                if target == "postgres"
+                else "mysql_prepared",
+            }
+        )
+        item = {
+            **item,
+            "contract": probe.encoded(contract).decode(),
+            "policy": "bind_safe_literals",
+        }
+    return item
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("bound", (False, True))
+@pytest.mark.parametrize("literal", ("1", "-1", "999999999"))
+def test_anchored_literal_metadata_is_not_the_uncast_decimal_length(
+    target, bound, literal
+):
+    body = LITERAL.replace("one = 1", f"one = {literal}")
+    outcome = _build(_residual_carrier_item(target, body, bound=bound))
+    number = int(literal)
+    assert _representations(outcome)["w"] == _int_representation(
+        "pg_int8" if target == "postgres" else "my_bigint", number, number
+    )
+    assert _pure(_observation(outcome.artifact))[0] is pure.Status.OK
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "function", ("min(s)", "max(s)", "count()", "count_distinct(s)")
+)
+def test_materialized_aggregate_carrier_uses_its_result_field(target, function):
+    body = GROUPED.replace("max(s)", function)
+    outcome = _build(_widths_item(target, body))
+    counting = function.startswith("count")
+    kind = (
+        ("pg_int8" if counting else "pg_int2")
+        if target == "postgres"
+        else ("my_bigint" if counting else "my_int")
+    )
+    assert _representations(outcome)["w"] == _int_representation(
+        kind, *((0, I64_MAX) if counting else (3, 7))
+    )
+    assert _pure(_observation(outcome.artifact))[0] is pure.Status.OK
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_every_window_demand_is_kept_across_definitions(target):
+    document = _public(_build(_widths_item(target, THREE_OWNERS)))
+    assert _decodes(document) is None
+    for kind in (
+        "window",
+        "window_policy",
+        "window_argument",
+        "window_projection",
+        "window_use",
+    ):
+        forged = json.loads(json.dumps(document))
+        originals = [
+            r for r in forged["requirements"] if r["denominator"] == "original"
+        ]
+        removed = next(
+            r
+            for r in originals
+            if r["kind"] == "window" and r["subject"]["kind"] == kind
+        )
+        forged["requirements"].remove(removed)
+        for ordinal, item in enumerate(
+            r for r in forged["requirements"] if r["denominator"] == "original"
+        ):
+            item["ordinal"] = ordinal
+        assert _decodes(forged) is not None, kind
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_mixed_window_projection_positions_follow_each_kind_not_output_index(target):
+    prefix = MIXED.split("query result:", 1)[0]
+    body = (
+        prefix
+        + """query result:
+    from first
+    select:
+        w = first_value(v) window:
+            order by:
+                record_id
+        record_id
+        v
+        repeated = v
+"""
+    )
+    outcome = _build(_widths_item(target, body))
+    assert outcome.status == "VERIFIED", _refusal(outcome)
+    assert _decodes(_public(outcome)) is None
+    assert _pure(_observation(outcome.artifact))[0] is pure.Status.OK
+    columns = _public(outcome)["columns"]
+    assert [c["correspondence"]["projection"]["position"] for c in columns] == [
+        1,
+        1,
+        2,
+        3,
+    ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("body", (LITERAL, GROUPED))
+def test_restored_carrier_width_forgeries_fail_independent_consumers(target, body):
+    outcome = _build(_widths_item(target, body))
+    assert outcome.status == "VERIFIED"
+    function = "lag" if body == LITERAL else "first_value"
+    stale = (
+        "pg_int4"
+        if target == "postgres"
+        else ("my_int" if body == LITERAL else "my_smallint")
+    )
+    forged = _with_window_result(
+        outcome.artifact,
+        function,
+        lambda r: replace(r, storage={"kind": stale}),
+    )
+    assert not verification.verify_row_query(outcome.artifact.request, forged.ast)
+    public = _public(outcome)
+    public["columns"][-1]["representation"]["storage"] = {"kind": stale}
+    assert _decodes(public) is not None
+    observation = _observation(outcome.artifact)
+    _realization_record(observation, function)["fields"]["storage"] = {"kind": stale}
+    assert _pure(observation)[0] is not pure.Status.OK
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_materialized_group_key_keeps_its_own_retained_origin(target):
+    outcome = _build(
+        _widths_item(target, GROUPED.replace("first_value(m)", "first_value(rid)"))
+    )
+    assert _representations(outcome)["w"] == _int_representation(
+        "pg_int8" if target == "postgres" else "my_bigint", 1, 5
+    )
+    assert _pure(_observation(outcome.artifact))[0] is pure.Status.OK
+    body = (
+        LITERAL.split("query result:", 1)[0]
+        + """table grouped:
+    from t
+    group by:
+        one
+    select:
+        one
+        n = count()
+query result:
+    from grouped
+    select:
+        w = first_value(one) window:
+            order by:
+                one
+"""
+    )
+    literal = _build(_widths_item(target, body))
+    assert _representations(literal)["w"] == _int_representation(
+        "pg_int8" if target == "postgres" else "my_bigint", 1, 1
+    )
+    assert _pure(_observation(literal.artifact))[0] is pure.Status.OK
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_hidden_window_cannot_drop_the_last_statement_use(target):
+    document = _public(_build(probe.fixture(target, "A_window_qualify", "hidden")))
+    assert _decodes(document) is None
+    original = [r for r in document["requirements"] if r["denominator"] == "original"]
+    last = [r for r in original if r["subject"]["kind"] == "window_use"][-1]
+    document["requirements"].remove(last)
+    for ordinal, requirement in enumerate(
+        r for r in document["requirements"] if r["denominator"] == "original"
+    ):
+        requirement["ordinal"] = ordinal
+    assert _decodes(document) is not None

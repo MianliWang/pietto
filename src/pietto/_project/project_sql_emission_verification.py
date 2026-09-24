@@ -1210,6 +1210,15 @@ def _same_read(actual, expected):
         and actual.field is expected.field
         and actual.source_port is expected.source_port
         and actual.literal is expected.literal
+        and (
+            actual.scope is expected.scope
+            or type(actual.scope) is SQLSymbol
+            and type(expected.scope) is SQLSymbol
+            and actual.scope.position == expected.scope.position
+            and actual.scope.name == expected.scope.name
+            and actual.scope.binding is expected.scope.binding
+        )
+        and actual.window is expected.window
         and _same_origin(actual.aggregate, expected.aggregate)
         and _same_realization(actual.realization, expected.realization)
     )
@@ -1310,13 +1319,31 @@ def _window_integer_result(family, read, default):
             bits = max(bits, 32 if -(1 << 31) <= number < 1 << 31 else 64)
         storage = _PG_INT_OF_BITS[bits]
     else:
-        display = _MYSQL_FIELD_DISPLAY.get(kind)
-        if (
-            display is None
-            or (read.field is None) is (read.window is None)
-            or read.aggregate is not None
-            or read.literal is not None
-        ):
+        if read.aggregate is not None:
+            display = (
+                {**_MYSQL_FIELD_DISPLAY, "my_signed_int": 20}.get(kind)
+                if getattr(read.aggregate, "kind", None)
+                in {"group_key", "aggregate_result"}
+                else None
+            )
+        elif read.literal is not None:
+            value = getattr(read.literal, "value", None)
+            while type(value) is parameters.SQLUnary:
+                value = value.operand
+            display = (
+                21
+                if type(value) is parameters.SQLAnchor
+                and value.physical_type == "my_signed_int"
+                and kind == "my_signed_int"
+                else None
+            )
+        else:
+            display = (
+                _MYSQL_FIELD_DISPLAY.get(kind)
+                if (read.field is None) is not (read.window is None)
+                else None
+            )
+        if display is None:
             raise ValueError("MySQL window value carrier outside the reviewed classes")
         if number is not None:
             if number < 0:
@@ -3183,7 +3210,7 @@ def verify_row_query(request, query):
                     return False
                 if kind == "let" and export.source is not item.expression:
                     return False
-                _verify_row_value(
+                realization = _verify_row_value(
                     request,
                     column.value,
                     item.expression,
@@ -3194,6 +3221,53 @@ def verify_row_query(request, query):
                     if joined_definition
                     else row.ProjectSQLReference,
                 )
+                image = column.column
+                terminal = body.terminals[ordinal].ref
+                if (
+                    type(image) is not rows.StageColumn
+                    or (image.position, image.name) != (ordinal, label)
+                    or image.terminal is not terminal
+                    or not _same_realization(image.realization, realization)
+                ):
+                    return False
+                if type(column.value) is rows.SQLStageReference:
+                    # The retained expression's input was independently checked
+                    # above. Derive the image from that input, not the constructor.
+                    input_column = columns[column.value.port]
+                    if type(input_column) is not rows.StageColumn:
+                        return False
+                    expected = replace(
+                        input_column,
+                        position=ordinal,
+                        name=label,
+                        terminal=terminal,
+                    )
+                    if image.scope is not expected.scope or not _same_read(
+                        image, expected
+                    ):
+                        return False
+                else:
+                    if any(
+                        value is not None
+                        for value in (
+                            image.field,
+                            image.source_port,
+                            image.scope,
+                            image.aggregate,
+                            image.window,
+                        )
+                    ):
+                        return False
+                    if type(column.value) is rows.SQLOperation:
+                        if image.literal is not None:
+                            return False
+                    elif (
+                        type(image.literal) is not parameters.LiteralOrigin
+                        or image.literal.value is not column.value
+                        or image.literal.export is not export
+                        or image.literal.terminal is not body.terminals[ordinal]
+                    ):
+                        return False
                 state["nodes"] += 1
             if kind == "window" and body.window is not None:
                 # Every generated definition is named by one of this stage's own

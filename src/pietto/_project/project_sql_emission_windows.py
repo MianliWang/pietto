@@ -18,6 +18,7 @@ from typing import Any
 
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_emission_rows as rows
+from pietto._project import project_sql_emission_parameters as parameters
 from pietto.semantic.model import EffectiveNullability, TypeKind, ValueTypeKind
 from pietto.semantic.window_semantics import (
     WindowFrameExclusion,
@@ -132,9 +133,9 @@ PG_INT_ORDER = ("pg_int2", "pg_int4", "pg_int8")
 I32_MIN = -(1 << 31)
 I32_MAX = (1 << 31) - 1
 # R15-MYSQL-WINDOW-RESULT-V1: MySQL materializes a signed integer window value
-# as INT below ten display characters and as BIGINT from ten. Only a source
-# column or an earlier window result has a reviewed display - its own field
-# class's - and a non-negative LAG/LEAD default literal of d digits displays d+1.
+# as INT below ten display characters and as BIGINT from ten. Fields use their
+# field-class display; retained SIGNED anchors use expression metadata (21).
+# A non-negative uncast LAG/LEAD default of d digits displays d+1.
 MYSQL_DISPLAY = {"my_smallint": 6, "my_int": 11, "my_bigint": 20}
 MYSQL_BIGINT_DISPLAY = 10
 VALUE_NULLABILITY = {
@@ -974,9 +975,32 @@ def integer_value_result(family: str, read, default: str | None):
             rank = max(rank, 1 if I32_MIN <= number <= I32_MAX else 2)
         storage = PG_INT_ORDER[rank]
     else:
-        reviewed = (read.field is None) is not (read.window is None)
-        display = MYSQL_DISPLAY.get(kind) if reviewed else None
-        if display is None or read.aggregate is not None or read.literal is not None:
+        # Grouped/aggregate producers and windows are materialized boundaries.
+        # Their consumers read fields, even when the retained origin is a literal.
+        if read.aggregate is not None:
+            display = (
+                {**MYSQL_DISPLAY, "my_signed_int": 20}.get(kind)
+                if getattr(read.aggregate, "kind", None)
+                in {"group_key", "aggregate_result"}
+                else None
+            )
+        elif read.literal is not None:
+            value = getattr(read.literal, "value", None)
+            while type(value) is parameters.SQLUnary:
+                value = value.operand
+            # The emitted SIGNED anchor is Item_int_func (max_length 21),
+            # not an uncast Item_int whose width depends on its decimal digits.
+            display = (
+                21
+                if type(value) is parameters.SQLAnchor
+                and value.physical_type == "my_signed_int"
+                and kind == "my_signed_int"
+                else None
+            )
+        else:
+            reviewed = (read.field is None) is not (read.window is None)
+            display = MYSQL_DISPLAY.get(kind) if reviewed else None
+        if display is None:
             return None, (
                 "PIE-B1002",
                 "mysql_window_integer_result_origin_not_supported_in_phase66",

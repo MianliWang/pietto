@@ -1526,3 +1526,15 @@ mysql158 VERIFIED,4 INPUT_REJECTED,33 BLOCKED; the receipt ceiling stays 33 MiB.
 Phase66 remains `ACTIVE`, Slices1–15 remain `COMPLETED / PUBLISHED`, Slice16 remains
 `NEXT / NOT IMPLEMENTED` and its prior attempt stays HOLD pending a new baseline-bound
 audit, N66 remains16, Phase67 is not started and the package remains 0.1.0.
+
+
+The separately authorized post-publication residual supplement to `fa44de88` restores
+admitted MySQL literal/aggregate window carriers (R-A), independently checks row result
+images (R-B), and consumes multiple window-owning definitions with exact scoped identities
+(R-C). The predecessor's successful CI `35950488233` is preserved; acceptance of the
+successor requires its own fresh compiler/package and full target gates, natural exact-head
+CI and strict raw receipts. B1 remains approved. The full manifest extends the existing
+`A_window_frame/range` oracle while retaining 63 cases/195 documents and the 33 MiB ceiling.
+See the [current corrective disposition](spec/phase66-pre-slice16-completion-corrective-closure-v1.md#post-publication-residual-supplement).
+Phase66 remains ACTIVE; Slice16 requires a new audit, Phase67 is NOT STARTED, N66=16 and
+package/CLI remain 0.1.0. No phase-start discussion or Slice planning is performed here.
