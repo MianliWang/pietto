@@ -9,8 +9,9 @@ needed.
 Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. Phase64 and its 11 numbered Slices are completed
 through their accepted publication chains. Phase65 and Slices1–16 are completed
-through the accepted Slice16 audit publication. The current owner is Phase 66, which is `ACTIVE`; Slice16 requires a fresh re-audit
-from the unnumbered G8 evidence publication. Phase67 planning is accepted but not activated.
+through the accepted Slice16 audit publication. Phase66 completion is conditional on the Slice16 audit publication and exact-head CI described below.
+The next owner is Phase67, which is `NEXT / NOT STARTED`; its accepted v4 plan awaits a fresh
+repository baseline and explicit planning publication before Slice1 expansion.
 The Validation/Test Performance Optimization Interlude II is `COMPLETED`.
 Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -2507,6 +2508,20 @@ Phase72 retains Float row equivalence; these future features remain unimplemente
 
 ## Phase 66 route
 
+[Slice16 completion audit](spec/phase66-completion-audit-phase67-handoff-v1.md) 已完成材料复审：
+E01–E10 在明确批准的支持域内为10/10，Phase66 self-owned-open = 0；G8 以两目标同次
+native window/QUALIFY membership witnesses 关闭，原两次 Slice16 HOLD 均保留历史。
+本页 Phase66 COMPLETED、Slices1–16 COMPLETED / PUBLISHED 是 conditional completion：
+只有本候选全部本地 gates、ordinary sealed publication、natural exact-head 五-job CI 和
+fresh raw receipts strict verification 成功后才生效。在此之前外部状态为 ACTIVE / AUDIT CANDIDATE，
+不是已发生的发布；N66=16，package/CLI=0.1.0，无 status-only follow-up commit。
+Phase67 NEXT / NOT STARTED；Macro-planning decisions ACCEPTED；v4 16-Slice plan 是
+pre-activation candidate，尚未 repository freeze/activation，不创建 N67。
+下一单独授权任务先 rebind 已讨论的 v4 plan、应用 audit deltas、发布 planning/lesson records，
+再展开 Slice1。[Phase66 retrospective and engineering lessons](spec/phase66-completion-audit-phase67-handoff-v1.md#phase66-retrospective-and-engineering-lessons)
+须供后续任务消费。Interlude V ACTIVE、Slice1 COMPLETED / PUBLISHED；进一步 slices
+NOT AUTHORIZED / NOT STARTED，不是 Phase67 的隐藏前提。以下逐 Slice 段落保留当时历史。
+
 Phase66 is `ACTIVE` and Slice1 is `COMPLETED / PUBLISHED` only upon successful
 natural exact-head CI on the ordinary Slice1 commit, with both Python jobs
 passing authoritative/generated/golden/package checks. The [fresh initiation
@@ -3077,9 +3092,9 @@ is `COMPLETED / PUBLISHED` only after its ordinary sealed publication and succes
 natural exact-head CI. It adds local emergency protection, not performance acceleration;
 startup worker selection, the four-worker ceiling, loadfile, CI behavior and target
 semantics remain unchanged. Future Interlude V slices are `NOT AUTHORIZED / NOT STARTED`;
-no total Slice count is approved. Phase66 remains `ACTIVE`, Slice16 is pending a fresh
-completion audit, Phase67 is `NOT STARTED`, N66=16 and package/CLI remain 0.1.0. The next
-user decision is further Interlude V work or returning to the Phase66 Slice16 audit.
+no total Slice count is approved. 这条 Interlude 发布曾留下 Phase66 ACTIVE、Slice16 pending
+fresh audit；本次明确返回 Slice16，当前条件状态见 completion audit。Phase67 规划已接受，
+实现仍未开始；N66=16，package/CLI remain 0.1.0。后续 Interlude 优化需要单独明确授权。
 
 
 ## Phase66 G8 native window membership evidence
@@ -3091,10 +3106,11 @@ selected→SEMI、hidden→ANTI，完整 right terminal 决定 membership，最�
 独立 BAG 分别为 [0,1] 与 [BIG,BIG]，F9 同时检查分区、disjoint supports 和独立 ranking。
 63 cases/195 documents、189 API+6 console、原 status counts 和33 MiB ceiling 全部不变。
 
-G8 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI and strict raw
-receipt verification on its ordinary publication. Phase66 remains `ACTIVE`; Slice16
-requires a fresh re-audit from the G8 publication; its prior HOLD remains history.
+G8 已由 `3b6351bae5f3a33641362edf1895746c5949022e` 与 natural CI `35988785626`
+（push/main/attempt1/success）及 strict raw receipt verification 完成发布。
+G8 publication left Phase66 ACTIVE and Slice16 requiring a fresh re-audit;
+its prior HOLD remains history。本次 Slice16 复审的条件性完成见 completion audit。
 N66=16，package/CLI=0.1.0。Phase67 NOT STARTED；v4 planning accepted candidate, not activated。
-此前进一步 Interlude V 或回归审计的选择已经由本任务明确解决为 G8 evidence closure；
+此前选择先完成 G8 evidence closure，本次已明确返回 Slice16 审计；
 Interlude V Slice1 COMPLETED / PUBLISHED，future slices NOT AUTHORIZED / NOT STARTED。
-不要自动重启 Slice16 或 Phase67，也不重新贴回旧 HOLD candidate。
+不启动 Phase67，不重新贴回旧 HOLD candidate。

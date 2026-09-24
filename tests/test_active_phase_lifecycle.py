@@ -311,7 +311,7 @@ EXPECTED_STATUS = (
     ("Phase 65 Slice 14", "`COMPLETED / PUBLISHED`"),
     ("Phase 65 Slice 15", "`COMPLETED / PUBLISHED`"),
     ("Phase 65 Slice 16", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66", "`ACTIVE`"),
+    ("Phase 66", "`COMPLETED`"),
     ("Phase 66 Slice 1", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 2", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 3", "`COMPLETED / PUBLISHED`"),
@@ -327,11 +327,13 @@ EXPECTED_STATUS = (
     ("Phase 66 Slice 13", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 14", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 15", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 16", "`NEXT / NOT IMPLEMENTED`"),
+    ("Phase 66 Slice 16", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 route", "`N=16`"),
+    ("Phase 67", "`NEXT / NOT STARTED`"),
+    ("Phase 67 planning", "`ACCEPTED / PRE-ACTIVATION CANDIDATE`"),
     (
         "Next",
-        "`Phase 66 Slice 16 — Completion audit and exact Phase67/68/later handoff`",
+        "`Rebind and publish the accepted Phase67 v4 plan before Slice1`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
@@ -1461,9 +1463,9 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
 EXPECTED_CURRENT_OWNER_SENTENCE = (
-    "The current owner is Phase 66, which is `ACTIVE`; Slice16 requires a fresh "
-    "re-audit from the unnumbered G8 evidence publication. Phase67 planning is "
-    "accepted but not activated."
+    "The next owner is Phase67, which is `NEXT / NOT STARTED`; its accepted v4 plan "
+    "awaits a fresh repository baseline and explicit planning publication before "
+    "Slice1 expansion."
 )
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
@@ -5793,7 +5795,7 @@ def test_phase66_slice15_is_recorded_with_its_expanded_denominator() -> None:
     assert (STATUS.parent / target).is_file()
     status = " ".join(_read(STATUS).split())
     assert "| Phase 66 Slice 15 | `COMPLETED / PUBLISHED` |" in status
-    assert "| Phase 66 Slice 16 | `NEXT / NOT IMPLEMENTED` |" in status
+    assert "| Phase 66 Slice 16 | `COMPLETED / PUBLISHED` |" in status
     route = (
         STATUS.parent
         / "spec"
@@ -5832,14 +5834,14 @@ def test_phase66_pre_slice16_corrective_closure_is_recorded_as_prose() -> None:
             " started and the package remains 0.1.0.",
         ):
             assert phrase in document, phrase
-        # The Slice15 lifecycle statement stays the current Slice16 boundary.
+        # Preserve the historical Slice15 boundary; current state belongs to Slice16.
         assert (
             "Phase66 remains `ACTIVE`; Slice16 is `NEXT / NOT IMPLEMENTED` and"
             " audit-only." in document
         )
     assert (STATUS.parent / target).is_file()
     status = _read(STATUS)
-    assert "| Phase 66 Slice 16 | `NEXT / NOT IMPLEMENTED` |" in status
+    assert "| Phase 66 Slice 16 | `COMPLETED / PUBLISHED` |" in status
     assert "corrective" not in " ".join(
         line for line in status.splitlines() if line.startswith("| ")
     )
@@ -6028,8 +6030,10 @@ def test_interlude_v_runtime_guard_keeps_future_work_unauthorized() -> None:
             "local emergency protection, not performance acceleration",
             "Future Interlude V slices are `NOT AUTHORIZED / NOT STARTED`",
             "no total Slice count is approved",
-            "Slice16 is pending a fresh completion audit",
-            "Phase67 is `NOT STARTED`, N66=16",
+            "本次明确返回 Slice16",
+            "Phase67 规划已接受",
+            "N66=16",
+            "后续 Interlude 优化需要单独明确授权",
         ):
             assert phrase in document
 
@@ -6043,13 +6047,39 @@ def test_g8_is_unnumbered_and_does_not_complete_the_slice16_audit() -> None:
             "R11/C09",
             "selected→SEMI、hidden→ANTI",
             "63 cases/195 documents、189 API+6 console",
-            "G8 is `COMPLETED / PUBLISHED` only upon successful natural exact-head CI",
+            "3b6351bae5f3a33641362edf1895746c5949022e",
+            "35988785626",
             "strict raw receipt verification",
-            "Slice16 requires a fresh re-audit from the G8 publication",
+            "G8 publication left Phase66 ACTIVE and Slice16 requiring a fresh re-audit",
             "its prior HOLD remains history",
             "Phase67 NOT STARTED",
             "v4 planning accepted candidate, not activated",
             "future slices NOT AUTHORIZED / NOT STARTED",
+        ):
+            assert phrase in document, phrase
+    assert (STATUS.parent / target).is_file()
+
+
+def test_phase66_slice16_completion_and_accepted_phase67_plan_are_conditional() -> None:
+    target = "spec/phase66-completion-audit-phase67-handoff-v1.md"
+    for path in (STATUS, ROADMAP):
+        document = " ".join(_read(path).split())
+        assert f"]({target})" in document
+        assert f"]({target}#phase66-retrospective-and-engineering-lessons)" in document
+        for phrase in (
+            "conditional completion",
+            "Phase66 self-owned-open = 0",
+            "原两次 Slice16 HOLD 均保留历史",
+            "natural exact-head 五-job CI",
+            "fresh raw receipts strict verification",
+            "ACTIVE / AUDIT CANDIDATE",
+            "Phase67 NEXT / NOT STARTED",
+            "Macro-planning decisions ACCEPTED",
+            "v4 16-Slice plan",
+            "pre-activation candidate",
+            "不创建 N67",
+            "再展开 Slice1",
+            "进一步 slices NOT AUTHORIZED / NOT STARTED",
         ):
             assert phrase in document, phrase
     assert (STATUS.parent / target).is_file()
