@@ -48,6 +48,9 @@ resource_worker_count = validate._resource_worker_count
 
 @pytest.fixture(autouse=True)
 def _stable_resource_worker_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These retained execution/timing tests describe the unchanged CI path.
+    # The local runtime guard has its own focused safety/integration suite.
+    monkeypatch.setenv("CI", "true")
     monkeypatch.setattr(
         validate,
         "_resource_worker_count",
@@ -74,6 +77,11 @@ def test_validation_script_exists_and_uses_only_standard_library_imports() -> No
     assert imported_modules == {
         "__future__",
         "argparse",
+        "json",
+        "math",
+        "signal",
+        "threading",
+        "typing",
         "collections.abc",
         "os",
         "pathlib",

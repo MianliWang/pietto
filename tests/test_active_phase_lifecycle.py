@@ -6016,3 +6016,18 @@ def test_phase66_slice6_row_stage_publication_preserves_later_boundaries() -> No
         assert "Do not start Slice7 automatically" in document
         assert "N66 remains16" in document
     assert (STATUS.parent / target).is_file()
+
+
+def test_interlude_v_runtime_guard_keeps_future_work_unauthorized() -> None:
+    for path in (STATUS, ROADMAP):
+        document = " ".join(_read(path).split())
+        for phrase in (
+            "Validation/Test Performance Optimization Interlude V is `ACTIVE`",
+            "validation-performance-interlude-v-slice1-wsl-oom-emergency-guard-v1.md",
+            "local emergency protection, not performance acceleration",
+            "Future Interlude V slices are `NOT AUTHORIZED / NOT STARTED`",
+            "no total Slice count is approved",
+            "Slice16 is pending a fresh completion audit",
+            "Phase67 is `NOT STARTED`, N66=16",
+        ):
+            assert phrase in document

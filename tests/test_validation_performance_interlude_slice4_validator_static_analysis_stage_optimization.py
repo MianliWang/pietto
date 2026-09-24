@@ -85,9 +85,10 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
     # Phase66 Slice14 adds the private emission observation schema, pure boundary
     # and runtime modules, one process probe and its owned test file; Slice15 and
     # the unnumbered pre-Slice16 corrective closure each add only their owned test
-    # file. The inventory stays exact and the two-stage typing scan is unchanged.
+    # file. Interlude V Slice1 adds its runtime-guard test; the two-stage
+    # typing scan and production inventory are unchanged.
     assert len(production_files) == 222
-    assert len(test_files) == 491
+    assert len(test_files) == 492
     assert set(production_files).isdisjoint(test_files)
 
 

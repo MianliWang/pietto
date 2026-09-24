@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import json
+import math
 import os
 import shlex
+import signal
 import subprocess
 import sys
 import time
+import threading
+from typing import NamedTuple
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -123,6 +128,269 @@ def _resource_worker_count(maximum: int | None = None) -> int:
     return max(workers, 1)
 
 
+# Internal local safety policy; startup worker selection remains independent.
+OOM_SAMPLE_SECONDS = 1.0
+OOM_CRITICAL_BYTES = 768 * 1024**2
+OOM_HARD_BYTES = 3 * 1024**3 // 2
+OOM_PRESSURE_BYTES = 3 * 1024**3
+OOM_PSI_FULL_AVG10 = 4.0
+OOM_CONSECUTIVE_SAMPLES = 3
+OOM_TERM_GRACE_SECONDS = 5.0
+RESOURCE_PRESSURE_EXIT = 75
+
+
+class MemorySample(NamedTuple):
+    total: int
+    available: int
+    psi: float | None
+    events: tuple[int, int] | None
+
+
+def _memory_psi() -> float | None:
+    text = _read_text("/proc/pressure/memory")
+    for line in (text or "").splitlines():
+        fields = line.split()
+        if fields and fields[0] == "full":
+            values = dict(field.split("=", 1) for field in fields[1:] if "=" in field)
+            try:
+                value = float(values["avg10"])
+            except (KeyError, ValueError):
+                return None
+            return value if math.isfinite(value) and 0 <= value <= 100 else None
+    return None
+
+
+def _memory_events() -> tuple[int, int] | None:
+    text = _read_text("/sys/fs/cgroup/memory.events")
+    values = dict(
+        line.split() for line in (text or "").splitlines() if len(line.split()) == 2
+    )
+    if not all(values.get(key, "").isdigit() for key in ("oom", "oom_kill")):
+        return None
+    return int(values["oom"]), int(values["oom_kill"])
+
+
+def _memory_sample() -> MemorySample | None:
+    try:
+        memory = _memory_snapshot()
+    except (ValueError, IndexError):
+        return None
+    if memory is None:
+        return None
+    total, available = memory
+    if total <= 0 or not 0 <= available <= total:
+        return None
+    return MemorySample(total, available, _memory_psi(), _memory_events())
+
+
+def _event_deltas(
+    sample: MemorySample, baseline: MemorySample
+) -> tuple[int | None, int | None]:
+    if sample.events is None or baseline.events is None:
+        return None, None
+    return (
+        max(0, sample.events[0] - baseline.events[0]),
+        max(0, sample.events[1] - baseline.events[1]),
+    )
+
+
+def _pressure_trigger(
+    sample: MemorySample, baseline: MemorySample, consecutive: int
+) -> tuple[str | None, int]:
+    oom, killed = _event_deltas(sample, baseline)
+    if killed:
+        return "cgroup_oom_kill_increased", consecutive
+    if oom:
+        return "cgroup_oom_increased", consecutive
+    if sample.available <= OOM_CRITICAL_BYTES:
+        return "critical_available", consecutive
+    hard = sample.available <= max(OOM_HARD_BYTES, sample.total // 10)
+    pressure = (
+        sample.psi is not None
+        and sample.psi >= OOM_PSI_FULL_AVG10
+        and sample.available <= max(OOM_PRESSURE_BYTES, sample.total // 5)
+    )
+    consecutive = consecutive + 1 if hard or pressure else 0
+    reason = "sustained_low_available" if hard else "sustained_memory_pressure"
+    return (reason if consecutive >= OOM_CONSECUTIVE_SAMPLES else None), consecutive
+
+
+def _oom_guard_enabled(mode: str, parser: argparse.ArgumentParser) -> bool:
+    if mode == "off":
+        return False
+    if mode == "auto" and any(
+        value and value.lower() not in {"0", "false", "no", "off"}
+        for value in (os.environ.get("GITHUB_ACTIONS"), os.environ.get("CI"))
+    ):
+        return False
+    reason = None
+    if sys.platform != "linux":
+        reason = "Linux process-group supervision is unsupported on this platform"
+    elif not all(
+        hasattr(os, name)
+        for name in (
+            "setsid",
+            "killpg",
+            "getpgrp",
+            "waitid",
+            "P_PID",
+            "WEXITED",
+            "WNOHANG",
+            "WNOWAIT",
+        )
+    ):
+        reason = "owned process-group/non-reaping wait capability is unavailable"
+    elif threading.current_thread() is not threading.main_thread():
+        reason = "signal supervision requires the main thread"
+    elif signal.getsignal(signal.SIGCHLD) != signal.SIG_DFL:
+        reason = "SIGCHLD handling does not preserve child wait ownership"
+    elif _memory_sample() is None:
+        reason = "effective memory telemetry is unavailable"
+    if reason is not None:
+        if mode == "on":
+            parser.error("OOM guard unavailable: " + reason)
+        print("[validate] OOM guard unavailable: " + reason, flush=True)
+        return False
+    return True
+
+
+def _terminate_gate(child: subprocess.Popen[bytes]) -> str:
+    # Never poll/reap during this sequence: the unreaped leader pins its PID,
+    # even if it exits before a grandchild, so this PGID cannot be reused.
+    if child.pid == os.getpgrp():
+        raise RuntimeError("refusing to signal the validator process group")
+    termination = "SIGTERM"
+    try:
+        os.killpg(child.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        child.wait()
+        return "already_exited"
+    deadline = time.monotonic() + OOM_TERM_GRACE_SECONDS
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(child.pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+    else:
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+            termination = "SIGTERM_SIGKILL"
+        except ProcessLookupError:
+            pass
+    child.wait()
+    return termination
+
+
+def _raise_cancellation(signum: int) -> None:
+    if signum == signal.SIGINT:
+        raise KeyboardInterrupt
+    raise SystemExit(128 + signum)
+
+
+def _run_guarded_gate(name: str, command: tuple[str, ...], mode: str) -> int:
+    baseline = _memory_sample()
+    if baseline is None:
+        print(
+            "[validate] OOM guard unavailable: effective memory telemetry lost",
+            flush=True,
+        )
+        if mode == "on":
+            return 2
+        return subprocess.run(command, cwd=REPO_ROOT, check=False).returncode
+    started = time.perf_counter()
+    child: subprocess.Popen[bytes] | None = None
+    cancelled: int | None = None
+    previous = {}
+
+    def cancel(signum: int, _frame: object) -> None:
+        # Defer raising until Popen has returned its owned handle. This also
+        # lets cleanup finish if a second cancellation arrives during grace.
+        nonlocal cancelled
+        if cancelled is None:
+            cancelled = signum
+
+    try:
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            previous[signum] = signal.signal(signum, cancel)
+        child = subprocess.Popen(command, cwd=REPO_ROOT, start_new_session=True)
+        consecutive = 0
+        unavailable_noticed = False
+        while True:
+            if cancelled is not None:
+                _raise_cancellation(cancelled)
+            if (
+                os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                is not None
+            ):
+                return child.wait()
+            sample = _memory_sample()
+            if sample is None:
+                consecutive = 0
+                if not unavailable_noticed:
+                    print(
+                        "[validate] OOM guard unavailable: runtime memory telemetry lost",
+                        flush=True,
+                    )
+                    unavailable_noticed = True
+                if mode == "on":
+                    _terminate_gate(child)
+                    return 2
+            else:
+                trigger, consecutive = _pressure_trigger(sample, baseline, consecutive)
+                if trigger is not None:
+                    if cancelled is not None:
+                        _raise_cancellation(cancelled)
+                    # A completed ordinary gate keeps its actual exit code.
+                    if (
+                        os.waitid(
+                            os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT
+                        )
+                        is not None
+                    ):
+                        return child.wait()
+                    termination = _terminate_gate(child)
+                    if termination == "already_exited":
+                        return child.wait()
+                    oom, killed = _event_deltas(sample, baseline)
+                    record = {
+                        "format": "pietto.validation-resource-pressure.v1",
+                        "gate": name,
+                        "reason": "RESOURCE_PRESSURE_ABORTED",
+                        "trigger": trigger,
+                        "elapsed_seconds": round(time.perf_counter() - started, 3),
+                        "effective_total_bytes": sample.total,
+                        "effective_available_bytes": sample.available,
+                        "hard_threshold_bytes": max(OOM_HARD_BYTES, sample.total // 10),
+                        "critical_threshold_bytes": OOM_CRITICAL_BYTES,
+                        "psi_full_avg10": sample.psi,
+                        "memory_events_oom_delta": oom,
+                        "memory_events_oom_kill_delta": killed,
+                        "child_pid": child.pid,
+                        "termination": termination,
+                    }
+                    print(
+                        "[validate] resource-pressure "
+                        + json.dumps(record, sort_keys=True),
+                        flush=True,
+                    )
+                    return RESOURCE_PRESSURE_EXIT
+            time.sleep(OOM_SAMPLE_SECONDS)
+    except ChildProcessError:
+        # Another reaper invalidated ownership; never signal a reusable PID.
+        print("[validate] OOM guard unavailable: child wait ownership lost", flush=True)
+        return 2
+    except BaseException:
+        if child is not None and child.returncode is None:
+            _terminate_gate(child)
+        raise
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+        if cancelled is not None:
+            _raise_cancellation(cancelled)
+
+
 def _positive_int(value: str) -> int:
     try:
         parsed = int(value)
@@ -136,6 +404,12 @@ def _positive_int(value: str) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run Pietto's authoritative local validation gates.",
+    )
+    parser.add_argument(
+        "--oom-guard",
+        choices=("auto", "on", "off"),
+        default="auto",
+        help="local Linux runtime memory guard (default: auto; disabled automatically in CI)",
     )
     parser.add_argument(
         "--timings",
@@ -236,23 +510,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(()) if argv is None else parser.parse_args(argv)
     gates = _resolved_gates(args, parser)
+    guarded = _oom_guard_enabled(args.oom_guard, parser)
+    if guarded:
+        print("[validate] OOM guard enabled: Linux owned process groups", flush=True)
     total_started = time.perf_counter() if args.timings else 0.0
 
     for name, command in gates:
         print(f"[validate] {name}: {shlex.join(command)}", flush=True)
         gate_started = time.perf_counter() if args.timings else 0.0
-        result = subprocess.run(command, cwd=REPO_ROOT, check=False)
+        returncode = (
+            _run_guarded_gate(name, command, args.oom_guard)
+            if guarded
+            else subprocess.run(command, cwd=REPO_ROOT, check=False).returncode
+        )
         if args.timings:
             gate_elapsed = time.perf_counter() - gate_started
             print(f"[validate] {name} completed in {gate_elapsed:.3f}s", flush=True)
-        if result.returncode != 0:
+        if returncode != 0:
             if args.timings:
                 total_elapsed = time.perf_counter() - total_started
                 print(
                     f"[validate] total completed in {total_elapsed:.3f}s",
                     flush=True,
                 )
-            return result.returncode
+            return returncode
     if args.timings:
         total_elapsed = time.perf_counter() - total_started
         print(f"[validate] total completed in {total_elapsed:.3f}s", flush=True)

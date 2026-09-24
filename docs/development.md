@@ -239,3 +239,17 @@ materialized-field rules, R-B independent row images and R-C multiple scoped win
 are documented in the [current corrective disposition](spec/phase66-pre-slice16-completion-corrective-closure-v1.md#post-publication-residual-supplement).
 Changed production or authenticated probe bytes require fresh full target receipts; old
 successful receipts remain historical evidence, not proof of the supplement.
+
+
+## Local runtime OOM protection
+
+The [Interlude V Slice1 guard](spec/validation-performance-interlude-v-slice1-wsl-oom-emergency-guard-v1.md)
+adds `--oom-guard {auto,on,off}` to the validator. Local supported Linux/WSL auto mode
+supervises each gate in its own process group; CI auto mode and explicit off retain the
+old execution path. Startup worker selection, the four-worker ceiling and loadfile are
+unchanged. A resource-pressure abort is not a semantic/test failure. It is an incomplete
+validation start and must be recorded distinctly as exit 75 / `RESOURCE_PRESSURE_ABORTED`.
+There is no automatic retry or dynamic resizing; later recovery requires explicit task
+authority. Missing optional PSI/events does not disable available-memory protection.
+This safety guard claims no speed gain or guarantee against every OOM. Interlude IV's
+NO_GAIN sharding conclusion and reopening boundary remain intact.

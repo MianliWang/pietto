@@ -1538,3 +1538,14 @@ CI and strict raw receipts. B1 remains approved. The full manifest extends the e
 See the [current corrective disposition](spec/phase66-pre-slice16-completion-corrective-closure-v1.md#post-publication-residual-supplement).
 Phase66 remains ACTIVE; Slice16 requires a new audit, Phase67 is NOT STARTED, N66=16 and
 package/CLI remain 0.1.0. No phase-start discussion or Slice planning is performed here.
+
+
+Validation/Test Performance Optimization Interlude V is `ACTIVE`. Its
+[Slice1 local runtime OOM emergency guard](spec/validation-performance-interlude-v-slice1-wsl-oom-emergency-guard-v1.md)
+is `COMPLETED / PUBLISHED` only after its ordinary sealed publication and successful
+natural exact-head CI. It adds local emergency protection, not performance acceleration;
+startup worker selection, the four-worker ceiling, loadfile, CI behavior and target
+semantics remain unchanged. Future Interlude V slices are `NOT AUTHORIZED / NOT STARTED`;
+no total Slice count is approved. Phase66 remains `ACTIVE`, Slice16 is pending a fresh
+completion audit, Phase67 is `NOT STARTED`, N66=16 and package/CLI remain 0.1.0. The next
+user decision is further Interlude V work or returning to the Phase66 Slice16 audit.
