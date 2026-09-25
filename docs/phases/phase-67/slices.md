@@ -1,12 +1,12 @@
 # Phase67 路线：N67=16
 
-当前只展开已授权 [Slice02](slice-02.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
+当前只展开已授权 [Slice03](slice-03.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
 
 | Slice | 目标／acceptance链接 | 依赖／类型 |
 | --- | --- | --- |
 | 01 | 启动、耐久规划/教训、工作CI治理、真实Arrow兼容/生命周期/device实验（P67-A16/A18；[验收](slice-01.md#三层验收)） | Phase66 + R1；joint foundation/experiment |
 | 02 | ResultContract/ResultShape与一个Int的producer→Arrow→batch[薄纵向](slice-02.md)（P67-A01–A04/A08/A11–A12/A15–A16；[验收](brief.md#三层完成验收与回归)） | 01；thin vertical |
-| 03 | canonical private bytes、pure decoder、runtime correspondence/invalidation（P67-A01/A05/A15；[验收](brief.md#三层完成验收与回归)） | 02 |
+| 03 | [canonical private bytes、pure decoder、runtime correspondence/invalidation](slice-03.md)（P67-A01/A05/A15；[验收](brief.md#三层完成验收与回归)） | 02 |
 | 04 | Int/Bool/Float、NULL、signed zero、显式lossless adaptation（P67-A02–A04/A06；[验收](brief.md#三层完成验收与回归)） | 02–03 |
 | 05 | Text/Unicode、string/large_string/collation（P67-A02–A04/A06–A07；[验收](brief.md#三层完成验收与回归)） | 04 |
 | 06 | Decimal128/256 precision/scale与overflow（P67-A02–A04/A06；[验收](brief.md#三层完成验收与回归)） | 04 |
@@ -41,3 +41,8 @@ Phase68接已验证result/binding/batch/finite-finalization合同，不重决编
 
 [Slice02](slice-02.md) 连接首个private Int产品消费者并完整归属P67-A01–A18。最终发布事实以Git、自然CI和外部ledger为准；
 成功后Slices01–02 COMPLETED/PUBLISHED，Slice03 NEXT/NOT STARTED，Slices04–16 NOT STARTED。禁止自动进入Slice03。
+
+## Slice03 交付与停点
+
+[Slice03](slice-03.md) 保留完整中立字段、类型与 import provenance 描述，分别执行 bounded pure consistency 和 supplied-live-authority correspondence。原14个产品案例与9个SDK案例保留；两runtime新增codec消费者、完整bytes比较和raw evidence核验均为必需。
+发布链通过后 Slices01–03 COMPLETED/PUBLISHED，Slice04 NEXT/NOT STARTED，Slices05–16 NOT STARTED。不开始Slice04。

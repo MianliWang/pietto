@@ -2,7 +2,7 @@
 
 规划层级 FULL；N67=16。描述性 Stage 目标是建立有限结果交换边界；现有资料没有数字 Stage，故不另造编号。
 这是已接受全 Phase 计划的耐久入口。Slice01 的 CI/SDK 实验范围与预算见其历史记录；当前只授权
-[Slice02](slice-02.md)，后续 Slice 仍逐次 dispatch。包/CLI 保持0.1.0。
+[Slice03](slice-03.md)，后续 Slice 仍逐次 dispatch。包/CLI 保持0.1.0。
 
 ## 使命、当前能力与边界
 
@@ -12,7 +12,7 @@ PiettoResultContract 与 scalar-first ResultShape，再分别核对 ProducerResu
 交付 RecordBatch／有限 reader 消费链。转换不能修补 producer 谎报，下游不重解上游语义。
 
 Slice01 已发布 CI governance 与两解释器真实 PyArrow25.0.1 SDK/lifetime/device 实验；它未实现产品结果。
-Slice02 交付 private Int batch 薄纵向；canonical bytes、有限完成、C 协议、IPC、公开 optional extra 仍待各自 Slice。
+Slice02 交付 private Int batch 薄纵向；Slice03 增加独立 canonical private bytes、bounded pure decoder、runtime correspondence/invalidation。有限完成、C 协议、IPC、公开 optional extra 仍待各自 Slice。
 Timestamp/UUID meaning 仍有 Phase66 V05 前提，Slice07 在首次映射前关闭。CPU 是当前成功域。
 
 ## 三层完成验收与回归

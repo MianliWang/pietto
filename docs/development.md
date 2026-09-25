@@ -382,3 +382,10 @@ completion 必须消费独立 product artifact；coverage、health 和 SDK repor
 协作约定：用户提交 terminal Slice report 后，协调 ChatGPT 在同一回复审查并给出下一份完整 English prompt；
 HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代理在当前授权终态停止，
 不因这条协调约定自动开始下一 Slice，也不引入 scheduler/automation service。
+
+
+## Slice03 private result contract 与轻量过程记录
+
+[Slice03](phases/phase-67/slice-03.md) 增加三private owners：stdlib-only pure boundary、checked exporter、独立runtime correspondence。原两compiler/package jobs及completion沿用现有required product report；不得把pure PASS、metadata或canonical bytes当作producer binding authority。比较两runtime的完整documents，排除外部evidence envelope；native inputs随新模块改变，必须消费fresh自然CI receipts。
+
+每个后续Slice在原外部ledger旁记录轻量JSONL步骤及中文成本摘要：meaningful step的start/end/recovered/note，workflow/step/parent、起止/monotonic elapsed、timing basis、purpose、sanitized action、outcome/reason/retry、evidence refs、budget categories。长命令启动前写start，结束后写同step end；ledger仍唯一计数权威，raw logs留外部。报告区分Slice观察窗口、命令时间、HOLD/user wait、CI wall与runner sum，parent/child不重复相加；缺失时间明确unknown。终态附evidence-linked步骤/成本摘要和下一Slice至多三条改进建议，历史缺口不否定正确执行的product gates，不自动增加benchmark、豁免或scope。

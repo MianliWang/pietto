@@ -333,8 +333,9 @@ EXPECTED_STATUS = (
     ("Phase 67 planning", "`FROZEN / N67=16`"),
     ("Phase 67 Slice 01", "`COMPLETED / PUBLISHED`"),
     ("Phase 67 Slice 02", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 03", "`NEXT / NOT STARTED`"),
-    ("Phase 67 Slices 04–16", "`NOT STARTED`"),
+    ("Phase 67 Slice 03", "`COMPLETED / PUBLISHED`"),
+    ("Phase 67 Slice 04", "`NEXT / NOT STARTED`"),
+    ("Phase 67 Slices 05–16", "`NOT STARTED`"),
     ("Interlude V", "`COMPLETED`"),
     ("Interlude V route", "`N=3`"),
     ("Interlude V Slice 1", "`COMPLETED / PUBLISHED`"),
@@ -342,7 +343,7 @@ EXPECTED_STATUS = (
     ("Interlude V S2 performance outcome", "`MEASURED_GAIN`"),
     ("Interlude V Slice 3", "`COMPLETED / PUBLISHED`"),
     ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
-    ("Next", "`Phase67 Slice03 under a separate dispatch`"),
+    ("Next", "`Phase67 Slice04 under a separate dispatch`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
@@ -1470,7 +1471,7 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "tests/test_active_phase_lifecycle.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
-EXPECTED_CURRENT_OWNER_SENTENCE = "Phase67 is `ACTIVE`, N67=16; Slices01–02 deliver CI/Arrow readiness and the private Int result product path."
+EXPECTED_CURRENT_OWNER_SENTENCE = "Phase67 is `ACTIVE`, N67=16; Slices01–03 deliver CI/Arrow readiness, the private Int result product, and canonical result descriptions with pure/runtime checks."
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
     "tests/_pietto_differential_process_acquisition.py",
@@ -6094,7 +6095,7 @@ def test_phase66_slice16_completion_and_accepted_phase67_plan_are_conditional() 
     assert (STATUS.parent / target).is_file()
 
 
-def test_phase67_slice02_keeps_the_portable_boundary_unstarted() -> None:
+def test_phase67_slice03_keeps_the_next_scalar_slice_unstarted() -> None:
     for path in (STATUS, ROADMAP):
         document = _read(path)
         current = document.split("## Phase67 当前路线", 1)[1].split(
@@ -6106,8 +6107,8 @@ def test_phase67_slice02_keeps_the_portable_boundary_unstarted() -> None:
         )
         assert "N67=16" in current and "全部15jobs" in current
         assert (
-            "Slice03 `NEXT / NOT STARTED`" in current
-            and "Slices04–16 `NOT STARTED`" in current
+            "Slice04 `NEXT / NOT STARTED`" in current
+            and "Slices05–16 `NOT STARTED`" in current
         )
-        assert "phases/phase-67/slice-02.md" in current
+        assert "phases/phase-67/slice-03.md" in current
         assert "Slice01不引入公开arrow extra" in current

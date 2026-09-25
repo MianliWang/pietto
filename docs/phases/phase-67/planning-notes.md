@@ -68,3 +68,8 @@ Q1 确认三层接受和 finite witness manifest 可执行，全部属于已有�
 已实现三层accepted boundary与全部冻结见证；primary-author/Ponytail审查及targeted followup通过，
 完整equivalent与两个installed runtime实测通过。P67-A01–A18归属和16行route未变；没有新architecture决定、
 没有未闭合semantic前提被静默转为PASS。当前仅剩已授权exact-tree publication与自然CI验收，Slice03不启动。
+
+## Slice03：窄 Q、reader amendment 与验证边界
+
+原16路径freeze及HOLD保留；续行只批准typing-inventory reader，扩为17条allowlist，A≤5/D0。三新增production modules与一个principal逐项解释228/499，保持exact equality。删除agent-owned冗余workflow wiring后workflow与baseline相同；完整bytes比较仍由本地及下载CI reports后执行。
+Q1维持P67-A01/A05/A15与单一scalar authority；Q2及最终审查/验证事实绑定外部review/seal，不能由bytes相同代替live identity，也不把一个不可用Enum程序泛化为全部Enum支持。

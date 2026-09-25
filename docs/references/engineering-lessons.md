@@ -18,3 +18,5 @@
 Slice02 消费 J02–J06：contract/producer/Arrow 三层分别保留权威；同根多 realization 与 foreign-root negative
 分开；installed consumer 读取当前 wheel，独立报告验证实际 Int 值/类型/NULL 和全部负例。新模块即使不改 emitter，
 也改变 native input closure，旧 receipt 不能证明当前候选。SDK readiness 与产品消费证据必须各自保留。
+
+Slice03：freeze前必须按真实新增production/test文件逐项检查直接inventory readers；本次漏项触发有效HOLD，续行仅批准一个reader。中立description应保留provenance路径分组及ORDER引用，不能flatten后以共同遗漏的roundtrip自证。既有required product路径足够时不增加重复workflow下载。具体一个Enum程序的上游拒绝不能推广为全类型结论。
