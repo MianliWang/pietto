@@ -348,3 +348,24 @@ CI runtime 使用 `--durations=30 --durations-min=1`，另从实际 pytest repor
 文件累计耗时和 worker 摘要；setup/call/teardown 与 child start/finish 分开，时序不取自 parent
 收到报告的时间。计时不进入 coverage schema 或 native receipts，也不决定成员。fixture 依赖分组
 与耗时平衡是不同问题：同文件封装可能串行化独立测试，完整报告正确不代表调度已最优。
+
+
+## 当前 CI workload governance 与 Phase67
+
+[CI governance v1](architecture/ci-workload-governance-v1.md) 取代R1的当前placement；旧段落保留历史。
+四个当前分区是 shared-acquisition/loadfile、plan-portability/load、emission-portability/load、
+general-runtime/loadfile。普通local validator仍不改变selection；pytest.ini只注册marker。
+新special节点用ci_workload声明class/family/group/profile，registry负责placement；无placement即拒绝。
+新ordinary自动纳入实际U。添加测试时说明扩展的assurance、预计资源影响及正负检查，不要求精确秒数。
+
+coverage v2保存resolved descriptor table/indices与policy身份，独立于health v1；旧coverage v1只属历史。
+managed canonical store的真实production与preparation被被动观察，synthetic stores与memo reads不算重复。
+health通过required报告与GitHub Job Summary进入正常CI；最终aggregate只读获取current runtime summaries
+和bounded main history，artifact字节按ID/size/digest/context验证。只有此job有actions:read，无写权限。
+health不足历史可为INSUFFICIENT_EVIDENCE；slow正确结果不失败，不自动调参、改配置、retry或省略测试。
+
+两compiler/package jobs各在独立环境跑真实PyArrow25.0.1 probe，completion要求完整readiness；core安装与CLI
+仍无Arrow。开发机统一外部launcher固定既有project解释器，隔离实验明确指定现有解释器，禁止环境重建。
+本次Gate2仅一次3.13完整equivalent：static、独立U、四分区串行、全部对账/health、auxiliary和精确输入匹配的
+两解释器小probe；不能另加monolithic/full3.12/cold-matrix。本期 [brief](phases/phase-67/brief.md)、
+[Slice01](phases/phase-67/slice-01.md) 与 [lessons](references/engineering-lessons.md) 供后续phase消费。

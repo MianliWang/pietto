@@ -1,0 +1,146 @@
+version = 1
+topology_version = 1
+
+[thresholds]
+imbalance_watch = 1.25
+imbalance_review = 1.50
+finish_spread = 0.30
+startup = 0.25
+long_node_fraction = 0.40
+long_node_seconds = 60.0
+critical_path_growth = 0.25
+runner_sum_growth = 0.20
+minimum_wall_gain = 0.15
+
+[[requirements]]
+kind = "general-runtime"
+family = "default"
+acquisition_group = ""
+dependency_profile = "core"
+
+[[requirements]]
+kind = "shared-acquisition"
+family = "compiler-differential"
+acquisition_group = "compiler-differential"
+dependency_profile = "core"
+
+[[requirements]]
+kind = "process-portability"
+family = "plan"
+acquisition_group = ""
+dependency_profile = "core"
+
+[[requirements]]
+kind = "process-portability"
+family = "emission"
+acquisition_group = ""
+dependency_profile = "core"
+
+[[placements]]
+kind = "general-runtime"
+family = "default"
+shard = "general-runtime"
+
+[[placements]]
+kind = "shared-acquisition"
+family = "compiler-differential"
+shard = "shared-acquisition"
+
+[[placements]]
+kind = "process-portability"
+family = "plan"
+shard = "plan-portability"
+
+[[placements]]
+kind = "process-portability"
+family = "emission"
+shard = "emission-portability"
+
+[[shards]]
+id = "shared-acquisition"
+scheduler = "loadfile"
+dependency_profile = "core"
+
+[[shards]]
+id = "plan-portability"
+scheduler = "load"
+dependency_profile = "core"
+
+[[shards]]
+id = "emission-portability"
+scheduler = "load"
+dependency_profile = "core"
+
+[[shards]]
+id = "general-runtime"
+scheduler = "loadfile"
+dependency_profile = "core"
+
+[[groups]]
+name = "compiler-differential"
+observer = "differential"
+purpose = "complete-compiler-differential"
+
+[[legacy_files]]
+path = "tests/test_phase58_slice16_pure_differential_compatibility_assurance.py"
+kind = "shared-acquisition"
+family = "compiler-differential"
+
+[[legacy_files]]
+path = "tests/test_phase59_slice11_differential_compatibility_assurance.py"
+kind = "shared-acquisition"
+family = "compiler-differential"
+
+[[legacy_files]]
+path = "tests/test_phase60_slice12_differential_compatibility.py"
+kind = "shared-acquisition"
+family = "compiler-differential"
+
+[[legacy_files]]
+path = "tests/test_phase61_slice11_differential_compatibility.py"
+kind = "shared-acquisition"
+family = "compiler-differential"
+
+[[legacy_files]]
+path = "tests/test_phase62_slice15_real_authored_e2e_python_differential_metamorphic_join_assurance.py"
+kind = "shared-acquisition"
+family = "compiler-differential"
+
+[[legacy_files]]
+path = "tests/test_phase63_slice15_inspection_pure_boundary_real_e2e_differential_metamorphic_assurance.py"
+kind = "shared-acquisition"
+family = "compiler-differential"
+
+[[legacy_files]]
+path = "tests/test_phase64_slice10_ir_observation_and_differential.py"
+kind = "shared-acquisition"
+family = "compiler-differential"
+
+[[legacy_files]]
+path = "tests/test_phase65_slice14_portable_boundary_minimal_process_integration.py"
+kind = "shared-acquisition"
+family = "compiler-differential"
+
+[[legacy_files]]
+path = "tests/test_phase65_slice15_whole_selected_plan_real_source_differential_conformance.py"
+kind = "shared-acquisition"
+family = "compiler-differential"
+
+[[legacy_files]]
+path = "tests/test_phase66_slice14_private_emission_observation_process_integration.py"
+kind = "shared-acquisition"
+family = "compiler-differential"
+
+[[legacy_nodes]]
+function = "tests/test_phase65_slice14_portable_boundary_minimal_process_integration.py::test_standalone_forward_reverse_batch_and_atomic_failure"
+modes = ["checkout", "relocated", "installed"]
+kind = "process-portability"
+family = "plan"
+exception_to = "tests/test_phase65_slice14_portable_boundary_minimal_process_integration.py"
+
+[[legacy_nodes]]
+function = "tests/test_phase66_slice14_private_emission_observation_process_integration.py::test_standalone_forward_reverse_batches_beside_older_families"
+modes = ["checkout", "relocated", "installed"]
+kind = "process-portability"
+family = "emission"
+exception_to = "tests/test_phase66_slice14_private_emission_observation_process_integration.py"

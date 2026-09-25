@@ -329,8 +329,11 @@ EXPECTED_STATUS = (
     ("Phase 66 Slice 15", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 16", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 route", "`N=16`"),
-    ("Phase 67", "`NEXT / NOT STARTED`"),
-    ("Phase 67 planning", "`ACCEPTED / PRE-ACTIVATION CANDIDATE`"),
+    ("Phase 67", "`ACTIVE`"),
+    ("Phase 67 planning", "`FROZEN / N67=16`"),
+    ("Phase 67 Slice 01", "`COMPLETED / PUBLISHED`"),
+    ("Phase 67 Slice 02", "`NEXT / NOT STARTED`"),
+    ("Phase 67 Slices 03–16", "`NOT STARTED`"),
     ("Interlude V", "`COMPLETED`"),
     ("Interlude V route", "`N=3`"),
     ("Interlude V Slice 1", "`COMPLETED / PUBLISHED`"),
@@ -338,7 +341,7 @@ EXPECTED_STATUS = (
     ("Interlude V S2 performance outcome", "`MEASURED_GAIN`"),
     ("Interlude V Slice 3", "`COMPLETED / PUBLISHED`"),
     ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
-    ("Next", "`Rebind accepted Phase67 v4 plan under a separate dispatch`"),
+    ("Next", "`Phase67 Slice02 under a separate dispatch`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
@@ -1466,10 +1469,7 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "tests/test_active_phase_lifecycle.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
-EXPECTED_CURRENT_OWNER_SENTENCE = (
-    "The next owner is Phase67, which is `NEXT / NOT STARTED`; rebind and repository "
-    "freeze require a separate dispatch."
-)
+EXPECTED_CURRENT_OWNER_SENTENCE = "Phase67 is `ACTIVE`, N67=16; Slice01 applies the accepted v4 plan and the joint CI/Arrow readiness dispatch."
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
     "tests/_pietto_differential_process_acquisition.py",
@@ -6091,3 +6091,21 @@ def test_phase66_slice16_completion_and_accepted_phase67_plan_are_conditional() 
         ):
             assert phrase in document, phrase
     assert (STATUS.parent / target).is_file()
+
+
+def test_phase67_joint_slice01_keeps_the_next_vertical_unstarted() -> None:
+    for path in (STATUS, ROADMAP):
+        document = _read(path)
+        current = document.split("## Phase67 当前路线", 1)[1].split(
+            "## CI remaining-tail", 1
+        )[0]
+        assert (
+            "phases/phase-67/brief.md" in current
+            and "phases/phase-67/slices.md" in current
+        )
+        assert "N67=16" in current and "全部15jobs" in current
+        assert (
+            "Slice02 `NEXT / NOT STARTED`" in current
+            and "Slices03–16 `NOT STARTED`" in current
+        )
+        assert "Slice01不引入公开arrow extra" in current

@@ -1,0 +1,5 @@
+# Experiment only: CPython 3.12/3.13, Linux glibc >=2.28, x86-64.
+# Official PyPI 25.0.1 wheels; no direct runtime dependencies.
+pyarrow==25.0.1 \
+    --hash=sha256:5389cdf79447ed1515c9e31620e6e1e2302249564d603f2ad727d4f6d313e4c3 \
+    --hash=sha256:0befcf816e45a1af33ac775a9970b749e4868a230c7372f0ae5e932bee27039f

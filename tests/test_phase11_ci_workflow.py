@@ -60,18 +60,19 @@ def test_ci_triggers_permissions_runner_and_matrix_are_exact() -> None:
         for owner in ("checks", "runtime", "python"):
             assert f'python-version: "{python}"' in _job(workflow, f"{owner}_{word}")
         runtime = _job(workflow, f"runtime_{word}")
-        assert re.findall(r"(?m)^          - (\w+)$", runtime) == [
-            "matrix",
-            "standalone",
-            "remaining",
+        assert re.findall(r"(?m)^          - ([\w-]+)$", runtime) == [
+            "shared-acquisition",
+            "plan-portability",
+            "emission-portability",
+            "general-runtime",
         ]
         assert "fail-fast: false" in runtime
         assert "needs:" not in runtime and "needs:" not in _job(
             workflow, f"checks_{word}"
         )
         assert "include:" not in runtime and "exclude:" not in runtime
-    # Two three-way runtime matrices and the two-target matrix add five jobs.
-    assert len(EXPECTED_JOBS) + 5 == 13
+    # Two four-way runtime matrices and the two-target matrix add seven jobs.
+    assert len(EXPECTED_JOBS) + 7 == 15
 
 
 def test_ci_sets_java_21_and_pins_the_local_uv_version() -> None:
@@ -193,9 +194,15 @@ def test_ci_has_no_write_credentials_and_only_scoped_evidence_artifacts() -> Non
             ):
                 assert fragment in job
         summary = _job(workflow, f"python_{word}")
-        assert summary.count("digest-mismatch: error") == 4
-        assert summary.count("skip-decompress: true") == 4
-        for part in ("collection", "matrix", "standalone", "remaining"):
+        assert summary.count("digest-mismatch: error") == 10
+        assert summary.count("skip-decompress: true") == 10
+        for part in (
+            "collection",
+            "shared-acquisition",
+            "plan-portability",
+            "emission-portability",
+            "general-runtime",
+        ):
             assert (
                 f"name: ci-coverage-${{{{ github.run_id }}}}-${{{{ github.run_attempt }}}}-{python}-{part}.json"
                 in summary
@@ -319,14 +326,28 @@ def _universe():
 
 def _reports():
     universe = _universe()
+    descriptors = ci.workloads.resolve(ci.POLICY, universe, {})
     base = {
         "format": ci.FORMAT,
         "context": dict(CONTEXT),
         "exit_code": 0,
-        "collection": ci.collection_identity(universe),
+        "collection": ci.collection_identity(universe, descriptors),
+        "policy": ci.POLICY_ID,
+        "inputs": ci.INPUT_ID,
+        "domain": [[3, 13]],
         "elapsed_seconds": 1.0,
     }
-    collection = {**base, "kind": "collection", "nodes": universe}
+    descriptors = ci.workloads.resolve(ci.POLICY, universe, {})
+    by_node = dict(zip(universe, descriptors, strict=True))
+    collection = {
+        **base,
+        "kind": "collection",
+        "nodes": universe,
+        "requirements": {
+            "table": ci.workloads.table(ci.POLICY),
+            "indices": descriptors,
+        },
+    }
     partitions = []
     for part, nodes in ci.partition_nodes(universe).items():
         partitions.append(
@@ -335,6 +356,10 @@ def _reports():
                 "kind": "partition",
                 "partition": part,
                 "nodes": nodes,
+                "requirements": {
+                    "table": ci.workloads.table(ci.POLICY),
+                    "indices": [by_node[n] for n in nodes],
+                },
                 "outcomes": [
                     [i, "passed", "passed", "passed"] for i in range(len(nodes))
                 ],
@@ -353,9 +378,10 @@ def _verify(collection, partitions, checks="success", runtime="success"):
 def test_unknown_ordinary_nodes_and_six_standalone_modes_keep_complete_coverage():
     collection, reports = _reports()
     result = _verify(collection, reports)
-    matrix, standalone, remaining = reports
+    matrix, plan, emission, remaining = reports
     assert remaining["nodes"] == [FUTURE, FUTURE + "_other"]
-    assert standalone["nodes"] == sorted(ci.STANDALONE_NODES)
+    assert sorted(plan["nodes"] + emission["nodes"]) == sorted(ci.STANDALONE_NODES)
+    assert len(plan["nodes"]) == len(emission["nodes"]) == 3
     assert matrix["nodes"] == sorted(p + "::test_existing" for p in ci.MATRIX_FILES)
     selections = [set(report["nodes"]) for report in reports]
     assert sum(map(len, selections)) == len(set.union(*selections))
@@ -386,11 +412,17 @@ def test_selector_drift_never_becomes_an_empty_or_partial_success(damage):
         reports[1]["outcomes"] = []
     else:
         nodes = collection["nodes"]
-        if damage == "stale_mode":
-            nodes.remove(ci.STANDALONE_NODES[0])
-        else:
-            nodes.remove(ci.MATRIX_FILES[0] + "::test_existing")
-        collection["collection"] = ci.collection_identity(nodes)
+        removed = (
+            ci.STANDALONE_NODES[0]
+            if damage == "stale_mode"
+            else ci.MATRIX_FILES[0] + "::test_existing"
+        )
+        index = nodes.index(removed)
+        nodes.pop(index)
+        collection["requirements"]["indices"].pop(index)
+        collection["collection"] = ci.collection_identity(
+            nodes, collection["requirements"]["indices"]
+        )
     with pytest.raises(ValueError):
         _verify(collection, reports)
 
@@ -398,9 +430,9 @@ def test_selector_drift_never_becomes_an_empty_or_partial_success(damage):
 def test_independent_universe_catches_a_classifier_that_omits_a_node(monkeypatch):
     original = ci.partition_nodes
 
-    def incomplete(nodes):
-        partitions = original(nodes)
-        partitions["remaining"].remove(FUTURE)
+    def incomplete(nodes, indices=None):
+        partitions = original(nodes, indices)
+        partitions["general-runtime"].remove(FUTURE)
         return partitions
 
     monkeypatch.setattr(ci, "partition_nodes", incomplete)
@@ -451,7 +483,7 @@ def test_reports_cannot_substitute_other_parts_or_hide_pytest_failure(damage):
     elif damage == "wrong_digest":
         reports[0]["collection"]["sha256"] = "0" * 64
     elif damage == "wrong_owner":
-        reports[0]["partition"] = "remaining"
+        reports[0]["partition"] = "general-runtime"
     elif damage == "foreign_owner":
         reports[1]["partition"] = "foreign"
     elif damage == "foreign_field":
@@ -565,8 +597,8 @@ def test_default_local_gates_and_existing_worker_policy_remain_complete(monkeypa
         "2",
         "--dist=loadfile",
     )
-    assert ci.runtime_command(4, "standalone")[-1] == "--dist=load"
-    assert ci.runtime_command(4, "remaining")[-1] == "--dist=loadfile"
+    assert ci.runtime_command(4, "plan-portability")[-1] == "--dist=load"
+    assert ci.runtime_command(4, "general-runtime")[-1] == "--dist=loadfile"
     assert tuple(
         name for name, _ in v._resolved_gates(parser.parse_args(()), parser)
     ) == tuple(name for name, _ in v.GATES)
@@ -577,10 +609,13 @@ def test_default_local_gates_and_existing_worker_policy_remain_complete(monkeypa
 
 
 def test_raw_artifact_names_bind_current_run_attempt_runtime_and_partition():
-    assert ci.report_name(CONTEXT, "matrix") == "ci-coverage-37-1-3.13-matrix.json"
+    assert (
+        ci.report_name(CONTEXT, "shared-acquisition")
+        == "ci-coverage-37-1-3.13-shared-acquisition.json"
+    )
     assert (
         len({ci.report_name(CONTEXT, part) for part in ("collection", *ci.PARTITIONS)})
-        == 4
+        == 5
     )
     with pytest.raises(ValueError):
         ci.report_name(CONTEXT, "missing")
@@ -613,7 +648,7 @@ def test_runtime_launch_prepares_fresh_invocation_parent(tmp_path, monkeypatch):
         "--run-attempt",
         "1",
         "--partition",
-        "matrix",
+        "shared-acquisition",
         "--report",
         str(report),
     ]
@@ -625,20 +660,24 @@ def test_runtime_launch_prepares_fresh_invocation_parent(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("name", ("MATRIX_FILES", "STANDALONE", "STANDALONE_NODES"))
 def test_duplicate_special_selector_definitions_fail_before_routing(monkeypatch, name):
-    nodes = _universe()
-    selectors = getattr(ci, name)
-    monkeypatch.setattr(ci, name, (*selectors, selectors[0]))
-    with pytest.raises(ValueError, match="overlapping special selectors"):
-        ci.partition_nodes(nodes)
+    policy = deepcopy(ci.POLICY)
+    if name == "MATRIX_FILES":
+        policy["legacy_files"].append(deepcopy(policy["legacy_files"][0]))
+    elif name == "STANDALONE":
+        policy["legacy_nodes"].append(deepcopy(policy["legacy_nodes"][0]))
+    else:
+        policy["legacy_nodes"][0]["modes"].append(policy["legacy_nodes"][0]["modes"][0])
+    with pytest.raises(ValueError, match="duplicate"):
+        ci.workloads.validate_policy(policy)
 
 
 def test_independent_universe_rejects_classifier_created_overlap(monkeypatch):
     original = ci.partition_nodes
 
-    def overlapping(nodes):
-        partitions = original(nodes)
-        partitions["remaining"] = sorted(
-            [*partitions["remaining"], partitions["matrix"][0]]
+    def overlapping(nodes, indices=None):
+        partitions = original(nodes, indices)
+        partitions["general-runtime"] = sorted(
+            [*partitions["general-runtime"], partitions["shared-acquisition"][0]]
         )
         return partitions
 
@@ -650,17 +689,7 @@ def test_independent_universe_rejects_classifier_created_overlap(monkeypatch):
 
 def test_timing_summary_is_bounded_escaped_and_separate_from_coverage(tmp_path):
     import json
-    from types import SimpleNamespace
 
-    options = {
-        "--ci-report": str(tmp_path / "report.json"),
-        "--ci-context": json.dumps(CONTEXT),
-        "--ci-partition": "standalone",
-        "dist": "load",
-    }
-    plugin = ci.Coverage(
-        SimpleNamespace(getoption=lambda name, default=None: options.get(name, default))
-    )
     unusual = 'tests/test_new.py::test_value["line\n雪]'
     ids = [unusual, *(f"test_{n}" for n in range(40)), *ci.STANDALONE_NODES]
     reports = [
@@ -679,19 +708,15 @@ def test_timing_summary_is_bounded_escaped_and_separate_from_coverage(tmp_path):
         for index, node in enumerate(ids)
         for phase in ("setup", "call", "teardown")
     ]
-    output = []
-    plugin.pytest_terminal_summary(
-        SimpleNamespace(
-            stats={"passed": reports, "warnings": [object()]}, write_line=output.append
-        )
-    )
-    assert len(output) == 1 and len(output[0].splitlines()) == 1
-    timing = json.loads(output[0].removeprefix("[ci-timing] "))
-    assert len(timing["nodes"]) == 36
-    assert {unusual, *ci.STANDALONE_NODES} <= {row["node"] for row in timing["nodes"]}
-    assert sum(w["calls"] for w in timing["workers"].values()) == len(ids)
+    timing = ci.workloads.timing_summary(reports, 99.0, "load")
+    output = "[ci-timing] " + json.dumps(timing, ensure_ascii=True)
+    assert len(output.splitlines()) == 1
+    decoded = json.loads(output.removeprefix("[ci-timing] "))
+    assert len(decoded["nodes"]) == 30
+    assert unusual in {row["node"] for row in decoded["nodes"]}
+    assert sum(w["calls"] for w in decoded["workers"].values()) == len(ids)
     assert all(
-        set(row["phases"]) == {"setup", "call", "teardown"} for row in timing["nodes"]
+        set(row["phases"]) == {"setup", "call", "teardown"} for row in decoded["nodes"]
     )
-    assert timing["scheduler"] == "load"
+    assert decoded["scheduler"] == "load"
     assert not (tmp_path / "report.json").exists()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import json
 import math
 import os
@@ -21,31 +22,25 @@ import pytest
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts import validate
+from scripts import ci_workloads as workloads
 
 ROOT = Path(__file__).resolve().parents[1]
-FORMAT = "pietto.ci-coverage.v1"
+sys.path.insert(0, str(ROOT / "tests"))
+acquisition: Any = importlib.import_module("_pietto_differential_process_acquisition")
+
+FORMAT = "pietto.ci-coverage.v2"
 MAX_REPORT_BYTES = 8 * 1024 * 1024
-PARTITIONS = ("matrix", "standalone", "remaining")
-MATRIX_FILES = (
-    "tests/test_phase58_slice16_pure_differential_compatibility_assurance.py",
-    "tests/test_phase59_slice11_differential_compatibility_assurance.py",
-    "tests/test_phase60_slice12_differential_compatibility.py",
-    "tests/test_phase61_slice11_differential_compatibility.py",
-    "tests/test_phase62_slice15_real_authored_e2e_python_differential_metamorphic_join_assurance.py",
-    "tests/test_phase63_slice15_inspection_pure_boundary_real_e2e_differential_metamorphic_assurance.py",
-    "tests/test_phase64_slice10_ir_observation_and_differential.py",
-    "tests/test_phase65_slice14_portable_boundary_minimal_process_integration.py",
-    "tests/test_phase65_slice15_whole_selected_plan_real_source_differential_conformance.py",
-    "tests/test_phase66_slice14_private_emission_observation_process_integration.py",
-)
-STANDALONE = (
-    MATRIX_FILES[7] + "::test_standalone_forward_reverse_batch_and_atomic_failure",
-    MATRIX_FILES[9] + "::test_standalone_forward_reverse_batches_beside_older_families",
-)
+POLICY = workloads.load_policy(ROOT / "ci/workloads.toml")
+POLICY_ID = workloads.policy_identity(POLICY)
+INPUT_ID = workloads.input_identity(ROOT)
+PARTITIONS = tuple(row["id"] for row in POLICY["shards"])
+# Compatibility fixture views come from data, never Phase-number source branches.
+MATRIX_FILES = tuple(row["path"] for row in POLICY["legacy_files"])
+STANDALONE = tuple(row["function"] for row in POLICY["legacy_nodes"])
 STANDALONE_NODES = tuple(
-    f"{test}[{mode}]"
-    for test in STANDALONE
-    for mode in ("checkout", "relocated", "installed")
+    row["function"] + "[" + mode + "]"
+    for row in POLICY["legacy_nodes"]
+    for mode in row["modes"]
 )
 MANIFEST_PROPERTIES = frozenset(
     {"request_manifest", "cell_manifest", "phase66_request_manifest"}
@@ -71,36 +66,27 @@ def node_ids(value: object) -> list[str]:
     return value
 
 
-def partition_nodes(nodes: list[str]) -> dict[str, list[str]]:
+def partition_nodes(
+    nodes: list[str], indices: list[int] | None = None
+) -> dict[str, list[str]]:
     node_ids(nodes)
-    if any(
-        len(selectors) != len(set(selectors))
-        for selectors in (MATRIX_FILES, STANDALONE, STANDALONE_NODES)
-    ):
-        raise ValueError("overlapping special selectors")
-    files = {node.split("::", 1)[0] for node in nodes}
-    if not set(MATRIX_FILES) <= files:
-        raise ValueError("stale shared-matrix file selector")
-    actual = {node for node in nodes if node.split("[", 1)[0] in STANDALONE}
-    if actual != set(STANDALONE_NODES):
-        raise ValueError("stale or overlapping standalone selector")
-    result: dict[str, list[str]] = {part: [] for part in PARTITIONS}
-    for node in nodes:
-        if node in actual:
-            part = "standalone"
-        elif node.split("::", 1)[0] in MATRIX_FILES:
-            part = "matrix"
-        else:
-            part = "remaining"
-        result[part].append(node)
+    if indices is None:
+        indices = workloads.resolve(POLICY, nodes, {})
+    result = workloads.place(POLICY, nodes, indices)
     if not all(result.values()):
         raise ValueError("empty partition")
     return result
 
 
-def collection_identity(nodes: list[str]) -> dict[str, object]:
+def collection_identity(nodes: list[str], indices: list[int]) -> dict[str, object]:
     node_ids(nodes)
-    return {"count": len(nodes), "sha256": hashlib.sha256(canonical(nodes)).hexdigest()}
+    if len(indices) != len(nodes):
+        raise ValueError("incomplete independent collection requirements")
+    return {
+        "count": len(nodes),
+        "sha256": hashlib.sha256(canonical(nodes)).hexdigest(),
+        "requirements_sha256": workloads.digest(indices),
+    }
 
 
 def _pairs(items):
@@ -193,6 +179,10 @@ def verify_report(
         "collection",
         "elapsed_seconds",
         "nodes",
+        "policy",
+        "inputs",
+        "domain",
+        "requirements",
     }
     if kind == "partition":
         keys |= {"partition", "outcomes", "workers", "properties", "skips"}
@@ -209,10 +199,44 @@ def verify_report(
     if type(elapsed) not in (int, float) or not math.isfinite(elapsed) or elapsed < 0:
         raise ValueError("invalid report timing")
     nodes = node_ids(report["nodes"])
+    if (
+        type(report["policy"]) is not dict
+        or report["policy"] != POLICY_ID
+        or any(type(report["policy"][k]) is not type(v) for k, v in POLICY_ID.items())
+        or report["inputs"] != INPUT_ID
+    ):
+        raise ValueError("wrong workload policy or input identity")
+    domain = report["domain"]
+    if (
+        type(domain) is not list
+        or not domain
+        or domain != sorted(domain)
+        or any(
+            type(v) is not list
+            or len(v) != 2
+            or any(type(n) is not int for n in v)
+            or v not in ([3, 12], [3, 13])
+            for v in domain
+        )
+        or len({tuple(v) for v in domain}) != len(domain)
+        or [int(v) for v in context["python"].split(".")] not in domain
+    ):
+        raise ValueError("invalid interpreter domain")
+    requirements = report["requirements"]
+    if (
+        type(requirements) is not dict
+        or set(requirements) != {"table", "indices"}
+        or requirements["table"] != workloads.table(POLICY)
+        or type(requirements["indices"]) is not list
+        or len(requirements["indices"]) != len(nodes)
+    ):
+        raise ValueError("invalid resolved requirement table")
+    for index in requirements["indices"]:
+        workloads.integer(index, 0, len(requirements["table"]) - 1, "descriptor index")
     identity = report["collection"]
     if (
         type(identity) is not dict
-        or set(identity) != {"count", "sha256"}
+        or set(identity) != {"count", "sha256", "requirements_sha256"}
         or type(identity["count"]) is not int
         or identity["count"] < len(nodes)
         or type(identity["sha256"]) is not str
@@ -220,7 +244,13 @@ def verify_report(
     ):
         raise ValueError("invalid full collection identity")
     if kind == "collection":
-        if identity != collection_identity(nodes):
+        baseline = workloads.resolve(POLICY, nodes, {})
+        for node, actual, legacy in zip(
+            nodes, requirements["indices"], baseline, strict=True
+        ):
+            if node.split("::", 1)[0] in MATRIX_FILES and actual != legacy:
+                raise ValueError("forged legacy workload declaration")
+        if identity != collection_identity(nodes, requirements["indices"]):
             raise ValueError("full collection mismatch")
         return nodes
     if (
@@ -282,7 +312,9 @@ def reconcile(
     if (checks_status, runtime_status) != ("success", "success"):
         raise ValueError("required checks or runtime jobs were not successful")
     universe = verify_report(collection, context, "collection")
-    expected = partition_nodes(universe)
+    indices = collection["requirements"]["indices"]
+    expected = partition_nodes(universe, indices)
+    by_node = dict(zip(universe, indices, strict=True))
     if len(reports) != len(PARTITIONS):
         raise ValueError("missing partition report")
     seen: set[str] = set()
@@ -293,6 +325,10 @@ def reconcile(
         part = report["partition"]
         if part in owners or report["collection"] != collection["collection"]:
             raise ValueError("duplicate partition or different full collection")
+        if report["domain"] != collection["domain"] or report["requirements"][
+            "indices"
+        ] != [by_node.get(n) for n in nodes]:
+            raise ValueError("resolved requirement or interpreter-domain drift")
         if nodes != expected[part] or seen.intersection(nodes):
             raise ValueError("missing, foreign or overlapping selection")
         owners.add(part)
@@ -315,6 +351,7 @@ def pytest_addoption(parser):
     group = parser.getgroup("pietto-ci-coverage")
     group.addoption("--ci-report")
     group.addoption("--ci-context")
+    group.addoption("--ci-health")
     group.addoption("--ci-partition", choices=PARTITIONS)
 
 
@@ -343,15 +380,46 @@ class Coverage:
         self.worker_collections: dict[str, list[str]] = {}
         self.finished: list[dict[str, object]] = []
         self.error = False
+        self.indices: list[int] = []
+        self.domain: list[list[int]] = []
+        self.worker_details: dict[str, Any] = {}
+        self.partition_report: dict[str, Any] | None = None
+        self.observations: list[dict[str, object]] = []
+
+    def pytest_sessionstart(self, session):
+        self.domain = [
+            list(v) for v in sorted(acquisition.available_supported_interpreters())
+        ]
+        if self.partition is not None and (
+            self.worker or not self.config.getoption("numprocesses", default=0)
+        ):
+            base = self.config._tmp_path_factory.getbasetemp()
+            root = base.parent if self.worker else base
+            acquisition._OBSERVER_ROOT = root / "pietto-differential-acquisition"
+            acquisition._OBSERVER_EVENTS = self.observations
 
     @pytest.hookimpl(trylast=True)
     def pytest_collection_modifyitems(self, session, config, items):
         full = sorted(item.nodeid for item in items)
-        self.identity = collection_identity(full)
+        indices = workloads.resolve(
+            POLICY,
+            full,
+            {
+                item.nodeid: [
+                    (mark.args, mark.kwargs)
+                    for mark in item.iter_markers("ci_workload")
+                ]
+                for item in items
+            },
+        )
+        self.identity = collection_identity(full, indices)
         if self.partition is None:
             self.nodes = full
+            self.indices = indices
             return
-        self.nodes = partition_nodes(full)[self.partition]
+        self.nodes = partition_nodes(full, indices)[self.partition]
+        by_node = dict(zip(full, indices, strict=True))
+        self.indices = [by_node[n] for n in self.nodes]
         wanted = set(self.nodes)
         rejected = [item for item in items if item.nodeid not in wanted]
         items[:] = [item for item in items if item.nodeid in wanted]
@@ -372,6 +440,11 @@ class Coverage:
             self.error = True
         else:
             self.finished.append(identity)
+            self.worker_details[node.gateway.id] = node.workeroutput.get(
+                "pietto_workload"
+            )
+            if type(self.worker_details[node.gateway.id]) is not dict:
+                self.error = True
 
     def pytest_runtest_logreport(self, report):
         if self.worker:
@@ -392,6 +465,11 @@ class Coverage:
     def pytest_sessionfinish(self, session, exitstatus):
         if self.worker:
             self.config.workeroutput["pietto_collection"] = self.identity
+            self.config.workeroutput["pietto_workload"] = {
+                "indices": self.indices,
+                "domain": self.domain,
+                "observer": {"enabled": True, "events": self.observations},
+            }
             return
         if self.workers:
             if (
@@ -406,6 +484,19 @@ class Coverage:
             if any(nodes != selections[0] for nodes in selections):
                 raise ValueError("worker selection drift")
             self.nodes = selections[0]
+            details = list(self.worker_details.values())
+            if len(details) != self.workers or any(
+                type(d) is not dict or set(d) != {"indices", "domain", "observer"}
+                for d in details
+            ):
+                raise ValueError("missing worker requirement/observation details")
+            first = details[0]
+            if any(
+                d["indices"] != first["indices"] or d["domain"] != first["domain"]
+                for d in details
+            ):
+                raise ValueError("worker requirement/domain drift")
+            self.indices, self.domain = first["indices"], first["domain"]
         if self.error:
             raise ValueError("duplicate outcome or failed worker")
         result: dict[str, Any] = {
@@ -416,6 +507,10 @@ class Coverage:
             "collection": self.identity,
             "elapsed_seconds": time.monotonic() - self.started,
             "nodes": self.nodes,
+            "policy": POLICY_ID,
+            "inputs": INPUT_ID,
+            "domain": self.domain,
+            "requirements": {"table": workloads.table(POLICY), "indices": self.indices},
         }
         if self.partition is not None:
             if set(self.reports) != set(self.nodes):
@@ -446,78 +541,75 @@ class Coverage:
         if exitstatus == 0:
             verify_report(result, self.context, result["kind"])
         write_report(self.path, result)
+        self.partition_report = result if self.partition is not None else None
 
     def pytest_terminal_summary(self, terminalreporter):
-        if self.partition is None:
+        if self.partition_report is None:
             return
-        # Use child TestReport timestamps, never parent receipt-arrival times.
-        nodes: dict[str, dict[str, Any]] = {}
-        groups: dict[str, float] = {}
-        workers: dict[str, dict[str, Any]] = {}
-        for reports in terminalreporter.stats.values():
-            for report in reports:
-                if not isinstance(report, pytest.TestReport):
-                    continue
-                worker = getattr(report, "worker_id", "local")
-                row = nodes.setdefault(
-                    report.nodeid,
-                    {"node": report.nodeid, "worker": worker, "phases": {}},
-                )
-                row["phases"][report.when] = {
-                    "seconds": report.duration,
-                    "start": report.start,
-                    "finish": report.stop,
-                }
-                group = report.nodeid.split("::", 1)[0]
-                groups[group] = groups.get(group, 0.0) + report.duration
-                totals = workers.setdefault(
-                    worker,
-                    {
-                        "seconds": 0.0,
-                        "calls": 0,
-                        "start": report.start,
-                        "finish": report.stop,
-                    },
-                )
-                totals["seconds"] += report.duration
-                totals["calls"] += report.when == "call"
-                totals["start"] = min(totals["start"], report.start)
-                totals["finish"] = max(totals["finish"], report.stop)
-        slowest = sorted(
-            nodes,
-            key=lambda node: -sum(p["seconds"] for p in nodes[node]["phases"].values()),
-        )[:30]
-        selected = dict.fromkeys(
-            [*slowest, *(n for n in STANDALONE_NODES if n in nodes)]
+        timing = workloads.timing_summary(
+            [
+                r
+                for reports in terminalreporter.stats.values()
+                for r in reports
+                if isinstance(r, pytest.TestReport)
+            ],
+            self.started_wall,
+            self.config.getoption("dist", default="no"),
         )
+        observers = (
+            {worker: d["observer"] for worker, d in self.worker_details.items()}
+            if self.workers
+            else {"local": {"enabled": True, "events": self.observations}}
+        )
+        managed = workloads.managed_observations(
+            POLICY,
+            self.partition,
+            self.context,
+            self.domain,
+            INPUT_ID,
+            observers,
+            self.partition_report["properties"],
+        )
+        runner = {
+            "image": os.environ.get("ImageOS"),
+            "image_version": os.environ.get("ImageVersion"),
+            "os": platform.system(),
+            "arch": platform.machine(),
+        }
+        health = workloads.shard_health(self.partition_report, timing, managed, runner)
+        workloads.verify_shard_health(health, POLICY, self.partition_report)
+        health_path = self.config.getoption("--ci-health")
+        if health_path is None:
+            raise ValueError("missing current-run health path")
+        workloads.write_json(Path(health_path), health)
         terminalreporter.write_line(
             "[ci-timing] "
+            + json.dumps({"partition": self.partition, **timing}, ensure_ascii=True)
+        )
+        terminalreporter.write_line(
+            "[ci-health] "
             + json.dumps(
                 {
                     "partition": self.partition,
-                    "scheduler": self.config.getoption("dist", default="no"),
-                    "plugin_started": self.started_wall,
-                    "workers": workers,
-                    "slowest_groups_summed_seconds": sorted(
-                        groups.items(), key=lambda item: -item[1]
-                    )[:10],
-                    "nodes": [nodes[n] for n in selected],
-                },
-                ensure_ascii=True,
+                    "managed_cells": len(managed["productions"]),
+                    "observer_complete": managed["complete"],
+                }
             )
         )
 
 
 def runtime_command(
-    max_workers: int | None = None, partition: str = "matrix"
+    max_workers: int | None = None, partition: str = PARTITIONS[0]
 ) -> tuple[str, ...]:
     parser = validate._build_parser()
     args = parser.parse_args(())
     args.pytest_maxprocesses = max_workers
     selected = validate._pytest_command(args, parser)
-    # Only the six independent modes opt out of the validator's file grouping.
+    scheduler = next(
+        row["scheduler"] for row in POLICY["shards"] if row["id"] == partition
+    )
     options = tuple(
-        "--dist=load" if partition == "standalone" and arg == "--dist=loadfile" else arg
+        "--dist=" + scheduler if arg == "--dist=loadfile" else arg
         for arg in selected[3:]
     )
     return (sys.executable, "-m", "pytest", *options)
@@ -540,14 +632,196 @@ def run_gate(name: str, command: tuple[str, ...], guard: str) -> int:
     return result
 
 
+def readiness_inputs():
+    return tuple(
+        hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
+        for path in (
+            "tests/_pietto_phase67_arrow_compatibility_probe.py",
+            "ci/phase67-arrow-compatibility-requirements.txt",
+        )
+    )
+
+
+def workflow_context(context):
+    return {
+        "repository": os.environ.get("GITHUB_REPOSITORY", "MianliWang/pietto"),
+        "checkout": context["checkout"],
+        "run_id": context["run_id"],
+        "run_attempt": context["run_attempt"],
+        "event": os.environ.get("GITHUB_EVENT_NAME", "local"),
+        "branch": os.environ.get("GITHUB_REF_NAME", "main"),
+    }
+
+
+def health_name(context, part):
+    return f"ci-health-{context['run_id']}-{context['run_attempt']}-{context['python']}-{part}.json"
+
+
+def complete_runtime(args, context, collection, reports, result):
+    if args.health_dir is None or args.readiness is None or args.summary is None:
+        raise ValueError("missing required health/readiness/completion output")
+    names = {health_name(context, p) for p in PARTITIONS}
+    if {p.name for p in args.health_dir.iterdir()} != names:
+        raise ValueError("missing or foreign partition health files")
+    shards = [
+        workloads.verify_shard_health(
+            workloads.read_json(
+                args.health_dir / health_name(context, report["partition"])
+            ),
+            POLICY,
+            report,
+        )
+        for report in reports
+    ]
+    readiness = workloads.verify_readiness(
+        workloads.read_json(args.readiness), context, *readiness_inputs()
+    )
+    summary = {
+        "format": workloads.HEALTH_FORMAT,
+        "kind": "runtime",
+        "context": context,
+        "policy": POLICY_ID,
+        "domain": collection["domain"],
+        "collection": collection["collection"],
+        "coverage": result,
+        "shards": shards,
+        "readiness": readiness,
+    }
+    workloads.write_json(args.summary, summary)
+    return summary
+
+
+def complete_health(args, context):
+    if args.compiler_status != "success" or args.target_status != "success":
+        raise ValueError("required compiler or target jobs were not successful")
+    if args.health_dir is None or args.report is None:
+        raise ValueError("missing runtime health summaries or output")
+    if not args.health_dir.exists():
+        facts = workloads.fetch_current_summaries(
+            workflow_context(context),
+            os.environ.get("CI_HEALTH_TOKEN"),
+            args.health_dir,
+        )
+        print(
+            "[ci-health] current raw summaries verified "
+            + json.dumps(facts, ensure_ascii=True)
+        )
+    expected_names = {
+        health_name({**context, "python": py}, "summary") for py in ("3.12", "3.13")
+    }
+    if {p.name for p in args.health_dir.iterdir()} != expected_names:
+        raise ValueError("missing or foreign runtime summary files")
+    runtimes = {}
+    for py in ("3.12", "3.13"):
+        value = workloads.read_json(
+            args.health_dir / health_name({**context, "python": py}, "summary")
+        )
+        expected = {
+            **context,
+            "python": py,
+            "python_version": value["context"]["python_version"],
+        }
+        if (
+            value["context"] != expected
+            or type(expected["python_version"]) is not str
+            or re.fullmatch(re.escape(py) + r"\.[0-9]+", expected["python_version"])
+            is None
+        ):
+            raise ValueError("foreign runtime health context")
+        workloads.verify_readiness(value["readiness"], expected, *readiness_inputs())
+        if value["policy"] != POLICY_ID or [
+            p["partition"] for p in value["shards"]
+        ] != list(PARTITIONS):
+            raise ValueError("runtime health policy/topology mismatch")
+        runtimes[py] = value
+    identity = workflow_context(context)
+    history, provenance, cost = workloads.fetch_history(
+        identity, os.environ.get("CI_HEALTH_TOKEN"), POLICY
+    )
+    if args.history_file:
+        if identity["event"] != "local" or len(args.history_file) > 3:
+            raise ValueError(
+                "explicit local history is only for bounded local reproduction"
+            )
+        history = [
+            workloads.verify_workflow_health(workloads.read_json(p))
+            for p in args.history_file
+        ]
+        provenance = {
+            "availability": "EXPLICIT_LOCAL_FILES",
+            "candidates": len(history),
+            "accepted": [
+                {"path": str(p), "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
+                for p in args.history_file
+            ],
+            "rejected": [],
+        }
+    value = {
+        "format": workloads.HEALTH_FORMAT,
+        "kind": "workflow",
+        "context": identity,
+        "policy": POLICY_ID,
+        "runtimes": runtimes,
+        "cost": cost,
+        "assessment": {},
+        "history": provenance,
+        "reference": {
+            "label": "R1 historical reference; not a health-v1 sample",
+            "run_id": "36088124495",
+            "workflow_seconds": 720,
+            "sum_job_seconds": 3507,
+            "realized_jobs": 13,
+        },
+    }
+    value["assessment"] = workloads.analyze(value, history, POLICY["thresholds"])
+    workloads.verify_workflow_health(value, identity)
+    workloads.write_json(args.report, value)
+    summary_path = args.summary or (
+        Path(os.environ["GITHUB_STEP_SUMMARY"])
+        if os.environ.get("GITHUB_STEP_SUMMARY")
+        else None
+    )
+    if summary_path is not None:
+        with summary_path.open("a", encoding="utf-8") as stream:
+            stream.write(workloads.summary_markdown(value))
+    print(
+        "[ci-health] "
+        + json.dumps(
+            {
+                "status": value["assessment"]["status"],
+                "current_screen": value["assessment"]["current_screen"],
+                "history": provenance["availability"],
+                "cost_complete": cost["complete"],
+            }
+        )
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "action", choices=("gates", "collect", "run", "verify", "artifact")
+        "action",
+        choices=(
+            "gates",
+            "collect",
+            "run",
+            "verify",
+            "artifact",
+            "check-arrow",
+            "health",
+        ),
     )
     parser.add_argument("--python", choices=("3.12", "3.13"), required=True)
     parser.add_argument("--common", action="store_true")
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--health", type=Path)
+    parser.add_argument("--health-dir", type=Path)
+    parser.add_argument("--readiness", type=Path)
+    parser.add_argument("--summary", type=Path)
+    parser.add_argument("--history-file", type=Path, action="append", default=[])
+    parser.add_argument("--compiler-status")
+    parser.add_argument("--target-status")
     parser.add_argument("--evidence-dir", type=Path)
     parser.add_argument("--partition", choices=PARTITIONS)
     parser.add_argument("--checkout")
@@ -578,6 +852,22 @@ def main(argv: list[str] | None = None) -> int:
         context = runtime_context(
             args.python, args.checkout, args.run_id, args.run_attempt
         )
+        if args.action == "health":
+            return complete_health(args, context)
+        if args.action == "check-arrow":
+            import importlib.util
+
+            if importlib.util.find_spec("pyarrow") is not None:
+                raise ValueError("Arrow leaked into core environment")
+            if args.report is None:
+                raise ValueError("missing Arrow readiness report")
+            workloads.verify_readiness(
+                workloads.read_json(args.report), context, *readiness_inputs()
+            )
+            print(
+                "[ci-validation] all nine real Arrow readiness cases verified; core remains Arrow-free"
+            )
+            return 0
         if args.action == "verify":
             if args.evidence_dir is None:
                 raise ValueError("missing evidence directory")
@@ -590,6 +880,7 @@ def main(argv: list[str] | None = None) -> int:
             result = reconcile(
                 collection, reports, context, args.checks_status, args.runtime_status
             )
+            complete_runtime(args, context, collection, reports, result)
             print(
                 "[ci-validation] coverage reconciled "
                 + json.dumps(result, sort_keys=True)
@@ -599,7 +890,35 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("missing report path")
         if args.action == "artifact":
             report = read_report(args.report)
-            verify_report(report, context, report["kind"])
+            if report.get("format") == FORMAT:
+                verify_report(report, context, report["kind"])
+            elif report.get("format") == workloads.READINESS_FORMAT:
+                workloads.verify_readiness(report, context, *readiness_inputs())
+            elif report.get("format") == workloads.HEALTH_FORMAT:
+                if args.report.stat().st_size > workloads.MAX_HEALTH_BYTES:
+                    raise ValueError("health exceeds 1 MiB")
+                if report["kind"] == "workflow":
+                    workloads.verify_workflow_health(report, workflow_context(context))
+                elif (
+                    report["kind"] in ("partition", "runtime")
+                    and report["context"] == context
+                    and report["policy"] == POLICY_ID
+                ):
+                    if report["kind"] == "partition":
+                        if args.evidence_dir is None:
+                            raise ValueError(
+                                "partition health requires corresponding coverage"
+                            )
+                        coverage = read_report(
+                            args.evidence_dir
+                            / report_name(context, report["partition"])
+                        )
+                        verify_report(coverage, context, "partition")
+                        workloads.verify_shard_health(report, POLICY, coverage)
+                else:
+                    raise ValueError("foreign health context or kind")
+            else:
+                raise ValueError("unknown current evidence format")
             if (
                 args.artifact_id is None
                 or not args.artifact_id.isdigit()
@@ -640,6 +959,14 @@ def main(argv: list[str] | None = None) -> int:
             if basetemp.exists():
                 raise ValueError("pytest invocation root must be fresh")
             command += (
+                "--ci-health",
+                str(args.health.resolve())
+                if args.health is not None
+                else str(
+                    args.report.with_name(
+                        args.report.name.replace("ci-coverage-", "ci-health-")
+                    ).resolve()
+                ),
                 "--durations=30",
                 "--durations-min=1",
                 "--ci-partition",
@@ -653,7 +980,10 @@ def main(argv: list[str] | None = None) -> int:
             args.oom_guard,
         )
     except (ValueError, OSError, RuntimeError) as error:
-        print(f"[ci-validation] rejected: {error}", file=sys.stderr)
+        print(
+            "[ci-validation] rejected: " + json.dumps(str(error), ensure_ascii=True),
+            file=sys.stderr,
+        )
         return 1
 
 

@@ -85,8 +85,11 @@ documentation does not supersede that evidence.
 | Phase 66 Slice 15 | `COMPLETED / PUBLISHED` |
 | Phase 66 Slice 16 | `COMPLETED / PUBLISHED` |
 | Phase 66 route | `N=16` |
-| Phase 67 | `NEXT / NOT STARTED` |
-| Phase 67 planning | `ACCEPTED / PRE-ACTIVATION CANDIDATE` |
+| Phase 67 | `ACTIVE` |
+| Phase 67 planning | `FROZEN / N67=16` |
+| Phase 67 Slice 01 | `COMPLETED / PUBLISHED` |
+| Phase 67 Slice 02 | `NEXT / NOT STARTED` |
+| Phase 67 Slices 03–16 | `NOT STARTED` |
 | Interlude V | `COMPLETED` |
 | Interlude V route | `N=3` |
 | Interlude V Slice 1 | `COMPLETED / PUBLISHED` |
@@ -94,7 +97,20 @@ documentation does not supersede that evidence.
 | Interlude V S2 performance outcome | `MEASURED_GAIN` |
 | Interlude V Slice 3 | `COMPLETED / PUBLISHED` |
 | CI remaining-tail maintenance R1 | `COMPLETED / PUBLISHED` |
-| Next | `Rebind accepted Phase67 v4 plan under a separate dispatch` |
+| Next | `Phase67 Slice02 under a separate dispatch` |
+
+## Phase67 当前路线
+
+[Phase67 brief](phases/phase-67/brief.md) 与 [16-Slice route](phases/phase-67/slices.md) 已应用用户接受的v4；
+Phase67 `ACTIVE`，N67=16。[Slice01](phases/phase-67/slice-01.md) 联合交付可运行CI workload governance、
+耐久规划/教训和真实PyArrow兼容/lifetime/device实验。Slice01 `COMPLETED / PUBLISHED` 仅在sealed tree、
+一次普通commit/FF push、natural exact-head attempt1全部15jobs、逐runtime v2 coverage、readiness/health
+raw artifacts与native strict receipts通过后成立；此前为candidate。
+
+Slice02 `NEXT / NOT STARTED`；Slices03–16 `NOT STARTED`。不自动进入产品vertical或额外维护。
+Phase66 COMPLETED/N66=16；Interlude V COMPLETED/total=3；R1单独完成；CI治理成本记入本次Slice01，
+不算Interlude V S4。package/CLI0.1.0，compiler core不变，Slice01不引入公开arrow extra。
+下面各已完成维护/旧phase段落中的NEXT、accepted candidate等是当时历史状态，不覆盖此当前路线。
 
 ## CI remaining-tail maintenance R1
 

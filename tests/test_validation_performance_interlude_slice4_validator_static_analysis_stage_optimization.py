@@ -89,8 +89,9 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
     # typing scan and production inventory are unchanged. Slice16 adds its
     # bounded static completion-audit principal. Interlude V Slice2 adds one
     # cell-coordination behavior principal without changing typing authority.
+    # Phase67 Slice01 adds one inert Arrow probe and one governance/readiness principal.
     assert len(production_files) == 222
-    assert len(test_files) == 494
+    assert len(test_files) == 496
     assert set(production_files).isdisjoint(test_files)
 
 

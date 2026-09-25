@@ -111,3 +111,15 @@ paths, formatting, and ordinary hashes do not require new authority.
   [semantic metadata artifact v1](docs/spec/semantic-metadata-artifact-v1.md),
   [configuration](docs/spec/pietto-config-v1.md), and
   [golden fixtures](docs/spec/golden-fixture-policy-v1.md).
+
+## CI workloads and phase planning
+
+- Declare special execution requirements with `ci_workload`; class/family/group/profile
+  are separate from placement in `ci/workloads.toml`. Ordinary new tests stay included.
+- Preserve independent full collection, exact v2 coverage and managed acquisition
+  locality. Health/timing/history are advisory and never filter tests or change CI.
+- Follow [CI workload governance](docs/architecture/ci-workload-governance-v1.md)
+  for new-test requirements, bounded evidence and reviewed placement changes.
+- Phase starts consume applicable [engineering lessons](docs/references/engineering-lessons.md)
+  and eligible health; use the macro process and technical checks in the phase-initiation gate.
+  No alert means no new CI maintenance. Expand only the authorized next Slice.

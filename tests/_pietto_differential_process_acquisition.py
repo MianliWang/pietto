@@ -288,6 +288,27 @@ class DifferentialAcquisition:
         self.interpreters = available_supported_interpreters()
         self.plan = cell_plan(self.interpreters)
         self._memo: dict[Cell, dict[str, object]] = {}
+        self._observations: list[dict[str, object]] | None = None
+
+    def _produce_observed(self, kind, key, produce, *args):
+        if self._observations is None:
+            return produce(*args)
+        started, wall = time.perf_counter(), time.time()
+        success = False
+        try:
+            value = produce(*args)
+            success = True
+            return value
+        finally:
+            self._observations.append(
+                {
+                    "kind": kind,
+                    "key": key,
+                    "start": wall,
+                    "seconds": time.perf_counter() - started,
+                    "success": success,
+                }
+            )
 
     # -- shared resources -------------------------------------------------
 
@@ -326,7 +347,7 @@ class DifferentialAcquisition:
                 try:
                     if target.exists():
                         shutil.rmtree(target)
-                    produce(target)
+                    self._produce_observed("preparation", name, produce, target)
                 except BaseException as error:
                     _atomic_write(failure, f"{type(error).__name__}: {error}")
                     raise
@@ -516,7 +537,13 @@ class DifferentialAcquisition:
                 if failure.exists():
                     raise AcquisitionFailure(failure.read_text(encoding="utf-8"))
                 try:
-                    self._run_cell(cell, cell_root)
+                    self._produce_observed(
+                        "cell",
+                        [list(cell.version), cell.seed, cell.mode],
+                        self._run_cell,
+                        cell,
+                        cell_root,
+                    )
                 except BaseException as error:
                     _atomic_write(failure, f"{type(error).__name__}: {error}")
                     raise
@@ -590,6 +617,9 @@ class DifferentialAcquisition:
 
 
 _SESSION: DifferentialAcquisition | None = None
+# Opt-in CI observation binds only the actual invocation-owned store.
+_OBSERVER_ROOT: Path | None = None
+_OBSERVER_EVENTS: list[dict[str, object]] | None = None
 
 
 def acquisition(tmp_path_factory) -> DifferentialAcquisition:
@@ -600,4 +630,6 @@ def acquisition(tmp_path_factory) -> DifferentialAcquisition:
         base = tmp_path_factory.getbasetemp()
         run_root = base.parent if os.environ.get("PYTEST_XDIST_WORKER") else base
         _SESSION = DifferentialAcquisition(run_root / "pietto-differential-acquisition")
+        if _SESSION.root == _OBSERVER_ROOT:
+            _SESSION._observations = _OBSERVER_EVENTS
     return _SESSION

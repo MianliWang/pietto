@@ -1,0 +1,38 @@
+# Phase67 路线：N67=16
+
+只展开 [Slice01](slice-01.md)。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
+
+| Slice | 目标／acceptance链接 | 依赖／类型 |
+| --- | --- | --- |
+| 01 | 启动、耐久规划/教训、工作CI治理、真实Arrow兼容/生命周期/device实验（[验收](slice-01.md#三层验收)） | Phase66 + R1；joint foundation/experiment |
+| 02 | ResultContract/ResultShape与一个Int的producer→Arrow→batch薄纵向（[验收](brief.md#三层完成验收与回归)） | 01；thin vertical |
+| 03 | canonical private bytes、pure decoder、runtime correspondence/invalidation（[验收](brief.md#三层完成验收与回归)） | 02 |
+| 04 | Int/Bool/Float、NULL、signed zero、显式lossless adaptation（[验收](brief.md#三层完成验收与回归)） | 02–03 |
+| 05 | Text/Unicode、string/large_string/collation（[验收](brief.md#三层完成验收与回归)） | 04 |
+| 06 | Decimal128/256 precision/scale与overflow（[验收](brief.md#三层完成验收与回归)） | 04 |
+| 07 | Timestamp/UUID与已解决的upstream meaning premises（[验收](brief.md#三层完成验收与回归)） | 04 + 01 decisions |
+| 08 | empty/all-null/duplicate-label carrier及完整finite-type integration；midpoint（[验收](brief.md#三层完成验收与回归)） | 04–07 |
+| 09 | bounded finite reader/finalization、rechunk、BAG/order（[验收](brief.md#三层完成验收与回归)） | 08 |
+| 10 | ownership/copy/borrow、CPU、C Data/C stream/PyCapsule（[验收](brief.md#三层完成验收与回归)） | 09 |
+| 11 | row与Arrow-native ingress correspondence（[验收](brief.md#三层完成验收与回归)） | 09–10 |
+| 12 | bounded private IPC、truncation/completion、metadata（[验收](brief.md#三层完成验收与回归)） | 09–11 |
+| 13 | 公开可安装optional extra与wheel isolation（[验收](brief.md#三层完成验收与回归)） | 02–12；消费Slice01实验，不重复实验campaign |
+| 14 | 真实producer/result consumer integration，无产品executor（[验收](brief.md#三层完成验收与回归)） | 13 |
+| 15 | whole-result differential/metamorphic assurance与Phase68交接（[验收](brief.md#三层完成验收与回归)） | 14 |
+| 16 | 三层完成审计、回归、retrospective与lessons（[验收](brief.md#三层完成验收与回归)） | 15 |
+
+Slice08执行 S/H/L/K/Q midpoint：复核价值、现状/health、lessons、路线/预算与Q；保留固定16行，不自动新增Slice17。
+解冻条件：新的product/trust选择、批准要求损失、不可解dependency/support前提、实证成本超预算或支持域改变；
+将冲突集中呈现，不把implementation detail升级审批。
+
+Phase68接已验证result/binding/batch/finite-finalization合同，不重决编译语义；execution success、连接、事务、
+取消、runtime failure和backpressure由68负责。Phase69 public alpha、83 stable1.0、90 Rust；91–97保持tentative。
+
+## Slice01 执行记录
+
+联合授权共用一份ledger；已完成一次author/Ponytail review和一次targeted follow-up，一次完整本地equivalent
+为826.439s、16230 passed/0 skips。CI-governance与Arrow-readiness各自command wall
+为5.697s／9.479s，共用validation另列于[Slice01](slice-01.md#gate2-实测与分项成本)。
+未复用S3/R1预算；两runtime的真实Arrow探索＋最终probe共4次，非重复完整套件。
+一次ordinary commit/FF push与自然exact-head全15jobs的最终事实、artifact IDs/digests及总成本保存在外部终态证据。
+成功后Phase67 ACTIVE／N67=16／Slice01 COMPLETED-PUBLISHED；Slice02 NEXT/NOT STARTED，03–16 NOT STARTED。

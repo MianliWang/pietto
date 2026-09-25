@@ -278,6 +278,7 @@ def test_slice3_guard_stays_independent_from_later_workflows() -> None:
         "scripts/check_generated.py",
         "scripts/check_goldens.py",
         "scripts/ci_validation.py",
+        "scripts/ci_workloads.py",
         "scripts/package_smoke.py",
         "scripts/validate.py",
     )
