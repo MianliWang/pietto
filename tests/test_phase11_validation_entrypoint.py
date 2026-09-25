@@ -575,6 +575,7 @@ def test_slice2_validation_stays_separate_from_later_workflows() -> None:
     assert scripts == (
         "scripts/check_generated.py",
         "scripts/check_goldens.py",
+        "scripts/ci_validation.py",
         "scripts/package_smoke.py",
         "scripts/validate.py",
     )
@@ -669,9 +670,11 @@ def test_default_validator_is_resource_aware_with_serial_fallback(
 
 def test_ci_keeps_two_jobs_and_uses_the_same_default_resource_policy() -> None:
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    assert workflow.count('          - "3.12"') == 1
-    assert workflow.count('          - "3.13"') == 1
-    assert workflow.count("uv run python scripts/validate.py --timings") == 1
+    assert workflow.count("    name: Python 3.12\n") == 1
+    assert workflow.count("    name: Python 3.13\n") == 1
+    assert workflow.count("uv run python scripts/ci_validation.py run") == 2
+    runner = (REPO_ROOT / "scripts/ci_validation.py").read_text(encoding="utf-8")
+    assert "validate._pytest_command(args, parser)" in runner
     assert "--pytest-workers" not in workflow
     assert "--pytest-maxprocesses" not in workflow
 

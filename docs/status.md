@@ -87,31 +87,34 @@ documentation does not supersede that evidence.
 | Phase 66 route | `N=16` |
 | Phase 67 | `NEXT / NOT STARTED` |
 | Phase 67 planning | `ACCEPTED / PRE-ACTIVATION CANDIDATE` |
-| Interlude V | `ACTIVE` |
+| Interlude V | `COMPLETED` |
 | Interlude V route | `N=3` |
 | Interlude V Slice 1 | `COMPLETED / PUBLISHED` |
 | Interlude V Slice 2 | `COMPLETED / PUBLISHED` |
-| Interlude V performance outcome | `MEASURED_GAIN` |
-| Interlude V Slice 3 | `NEXT / NOT STARTED` |
-| Next | `Interlude V S3 requires its own dispatch` |
+| Interlude V S2 performance outcome | `MEASURED_GAIN` |
+| Interlude V Slice 3 | `COMPLETED / PUBLISHED` |
+| Next | `Rebind accepted Phase67 v4 plan under a separate dispatch` |
 
 ## Interlude V current route
 
-Validation/Test Performance Optimization Interlude V is `ACTIVE`; total route = 3.
-[S2 runtime cost reduction](spec/validation-performance-interlude-v-slice2-runtime-cost-reduction-v1.md)
-只调整已有 xdist workers 对独立 process cells 的访问起点，保留全部 observation、独立
-assertions 和 exact bytes。`performance_outcome=MEASURED_GAIN` 带已披露的 environment/cache
-instance 差异限定，不能将 observed timing difference 全部归因于代码。
+Validation/Test Performance Optimization Interlude V is `COMPLETED`; total route = 3。
+S1/S2/S3 `COMPLETED / PUBLISHED` 以 S3 的封存、普通发布、全部新 required jobs、逐版本
+coverage reconciliation 和 fresh native raw receipt verification 成功为条件；此前仍为
+`ACTIVE / CANDIDATE`。不新增第四个 Slice，不以性能目标未达为由重跑或制造空提交。
 
-- S1 `COMPLETED / PUBLISHED`: local runtime OOM emergency guard。
-- S2 `COMPLETED / PUBLISHED` 仅在本候选完成 guarded local validation、ordinary sealed
-  publication、natural exact-head 五-job CI 和 fresh raw receipt verification 后生效；此前为
-  `ACTIVE / CANDIDATE`。S2 包含测量和实施，不另设 profiling Slice。
-- S3 `NEXT / NOT STARTED`: CI gate decomposition、evidence-dependent sharding、Dependabot
-  grouping、final benchmark 和 Interlude closure 合为一个 Slice；execution requires its own dispatch。
+- [S1 OOM guard](spec/validation-performance-interlude-v-slice1-wsl-oom-emergency-guard-v1.md)
+  保留原 worker ceiling、loadfile、pressure policy 和 owned cleanup。
+- [S2 runtime coordination](spec/validation-performance-interlude-v-slice2-runtime-cost-reduction-v1.md)
+  的 `MEASURED_GAIN` 是带 environment/cache discontinuity 限定的已发布结论；两次环境重建偏差保留。
+  S2 包含测量和实施，不另设 profiling Slice。
+- [S3 CI decomposition and closure](spec/validation-performance-interlude-v-slice3-ci-decomposition-and-closure-v1.md)
+  每个 Python runtime 两个分区，合计11个 jobs；lock/Ruff共享，typing/generated/golden/installed
+  分版本保留；新报告核对独立全量 U、实际 selection 和全部 terminal outcomes；依赖更新仅配置
+  明确的 minor/patch groups。hosted timing 与限制见 exact-head CI/closure evidence。
 
-Phase66 remains `COMPLETED`, N66=16；Phase67 `NEXT / NOT STARTED`，accepted v4 retained，
-不自动激活或发布规划。package/CLI=0.1.0。本次不执行 S3，也不新增第四个 Slice。
+Phase66 remains `COMPLETED`, N66=16；Phase67 NEXT / NOT STARTED，accepted v4 retained。
+Phase67 rebind/repository freeze/planning publication 的 execution requires its own dispatch，
+本次不启动 Phase67 或 Slice1。package/CLI=0.1.0。
 
 [Slice16 completion audit](spec/phase66-completion-audit-phase67-handoff-v1.md) 已由
 `25c595f8673845b2a20f6ea800171452a4498ef4`、natural exact-head 五-job CI `36047376458`
@@ -1578,7 +1581,7 @@ Phase66 remains ACTIVE; Slice16 requires a new audit, Phase67 is NOT STARTED, N6
 package/CLI remain 0.1.0. No phase-start discussion or Slice planning is performed here.
 
 
-Validation/Test Performance Optimization Interlude V is `ACTIVE`. Its
+At the historical S1 handoff, Validation/Test Performance Optimization Interlude V was `ACTIVE`. Its
 [Slice1 local runtime OOM emergency guard](spec/validation-performance-interlude-v-slice1-wsl-oom-emergency-guard-v1.md)
 is `COMPLETED / PUBLISHED` only after its ordinary sealed publication and successful
 natural exact-head CI. It adds local emergency protection, not performance acceleration;
@@ -1586,7 +1589,7 @@ startup worker selection, the four-worker ceiling, loadfile, CI behavior and tar
 semantics remain unchanged. Slice1 当时尚未批准后续 Slice 或总数；当前三-Slice route
 已由 S2 dispatch 明确批准。此前的 Phase66 ACTIVE、Slice16 pending fresh audit 是历史，
 已被完成审计的发布关闭。Phase67 规划已接受，实现仍未开始；N66=16，package/CLI remain 0.1.0。
-S3 的执行仍需要单独 dispatch。
+该调度边界已由 S3 dispatch supersede；当前 closure 条件见 current route。
 
 
 ## Phase66 G8 native window membership evidence

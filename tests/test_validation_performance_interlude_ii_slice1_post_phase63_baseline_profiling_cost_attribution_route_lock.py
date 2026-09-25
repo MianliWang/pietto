@@ -215,7 +215,7 @@ def test_slice1_is_profiling_only_with_zero_delta_policy() -> None:
     assert validate.PYTEST_MAX_RESOURCE_WORKERS == 4
 
     workflow = _read(WORKFLOW)
-    assert workflow.count("uv run python scripts/validate.py --timings") == 1
+    assert workflow.count("uv run python scripts/ci_validation.py run") == 2
     for override in ("--pytest-workers", "--pytest-dist", "--pytest-maxprocesses"):
         assert override not in workflow
 

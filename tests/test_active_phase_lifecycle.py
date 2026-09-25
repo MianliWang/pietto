@@ -331,13 +331,13 @@ EXPECTED_STATUS = (
     ("Phase 66 route", "`N=16`"),
     ("Phase 67", "`NEXT / NOT STARTED`"),
     ("Phase 67 planning", "`ACCEPTED / PRE-ACTIVATION CANDIDATE`"),
-    ("Interlude V", "`ACTIVE`"),
+    ("Interlude V", "`COMPLETED`"),
     ("Interlude V route", "`N=3`"),
     ("Interlude V Slice 1", "`COMPLETED / PUBLISHED`"),
     ("Interlude V Slice 2", "`COMPLETED / PUBLISHED`"),
-    ("Interlude V performance outcome", "`MEASURED_GAIN`"),
-    ("Interlude V Slice 3", "`NEXT / NOT STARTED`"),
-    ("Next", "`Interlude V S3 requires its own dispatch`"),
+    ("Interlude V S2 performance outcome", "`MEASURED_GAIN`"),
+    ("Interlude V Slice 3", "`COMPLETED / PUBLISHED`"),
+    ("Next", "`Rebind accepted Phase67 v4 plan under a separate dispatch`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
@@ -1466,8 +1466,8 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
 EXPECTED_CURRENT_OWNER_SENTENCE = (
-    "The next owner is Interlude V S3, which is `NEXT / NOT STARTED` and requires "
-    "its own dispatch."
+    "The next owner is Phase67, which is `NEXT / NOT STARTED`; rebind and repository "
+    "freeze require a separate dispatch."
 )
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
@@ -5567,7 +5567,7 @@ def test_validation_performance_interlude_iv_no_gain_is_recorded_as_prose() -> N
         "ci_pytest_shard",
     ):
         assert rejected not in workflow
-    assert workflow.count("uv run python scripts/validate.py --timings") == 1
+    assert workflow.count("uv run python scripts/ci_validation.py run") == 2
     for document in (_read(STATUS), _read(ROADMAP)):
         assert "Interlude IV Slice 1 |" not in document
         assert "Slice 8.5" not in document
@@ -6027,14 +6027,17 @@ def test_interlude_v_runtime_guard_keeps_future_work_unauthorized() -> None:
     for path in (STATUS, ROADMAP):
         document = " ".join(_read(path).split())
         for phrase in (
-            "Validation/Test Performance Optimization Interlude V is `ACTIVE`",
+            "Validation/Test Performance Optimization Interlude V is `COMPLETED`",
             "validation-performance-interlude-v-slice1-wsl-oom-emergency-guard-v1.md",
             "local emergency protection, not performance acceleration",
             "total route = 3",
-            "S3 `NEXT / NOT STARTED`",
+            "S1/S2/S3 `COMPLETED / PUBLISHED`",
             "execution requires its own dispatch",
             "S2 包含测量和实施，不另设 profiling Slice",
             "不新增第四个 Slice",
+            "合计11个 jobs",
+            "coverage reconciliation",
+            "Phase67 NEXT / NOT STARTED",
             "Phase67 规划已接受",
             "N66=16",
         ):

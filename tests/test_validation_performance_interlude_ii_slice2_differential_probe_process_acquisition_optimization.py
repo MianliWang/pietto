@@ -531,7 +531,7 @@ def test_static_boundaries_and_witness_matrices_are_zero_delta() -> None:
     assert validate.PYTEST_MAX_RESOURCE_WORKERS == 4
 
     workflow = WORKFLOW.read_text(encoding="utf-8")
-    assert workflow.count("uv run python scripts/validate.py --timings") == 1
+    assert workflow.count("uv run python scripts/ci_validation.py run") == 2
     for override in ("--pytest-workers", "--pytest-dist", "--pytest-maxprocesses"):
         assert override not in workflow
 

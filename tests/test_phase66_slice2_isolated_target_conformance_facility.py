@@ -1823,8 +1823,13 @@ def test_helpers_stay_test_only_and_do_not_extend_product_or_history() -> None:
 
 def test_ci_uses_strict_raw_same_run_receipt_transport() -> None:
     workflow = (facility.ROOT / ".github/workflows/ci.yml").read_text()
-    assert workflow.count("digest-mismatch: error") == 2
-    assert workflow.count("archive: false") == 1
+    # Coverage artifacts have separate owners; retain the exact native transport.
+    target = workflow.split("  target_conformance:\n", 1)[1].split(
+        "  target_conformance_aggregate:\n", 1
+    )[0]
+    aggregate = workflow.split("  target_conformance_aggregate:\n", 1)[1]
+    assert aggregate.count("digest-mismatch: error") == 2
+    assert target.count("archive: false") == 1
     assert (
         "path: ${{ runner.temp }}/phase66-target/${{ matrix.target }}/phase66-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}.json"
         in workflow

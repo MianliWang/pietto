@@ -440,7 +440,7 @@ def test_zero_delta_boundary_and_closure_are_exact() -> None:
     assert 'dist_mode = args.pytest_dist or "loadfile"' in validate_source
     assert "PYTEST_DIST_CHOICES = (" in validate_source
     workflow = WORKFLOW.read_text(encoding="utf-8")
-    assert workflow.count("uv run python scripts/validate.py --timings") == 1
+    assert workflow.count("uv run python scripts/ci_validation.py run") == 2
     for override in ("--pytest-workers", "--pytest-dist", "--pytest-maxprocesses"):
         assert override not in workflow
 

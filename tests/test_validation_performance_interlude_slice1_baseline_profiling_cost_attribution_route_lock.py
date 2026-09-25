@@ -138,8 +138,9 @@ def test_slice1_keeps_ci_serial_and_changes_no_production_surface() -> None:
     spec = _read(SPEC)
     locks = " ".join(_section(spec, "Changed-Path And Lifecycle Lock").split())
 
-    serial_command = "uv run python scripts/validate.py --timings"
-    assert workflow.count(serial_command) == 1
+    # Current CI splits runtime coverage; the local full validator stays intact.
+    runtime_command = "uv run python scripts/ci_validation.py run"
+    assert workflow.count(runtime_command) == 2
     assert "--pytest-workers" not in workflow
     assert "--pytest-dist" not in workflow
     assert "--pytest-maxprocesses" not in workflow

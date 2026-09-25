@@ -196,6 +196,7 @@ def test_slice4_keeps_prior_commands_independent_and_later_slices_absent() -> No
     assert scripts == (
         "scripts/check_generated.py",
         "scripts/check_goldens.py",
+        "scripts/ci_validation.py",
         "scripts/package_smoke.py",
         "scripts/validate.py",
     )

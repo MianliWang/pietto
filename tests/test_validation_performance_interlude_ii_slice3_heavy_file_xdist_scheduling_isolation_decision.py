@@ -279,7 +279,7 @@ def test_no_custom_scheduler_exists_and_the_retained_policy_is_intact() -> None:
     assert "if worker_count == 1:\n            return PYTEST_COMMAND" in command_source
 
     workflow = WORKFLOW.read_text(encoding="utf-8")
-    assert workflow.count("uv run python scripts/validate.py --timings") == 1
+    assert workflow.count("uv run python scripts/ci_validation.py run") == 2
     for override in ("--pytest-workers", "--pytest-dist", "--pytest-maxprocesses"):
         assert override not in workflow
 

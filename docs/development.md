@@ -278,7 +278,7 @@ Interlude V Slice1 COMPLETED / PUBLISHED，future slices NOT AUTHORIZED / NOT ST
 
 ## Interlude V three-Slice execution route
 
-当前 Interlude V `ACTIVE`, total route = 3：S1 OOM guard 已发布；
+S2 交付时 Interlude V `ACTIVE`, total route = 3：S1 OOM guard 已发布；
 [S2 current-suite measurement and runtime optimization](spec/validation-performance-interlude-v-slice2-runtime-cost-reduction-v1.md)
 把测量与单一 cell-coordination 优化合并交付，`performance_outcome=MEASURED_GAIN`；
 S2 `COMPLETED / PUBLISHED` 以 guarded validation、ordinary publication、自然 exact-head
@@ -299,3 +299,44 @@ metadata 仍未知。任务外部 launcher 对所有 project-level uv 命令统�
 廉价 Ruff 使用已核验 `.venv/bin/ruff`。仅 `--locked` 不禁止环境同步，`--no-sync` 也不证明环境正确。
 解释器固定应覆盖所有工具；显式 3.12/3.13 probe children、seed/mode 和 fixture-owned 安装保持不变。
 详见 S2 spec 对 Phase66 J04/J05/J06 的消费和 S3 cost/coverage handoff。
+
+
+## Interlude V CI closure
+
+[S3 decomposition and closure](spec/validation-performance-interlude-v-slice3-ci-decomposition-and-closure-v1.md)
+关闭三-Slice Interlude；S1/S2/S3 COMPLETED / PUBLISHED 以最终 sealed publication、全部11个
+自然 CI jobs、逐版本 coverage reconciliation 与两份 native raw receipts strict verification 为条件。
+Phase66 COMPLETED / N66=16；Phase67 NEXT / NOT STARTED，accepted v4 retained，需要新的
+rebind/repository freeze 授权；package/CLI0.1.0。不自动进入 Phase67，不追加 S4。
+
+普通本地 `scripts/validate.py --timings --oom-guard on` 仍执行全部六 gates；CI 使用明确标为
+partial 的 `scripts/ci_validation.py gates/run/collect/verify`。每版本 `matrix` 与 `remaining`
+两个 pytest invocations 各自使用既有 resource policy、ceiling4、loadfile；共享矩阵消费者集中，
+Phase65/66 六个 standalone/batch mode 节点移到 remainder，不复制 semantic observations。
+检查与 runtime jobs 并行，Python3.12/3.13 完成 jobs 必须同时核对依赖 success 和完整报告，
+最后 target aggregate 才接收 complete compiler status。无新的池或持久结果 cache。
+
+`collect` 独立获取未分区 U；每个真实分区记录 full-collection identity、实际选中 IDs 及
+setup/call/teardown 终态，跨 job 消费者验证 disjoint union 和全部终态。原有 test skips 仍记录，
+job 的 skipped/cancelled/failed/missing 不能由报告 PASS 覆盖。JSON report 每份最多8 MiB，
+只含 IDs、状态和小型既有 manifest properties，不含 SQL/semantic graphs；一日保留，current
+run/attempt/checkout/runtime 绑定，使用既有 pinned raw artifact transport 和 digest-mismatch:error。
+它不是来源权威、数据库 receipt 或跨运行结果缓存。
+
+共同 lock/Ruff 由3.12 checks job 执行一次。Pyright 的 effective imports/stubs 没有被证明等价，
+因此 production/test typing 均在两版本保留。generated/golden/package smoke 同样各保留一次；
+pytest 中的真实 generated-guard consumer 也要求 runtime jobs 保留 Java21。
+本次 Gate2 允许一次 Python3.13 coverage-equivalent rehearsal：全部 static gates、两个新鲜
+分区串行执行并独立对账，随后 generated/golden/installed smoke 各一次；所有重负载使用 guard on。
+这消耗一个 full-suite-equivalent start，不能再额外跑 monolithic suite 作为“保险”。
+
+Dependabot 保留两生态的 daily/timezone/open-PR-limit；仅将 Ruff、Pyright、pytest、pytest-cov、
+pytest-xdist 的 minor/patch version updates 组成 tooling group，并将 Actions minor/patch 分组。
+major 独立，driver/runtime/target pins 不入 tooling group；不忽略安全更新、不自动合并、不升级版本。
+分组节省尚未观察，只能报告配置与代表性匹配检查。
+
+S1/S2 的计数和 S2 环境事件保留在独立历史记录。S3 使用新的受限 ledger；每个 project-level uv
+命令仍由任务外部 launcher 固定已核验 CPython3.13.13，CI 使用各自明确的 interpreter。
+决策教训是区分 waiting/CPU、invocation-local reuse、runtime-dependent gates 和真实 node coverage；
+冻结前还必须查全 script inventories 的直接 readers。具体时长分开记录 pytest、gate、job、critical
+path 与 summed runner time，不从一次 hosted run 推出版本因果或稳定 p95。

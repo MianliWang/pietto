@@ -7,6 +7,18 @@ updates:
       time: "09:00"
       timezone: "America/Toronto"
     open-pull-requests-limit: 5
+    groups:
+      python-tooling:
+        applies-to: version-updates
+        patterns:
+          - "ruff"
+          - "pyright"
+          - "pytest"
+          - "pytest-cov"
+          - "pytest-xdist"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -15,3 +27,11 @@ updates:
       time: "09:30"
       timezone: "America/Toronto"
     open-pull-requests-limit: 5
+    groups:
+      routine-actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
