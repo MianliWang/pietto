@@ -15,3 +15,8 @@
 
 Timestamp/UUID meaning仍由Slice07在映射入域前取得upstream witnesses；Arrow roundtrip不补足V05。
 公开alpha归Phase69，stable1.0归Phase83，Rust归Phase90；91–97维持完成审计的tentative/owner-only界定。
+
+| ID | 已选规则／备选与理由 | evidence／scope／next consumer／最晚决定点 |
+| --- | --- | --- |
+| D67.09 | Slice02 private scalar-leaf contract引用完整 retained fields；direct/projection Int 的 pg_int8/my_bigint 先与 supplied observations 对应，再显式 int64；不接受隐式推断/强制转换 | 本次批准；真实两target source与同根多realization；Slices03/04 |
+| D67.10 | owned positional rows，64 fields/4096 rows/8MiB data+validity，允许小 configured ceiling 测拒绝；batch 不带 EOF/whole-result completion | 本次批准；owned mutation/typed empty/NULL/limit negatives；Slices09–10扩完整有限记账 |

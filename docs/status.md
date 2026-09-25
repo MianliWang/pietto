@@ -88,8 +88,9 @@ documentation does not supersede that evidence.
 | Phase 67 | `ACTIVE` |
 | Phase 67 planning | `FROZEN / N67=16` |
 | Phase 67 Slice 01 | `COMPLETED / PUBLISHED` |
-| Phase 67 Slice 02 | `NEXT / NOT STARTED` |
-| Phase 67 Slices 03–16 | `NOT STARTED` |
+| Phase 67 Slice 02 | `COMPLETED / PUBLISHED` |
+| Phase 67 Slice 03 | `NEXT / NOT STARTED` |
+| Phase 67 Slices 04–16 | `NOT STARTED` |
 | Interlude V | `COMPLETED` |
 | Interlude V route | `N=3` |
 | Interlude V Slice 1 | `COMPLETED / PUBLISHED` |
@@ -97,7 +98,7 @@ documentation does not supersede that evidence.
 | Interlude V S2 performance outcome | `MEASURED_GAIN` |
 | Interlude V Slice 3 | `COMPLETED / PUBLISHED` |
 | CI remaining-tail maintenance R1 | `COMPLETED / PUBLISHED` |
-| Next | `Phase67 Slice02 under a separate dispatch` |
+| Next | `Phase67 Slice03 under a separate dispatch` |
 
 ## Phase67 当前路线
 
@@ -107,7 +108,7 @@ Phase67 `ACTIVE`，N67=16。[Slice01](phases/phase-67/slice-01.md) 联合交付�
 一次普通commit/FF push、natural exact-head attempt1全部15jobs、逐runtime v2 coverage、readiness/health
 raw artifacts与native strict receipts通过后成立；此前为candidate。
 
-Slice02 `NEXT / NOT STARTED`；Slices03–16 `NOT STARTED`。不自动进入产品vertical或额外维护。
+Slice03 `NEXT / NOT STARTED`；Slices04–16 `NOT STARTED`。Slice02 的 [private Int result product](phases/phase-67/slice-02.md) 仅在sealed publication、全部15jobs和fresh raw evidence通过后完成；不自动进入Slice03。
 Phase66 COMPLETED/N66=16；Interlude V COMPLETED/total=3；R1单独完成；CI治理成本记入本次Slice01，
 不算Interlude V S4。package/CLI0.1.0，compiler core不变，Slice01不引入公开arrow extra。
 下面各已完成维护/旧phase段落中的NEXT、accepted candidate等是当时历史状态，不覆盖此当前路线。

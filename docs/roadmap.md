@@ -10,8 +10,8 @@ Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. Phase64 and its 11 numbered Slices are completed
 through their accepted publication chains. Phase65 and Slices1–16 are completed
 through the accepted Slice16 audit publication. Phase66 and Slices1–16 are completed through the Slice16 audit publication and exact-head CI described below.
-Phase67 is `ACTIVE`, N67=16; Slice01 applies the accepted v4 plan and the joint CI/Arrow readiness dispatch.
-Slice02 remains `NEXT / NOT STARTED`; later Slices03–16 are not started.
+Phase67 is `ACTIVE`, N67=16; Slices01–02 deliver CI/Arrow readiness and the private Int result product path.
+Slice03 remains `NEXT / NOT STARTED`; later Slices04–16 are not started.
 The Validation/Test Performance Optimization Interlude II is `COMPLETED`.
 Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -57,7 +57,7 @@ Phase67 `ACTIVE`，N67=16。[Slice01](phases/phase-67/slice-01.md) 联合交付�
 一次普通commit/FF push、natural exact-head attempt1全部15jobs、逐runtime v2 coverage、readiness/health
 raw artifacts与native strict receipts通过后成立；此前为candidate。
 
-Slice02 `NEXT / NOT STARTED`；Slices03–16 `NOT STARTED`。不自动进入产品vertical或额外维护。
+Slice03 `NEXT / NOT STARTED`；Slices04–16 `NOT STARTED`。Slice02 的 [private Int result product](phases/phase-67/slice-02.md) 仅在sealed publication、全部15jobs和fresh raw evidence通过后完成；不自动进入Slice03。
 Phase66 COMPLETED/N66=16；Interlude V COMPLETED/total=3；R1单独完成；CI治理成本记入本次Slice01，
 不算Interlude V S4。package/CLI0.1.0，compiler core不变，Slice01不引入公开arrow extra。
 下面各已完成维护/旧phase段落中的NEXT、accepted candidate等是当时历史状态，不覆盖此当前路线。

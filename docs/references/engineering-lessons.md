@@ -14,3 +14,7 @@
 | S3：节点计数与artifact摘要不足 | 独立U、真实worker集合/终态、exact raw artifact identity；冻结前查全readers | script inventories与raw-transfer incident；历史v1不迁移成新证据；有效 |
 | R1：文件依赖分组不等于耗时平衡 | 独立mode可native逐node安排；先审计fixture；依据实际reports观察 | 六mode完整保留；finish spread非最优性/idle CPU证明；有效 |
 | Slice01：required observations与advisory建议分离 | collection/locality错误hard fail；不足历史明确INSUFFICIENT_EVIDENCE；配置只经reviewed commit变更 | 正负policy/health/probe tests；当前实际结果由Slice01 seal绑定；候选至完整验收 |
+
+Slice02 消费 J02–J06：contract/producer/Arrow 三层分别保留权威；同根多 realization 与 foreign-root negative
+分开；installed consumer 读取当前 wheel，独立报告验证实际 Int 值/类型/NULL 和全部负例。新模块即使不改 emitter，
+也改变 native input closure，旧 receipt 不能证明当前候选。SDK readiness 与产品消费证据必须各自保留。

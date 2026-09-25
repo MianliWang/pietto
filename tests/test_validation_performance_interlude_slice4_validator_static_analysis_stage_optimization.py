@@ -90,8 +90,8 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
     # bounded static completion-audit principal. Interlude V Slice2 adds one
     # cell-coordination behavior principal without changing typing authority.
     # Phase67 Slice01 adds one inert Arrow probe and one governance/readiness principal.
-    assert len(production_files) == 222
-    assert len(test_files) == 496
+    assert len(production_files) == 225
+    assert len(test_files) == 498
     assert set(production_files).isdisjoint(test_files)
 
 

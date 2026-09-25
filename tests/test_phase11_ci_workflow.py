@@ -194,8 +194,8 @@ def test_ci_has_no_write_credentials_and_only_scoped_evidence_artifacts() -> Non
             ):
                 assert fragment in job
         summary = _job(workflow, f"python_{word}")
-        assert summary.count("digest-mismatch: error") == 10
-        assert summary.count("skip-decompress: true") == 10
+        assert summary.count("digest-mismatch: error") == 11
+        assert summary.count("skip-decompress: true") == 11
         for part in (
             "collection",
             "shared-acquisition",

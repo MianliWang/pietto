@@ -369,3 +369,16 @@ health不足历史可为INSUFFICIENT_EVIDENCE；slow正确结果不失败，不�
 本次Gate2仅一次3.13完整equivalent：static、独立U、四分区串行、全部对账/health、auxiliary和精确输入匹配的
 两解释器小probe；不能另加monolithic/full3.12/cold-matrix。本期 [brief](phases/phase-67/brief.md)、
 [Slice01](phases/phase-67/slice-01.md) 与 [lessons](references/engineering-lessons.md) 供后续phase消费。
+
+## Phase67 private result product checks
+
+[Slice02](phases/phase-67/slice-02.md) 在普通 Arrow-free tests 中检查 retained contract/producer identity；
+两 compiler/package jobs 另在 fresh isolated3.12/3.13 环境安装 locked core dependencies、candidate wheel，
+然后按原 hash lock 安装 PyArrow25.0.1。原九组 SDK probe 保持；新增 installed product consumer 使用 `-I`，
+核验全部实际 Pietto import origins、当前 source input closure、14组测值/负例及 run context。
+completion 必须消费独立 product artifact；coverage、health 和 SDK report schema 不变。
+新增 src 文件改变 native package input fingerprint，必须取得当前 head 的 fresh native receipts。
+
+协作约定：用户提交 terminal Slice report 后，协调 ChatGPT 在同一回复审查并给出下一份完整 English prompt；
+HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代理在当前授权终态停止，
+不因这条协调约定自动开始下一 Slice，也不引入 scheduler/automation service。

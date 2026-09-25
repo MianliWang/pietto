@@ -657,7 +657,15 @@ def health_name(context, part):
     return f"ci-health-{context['run_id']}-{context['run_attempt']}-{context['python']}-{part}.json"
 
 
+def check_product(path, context):
+    probe = importlib.import_module("_pietto_phase67_result_product_probe")
+    if path is None:
+        raise ValueError("missing required installed product evidence")
+    return probe.verify_report(read_report(path), context, probe.input_closure(ROOT))
+
+
 def complete_runtime(args, context, collection, reports, result):
+    check_product(args.product, context)
     if args.health_dir is None or args.readiness is None or args.summary is None:
         raise ValueError("missing required health/readiness/completion output")
     names = {health_name(context, p) for p in PARTITIONS}
@@ -809,6 +817,7 @@ def main(argv: list[str] | None = None) -> int:
             "verify",
             "artifact",
             "check-arrow",
+            "check-product",
             "health",
         ),
     )
@@ -818,6 +827,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--health", type=Path)
     parser.add_argument("--health-dir", type=Path)
     parser.add_argument("--readiness", type=Path)
+    parser.add_argument("--product", type=Path)
     parser.add_argument("--summary", type=Path)
     parser.add_argument("--history-file", type=Path, action="append", default=[])
     parser.add_argument("--compiler-status")
@@ -854,6 +864,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         if args.action == "health":
             return complete_health(args, context)
+        if args.action == "check-product":
+            check_product(args.report, context)
+            print("[ci-validation] installed Int product correspondence verified")
+            return 0
         if args.action == "check-arrow":
             import importlib.util
 
@@ -892,6 +906,8 @@ def main(argv: list[str] | None = None) -> int:
             report = read_report(args.report)
             if report.get("format") == FORMAT:
                 verify_report(report, context, report["kind"])
+            elif report.get("format") == "pietto.result-product.v1":
+                check_product(args.report, context)
             elif report.get("format") == workloads.READINESS_FORMAT:
                 workloads.verify_readiness(report, context, *readiness_inputs())
             elif report.get("format") == workloads.HEALTH_FORMAT:

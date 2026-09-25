@@ -48,3 +48,23 @@ current requirements→placement→execution→coverage/health链已由real xdis
 如实INSUFFICIENT_EVIDENCE。review修正了history身份/成本及named-group owner closure，未引入新产品/trust边界。
 27路径/A13/M14/D0保持，未改core/native inputs；full1/2、focused9/12，余量只供已授权必要恢复/CI child。
 三层接受与16行DAG不变；Slice02仍需独立执行授权。
+
+## Slice02 handoff completion 与 Q1
+
+原文上方两轮规划与 Q2 属于 Slice01 历史。当前用户重述的批准要求已完整归入 brief 的 P67-A01–A18，
+并在固定16行路线逐项归属；此前 brief 将 Phase 目标与 Slice01 src 禁令混写，本次修正文档层级。
+独立 v4/v5 原文件未随本次 dispatch 提供；使用用户 Appendix A，不声称读取缺失文件、不重开架构选择。
+
+Slice02 只展开 retained neutral contract、scalar leaves、direct/projection Int producer binding 与 owned Int64 batch。
+J02 用真实 pg_int8/my_bigint 及独立 observation 拒绝落实；J03 用完整字段和 coordinated mutation；J04 以
+source→installed product consumer 串联；J05 用64/4096/8MiB ceiling、小超限与单次 full；J06 保留累计失败和全解释器域。
+十九条路径 A6/M13/D0；三个新增 private modules、一个 inert probe/helper、一个 ordinary principal；无上游修补。
+Q1 确认三层接受和 finite witness manifest 可执行，全部属于已有授权内 IMPLEMENTATION_FREEDOM。
+现有 source connector 仍限定其 target；“同根多 producer”通过同一中立根的不同合法 realization 证明，
+不把分别编译的 PostgreSQL/MySQL source 冒充同一对象身份。
+
+## Slice02 Q2
+
+已实现三层accepted boundary与全部冻结见证；primary-author/Ponytail审查及targeted followup通过，
+完整equivalent与两个installed runtime实测通过。P67-A01–A18归属和16行route未变；没有新architecture决定、
+没有未闭合semantic前提被静默转为PASS。当前仅剩已授权exact-tree publication与自然CI验收，Slice03不启动。
