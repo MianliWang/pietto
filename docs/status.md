@@ -93,7 +93,18 @@ documentation does not supersede that evidence.
 | Interlude V Slice 2 | `COMPLETED / PUBLISHED` |
 | Interlude V S2 performance outcome | `MEASURED_GAIN` |
 | Interlude V Slice 3 | `COMPLETED / PUBLISHED` |
+| CI remaining-tail maintenance R1 | `COMPLETED / PUBLISHED` |
 | Next | `Rebind accepted Phase67 v4 plan under a separate dispatch` |
+
+## CI remaining-tail maintenance R1
+
+[CI remaining-tail rebalance](spec/ci-remaining-tail-rebalance-v1.md) 是单独计费的维护，
+`COMPLETED / PUBLISHED` 仅在 sealed tree 的普通提交、FF push、natural exact-head attempt1
+全部13个 jobs、两版本完整 coverage 与8份 raw coverage artifacts、2份 native receipts 验证成功后成立；
+此前是 candidate。每版本 `matrix/loadfile`、`standalone/load`、`remaining/loadfile`，
+保留完整 U 与六个 mode 节点的全部内部断言。性能结论以实际 hosted evidence 为准，不承诺目标时长。
+Interlude V 仍 COMPLETED、total=3；此维护不属于 S4。Phase66 COMPLETED / N66=16，
+Phase67 NEXT / NOT STARTED，accepted v4 retained；package/CLI0.1.0。本次结果后停止。
 
 ## Interlude V current route
 

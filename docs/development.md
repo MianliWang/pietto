@@ -310,9 +310,11 @@ Phase66 COMPLETED / N66=16；Phase67 NEXT / NOT STARTED，accepted v4 retained�
 rebind/repository freeze 授权；package/CLI0.1.0。不自动进入 Phase67，不追加 S4。
 
 普通本地 `scripts/validate.py --timings --oom-guard on` 仍执行全部六 gates；CI 使用明确标为
-partial 的 `scripts/ci_validation.py gates/run/collect/verify`。每版本 `matrix` 与 `remaining`
-两个 pytest invocations 各自使用既有 resource policy、ceiling4、loadfile；共享矩阵消费者集中，
-Phase65/66 六个 standalone/batch mode 节点移到 remainder，不复制 semantic observations。
+partial 的 `scripts/ci_validation.py gates/run/collect/verify`。S3 当时采用两个分区；后续独立的
+[CI remaining-tail maintenance](spec/ci-remaining-tail-rebalance-v1.md) 采用每版本三个 invocations：
+`matrix/loadfile`、`standalone/load`、`remaining/loadfile`。仅 Phase65/66 六个独立 mode 节点
+使用 native load，从单独 job 的启动即参与逐 node 分发，不再按同文件绑定。共享矩阵成员与
+loadfile 不变，各分区保留 resource policy、ceiling4 和独立新鲜根，不复制 semantic observations。
 检查与 runtime jobs 并行，Python3.12/3.13 完成 jobs 必须同时核对依赖 success 和完整报告，
 最后 target aggregate 才接收 complete compiler status。无新的池或持久结果 cache。
 
@@ -326,8 +328,9 @@ run/attempt/checkout/runtime 绑定，使用既有 pinned raw artifact transport
 共同 lock/Ruff 由3.12 checks job 执行一次。Pyright 的 effective imports/stubs 没有被证明等价，
 因此 production/test typing 均在两版本保留。generated/golden/package smoke 同样各保留一次；
 pytest 中的真实 generated-guard consumer 也要求 runtime jobs 保留 Java21。
-本次 Gate2 允许一次 Python3.13 coverage-equivalent rehearsal：全部 static gates、两个新鲜
-分区串行执行并独立对账，随后 generated/golden/installed smoke 各一次；所有重负载使用 guard on。
+CI maintenance 的 Gate2 使用一次 Python3.13 coverage-equivalent rehearsal：全部 static gates、
+独立完整 collection、三个新鲜分区串行执行并对账，随后 generated/golden/installed smoke 各一次；
+所有重负载使用 guard on。
 这消耗一个 full-suite-equivalent start，不能再额外跑 monolithic suite 作为“保险”。
 
 Dependabot 保留两生态的 daily/timezone/open-PR-limit；仅将 Ruff、Pyright、pytest、pytest-cov、
@@ -340,3 +343,8 @@ S1/S2 的计数和 S2 环境事件保留在独立历史记录。S3 使用新的�
 决策教训是区分 waiting/CPU、invocation-local reuse、runtime-dependent gates 和真实 node coverage；
 冻结前还必须查全 script inventories 的直接 readers。具体时长分开记录 pytest、gate、job、critical
 path 与 summed runner time，不从一次 hosted run 推出版本因果或稳定 p95。
+
+CI runtime 使用 `--durations=30 --durations-min=1`，另从实际 pytest reports 输出有界的慢节点、
+文件累计耗时和 worker 摘要；setup/call/teardown 与 child start/finish 分开，时序不取自 parent
+收到报告的时间。计时不进入 coverage schema 或 native receipts，也不决定成员。fixture 依赖分组
+与耗时平衡是不同问题：同文件封装可能串行化独立测试，完整报告正确不代表调度已最优。

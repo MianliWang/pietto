@@ -25,7 +25,7 @@ from scripts import validate
 ROOT = Path(__file__).resolve().parents[1]
 FORMAT = "pietto.ci-coverage.v1"
 MAX_REPORT_BYTES = 8 * 1024 * 1024
-PARTITIONS = ("matrix", "remaining")
+PARTITIONS = ("matrix", "standalone", "remaining")
 MATRIX_FILES = (
     "tests/test_phase58_slice16_pure_differential_compatibility_assurance.py",
     "tests/test_phase59_slice11_differential_compatibility_assurance.py",
@@ -86,11 +86,12 @@ def partition_nodes(nodes: list[str]) -> dict[str, list[str]]:
         raise ValueError("stale or overlapping standalone selector")
     result: dict[str, list[str]] = {part: [] for part in PARTITIONS}
     for node in nodes:
-        part = (
-            "matrix"
-            if node.split("::", 1)[0] in MATRIX_FILES and node not in actual
-            else "remaining"
-        )
+        if node in actual:
+            part = "standalone"
+        elif node.split("::", 1)[0] in MATRIX_FILES:
+            part = "matrix"
+        else:
+            part = "remaining"
         result[part].append(node)
     if not all(result.values()):
         raise ValueError("empty partition")
@@ -332,6 +333,7 @@ class Coverage:
         self.partition = config.getoption("--ci-partition")
         self.worker = hasattr(config, "workerinput")
         self.started = time.monotonic()
+        self.started_wall = time.time()
         self.nodes: list[str] = []
         self.identity: dict[str, object] = {}
         self.reports: dict[str, dict[str, str]] = {}
@@ -445,13 +447,80 @@ class Coverage:
             verify_report(result, self.context, result["kind"])
         write_report(self.path, result)
 
+    def pytest_terminal_summary(self, terminalreporter):
+        if self.partition is None:
+            return
+        # Use child TestReport timestamps, never parent receipt-arrival times.
+        nodes: dict[str, dict[str, Any]] = {}
+        groups: dict[str, float] = {}
+        workers: dict[str, dict[str, Any]] = {}
+        for reports in terminalreporter.stats.values():
+            for report in reports:
+                if not isinstance(report, pytest.TestReport):
+                    continue
+                worker = getattr(report, "worker_id", "local")
+                row = nodes.setdefault(
+                    report.nodeid,
+                    {"node": report.nodeid, "worker": worker, "phases": {}},
+                )
+                row["phases"][report.when] = {
+                    "seconds": report.duration,
+                    "start": report.start,
+                    "finish": report.stop,
+                }
+                group = report.nodeid.split("::", 1)[0]
+                groups[group] = groups.get(group, 0.0) + report.duration
+                totals = workers.setdefault(
+                    worker,
+                    {
+                        "seconds": 0.0,
+                        "calls": 0,
+                        "start": report.start,
+                        "finish": report.stop,
+                    },
+                )
+                totals["seconds"] += report.duration
+                totals["calls"] += report.when == "call"
+                totals["start"] = min(totals["start"], report.start)
+                totals["finish"] = max(totals["finish"], report.stop)
+        slowest = sorted(
+            nodes,
+            key=lambda node: -sum(p["seconds"] for p in nodes[node]["phases"].values()),
+        )[:30]
+        selected = dict.fromkeys(
+            [*slowest, *(n for n in STANDALONE_NODES if n in nodes)]
+        )
+        terminalreporter.write_line(
+            "[ci-timing] "
+            + json.dumps(
+                {
+                    "partition": self.partition,
+                    "scheduler": self.config.getoption("dist", default="no"),
+                    "plugin_started": self.started_wall,
+                    "workers": workers,
+                    "slowest_groups_summed_seconds": sorted(
+                        groups.items(), key=lambda item: -item[1]
+                    )[:10],
+                    "nodes": [nodes[n] for n in selected],
+                },
+                ensure_ascii=True,
+            )
+        )
 
-def runtime_command(max_workers: int | None = None) -> tuple[str, ...]:
+
+def runtime_command(
+    max_workers: int | None = None, partition: str = "matrix"
+) -> tuple[str, ...]:
     parser = validate._build_parser()
     args = parser.parse_args(())
     args.pytest_maxprocesses = max_workers
     selected = validate._pytest_command(args, parser)
-    return (sys.executable, "-m", "pytest", *selected[3:])
+    # Only the six independent modes opt out of the validator's file grouping.
+    options = tuple(
+        "--dist=load" if partition == "standalone" and arg == "--dist=loadfile" else arg
+        for arg in selected[3:]
+    )
+    return (sys.executable, "-m", "pytest", *options)
 
 
 def run_gate(name: str, command: tuple[str, ...], guard: str) -> int:
@@ -554,7 +623,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.action == "run" and args.partition is None:
             raise ValueError("missing partition")
         command = (
-            runtime_command(args.max_workers)
+            runtime_command(args.max_workers, args.partition)
             if args.action == "run"
             else (sys.executable, "-m", "pytest", "--collect-only", "-qq")
         )
@@ -571,6 +640,8 @@ def main(argv: list[str] | None = None) -> int:
             if basetemp.exists():
                 raise ValueError("pytest invocation root must be fresh")
             command += (
+                "--durations=30",
+                "--durations-min=1",
                 "--ci-partition",
                 args.partition,
                 "--basetemp",

@@ -337,6 +337,7 @@ EXPECTED_STATUS = (
     ("Interlude V Slice 2", "`COMPLETED / PUBLISHED`"),
     ("Interlude V S2 performance outcome", "`MEASURED_GAIN`"),
     ("Interlude V Slice 3", "`COMPLETED / PUBLISHED`"),
+    ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
     ("Next", "`Rebind accepted Phase67 v4 plan under a separate dispatch`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
