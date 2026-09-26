@@ -28,3 +28,5 @@ Slice05：variable-width费用按实际UTF-8、offset与validity计算，供给s
 Slice06：下游representation的65位上限未证明上游能产生相应fact；共享semantic rule当时仍限38。先追踪fact生产规则并实测可达38/39边界；本次正确HOLD后由用户明确扩至65，旧合同不追认错误。语言scale≤p、producer scale≤min(p,30)和Arrow width是三个独立判断。
 
 Slice07：先验证实际meaning producer与explicit consumption，再建立Arrow矩阵；补齐新runtime field对应的旧observation CUTOFF inventory，保持完整字段断言。处理新增optional authority时应同时测试字段删除的typed failure，并防止显式opt-in顺带开放本Slice未授权的旧lowering。SQL/数据结果观察、pure描述和source-value真实性仍是不同证据。
+
+Slice08：完整schema与原始输入positional values是两种证据；同type同名column交换可能通过batch schema/domain，必须由独立原输入oracle拒绝。零行数组可合法没有data buffer，先遵守pinned SDK full validation再处理零长度，不能把owned constructor的分配细节当输入约束。S06/S07的先证可达域、字段删除typed failure、完整reader inventory及文档diagnostic scanner已纳入本Slice前置检查。

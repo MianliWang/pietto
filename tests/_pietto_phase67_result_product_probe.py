@@ -87,6 +87,14 @@ CASES = (
     "temporal_resources",
     "temporal_correspondence",
     "temporal_codec",
+    "finite_mixed_values",
+    "finite_empty",
+    "finite_all_null",
+    "carrier_labels",
+    "carrier_label_refusals",
+    "finite_resources",
+    "finite_correspondence",
+    "finite_codec",
 )
 
 
@@ -442,6 +450,7 @@ def run_cases(root):
     results.update(run_text_cases(root))
     results.update(run_decimal_cases(root))
     results.update(run_temporal_cases(root))
+    results.update(run_finite_cases(root))
     assert set(results) == set(CASES)
     return results
 
@@ -4787,6 +4796,1048 @@ def verify_temporal_report(cases):
         raise ValueError("temporal report evidence") from exc
 
 
+# S08 fixtures use legal sources; these constants are independent of the mapper.
+FINITE_NAMES = (
+    "small",
+    "medium",
+    "large",
+    "flag",
+    "ratio",
+    "text",
+    "wide_text",
+    "amount",
+    "wide_amount",
+    "stamp",
+    "identifier",
+    "binary_identifier",
+    "other",
+)
+FINITE_KINDS = (
+    "Int",
+    "Int",
+    "Int",
+    "Bool",
+    "Float",
+    "Text",
+    "Text",
+    "Decimal(9, 2)",
+    "Decimal(65, 30)",
+    "Timestamp",
+    "UUID",
+    "UUID",
+    "Int",
+)
+FINITE_LABELS = tuple("selected_" + name for name in FINITE_NAMES)
+FINITE_TYPES = (
+    "int16",
+    "int32",
+    "int64",
+    "bool",
+    "double",
+    "string",
+    "large_string",
+    "decimal128(9, 2)",
+    "decimal256(65, 30)",
+    "timestamp[us]",
+    "extension<arrow.uuid>",
+    "fixed_size_binary[16]",
+    "int16",
+)
+FINITE_GROUPS = (
+    "finite_mixed_values",
+    "finite_empty",
+    "finite_all_null",
+    "carrier_labels",
+    "carrier_label_refusals",
+    "finite_resources",
+    "finite_correspondence",
+    "finite_codec",
+)
+
+
+def finite_fixture(directory, target, *, all_nullable=False):
+    from pietto._project.project_result_binding import bind_producer
+    from pietto._project.project_scalar_meaning import acquire_scalar_meaning
+    from pietto._project.project_result_contract import build_result_contract
+    from pietto._project.project_sql_emission import emit_project_sql
+
+    text = "shape Row:\n" + "".join(
+        f"    {name}: {kind} {'nullable' if all_nullable or i % 2 else 'not null'}\n"
+        for i, (name, kind) in enumerate(zip(FINITE_NAMES, FINITE_KINDS, strict=True))
+    )
+    text += f'source rows: Row is {target}.table("opaque.result.fixture")\ntable result:\n    from rows\n    select:\n'
+    text += "".join(
+        f"        {label} = {name}\n"
+        for label, name in zip(FINITE_LABELS, FINITE_NAMES, strict=True)
+    )
+    checked = build_neutral(directory, {"main.pietto": text})
+    meaning = acquire_scalar_meaning(checked)
+    # Reuse authored physical declarations, not product-derived descriptions.
+    base = json.loads(temporal_input(target, mixed=True))
+    old_fields = base["sources"][0]["fields"]
+    old_observed = temporal_observations(target, mixed=True)
+    positions = (4, 4, 4, 5, 6, 7, 7, 8, 8, 0, 2, 3, 4)
+    descriptions, observed = [], []
+    from pietto._project.project_result_binding import DecimalObservation
+
+    for i, position in enumerate(positions):
+        description = json.loads(json.dumps(old_fields[position]))
+        description.update(ordinal=i, name=FINITE_NAMES[i], column=FINITE_NAMES[i])
+        rep = description["representation"]
+        rep["nullable"] = bool(all_nullable or i % 2)
+        observation = replace(old_observed[position], ordinal=i, label=FINITE_LABELS[i])
+        if i in (0, 1, 2, 12):
+            bits = {0: 32, 1: 32, 2: 64, 12: 16}[i]
+            lower, upper = (
+                (-100, 100)
+                if i in (0, 12)
+                else (-(2 ** (bits - 1)), 2 ** (bits - 1) - 1)
+            )
+            rep["storage"] = dict(kind=width_storage(target, bits))
+            rep["domain"] = dict(kind="int_range", min=str(lower), max=str(upper))
+            observation = replace(
+                observation,
+                storage=width_storage(target, bits),
+                lower=lower,
+                upper=upper,
+            )
+        elif i in (7, 8):
+            precision, scale = (9, 2) if i == 7 else (65, 30)
+            rep["storage"].update(precision=precision, scale=scale)
+            rep["domain"].update(precision=precision, scale=scale)
+            observation = replace(
+                observation, decimal=DecimalObservation(precision, scale)
+            )
+        descriptions.append(description)
+        observed.append(observation)
+    base["sources"][0]["fields"] = descriptions
+    encoded = json.dumps(base).encode()
+    outcome = emit_project_sql(checked, encoded, scalar_meaning=meaning)
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    neutral = build_result_contract(checked, scalar_meaning=meaning)
+    producer = bind_producer(neutral, outcome.artifact, tuple(observed))
+    return checked, meaning, outcome.artifact, neutral, producer, encoded
+
+
+def finite_policy(producer, *, labels=True, wide=False) -> dict[str, Any]:
+    from pietto._project import project_arrow_result as a
+
+    fields = producer.fields
+    return dict(
+        integer_widths=tuple(
+            a.IntegerWidthRequest(b.field, 16) if i == 0 else None
+            for i, b in enumerate(fields)
+        ),
+        text_offset_widths=tuple(
+            a.TextOffsetWidthRequest(b.field, 64)
+            if i == 6 or (wide and i == 5)
+            else None
+            for i, b in enumerate(fields)
+        ),
+        decimal_widths=tuple(
+            a.DecimalWidthRequest(b.field, 256) if wide and i == 7 else None
+            for i, b in enumerate(fields)
+        ),
+        uuid_representations=tuple(
+            a.UUIDRepresentationRequest(b.field, "binary16") if i == 11 else None
+            for i, b in enumerate(fields)
+        ),
+        field_labels=tuple(
+            a.ArrowFieldLabelRequest(b.field, "repeated") if i in (0, 5, 12) else None
+            for i, b in enumerate(fields)
+        )
+        if labels
+        else None,
+    )
+
+
+def finite_rows(target, *, state="values") -> list[list[Any]]:
+    from datetime import datetime
+    from decimal import Decimal
+    from uuid import UUID
+
+    first = [
+        1,
+        222,
+        BIG,
+        False if target == "postgres" else 0,
+        -0.0,
+        "",
+        "é",
+        Decimal("12.34"),
+        Decimal("9876543210.987654321098765432109876543210"),
+        datetime(1969, 12, 31, 23, 59, 59, 999999),
+        UUID(hex="00112233445566778899aabbccddeeff"),
+        UUID(hex="ffeeddccbbaa99887766554433221100"),
+        -7,
+    ]
+    second = [
+        0,
+        0,
+        -BIG,
+        True if target == "postgres" else 1,
+        0.0,
+        "e\u0301",
+        "😀",
+        Decimal("0.00"),
+        Decimal("0E-30"),
+        datetime(2000, 2, 29, 12, 34, 56, 123456),
+        UUID(int=0),
+        UUID(int=(1 << 128) - 1),
+        9,
+    ]
+    if target == "mysql":
+        for row in (first, second):
+            for i in (10, 11):
+                row[i] = row[i].bytes
+    third = [None if i % 2 else v for i, v in enumerate(first)]
+    rows = [first, second, third, list(first)]
+    if state == "empty":
+        return []
+    if state == "null":
+        return [[None] * 13 for _ in range(2)]
+    if state == "one":
+        return rows[:1]
+    if state == "first_null":
+        return [[None] * 13, *rows]
+    return rows
+
+
+def finite_expected(
+    *, state="values", labels=True, all_nullable=False, wide=False
+) -> dict[str, Any]:
+    first = [
+        1,
+        222,
+        BIG,
+        False,
+        "8000000000000000",
+        "",
+        "c3a9",
+        "1234",
+        "9876543210987654321098765432109876543210",
+        -1,
+        "00112233445566778899aabbccddeeff",
+        "ffeeddccbbaa99887766554433221100",
+        -7,
+    ]
+    second = [
+        0,
+        0,
+        -BIG,
+        True,
+        "0000000000000000",
+        "65cc81",
+        "f09f9880",
+        "0",
+        "0",
+        951827696123456,
+        "00000000000000000000000000000000",
+        "ffffffffffffffffffffffffffffffff",
+        9,
+    ]
+    rows = [
+        first,
+        second,
+        [None if i % 2 else v for i, v in enumerate(first)],
+        list(first),
+    ]
+    if state == "empty":
+        rows = []
+    elif state == "null":
+        rows = [[None] * 13 for _ in range(2)]
+    elif state == "one":
+        rows = rows[:1]
+    elif state == "first_null":
+        rows = [[None] * 13, *rows]
+    types: list[str] = list(FINITE_TYPES)
+    if wide:
+        types[5], types[7] = "large_string", "decimal256(9, 2)"
+    return dict(
+        fields=[
+            dict(
+                ordinal=i,
+                label="repeated" if labels and i in (0, 5, 12) else label,
+                type=types[i],
+                nullable=bool(all_nullable or i % 2),
+                metadata=None,
+            )
+            for i, label in enumerate(FINITE_LABELS)
+        ],
+        rows=rows,
+        valid=[[v is not None for v in row] for row in rows],
+        schema_metadata=None,
+    )
+
+
+def finite_snapshot(batch) -> dict[str, Any]:
+    import struct
+
+    pa = importlib.import_module("pyarrow")
+    columns = []
+    for column in batch.columns:
+        storage = column.storage if type(column.type) is type(pa.uuid()) else column
+        values = []
+        for j, scalar in enumerate(storage):
+            if not scalar.is_valid:
+                values.append(None)
+            elif (
+                pa.types.is_decimal(storage.type)
+                or pa.types.is_timestamp(storage.type)
+                or pa.types.is_fixed_size_binary(storage.type)
+            ):
+                width = (
+                    storage.type.byte_width
+                    if pa.types.is_fixed_size_binary(storage.type)
+                    else storage.type.bit_width // 8
+                )
+                data = memoryview(storage.buffers()[1])
+                raw = data[
+                    (storage.offset + j) * width : (storage.offset + j + 1) * width
+                ]
+                value = (
+                    bytes(raw).hex()
+                    if pa.types.is_fixed_size_binary(storage.type)
+                    else int.from_bytes(raw, "little", signed=True)
+                )
+                values.append(
+                    str(value) if pa.types.is_decimal(storage.type) else value
+                )
+            elif pa.types.is_floating(storage.type):
+                values.append(struct.pack(">d", scalar.as_py()).hex())
+            elif pa.types.is_string(storage.type) or pa.types.is_large_string(
+                storage.type
+            ):
+                values.append(scalar.as_py().encode("utf-8").hex())
+            else:
+                values.append(scalar.as_py())
+        columns.append(values)
+    return dict(
+        fields=[
+            dict(
+                ordinal=i,
+                label=f.name,
+                type=str(f.type),
+                nullable=f.nullable,
+                metadata=f.metadata,
+            )
+            for i, f in enumerate(batch.schema)
+        ],
+        rows=[list(row) for row in zip(*columns, strict=True)],
+        valid=[
+            [column[j].is_valid for column in batch.columns]
+            for j in range(batch.num_rows)
+        ],
+        schema_metadata=batch.schema.metadata,
+    )
+
+
+def finite_oracle(snapshot, **kwargs):
+    if not _exact(snapshot, finite_expected(**kwargs)):
+        raise ValueError("finite positional source/value correspondence")
+
+
+def finite_charge(*, state="values", wide=False):
+    # Literal physical byte widths, independent of product admission/mapping.
+    rows = finite_expected(state=state)["rows"]
+    r = len(rows)
+    fixed = 6 * 8 + 16 + 32 + 2 * 16 + 8  # four Int, Bool, Float, Timestamp
+    if wide:
+        fixed += 16
+    offsets = 16 if wide else 12
+    text_bytes = sum(
+        len(bytes.fromhex(row[i])) for row in rows for i in (5, 6) if row[i] is not None
+    )
+    return 13 * ((r + 7) // 8) + fixed * r + offsets * (r + 1) + text_bytes
+
+
+def finite_label_fixture(directory, count):
+    from pietto._project.project_result_contract import build_result_contract
+    from pietto._project.project_result_binding import bind_producer
+    from pietto._project.project_sql_emission import emit_project_sql
+
+    text = (
+        source("postgres").split("    select:\n")[0]
+        + "    select:\n"
+        + "".join(f"        output_{i} = id\n" for i in range(count))
+    )
+    checked = build_neutral(directory, {"main.pietto": text})
+    emitted = emit_project_sql(checked, emission_input("postgres"))
+    assert emitted.status == "VERIFIED" and emitted.artifact is not None
+    neutral = build_result_contract(checked)
+    return bind_producer(
+        neutral,
+        emitted.artifact,
+        tuple(
+            replace(observations("postgres")[0], ordinal=i, label=f"output_{i}")
+            for i in range(count)
+        ),
+    )
+
+
+def finite_observe(binding, rows, **kwargs):
+    from pietto._project.project_arrow_result import build_owned_batch
+
+    snapshot = finite_snapshot(build_owned_batch(binding, rows))
+    finite_oracle(snapshot, **kwargs)
+    return snapshot
+
+
+def run_finite_cases(root):
+    from pietto._project import project_arrow_result as a
+    from pietto._project import project_result_binding as p
+    from pietto._project.project_result_contract_portable import export_result_contract
+    from pietto._project.project_result_contract_correspondence import (
+        verify_bound_export,
+        verify_contract_correspondence,
+    )
+    from pietto._project import project_result_contract_pure_boundary as pure
+    from pietto._project.project_sql_emission import emit_project_sql
+    from pietto.parser_api import parse_source
+    from pietto.semantic import analyze
+
+    pa = importlib.import_module("pyarrow")
+    results: dict[str, Any] = {key: {} for key in FINITE_GROUPS}
+    for target in ("postgres", "mysql"):
+        checked, meaning, artifact, neutral, producer, encoded = finite_fixture(
+            root / ("finite-" + target), target
+        )
+        nchecked, _, _, nneutral, nproducer, _ = finite_fixture(
+            root / ("finite-null-" + target), target, all_nullable=True
+        )
+        selected = a.bind_arrow(producer, **finite_policy(producer))
+        default = a.bind_arrow(producer, **finite_policy(producer, labels=False))
+        nullable = a.bind_arrow(nproducer, **finite_policy(nproducer))
+        wide = a.bind_arrow(producer, **finite_policy(producer, wide=True))
+        rows = finite_rows(target)
+        actual = a.build_owned_batch(selected, rows)
+        measured = finite_snapshot(actual)
+        finite_oracle(measured)
+        results["finite_mixed_values"][target] = dict(
+            values=measured,
+            wide=finite_observe(wide, rows, wide=True),
+            semantic_labels=[b.field.label for b in producer.fields],
+            producer_labels=[b.observation.label for b in producer.fields],
+            distinct_sources=len(
+                {id(b.column.source_field.field) for b in producer.fields}
+            ),
+        )
+        empty = a.build_owned_batch(selected, [])
+        no_meaning = emit_project_sql(checked, encoded)
+        foreign_meaning = emit_project_sql(
+            checked, encoded, scalar_meaning=nneutral.scalar_meaning
+        )
+        wrong_policy = finite_policy(producer)
+        wrong_policy["integer_widths"] = (
+            None,
+            a.IntegerWidthRequest(producer.fields[1].field, 16),
+            *(None,) * 11,
+        )
+        untyped = pa.RecordBatch.from_arrays(
+            [pa.nulls(0) for _ in range(13)], names=selected.schema.names
+        )
+        wrong_unit = pa.RecordBatch.from_arrays(
+            [
+                pa.array([], type=pa.timestamp("ms")) if i == 9 else empty.column(i)
+                for i in range(13)
+            ],
+            schema=pa.schema(
+                [
+                    pa.field(
+                        f.name,
+                        pa.timestamp("ms") if i == 9 else f.type,
+                        nullable=f.nullable,
+                    )
+                    for i, f in enumerate(selected.schema)
+                ]
+            ),
+        )
+        missing_decimal = pa.RecordBatch.from_arrays(
+            [
+                pa.array([], type=pa.decimal128(8, 2)) if i == 7 else empty.column(i)
+                for i in range(13)
+            ],
+            schema=pa.schema(
+                [
+                    pa.field(
+                        f.name,
+                        pa.decimal128(8, 2) if i == 7 else f.type,
+                        nullable=f.nullable,
+                    )
+                    for i, f in enumerate(selected.schema)
+                ]
+            ),
+        )
+        results["finite_empty"][target] = dict(
+            snapshot=finite_snapshot(empty),
+            zero_fields=refused(
+                lambda: a.verify_batch(
+                    pa.RecordBatch.from_arrays([], names=[]), selected, producer
+                )
+            ),
+            untyped=refused(lambda: a.verify_batch(untyped, selected, producer)),
+            wrong_unit=refused(lambda: a.verify_batch(wrong_unit, selected, producer)),
+            precision=refused(
+                lambda: a.verify_batch(missing_decimal, selected, producer)
+            ),
+            request=refused(lambda: a.bind_arrow(producer, **wrong_policy)),
+            meaning=[no_meaning.status, foreign_meaning.status],
+        )
+        nulls = a.build_owned_batch(nullable, finite_rows(target, state="null"))
+        invalid_null = pa.RecordBatch.from_arrays(nulls.columns, schema=selected.schema)
+        bad_row = list(rows[0])
+        bad_row[4] = 0
+        results["finite_all_null"][target] = dict(
+            all_null=finite_snapshot(nulls),
+            first_null=finite_observe(
+                nullable,
+                finite_rows(target, state="first_null"),
+                all_nullable=True,
+                state="first_null",
+            ),
+            one=finite_observe(selected, rows[:1], state="one"),
+            actual_nonnullable=refused(
+                lambda: a.verify_batch(invalid_null, selected, producer)
+            ),
+            row_nonnullable=refused(
+                lambda: a.build_owned_batch(selected, [[None] * 13])
+            ),
+            coercion=refused(lambda: a.build_owned_batch(selected, [bad_row])),
+        )
+        results["carrier_labels"][target] = dict(
+            populated=measured,
+            empty=finite_snapshot(empty),
+            all_null=finite_snapshot(nulls),
+            default=finite_observe(default, rows, labels=False),
+        )
+
+        requests = finite_policy(producer)["field_labels"]
+        assert requests is not None
+        request = requests[0]
+        assert request is not None
+        label_bad: dict[str, Any] = dict(
+            short=requests[:-1],
+            extra=(*requests, None),
+            list=list(requests),
+            wrong_kind=(a.IntegerWidthRequest(request.field, 16), *requests[1:]),
+            foreign=(
+                a.ArrowFieldLabelRequest(nproducer.fields[0].field, "repeated"),
+                *requests[1:],
+            ),
+            reorder=requests[::-1],
+            reuse=(request, request, *requests[2:]),
+        )
+        for name, label in (
+            ("empty", ""),
+            ("nul", "a\0b"),
+            ("surrogate", "\ud800"),
+            ("codepoints", "x" * 1025),
+            ("utf8", "😀" * 257),
+            ("type", b"x"),
+            ("subclass", TextSubclass("x")),
+        ):
+            label_bad[name] = (
+                a.ArrowFieldLabelRequest(request.field, cast(Any, label)),
+                *requests[1:],
+            )
+        refusals: dict[str, Any] = {
+            name: refused(
+                lambda policy=policy: a.bind_arrow(producer, field_labels=policy)
+            )
+            for name, policy in label_bad.items()
+        }
+        for slot in ("field", "label"):
+            broken = copy(request)
+            object.__delattr__(broken, slot)
+            refusals["deleted_" + slot] = refused(
+                lambda: a.bind_arrow(producer, field_labels=(broken, *requests[1:]))
+            )
+        absent = copy(selected)
+        object.__delattr__(absent, "field_labels")
+        refusals["deleted_policy"] = refused(
+            lambda: a.verify_batch(empty, absent, producer)
+        )
+        refusals["cleared_policy"] = refused(
+            lambda: a.verify_arrow_binding(
+                replace(selected, field_labels=None), producer
+            )
+        )
+        refusals["no_policy"] = refused(
+            lambda: a.verify_batch(actual, default, producer)
+        )
+        renamed_schema = pa.schema(
+            [
+                pa.field("changed" if i == 12 else f.name, f.type, nullable=f.nullable)
+                for i, f in enumerate(selected.schema)
+            ]
+        )
+        renamed = pa.RecordBatch.from_arrays(actual.columns, schema=renamed_schema)
+        refusals["changed_name"] = refused(
+            lambda: a.verify_batch(renamed, selected, producer)
+        )
+        forged_obs = [b.observation for b in producer.fields]
+        forged_obs[0] = replace(forged_obs[0], label="repeated")
+        refusals["producer_label"] = refused(
+            lambda: p.bind_producer(neutral, artifact, tuple(forged_obs))
+        )
+        meta = actual.replace_schema_metadata({b"field_labels": b"repeated"})
+        refusals["metadata"] = refused(lambda: a.verify_batch(meta, selected, producer))
+        field_meta = pa.schema(
+            [
+                f.with_metadata({b"label": b"repeated"}) if i == 5 else f
+                for i, f in enumerate(selected.schema)
+            ]
+        )
+        refusals["field_metadata"] = refused(
+            lambda: a.verify_batch(
+                pa.RecordBatch.from_arrays(actual.columns, schema=field_meta),
+                selected,
+                producer,
+            )
+        )
+        # A coherently supplied new policy remains another legal representation.
+        renamed_requests = (
+            *requests[:12],
+            a.ArrowFieldLabelRequest(producer.fields[12].field, "changed"),
+        )
+        coherent = a.bind_arrow(
+            producer, **{**finite_policy(producer), "field_labels": renamed_requests}
+        )
+        a.verify_batch(renamed, coherent, producer)
+        refusals["coherent_policy"] = finite_snapshot(renamed)["fields"][12]["label"]
+        parsed = parse_source(
+            source(target).replace("        other\n", "        renamed = other\n")
+        )
+        assert parsed.ast is not None and not parsed.diagnostics
+        refusals["language"] = [d.code for d in analyze(parsed.ast).diagnostics]
+        results["carrier_label_refusals"][target] = refusals
+
+        resource: dict[str, Any] = {}
+        for width in (False, True):
+            binding = a.bind_arrow(nproducer, **finite_policy(nproducer, wide=width))
+            for state in ("values", "empty", "null"):
+                cost = finite_charge(state=state, wide=width)
+                values = finite_rows(target, state=state)
+                built = a.build_owned_batch(
+                    binding, values, limits=a.BatchLimits(bytes=cost)
+                )
+                a.verify_batch(
+                    built, binding, nproducer, limits=a.BatchLimits(bytes=cost)
+                )
+                resource[f"{state}/{'wide' if width else 'default'}"] = dict(
+                    charge=cost,
+                    rows=built.num_rows,
+                    owned_under=refused(
+                        lambda: a.build_owned_batch(
+                            binding, values, limits=a.BatchLimits(bytes=cost - 1)
+                        )
+                    ),
+                    supplied_under=refused(
+                        lambda: a.verify_batch(
+                            built,
+                            binding,
+                            nproducer,
+                            limits=a.BatchLimits(bytes=cost - 1),
+                        )
+                    ),
+                )
+        offset_rows = [[None] * 13] * 10 + rows
+        sliced = a.build_owned_batch(nullable, offset_rows).slice(9, 5)
+        a.verify_batch(sliced, nullable, nproducer)
+        resource["offset"] = dict(
+            offsets=[c.offset for c in sliced.columns], snapshot=finite_snapshot(sliced)
+        )
+        retained_rows = [list(rows[0]) for _ in range(32)]
+        retained = a.build_owned_batch(selected, retained_rows)
+        bad_time = pa.array(
+            [0] * 8 + [253402300800000000] + [0] * 23, type=pa.int64()
+        ).view(pa.timestamp("us"))
+        columns = list(retained.columns)
+        columns[9] = bad_time
+        bad_slice = pa.RecordBatch.from_arrays(columns, schema=selected.schema).slice(
+            8, 1
+        )
+        resource["retained_first"] = [
+            refused(
+                lambda: a.verify_batch(
+                    bad_slice,
+                    selected,
+                    producer,
+                    limits=a.BatchLimits(bytes=finite_charge(state="one")),
+                )
+            ),
+            refused(lambda: a.verify_batch(bad_slice, selected, producer)),
+        ]
+        array = pa.array
+
+        def forbidden(*args, **kwargs):
+            raise AssertionError("array construction preceded preflight")
+
+        try:
+            setattr(pa, "array", forbidden)
+            over = list(rows[0])
+            over[6] = "é" * 8
+            resource["preflight"] = [
+                refused(
+                    lambda: a.build_owned_batch(
+                        selected, rows, limits=a.BatchLimits(rows=3)
+                    )
+                ),
+                refused(
+                    lambda: a.build_owned_batch(
+                        selected, rows, limits=a.BatchLimits(bytes=1)
+                    )
+                ),
+                refused(
+                    lambda: a.build_owned_batch(
+                        selected,
+                        [over],
+                        limits=a.BatchLimits(bytes=finite_charge(state="one")),
+                    )
+                ),
+            ]
+        finally:
+            setattr(pa, "array", array)
+        layouts = []
+        for i in (9, 10, 11):
+            kind = pa.binary(16) if i == 10 else selected.schema[i].type
+            try:
+                column = pa.Array.from_buffers(kind, 0, [None, None])
+                if i == 10:
+                    column = pa.ExtensionArray.from_storage(pa.uuid(), column)
+                columns = list(empty.columns)
+                columns[i] = column
+                candidate = pa.RecordBatch.from_arrays(columns, schema=selected.schema)
+                candidate.validate(full=True)
+            except (ValueError, pa.ArrowException):
+                layouts.append("ARROW_CONSTRUCTOR")
+            else:
+                a.verify_batch(candidate, selected, producer)
+                layouts.append("CHECKED_EMPTY")
+        resource["empty_absent_buffers"] = layouts
+        results["finite_resources"][target] = resource
+
+        candidates = []
+        columns = list(actual.columns)
+        columns[0], columns[12] = columns[12], columns[0]
+        candidates.append(pa.RecordBatch.from_arrays(columns, schema=selected.schema))
+        for position, replacement in ((12, 11), (5, None)):
+            changed = [list(r) for r in rows]
+            changed[0][position] = replacement
+            candidates.append(a.build_owned_batch(selected, changed))
+        candidates += [actual.slice(0, 3), actual.slice(0, 1)]
+        detected = []
+        for candidate in candidates:
+            a.verify_batch(candidate, selected, producer)
+            snapshot = finite_snapshot(candidate)
+            try:
+                finite_oracle(snapshot)
+            except ValueError:
+                detected.append(
+                    dict(
+                        batch="PASS",
+                        correspondence="VALUE_CORRESPONDENCE",
+                        rows=snapshot["rows"],
+                    )
+                )
+            else:
+                raise AssertionError(
+                    "finite substitution escaped original-input oracle"
+                )
+        builder = a.build_owned_batch
+
+        def injected(binding, values, **kwargs):
+            damaged = [list(row) for row in values]
+            damaged[0][12] = 11
+            return builder(binding, damaged, **kwargs)
+
+        try:
+            a.build_owned_batch = injected
+            try:
+                finite_observe(selected, rows)
+            except ValueError:
+                injection = "VALUE_CORRESPONDENCE"
+            else:
+                raise AssertionError("injected builder manufactured finite success")
+        finally:
+            a.build_owned_batch = builder
+        results["finite_correspondence"][target] = dict(
+            substitutions=detected,
+            injected=injection,
+            missing_column=refused(
+                lambda: a.verify_batch(
+                    actual.select(list(range(12))), selected, producer
+                )
+            ),
+        )
+        for kind, context, contract in (
+            ("mixed", checked, neutral),
+            ("nullable", nchecked, nneutral),
+        ):
+            exported = export_result_contract(contract, context)
+            verify_bound_export(exported, context)
+            assert (
+                pure.reencode_contract(pure.decode_contract(exported.canonical_bytes))
+                == exported.canonical_bytes
+            )
+            results["finite_codec"][target + "/" + kind] = (
+                exported.canonical_bytes.decode()
+            )
+        before = export_result_contract(neutral, checked).canonical_bytes
+        for chosen in (selected, default, wide, coherent):
+            a.build_owned_batch(chosen, [])
+            assert export_result_contract(neutral, checked).canonical_bytes == before
+        damaged = pure.decode_contract(before).document
+        damaged["fields"][12]["label"] = "repeated"
+        damaged["fields"][12]["identity"]["name"] = "repeated"
+        view = pure.decode_contract(pure.encode_document(damaged))
+        results["finite_correspondence"][target]["codec_label"] = refused(
+            lambda: verify_contract_correspondence(view, neutral, checked)
+        )
+        assert producer.contract.scalar_meaning is meaning
+
+    small = finite_label_fixture(root / "labels-64", 64)
+    large = finite_label_fixture(root / "labels-65", 65)
+    for producer in (small, large):
+        requests = tuple(
+            a.ArrowFieldLabelRequest(b.field, "😀" * 256) for b in producer.fields
+        )
+        if producer is small:
+            selected = a.bind_arrow(producer, field_labels=requests)
+            results["carrier_label_refusals"]["aggregate"] = dict(
+                accepted_bytes=sum(
+                    len(name.encode()) for name in selected.schema.names
+                ),
+                fields=len(selected.schema),
+            )
+        else:
+            results["carrier_label_refusals"]["aggregate"]["overflow"] = refused(
+                lambda: a.bind_arrow(producer, field_labels=requests)
+            )
+    return results
+
+
+def verify_finite_report(cases):
+    from pietto._project import project_result_contract_pure_boundary as pure
+
+    try:
+        for key in FINITE_GROUPS:
+            expected_keys = {"postgres", "mysql"}
+            if key == "carrier_label_refusals":
+                expected_keys.add("aggregate")
+            elif key == "finite_codec":
+                expected_keys = {
+                    f"{t}/{k}"
+                    for t in ("postgres", "mysql")
+                    for k in ("mixed", "nullable")
+                }
+            if set(cases[key]) != expected_keys:
+                raise ValueError("finite observation denominator")
+        for target in ("postgres", "mysql"):
+
+            def require(key, expected):
+                if not _exact(cases[key][target], expected):
+                    raise ValueError("finite observed " + key)
+
+            require(
+                "finite_mixed_values",
+                dict(
+                    values=finite_expected(),
+                    wide=finite_expected(wide=True),
+                    semantic_labels=list(FINITE_LABELS),
+                    producer_labels=list(FINITE_LABELS),
+                    distinct_sources=13,
+                ),
+            )
+            require(
+                "finite_empty",
+                dict(
+                    snapshot=finite_expected(state="empty"),
+                    zero_fields="LIMIT",
+                    untyped="ARROW_SCHEMA",
+                    wrong_unit="ARROW_SCHEMA",
+                    precision="ARROW_SCHEMA",
+                    request="ARROW_ADAPTATION",
+                    meaning=["BLOCKED", "INPUT_REJECTED"],
+                ),
+            )
+            require(
+                "finite_all_null",
+                dict(
+                    all_null=finite_expected(state="null", all_nullable=True),
+                    first_null=finite_expected(state="first_null", all_nullable=True),
+                    one=finite_expected(state="one"),
+                    actual_nonnullable="NULL",
+                    row_nonnullable="NULL",
+                    coercion="VALUE_DOMAIN",
+                ),
+            )
+            require(
+                "carrier_labels",
+                dict(
+                    populated=finite_expected(),
+                    empty=finite_expected(state="empty"),
+                    all_null=finite_expected(state="null", all_nullable=True),
+                    default=finite_expected(labels=False),
+                ),
+            )
+            label_errors: dict[str, Any] = dict.fromkeys(
+                (
+                    "short",
+                    "extra",
+                    "list",
+                    "wrong_kind",
+                    "foreign",
+                    "reorder",
+                    "reuse",
+                    "empty",
+                    "nul",
+                    "surrogate",
+                    "codepoints",
+                    "utf8",
+                    "type",
+                    "subclass",
+                    "deleted_field",
+                    "deleted_label",
+                    "deleted_policy",
+                ),
+                "ARROW_LABELS",
+            )
+            label_errors.update(
+                cleared_policy="ARROW_BINDING",
+                no_policy="ARROW_SCHEMA",
+                changed_name="ARROW_SCHEMA",
+                producer_label="PRODUCER_OBSERVATION",
+                metadata="ARROW_SCHEMA",
+                field_metadata="ARROW_SCHEMA",
+                coherent_policy="changed",
+                language=["PIE-S2305"],
+            )
+            require("carrier_label_refusals", label_errors)
+            resource: dict[str, Any] = {
+                f"{state}/{'wide' if wide else 'default'}": dict(
+                    charge=finite_charge(state=state, wide=wide),
+                    rows=len(finite_expected(state=state)["rows"]),
+                    owned_under="LIMIT",
+                    supplied_under="LIMIT",
+                )
+                for wide in (False, True)
+                for state in ("values", "empty", "null")
+            }
+            resource.update(
+                offset=dict(
+                    offsets=[9] * 13,
+                    snapshot=finite_expected(state="first_null", all_nullable=True),
+                ),
+                retained_first=["LIMIT", "VALUE_DOMAIN"],
+                preflight=["LIMIT"] * 3,
+                empty_absent_buffers=["CHECKED_EMPTY"] * 3,
+            )
+            require("finite_resources", resource)
+            rows = finite_expected()["rows"]
+            variants = json.loads(json.dumps([rows] * 3))
+            for row in variants[0]:
+                row[0], row[12] = row[12], row[0]
+            variants[1][0][12] = 11
+            variants[2][0][5] = None
+            variants += [rows[:3], rows[:1]]
+            require(
+                "finite_correspondence",
+                dict(
+                    substitutions=[
+                        dict(
+                            batch="PASS", correspondence="VALUE_CORRESPONDENCE", rows=v
+                        )
+                        for v in variants
+                    ],
+                    injected="VALUE_CORRESPONDENCE",
+                    missing_column="ARROW_SCHEMA",
+                    codec_label="CORRESPONDENCE",
+                ),
+            )
+            for kind in ("mixed", "nullable"):
+                raw = cases["finite_codec"][target + "/" + kind].encode()
+                view = pure.decode_contract(raw)
+                document = view.document
+                fields = document["fields"]
+                expected_names = [k.split("(")[0] for k in FINITE_KINDS]
+                expected_laws = [
+                    dict(
+                        kind="timestamp",
+                        calendar="proleptic_gregorian",
+                        resolution="microsecond",
+                        timezone="absent",
+                        lower=[1000, 1, 1, 0, 0, 0, 0],
+                        upper=[9999, 12, 31, 23, 59, 59, 499999],
+                    ),
+                    dict(kind="uuid", byte_order="big_endian", byte_width=16),
+                    dict(kind="uuid", byte_order="big_endian", byte_width=16),
+                ]
+                if (
+                    document["owner"]["identity"]
+                    != dict(
+                        module="main.pietto",
+                        namespace="relation",
+                        kind="table",
+                        name="result",
+                    )
+                    or [f["declared"]["name"] for f in fields] != expected_names
+                    or [
+                        [a["value"]["value"] for a in f["declared"]["arguments"]]
+                        for f in fields
+                    ]
+                    != [
+                        [],
+                        [],
+                        [],
+                        [],
+                        [],
+                        [],
+                        [],
+                        ["9", "2"],
+                        ["65", "30"],
+                        [],
+                        [],
+                        [],
+                        [],
+                    ]
+                    or [f["provenance"]["symbol"]["identity"]["name"] for f in fields]
+                    != ["rows"] * 13
+                    or [entry["law"] for entry in document["scalar_meaning"]["sources"]]
+                    != expected_laws
+                    or pure.reencode_contract(view) != raw
+                    or document["field_count"] != 13
+                    or document["multiplicity"] != "bag"
+                    or document["ordering"] is not None
+                    or [f["ordinal"] for f in fields] != list(range(13))
+                    or [f["label"] for f in fields] != list(FINITE_LABELS)
+                    or [f["canonical"] for f in fields]
+                    != [
+                        dict(kind="builtin", name=k.split("(")[0], symbol=None)
+                        for k in FINITE_KINDS
+                    ]
+                    or [f["nullability"] for f in fields]
+                    != [
+                        "nullable" if kind == "nullable" or i % 2 else "non_null"
+                        for i in range(13)
+                    ]
+                    or [f.get("meaning") for f in fields]
+                    != [None] * 9 + [0, 1, 2, None]
+                    or [s["port"] for s in document["scalar_meaning"]["sources"]]
+                    != [dict(kind="source_port", position=i) for i in (9, 10, 11)]
+                    or any(
+                        f["provenance"]["kind"] != "direct_projection" for f in fields
+                    )
+                ):
+                    raise ValueError("finite complete neutral document")
+        if cases["carrier_label_refusals"]["aggregate"] != dict(
+            accepted_bytes=65536, fields=64, overflow="ARROW_LABELS"
+        ):
+            raise ValueError("label aggregate metadata bounds")
+    except (KeyError, TypeError, AttributeError, pure.ContractDocumentError) as exc:
+        raise ValueError("finite scalar report evidence") from exc
+
+
 CONTRACT_CORPUS = ("postgres", "mysql", "descriptors", "imported")
 CONTRACT_SEEDS = (7, 19)
 
@@ -5394,6 +6445,7 @@ def verify_report(value, context, inputs):
     verify_text_report(cases)
     verify_decimal_report(cases)
     verify_temporal_report(cases)
+    verify_finite_report(cases)
     origins = value["origins"]
     prefix = Path(value["prefix"])
     required = {"pietto._project." + name for name in PRODUCTS} | {
@@ -5547,6 +6599,7 @@ def compare_product_reports(paths, repository, contexts):
                 value["cases"]["text_codec"],
                 value["cases"]["decimal_codec"],
                 value["cases"]["temporal_codec"],
+                value["cases"]["finite_codec"],
             )
         )
     if documents[0] != documents[1]:
@@ -5557,6 +6610,33 @@ def compare_product_reports(paths, repository, contexts):
 def reject_report_damage(value, context, inputs):
     """Mutate actual saved-data observations, never fake an Arrow success."""
     mutations = (
+        lambda v: v["cases"]["finite_mixed_values"]["postgres"]["values"]["rows"][
+            0
+        ].__setitem__(12, 1),
+        lambda v: v["cases"]["finite_empty"]["mysql"]["snapshot"]["fields"][7].update(
+            type="null"
+        ),
+        lambda v: v["cases"]["finite_all_null"]["postgres"]["first_null"]["valid"][
+            0
+        ].__setitem__(12, True),
+        lambda v: v["cases"]["carrier_labels"]["mysql"]["populated"]["fields"][
+            12
+        ].update(label="lost_duplicate"),
+        lambda v: v["cases"]["carrier_label_refusals"]["aggregate"].update(
+            accepted_bytes=65537
+        ),
+        lambda v: v["cases"]["finite_resources"]["postgres"]["null/wide"].update(
+            charge=321
+        ),
+        lambda v: v["cases"]["finite_correspondence"]["mysql"]["substitutions"][0][
+            "rows"
+        ][0].__setitem__(12, -7),
+        lambda v: v["cases"]["finite_codec"].__setitem__(
+            "postgres/mixed",
+            v["cases"]["finite_codec"]["postgres/mixed"].replace(
+                '"ordinal":12', '"ordinal":11'
+            ),
+        ),
         lambda v: v["cases"].pop("meaning_premise"),
         lambda v: v["cases"]["meaning_premise"]["postgres"]["entries"][0].update(
             source_position=99
@@ -5752,7 +6832,8 @@ def main():
     }
     verify_report(value, context, input_closure(repository))
     rejected = reject_report_damage(value, context, input_closure(repository))
-    assert rejected == 54
+    assert len(cases) == 64
+    assert rejected == 62
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with args.report.open("x") as stream:
         json.dump(value, stream, sort_keys=True, allow_nan=False)

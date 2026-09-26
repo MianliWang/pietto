@@ -59,6 +59,12 @@ class UUIDRepresentationRequest:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class ArrowFieldLabelRequest:
+    field: ResultField = field(repr=False)
+    label: str
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class ArrowResultBinding:
     producer: ProducerResultBinding = field(repr=False)
     schema: Any = field(repr=False)
@@ -66,6 +72,7 @@ class ArrowResultBinding:
     text_offset_widths: tuple[TextOffsetWidthRequest | None, ...] | None = None
     decimal_widths: tuple[DecimalWidthRequest | None, ...] | None = None
     uuid_representations: tuple[UUIDRepresentationRequest | None, ...] | None = None
+    field_labels: tuple[ArrowFieldLabelRequest | None, ...] | None = None
 
 
 def _arrow() -> Any:
@@ -197,6 +204,36 @@ def _arrow_type(pa, bound, width, text_width, decimal_width, uuid_representation
     raise ResultError("PRODUCER_UNSUPPORTED")
 
 
+def _field_labels(producer, requests):
+    if requests is None:
+        return tuple(bound.field.label for bound in producer.fields)
+    if type(requests) is not tuple or len(requests) != len(producer.fields):
+        raise ResultError("ARROW_LABELS")
+    labels = []
+    total = 0
+    for bound, request in zip(producer.fields, requests, strict=True):
+        if request is None:
+            labels.append(bound.field.label)
+            continue
+        if (
+            type(request) is not ArrowFieldLabelRequest
+            or getattr(request, "field", None) is not bound.field
+            or type(getattr(request, "label", None)) is not str
+            or not 0 < len(request.label) <= 1024
+            or "\0" in request.label
+        ):
+            raise ResultError("ARROW_LABELS")
+        try:
+            size = len(request.label.encode("utf-8"))
+        except UnicodeEncodeError as exc:
+            raise ResultError("ARROW_LABELS") from exc
+        total += size
+        if size > 1024 or total > 64 * 1024:
+            raise ResultError("ARROW_LABELS")
+        labels.append(request.label)
+    return tuple(labels)
+
+
 def bind_arrow(
     producer: ProducerResultBinding,
     *,
@@ -204,6 +241,7 @@ def bind_arrow(
     text_offset_widths=None,
     decimal_widths=None,
     uuid_representations=None,
+    field_labels: tuple[ArrowFieldLabelRequest | None, ...] | None = None,
 ) -> ArrowResultBinding:
     if type(producer) is not ProducerResultBinding:
         raise ResultError("PRODUCER_ROOT")
@@ -212,16 +250,23 @@ def bind_arrow(
     text_widths = _text_widths(producer, text_offset_widths)
     decimals = _decimal_widths(producer, decimal_widths)
     uuids = _uuid_representations(producer, uuid_representations)
+    labels = _field_labels(producer, field_labels)
     pa = _arrow()
     schema = pa.schema(
         [
             pa.field(
-                b.field.label,
+                label,
                 _arrow_type(pa, b, width, text_width, decimal_width, uuid_policy),
                 nullable=b.nullable,
             )
-            for b, width, text_width, decimal_width, uuid_policy in zip(
-                producer.fields, widths, text_widths, decimals, uuids, strict=True
+            for b, width, text_width, decimal_width, uuid_policy, label in zip(
+                producer.fields,
+                widths,
+                text_widths,
+                decimals,
+                uuids,
+                labels,
+                strict=True,
             )
         ]
     )
@@ -232,6 +277,7 @@ def bind_arrow(
         text_offset_widths,
         decimal_widths,
         uuid_representations,
+        field_labels,
     )
     verify_arrow_binding(binding, producer)
     return binding
@@ -243,6 +289,19 @@ def verify_arrow_binding(binding, producer) -> None:
     verify_producer_binding(producer, producer.contract, producer.artifact)
     if type(binding) is not ArrowResultBinding or binding.producer is not producer:
         raise ResultError("ARROW_BINDING")
+    if not hasattr(binding, "field_labels"):
+        raise ResultError("ARROW_LABELS")
+    labels = _field_labels(producer, binding.field_labels)
+    if any(
+        not hasattr(binding, name)
+        for name in (
+            "integer_widths",
+            "text_offset_widths",
+            "decimal_widths",
+            "uuid_representations",
+        )
+    ):
+        raise ResultError("ARROW_ADAPTATION")
     widths = _widths(producer, binding.integer_widths)
     text_widths = _text_widths(producer, binding.text_offset_widths)
     decimals = _decimal_widths(producer, binding.decimal_widths)
@@ -254,13 +313,14 @@ def verify_arrow_binding(binding, producer) -> None:
         or binding.schema.metadata is not None
     ):
         raise ResultError("ARROW_BINDING")
-    for actual, expected, width, text_width, decimal_width, uuid_policy in zip(
+    for actual, expected, width, text_width, decimal_width, uuid_policy, label in zip(
         binding.schema,
         producer.fields,
         widths,
         text_widths,
         decimals,
         uuids,
+        labels,
         strict=True,
     ):
         expected_type = _arrow_type(
@@ -268,7 +328,7 @@ def verify_arrow_binding(binding, producer) -> None:
         )
         if (
             (uuid_policy is not None and type(actual.type) is not type(expected_type))
-            or actual.name != expected.field.label
+            or actual.name != label
             or actual.type != expected_type
             or actual.nullable is not expected.nullable
             or actual.metadata is not None
@@ -453,6 +513,8 @@ def verify_batch(batch, binding, producer, *, limits=BatchLimits()) -> None:
     if not isinstance(batch, pa.RecordBatch) or not batch.is_cpu:
         raise ResultError("ARROW_BATCH")
     _dimensions(batch.num_columns, batch.num_rows, limits)
+    if batch.num_columns != len(producer.fields):
+        raise ResultError("ARROW_SCHEMA")
     if any(
         bound.field.shape.canonical.name == "UUID"
         and type(batch.schema[i].type) is not type(binding.schema[i].type)
@@ -483,6 +545,8 @@ def verify_batch(batch, binding, producer, *, limits=BatchLimits()) -> None:
                     if kind == "UUID" and type(column.type) is type(pa.uuid())
                     else column
                 )
+                if not len(storage):
+                    continue
                 validity, data = storage.buffers()
                 mask = None if validity is None else memoryview(validity)
                 payload = memoryview(data)

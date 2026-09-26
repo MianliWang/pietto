@@ -2,7 +2,7 @@
 
 规划层级 FULL；N67=16。描述性 Stage 目标是建立有限结果交换边界；现有资料没有数字 Stage，故不另造编号。
 这是已接受全 Phase 计划的耐久入口。Slice01 的 CI/SDK 实验范围与预算见其历史记录；当前只授权
-[Slice07](slice-07.md)，后续 Slice 仍逐次 dispatch。包/CLI 保持0.1.0。
+[Slice08](slice-08.md)，后续 Slice 仍逐次 dispatch。包/CLI 保持0.1.0。
 
 ## 使命、当前能力与边界
 
@@ -13,7 +13,7 @@ PiettoResultContract 与 scalar-first ResultShape，再分别核对 ProducerResu
 
 Slice01 已发布 CI governance 与两解释器真实 PyArrow25.0.1 SDK/lifetime/device 实验；它未实现产品结果。
 Slice02 交付 private Int batch 薄纵向；Slice03 增加独立 canonical private bytes、bounded pure decoder、runtime correspondence/invalidation。有限完成、C 协议、IPC、公开 optional extra 仍待各自 Slice。
-Timestamp/UUID meaning 仍有 Phase66 V05 前提，Slice07 在首次映射前关闭。CPU 是当前成功域。
+Slice07已关闭显式private Timestamp/UUID meaning前提；默认无meaning仍拒绝。Slice08连接有限scalar、typed empty/all-NULL和显式carrier labels。CPU是当前成功域。
 
 ## 三层完成验收与回归
 
@@ -75,3 +75,7 @@ health/history 只作 advisory；没有新 alert 不启动 CI 维护。
 ## Slice07 当前private边界
 
 [Slice07](slice-07.md) 显式取得并独立核对真实builtin source occurrence的meaning；private emission/result共同保留该authority，仅field-only scan/projection进入新成功域。Timestamp为无timezone civil microseconds，inclusive1000-01-01至9999-12-31 23:59:59.499999；UUID保留标准big-endian128bits，默认canonical extension，binary16需field-bound请求。旧public/default missing-meaning行为及S06 Decimal接受扩展保持。计划56cases/54controls及原14+新4份完整文档以最终证据为准；完整publication/raw闭合后Slices01–07完成，Slice08 NEXT/NOT STARTED，09–16 NOT STARTED。
+
+## Slice08 与 midpoint
+
+[Slice08](slice-08.md) 保留七类logical scalar和12种既有physical choices，以真实双target source、独立身份/值/NULL/资源oracle连接owned batch；explicit carrier label不改neutral字段或producer observation。P67-A02/A06/A08的当前owned范围完整，其余验收的剩余部分见[三层midpoint](slice-08.md#midpoint-三层状态与最终评估)。S09 reader至S16 closeout仍为必需，固定N67=16不变。

@@ -109,3 +109,7 @@ Q1维持P67-A01/A05/A15与单一scalar authority；Q2及最终审查/验证事�
 Q1 scope、Q2 reached premise与Q3 final candidate均已消费。前提30项通过，result/codec原组253项通过加2个拒绝层修正项通过；综合review follow-up603 passed，重新构建的3.13 wheel消费者实测56cases/54controls/163origins通过。R1删除meaning引用返回typed PIE-B1008、R2显式meaning限field-only scan/projection已关闭；未扩public/default/native输入。
 
 诊断6/6的历史失败均保留：负例键类型、已有declared非None条件、日期/Bool负例类型标注及review变量复用。最后变量仅重命名，最新typing由随后正式full静态门确认，不改写旧失败。后续只有depth-one、一次guarded完整3.13 equivalent、最终双runtime wheel/SDK/18文档完整比较，以及同tree seal/普通commit/FF push/自然15jobs/raw/native闭合。完成声明仍以这些证据为条件，不开始S08。
+
+## Slice08 midpoint Q1/Q2
+
+Q1冻结14路径/新增2，读过Arrow全owner、producer精确labels、真实fixture、report末端与typing/lifecycle/scanner。Q2见[三层S/H/L/K/Q](slice-08.md#midpoint-三层状态与最终评估)：七类finite/12physical choices在owned seam集成；S09有限完成、S10协议责任、S12metadata/completion、S13安装选择保留至准确owner。原16行无冲突、无范围缩减、无新维护授权。首次3.13产品揭示合法empty absent-buffer检查缺陷，原失败保留，3.12 corrected完整64/62通过；final同tree local/CI/raw closure仍必需。

@@ -405,3 +405,7 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 ## Slice07 private meaning与结果验证
 
 [Slice07](phases/phase-67/slice-07.md) 先以Arrow-free acquisition/preparation/result vertical关闭Q2，再跑Timestamp/UUID矩阵；public/default缺meaning仍拒绝。new scalar owner改变package input closure，因此仍需fresh native CI，旧native manifest未扩为新高precision/temporal查询。required product消费者验证56cases/54damage controls，原14份与新增4份canonical完整bytes跨local/CI双runtime比较；默认UUID与显式binary16具有同一neutral contract。
+
+## Slice08 finite scalar与midpoint验证
+
+[Slice08](phases/phase-67/slice-08.md) 在原required consumer新增8组，精确64product/62damage controls，保留9SDK和原18份完整canonical documents，新增4份mixed/nullable文档。positional snapshots同时记录ordinal、label、type、values与validity；重复label不用dict列oracle。合法empty absent buffer先经full structural validation再跳过零长度值扫描，非空检查不减。actual文档scanner与current lifecycle读者在full前执行；midpoint文档进入final tested tree，费用/raw/native终态保留外部ledger。
