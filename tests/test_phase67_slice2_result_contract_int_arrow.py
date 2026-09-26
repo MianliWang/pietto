@@ -196,9 +196,14 @@ def test_arrow_absence_is_lazy_and_deterministic(built):
         (2, 1, a.BatchLimits(rows=True)),
     ),
 )
-def test_dimensions_refuse_before_allocation(dimensions):
+def test_dimensions_refuse_before_allocation(dimensions, built):
     with pytest.raises(c.ResultError, match="LIMIT"):
         a._dimensions(*dimensions)
+        a._base_charge(
+            a.ArrowResultBinding(built["postgres"][3], None),
+            dimensions[1],
+            dimensions[2],
+        )
 
 
 def test_exit_zero_does_not_supply_product_evidence():

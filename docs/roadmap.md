@@ -10,8 +10,8 @@ Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. Phase64 and its 11 numbered Slices are completed
 through their accepted publication chains. Phase65 and Slices1–16 are completed
 through the accepted Slice16 audit publication. Phase66 and Slices1–16 are completed through the Slice16 audit publication and exact-head CI described below.
-Phase67 is `ACTIVE`, N67=16; Slices01–04 deliver CI/Arrow readiness, canonical result descriptions, and checked Int/Bool/finite Float batches with explicit lossless adaptation.
-Slice05 remains `NEXT / NOT STARTED`; later Slices06–16 are not started.
+Phase67 is `ACTIVE`, N67=16; Slices01–05 deliver CI/Arrow readiness, canonical result descriptions, checked Int/Bool/finite Float batches, and exact Unicode Text with explicit string/large_string representation.
+Slice06 remains `NEXT / NOT STARTED`; later Slices07–16 are not started.
 The Validation/Test Performance Optimization Interlude II is `COMPLETED`.
 Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -57,7 +57,8 @@ Phase67 `ACTIVE`，N67=16。[Slice01](phases/phase-67/slice-01.md) 联合交付�
 一次普通commit/FF push、natural exact-head attempt1全部15jobs、逐runtime v2 coverage、readiness/health
 raw artifacts与native strict receipts通过后成立；此前为candidate。
 
-Slices01–04 `COMPLETED / PUBLISHED`；Slice05 `NEXT / NOT STARTED`；Slices06–16 `NOT STARTED`。Slice03 的 [canonical private result contract](phases/phase-67/slice-03.md) 保留独立 pure decoding、完整 runtime correspondence/invalidation 与原 Int producer/Arrow batch 链；仅在 sealed publication、全部15jobs和fresh raw evidence通过后完成，不自动进入Slice05。
+Slices01–05 `COMPLETED / PUBLISHED`；Slice06 `NEXT / NOT STARTED`；Slices07–16 `NOT STARTED`。Slice03 的 [canonical private result contract](phases/phase-67/slice-03.md) 保留独立 pure decoding、完整 runtime correspondence/invalidation 与原 Int producer/Arrow batch 链；仅在 sealed publication、全部15jobs和fresh raw evidence通过后完成，不自动进入Slice06。
+[Slice05](phases/phase-67/slice-05.md) 交付 checked Text/Unicode、默认string与显式large_string、完整producer事实及有界owned batch；新增8个product案例和4份Text/mixed canonical文档。上述完成状态仅在本Slice sealed publication、自然exact-head全部15jobs及fresh raw evidence闭合后成立；此前为candidate。
 Phase66 COMPLETED/N66=16；Interlude V COMPLETED/total=3；R1单独完成；CI治理成本记入本次Slice01，
 不算Interlude V S4。package/CLI0.1.0，compiler core不变，Slice01不引入公开arrow extra。
 下面各已完成维护/旧phase段落中的NEXT、accepted candidate等是当时历史状态，不覆盖此当前路线。

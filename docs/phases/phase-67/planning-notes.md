@@ -81,3 +81,11 @@ Q1维持P67-A01/A05/A15与单一scalar authority；Q2及最终审查/验证事�
 ## Slice04 Q2 / final gate约束
 
 两owner实现与完整manifest经过一次主作者/Ponytail review；R1精确damage reader和R2边界见证合并修正。后续只做一次targeted follow-up、浅depth reader检查、一次最终3.13 equivalent与原授权publication/raw-evidence闭合。支撑集及15路径不扩，S05保持未开始；实际Q2/seal及所有失败/累计预算见外部记录。
+
+## Slice05 Q1 与候选审查
+
+冻结20条路径（2新增、0删除）及38product/36damage精确读者；typing仍228production/501tests。首轮真实source/domain与typing在同一focused组闭合，193 passed；两external environments使用hash-verified原Arrow wheels，初次3.13 installed38cases/162origins通过。一次主作者/Ponytail审查冻结一个边界见证补强组，实际预算与Q2/seal归外部ledger；不增加upstream成功域或后续Slice。
+
+## Slice05 Q2 / 最终候选
+
+一次主作者/Ponytail审查与targeted followup闭合；真实3.13 installed38cases/36damage controls通过，包含先retained-limit后UTF8验证、NULL任意payload、nonzero offsets、extension/schema拒绝、逐字段宽度、domain-valid截尾与注入builder拒绝。首次typing与旧numeric helper、当前lifecycle表reader失败均保留在本Sliceledger；修正没有放宽任何旧拒绝或集合相等断言。最终只余guarded完整3.13 equivalent、两runtime最终wheel/readiness、depth-one读者、exact-tree publication与fresh natural-CI raw/native闭合；完成声明以这些证据为条件。

@@ -60,6 +60,14 @@ CASES = (
     "scalar_batches",
     "scalar_identity",
     "scalar_codec",
+    "text_values",
+    "text_binding",
+    "text_requests",
+    "text_empty_null",
+    "text_resources",
+    "text_supplied",
+    "text_value_substitution",
+    "text_codec",
 )
 
 
@@ -412,6 +420,7 @@ def run_cases(root):
     results["no_reconstruction"] = True
     results.update(run_contract_cases(root, built))
     results.update(run_scalar_cases(root))
+    results.update(run_text_cases(root))
     assert set(results) == set(CASES)
     return results
 
@@ -1040,6 +1049,994 @@ def verify_scalar_report(cases):
         raise ValueError("scalar report evidence") from exc
 
 
+# S05 fixtures and oracles remain inert when imported in the Arrow-free core.
+TEXT_LABELS = ("renamed", "maybe_text", "number", "flag", "ratio")
+TEXT_VALUES = (
+    "",
+    "a",
+    "A",
+    "中",
+    "😀",
+    "é",
+    "e\u0301",
+    "x",
+    "x ",
+    " \t",
+    "repeat",
+    "repeat",
+    "abcdef中😀",
+)
+TEXT_HEX = (
+    "",
+    "61",
+    "41",
+    "e4b8ad",
+    "f09f9880",
+    "c3a9",
+    "65cc81",
+    "78",
+    "7820",
+    "2009",
+    "726570656174",
+    "726570656174",
+    "616263646566e4b8adf09f9880",
+)
+TEXT_LENGTHS = (0, 1, 1, 1, 1, 1, 2, 1, 2, 2, 6, 6, 8)
+
+
+def text_source(target, *, mixed=True, all_nullable=False):
+    names = ("text", "maybe_text", "number", "flag", "ratio")[: 5 if mixed else 2]
+    kinds = ("Text", "Text", "Int", "Bool", "Float")[: len(names)]
+    source_ = "shape Row:\n" + "".join(
+        f"    {name}: {kind} {'nullable' if all_nullable or i == 1 else 'not null'}\n"
+        for i, (name, kind) in enumerate(zip(names, kinds, strict=True))
+    )
+    return (
+        source_
+        + f'source rows: Row is {target}.table("opaque.result.fixture")\ntable result:\n    from rows\n    select:\n'
+        + "".join(
+            f"        {label} = {name}\n"
+            for label, name in zip(TEXT_LABELS[: len(names)], names, strict=True)
+        )
+    )
+
+
+def text_input(target, *, mixed=True, all_nullable=False, maximum=8, length=8):
+    doc = json.loads(emission_input(target, lower=-100, upper=100))
+    storage = (
+        {"kind": "pg_text"}
+        if target == "postgres"
+        else {"kind": "my_varchar", "length": length}
+    )
+    domain = dict(
+        kind="text",
+        max_characters=maximum,
+        encoding="UTF8" if target == "postgres" else "utf8mb4",
+        collation="C" if target == "postgres" else "utf8mb4_0900_bin",
+        padding="NO PAD",
+    )
+    descriptions = [("text", storage, domain), ("maybe_text", storage, domain)]
+    if mixed:
+        descriptions += [
+            (
+                "number",
+                {"kind": width_storage(target, 32)},
+                {"kind": "int_range", "min": "-100", "max": "100"},
+            ),
+            (
+                "flag",
+                {"kind": "pg_bool" if target == "postgres" else "my_bool01"},
+                {"kind": "bool01"},
+            ),
+            (
+                "ratio",
+                {"kind": "pg_float8" if target == "postgres" else "my_double"},
+                {"kind": "finite_float", "format": "binary64"},
+            ),
+        ]
+    doc["sources"][0]["fields"] = [
+        dict(
+            ordinal=i,
+            name=name,
+            column=name,
+            representation=dict(
+                storage=storage, nullable=bool(all_nullable or i == 1), domain=domain
+            ),
+        )
+        for i, (name, storage, domain) in enumerate(descriptions)
+    ]
+    return json.dumps(doc).encode()
+
+
+def text_observations(target, *, mixed=True, maximum=8, length=8):
+    from pietto._project.project_result_binding import (
+        ProducerObservation,
+        TextObservation,
+    )
+
+    text = TextObservation(
+        maximum,
+        "UTF8" if target == "postgres" else "utf8mb4",
+        "C" if target == "postgres" else "utf8mb4_0900_bin",
+        "NO PAD",
+        None if target == "postgres" else length,
+    )
+    observed = [
+        ProducerObservation(
+            i,
+            label,
+            target,
+            "pg_text" if target == "postgres" else "my_varchar",
+            domain="text",
+            carrier="str",
+            text=text,
+        )
+        for i, label in enumerate(TEXT_LABELS[:2])
+    ]
+    if mixed:
+        observed += [
+            ProducerObservation(
+                2, "number", target, width_storage(target, 32), -100, 100
+            ),
+            ProducerObservation(
+                3,
+                "flag",
+                target,
+                "pg_bool" if target == "postgres" else "my_bool01",
+                domain="bool01",
+                carrier="bool" if target == "postgres" else "int01",
+            ),
+            ProducerObservation(
+                4,
+                "ratio",
+                target,
+                "pg_float8" if target == "postgres" else "my_double",
+                domain="finite_float",
+                carrier="float",
+            ),
+        ]
+    return tuple(observed)
+
+
+def text_fixture(
+    directory, target, *, mixed=True, all_nullable=False, maximum=8, length=8
+):
+    from pietto._project.project_sql_emission import emit_project_sql
+    from pietto._project.project_result_contract import build_result_contract
+    from pietto._project.project_result_binding import bind_producer
+
+    checked = build_neutral(
+        directory,
+        {"main.pietto": text_source(target, mixed=mixed, all_nullable=all_nullable)},
+    )
+    result = emit_project_sql(
+        checked,
+        text_input(
+            target,
+            mixed=mixed,
+            all_nullable=all_nullable,
+            maximum=maximum,
+            length=length,
+        ),
+    )
+    assert result.status == "VERIFIED" and result.artifact is not None
+    contract = build_result_contract(checked)
+    producer = bind_producer(
+        contract,
+        result.artifact,
+        text_observations(target, mixed=mixed, maximum=maximum, length=length),
+    )
+    return checked, result.artifact, contract, producer
+
+
+def text_rows(target):
+    return [
+        [v, None if i % 2 == 0 else v, 7, True if target == "postgres" else 1, -0.0]
+        for i, v in enumerate(TEXT_VALUES)
+    ]
+
+
+def text_arrow(producer, bits):
+    from pietto._project import project_arrow_result as a
+
+    count = len(producer.fields)
+    requests = tuple(
+        a.TextOffsetWidthRequest(f.field, bits) if i < 2 else None
+        for i, f in enumerate(producer.fields)
+    )
+    integers = tuple(
+        a.IntegerWidthRequest(f.field, 16) if i == 2 else None
+        for i, f in enumerate(producer.fields)
+    )
+    return a.bind_arrow(
+        producer,
+        text_offset_widths=None if bits == 32 else requests,
+        integer_widths=integers if count == 5 else None,
+    )
+
+
+def text_snapshot(batch):
+    import struct
+
+    columns = [col.to_pylist() for col in batch.columns]
+    return dict(
+        types=[str(f.type) for f in batch.schema],
+        labels=batch.schema.names,
+        nullable=[f.nullable for f in batch.schema],
+        columns=[
+            col
+            if i != 4
+            else [None if v is None else struct.pack(">d", v).hex() for v in col]
+            for i, col in enumerate(columns)
+        ],
+        utf8=[
+            [None if v is None else v.encode("utf-8").hex() for v in col]
+            for col in columns[:2]
+        ],
+        codepoints=[
+            [None if v is None else len(v) for v in col] for col in columns[:2]
+        ],
+    )
+
+
+def text_expected(
+    bits, *, mixed=True, state="values", all_nullable=False
+) -> dict[str, Any]:
+    # Literals are independent expectations, never derived from a product constructor.
+    count = 5 if mixed else 2
+    size = 13 if state == "values" else 0 if state == "empty" else 2
+    columns = [
+        list(TEXT_VALUES),
+        [None if i % 2 == 0 else v for i, v in enumerate(TEXT_VALUES)],
+        [7] * 13,
+        [True] * 13,
+        ["8000000000000000"] * 13,
+    ][:count]
+    utf8 = [list(TEXT_HEX), [None if i % 2 == 0 else v for i, v in enumerate(TEXT_HEX)]]
+    lengths = [
+        list(TEXT_LENGTHS),
+        [None if i % 2 == 0 else v for i, v in enumerate(TEXT_LENGTHS)],
+    ]
+    if state != "values":
+        columns = [[None] * size for _ in range(count)]
+        utf8 = [[None] * size for _ in range(2)]
+        lengths = [[None] * size for _ in range(2)]
+    return dict(
+        types=["string" if bits == 32 else "large_string"] * 2
+        + (["int16", "bool", "double"] if mixed else []),
+        labels=list(TEXT_LABELS[:count]),
+        nullable=[bool(all_nullable or i == 1) for i in range(count)],
+        columns=columns,
+        utf8=utf8,
+        codepoints=lengths,
+    )
+
+
+def text_value_oracle(snapshot, bits):
+    if not _exact(snapshot, text_expected(bits)):
+        raise ValueError("Text exact sequence/NULL/UTF8 correspondence")
+
+
+class TextSubclass(str):
+    pass
+
+
+class CoercibleText:
+    def __str__(self):
+        raise AssertionError("implicit string conversion")
+
+
+def run_text_cases(root):
+    from pietto._project import project_arrow_result as a, project_result_binding as p
+    from pietto._project.project_result_contract_portable import export_result_contract
+    from pietto._project.project_result_contract_correspondence import (
+        verify_bound_export,
+    )
+    from pietto._project import project_result_contract_pure_boundary as pure
+    from pietto._project.project_sql_emission import emit_project_sql
+    import struct
+    import unicodedata
+
+    pa = importlib.import_module("pyarrow")
+
+    class TextExtension(pa.ExtensionType):
+        def __init__(self):
+            super().__init__(pa.string(), "pietto.test.text")
+
+        def __arrow_ext_serialize__(self):
+            return b""
+
+    results = {name: {} for name in CASES if name.startswith("text_")}
+    for target in ("postgres", "mysql"):
+        checked, artifact, contract, producer = text_fixture(
+            root / f"text-{target}", target
+        )
+        initial = export_result_contract(contract, checked)
+        verify_bound_export(initial, checked)
+        results["text_codec"][target + "/mixed"] = initial.canonical_bytes.decode()
+        observations_ = text_observations(target)
+        observed_text = observations_[0].text
+        assert observed_text is not None
+        binding_negatives = {}
+        for key, changes in {
+            "max_characters": {"max_characters": 7},
+            "encoding": {"encoding": "ASCII"},
+            "collation": {"collation": "other"},
+            "padding": {"padding": "PAD SPACE"},
+            "storage_length": {"storage_length": 7},
+            "bool_max": {"max_characters": True},
+            "bool_length": {"storage_length": True},
+        }.items():
+            bad = replace(observations_[0], text=replace(observed_text, **changes))
+            binding_negatives[key] = refused(
+                lambda bad=bad: p.bind_producer(
+                    contract, artifact, (bad, *observations_[1:])
+                )
+            )
+        for key, changes in {
+            "ordinal": {"ordinal": 1},
+            "label": {"label": "text"},
+            "family": {"family": "foreign"},
+            "storage": {"storage": "binary"},
+            "lower": {"lower": 0},
+            "upper": {"upper": 1},
+            "carrier": {"carrier": "int"},
+            "domain": {"domain": "int_range"},
+            "missing_text": {"text": None},
+        }.items():
+            binding_negatives[key] = refused(
+                lambda changes=changes: p.bind_producer(
+                    contract,
+                    artifact,
+                    (replace(observations_[0], **changes), *observations_[1:]),
+                )
+            )
+        for key, fields in {
+            "tail": producer.fields[:-1],
+            "reordered": producer.fields[::-1],
+            "duplicated": (producer.fields[0],) * 5,
+        }.items():
+            binding_negatives[key] = refused(
+                lambda fields=fields: a.bind_arrow(replace(producer, fields=fields))
+            )
+        foreign_checked, foreign_artifact, _, foreign_producer = text_fixture(
+            root / f"text-foreign-{target}", target
+        )
+        binding_negatives["foreign_root"] = refused(
+            lambda: p.bind_producer(contract, foreign_artifact, observations_)
+        )
+        binding_negatives["foreign_field"] = refused(
+            lambda: a.bind_arrow(
+                replace(
+                    producer,
+                    fields=(
+                        replace(
+                            producer.fields[0], field=foreign_producer.fields[0].field
+                        ),
+                        *producer.fields[1:],
+                    ),
+                )
+            )
+        )
+        coordinated = replace(
+            producer,
+            fields=(
+                replace(
+                    producer.fields[0],
+                    observation=replace(
+                        observations_[0],
+                        text=replace(observed_text, max_characters=7),
+                    ),
+                ),
+                *producer.fields[1:],
+            ),
+        )
+        binding_negatives["coordinated"] = refused(
+            lambda: a.verify_arrow_binding(
+                a.ArrowResultBinding(coordinated, text_arrow(producer, 32).schema),
+                coordinated,
+            )
+        )
+        bad_input = json.loads(text_input(target))
+        bad_input["sources"][0]["fields"][0]["representation"]["domain"][
+            "collation"
+        ] = "unsupported"
+        blocked = emit_project_sql(checked, json.dumps(bad_input).encode())
+        assert blocked.status == "BLOCKED" and blocked.artifact is None
+        altered = emit_project_sql(checked, text_input(target, maximum=7, length=9))
+        assert altered.status == "VERIFIED" and altered.artifact is not None
+        alternate = p.bind_producer(
+            contract, altered.artifact, text_observations(target, maximum=7, length=9)
+        )
+        assert (
+            alternate.contract is contract
+            and export_result_contract(contract, checked).canonical_bytes
+            == initial.canonical_bytes
+        )
+        results["text_binding"][target] = dict(
+            refusals=binding_negatives,
+            upstream=blocked.status,
+            same_contract=True,
+            descriptors=[
+                dict(
+                    storage=f.observation.storage,
+                    maximum=cast(p.TextObservation, f.observation.text).max_characters,
+                    encoding=cast(p.TextObservation, f.observation.text).encoding,
+                    collation=cast(p.TextObservation, f.observation.text).collation,
+                    padding=cast(p.TextObservation, f.observation.text).padding,
+                    length=cast(p.TextObservation, f.observation.text).storage_length,
+                )
+                for f in producer.fields[:2]
+            ],
+        )
+        r0, r1 = (a.TextOffsetWidthRequest(f.field, 64) for f in producer.fields[:2])
+        requests = [
+            (),
+            [],
+            (r0,),
+            (r0, r1, None, None, None, None),
+            (r0, r0, None, None, None),
+            (r1, r0, None, None, None),
+            (
+                a.TextOffsetWidthRequest(foreign_producer.fields[0].field, 64),
+                r1,
+                None,
+                None,
+                None,
+            ),
+            (
+                r0,
+                r1,
+                a.TextOffsetWidthRequest(producer.fields[2].field, 64),
+                None,
+                None,
+            ),
+            (a.TextOffsetWidthRequest(r0.field, True), r1, None, None, None),
+            (a.TextOffsetWidthRequest(r0.field, 16), r1, None, None, None),
+            (a.IntegerWidthRequest(r0.field, 32), r1, None, None, None),
+        ]
+        results["text_requests"][target] = [
+            refused(lambda req=req: a.bind_arrow(producer, text_offset_widths=req))
+            for req in requests
+        ]
+        two_checked, _, two_contract, two = text_fixture(
+            root / f"text-only-{target}", target, mixed=False
+        )
+        exported = export_result_contract(two_contract, two_checked)
+        verify_bound_export(exported, two_checked)
+        results["text_codec"][target + "/text"] = exported.canonical_bytes.decode()
+        _, _, _, nullable = text_fixture(
+            root / f"text-null-{target}", target, mixed=False, all_nullable=True
+        )
+        _, _, _, zero = text_fixture(
+            root / f"text-zero-{target}", target, mixed=False, maximum=0
+        )
+        _, _, _, single = text_fixture(
+            root / f"text-single-{target}", target, mixed=False, maximum=1
+        )
+        _, _, _, declared = text_fixture(
+            root / f"text-declared-{target}",
+            target,
+            mixed=False,
+            maximum=10**12 if target == "postgres" else 16383,
+            length=16383,
+        )
+        for bits in (32, 64):
+            key = f"{target}/{bits}"
+            arrow = text_arrow(producer, bits)
+            rows = text_rows(target)
+            owned = a.build_owned_batch(arrow, rows)
+            actual = text_snapshot(owned)
+            text_value_oracle(actual, bits)
+            rows[0][:] = [None] * 5
+            rows.clear()
+            assert _exact(text_snapshot(owned), actual)
+            assert (
+                export_result_contract(contract, checked).canonical_bytes
+                == initial.canonical_bytes
+            )
+            explicit32 = tuple(
+                a.TextOffsetWidthRequest(f.field, bits) if i < 2 else None
+                for i, f in enumerate(producer.fields)
+            )
+            explicit = a.bind_arrow(
+                producer,
+                text_offset_widths=explicit32,
+                integer_widths=arrow.integer_widths,
+            )
+            assert explicit.schema.equals(arrow.schema)
+            results["text_values"][key] = actual
+            small = text_arrow(two, bits)
+            bad_values = (
+                b"a",
+                bytearray(b"a"),
+                memoryview(b"a"),
+                1,
+                True,
+                1.0,
+                TextSubclass("a"),
+                CoercibleText(),
+                "\ud800",
+                "\udfff",
+                "abcdef中😀x",
+            )
+            empties: dict[str, Any] = dict(
+                empty=text_snapshot(a.build_owned_batch(small, [])),
+                all_null=text_snapshot(
+                    a.build_owned_batch(
+                        text_arrow(nullable, bits), [[None, None], [None, None]]
+                    )
+                ),
+                zero=a.build_owned_batch(text_arrow(zero, bits), [["", None]])
+                .column(0)
+                .to_pylist(),
+                refusals=[
+                    refused(lambda v=v: a.build_owned_batch(small, [[v, None]]))
+                    for v in bad_values
+                ]
+                + [
+                    refused(lambda: a.build_owned_batch(small, [[None, None]])),
+                    refused(
+                        lambda: a.build_owned_batch(
+                            text_arrow(zero, bits), [["a", None]]
+                        )
+                    ),
+                ],
+            )
+            if target == "postgres":
+                empties["nul"] = refused(
+                    lambda: a.build_owned_batch(small, [["a\0b", None]])
+                )
+            else:
+                empties["nul"] = (
+                    a.build_owned_batch(small, [["a\0b", None]]).column(0).to_pylist()
+                )
+            one = text_arrow(single, bits)
+            empties["domain_edges"] = {
+                "single": a.build_owned_batch(
+                    one, [["é", None], ["中", None], ["😀", None]]
+                )
+                .column(0)
+                .to_pylist(),
+                "combining": refused(
+                    lambda: a.build_owned_batch(one, [["e\u0301", None]])
+                ),
+                "declared": a.build_owned_batch(
+                    text_arrow(declared, bits),
+                    [["a", None]],
+                    limits=a.BatchLimits(bytes=19 if bits == 32 else 35),
+                )
+                .column(0)
+                .to_pylist(),
+            }
+            empties["mixed_impersonation"] = [
+                refused(
+                    lambda: a.build_owned_batch(
+                        arrow, [[1, None, 7, True if target == "postgres" else 1, -0.0]]
+                    )
+                ),
+                refused(
+                    lambda: a.build_owned_batch(
+                        arrow,
+                        [["a", None, "7", True if target == "postgres" else 1, -0.0]],
+                    )
+                ),
+            ]
+            results["text_empty_null"][key] = empties
+            allowance = 21 if bits == 32 else 37
+            exact = a.build_owned_batch(
+                small, [["中", None]], limits=a.BatchLimits(bytes=allowance)
+            )
+            a.verify_batch(exact, small, two, limits=a.BatchLimits(bytes=allowance))
+            mixed = a.build_owned_batch(
+                arrow,
+                [["中", None, 7, True if target == "postgres" else 1, -0.0]],
+                limits=a.BatchLimits(bytes=allowance + 27),
+            )
+            retained_array = pa.array(
+                ["a" * 64, "中", ""], type=small.schema[0].type
+            ).slice(1, 1)
+            retained = pa.RecordBatch.from_arrays(
+                [retained_array, pa.array([None], type=small.schema[1].type)],
+                schema=small.schema,
+            )
+            results["text_resources"][key] = dict(
+                allowance=allowance,
+                columns=[c.to_pylist() for c in exact.columns],
+                mixed_allowance=allowance + 27,
+                mixed_rows=mixed.num_rows,
+                refusals=[
+                    refused(
+                        lambda: a.build_owned_batch(
+                            small,
+                            [["中", None]],
+                            limits=a.BatchLimits(bytes=allowance - 1),
+                        )
+                    ),
+                    refused(
+                        lambda: a.build_owned_batch(
+                            small,
+                            [["中a", None]],
+                            limits=a.BatchLimits(bytes=allowance),
+                        )
+                    ),
+                    refused(
+                        lambda: a.build_owned_batch(
+                            small, [], limits=a.BatchLimits(bytes=bits // 4 - 1)
+                        )
+                    ),
+                    refused(
+                        lambda: a.verify_batch(
+                            retained, small, two, limits=a.BatchLimits(bytes=allowance)
+                        )
+                    ),
+                    refused(
+                        lambda: a.build_owned_batch(
+                            arrow,
+                            [
+                                [
+                                    "中",
+                                    None,
+                                    7,
+                                    True if target == "postgres" else 1,
+                                    -0.0,
+                                ]
+                            ],
+                            limits=a.BatchLimits(bytes=allowance + 26),
+                        )
+                    ),
+                ],
+            )
+            # Full allocated buffers only. NULL payload may contain unspecified non-UTF8 bytes.
+            ty = small.schema[0].type
+            fmt = "i" if bits == 32 else "q"
+            invalid_retained = pa.Array.from_buffers(
+                ty,
+                1,
+                [
+                    None,
+                    pa.py_buffer(struct.pack("<2" + fmt, 0, 1)),
+                    pa.py_buffer(b"\xff" + b"a" * 64),
+                ],
+            )
+            invalid_batch = pa.RecordBatch.from_arrays(
+                [invalid_retained, pa.array([None], type=ty)], schema=small.schema
+            )
+            results["text_resources"][key]["before_validation"] = refused(
+                lambda: a.verify_batch(
+                    invalid_batch, small, two, limits=a.BatchLimits(bytes=allowance)
+                )
+            )
+            array = pa.Array.from_buffers(
+                ty,
+                3,
+                [
+                    pa.py_buffer(b"\x05"),
+                    pa.py_buffer(struct.pack("<4" + fmt, 0, 1, 2, 5)),
+                    pa.py_buffer(b"a\xff\xe4\xb8\xad"),
+                ],
+            )
+            nullslice = array.slice(1, 2)
+            supplied = pa.RecordBatch.from_arrays(
+                [pa.array(["skip", "", "中"], type=ty).slice(1, 2), nullslice],
+                schema=small.schema,
+            )
+            a.verify_batch(supplied, small, two)
+            malformed = []
+            for offsets, payload in [
+                ((0, 2, 1), b"ab"),
+                ((0, 1), b"\xff"),
+                ((-1, 1), b"ab"),
+                ((0, 3), b"a"),
+            ]:
+                try:
+                    badarray = pa.Array.from_buffers(
+                        ty,
+                        len(offsets) - 1,
+                        [
+                            None,
+                            pa.py_buffer(
+                                struct.pack("<" + str(len(offsets)) + fmt, *offsets)
+                            ),
+                            pa.py_buffer(payload),
+                        ],
+                    )
+                except (ValueError, pa.ArrowException):
+                    malformed.append("CONSTRUCTOR")
+                    continue
+                badbatch = pa.RecordBatch.from_arrays(
+                    [badarray, pa.array([None] * len(badarray), type=ty)],
+                    schema=small.schema,
+                )
+                malformed.append(refused(lambda: a.verify_batch(badbatch, small, two)))
+            schema_bad = []
+            for wrong in (
+                pa.large_string() if bits == 32 else pa.string(),
+                pa.binary(),
+                pa.large_binary(),
+                pa.dictionary(pa.int8(), pa.string()),
+                pa.string_view(),
+                pa.list_(pa.string()),
+                TextExtension(),
+            ):
+                schema = pa.schema(
+                    [pa.field("renamed", wrong, nullable=False), small.schema[1]]
+                )
+                schema_bad.append(
+                    refused(
+                        lambda schema=schema: a.verify_arrow_binding(
+                            replace(small, schema=schema), two
+                        )
+                    )
+                )
+            schema_bad += [
+                refused(
+                    lambda: a.verify_batch(
+                        supplied.replace_schema_metadata({b"collation": b"authority"}),
+                        small,
+                        two,
+                    )
+                ),
+                refused(
+                    lambda: a.verify_arrow_binding(
+                        replace(
+                            small,
+                            schema=pa.schema(
+                                [
+                                    small.schema[0].with_metadata({b"collation": b"C"}),
+                                    small.schema[1],
+                                ]
+                            ),
+                        ),
+                        two,
+                    )
+                ),
+            ]
+            supplied_domain = []
+            for value in ("abcdef中😀x", None) + (
+                ("a\0b",) if target == "postgres" else ()
+            ):
+                bad = pa.RecordBatch.from_arrays(
+                    [pa.array([value], type=ty), pa.array([None], type=ty)],
+                    schema=small.schema,
+                )
+                supplied_domain.append(refused(lambda: a.verify_batch(bad, small, two)))
+            results["text_supplied"][key] = dict(
+                domain_refusals=supplied_domain,
+                offsets=[col.offset for col in supplied.columns],
+                columns=[col.to_pylist() for col in supplied.columns],
+                malformed=malformed,
+                schema_refusals=schema_bad,
+            )
+            substitutions = []
+            for index, value in [
+                (1, "b"),
+                (2, "a"),
+                (6, unicodedata.normalize("NFC", TEXT_VALUES[6])),
+                (8, "x"),
+            ]:
+                arrays = list(owned.columns)
+                values = arrays[0].to_pylist()
+                values[index] = value
+                arrays[0] = pa.array(values, type=arrow.schema[0].type)
+                changed = pa.RecordBatch.from_arrays(arrays, schema=arrow.schema)
+                a.verify_batch(changed, arrow, producer)
+                try:
+                    text_value_oracle(text_snapshot(changed), bits)
+                except ValueError:
+                    substitutions.append("VALUE_CORRESPONDENCE")
+                else:
+                    raise AssertionError("domain-valid substitution escaped oracle")
+            for change in ("null", "order", "multiplicity"):
+                arrays = list(owned.columns)
+                if change == "null":
+                    values = arrays[1].to_pylist()
+                    values[0] = ""
+                    arrays[1] = pa.array(values, type=arrow.schema[1].type)
+                else:
+                    indices = list(range(13))
+                    indices[1:3] = [2, 1] if change == "order" else [1, 1]
+                    arrays = [col.take(indices) for col in arrays]
+                changed = pa.RecordBatch.from_arrays(arrays, schema=arrow.schema)
+                a.verify_batch(changed, arrow, producer)
+                try:
+                    text_value_oracle(text_snapshot(changed), bits)
+                except ValueError:
+                    substitutions.append("VALUE_CORRESPONDENCE")
+                else:
+                    raise AssertionError("sequence mutation escaped oracle")
+            original_builder = a.build_owned_batch
+
+            def injected(binding, rows, **kwargs):
+                damaged_rows = [list(row) for row in rows]
+                damaged_rows[1][0] = "b"
+                return original_builder(binding, damaged_rows, **kwargs)
+
+            try:
+                a.build_owned_batch = injected
+                try:
+                    text_value_oracle(
+                        text_snapshot(a.build_owned_batch(arrow, text_rows(target))),
+                        bits,
+                    )
+                except ValueError:
+                    substitutions.append("VALUE_CORRESPONDENCE")
+                else:
+                    raise AssertionError("injected builder escaped external oracle")
+            finally:
+                a.build_owned_batch = original_builder
+            shortened = owned.slice(0, 12)
+            a.verify_batch(shortened, arrow, producer)
+            try:
+                text_value_oracle(text_snapshot(shortened), bits)
+            except ValueError:
+                substitutions.append("VALUE_CORRESPONDENCE")
+            else:
+                raise AssertionError("valid prefix escaped exact value oracle")
+            per_field = a.bind_arrow(
+                two,
+                text_offset_widths=(
+                    a.TextOffsetWidthRequest(two.fields[0].field, 64),
+                    None,
+                ),
+            )
+            per_field_batch = a.build_owned_batch(per_field, [["中", "é"]])
+            results["text_supplied"][key]["per_field"] = {
+                "types": [str(f.type) for f in per_field_batch.schema],
+                "columns": [col.to_pylist() for col in per_field_batch.columns],
+            }
+            results["text_value_substitution"][key] = substitutions
+    for data in results["text_codec"].values():
+        assert (
+            pure.encode_document(pure.decode_contract(data.encode()).document)
+            == data.encode()
+        )
+    return results
+
+
+def verify_text_report(cases):
+    from pietto._project import project_result_contract_pure_boundary as pure
+
+    try:
+        keys = {
+            f"{target}/{bits}" for target in ("postgres", "mysql") for bits in (32, 64)
+        }
+        for name in (
+            "text_values",
+            "text_empty_null",
+            "text_resources",
+            "text_supplied",
+            "text_value_substitution",
+        ):
+            if set(cases[name]) != keys:
+                raise ValueError("Text width/target denominator")
+        for name in ("text_binding", "text_requests"):
+            if set(cases[name]) != {"postgres", "mysql"}:
+                raise ValueError("Text target denominator")
+        if set(cases["text_codec"]) != {
+            f"{t}/{k}" for t in ("postgres", "mysql") for k in ("text", "mixed")
+        }:
+            raise ValueError("Text canonical denominator")
+        for target in ("postgres", "mysql"):
+            observation_keys = (
+                "max_characters",
+                "encoding",
+                "collation",
+                "padding",
+                "storage_length",
+                "bool_max",
+                "bool_length",
+                "ordinal",
+                "label",
+                "family",
+                "storage",
+                "lower",
+                "upper",
+                "carrier",
+                "domain",
+                "missing_text",
+                "coordinated",
+            )
+            expected_binding = dict(
+                refusals={
+                    **dict.fromkeys(observation_keys, "PRODUCER_OBSERVATION"),
+                    "tail": "PRODUCER_ROOT",
+                    "reordered": "PRODUCER_FIELDS",
+                    "duplicated": "PRODUCER_FIELDS",
+                    "foreign_root": "ROOT",
+                    "foreign_field": "PRODUCER_FIELDS",
+                },
+                upstream="BLOCKED",
+                same_contract=True,
+                descriptors=[
+                    dict(
+                        storage="pg_text" if target == "postgres" else "my_varchar",
+                        maximum=8,
+                        encoding="UTF8" if target == "postgres" else "utf8mb4",
+                        collation="C" if target == "postgres" else "utf8mb4_0900_bin",
+                        padding="NO PAD",
+                        length=None if target == "postgres" else 8,
+                    )
+                ]
+                * 2,
+            )
+            if not _exact(cases["text_binding"][target], expected_binding):
+                raise ValueError("Text producer authority evidence")
+            if cases["text_requests"][target] != ["ARROW_ADAPTATION"] * 11:
+                raise ValueError("Text positional request evidence")
+            for bits in (32, 64):
+                key = f"{target}/{bits}"
+                text_value_oracle(cases["text_values"][key], bits)
+                expected_empty: dict[str, Any] = dict(
+                    empty=text_expected(bits, mixed=False, state="empty"),
+                    all_null=text_expected(
+                        bits, mixed=False, state="null", all_nullable=True
+                    ),
+                    zero=[""],
+                    refusals=["VALUE_DOMAIN"] * 11 + ["NULL", "VALUE_DOMAIN"],
+                    nul="VALUE_DOMAIN" if target == "postgres" else ["a\0b"],
+                )
+                expected_empty["domain_edges"] = {
+                    "single": ["é", "中", "😀"],
+                    "combining": "VALUE_DOMAIN",
+                    "declared": ["a"],
+                }
+                expected_empty["mixed_impersonation"] = ["VALUE_DOMAIN"] * 2
+                allowance = 21 if bits == 32 else 37
+                expected_resources = dict(
+                    before_validation="LIMIT",
+                    allowance=allowance,
+                    columns=[["中"], [None]],
+                    mixed_allowance=allowance + 27,
+                    mixed_rows=1,
+                    refusals=["LIMIT"] * 5,
+                )
+                expected_supplied = dict(
+                    domain_refusals=["VALUE_DOMAIN", "NULL"]
+                    + (["VALUE_DOMAIN"] if target == "postgres" else []),
+                    per_field={
+                        "types": ["large_string", "string"],
+                        "columns": [["中"], ["é"]],
+                    },
+                    offsets=[1, 1],
+                    columns=[["", "中"], [None, "中"]],
+                    malformed=[
+                        "ARROW_BATCH",
+                        "ARROW_BATCH",
+                        "CONSTRUCTOR",
+                        "CONSTRUCTOR",
+                    ],
+                    schema_refusals=["ARROW_BINDING"] * 7
+                    + ["ARROW_SCHEMA", "ARROW_BINDING"],
+                )
+                for name, expected in (
+                    ("text_empty_null", expected_empty),
+                    ("text_resources", expected_resources),
+                    ("text_supplied", expected_supplied),
+                    ("text_value_substitution", ["VALUE_CORRESPONDENCE"] * 9),
+                ):
+                    if not _exact(cases[name][key], expected):
+                        raise ValueError("Text " + name + " evidence")
+            for kind in ("text", "mixed"):
+                data = cases["text_codec"][target + "/" + kind]
+                view = pure.decode_contract(data.encode())
+                count = 2 if kind == "text" else 5
+                if (
+                    [f["label"] for f in view.document["fields"]]
+                    != list(TEXT_LABELS[:count])
+                    or [f["canonical"] for f in view.document["fields"]]
+                    != [
+                        dict(kind="builtin", name=tag, symbol=None)
+                        for tag in ("Text", "Text", "Int", "Bool", "Float")[:count]
+                    ]
+                    or [f["nullability"] for f in view.document["fields"]]
+                    != ["nullable" if i == 1 else "non_null" for i in range(count)]
+                ):
+                    raise ValueError("Text neutral descriptor evidence")
+    except (KeyError, TypeError, AttributeError, pure.ContractDocumentError) as exc:
+        raise ValueError("Text report evidence") from exc
+
+
 CONTRACT_CORPUS = ("postgres", "mysql", "descriptors", "imported")
 CONTRACT_SEEDS = (7, 19)
 
@@ -1644,6 +2641,7 @@ def verify_report(value, context, inputs):
         raise ValueError("product negative/ownership evidence")
     verify_contract_report(cases)
     verify_scalar_report(cases)
+    verify_text_report(cases)
     origins = value["origins"]
     prefix = Path(value["prefix"])
     required = {"pietto._project." + name for name in PRODUCTS} | {
@@ -1791,7 +2789,11 @@ def compare_product_reports(paths, repository, contexts):
         verify_report(value, context, input_closure(repository))
         reject_report_damage(value, context, input_closure(repository))
         documents.append(
-            (value["cases"]["contract_documents"], value["cases"]["scalar_codec"])
+            (
+                value["cases"]["contract_documents"],
+                value["cases"]["scalar_codec"],
+                value["cases"]["text_codec"],
+            )
         )
     if documents[0] != documents[1]:
         raise ValueError("cross-runtime complete canonical bytes differ")
@@ -1801,6 +2803,20 @@ def compare_product_reports(paths, repository, contexts):
 def reject_report_damage(value, context, inputs):
     """Mutate actual saved-data observations, never fake an Arrow success."""
     mutations = (
+        lambda v: v["cases"].pop("text_values"),
+        lambda v: v["cases"]["text_values"]["postgres/32"]["columns"][0].__setitem__(
+            6, "é"
+        ),
+        lambda v: v["cases"]["text_values"]["mysql/64"]["utf8"][0].__setitem__(3, "61"),
+        lambda v: v["cases"]["text_binding"]["mysql"]["descriptors"][0].update(
+            length=9
+        ),
+        lambda v: v["cases"]["text_requests"]["postgres"].__setitem__(0, "PASS"),
+        lambda v: v["cases"]["text_resources"]["mysql/64"].update(allowance=36),
+        lambda v: v["cases"]["text_supplied"]["postgres/32"]["malformed"].__setitem__(
+            1, "PASS"
+        ),
+        lambda v: v["cases"]["text_codec"].pop("postgres/text"),
         lambda v: v["cases"].pop("integer_widths"),
         lambda v: v["cases"]["integer_widths"].pop("mysql/16"),
         lambda v: v["cases"]["integer_adaptation"]["postgres"]["refusals"].__setitem__(
@@ -1940,7 +2956,7 @@ def main():
     }
     verify_report(value, context, input_closure(repository))
     rejected = reject_report_damage(value, context, input_closure(repository))
-    assert rejected == 28
+    assert rejected == 36
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with args.report.open("x") as stream:
         json.dump(value, stream, sort_keys=True, allow_nan=False)

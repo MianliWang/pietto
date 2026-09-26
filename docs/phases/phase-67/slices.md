@@ -1,6 +1,6 @@
 # Phase67 路线：N67=16
 
-当前只展开已授权 [Slice04](slice-04.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
+当前只展开已授权 [Slice05](slice-05.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
 
 | Slice | 目标／acceptance链接 | 依赖／类型 |
 | --- | --- | --- |
@@ -8,7 +8,7 @@
 | 02 | ResultContract/ResultShape与一个Int的producer→Arrow→batch[薄纵向](slice-02.md)（P67-A01–A04/A08/A11–A12/A15–A16；[验收](brief.md#三层完成验收与回归)） | 01；thin vertical |
 | 03 | [canonical private bytes、pure decoder、runtime correspondence/invalidation](slice-03.md)（P67-A01/A05/A15；[验收](brief.md#三层完成验收与回归)） | 02 |
 | 04 | Int/Bool/Float、NULL、signed zero、显式lossless adaptation（P67-A02–A04/A06；[验收](brief.md#三层完成验收与回归)） | 02–03 |
-| 05 | Text/Unicode、string/large_string/collation（P67-A02–A04/A06–A07；[验收](brief.md#三层完成验收与回归)） | 04 |
+| 05 | [Text/Unicode、string/large_string/collation](slice-05.md)（P67-A02–A04/A06–A07；[验收](brief.md#三层完成验收与回归)） | 04 |
 | 06 | Decimal128/256 precision/scale与overflow（P67-A02–A04/A06；[验收](brief.md#三层完成验收与回归)） | 04 |
 | 07 | Timestamp/UUID与已解决的upstream meaning premises（P67-A02–A04/A06–A07；[验收](brief.md#三层完成验收与回归)） | 04 + 01 decisions |
 | 08 | empty/all-null/duplicate-label carrier及完整finite-type integration；midpoint（P67-A02/A06/A08；[验收](brief.md#三层完成验收与回归)） | 04–07 |
@@ -47,6 +47,10 @@ Phase68接已验证result/binding/batch/finite-finalization合同，不重决编
 [Slice03](slice-03.md) 保留完整中立字段、类型与 import provenance 描述，分别执行 bounded pure consistency 和 supplied-live-authority correspondence。原14个产品案例与9个SDK案例保留；两runtime新增codec消费者、完整bytes比较和raw evidence核验均为必需。
 发布链通过后 Slices01–03 COMPLETED/PUBLISHED，Slice04 NEXT/NOT STARTED，Slices05–16 NOT STARTED。不开始Slice04。
 
-## Slice04 当前边界
+## Slice04 已发布历史边界
 
 [Slice04](slice-04.md) 仅扩Int16/32/64、Bool、finite Float64的checked producer/Arrow owned batch；完整domain-total显式整数适配、physical/logical Bool分离、IEEE754 signed-zero值oracle保持。codec与上游语义不变。发布链全部通过后Slices01–04完成，Slice05 NEXT/NOT STARTED；不推进后续payload/reader/protocol/IPC。
+
+## Slice05 当前边界
+
+[Slice05](slice-05.md) 仅扩 verified builtin Text source/projection与mixed scalar结果：exact Unicode、显式32/64 offsets、source-bound collation/padding、保守引用buffer与实际UTF-8准入计费。没有Arrow比较语义、native新SQL输入、reader/IPC/API扩展。自然CI及raw证据全部通过后Slices01–05完成，Slice06 NEXT/NOT STARTED，07–16 NOT STARTED；package/CLI0.1.0。

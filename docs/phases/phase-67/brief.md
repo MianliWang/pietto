@@ -2,7 +2,7 @@
 
 规划层级 FULL；N67=16。描述性 Stage 目标是建立有限结果交换边界；现有资料没有数字 Stage，故不另造编号。
 这是已接受全 Phase 计划的耐久入口。Slice01 的 CI/SDK 实验范围与预算见其历史记录；当前只授权
-[Slice04](slice-04.md)，后续 Slice 仍逐次 dispatch。包/CLI 保持0.1.0。
+[Slice05](slice-05.md)，后续 Slice 仍逐次 dispatch。包/CLI 保持0.1.0。
 
 ## 使命、当前能力与边界
 
@@ -60,6 +60,10 @@ health/history 只作 advisory；没有新 alert 不启动 CI 维护。
 后续 owner：Phase68 execution，69 public alpha，71 nested，80 Python adapters，82 public format freeze，
 83 stable1.0，84 stronger trust/signing，86 device/DLPack，90 Rust/PyO3；91–97 保持 tentative/owner-only。
 
-## Slice04 当前边界
+## Slice04 已发布历史边界
 
 [Slice04](slice-04.md) 仅扩Int16/32/64、Bool、finite Float64的checked producer/Arrow owned batch；完整domain-total显式整数适配、physical/logical Bool分离、IEEE754 signed-zero值oracle保持。codec与上游语义不变。发布链全部通过后Slices01–04完成，Slice05 NEXT/NOT STARTED；不推进后续payload/reader/protocol/IPC。
+
+## Slice05 当前边界
+
+[Slice05](slice-05.md) 仅扩 verified builtin Text source/projection与mixed scalar结果：exact Unicode、显式32/64 offsets、source-bound collation/padding、保守引用buffer与实际UTF-8准入计费。没有Arrow比较语义、native新SQL输入、reader/IPC/API扩展。自然CI及raw证据全部通过后Slices01–05完成，Slice06 NEXT/NOT STARTED，07–16 NOT STARTED；package/CLI0.1.0。

@@ -20,6 +20,15 @@ __all__: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
+class TextObservation:
+    max_characters: int
+    encoding: str
+    collation: str
+    padding: str
+    storage_length: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ProducerObservation:
     ordinal: int
     label: str
@@ -31,6 +40,7 @@ class ProducerObservation:
     protocol_nullable: bool | None = None
     domain: str = "int_range"
     carrier: str = "int"
+    text: TextObservation | None = None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -93,11 +103,13 @@ def verify_producer_binding(binding, contract, artifact) -> None:
             "Int": ("pg_int2", "pg_int4", "pg_int8"),
             "Bool": ("pg_bool",),
             "Float": ("pg_float8",),
+            "Text": ("pg_text",),
         },
         "mysql": {
             "Int": ("my_smallint", "my_int", "my_bigint"),
             "Bool": ("my_bool01",),
             "Float": ("my_double",),
+            "Text": ("my_varchar",),
         },
     }.get(family, {})
     for ordinal, (bound, leaf, column) in enumerate(
@@ -119,7 +131,12 @@ def verify_producer_binding(binding, contract, artifact) -> None:
             or leaf.shape.canonical.kind is not ProjectResolvedTypeKind.BUILTIN
             or leaf.shape.canonical.name != realized.tag
             or realized.storage.get("kind") not in storages[realized.tag]
-            or set(realized.storage) != {"kind"}
+            or set(realized.storage)
+            != (
+                {"kind", "length"}
+                if realized.tag == "Text" and family == "mysql"
+                else {"kind"}
+            )
             or type(realized.nullable) is not bool
             or leaf.nullability
             not in (
@@ -131,6 +148,7 @@ def verify_producer_binding(binding, contract, artifact) -> None:
         nullable = leaf.nullability is ProjectRowFieldNullability.NULLABLE
         storage = realized.storage["kind"]
         lower = upper = None
+        text = None
         if realized.tag == "Int":
             if (
                 set(realized.domain) != {"kind", "min", "max"}
@@ -146,6 +164,32 @@ def verify_producer_binding(binding, contract, artifact) -> None:
             if realized.domain != {"kind": "bool01"}:
                 raise ResultError("PRODUCER_DOMAIN")
             domain, carrier = "bool01", "bool" if family == "postgres" else "int01"
+        elif realized.tag == "Text":
+            expected = (
+                ("UTF8", "C", "NO PAD")
+                if family == "postgres"
+                else ("utf8mb4", "utf8mb4_0900_bin", "NO PAD")
+            )
+            maximum = realized.domain.get("max_characters")
+            length = realized.storage.get("length")
+            if (
+                set(realized.domain)
+                != {"kind", "max_characters", "encoding", "collation", "padding"}
+                or realized.domain["kind"] != "text"
+                or type(maximum) is not int
+                or maximum < 0
+                or tuple(
+                    realized.domain[k] for k in ("encoding", "collation", "padding")
+                )
+                != expected
+                or (
+                    family == "mysql"
+                    and (type(length) is not int or not maximum <= length <= 16383)
+                )
+            ):
+                raise ResultError("PRODUCER_DOMAIN")
+            text = TextObservation(maximum, *expected, length)
+            domain, carrier = "text", "str"
         else:
             if realized.domain != {"kind": "finite_float", "format": "binary64"}:
                 raise ResultError("PRODUCER_DOMAIN")
@@ -178,6 +222,28 @@ def verify_producer_binding(binding, contract, artifact) -> None:
                 else obs.upper is not None
             )
             or (obs.lower, obs.upper) != (lower, upper)
+            or (
+                obs.text is not None
+                if text is None
+                else (
+                    type(obs.text) is not TextObservation
+                    or type(obs.text.max_characters) is not int
+                    or any(
+                        type(v) is not str
+                        for v in (
+                            obs.text.encoding,
+                            obs.text.collation,
+                            obs.text.padding,
+                        )
+                    )
+                    or (
+                        type(obs.text.storage_length) is not int
+                        if text.storage_length is not None
+                        else obs.text.storage_length is not None
+                    )
+                    or obs.text != text
+                )
+            )
             or type(bound.nullable) is not bool
             or bound.nullable is not nullable
             or (

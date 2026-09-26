@@ -393,3 +393,7 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 ## Slice04 scalar result检查
 
 [Slice04](phases/phase-67/slice-04.md) 沿用同一private consumer，默认Arrow保留signed producer width，显式request按完整int_range判断无损；Bool行carrier与logical batch不同，finite Float64按IEEE bits验证signed zero。原23product与9SDK案例独立保留，新案例通过同一report/damage/input-origin链；core仍Arrow-free，codec格式及batch limits保持。native普通文件准备统一预检，不重跑已绿gates改善计时。
+
+## Slice05 Text result检查
+
+[Slice05](phases/phase-67/slice-05.md) 沿用required product consumer：38个命名案例与36个report-damage controls，同步末端exact assertions；原9 SDK组、30product cases和6份canonical文档保留。新增4份Text/mixed文档完整bytes在local及downloaded CI报告跨runtime比较。UTF-8/offset资源和NULL槽由真实PyArrow25.0.1验证；普通pytest保持Arrow-free，fresh native receipts仍绑定当前input closure。
