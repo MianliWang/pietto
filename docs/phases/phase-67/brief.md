@@ -2,7 +2,7 @@
 
 规划层级 FULL；N67=16。描述性 Stage 目标是建立有限结果交换边界；现有资料没有数字 Stage，故不另造编号。
 这是已接受全 Phase 计划的耐久入口。Slice01 的 CI/SDK 实验范围与预算见其历史记录；当前只授权
-[Slice06](slice-06.md)，后续 Slice 仍逐次 dispatch。包/CLI 保持0.1.0。
+[Slice07](slice-07.md)，后续 Slice 仍逐次 dispatch。包/CLI 保持0.1.0。
 
 ## 使命、当前能力与边界
 
@@ -68,6 +68,10 @@ health/history 只作 advisory；没有新 alert 不启动 CI 维护。
 
 [Slice05](slice-05.md) 仅扩 verified builtin Text source/projection与mixed scalar结果：exact Unicode、显式32/64 offsets、source-bound collation/padding、保守引用buffer与实际UTF-8准入计费。没有Arrow比较语义、native新SQL输入、reader/IPC/API扩展。自然CI及raw证据全部通过后Slices01–05完成，Slice06 NEXT/NOT STARTED，07–16 NOT STARTED；package/CLI0.1.0。
 
-## Slice06 当前边界
+## Slice06 已发布历史边界
 
 [Slice06](slice-06.md) 在正确HOLD后经明确批准，将shared参数precision上限38扩至65、语言scale≤p；当前producer保留scale≤min(p,30)。Decimal128/256结果采用context-free精确fixed-scale转换，正负Decimal零统一系数0，Float signed zero不变。原10份canonical documents保持，新增4份Decimal/mixed；计划47cases/45controls以实际required consumer证据为准。发布链完整通过后Slices01–06完成，Slice07 NEXT/NOT STARTED，08–16 NOT STARTED；不新增算术、nominal、reader或IPC成功域。
+
+## Slice07 当前private边界
+
+[Slice07](slice-07.md) 显式取得并独立核对真实builtin source occurrence的meaning；private emission/result共同保留该authority，仅field-only scan/projection进入新成功域。Timestamp为无timezone civil microseconds，inclusive1000-01-01至9999-12-31 23:59:59.499999；UUID保留标准big-endian128bits，默认canonical extension，binary16需field-bound请求。旧public/default missing-meaning行为及S06 Decimal接受扩展保持。计划56cases/54controls及原14+新4份完整文档以最终证据为准；完整publication/raw闭合后Slices01–07完成，Slice08 NEXT/NOT STARTED，09–16 NOT STARTED。

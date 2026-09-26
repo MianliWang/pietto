@@ -113,9 +113,14 @@ class EmissionOutcome:
         )
 
 
-def emit_project_sql(verification, contract_bytes, *, target_request=None):
+def emit_project_sql(
+    verification, contract_bytes, *, target_request=None, scalar_meaning=None
+):
     request = prepare_project_sql_emission(
-        verification, contract_bytes, target_request=target_request
+        verification,
+        contract_bytes,
+        target_request=target_request,
+        scalar_meaning=scalar_meaning,
     )
     if type(request) is PreparationFailure:
         return EmissionOutcome(

@@ -250,7 +250,13 @@ def representation_problem(field: BoundField, family: str):
     if logical.kind is not ProjectResolvedTypeKind.BUILTIN:
         return "PIE-B1003", "representation_not_in_initial_domain"
     if logical.name in {"Timestamp", "UUID"}:
-        return "PIE-B1004", "logical_temporal_or_uuid_meaning_missing"
+        from pietto._project.project_scalar_meaning import _source_entry
+
+        if (
+            field.scalar_meaning is None
+            or _source_entry(field.scalar_meaning, field.field) is None
+        ):
+            return "PIE-B1004", "logical_temporal_or_uuid_meaning_missing"
     nullability = {"non_null": False, "nullable": True, "unknown": "unknown"}[
         field.field.effective_nullability.value
     ]
@@ -313,6 +319,23 @@ def representation_problem(field: BoundField, family: str):
                 and 1 <= pair[0] <= 65
                 and 0 <= pair[1] <= min(pair[0], 30)
             )
+    elif logical.name == "Timestamp":
+        valid = (
+            valid
+            and storage
+            == {
+                "kind": "pg_timestamp" if family == "postgres" else "my_datetime",
+                "fractional_seconds": 6,
+            }
+            and domain == {"kind": "timestamp"}
+        )
+    elif logical.name == "UUID":
+        valid = (
+            valid
+            and storage
+            == {"kind": "pg_uuid" if family == "postgres" else "my_uuid_bytes"}
+            and domain == {"kind": "uuid", "encoding": "standard_bytes"}
+        )
     elif logical.name == "Float":
         valid = (
             valid
@@ -327,6 +350,25 @@ def representation_problem(field: BoundField, family: str):
 def emission_blockers(request: PreparedEmission):
     plan = request.plan
     result = list(request.input_blockers)
+    try:
+        meaning = request.scalar_meaning
+        if meaning is not None:
+            from pietto._project.project_scalar_meaning import verify_scalar_meaning
+
+            verify_scalar_meaning(meaning, request.verification)
+        if any(
+            f.scalar_meaning is not meaning
+            for source in request.sources
+            for f in source.fields
+        ):
+            raise ValueError("inconsistent retained meaning")
+    except (ValueError, TypeError, AttributeError):
+        return (Blocker("PIE-B1008", "scalar_meaning_correspondence"),)
+    if meaning is not None and meaning.entries and not projection_chain_shape(plan):
+        return (
+            *result,
+            Blocker("PIE-B1003", "scalar_meaning_requires_field_projection"),
+        )
 
     def add(code, detail, subject=None, location=None):
         result.append(Blocker(code, detail, subject, location))

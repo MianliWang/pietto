@@ -26,3 +26,5 @@ Slice04消费S03教训：freeze前逐项核对inventory/lifecycle/probe readers�
 Slice05：variable-width费用按实际UTF-8、offset与validity计算，供给slice必须先检查retained buffers再full validate；NULL槽任意payload不等于有效字符串。测试同时区分constructor拒绝、checker拒绝与独立value correspondence，不把domain PASS当原始行认证。
 
 Slice06：下游representation的65位上限未证明上游能产生相应fact；共享semantic rule当时仍限38。先追踪fact生产规则并实测可达38/39边界；本次正确HOLD后由用户明确扩至65，旧合同不追认错误。语言scale≤p、producer scale≤min(p,30)和Arrow width是三个独立判断。
+
+Slice07：先验证实际meaning producer与explicit consumption，再建立Arrow矩阵；补齐新runtime field对应的旧observation CUTOFF inventory，保持完整字段断言。处理新增optional authority时应同时测试字段删除的typed failure，并防止显式opt-in顺带开放本Slice未授权的旧lowering。SQL/数据结果观察、pure描述和source-value真实性仍是不同证据。

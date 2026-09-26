@@ -28,6 +28,7 @@ PRODUCTS = (
     "project_result_contract_pure_boundary",
     "project_result_contract_portable",
     "project_result_contract_correspondence",
+    "project_scalar_meaning",
 )
 CASES = (
     "postgres",
@@ -77,6 +78,15 @@ CASES = (
     "decimal_supplied",
     "decimal_substitution",
     "decimal_codec",
+    "meaning_premise",
+    "timestamp_values",
+    "timestamp_policy",
+    "uuid_values",
+    "uuid_policy",
+    "temporal_empty_mixed",
+    "temporal_resources",
+    "temporal_correspondence",
+    "temporal_codec",
 )
 
 
@@ -431,6 +441,7 @@ def run_cases(root):
     results.update(run_scalar_cases(root))
     results.update(run_text_cases(root))
     results.update(run_decimal_cases(root))
+    results.update(run_temporal_cases(root))
     assert set(results) == set(CASES)
     return results
 
@@ -3279,6 +3290,1503 @@ def verify_decimal_report(cases):
         raise ValueError("Decimal report evidence") from exc
 
 
+TEMPORAL_NAMES = (
+    "stamp",
+    "optional_stamp",
+    "identifier",
+    "optional_identifier",
+    "number",
+    "flag",
+    "ratio",
+    "label",
+    "amount",
+)
+TEMPORAL_LABELS = (
+    "occurred_at",
+    "maybe_time",
+    "key_value",
+    "maybe_key",
+    "number",
+    "flag",
+    "ratio",
+    "label",
+    "amount",
+)
+
+
+def temporal_source(target, *, mixed=False, all_nullable=False, projection=None):
+    kinds = (
+        "Timestamp",
+        "Timestamp",
+        "UUID",
+        "UUID",
+        "Int",
+        "Bool",
+        "Float",
+        "Text",
+        "Decimal(39, 4)",
+    )[: 9 if mixed else 4]
+    text = "shape Row:\n" + "".join(
+        f"    {name}: {kind} {'nullable' if all_nullable or i in (1, 3, 7) else 'not null'}\n"
+        for i, (name, kind) in enumerate(
+            zip(TEMPORAL_NAMES[: len(kinds)], kinds, strict=True)
+        )
+    )
+    projection = tuple(range(len(kinds))) if projection is None else projection
+    labels = (
+        TEMPORAL_LABELS
+        if projection == tuple(range(len(kinds)))
+        else tuple(f"selected_{i}" for i in range(len(projection)))
+    )
+    return (
+        text
+        + f'source rows: Row is {target}.table("opaque.result.fixture")\ntable result:\n    from rows\n    select:\n'
+        + "".join(
+            f"        {labels[i]} = {TEMPORAL_NAMES[position]}\n"
+            for i, position in enumerate(projection)
+        )
+    )
+
+
+def temporal_input(target, *, mixed=False, all_nullable=False):
+    doc = json.loads(emission_input(target))
+    descriptions = [
+        (
+            dict(
+                kind="pg_timestamp" if target == "postgres" else "my_datetime",
+                fractional_seconds=6,
+            ),
+            dict(kind="timestamp"),
+        ),
+        (
+            dict(
+                kind="pg_timestamp" if target == "postgres" else "my_datetime",
+                fractional_seconds=6,
+            ),
+            dict(kind="timestamp"),
+        ),
+        (
+            dict(kind="pg_uuid" if target == "postgres" else "my_uuid_bytes"),
+            dict(kind="uuid", encoding="standard_bytes"),
+        ),
+        (
+            dict(kind="pg_uuid" if target == "postgres" else "my_uuid_bytes"),
+            dict(kind="uuid", encoding="standard_bytes"),
+        ),
+    ]
+    if mixed:
+        descriptions += [
+            (
+                dict(kind=width_storage(target, 32)),
+                dict(kind="int_range", min="-100", max="100"),
+            ),
+            (
+                dict(kind="pg_bool" if target == "postgres" else "my_bool01"),
+                dict(kind="bool01"),
+            ),
+            (
+                dict(kind="pg_float8" if target == "postgres" else "my_double"),
+                dict(kind="finite_float", format="binary64"),
+            ),
+            (
+                dict(kind="pg_text")
+                if target == "postgres"
+                else dict(kind="my_varchar", length=8),
+                dict(
+                    kind="text",
+                    max_characters=8,
+                    encoding="UTF8" if target == "postgres" else "utf8mb4",
+                    collation="C" if target == "postgres" else "utf8mb4_0900_bin",
+                    padding="NO PAD",
+                ),
+            ),
+            (
+                dict(
+                    kind="pg_numeric" if target == "postgres" else "my_decimal",
+                    precision=39,
+                    scale=4,
+                ),
+                dict(kind="decimal", precision=39, scale=4),
+            ),
+        ]
+    doc["sources"][0]["fields"] = [
+        dict(
+            ordinal=i,
+            name=TEMPORAL_NAMES[i],
+            column=TEMPORAL_NAMES[i],
+            representation=dict(
+                storage=storage,
+                domain=domain,
+                nullable=bool(all_nullable or i in (1, 3, 7)),
+            ),
+        )
+        for i, (storage, domain) in enumerate(descriptions)
+    ]
+    return json.dumps(doc).encode()
+
+
+def temporal_premise(
+    directory, target, *, mixed=False, all_nullable=False, projection=None
+):
+    from pietto._project.project_scalar_meaning import acquire_scalar_meaning
+    from pietto._project.project_sql_emission import emit_project_sql
+    from pietto._project.project_result_contract import build_result_contract
+
+    checked = build_neutral(
+        directory,
+        {
+            "main.pietto": temporal_source(
+                target, mixed=mixed, all_nullable=all_nullable, projection=projection
+            )
+        },
+    )
+    meaning = acquire_scalar_meaning(checked)
+    outcome = emit_project_sql(
+        checked,
+        temporal_input(target, mixed=mixed, all_nullable=all_nullable),
+        scalar_meaning=meaning,
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    neutral = build_result_contract(checked, scalar_meaning=meaning)
+    return checked, meaning, outcome.artifact, neutral
+
+
+# Independent calendar/byte corpus; coefficients/ticks are literal expectations.
+TIME_COMPONENTS = (
+    (1000, 1, 1, 0, 0, 0, 0),
+    (1969, 12, 31, 23, 59, 59, 999999),
+    (1970, 1, 1, 0, 0, 0, 0),
+    (1970, 1, 1, 0, 0, 0, 1),
+    (2000, 2, 29, 12, 34, 56, 123456),
+    (2024, 2, 29, 23, 59, 59, 999999),
+    (9000, 1, 1, 0, 0, 0, 1),
+    (9999, 12, 31, 23, 59, 59, 499999),
+    (1970, 1, 1, 0, 0, 0, 0),
+    (1970, 1, 1, 0, 0, 0, 0),
+)
+TIME_TICKS = (
+    -30610224000000000,
+    -1,
+    0,
+    1,
+    951827696123456,
+    1709251199999999,
+    221845392000000001,
+    253402300799499999,
+    0,
+    0,
+)
+UUID_HEX = (
+    "00112233445566778899aabbccddeeff",
+    "00000000000000000000000000000000",
+    "ffffffffffffffffffffffffffffffff",
+    "0123456789abcdeffedcba9876543210",
+    "00110022003300440055006600770088",
+    "00112233445566778899aabbccddeeff",
+    "ffffffffffffffffffffffffffffffff",
+    "00000000000000000000000000000000",
+    "00112233445566778899aabbccddeeff",
+    "00112233445566778899aabbccddeeff",
+)
+TEMPORAL_NULLS = (0, 3, 5, 8, 9)
+TEMPORAL_DECIMAL = 123456789012345678901234567890123456789
+
+
+def temporal_observations(target, *, mixed=False):
+    from pietto._project.project_result_binding import (
+        ProducerObservation,
+        TextObservation,
+        DecimalObservation,
+    )
+    from pietto._project.project_scalar_meaning import TimestampMeaning, UUIDMeaning
+
+    observed = [
+        ProducerObservation(
+            i,
+            TEMPORAL_LABELS[i],
+            target,
+            "pg_timestamp" if target == "postgres" else "my_datetime",
+            domain="timestamp",
+            carrier="datetime",
+            meaning=TimestampMeaning(),
+            fractional_seconds=6,
+        )
+        for i in range(2)
+    ]
+    observed += [
+        ProducerObservation(
+            i,
+            TEMPORAL_LABELS[i],
+            target,
+            "pg_uuid" if target == "postgres" else "my_uuid_bytes",
+            domain="uuid",
+            carrier="uuid" if target == "postgres" else "bytes16",
+            meaning=UUIDMeaning(),
+        )
+        for i in range(2, 4)
+    ]
+    if mixed:
+        observed += [
+            ProducerObservation(
+                4, "number", target, width_storage(target, 32), -100, 100
+            ),
+            ProducerObservation(
+                5,
+                "flag",
+                target,
+                "pg_bool" if target == "postgres" else "my_bool01",
+                domain="bool01",
+                carrier="bool" if target == "postgres" else "int01",
+            ),
+            ProducerObservation(
+                6,
+                "ratio",
+                target,
+                "pg_float8" if target == "postgres" else "my_double",
+                domain="finite_float",
+                carrier="float",
+            ),
+            ProducerObservation(
+                7,
+                "label",
+                target,
+                "pg_text" if target == "postgres" else "my_varchar",
+                domain="text",
+                carrier="str",
+                text=TextObservation(
+                    8,
+                    "UTF8" if target == "postgres" else "utf8mb4",
+                    "C" if target == "postgres" else "utf8mb4_0900_bin",
+                    "NO PAD",
+                    None if target == "postgres" else 8,
+                ),
+            ),
+            ProducerObservation(
+                8,
+                "amount",
+                target,
+                "pg_numeric" if target == "postgres" else "my_decimal",
+                domain="decimal",
+                carrier="decimal",
+                decimal=DecimalObservation(39, 4),
+            ),
+        ]
+    return tuple(observed)
+
+
+def temporal_fixture(directory, target, *, mixed=False, all_nullable=False):
+    from pietto._project.project_result_binding import bind_producer
+
+    checked, meaning, artifact, neutral = temporal_premise(
+        directory, target, mixed=mixed, all_nullable=all_nullable
+    )
+    producer = bind_producer(
+        neutral, artifact, temporal_observations(target, mixed=mixed)
+    )
+    return checked, meaning, artifact, neutral, producer
+
+
+def temporal_arrow(producer, *, representation=None, mixed=False):
+    from pietto._project import project_arrow_result as a
+
+    fields = producer.fields
+    return a.bind_arrow(
+        producer,
+        uuid_representations=None
+        if representation is None
+        else tuple(
+            a.UUIDRepresentationRequest(f.field, representation)
+            if i in (2, 3)
+            else None
+            for i, f in enumerate(fields)
+        ),
+        integer_widths=tuple(
+            a.IntegerWidthRequest(f.field, 16) if i == 4 else None
+            for i, f in enumerate(fields)
+        )
+        if mixed
+        else None,
+        text_offset_widths=tuple(
+            a.TextOffsetWidthRequest(f.field, 64) if i == 7 else None
+            for i, f in enumerate(fields)
+        )
+        if mixed
+        else None,
+        decimal_widths=tuple(
+            a.DecimalWidthRequest(f.field, 256) if i == 8 else None
+            for i, f in enumerate(fields)
+        )
+        if mixed
+        else None,
+    )
+
+
+def temporal_rows(target, *, mixed=False):
+    from datetime import datetime
+    from uuid import UUID
+
+    result = []
+    for i, (components, identifier) in enumerate(
+        zip(TIME_COMPONENTS, UUID_HEX, strict=True)
+    ):
+        stamp = datetime(*components)
+        data = bytes.fromhex(identifier)
+        value = UUID(bytes=data) if target == "postgres" else data
+        row = [
+            stamp,
+            None if i in TEMPORAL_NULLS else stamp,
+            value,
+            None if i in TEMPORAL_NULLS else value,
+        ]
+        if mixed:
+            row += [
+                7,
+                True if target == "postgres" else 1,
+                -0.0,
+                None if i in TEMPORAL_NULLS else "é",
+                decimal_literal(TEMPORAL_DECIMAL, 4),
+            ]
+        result.append(row)
+    return result
+
+
+def temporal_snapshot(batch):
+    from datetime import datetime, timedelta
+    import struct
+
+    pa = importlib.import_module("pyarrow")
+    columns = []
+    components = []
+    for i, column in enumerate(batch.columns):
+        if i < 4:
+            storage = column.storage if type(column.type) is type(pa.uuid()) else column
+            width = 8 if i < 2 else 16
+            data = memoryview(storage.buffers()[1])
+            values = []
+            parts = []
+            for j in range(len(storage)):
+                if not storage[j].is_valid:
+                    values.append(None)
+                    parts.append(None)
+                    continue
+                offset = (storage.offset + j) * width
+                raw = bytes(data[offset : offset + width])
+                if i < 2:
+                    tick = int.from_bytes(raw, "little", signed=True)
+                    values.append(tick)
+                    value = datetime(1970, 1, 1) + timedelta(microseconds=tick)
+                    parts.append(
+                        [
+                            value.year,
+                            value.month,
+                            value.day,
+                            value.hour,
+                            value.minute,
+                            value.second,
+                            value.microsecond,
+                        ]
+                    )
+                else:
+                    values.append(raw.hex())
+            columns.append(values)
+            if i < 2:
+                components.append(parts)
+        elif i == 8:
+            width = column.type.bit_width // 8
+            data = memoryview(column.buffers()[1])
+            columns.append(
+                [
+                    str(
+                        int.from_bytes(
+                            data[
+                                (column.offset + j) * width : (column.offset + j + 1)
+                                * width
+                            ],
+                            "little",
+                            signed=True,
+                        )
+                    )
+                    if column[j].is_valid
+                    else None
+                    for j in range(len(column))
+                ]
+            )
+        else:
+            values = column.to_pylist()
+            columns.append(
+                [None if v is None else struct.pack(">d", v).hex() for v in values]
+                if i == 6
+                else values
+            )
+    return dict(
+        types=[str(f.type) for f in batch.schema],
+        labels=batch.schema.names,
+        nullable=[f.nullable for f in batch.schema],
+        columns=columns,
+        components=components,
+    )
+
+
+def temporal_expected(
+    *, representation="uuid", mixed=False, state="values", all_nullable=False
+) -> dict[str, Any]:
+    uuid_type = (
+        "extension<arrow.uuid>" if representation == "uuid" else "fixed_size_binary[16]"
+    )
+    columns: list[list[Any]] = [
+        list(TIME_TICKS),
+        [None if i in TEMPORAL_NULLS else v for i, v in enumerate(TIME_TICKS)],
+        list(UUID_HEX),
+        [None if i in TEMPORAL_NULLS else v for i, v in enumerate(UUID_HEX)],
+    ]
+    components = [
+        list(map(list, TIME_COMPONENTS)),
+        [
+            None if i in TEMPORAL_NULLS else list(v)
+            for i, v in enumerate(TIME_COMPONENTS)
+        ],
+    ]
+    if mixed:
+        columns += [
+            [7] * 10,
+            [True] * 10,
+            ["8000000000000000"] * 10,
+            [None if i in TEMPORAL_NULLS else "é" for i in range(10)],
+            [str(TEMPORAL_DECIMAL)] * 10,
+        ]
+    if state != "values":
+        columns = [[None] * (0 if state == "empty" else 2) for _ in columns]
+        components = [[None] * (0 if state == "empty" else 2) for _ in range(2)]
+    return dict(
+        types=["timestamp[us]"] * 2
+        + [uuid_type] * 2
+        + (
+            ["int16", "bool", "double", "large_string", "decimal256(39, 4)"]
+            if mixed
+            else []
+        ),
+        labels=list(TEMPORAL_LABELS[: len(columns)]),
+        nullable=[bool(all_nullable or i in (1, 3, 7)) for i in range(len(columns))],
+        columns=columns,
+        components=components,
+    )
+
+
+def temporal_value_oracle(snapshot, **kwargs):
+    if not _exact(snapshot, temporal_expected(**kwargs)):
+        raise ValueError("Timestamp/UUID exact value/NULL/sequence correspondence")
+
+
+def meaning_refused(action):
+    from pietto._project.project_scalar_meaning import ScalarMeaningError
+
+    try:
+        action()
+    except ScalarMeaningError as exc:
+        return exc.category
+    raise AssertionError("invalid meaning accepted")
+
+
+def meaning_snapshot(bundle):
+    from dataclasses import asdict
+
+    return [
+        dict(
+            ordinal=e.ordinal,
+            source_position=e.source_port.ref.position,
+            canonical=e.canonical.name,
+            law=asdict(e.law),
+        )
+        for e in bundle.entries
+    ]
+
+
+def run_temporal_cases(root):
+    from datetime import datetime, date, timezone, timedelta
+    from uuid import UUID
+    from pietto._project import (
+        project_scalar_meaning as m,
+        project_arrow_result as a,
+        project_result_binding as p,
+        project_result_contract as c,
+    )
+    from pietto._project.project_sql_emission import emit_project_sql
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+    )
+    from pietto._project.project_result_contract_portable import export_result_contract
+    from pietto._project.project_result_contract_correspondence import (
+        verify_bound_export,
+        verify_contract_correspondence,
+    )
+    from pietto._project import project_result_contract_pure_boundary as pure
+    import struct
+
+    pa = importlib.import_module("pyarrow")
+    results: dict[str, Any] = {
+        name: {}
+        for name in (
+            "meaning_premise",
+            "timestamp_values",
+            "timestamp_policy",
+            "uuid_values",
+            "uuid_policy",
+            "temporal_empty_mixed",
+            "temporal_resources",
+            "temporal_correspondence",
+            "temporal_codec",
+        )
+    }
+
+    class DatetimeSubclass(datetime):
+        pass
+
+    class UUIDSubclass(UUID):
+        pass
+
+    class BytesSubclass(bytes):
+        pass
+
+    class PolicySubclass(str):
+        pass
+
+    class CoercibleTemporal:
+        def __str__(self):
+            raise AssertionError("temporal string coercion")
+
+        def __int__(self):
+            raise AssertionError("temporal integer coercion")
+
+        def __bytes__(self):
+            raise AssertionError("UUID bytes coercion")
+
+    class FakeUUID(pa.ExtensionType):
+        def __init__(self):
+            super().__init__(pa.binary(16), "arrow.uuid")
+
+        def __arrow_ext_serialize__(self):
+            return b""
+
+    for target in ("postgres", "mysql"):
+        checked, bundle, artifact, neutral, producer = temporal_fixture(
+            root / f"temporal-{target}", target
+        )
+        arrow = temporal_arrow(producer)
+        absent = emit_project_sql(checked, temporal_input(target))
+        other_checked, other_bundle, _, _, other = temporal_fixture(
+            root / f"temporal-foreign-{target}", target
+        )
+        original_entries = bundle.entries
+        bad_meanings = {
+            "foreign_root": replace(bundle, verification=other_checked),
+            "missing": replace(bundle, entries=bundle.entries[:-1]),
+            "extra": replace(bundle, entries=(*bundle.entries, bundle.entries[0])),
+            "reordered": replace(bundle, entries=bundle.entries[::-1]),
+            "field": replace(
+                bundle,
+                entries=(
+                    replace(
+                        bundle.entries[0],
+                        source_port=other_bundle.entries[0].source_port,
+                    ),
+                    *bundle.entries[1:],
+                ),
+            ),
+            "type": replace(
+                bundle,
+                entries=(
+                    replace(bundle.entries[0], canonical=bundle.entries[2].canonical),
+                    *bundle.entries[1:],
+                ),
+            ),
+            "calendar": replace(
+                bundle,
+                entries=(
+                    replace(
+                        bundle.entries[0],
+                        law=replace(m.TimestampMeaning(), calendar="julian"),
+                    ),
+                    *bundle.entries[1:],
+                ),
+            ),
+            "endpoint": replace(
+                bundle,
+                entries=(
+                    replace(
+                        bundle.entries[0],
+                        law=replace(
+                            m.TimestampMeaning(),
+                            upper=(9999, 12, 31, 23, 59, 59, 999999),
+                        ),
+                    ),
+                    *bundle.entries[1:],
+                ),
+            ),
+            "byte_order": replace(
+                bundle,
+                entries=(
+                    *bundle.entries[:2],
+                    replace(
+                        bundle.entries[2],
+                        law=replace(m.UUIDMeaning(), byte_order="little_endian"),
+                    ),
+                    bundle.entries[3],
+                ),
+            ),
+        }
+        negatives = {
+            name: meaning_refused(lambda bad=bad: m.verify_scalar_meaning(bad, checked))
+            for name, bad in bad_meanings.items()
+        }
+        preparations = [
+            emit_project_sql(checked, temporal_input(target), scalar_meaning=bad).status
+            for bad in bad_meanings.values()
+        ]
+        try:
+            object.__setattr__(bundle, "entries", bundle.entries[:-1])
+            invalidated = not verify_project_sql_emission(
+                artifact, artifact.request
+            ).verified
+            contract_invalidated = refused(
+                lambda: c.verify_result_contract(neutral, checked)
+            )
+        finally:
+            object.__setattr__(bundle, "entries", original_entries)
+        rechecked, reused, reused_artifact, reused_contract = temporal_premise(
+            root / f"temporal-reuse-{target}", target, projection=(2, 0, 2, 1, 3)
+        )
+        assert verify_project_sql_emission(
+            reused_artifact, reused_artifact.request
+        ).verified
+        from pietto._project.project_sql_emission import realize_project_sql
+
+        slot_refusals = []
+        for meaning_slot in (artifact.request, artifact.request.sources[0].fields[0]):
+            retained = meaning_slot.scalar_meaning
+            try:
+                object.__delattr__(meaning_slot, "scalar_meaning")
+                outcome = realize_project_sql(artifact.request)
+                slot_refusals.append(
+                    [outcome.status, [(b.code, b.detail) for b in outcome.blockers]]
+                )
+            finally:
+                object.__setattr__(meaning_slot, "scalar_meaning", retained)
+        filtered_source = temporal_source(target, mixed=True).replace(
+            "    select:\n", "    where number > 0\n    select:\n"
+        )
+        filtered = build_neutral(
+            root / f"meaning-filter-{target}", {"main.pietto": filtered_source}
+        )
+        outside = emit_project_sql(
+            filtered,
+            temporal_input(target, mixed=True),
+            scalar_meaning=m.acquire_scalar_meaning(filtered),
+        )
+        observations = temporal_observations(target)
+        producer_negatives = {}
+        for name, position, changes in (
+            ("precision", 0, {"fractional_seconds": 3}),
+            ("float_precision", 0, {"fractional_seconds": 6.0}),
+            ("timezone", 0, {"meaning": replace(m.TimestampMeaning(), timezone="UTC")}),
+            (
+                "range",
+                0,
+                {"meaning": replace(m.TimestampMeaning(), lower=(1, 1, 1, 0, 0, 0, 0))},
+            ),
+            (
+                "byte_order",
+                2,
+                {"meaning": replace(m.UUIDMeaning(), byte_order="little_endian")},
+            ),
+            ("carrier", 2, {"carrier": "str"}),
+            ("storage", 0, {"storage": "pg_int8"}),
+            ("lower", 2, {"lower": 0}),
+            ("label", 0, {"label": "stamp"}),
+        ):
+            observed = list(observations)
+            observed[position] = replace(observed[position], **changes)
+            producer_negatives[name] = refused(
+                lambda observed=tuple(observed): p.bind_producer(
+                    neutral, artifact, observed
+                )
+            )
+        coordinated = replace(
+            producer,
+            fields=(
+                replace(
+                    producer.fields[0],
+                    observation=replace(
+                        observations[0],
+                        meaning=replace(m.TimestampMeaning(), timezone="UTC"),
+                    ),
+                ),
+                *producer.fields[1:],
+            ),
+        )
+        wrong = pa.schema(
+            [
+                pa.field("occurred_at", pa.timestamp("us", "UTC"), nullable=False),
+                *list(arrow.schema)[1:],
+            ]
+        )
+        producer_negatives["coordinated"] = refused(
+            lambda: a.verify_arrow_binding(
+                a.ArrowResultBinding(coordinated, wrong), coordinated
+            )
+        )
+        producer_negatives["absent_contract"] = refused(
+            lambda: p.bind_producer(
+                c.build_result_contract(checked), artifact, observations
+            )
+        )
+        nominal_source = "type Stamp = Timestamp\n" + temporal_source(target).replace(
+            "stamp: Timestamp", "stamp: Stamp"
+        )
+        nominal = build_neutral(
+            root / f"temporal-nominal-{target}", {"main.pietto": nominal_source}
+        )
+        results["meaning_premise"][target] = dict(
+            slot_refusals=slot_refusals,
+            outside_projection=[
+                outside.status,
+                [(b.code, b.detail) for b in outside.blockers],
+            ],
+            entries=meaning_snapshot(bundle),
+            default=[(b.code, b.detail) for b in absent.blockers],
+            refusals=negatives,
+            preparations=preparations,
+            invalidated=invalidated,
+            contract_invalidated=contract_invalidated,
+            producer=producer_negatives,
+            projection=dict(
+                labels=[f.label for f in reused_contract.shape.fields],
+                source_positions=[
+                    f.meaning.source_port.ref.position
+                    for f in reused_contract.shape.fields
+                ],
+                distinct_outputs=reused_contract.shape.fields[0].port
+                is not reused_contract.shape.fields[2].port,
+            ),
+            nominal=meaning_refused(lambda: m.acquire_scalar_meaning(nominal)),
+        )
+        owned = a.build_owned_batch(arrow, temporal_rows(target))
+        snapshot = temporal_snapshot(owned)
+        temporal_value_oracle(snapshot)
+        results["timestamp_values"][target] = dict(
+            types=snapshot["types"][:2],
+            ticks=snapshot["columns"][:2],
+            components=snapshot["components"],
+        )
+        bad_times = (
+            datetime(1970, 1, 1, tzinfo=timezone.utc),
+            datetime(1970, 1, 1, tzinfo=timezone(timedelta(hours=2))),
+            datetime(1970, 1, 1, fold=1),
+            DatetimeSubclass(1970, 1, 1),
+            date(1970, 1, 1),
+            0,
+            0.0,
+            True,
+            "1970-01-01",
+            b"1970-01-01",
+            CoercibleTemporal(),
+            datetime(999, 12, 31, 23, 59, 59, 999999),
+            datetime(9999, 12, 31, 23, 59, 59, 500000),
+            float("nan"),
+        )
+        time_refusals = []
+        for value in bad_times:
+            row = temporal_rows(target)[0]
+            row[0] = value
+            time_refusals.append(
+                refused(lambda row=row: a.build_owned_batch(arrow, [row]))
+            )
+        nullrow = temporal_rows(target)[0]
+        nullrow[0] = None
+        time_refusals.append(refused(lambda: a.build_owned_batch(arrow, [nullrow])))
+        constructors = []
+        for components in ((1900, 2, 29), (2000, 2, 30), (2000, 1, 1, 0, 0, 60)):
+            try:
+                datetime(
+                    year=components[0],
+                    month=components[1],
+                    day=components[2],
+                    second=60 if len(components) == 6 else 0,
+                )
+            except ValueError:
+                constructors.append("PYTHON_CONSTRUCTOR")
+            else:
+                raise AssertionError("invalid calendar constructor accepted")
+        schema_refusals = []
+        for wrong_type in (
+            pa.timestamp("s"),
+            pa.timestamp("ms"),
+            pa.timestamp("ns"),
+            pa.timestamp("us", "UTC"),
+            pa.int64(),
+            pa.date32(),
+            pa.date64(),
+        ):
+            schema = pa.schema(
+                [
+                    pa.field("occurred_at", wrong_type, nullable=False),
+                    *list(arrow.schema)[1:],
+                ]
+            )
+            schema_refusals.append(
+                refused(
+                    lambda schema=schema: a.verify_arrow_binding(
+                        replace(arrow, schema=schema), producer
+                    )
+                )
+            )
+        schema_refusals += [
+            refused(
+                lambda: a.verify_arrow_binding(
+                    replace(
+                        arrow, schema=arrow.schema.with_metadata({b"timezone": b"none"})
+                    ),
+                    producer,
+                )
+            ),
+            refused(
+                lambda: a.verify_arrow_binding(
+                    replace(
+                        arrow,
+                        schema=pa.schema(
+                            [
+                                arrow.schema[0].with_metadata({b"unit": b"us"}),
+                                *list(arrow.schema)[1:],
+                            ]
+                        ),
+                    ),
+                    producer,
+                )
+            ),
+        ]
+        raw_refusals = []
+        for tick in (-30610224000000001, 253402300799500000, -(2**63), 2**63 - 1):
+            arrays = list(owned.slice(0, 1).columns)
+            arrays[0] = pa.Array.from_buffers(
+                pa.timestamp("us"), 1, [None, pa.py_buffer(struct.pack("<q", tick))]
+            )
+            bad = pa.RecordBatch.from_arrays(arrays, schema=arrow.schema)
+            raw_refusals.append(refused(lambda: a.verify_batch(bad, arrow, producer)))
+        results["timestamp_policy"][target] = dict(
+            rows=time_refusals,
+            constructors=constructors,
+            schema=schema_refusals,
+            raw_ticks=raw_refusals,
+        )
+        req0, req1 = (
+            a.UUIDRepresentationRequest(producer.fields[i].field, "binary16")
+            for i in (2, 3)
+        )
+        requests = (
+            (),
+            [],
+            (None, None, req0),
+            (None, None, req0, req1, None),
+            (None, None, req0, req0),
+            (None, None, req1, req0),
+            (
+                None,
+                None,
+                a.UUIDRepresentationRequest(other.fields[2].field, "binary16"),
+                req1,
+            ),
+            (
+                a.UUIDRepresentationRequest(producer.fields[0].field, "binary16"),
+                None,
+                req0,
+                req1,
+            ),
+            (
+                None,
+                None,
+                a.UUIDRepresentationRequest(req0.field, cast(Any, True)),
+                req1,
+            ),
+            (None, None, a.UUIDRepresentationRequest(req0.field, "binary"), req1),
+            (
+                None,
+                None,
+                a.UUIDRepresentationRequest(req0.field, PolicySubclass("binary16")),
+                req1,
+            ),
+            (None, None, a.IntegerWidthRequest(req0.field, 16), req1),
+        )
+        uuid_requests = [
+            refused(lambda req=req: a.bind_arrow(producer, uuid_representations=req))
+            for req in requests
+        ]
+        identifier = UUID(bytes=bytes.fromhex(UUID_HEX[0]))
+        invalid_uuid = (
+            (identifier.bytes, UUIDSubclass(int=1))
+            if target == "postgres"
+            else (identifier, BytesSubclass(identifier.bytes))
+        )
+        invalid_uuid = (
+            *invalid_uuid,
+            b"",
+            b"x" * 15,
+            b"x" * 17,
+            bytearray(identifier.bytes),
+            memoryview(identifier.bytes),
+            str(identifier),
+            1,
+            True,
+            CoercibleTemporal(),
+        )
+        uuid_rows = []
+        for value in invalid_uuid:
+            row = temporal_rows(target)[0]
+            row[2] = value
+            uuid_rows.append(refused(lambda row=row: a.build_owned_batch(arrow, [row])))
+        nullrow = temporal_rows(target)[0]
+        nullrow[2] = None
+        uuid_rows.append(refused(lambda: a.build_owned_batch(arrow, [nullrow])))
+        _, _, _, _, nullable = temporal_fixture(
+            root / f"temporal-null-{target}", target, all_nullable=True
+        )
+        mixed_checked, mixed_bundle, mixed_artifact, mixed_contract, mixed = (
+            temporal_fixture(root / f"temporal-mixed-{target}", target, mixed=True)
+        )
+        for representation in ("uuid", "binary16"):
+            key = f"{target}/{representation}"
+            selected = temporal_arrow(producer, representation=representation)
+            rows = temporal_rows(target)
+            batch = a.build_owned_batch(selected, rows)
+            actual = temporal_snapshot(batch)
+            temporal_value_oracle(actual, representation=representation)
+            rows[0][:] = [None] * 4
+            rows.clear()
+            assert _exact(temporal_snapshot(batch), actual)
+            results["uuid_values"][key] = dict(
+                types=actual["types"][2:], bytes=actual["columns"][2:]
+            )
+            schema = []
+            for wrong_type in (
+                pa.binary(16) if representation == "uuid" else pa.uuid(),
+                pa.binary(15),
+                pa.binary(17),
+                pa.binary(),
+                pa.large_binary(),
+                pa.string(),
+                FakeUUID(),
+            ):
+                wrong = pa.schema(
+                    [
+                        *list(selected.schema)[:2],
+                        pa.field("key_value", wrong_type, nullable=False),
+                        selected.schema[3],
+                    ]
+                )
+                schema.append(
+                    refused(
+                        lambda wrong=wrong: a.verify_arrow_binding(
+                            replace(selected, schema=wrong), producer
+                        )
+                    )
+                )
+            forged = pa.schema(
+                [
+                    *list(selected.schema)[:2],
+                    pa.field(
+                        "key_value",
+                        pa.binary(16),
+                        nullable=False,
+                        metadata={b"ARROW:extension:name": b"arrow.uuid"},
+                    ),
+                    selected.schema[3],
+                ]
+            )
+            schema.append(
+                refused(
+                    lambda: a.verify_arrow_binding(
+                        replace(selected, schema=forged), producer
+                    )
+                )
+            )
+            fake_array = pa.ExtensionArray.from_storage(
+                FakeUUID(),
+                pa.array([bytes.fromhex(v) for v in UUID_HEX], type=pa.binary(16)),
+            )
+            arrays = list(batch.columns)
+            arrays[2] = fake_array
+            bad = pa.RecordBatch.from_arrays(
+                arrays,
+                schema=pa.schema(
+                    [
+                        *list(selected.schema)[:2],
+                        pa.field("key_value", fake_array.type, nullable=False),
+                        selected.schema[3],
+                    ]
+                ),
+            )
+            schema.append(refused(lambda: a.verify_batch(bad, selected, producer)))
+            results["uuid_policy"][key] = dict(
+                requests=uuid_requests, rows=uuid_rows, schema=schema
+            )
+            mixed_arrow = temporal_arrow(
+                mixed, representation=representation, mixed=True
+            )
+            before = export_result_contract(
+                mixed_contract, mixed_checked
+            ).canonical_bytes
+            mixed_batch = a.build_owned_batch(
+                mixed_arrow, temporal_rows(target, mixed=True)
+            )
+            mixed_snapshot = temporal_snapshot(mixed_batch)
+            temporal_value_oracle(
+                mixed_snapshot, representation=representation, mixed=True
+            )
+            assert (
+                export_result_contract(mixed_contract, mixed_checked).canonical_bytes
+                == before
+            )
+            results["temporal_empty_mixed"][key] = dict(
+                empty=temporal_snapshot(
+                    a.build_owned_batch(selected, [], limits=a.BatchLimits(bytes=0))
+                ),
+                all_null=temporal_snapshot(
+                    a.build_owned_batch(
+                        temporal_arrow(nullable, representation=representation),
+                        [[None] * 4, [None] * 4],
+                    )
+                ),
+                mixed=mixed_snapshot,
+            )
+            one = temporal_rows(target)[0]
+            exact = a.build_owned_batch(selected, [one], limits=a.BatchLimits(bytes=52))
+            mixed_one = [
+                datetime(1970, 1, 1),
+                None,
+                identifier if target == "postgres" else identifier.bytes,
+                None,
+                7,
+                True if target == "postgres" else 1,
+                -0.0,
+                "é",
+                decimal_literal(TEMPORAL_DECIMAL, 4),
+            ]
+            mixed_exact = a.build_owned_batch(
+                mixed_arrow, [mixed_one], limits=a.BatchLimits(bytes=131)
+            )
+            retained_data = pa.py_buffer(struct.pack("<4q", 0, 2**63 - 1, 0, 0))
+            arrays = [
+                pa.Array.from_buffers(
+                    pa.timestamp("us"), 4, [None, retained_data]
+                ).slice(1, 1),
+                pa.array([None], type=pa.timestamp("us")),
+            ]
+            for index in (2, 3):
+                arrays.append(a.build_owned_batch(selected, [one]).column(index))
+            # Both Timestamp columns retain large backing storage, and the first has an invalid tick.
+            arrays[1] = pa.Array.from_buffers(
+                pa.timestamp("us"), 4, [None, retained_data]
+            ).slice(2, 1)
+            invalid_retained = pa.RecordBatch.from_arrays(
+                arrays, schema=selected.schema
+            )
+            limits = [
+                refused(
+                    lambda: a.build_owned_batch(
+                        selected, [one], limits=a.BatchLimits(bytes=51)
+                    )
+                ),
+                refused(
+                    lambda: a.build_owned_batch(
+                        mixed_arrow, [mixed_one], limits=a.BatchLimits(bytes=130)
+                    )
+                ),
+                refused(
+                    lambda: a.verify_batch(
+                        invalid_retained,
+                        selected,
+                        producer,
+                        limits=a.BatchLimits(bytes=52),
+                    )
+                ),
+            ]
+            original_array = pa.array
+
+            def forbidden_array(*args, **kwargs):
+                raise AssertionError("Arrow allocation preceded row preflight")
+
+            try:
+                setattr(pa, "array", forbidden_array)
+                preflight = [
+                    refused(
+                        lambda: a.build_owned_batch(
+                            selected, [one], limits=a.BatchLimits(bytes=51)
+                        )
+                    ),
+                    refused(
+                        lambda: a.build_owned_batch(
+                            selected, [one], limits=a.BatchLimits(rows=0)
+                        )
+                    ),
+                ]
+            finally:
+                setattr(pa, "array", original_array)
+            nullable_arrow = temporal_arrow(nullable, representation=representation)
+            times = pa.Array.from_buffers(
+                pa.timestamp("us"),
+                4,
+                [
+                    pa.py_buffer(b"\x0d"),
+                    pa.py_buffer(struct.pack("<4q", 0, 2**63 - 1, -1, 1)),
+                ],
+            ).slice(1, 2)
+            raw = pa.Array.from_buffers(
+                pa.binary(16),
+                4,
+                [
+                    pa.py_buffer(b"\x0d"),
+                    pa.py_buffer(
+                        bytes.fromhex(UUID_HEX[0])
+                        + b"\xff" * 16
+                        + bytes.fromhex(UUID_HEX[0])
+                        + bytes(16)
+                    ),
+                ],
+            ).slice(1, 2)
+            identifiers = (
+                pa.ExtensionArray.from_storage(pa.uuid(), raw)
+                if representation == "uuid"
+                else raw
+            )
+            supplied = pa.RecordBatch.from_arrays(
+                [times, times, identifiers, identifiers], schema=nullable_arrow.schema
+            )
+            a.verify_batch(supplied, nullable_arrow, nullable)
+            short = []
+            for typ, width in ((pa.timestamp("us"), 8), (pa.binary(16), 16)):
+                try:
+                    pa.Array.from_buffers(
+                        typ, 1, [None, pa.py_buffer(bytes(width - 1))]
+                    )
+                except (ValueError, pa.ArrowException):
+                    short.append("ARROW_CONSTRUCTOR")
+                else:
+                    raise AssertionError("short buffer accepted")
+            metadata = refused(
+                lambda: a.verify_batch(
+                    supplied.replace_schema_metadata({b"meaning": b"approved"}),
+                    nullable_arrow,
+                    nullable,
+                )
+            )
+            null_refusals = []
+            for index in (0, 2):
+                arrays = list(batch.slice(0, 1).columns)
+                arrays[index] = pa.array([None], type=selected.schema[index].type)
+                actual_null = pa.RecordBatch.from_arrays(arrays, schema=selected.schema)
+                null_refusals.append(
+                    refused(lambda: a.verify_batch(actual_null, selected, producer))
+                )
+            results["temporal_resources"][key] = dict(
+                nonnullable_nulls=null_refusals,
+                allowance=52,
+                rows=exact.num_rows,
+                mixed_allowance=131,
+                mixed_rows=mixed_exact.num_rows,
+                limits=limits,
+                preflight=preflight,
+                sliced=temporal_snapshot(supplied),
+                offsets=[col.offset for col in supplied.columns],
+                short=short,
+                metadata=metadata,
+            )
+            mutations = []
+            # In-domain time shift and a valid but different UUID byte order.
+            changed_rows = temporal_rows(target)
+            changed_rows[2][0] = datetime(1970, 1, 1, 0, 0, 0, 1)
+            mutations.append(a.build_owned_batch(selected, changed_rows))
+            changed_rows = temporal_rows(target)
+            changed_rows[0][2] = (
+                UUID(bytes=identifier.bytes_le)
+                if target == "postgres"
+                else identifier.bytes_le
+            )
+            mutations.append(a.build_owned_batch(selected, changed_rows))
+            for indices in (
+                [1, 0, *range(2, 10)],
+                list(range(9)),
+                [0, 1, 2, 3, 4, 5, 6, 7, 9],
+            ):
+                mutations.append(batch.take(indices))
+            changed_rows = temporal_rows(target)
+            changed_rows[0][1] = datetime(*TIME_COMPONENTS[0])
+            mutations.append(a.build_owned_batch(selected, changed_rows))
+            detected = []
+            for changed in mutations:
+                a.verify_batch(changed, selected, producer)
+                try:
+                    temporal_value_oracle(
+                        temporal_snapshot(changed), representation=representation
+                    )
+                except ValueError:
+                    detected.append("VALUE_CORRESPONDENCE")
+                else:
+                    raise AssertionError(
+                        "domain-valid temporal substitution escaped oracle"
+                    )
+            builder = a.build_owned_batch
+
+            def injected(binding, rows, **kwargs):
+                changed = [list(r) for r in rows]
+                changed[2][0] = datetime(1970, 1, 1, 0, 0, 0, 1)
+                return builder(binding, changed, **kwargs)
+
+            try:
+                a.build_owned_batch = injected
+                try:
+                    temporal_value_oracle(
+                        temporal_snapshot(
+                            a.build_owned_batch(selected, temporal_rows(target))
+                        ),
+                        representation=representation,
+                    )
+                except ValueError:
+                    detected.append("VALUE_CORRESPONDENCE")
+                else:
+                    raise AssertionError("injected temporal builder escaped oracle")
+            finally:
+                a.build_owned_batch = builder
+            results["temporal_correspondence"][key] = detected
+        for kind, checked_, neutral_ in (
+            ("temporal", checked, neutral),
+            ("mixed", mixed_checked, mixed_contract),
+        ):
+            exported = export_result_contract(neutral_, checked_)
+            verify_bound_export(exported, checked_)
+            assert (
+                pure.encode_document(
+                    pure.decode_contract(exported.canonical_bytes).document
+                )
+                == exported.canonical_bytes
+            )
+            results["temporal_codec"][target + "/" + kind] = (
+                exported.canonical_bytes.decode()
+            )
+        original = export_result_contract(neutral, checked)
+        swapped = original.view.document
+        source = swapped["scalar_meaning"]["sources"]
+        source[2]["port"], source[3]["port"] = source[3]["port"], source[2]["port"]
+        pure_view = pure.decode_contract(pure.encode_document(swapped))
+        results["meaning_premise"][target]["portable_graft"] = refused(
+            lambda: verify_contract_correspondence(pure_view, neutral, checked)
+        )
+    return results
+
+
+def verify_temporal_report(cases):
+    from pietto._project import project_result_contract_pure_boundary as pure
+
+    try:
+        targets = {"postgres", "mysql"}
+        keys = {f"{t}/{r}" for t in targets for r in ("uuid", "binary16")}
+        for name in ("meaning_premise", "timestamp_values", "timestamp_policy"):
+            if set(cases[name]) != targets:
+                raise ValueError("meaning/timestamp target denominator")
+        for name in (
+            "uuid_values",
+            "uuid_policy",
+            "temporal_empty_mixed",
+            "temporal_resources",
+            "temporal_correspondence",
+        ):
+            if set(cases[name]) != keys:
+                raise ValueError("UUID representation denominator")
+        if set(cases["temporal_codec"]) != {
+            f"{t}/{k}" for t in targets for k in ("temporal", "mixed")
+        }:
+            raise ValueError("temporal canonical denominator")
+        time_law = dict(
+            calendar="proleptic_gregorian",
+            resolution="microsecond",
+            timezone="absent",
+            lower=[1000, 1, 1, 0, 0, 0, 0],
+            upper=[9999, 12, 31, 23, 59, 59, 499999],
+        )
+        uuid_law = dict(byte_order="big_endian", byte_width=16)
+        entries = [
+            dict(
+                ordinal=i,
+                source_position=i,
+                canonical="Timestamp" if i < 2 else "UUID",
+                law=time_law if i < 2 else uuid_law,
+            )
+            for i in range(4)
+        ]
+        for target in ("postgres", "mysql"):
+            expected = dict(
+                slot_refusals=[
+                    ["BLOCKED", [["PIE-B1008", "scalar_meaning_correspondence"]]]
+                ]
+                * 2,
+                outside_projection=[
+                    "BLOCKED",
+                    [["PIE-B1003", "scalar_meaning_requires_field_projection"]],
+                ],
+                entries=entries,
+                default=[["PIE-B1004", "logical_temporal_or_uuid_meaning_missing"]] * 4,
+                refusals={
+                    "foreign_root": "MEANING_ROOT",
+                    **dict.fromkeys(
+                        ("missing", "extra", "reordered", "field", "type"),
+                        "MEANING_FIELDS",
+                    ),
+                    **dict.fromkeys(
+                        ("calendar", "endpoint", "byte_order"), "MEANING_LAW"
+                    ),
+                },
+                preparations=["INPUT_REJECTED"] * 9,
+                invalidated=True,
+                contract_invalidated="MEANING_FIELDS",
+                producer={
+                    **dict.fromkeys(
+                        (
+                            "precision",
+                            "float_precision",
+                            "timezone",
+                            "range",
+                            "byte_order",
+                            "carrier",
+                            "storage",
+                            "lower",
+                            "label",
+                            "coordinated",
+                        ),
+                        "PRODUCER_OBSERVATION",
+                    ),
+                    "absent_contract": "PRODUCER_ROOT",
+                },
+                projection=dict(
+                    labels=[f"selected_{i}" for i in range(5)],
+                    source_positions=[2, 0, 2, 1, 3],
+                    distinct_outputs=True,
+                ),
+                nominal="MEANING_FIELDS",
+                portable_graft="CORRESPONDENCE",
+            )
+            if not _exact(cases["meaning_premise"][target], expected):
+                raise ValueError("upstream meaning authority evidence")
+            values = temporal_expected()
+            if not _exact(
+                cases["timestamp_values"][target],
+                dict(
+                    types=["timestamp[us]"] * 2,
+                    ticks=values["columns"][:2],
+                    components=values["components"],
+                ),
+            ):
+                raise ValueError("exact timestamp tick/component evidence")
+            if not _exact(
+                cases["timestamp_policy"][target],
+                dict(
+                    rows=["VALUE_DOMAIN"] * 14 + ["NULL"],
+                    constructors=["PYTHON_CONSTRUCTOR"] * 3,
+                    schema=["ARROW_BINDING"] * 9,
+                    raw_ticks=["VALUE_DOMAIN"] * 4,
+                ),
+            ):
+                raise ValueError("timestamp policy/invalid tick evidence")
+            for representation in ("uuid", "binary16"):
+                key = f"{target}/{representation}"
+                expected = temporal_expected(representation=representation)
+                if not _exact(
+                    cases["uuid_values"][key],
+                    dict(types=expected["types"][2:], bytes=expected["columns"][2:]),
+                ):
+                    raise ValueError("UUID standard bytes/type evidence")
+                if not _exact(
+                    cases["uuid_policy"][key],
+                    dict(
+                        requests=["ARROW_ADAPTATION"] * 12,
+                        rows=["VALUE_DOMAIN"] * 11 + ["NULL"],
+                        schema=["ARROW_BINDING"] * 8 + ["ARROW_SCHEMA"],
+                    ),
+                ):
+                    raise ValueError("UUID identity/carrier/extension evidence")
+                if not _exact(
+                    cases["temporal_empty_mixed"][key],
+                    dict(
+                        empty=temporal_expected(
+                            representation=representation, state="empty"
+                        ),
+                        all_null=temporal_expected(
+                            representation=representation,
+                            state="null",
+                            all_nullable=True,
+                        ),
+                        mixed=temporal_expected(
+                            representation=representation, mixed=True
+                        ),
+                    ),
+                ):
+                    raise ValueError("temporal typed empty/null/mixed evidence")
+                sliced = temporal_expected(
+                    representation=representation, state="null", all_nullable=True
+                )
+                sliced["columns"] = [
+                    [None, -1],
+                    [None, -1],
+                    [None, UUID_HEX[0]],
+                    [None, UUID_HEX[0]],
+                ]
+                sliced["components"] = [[None, [1969, 12, 31, 23, 59, 59, 999999]]] * 2
+                resource = dict(
+                    nonnullable_nulls=["NULL", "NULL"],
+                    allowance=52,
+                    rows=1,
+                    mixed_allowance=131,
+                    mixed_rows=1,
+                    limits=["LIMIT"] * 3,
+                    preflight=["LIMIT"] * 2,
+                    sliced=sliced,
+                    offsets=[1] * 4,
+                    short=["ARROW_CONSTRUCTOR"] * 2,
+                    metadata="ARROW_SCHEMA",
+                )
+                if not _exact(cases["temporal_resources"][key], resource):
+                    raise ValueError("temporal retained-buffer/resource evidence")
+                if (
+                    cases["temporal_correspondence"][key]
+                    != ["VALUE_CORRESPONDENCE"] * 7
+                ):
+                    raise ValueError("temporal independent value correspondence")
+            for kind in ("temporal", "mixed"):
+                doc = pure.decode_contract(
+                    cases["temporal_codec"][target + "/" + kind].encode()
+                ).document
+                kinds = ["Timestamp", "Timestamp", "UUID", "UUID"] + (
+                    ["Int", "Bool", "Float", "Text", "Decimal"]
+                    if kind == "mixed"
+                    else []
+                )
+                fields = doc["fields"]
+                sources = doc["scalar_meaning"]["sources"]
+                if (
+                    [f["label"] for f in fields] != list(TEMPORAL_LABELS[: len(kinds)])
+                    or [f["canonical"] for f in fields]
+                    != [dict(kind="builtin", name=k, symbol=None) for k in kinds]
+                    or [f.get("meaning") for f in fields]
+                    != [0, 1, 2, 3] + ([None] * 5 if kind == "mixed" else [])
+                    or [f["nullability"] for f in fields]
+                    != [
+                        "nullable" if i in (1, 3, 7) else "non_null"
+                        for i in range(len(kinds))
+                    ]
+                    or [s["port"] for s in sources]
+                    != [dict(kind="source_port", position=i) for i in range(4)]
+                ):
+                    raise ValueError("complete temporal neutral descriptor evidence")
+    except (KeyError, TypeError, AttributeError, pure.ContractDocumentError) as exc:
+        raise ValueError("temporal report evidence") from exc
+
+
 CONTRACT_CORPUS = ("postgres", "mysql", "descriptors", "imported")
 CONTRACT_SEEDS = (7, 19)
 
@@ -3885,6 +5393,7 @@ def verify_report(value, context, inputs):
     verify_scalar_report(cases)
     verify_text_report(cases)
     verify_decimal_report(cases)
+    verify_temporal_report(cases)
     origins = value["origins"]
     prefix = Path(value["prefix"])
     required = {"pietto._project." + name for name in PRODUCTS} | {
@@ -4037,6 +5546,7 @@ def compare_product_reports(paths, repository, contexts):
                 value["cases"]["scalar_codec"],
                 value["cases"]["text_codec"],
                 value["cases"]["decimal_codec"],
+                value["cases"]["temporal_codec"],
             )
         )
     if documents[0] != documents[1]:
@@ -4047,6 +5557,27 @@ def compare_product_reports(paths, repository, contexts):
 def reject_report_damage(value, context, inputs):
     """Mutate actual saved-data observations, never fake an Arrow success."""
     mutations = (
+        lambda v: v["cases"].pop("meaning_premise"),
+        lambda v: v["cases"]["meaning_premise"]["postgres"]["entries"][0].update(
+            source_position=99
+        ),
+        lambda v: v["cases"]["timestamp_values"]["postgres"]["ticks"][0].__setitem__(
+            0, 0
+        ),
+        lambda v: v["cases"]["timestamp_values"]["mysql"]["types"].__setitem__(
+            0, "timestamp[ms, tz=UTC]"
+        ),
+        lambda v: v["cases"]["uuid_values"]["postgres/uuid"]["bytes"][0].__setitem__(
+            0, "33221100554477668899aabbccddeeff"
+        ),
+        lambda v: v["cases"]["uuid_values"]["mysql/binary16"]["types"].__setitem__(
+            0, "extension<arrow.uuid>"
+        ),
+        lambda v: v["cases"]["timestamp_policy"]["postgres"].pop("raw_ticks"),
+        lambda v: v["cases"]["meaning_premise"]["mysql"]["entries"][0]["law"].update(
+            timezone="UTC"
+        ),
+        lambda v: v["cases"]["temporal_codec"].pop("mysql/mixed"),
         lambda v: v["cases"].pop("decimal_values"),
         lambda v: v["cases"]["decimal_values"]["postgres/65/30"]["default"]["columns"][
             0
@@ -4221,7 +5752,7 @@ def main():
     }
     verify_report(value, context, input_closure(repository))
     rejected = reject_report_damage(value, context, input_closure(repository))
-    assert rejected == 45
+    assert rejected == 54
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with args.report.open("x") as stream:
         json.dump(value, stream, sort_keys=True, allow_nan=False)

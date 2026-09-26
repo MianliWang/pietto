@@ -99,3 +99,13 @@ Q1维持P67-A01/A05/A15与单一scalar authority；Q2及最终审查/验证事�
 新增scope Q与原final Q均已消费，累计Q3/3。approved premise组228 passed，综合follow-up621 passed，真实3.13 installed47cases/45damage controls/162origins通过；旧38cases/36controls保留。一次主作者/Ponytail审查R1的preallocation与mixed cross-kind见证已闭合。ModuleType哨兵typing问题改用setattr，最新typing结论仍由随后一次完整rehearsal静态门给出；不把早先失败改写为PASS。
 
 共享参数precision38→65是明确批准的语言接受扩展，算术/nominal/SQL/API/codec格式政策不改。原10份文档的完整保持及新增4份跨runtime一致性由最终两local/两CI报告核对。候选只有在depth-one、guarded完整3.13 equivalent、精确wheel消费者、seal/publication及自然15jobs/raw/native全部完成后才称published；不开始S07。
+
+## Slice07 Q1/Q2与完整候选审查
+
+四项产品选择及portable_schema CUTOFF窄用途均已明确批准。36路径freeze/新增3，无agents或detached。Q2由真实Arrow-free source/meaning/private emission/result vertical关闭；拒绝阶段分别记录schema input与acquisition，未把fixture预期失误称为产品拒绝缺陷。首次installed56cases/54controls/163origins通过；一次author/Ponytail审查集中R1 slot deletion typed failure与R2 scan/projection scope confinement，在同一修复批次关闭，后续仍是一套final equivalent/publication。
+
+## Slice07 Q3 / 最终候选
+
+Q1 scope、Q2 reached premise与Q3 final candidate均已消费。前提30项通过，result/codec原组253项通过加2个拒绝层修正项通过；综合review follow-up603 passed，重新构建的3.13 wheel消费者实测56cases/54controls/163origins通过。R1删除meaning引用返回typed PIE-B1008、R2显式meaning限field-only scan/projection已关闭；未扩public/default/native输入。
+
+诊断6/6的历史失败均保留：负例键类型、已有declared非None条件、日期/Bool负例类型标注及review变量复用。最后变量仅重命名，最新typing由随后正式full静态门确认，不改写旧失败。后续只有depth-one、一次guarded完整3.13 equivalent、最终双runtime wheel/SDK/18文档完整比较，以及同tree seal/普通commit/FF push/自然15jobs/raw/native闭合。完成声明仍以这些证据为条件，不开始S08。

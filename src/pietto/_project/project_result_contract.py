@@ -38,6 +38,7 @@ class ResultField:
     shape: ScalarShape
     nullability: Any = field(repr=False)
     provenance: Any = field(repr=False)
+    meaning: Any = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -55,6 +56,7 @@ class PiettoResultContract:
     shape: ResultShape
     multiplicity: Any = field(repr=False)
     ordering: Any = field(repr=False)
+    scalar_meaning: Any = field(default=None, repr=False)
 
 
 def _neutral(checked):
@@ -78,8 +80,21 @@ def _neutral(checked):
     return entries[0]
 
 
-def build_result_contract(checked: ProjectSQLPlanVerification) -> PiettoResultContract:
+def build_result_contract(
+    checked: ProjectSQLPlanVerification, *, scalar_meaning=None
+) -> PiettoResultContract:
     entry = _neutral(checked)
+    from pietto._project.project_scalar_meaning import (
+        verify_scalar_meaning,
+        _output_entry,
+        ScalarMeaningError,
+    )
+
+    try:
+        if scalar_meaning is not None:
+            verify_scalar_meaning(scalar_meaning, checked)
+    except ScalarMeaningError as exc:
+        raise ResultError(exc.category) from exc
     plan: Any = checked.plan
     leaves = []
     for ordinal, port in enumerate(plan.exports):
@@ -100,6 +115,7 @@ def build_result_contract(checked: ProjectSQLPlanVerification) -> PiettoResultCo
                 ScalarShape(declared, evidence.resolved_type),
                 port.field.effective_nullability,
                 evidence.provenance,
+                _output_entry(scalar_meaning, port),
             )
         )
     contract = PiettoResultContract(
@@ -109,6 +125,7 @@ def build_result_contract(checked: ProjectSQLPlanVerification) -> PiettoResultCo
         ResultShape(tuple(leaves)),
         entry.active_properties.multiplicity,
         entry.active_properties.ordering,
+        scalar_meaning,
     )
     verify_result_contract(contract, checked)
     return contract
@@ -131,6 +148,17 @@ def verify_result_contract(contract, checked) -> None:
         or type(contract.shape.fields) is not tuple
     ):
         raise ResultError("FIELD")
+    from pietto._project.project_scalar_meaning import (
+        verify_scalar_meaning,
+        _output_entry,
+        ScalarMeaningError,
+    )
+
+    try:
+        if contract.scalar_meaning is not None:
+            verify_scalar_meaning(contract.scalar_meaning, checked)
+    except ScalarMeaningError as exc:
+        raise ResultError(exc.category) from exc
     ports = checked.plan.exports
     if len(contract.shape.fields) != len(ports):
         raise ResultError("FIELD")
@@ -154,5 +182,6 @@ def verify_result_contract(contract, checked) -> None:
             in (ProjectResolvedTypeKind.UNKNOWN, ProjectResolvedTypeKind.SHAPE)
             or leaf.nullability is not port.field.effective_nullability
             or leaf.provenance is not evidence.provenance
+            or leaf.meaning is not _output_entry(contract.scalar_meaning, port)
         ):
             raise ResultError("FIELD")

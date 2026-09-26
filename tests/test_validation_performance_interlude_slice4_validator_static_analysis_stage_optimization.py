@@ -91,9 +91,9 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
     # cell-coordination behavior principal without changing typing authority.
     # Phase67 Slice01 adds one inert Arrow probe and one governance/readiness principal.
     # Phase67 Slice03 adds three private codec owners and one ordinary principal.
-    assert len(production_files) == 228
-    # Slice06 adds one ordinary Decimal principal; production stays unchanged.
-    assert len(test_files) == 502
+    assert len(production_files) == 229
+    # Slice07 adds the meaning owner and one ordinary Timestamp/UUID principal.
+    assert len(test_files) == 503
     assert set(production_files).isdisjoint(test_files)
 
 

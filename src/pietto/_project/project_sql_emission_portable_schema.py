@@ -719,9 +719,19 @@ DERIVED: dict[str, frozenset[str]] = {
 # semantic evidence whose consumed facts are carried by derived fields.
 CUTOFF: dict[str, frozenset[str]] = {
     "request": frozenset(
-        {"verification", "layout", "report", "source_map", "assessment", "_accepted"}
+        {
+            "verification",
+            "layout",
+            "report",
+            "source_map",
+            "assessment",
+            "_accepted",
+            "scalar_meaning",
+        }
     ),
-    "bound_field": frozenset({"field", "resolution", "decimal_expression"}),
+    "bound_field": frozenset(
+        {"field", "resolution", "decimal_expression", "scalar_meaning"}
+    ),
 }
 
 RULES = frozenset(f"R{number:02d}" for number in range(1, 27))

@@ -496,3 +496,9 @@ CLI JSON contracts are [CLI JSON v1](spec/cli-json-v1.md),
 The shared type-argument rule accepts `Decimal(p, s)` with integer literals `1 <= p <= 65` and `0 <= s <= p`. This deliberately extends the previous precision ceiling of 38 at existing type sites and safe aliases. Plain `Decimal` and `Decimal()` still carry no parameter fact. Argument syntax, diagnostics and arithmetic precision policies are unchanged.
 
 Current PostgreSQL/MySQL producer admission additionally requires matching retained/storage/domain parameters and `s <= min(p, 30)`. Language acceptance alone is not producer success. The private result adapter uses Decimal128 for p<=38 and Decimal256 for p=39..65; it does not infer parameters or widen the language domain from Arrow capacity.
+
+## Private finite Timestamp and UUID meaning (Phase67 Slice07)
+
+Builtin names alone still do not supply temporal/UUID meaning to public emission. An explicitly selected private path binds the approved closed meaning to exact verified source/type occurrences and retains it in the result contract. It supports field-only scan/projection; this is not new language syntax, a public CLI flag, arithmetic policy or database execution.
+
+Civil Timestamp values are timezone-free proleptic Gregorian microseconds in the inclusive interval `1000-01-01 00:00:00.000000` through `9999-12-31 23:59:59.499999`; the last fractional bound applies only at that final endpoint. UUID values preserve all 128 bits in standard big-endian order, with no version restriction. The private owned batch maps these to timestamp(us), canonical Arrow UUID or explicitly selected binary16. Source declarations/Arrow metadata cannot manufacture the upstream evidence.

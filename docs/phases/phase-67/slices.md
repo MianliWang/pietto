@@ -1,6 +1,6 @@
 # Phase67 路线：N67=16
 
-当前只展开已授权 [Slice06](slice-06.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
+当前只展开已授权 [Slice07](slice-07.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
 
 | Slice | 目标／acceptance链接 | 依赖／类型 |
 | --- | --- | --- |
@@ -10,7 +10,7 @@
 | 04 | Int/Bool/Float、NULL、signed zero、显式lossless adaptation（P67-A02–A04/A06；[验收](brief.md#三层完成验收与回归)） | 02–03 |
 | 05 | [Text/Unicode、string/large_string/collation](slice-05.md)（P67-A02–A04/A06–A07；[验收](brief.md#三层完成验收与回归)） | 04 |
 | 06 | [Decimal128/256 precision/scale与overflow](slice-06.md)（P67-A02–A04/A06；[验收](brief.md#三层完成验收与回归)） | 04 |
-| 07 | Timestamp/UUID与已解决的upstream meaning premises（P67-A02–A04/A06–A07；[验收](brief.md#三层完成验收与回归)） | 04 + 01 decisions |
+| 07 | [Timestamp/UUID与显式upstream meaning](slice-07.md)（P67-A02–A04/A06–A07；[验收](brief.md#三层完成验收与回归)） | 04 + 01 decisions |
 | 08 | empty/all-null/duplicate-label carrier及完整finite-type integration；midpoint（P67-A02/A06/A08；[验收](brief.md#三层完成验收与回归)） | 04–07 |
 | 09 | bounded finite reader/finalization、rechunk、BAG/order（P67-A09–A10/A15；[验收](brief.md#三层完成验收与回归)） | 08 |
 | 10 | ownership/copy/borrow、CPU、C Data/C stream/PyCapsule（P67-A07/A11/A13/A15；[验收](brief.md#三层完成验收与回归)） | 09 |
@@ -55,6 +55,10 @@ Phase68接已验证result/binding/batch/finite-finalization合同，不重决编
 
 [Slice05](slice-05.md) 仅扩 verified builtin Text source/projection与mixed scalar结果：exact Unicode、显式32/64 offsets、source-bound collation/padding、保守引用buffer与实际UTF-8准入计费。没有Arrow比较语义、native新SQL输入、reader/IPC/API扩展。自然CI及raw证据全部通过后Slices01–05完成，Slice06 NEXT/NOT STARTED，07–16 NOT STARTED；package/CLI0.1.0。
 
-## Slice06 当前边界
+## Slice06 已发布历史边界
 
 [Slice06](slice-06.md) 在正确HOLD后经明确批准，将shared参数precision上限38扩至65、语言scale≤p；当前producer保留scale≤min(p,30)。Decimal128/256结果采用context-free精确fixed-scale转换，正负Decimal零统一系数0，Float signed zero不变。原10份canonical documents保持，新增4份Decimal/mixed；计划47cases/45controls以实际required consumer证据为准。发布链完整通过后Slices01–06完成，Slice07 NEXT/NOT STARTED，08–16 NOT STARTED；不新增算术、nominal、reader或IPC成功域。
+
+## Slice07 当前private边界
+
+[Slice07](slice-07.md) 显式取得并独立核对真实builtin source occurrence的meaning；private emission/result共同保留该authority，仅field-only scan/projection进入新成功域。Timestamp为无timezone civil microseconds，inclusive1000-01-01至9999-12-31 23:59:59.499999；UUID保留标准big-endian128bits，默认canonical extension，binary16需field-bound请求。旧public/default missing-meaning行为及S06 Decimal接受扩展保持。计划56cases/54controls及原14+新4份完整文档以最终证据为准；完整publication/raw闭合后Slices01–07完成，Slice08 NEXT/NOT STARTED，09–16 NOT STARTED。

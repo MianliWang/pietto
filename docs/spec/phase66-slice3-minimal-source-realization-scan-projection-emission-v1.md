@@ -150,3 +150,7 @@ parameter lowering、通用 result decoder 或 product executor，不宣称整�
 ## 2026-09-26 Phase67 Slice06 supersession
 
 经用户明确批准，[Slice06](../phases/phase-67/slice-06.md) 将shared Decimal parameter precision上限从38扩至65，scale仍为0..p。上方38位描述保留为Phase66历史事实；此接受扩展不称为旧合同缺陷。现有preparation继续消费同一规则的真实fact，emission仍要求retained/storage/domain完全一致且scale≤min(p,30)。missing evidence、nominal和其余边界不变。
+
+## 2026-09-26 Phase67 Slice07 explicit private meaning
+
+上方Timestamp/UUID缺meaning是Phase66当时的真实边界。[Slice07](../phases/phase-67/slice-07.md) 新增显式private occurrence-bound bundle，由实际verified builtin source/type authority及批准的closed law派生并独立核验；默认调用仍返回原missing-meaning类别。public输入JSON/CLI/native fixtures不变。新精确Timestamp末端499999只限制最终上界，不能泛化为所有值的fraction上限；native receipts仍仅认证既有manifest。

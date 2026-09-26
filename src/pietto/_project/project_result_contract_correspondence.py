@@ -385,7 +385,52 @@ class _Correspondence:
         for observed, origin in zip(doc["origins"], expected_origins, strict=True):
             self.provenance_paths(observed, origin)
 
-    def fields(self):
+    def scalar_meaning(self, bundle):
+        if bundle is None:
+            same("scalar_meaning" in self.doc, False)
+            return
+        from pietto._project.project_scalar_meaning import TimestampMeaning
+
+        sources = self.doc["scalar_meaning"]["sources"]
+        same(len(sources), len(bundle.entries))
+        for described, entry in zip(sources, bundle.entries, strict=True):
+            port = entry.source_port
+            same(described["ordinal"], entry.ordinal)
+            self.coordinate(described["port"], port.ref)
+            self.output(described["output"], port.field.output)
+            same(described["position"], port.field.field_position)
+            self.declared(described["declared"], entry.declared)
+            same(
+                (described["canonical"]["kind"], described["canonical"]["name"]),
+                (entry.canonical.kind, entry.canonical.name),
+            )
+            self.symbol(described["canonical"]["symbol"], entry.canonical.symbol)
+            self.resolution(described["type_resolution"], entry.declared)
+            law, expected = described["law"], entry.law
+            if type(expected) is TimestampMeaning:
+                same(
+                    (
+                        law["calendar"],
+                        law["resolution"],
+                        law["timezone"],
+                        law["lower"],
+                        law["upper"],
+                    ),
+                    (
+                        expected.calendar,
+                        expected.resolution,
+                        expected.timezone,
+                        list(expected.lower),
+                        list(expected.upper),
+                    ),
+                )
+            else:
+                same(
+                    (law["byte_order"], law["byte_width"]),
+                    (expected.byte_order, expected.byte_width),
+                )
+
+    def fields(self, contract):
         # The denominator comes from upstream plan exports, never the supplied view.
         ports = self.checked.plan.exports
         same(self.doc["field_count"], len(ports))
@@ -433,6 +478,11 @@ class _Correspondence:
                     doc["provenance"]["location"], evidence.provenance.location
                 )
             self.resolution(doc["type_resolution"], declared)
+            entry = contract.shape.fields[ordinal].meaning
+            if entry is None:
+                same("meaning" in doc, False)
+            else:
+                same(doc["meaning"], entry.ordinal)
 
     def ordering(self, retained):
         doc = self.doc["ordering"]
@@ -492,7 +542,8 @@ def verify_contract_correspondence(view, contract, verification):
         checker.owner(doc["owner"], verification.selected_owner)
         checker.output(doc["output"], entry.active_output)
         same(doc["multiplicity"], entry.active_properties.multiplicity)
-        checker.fields()
+        checker.fields(contract)
+        checker.scalar_meaning(contract.scalar_meaning)
         checker.ordering(entry.active_properties.ordering)
         same(len(doc["types"]), len(checker.seen_types))
     except (KeyError, TypeError, IndexError, AttributeError) as exc:

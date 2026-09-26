@@ -48,6 +48,8 @@ class ProducerObservation:
     carrier: str = "int"
     text: TextObservation | None = None
     decimal: DecimalObservation | None = None
+    meaning: Any = None
+    fractional_seconds: int | None = None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -71,6 +73,8 @@ def _columns(contract, artifact):
     except (ValueError, TypeError, AttributeError) as exc:
         raise ResultError("PRODUCER_ROOT") from exc
     verify_result_contract(contract, view.request.verification)
+    if contract.scalar_meaning is not view.request.scalar_meaning:
+        raise ResultError("PRODUCER_ROOT")
     if type(artifact.ast) is not SQLSelect or any(
         type(c) is not SQLColumn for c in view.columns
     ):
@@ -112,6 +116,8 @@ def verify_producer_binding(binding, contract, artifact) -> None:
             "Float": ("pg_float8",),
             "Text": ("pg_text",),
             "Decimal": ("pg_numeric",),
+            "Timestamp": ("pg_timestamp",),
+            "UUID": ("pg_uuid",),
         },
         "mysql": {
             "Int": ("my_smallint", "my_int", "my_bigint"),
@@ -119,6 +125,8 @@ def verify_producer_binding(binding, contract, artifact) -> None:
             "Float": ("my_double",),
             "Text": ("my_varchar",),
             "Decimal": ("my_decimal",),
+            "Timestamp": ("my_datetime",),
+            "UUID": ("my_uuid_bytes",),
         },
     }.get(family, {})
     for ordinal, (bound, leaf, column) in enumerate(
@@ -142,7 +150,9 @@ def verify_producer_binding(binding, contract, artifact) -> None:
             or realized.storage.get("kind") not in storages[realized.tag]
             or set(realized.storage)
             != (
-                {"kind", "precision", "scale"}
+                {"kind", "fractional_seconds"}
+                if realized.tag == "Timestamp"
+                else {"kind", "precision", "scale"}
                 if realized.tag == "Decimal"
                 else {"kind", "length"}
                 if realized.tag == "Text" and family == "mysql"
@@ -161,6 +171,8 @@ def verify_producer_binding(binding, contract, artifact) -> None:
         lower = upper = None
         text = None
         decimal = None
+        meaning = None
+        fractional_seconds = None
         if realized.tag == "Int":
             if (
                 set(realized.domain) != {"kind", "min", "max"}
@@ -223,6 +235,25 @@ def verify_producer_binding(binding, contract, artifact) -> None:
                 raise ResultError("PRODUCER_DOMAIN")
             decimal = DecimalObservation(fact.precision, fact.scale)
             domain, carrier = "decimal", "decimal"
+        elif realized.tag in ("Timestamp", "UUID"):
+            from pietto._project.project_scalar_meaning import _source_entry
+
+            entry = _source_entry(contract.scalar_meaning, column.source_field.field)
+            if entry is None or leaf.meaning is not entry:
+                raise ResultError("PRODUCER_DOMAIN")
+            meaning = entry.law
+            if realized.tag == "Timestamp":
+                if (
+                    realized.domain != {"kind": "timestamp"}
+                    or type(realized.storage["fractional_seconds"]) is not int
+                    or realized.storage["fractional_seconds"] != 6
+                ):
+                    raise ResultError("PRODUCER_DOMAIN")
+                domain, carrier, fractional_seconds = "timestamp", "datetime", 6
+            else:
+                if realized.domain != {"kind": "uuid", "encoding": "standard_bytes"}:
+                    raise ResultError("PRODUCER_DOMAIN")
+                domain, carrier = "uuid", "uuid" if family == "postgres" else "bytes16"
         else:
             if realized.domain != {"kind": "finite_float", "format": "binary64"}:
                 raise ResultError("PRODUCER_DOMAIN")
@@ -287,6 +318,17 @@ def verify_producer_binding(binding, contract, artifact) -> None:
                     or obs.decimal != decimal
                 )
             )
+            or (
+                obs.meaning is not None
+                if meaning is None
+                else type(obs.meaning) is not type(meaning) or obs.meaning != meaning
+            )
+            or (
+                type(obs.fractional_seconds) is not int
+                if fractional_seconds is not None
+                else obs.fractional_seconds is not None
+            )
+            or obs.fractional_seconds != fractional_seconds
             or type(bound.nullable) is not bool
             or bound.nullable is not nullable
             or (
@@ -295,3 +337,14 @@ def verify_producer_binding(binding, contract, artifact) -> None:
             )
         ):
             raise ResultError("PRODUCER_OBSERVATION")
+
+        if meaning is not None:
+            from pietto._project.project_scalar_meaning import (
+                verify_law,
+                ScalarMeaningError,
+            )
+
+            try:
+                verify_law(obs.meaning, realized.tag)
+            except ScalarMeaningError as exc:
+                raise ResultError("PRODUCER_OBSERVATION") from exc

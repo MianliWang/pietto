@@ -93,6 +93,7 @@ class BoundField:
     resolution: Any
     decimal_expression: Any
     decimal: Any
+    scalar_meaning: Any = None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -129,6 +130,7 @@ class PreparedEmission:
     layout: EmissionLayout
     input_blockers: tuple[Blocker, ...]
     _accepted: tuple[object, ...]
+    scalar_meaning: Any
 
     def __init__(self) -> None:
         raise TypeError("Emission inputs require explicit preparation.")
@@ -355,7 +357,9 @@ STATEMENT_KEYS = {
 RESOURCE_KEYS = {"sql_bytes", "artifact_bytes", "nodes", "parameters", "columns"}
 
 
-def prepare_project_sql_emission(verification, data, *, target_request=None):
+def prepare_project_sql_emission(
+    verification, data, *, target_request=None, scalar_meaning=None
+):
     errors: list[InputError] = []
     if type(verification) is not ProjectSQLPlanVerification:
         return PreparationFailure(
@@ -388,6 +392,24 @@ def prepare_project_sql_emission(verification, data, *, target_request=None):
             ),
             diagnostics=diagnostics,
         )
+    if scalar_meaning is not None:
+        from pietto._project.project_scalar_meaning import (
+            verify_scalar_meaning,
+            ScalarMeaningError,
+        )
+
+        try:
+            verify_scalar_meaning(scalar_meaning, verification)
+        except (ScalarMeaningError, AttributeError, TypeError, ValueError) as exc:
+            return PreparationFailure(
+                errors=(
+                    InputError(
+                        "emission_selector",
+                        "Invalid upstream scalar meaning: " + str(exc),
+                    ),
+                ),
+                diagnostics=diagnostics,
+            )
     if type(data) is not bytes or len(data) > MAX_INPUT_BYTES:
         return PreparationFailure(
             errors=(
@@ -543,6 +565,7 @@ def prepare_project_sql_emission(verification, data, *, target_request=None):
                         resolution,
                         expression,
                         decimal,
+                        scalar_meaning,
                     )
                 )
         if type(raw["premises"]) is not list:
@@ -761,6 +784,7 @@ def prepare_project_sql_emission(verification, data, *, target_request=None):
     ):
         object.__setattr__(result, name, value)
     object.__setattr__(result, "_accepted", values)
+    object.__setattr__(result, "scalar_meaning", scalar_meaning)
     return result
 
 

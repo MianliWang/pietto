@@ -470,10 +470,49 @@ class _Projection:
             kind="provided" if provided else "final", owner=self.owner(owner), keys=keys
         )
 
+    def scalar_meaning(self, bundle):
+        from pietto._project.project_scalar_meaning import TimestampMeaning
+
+        entries = []
+        for entry in self.sequence(bundle.entries):
+            law = entry.law
+            description = (
+                self.obj(
+                    kind="timestamp",
+                    calendar=law.calendar,
+                    resolution=law.resolution,
+                    timezone=law.timezone,
+                    lower=list(law.lower),
+                    upper=list(law.upper),
+                )
+                if type(law) is TimestampMeaning
+                else self.obj(
+                    kind="uuid", byte_order=law.byte_order, byte_width=law.byte_width
+                )
+            )
+            port = entry.source_port
+            entries.append(
+                self.obj(
+                    ordinal=entry.ordinal,
+                    port=self.coordinate(port.ref),
+                    output=self.output(port.field.output),
+                    position=port.field.field_position,
+                    declared=self.declared(entry.declared),
+                    canonical=self.obj(
+                        kind=entry.canonical.kind.value,
+                        name=entry.canonical.name,
+                        symbol=self.symbol(entry.canonical.symbol),
+                    ),
+                    type_resolution=self.resolution(entry.declared),
+                    law=description,
+                )
+            )
+        return self.obj(format="pietto.scalar-meaning.v1", sources=entries)
+
     def document(self, contract):
         pure.require(len(contract.shape.fields) <= self.budget.limits.fields, "LIMIT")
         leaves = [self.leaf(f) for f in self.sequence(contract.shape.fields)]
-        return self.obj(
+        document = self.obj(
             format=pure.FORMAT,
             owner=self.owner(contract.owner),
             output=self.output(contract.output),
@@ -483,6 +522,12 @@ class _Projection:
             multiplicity=contract.multiplicity.value,
             ordering=self.ordering(contract.ordering),
         )
+        if contract.scalar_meaning is not None:
+            document["scalar_meaning"] = self.scalar_meaning(contract.scalar_meaning)
+            for leaf, described in zip(contract.shape.fields, leaves, strict=True):
+                if leaf.meaning is not None:
+                    described["meaning"] = leaf.meaning.ordinal
+        return document
 
 
 def export_result_contract(contract, verification, *, limits=pure.DocumentLimits()):

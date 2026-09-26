@@ -31,3 +31,7 @@ Timestamp/UUID meaning仍由Slice07在映射入域前取得upstream witnesses；
 
 | D67.17 | 经S06前提HOLD后明确批准shared Decimal parameter precision1..65、scale0..p；旧38位合同有效，当前producer仍scale≤min(p,30) | 用户addendum及Phase31 reader补充授权；同一rule/site/alias，非算术或nominal结果扩展 |
 | D67.18 | fixed-scale有限数值按sign/digits/exponent精确转为≤p位tuple；Decimal正负零统一；默认p≤38 decimal128、p39..65 decimal256，低p显式256允许 | S06；exact Decimal、无context舍入/flags污染、16/32byte计费；不改变Float signed-zero或中立codec |
+
+| D67.19 | 显式private target-neutral source-occurrence meaning bundle；独立验证完整源集合/closed law，result与emission共同保留；默认/CLI/native旧caller不自动opt-in | S07四项选择已明确批准；仅builtin field-only scan/projection，不开第二solver或其他lowering |
+| D67.20 | Civil Timestamp/microsecond/no timezone，inclusive1000-01-01 00:00:00.000000至9999-12-31 23:59:59.499999；拒绝aware/fold1，int ticks编码 | 用户批准的精确共同transport域，细化V05年级outline；MySQL8.4文档依据，不称pinned server实测 |
+| D67.21 | UUID全部128bits标准big-endian；PG exact UUID与MySQL exact16bytes分离；默认canonical pa.uuid，显式binary16；fake extension不授予意义 | 沿用原canonical选择并由S07私有binding实现；无generation/version限制/registry mutation |

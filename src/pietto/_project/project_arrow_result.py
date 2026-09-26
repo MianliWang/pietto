@@ -4,12 +4,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
+from datetime import datetime
+from uuid import UUID
 import importlib
 import math
 from typing import Any
 
 from pietto._project.project_result_contract import ResultError, ResultField
 from pietto._project.project_sql_emission_rows import INT_WIDTHS
+from pietto._project.project_scalar_meaning import (
+    TIMESTAMP_LOWER,
+    TIMESTAMP_UPPER,
+    MIN_TIMESTAMP_TICKS,
+    MAX_TIMESTAMP_TICKS,
+    civil_ticks,
+)
 from pietto._project.project_result_binding import (
     ProducerResultBinding,
     verify_producer_binding,
@@ -44,12 +53,19 @@ class DecimalWidthRequest:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class UUIDRepresentationRequest:
+    field: ResultField = field(repr=False)
+    representation: str
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class ArrowResultBinding:
     producer: ProducerResultBinding = field(repr=False)
     schema: Any = field(repr=False)
     integer_widths: tuple[IntegerWidthRequest | None, ...] | None = None
     text_offset_widths: tuple[TextOffsetWidthRequest | None, ...] | None = None
     decimal_widths: tuple[DecimalWidthRequest | None, ...] | None = None
+    uuid_representations: tuple[UUIDRepresentationRequest | None, ...] | None = None
 
 
 def _arrow() -> Any:
@@ -138,7 +154,30 @@ def _decimal_widths(producer, requests):
     return tuple(widths)
 
 
-def _arrow_type(pa, bound, width, text_width, decimal_width):
+def _uuid_representations(producer, requests):
+    if requests is None:
+        requests = (None,) * len(producer.fields)
+    if type(requests) is not tuple or len(requests) != len(producer.fields):
+        raise ResultError("ARROW_ADAPTATION")
+    policies = []
+    for bound, request in zip(producer.fields, requests, strict=True):
+        is_uuid = bound.field.shape.canonical.name == "UUID"
+        policy = "uuid" if is_uuid else None
+        if request is not None:
+            if (
+                not is_uuid
+                or type(request) is not UUIDRepresentationRequest
+                or request.field is not bound.field
+                or type(request.representation) is not str
+                or request.representation not in ("uuid", "binary16")
+            ):
+                raise ResultError("ARROW_ADAPTATION")
+            policy = request.representation
+        policies.append(policy)
+    return tuple(policies)
+
+
+def _arrow_type(pa, bound, width, text_width, decimal_width, uuid_representation):
     kind = bound.field.shape.canonical.name
     if kind == "Int":
         return getattr(pa, f"int{width}")()
@@ -147,6 +186,10 @@ def _arrow_type(pa, bound, width, text_width, decimal_width):
     if kind == "Decimal":
         decimal = bound.observation.decimal
         return getattr(pa, f"decimal{decimal_width}")(decimal.precision, decimal.scale)
+    if kind == "Timestamp":
+        return pa.timestamp("us", tz=None)
+    if kind == "UUID":
+        return pa.uuid() if uuid_representation == "uuid" else pa.binary(16)
     if kind == "Bool":
         return pa.bool_()
     if kind == "Float":
@@ -160,6 +203,7 @@ def bind_arrow(
     integer_widths=None,
     text_offset_widths=None,
     decimal_widths=None,
+    uuid_representations=None,
 ) -> ArrowResultBinding:
     if type(producer) is not ProducerResultBinding:
         raise ResultError("PRODUCER_ROOT")
@@ -167,21 +211,27 @@ def bind_arrow(
     widths = _widths(producer, integer_widths)
     text_widths = _text_widths(producer, text_offset_widths)
     decimals = _decimal_widths(producer, decimal_widths)
+    uuids = _uuid_representations(producer, uuid_representations)
     pa = _arrow()
     schema = pa.schema(
         [
             pa.field(
                 b.field.label,
-                _arrow_type(pa, b, width, text_width, decimal_width),
+                _arrow_type(pa, b, width, text_width, decimal_width, uuid_policy),
                 nullable=b.nullable,
             )
-            for b, width, text_width, decimal_width in zip(
-                producer.fields, widths, text_widths, decimals, strict=True
+            for b, width, text_width, decimal_width, uuid_policy in zip(
+                producer.fields, widths, text_widths, decimals, uuids, strict=True
             )
         ]
     )
     binding = ArrowResultBinding(
-        producer, schema, integer_widths, text_offset_widths, decimal_widths
+        producer,
+        schema,
+        integer_widths,
+        text_offset_widths,
+        decimal_widths,
+        uuid_representations,
     )
     verify_arrow_binding(binding, producer)
     return binding
@@ -196,6 +246,7 @@ def verify_arrow_binding(binding, producer) -> None:
     widths = _widths(producer, binding.integer_widths)
     text_widths = _text_widths(producer, binding.text_offset_widths)
     decimals = _decimal_widths(producer, binding.decimal_widths)
+    uuids = _uuid_representations(producer, binding.uuid_representations)
     pa = _arrow()
     if (
         not isinstance(binding.schema, pa.Schema)
@@ -203,13 +254,22 @@ def verify_arrow_binding(binding, producer) -> None:
         or binding.schema.metadata is not None
     ):
         raise ResultError("ARROW_BINDING")
-    for actual, expected, width, text_width, decimal_width in zip(
-        binding.schema, producer.fields, widths, text_widths, decimals, strict=True
+    for actual, expected, width, text_width, decimal_width, uuid_policy in zip(
+        binding.schema,
+        producer.fields,
+        widths,
+        text_widths,
+        decimals,
+        uuids,
+        strict=True,
     ):
+        expected_type = _arrow_type(
+            pa, expected, width, text_width, decimal_width, uuid_policy
+        )
         if (
-            actual.name != expected.field.label
-            or actual.type
-            != _arrow_type(pa, expected, width, text_width, decimal_width)
+            (uuid_policy is not None and type(actual.type) is not type(expected_type))
+            or actual.name != expected.field.label
+            or actual.type != expected_type
             or actual.nullable is not expected.nullable
             or actual.metadata is not None
         ):
@@ -232,11 +292,20 @@ def _base_charge(binding, rows, limits):
     charge = sum(
         (rows + 7) // 8
         + (
-            rows * (decimal_width // 8 if decimal_width is not None else 8)
+            rows
+            * (
+                decimal_width // 8
+                if decimal_width is not None
+                else 16
+                if bound.field.shape.canonical.name == "UUID"
+                else 8
+            )
             if width is None
             else width // 8 * (rows + 1)
         )
-        for width, decimal_width in zip(widths, decimals, strict=True)
+        for bound, width, decimal_width in zip(
+            binding.producer.fields, widths, decimals, strict=True
+        )
     )
     if charge > min(limits.bytes, 8 * 1024 * 1024):
         raise ResultError("LIMIT")
@@ -303,6 +372,28 @@ def _value(value, bound, *, logical=False):
             or (bound.observation.storage == "pg_text" and "\0" in value)
         ):
             raise ResultError("VALUE_DOMAIN")
+    elif kind == "Timestamp":
+        if not logical:
+            if (
+                type(value) is not datetime
+                or value.tzinfo is not None
+                or value.fold != 0
+                or not TIMESTAMP_LOWER <= value <= TIMESTAMP_UPPER
+            ):
+                raise ResultError("VALUE_DOMAIN")
+            value = civil_ticks(value)
+        if (
+            type(value) is not int
+            or not MIN_TIMESTAMP_TICKS <= value <= MAX_TIMESTAMP_TICKS
+        ):
+            raise ResultError("VALUE_DOMAIN")
+    elif kind == "UUID":
+        if not logical and bound.observation.carrier == "uuid":
+            if type(value) is not UUID:
+                raise ResultError("VALUE_DOMAIN")
+            value = value.bytes
+        if type(value) is not bytes or len(value) != 16:
+            raise ResultError("VALUE_DOMAIN")
     elif kind == "Decimal":
         return _decimal_value(value, bound.observation.decimal)
     elif kind == "Float":
@@ -362,6 +453,12 @@ def verify_batch(batch, binding, producer, *, limits=BatchLimits()) -> None:
     if not isinstance(batch, pa.RecordBatch) or not batch.is_cpu:
         raise ResultError("ARROW_BATCH")
     _dimensions(batch.num_columns, batch.num_rows, limits)
+    if any(
+        bound.field.shape.canonical.name == "UUID"
+        and type(batch.schema[i].type) is not type(binding.schema[i].type)
+        for i, bound in enumerate(producer.fields)
+    ):
+        raise ResultError("ARROW_SCHEMA")
     if not batch.schema.equals(binding.schema, check_metadata=True):
         raise ResultError("ARROW_SCHEMA")
     charge = _base_charge(binding, batch.num_rows, limits)
@@ -378,7 +475,32 @@ def verify_batch(batch, binding, producer, *, limits=BatchLimits()) -> None:
         widths = _text_widths(producer, binding.text_offset_widths)
         for i, bound in enumerate(producer.fields):
             text_size = 0
-            for scalar in batch.column(i):
+            column = batch.column(i)
+            kind = bound.field.shape.canonical.name
+            if kind in ("Timestamp", "UUID"):
+                storage = (
+                    column.storage
+                    if kind == "UUID" and type(column.type) is type(pa.uuid())
+                    else column
+                )
+                validity, data = storage.buffers()
+                mask = None if validity is None else memoryview(validity)
+                payload = memoryview(data)
+                width = 8 if kind == "Timestamp" else 16
+                for position in range(len(storage)):
+                    offset = storage.offset + position
+                    if mask is not None and not (mask[offset // 8] >> (offset % 8)) & 1:
+                        _value(None, bound, logical=True)
+                        continue
+                    raw = payload[offset * width : (offset + 1) * width]
+                    value = (
+                        int.from_bytes(raw, "little", signed=True)
+                        if kind == "Timestamp"
+                        else bytes(raw)
+                    )
+                    _value(value, bound, logical=True)
+                continue
+            for scalar in column:
                 value = _value(scalar.as_py(), bound, logical=True)
                 if widths[i] is not None and value is not None:
                     size = _text_bytes(

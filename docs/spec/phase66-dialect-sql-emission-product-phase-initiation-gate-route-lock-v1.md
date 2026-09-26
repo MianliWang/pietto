@@ -1489,3 +1489,7 @@ P/default enclosure, G2/G4/G5/G6 and all other approved boundaries remain unchan
 The successful predecessor `fa44de88` and its raw receipts are retained; this supplement
 needs a separate ordinary successor and fresh exact-head compiler/package/target evidence.
 It changes no macro phase decision, numbered Slice, public format or package version.
+
+## 2026-09-26 Phase67 Slice07 V05 conditional refinement
+
+[Slice07](../phases/phase-67/slice-07.md) 经明确批准实现private source-bound meaning acquisition及独立核验；V05原年级outline细化为civil microsecond inclusive1000-01-01 00:00:00.000000至9999-12-31 23:59:59.499999。该精确末端取自MySQL8.4手册的保守共同域，非pinned server实测。标准UUID全部128bits big-endian的原选择保持。默认public/CLI调用与既有native缺meaning负例不改变；只有显式private证据且field-only scan/projection可进入新结果域，后续native/公开接口接线须另行明确授权。原V05条件记录保留，不追认为历史已实现。

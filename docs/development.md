@@ -401,3 +401,7 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 ## Slice06 Decimal result checks
 
 [Slice06](phases/phase-67/slice-06.md) 的shared参数域扩展与private结果层属于一个候选、一次author/Ponytail review和一次完整3.13 equivalent。required product报告扩展至47个命名案例/45个damage controls，两个local与natural-CI运行时比较原10份及新增4份canonical完整bytes。context/traps/flags、实际scaled coefficients、retained-buffer先检查与constructor/checker拒绝层均有独立见证；core保持Arrow-free。
+
+## Slice07 private meaning与结果验证
+
+[Slice07](phases/phase-67/slice-07.md) 先以Arrow-free acquisition/preparation/result vertical关闭Q2，再跑Timestamp/UUID矩阵；public/default缺meaning仍拒绝。new scalar owner改变package input closure，因此仍需fresh native CI，旧native manifest未扩为新高precision/temporal查询。required product消费者验证56cases/54damage controls，原14份与新增4份canonical完整bytes跨local/CI双runtime比较；默认UUID与显式binary16具有同一neutral contract。

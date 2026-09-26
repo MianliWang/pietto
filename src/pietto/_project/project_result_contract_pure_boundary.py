@@ -461,9 +461,113 @@ def prepared_order(value, types, reached, budget):
     order_value_type(value["value_type"], types, reached, budget)
 
 
+def scalar_meaning_description(value, budget):
+    record(value, "format sources")
+    require(value["format"] == "pietto.scalar-meaning.v1", "TAG")
+    sources = value["sources"]
+    require(type(sources) is list and len(sources) <= budget.limits.fields)
+    coordinates = set()
+    for ordinal, entry in enumerate(sources):
+        record(
+            entry, "ordinal port output position declared canonical type_resolution law"
+        )
+        require(type(entry["ordinal"]) is int and entry["ordinal"] == ordinal, "INDEX")
+        coordinate(entry["port"], {"source_port"})
+        key = entry["port"]["position"]
+        require(key not in coordinates, "REFERENCE")
+        coordinates.add(key)
+        output(entry["output"])
+        require(entry["output"]["owner"]["identity"]["kind"] == "source", "REFERENCE")
+        index(entry["position"])
+        require(entry["position"] < entry["output"]["field_count"], "REFERENCE")
+        declared(entry["declared"])
+        record(entry["canonical"], "kind name symbol")
+        kind = entry["canonical"]["name"]
+        require(
+            entry["canonical"] == {"kind": "builtin", "name": kind, "symbol": None}
+            and kind in {"Timestamp", "UUID"},
+            "TAG",
+        )
+        require(
+            entry["declared"] is not None
+            and entry["declared"]["name"] == kind
+            and not entry["declared"]["arguments"],
+            "REFERENCE",
+        )
+        resolution = entry["type_resolution"]
+        record(
+            resolution,
+            "direct_kind canonical_kind canonical_name aliases target origins",
+        )
+        require(
+            (
+                resolution["direct_kind"],
+                resolution["canonical_kind"],
+                resolution["canonical_name"],
+                resolution["aliases"],
+                resolution["target"],
+            )
+            == ("builtin", "builtin", kind, [], None),
+            "REFERENCE",
+        )
+        require(type(resolution["origins"]) is list and bool(resolution["origins"]))
+        for origin in resolution["origins"]:
+            provenance_paths(origin)
+        law = entry["law"]
+        if kind == "Timestamp":
+            record(law, "kind calendar resolution timezone lower upper")
+            require(
+                all(
+                    type(v) is str
+                    for v in (
+                        law["kind"],
+                        law["calendar"],
+                        law["resolution"],
+                        law["timezone"],
+                    )
+                )
+            )
+            require(
+                all(
+                    type(v) is list and len(v) == 7 and all(type(n) is int for n in v)
+                    for v in (law["lower"], law["upper"])
+                )
+            )
+            require(
+                law
+                == {
+                    "kind": "timestamp",
+                    "calendar": "proleptic_gregorian",
+                    "resolution": "microsecond",
+                    "timezone": "absent",
+                    "lower": [1000, 1, 1, 0, 0, 0, 0],
+                    "upper": [9999, 12, 31, 23, 59, 59, 499999],
+                },
+                "MEANING",
+            )
+        else:
+            record(law, "kind byte_order byte_width")
+            require(
+                type(law["byte_width"]) is int
+                and law
+                == {"kind": "uuid", "byte_order": "big_endian", "byte_width": 16},
+                "MEANING",
+            )
+    return sources
+
+
 def _validate_document(doc, *, limits=DocumentLimits()):
     budget = bounded(doc, limits)
-    record(doc, "format owner output field_count fields types multiplicity ordering")
+    record(
+        doc,
+        "format owner output field_count fields types multiplicity ordering"
+        + (" scalar_meaning" if "scalar_meaning" in doc else ""),
+    )
+    meanings = (
+        scalar_meaning_description(doc["scalar_meaning"], budget)
+        if "scalar_meaning" in doc
+        else None
+    )
     require(doc["format"] == FORMAT, "VERSION")
     owner(doc["owner"])
     require(doc["owner"]["identity"]["kind"] in {"table", "query"})
@@ -501,7 +605,8 @@ def _validate_document(doc, *, limits=DocumentLimits()):
     for position, leaf in enumerate(doc["fields"]):
         record(
             leaf,
-            "ordinal label identity port output position declared canonical nullability declared_nullability role provenance type_resolution",
+            "ordinal label identity port output position declared canonical nullability declared_nullability role provenance type_resolution"
+            + (" meaning" if "meaning" in leaf else ""),
         )
         require(type(leaf["ordinal"]) is int and leaf["ordinal"] == position, "INDEX")
         text(leaf["label"])
@@ -542,6 +647,21 @@ def _validate_document(doc, *, limits=DocumentLimits()):
         require((canonical["kind"] == "builtin") == (canonical["symbol"] is None))
         if canonical["kind"] == "builtin":
             require(canonical["name"] in BUILTINS, "TAG")
+        if (
+            meanings is not None
+            and canonical["kind"] == "builtin"
+            and canonical["name"] in {"Timestamp", "UUID"}
+        ):
+            require(
+                "meaning" in leaf
+                and type(leaf["meaning"]) is int
+                and 0 <= leaf["meaning"] < len(meanings),
+                "REFERENCE",
+            )
+            require(meanings[leaf["meaning"]]["canonical"] == canonical, "REFERENCE")
+            budget.reference()
+        else:
+            require("meaning" not in leaf, "REFERENCE")
         require(
             leaf["nullability"] in NULLABILITY
             and leaf["declared_nullability"] in NULLABILITY
