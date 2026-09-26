@@ -146,3 +146,7 @@ Python3.12、Python3.13、PostgreSQL、MySQL 和 strict aggregate 五项成功�
 成功发布后 Phase65 COMPLETED；Phase66 ACTIVE，Slices1–3 COMPLETED/PUBLISHED，Slice4
 NEXT/NOT IMPLEMENTED，Slices5–16 NOT IMPLEMENTED，N66=16。未交付公共 project emit CLI、
 parameter lowering、通用 result decoder 或 product executor，不宣称整个 Phase66 完成。
+
+## 2026-09-26 Phase67 Slice06 supersession
+
+经用户明确批准，[Slice06](../phases/phase-67/slice-06.md) 将shared Decimal parameter precision上限从38扩至65，scale仍为0..p。上方38位描述保留为Phase66历史事实；此接受扩展不称为旧合同缺陷。现有preparation继续消费同一规则的真实fact，emission仍要求retained/storage/domain完全一致且scale≤min(p,30)。missing evidence、nominal和其余边界不变。

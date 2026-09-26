@@ -428,7 +428,7 @@ def test_unused_descriptions_bind_but_do_not_require_target_applicability(tmp_pa
     assert rejected.status == "INPUT_REJECTED"
 
 
-@pytest.mark.parametrize("type_expr", ("Decimal", "Decimal(9, 12)", "Decimal(39, 2)"))
+@pytest.mark.parametrize("type_expr", ("Decimal", "Decimal(9, 12)", "Decimal(66, 2)"))
 def test_decimal_requires_success_of_existing_shared_rule(tmp_path, type_expr):
     item = probe.fixture("postgres")
     source = item["source"].replace("Decimal(9, 2)", type_expr)
@@ -1057,3 +1057,26 @@ def test_public_artifact_limit_blocks_runtime_success_too(built):
         probe.decode_public(serialize_project_sql_emission(result))["status"]
         == "BLOCKED"
     )
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("precision,scale", ((39, 4), (65, 30)))
+def test_extended_shared_fact_reaches_genuine_source_preparation(
+    tmp_path, target, precision, scale
+):
+    import _pietto_phase67_result_product_probe as result_probe
+
+    checked = result_probe.build_neutral(
+        tmp_path / "decimal",
+        {"main.pietto": result_probe.decimal_source(target, precision, scale)},
+    )
+    result = emit_project_sql(
+        checked, result_probe.decimal_input(target, precision, scale)
+    )
+    assert result.status == "VERIFIED" and result.artifact is not None
+    for bound in result.artifact.request.sources[0].fields:
+        assert bound.decimal is not None
+        assert (bound.decimal.precision, bound.decimal.scale) == (precision, scale)
+    assert verify_project_sql_emission(
+        result.artifact, result.artifact.request
+    ).verified

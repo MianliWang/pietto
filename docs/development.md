@@ -397,3 +397,7 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 ## Slice05 Text result检查
 
 [Slice05](phases/phase-67/slice-05.md) 沿用required product consumer：38个命名案例与36个report-damage controls，同步末端exact assertions；原9 SDK组、30product cases和6份canonical文档保留。新增4份Text/mixed文档完整bytes在local及downloaded CI报告跨runtime比较。UTF-8/offset资源和NULL槽由真实PyArrow25.0.1验证；普通pytest保持Arrow-free，fresh native receipts仍绑定当前input closure。
+
+## Slice06 Decimal result checks
+
+[Slice06](phases/phase-67/slice-06.md) 的shared参数域扩展与private结果层属于一个候选、一次author/Ponytail review和一次完整3.13 equivalent。required product报告扩展至47个命名案例/45个damage controls，两个local与natural-CI运行时比较原10份及新增4份canonical完整bytes。context/traps/flags、实际scaled coefficients、retained-buffer先检查与constructor/checker拒绝层均有独立见证；core保持Arrow-free。

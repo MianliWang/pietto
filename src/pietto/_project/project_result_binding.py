@@ -29,6 +29,12 @@ class TextObservation:
 
 
 @dataclass(frozen=True, slots=True)
+class DecimalObservation:
+    precision: int
+    scale: int
+
+
+@dataclass(frozen=True, slots=True)
 class ProducerObservation:
     ordinal: int
     label: str
@@ -41,6 +47,7 @@ class ProducerObservation:
     domain: str = "int_range"
     carrier: str = "int"
     text: TextObservation | None = None
+    decimal: DecimalObservation | None = None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -104,12 +111,14 @@ def verify_producer_binding(binding, contract, artifact) -> None:
             "Bool": ("pg_bool",),
             "Float": ("pg_float8",),
             "Text": ("pg_text",),
+            "Decimal": ("pg_numeric",),
         },
         "mysql": {
             "Int": ("my_smallint", "my_int", "my_bigint"),
             "Bool": ("my_bool01",),
             "Float": ("my_double",),
             "Text": ("my_varchar",),
+            "Decimal": ("my_decimal",),
         },
     }.get(family, {})
     for ordinal, (bound, leaf, column) in enumerate(
@@ -133,7 +142,9 @@ def verify_producer_binding(binding, contract, artifact) -> None:
             or realized.storage.get("kind") not in storages[realized.tag]
             or set(realized.storage)
             != (
-                {"kind", "length"}
+                {"kind", "precision", "scale"}
+                if realized.tag == "Decimal"
+                else {"kind", "length"}
                 if realized.tag == "Text" and family == "mysql"
                 else {"kind"}
             )
@@ -149,6 +160,7 @@ def verify_producer_binding(binding, contract, artifact) -> None:
         storage = realized.storage["kind"]
         lower = upper = None
         text = None
+        decimal = None
         if realized.tag == "Int":
             if (
                 set(realized.domain) != {"kind", "min", "max"}
@@ -190,6 +202,27 @@ def verify_producer_binding(binding, contract, artifact) -> None:
                 raise ResultError("PRODUCER_DOMAIN")
             text = TextObservation(maximum, *expected, length)
             domain, carrier = "text", "str"
+        elif realized.tag == "Decimal":
+            fact = column.source_field.decimal
+            if (
+                fact is None
+                or type(fact.precision) is not int
+                or type(fact.scale) is not int
+                or not 1 <= fact.precision <= 65
+                or not 0 <= fact.scale <= min(fact.precision, 30)
+                or realized.domain
+                != {"kind": "decimal", "precision": fact.precision, "scale": fact.scale}
+                or any(
+                    type(v[k]) is not int
+                    for v in (realized.storage, realized.domain)
+                    for k in ("precision", "scale")
+                )
+                or (realized.storage["precision"], realized.storage["scale"])
+                != (fact.precision, fact.scale)
+            ):
+                raise ResultError("PRODUCER_DOMAIN")
+            decimal = DecimalObservation(fact.precision, fact.scale)
+            domain, carrier = "decimal", "decimal"
         else:
             if realized.domain != {"kind": "finite_float", "format": "binary64"}:
                 raise ResultError("PRODUCER_DOMAIN")
@@ -242,6 +275,16 @@ def verify_producer_binding(binding, contract, artifact) -> None:
                         else obs.text.storage_length is not None
                     )
                     or obs.text != text
+                )
+            )
+            or (
+                obs.decimal is not None
+                if decimal is None
+                else (
+                    type(obs.decimal) is not DecimalObservation
+                    or type(obs.decimal.precision) is not int
+                    or type(obs.decimal.scale) is not int
+                    or obs.decimal != decimal
                 )
             )
             or type(bound.nullable) is not bool

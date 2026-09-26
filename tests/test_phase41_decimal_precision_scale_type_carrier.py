@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import MappingProxyType
 
+import pytest
+
 import pietto.semantic as semantic_api
 from pietto.ast_nodes import (
     ConstraintDef,
@@ -240,3 +242,34 @@ def _shape_fields(script: Script, name: str) -> dict[str, FieldDef]:
         if isinstance(definition, ShapeDef) and definition.name == name
     )
     return {field.name: field for field in shape.fields}
+
+
+@pytest.mark.parametrize("precision,scale", ((39, 4), (65, 30), (65, 65)))
+def test_extended_facts_at_existing_sites_and_safe_aliases(precision, scale):
+    script = _parse(
+        f"type Money = Decimal({precision}, {scale}) not null\n"
+        "type Price = Money not null\n"
+        "type OptionalPrice = Price nullable\n"
+        f"constraint valid(amount: Decimal({precision}, {scale}) not null) -> Bool not null:\n    true\n"
+        f"derive keep(amount: Decimal({precision}, {scale}) nullable) -> Decimal({precision}, {scale}) nullable:\n    amount\n"
+        f"shape Product:\n    direct: Decimal({precision}, {scale}) nullable\n    price: OptionalPrice nullable\n    plain: Decimal not null\n    empty: Decimal() not null\n"
+    )
+    result = analyze(script)
+    assert result.diagnostics == ()
+    fields = _shape_fields(script, "Product")
+    constraint, derive = _constraint(script, "valid"), _derive(script, "keep")
+    fact = DecimalPrecisionScale(precision, scale)
+    sites = (
+        _type_def(script, "Money").base,
+        _type_def(script, "Price").base,
+        _type_def(script, "OptionalPrice").base,
+        constraint.parameters[0].type,
+        derive.parameters[0].type,
+        derive.return_type,
+        fields["direct"].type_expr,
+        fields["price"].type_expr,
+    )
+    for site in sites:
+        assert result.model.decimal_precision_scale_for(site) == fact
+    assert result.model.decimal_precision_scale_for(fields["plain"].type_expr) is None
+    assert result.model.decimal_precision_scale_for(fields["empty"].type_expr) is None

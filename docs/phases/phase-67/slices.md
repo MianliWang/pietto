@@ -1,6 +1,6 @@
 # Phase67 路线：N67=16
 
-当前只展开已授权 [Slice05](slice-05.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
+当前只展开已授权 [Slice06](slice-06.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
 
 | Slice | 目标／acceptance链接 | 依赖／类型 |
 | --- | --- | --- |
@@ -9,7 +9,7 @@
 | 03 | [canonical private bytes、pure decoder、runtime correspondence/invalidation](slice-03.md)（P67-A01/A05/A15；[验收](brief.md#三层完成验收与回归)） | 02 |
 | 04 | Int/Bool/Float、NULL、signed zero、显式lossless adaptation（P67-A02–A04/A06；[验收](brief.md#三层完成验收与回归)） | 02–03 |
 | 05 | [Text/Unicode、string/large_string/collation](slice-05.md)（P67-A02–A04/A06–A07；[验收](brief.md#三层完成验收与回归)） | 04 |
-| 06 | Decimal128/256 precision/scale与overflow（P67-A02–A04/A06；[验收](brief.md#三层完成验收与回归)） | 04 |
+| 06 | [Decimal128/256 precision/scale与overflow](slice-06.md)（P67-A02–A04/A06；[验收](brief.md#三层完成验收与回归)） | 04 |
 | 07 | Timestamp/UUID与已解决的upstream meaning premises（P67-A02–A04/A06–A07；[验收](brief.md#三层完成验收与回归)） | 04 + 01 decisions |
 | 08 | empty/all-null/duplicate-label carrier及完整finite-type integration；midpoint（P67-A02/A06/A08；[验收](brief.md#三层完成验收与回归)） | 04–07 |
 | 09 | bounded finite reader/finalization、rechunk、BAG/order（P67-A09–A10/A15；[验收](brief.md#三层完成验收与回归)） | 08 |
@@ -51,6 +51,10 @@ Phase68接已验证result/binding/batch/finite-finalization合同，不重决编
 
 [Slice04](slice-04.md) 仅扩Int16/32/64、Bool、finite Float64的checked producer/Arrow owned batch；完整domain-total显式整数适配、physical/logical Bool分离、IEEE754 signed-zero值oracle保持。codec与上游语义不变。发布链全部通过后Slices01–04完成，Slice05 NEXT/NOT STARTED；不推进后续payload/reader/protocol/IPC。
 
-## Slice05 当前边界
+## Slice05 已发布历史边界
 
 [Slice05](slice-05.md) 仅扩 verified builtin Text source/projection与mixed scalar结果：exact Unicode、显式32/64 offsets、source-bound collation/padding、保守引用buffer与实际UTF-8准入计费。没有Arrow比较语义、native新SQL输入、reader/IPC/API扩展。自然CI及raw证据全部通过后Slices01–05完成，Slice06 NEXT/NOT STARTED，07–16 NOT STARTED；package/CLI0.1.0。
+
+## Slice06 当前边界
+
+[Slice06](slice-06.md) 在正确HOLD后经明确批准，将shared参数precision上限38扩至65、语言scale≤p；当前producer保留scale≤min(p,30)。Decimal128/256结果采用context-free精确fixed-scale转换，正负Decimal零统一系数0，Float signed zero不变。原10份canonical documents保持，新增4份Decimal/mixed；计划47cases/45controls以实际required consumer证据为准。发布链完整通过后Slices01–06完成，Slice07 NEXT/NOT STARTED，08–16 NOT STARTED；不新增算术、nominal、reader或IPC成功域。

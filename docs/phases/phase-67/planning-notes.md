@@ -89,3 +89,13 @@ Q1维持P67-A01/A05/A15与单一scalar authority；Q2及最终审查/验证事�
 ## Slice05 Q2 / 最终候选
 
 一次主作者/Ponytail审查与targeted followup闭合；真实3.13 installed38cases/36damage controls通过，包含先retained-limit后UTF8验证、NULL任意payload、nonzero offsets、extension/schema拒绝、逐字段宽度、domain-valid截尾与注入builder拒绝。首次typing与旧numeric helper、当前lifecycle表reader失败均保留在本Sliceledger；修正没有放宽任何旧拒绝或集合相等断言。最终只余guarded完整3.13 equivalent、两runtime最终wheel/readiness、depth-one读者、exact-tree publication与fresh natural-CI raw/native闭合；完成声明以这些证据为条件。
+
+## Slice06 HOLD、明确续行与scope Q
+
+原Q1误将emission外层65上限视为可达域；first focused及六cell诊断确认shared上限38，执行代理正确保留候选HOLD。用户明确批准shared参数precision1..65、scale0..p与七个owner/readers，另加Phase31 exact ceiling assertion。W0为21，union29，path ceiling32/Q ceiling3；累计starts不重置，完整原始HOLD证据保留。获批premise组228 passed，既有sites/alias、两target准备、language-vs-emission及row-equivalence分别验证。
+
+## Slice06 Q3：收敛候选与最终验证边界
+
+新增scope Q与原final Q均已消费，累计Q3/3。approved premise组228 passed，综合follow-up621 passed，真实3.13 installed47cases/45damage controls/162origins通过；旧38cases/36controls保留。一次主作者/Ponytail审查R1的preallocation与mixed cross-kind见证已闭合。ModuleType哨兵typing问题改用setattr，最新typing结论仍由随后一次完整rehearsal静态门给出；不把早先失败改写为PASS。
+
+共享参数precision38→65是明确批准的语言接受扩展，算术/nominal/SQL/API/codec格式政策不改。原10份文档的完整保持及新增4份跨runtime一致性由最终两local/两CI报告核对。候选只有在depth-one、guarded完整3.13 equivalent、精确wheel消费者、seal/publication及自然15jobs/raw/native全部完成后才称published；不开始S07。

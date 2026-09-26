@@ -24,3 +24,5 @@ Slice03：freeze前必须按真实新增production/test文件逐项检查直接i
 Slice04消费S03教训：freeze前逐项核对inventory/lifecycle/probe readers，使用既有required product链；Float signed-zero需要独立bits/value witness，schema/domain不能认证payload历史。native证据先准备普通独立文件及精确pair-only布局再计数运行strict checker。
 
 Slice05：variable-width费用按实际UTF-8、offset与validity计算，供给slice必须先检查retained buffers再full validate；NULL槽任意payload不等于有效字符串。测试同时区分constructor拒绝、checker拒绝与独立value correspondence，不把domain PASS当原始行认证。
+
+Slice06：下游representation的65位上限未证明上游能产生相应fact；共享semantic rule当时仍限38。先追踪fact生产规则并实测可达38/39边界；本次正确HOLD后由用户明确扩至65，旧合同不追认错误。语言scale≤p、producer scale≤min(p,30)和Arrow width是三个独立判断。

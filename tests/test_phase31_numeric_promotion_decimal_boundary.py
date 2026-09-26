@@ -466,7 +466,7 @@ def test_decimal_precision_scale_literal_and_cast_boundaries_remain_absent() -> 
     )
     assert 'if type_expr.name != "Decimal":' in decimal_validator
     assert "arguments = type_expr.arguments" in decimal_validator
-    assert "_DECIMAL_PRECISION_MAX = 38" in analyzer
+    assert "_DECIMAL_PRECISION_MAX = 65" in analyzer
     assert "PIE-S2004" in analyzer
     assert 'if expression.operator == "/":' in expressions
     assert "return _UNKNOWN_VALUE_TYPE" in expressions

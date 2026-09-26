@@ -490,3 +490,9 @@ hand-built or unavailable shapes. Stable reviewed SQL bytes are owned by the
 CLI JSON contracts are [CLI JSON v1](spec/cli-json-v1.md),
 [project JSON v2](spec/project-cli-json-v2.md), and
 [Semantic Metadata Artifact v1](spec/semantic-metadata-artifact-v1.md).
+
+## Parameterized Decimal domain (Phase67 Slice06)
+
+The shared type-argument rule accepts `Decimal(p, s)` with integer literals `1 <= p <= 65` and `0 <= s <= p`. This deliberately extends the previous precision ceiling of 38 at existing type sites and safe aliases. Plain `Decimal` and `Decimal()` still carry no parameter fact. Argument syntax, diagnostics and arithmetic precision policies are unchanged.
+
+Current PostgreSQL/MySQL producer admission additionally requires matching retained/storage/domain parameters and `s <= min(p, 30)`. Language acceptance alone is not producer success. The private result adapter uses Decimal128 for p<=38 and Decimal256 for p=39..65; it does not infer parameters or widen the language domain from Arrow capacity.

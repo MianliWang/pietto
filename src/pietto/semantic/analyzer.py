@@ -81,7 +81,7 @@ if TYPE_CHECKING:
         WindowExpressionAnalysis,
     )
 
-_DECIMAL_PRECISION_MAX = 38
+_DECIMAL_PRECISION_MAX = 65
 
 
 def analyze(

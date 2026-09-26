@@ -68,6 +68,15 @@ CASES = (
     "text_supplied",
     "text_value_substitution",
     "text_codec",
+    "decimal_values",
+    "decimal_bindings",
+    "decimal_requests",
+    "decimal_context",
+    "decimal_empty_null",
+    "decimal_resources",
+    "decimal_supplied",
+    "decimal_substitution",
+    "decimal_codec",
 )
 
 
@@ -421,6 +430,7 @@ def run_cases(root):
     results.update(run_contract_cases(root, built))
     results.update(run_scalar_cases(root))
     results.update(run_text_cases(root))
+    results.update(run_decimal_cases(root))
     assert set(results) == set(CASES)
     return results
 
@@ -2037,6 +2047,1238 @@ def verify_text_report(cases):
         raise ValueError("Text report evidence") from exc
 
 
+# S06 fixture coefficients and expectations do not use the product conversion helper.
+DECIMAL_PAIRS = ((1, 0), (3, 3), (9, 2), (38, 0), (39, 4), (65, 30))
+DECIMAL_LABELS = ("renamed", "optional", "number", "flag", "ratio", "label")
+
+
+def decimal_source(target, precision, scale, *, mixed=False, all_nullable=False):
+    kinds = [
+        f"Decimal({precision}, {scale})",
+        "Decimal(65, 30)" if mixed else f"Decimal({precision}, {scale})",
+    ]
+    if mixed:
+        kinds += ["Int", "Bool", "Float", "Text"]
+    names = ("amount", *DECIMAL_LABELS[1 : len(kinds)])
+    text = "shape Row:\n" + "".join(
+        f"    {name}: {kind} {'nullable' if all_nullable or i in (1, 5) else 'not null'}\n"
+        for i, (name, kind) in enumerate(zip(names, kinds, strict=True))
+    )
+    return (
+        text
+        + f'source rows: Row is {target}.table("opaque.result.fixture")\ntable result:\n    from rows\n    select:\n'
+        + "".join(
+            f"        {label} = {name}\n"
+            for label, name in zip(DECIMAL_LABELS[: len(kinds)], names, strict=True)
+        )
+    )
+
+
+def decimal_input(target, precision, scale, *, mixed=False, all_nullable=False):
+    doc = json.loads(emission_input(target))
+    pairs = [(precision, scale), (65, 30) if mixed else (precision, scale)]
+    descriptions = [
+        (
+            "amount" if i == 0 else "optional",
+            dict(
+                kind="pg_numeric" if target == "postgres" else "my_decimal",
+                precision=p,
+                scale=s,
+            ),
+            dict(kind="decimal", precision=p, scale=s),
+        )
+        for i, (p, s) in enumerate(pairs)
+    ]
+    if mixed:
+        descriptions += [
+            (
+                "number",
+                dict(kind=width_storage(target, 32)),
+                dict(kind="int_range", min="-100", max="100"),
+            ),
+            (
+                "flag",
+                dict(kind="pg_bool" if target == "postgres" else "my_bool01"),
+                dict(kind="bool01"),
+            ),
+            (
+                "ratio",
+                dict(kind="pg_float8" if target == "postgres" else "my_double"),
+                dict(kind="finite_float", format="binary64"),
+            ),
+            (
+                "label",
+                dict(kind="pg_text")
+                if target == "postgres"
+                else dict(kind="my_varchar", length=8),
+                dict(
+                    kind="text",
+                    max_characters=8,
+                    encoding="UTF8" if target == "postgres" else "utf8mb4",
+                    collation="C" if target == "postgres" else "utf8mb4_0900_bin",
+                    padding="NO PAD",
+                ),
+            ),
+        ]
+    doc["sources"][0]["fields"] = [
+        dict(
+            ordinal=i,
+            name=name,
+            column=name,
+            representation=dict(
+                storage=storage,
+                nullable=bool(all_nullable or i in (1, 5)),
+                domain=domain,
+            ),
+        )
+        for i, (name, storage, domain) in enumerate(descriptions)
+    ]
+    return json.dumps(doc).encode()
+
+
+def decimal_observations(target, precision, scale, *, mixed=False):
+    from pietto._project.project_result_binding import (
+        DecimalObservation,
+        ProducerObservation,
+        TextObservation,
+    )
+
+    observed = [
+        ProducerObservation(
+            i,
+            DECIMAL_LABELS[i],
+            target,
+            "pg_numeric" if target == "postgres" else "my_decimal",
+            domain="decimal",
+            carrier="decimal",
+            decimal=DecimalObservation(p, s),
+        )
+        for i, (p, s) in enumerate(
+            ((precision, scale), (65, 30) if mixed else (precision, scale))
+        )
+    ]
+    if mixed:
+        observed += [
+            ProducerObservation(
+                2, "number", target, width_storage(target, 32), -100, 100
+            ),
+            ProducerObservation(
+                3,
+                "flag",
+                target,
+                "pg_bool" if target == "postgres" else "my_bool01",
+                domain="bool01",
+                carrier="bool" if target == "postgres" else "int01",
+            ),
+            ProducerObservation(
+                4,
+                "ratio",
+                target,
+                "pg_float8" if target == "postgres" else "my_double",
+                domain="finite_float",
+                carrier="float",
+            ),
+            ProducerObservation(
+                5,
+                "label",
+                target,
+                "pg_text" if target == "postgres" else "my_varchar",
+                domain="text",
+                carrier="str",
+                text=TextObservation(
+                    8,
+                    "UTF8" if target == "postgres" else "utf8mb4",
+                    "C" if target == "postgres" else "utf8mb4_0900_bin",
+                    "NO PAD",
+                    None if target == "postgres" else 8,
+                ),
+            ),
+        ]
+    return tuple(observed)
+
+
+def decimal_fixture(
+    directory, target, precision, scale, *, mixed=False, all_nullable=False
+):
+    from pietto._project.project_sql_emission import emit_project_sql
+    from pietto._project.project_result_contract import build_result_contract
+    from pietto._project.project_result_binding import bind_producer
+
+    checked = build_neutral(
+        directory,
+        {
+            "main.pietto": decimal_source(
+                target, precision, scale, mixed=mixed, all_nullable=all_nullable
+            )
+        },
+    )
+    result = emit_project_sql(
+        checked,
+        decimal_input(target, precision, scale, mixed=mixed, all_nullable=all_nullable),
+    )
+    assert result.status == "VERIFIED" and result.artifact is not None
+    neutral = build_result_contract(checked)
+    producer = bind_producer(
+        neutral,
+        result.artifact,
+        decimal_observations(target, precision, scale, mixed=mixed),
+    )
+    return checked, result.artifact, neutral, producer
+
+
+def decimal_literal(coefficient, scale, *, trailing=0, negative_zero=False):
+    from decimal import Decimal
+
+    digits = tuple(int(c) for c in str(abs(coefficient))) + (0,) * trailing
+    return Decimal((int(coefficient < 0 or negative_zero), digits, -scale - trailing))
+
+
+def decimal_rows(target, precision, scale, *, mixed=False):
+    maximum = 10**precision - 1
+    other_max = 10**65 - 1 if mixed else maximum
+    other_scale = 30 if mixed else scale
+    coefficients = (maximum, -maximum, 0, 1, 1, -1)
+    others = (None, other_max, 0, None, 1, -1)
+    return [
+        [
+            decimal_literal(
+                k, scale, trailing=2 if i == 4 else 0, negative_zero=i == 2
+            ),
+            None if other is None else decimal_literal(other, other_scale),
+        ]
+        + (
+            [7, True if target == "postgres" else 1, -0.0, "é" if i % 2 else None]
+            if mixed
+            else []
+        )
+        for i, (k, other) in enumerate(zip(coefficients, others, strict=True))
+    ]
+
+
+def decimal_arrow(producer, *, bits=None, mixed=False):
+    from pietto._project import project_arrow_result as a
+
+    decimal_widths = (
+        None
+        if bits is None
+        else tuple(
+            a.DecimalWidthRequest(f.field, bits) if i < 2 else None
+            for i, f in enumerate(producer.fields)
+        )
+    )
+    return a.bind_arrow(
+        producer,
+        decimal_widths=decimal_widths,
+        integer_widths=tuple(
+            a.IntegerWidthRequest(f.field, 16) if i == 2 else None
+            for i, f in enumerate(producer.fields)
+        )
+        if mixed
+        else None,
+        text_offset_widths=tuple(
+            a.TextOffsetWidthRequest(f.field, 64) if i == 5 else None
+            for i, f in enumerate(producer.fields)
+        )
+        if mixed
+        else None,
+    )
+
+
+def decimal_snapshot(batch):
+    import struct
+
+    pa = importlib.import_module("pyarrow")
+    columns, descriptors = [], []
+    for i, column in enumerate(batch.columns):
+        if pa.types.is_decimal(column.type):
+            width = column.type.bit_width // 8
+            data = memoryview(column.buffers()[1])
+            # Independent reading of signed scaled coefficients and validity, including offsets.
+            columns.append(
+                [
+                    str(
+                        int.from_bytes(
+                            data[
+                                (column.offset + j) * width : (column.offset + j + 1)
+                                * width
+                            ],
+                            "little",
+                            signed=True,
+                        )
+                    )
+                    if column[j].is_valid
+                    else None
+                    for j in range(len(column))
+                ]
+            )
+            descriptors.append(
+                dict(
+                    ordinal=i,
+                    precision=column.type.precision,
+                    scale=column.type.scale,
+                    bits=column.type.bit_width,
+                )
+            )
+        else:
+            values = column.to_pylist()
+            columns.append(
+                [None if v is None else struct.pack(">d", v).hex() for v in values]
+                if i == 4
+                else values
+            )
+    return dict(
+        types=[str(f.type) for f in batch.schema],
+        labels=batch.schema.names,
+        nullable=[f.nullable for f in batch.schema],
+        decimal=descriptors,
+        columns=columns,
+    )
+
+
+def decimal_expected(
+    precision, scale, *, bits=None, mixed=False, state="values", all_nullable=False
+) -> dict[str, Any]:
+    pairs = [(precision, scale), (65, 30) if mixed else (precision, scale)]
+    descriptors = [
+        dict(ordinal=i, precision=p, scale=s, bits=bits or (128 if p <= 38 else 256))
+        for i, (p, s) in enumerate(pairs)
+    ]
+    maximum, other_max = 10**precision - 1, 10 ** pairs[1][0] - 1
+    columns: list[list[Any]] = [
+        [str(k) for k in (maximum, -maximum, 0, 1, 1, -1)],
+        [None, str(other_max), "0", None, "1", "-1"],
+    ]
+    if mixed:
+        columns += [
+            [7] * 6,
+            [True] * 6,
+            ["8000000000000000"] * 6,
+            [None, "é", None, "é", None, "é"],
+        ]
+    if state != "values":
+        columns = [[None] * (0 if state == "empty" else 2) for _ in columns]
+    return dict(
+        types=[
+            f"decimal{d['bits']}({d['precision']}, {d['scale']})" for d in descriptors
+        ]
+        + (["int16", "bool", "double", "large_string"] if mixed else []),
+        labels=list(DECIMAL_LABELS[: len(columns)]),
+        nullable=[bool(all_nullable or i in (1, 5)) for i in range(len(columns))],
+        decimal=descriptors,
+        columns=columns,
+    )
+
+
+def decimal_value_oracle(snapshot, precision, scale, **kwargs):
+    if not _exact(snapshot, decimal_expected(precision, scale, **kwargs)):
+        raise ValueError("Decimal exact scaled coefficient/scale/NULL correspondence")
+
+
+def decimal_context_snapshot(context):
+    return dict(
+        precision=context.prec,
+        rounding=context.rounding,
+        emin=context.Emin,
+        emax=context.Emax,
+        capitals=context.capitals,
+        clamp=context.clamp,
+        flags={k.__name__: v for k, v in context.flags.items()},
+        traps={k.__name__: v for k, v in context.traps.items()},
+    )
+
+
+def run_decimal_cases(root):
+    from decimal import Decimal, localcontext, getcontext, ROUND_DOWN, ROUND_UP, Rounded
+    from pietto._project import project_arrow_result as a, project_result_binding as p
+    from pietto._project.project_result_contract_portable import export_result_contract
+    from pietto._project.project_result_contract_correspondence import (
+        verify_bound_export,
+    )
+    from pietto._project import project_result_contract_pure_boundary as pure
+    from pietto._project.project_sql_emission import emit_project_sql
+
+    pa = importlib.import_module("pyarrow")
+    results: dict[str, Any] = {
+        name: {} for name in CASES if name.startswith("decimal_")
+    }
+
+    class DecimalSubclass(Decimal):
+        pass
+
+    class CoercibleDecimal:
+        def __str__(self):
+            raise AssertionError("Decimal coercion")
+
+        def __float__(self):
+            raise AssertionError("Decimal float coercion")
+
+    class DecimalExtension(pa.ExtensionType):
+        def __init__(self):
+            super().__init__(pa.decimal128(9, 2), "pietto.test.decimal")
+
+        def __arrow_ext_serialize__(self):
+            return b""
+
+    for target in ("postgres", "mysql"):
+        built = {}
+        for precision, scale in DECIMAL_PAIRS:
+            key = f"{target}/{precision}/{scale}"
+            checked, artifact, neutral, producer = decimal_fixture(
+                root / f"decimal-{target}-{precision}-{scale}", target, precision, scale
+            )
+            built[precision, scale] = checked, artifact, neutral, producer
+            arrow = decimal_arrow(producer)
+            rows = decimal_rows(target, precision, scale)
+            batch = a.build_owned_batch(arrow, rows)
+            snapshot = decimal_snapshot(batch)
+            decimal_value_oracle(snapshot, precision, scale)
+            rows[0][:] = [None, None]
+            rows.clear()
+            assert _exact(decimal_snapshot(batch), snapshot)
+            wide = decimal_arrow(producer, bits=256)
+            widened = a.build_owned_batch(wide, decimal_rows(target, precision, scale))
+            before = export_result_contract(neutral, checked)
+            verify_bound_export(before, checked)
+            assert (
+                export_result_contract(neutral, checked).canonical_bytes
+                == before.canonical_bytes
+            )
+            results["decimal_values"][key] = dict(
+                default=snapshot,
+                wide=decimal_snapshot(widened),
+                overflow=[
+                    refused(
+                        lambda k=k: a.build_owned_batch(
+                            arrow, [[decimal_literal(k, scale), None]]
+                        )
+                    )
+                    for k in (10**precision, -(10**precision))
+                ],
+            )
+        checked, artifact, neutral, producer = built[9, 2]
+        observed = decimal_observations(target, 9, 2)
+        fact = observed[0].decimal
+        assert fact is not None
+        refusals = {}
+        for key, update in {
+            "precision": {"precision": 8},
+            "scale": {"scale": 1},
+            "bool_precision": {"precision": True},
+            "float_precision": {"precision": 9.0},
+            "bool_scale": {"scale": False},
+            "text_scale": {"scale": "2"},
+        }.items():
+            obs = (replace(observed[0], decimal=replace(fact, **update)), observed[1])
+            refusals[key] = refused(
+                lambda obs=obs: p.bind_producer(neutral, artifact, obs)
+            )
+        for key, update in {
+            "storage": {
+                "storage": "my_decimal" if target == "postgres" else "pg_numeric"
+            },
+            "carrier": {"carrier": "str"},
+            "domain": {"domain": "int_range"},
+            "lower": {"lower": 0},
+            "upper": {"upper": 1},
+            "text": {"text": p.TextObservation(8, "UTF8", "C", "NO PAD")},
+            "missing": {"decimal": None},
+            "label": {"label": "amount"},
+            "ordinal": {"ordinal": 1},
+            "family": {"family": "foreign"},
+        }.items():
+            refusals[key] = refused(
+                lambda update=update: p.bind_producer(
+                    neutral, artifact, (replace(observed[0], **update), observed[1])
+                )
+            )
+        _, foreign_artifact, _, foreign = decimal_fixture(
+            root / f"decimal-foreign-{target}", target, 9, 2
+        )
+        refusals["foreign_root"] = refused(
+            lambda: p.bind_producer(neutral, foreign_artifact, observed)
+        )
+        refusals["foreign_field"] = refused(
+            lambda: a.bind_arrow(
+                replace(
+                    producer,
+                    fields=(
+                        replace(producer.fields[0], field=foreign.fields[0].field),
+                        producer.fields[1],
+                    ),
+                )
+            )
+        )
+        refusals["nullable"] = refused(
+            lambda: a.bind_arrow(
+                replace(
+                    producer,
+                    fields=(
+                        replace(producer.fields[0], nullable=True),
+                        producer.fields[1],
+                    ),
+                )
+            )
+        )
+        for key, fields in {
+            "tail": producer.fields[:-1],
+            "reordered": producer.fields[::-1],
+            "duplicate": (producer.fields[0],) * 2,
+        }.items():
+            refusals[key] = refused(
+                lambda fields=fields: a.bind_arrow(replace(producer, fields=fields))
+            )
+        bad = replace(
+            producer,
+            fields=(
+                replace(
+                    producer.fields[0],
+                    observation=replace(
+                        observed[0], decimal=p.DecimalObservation(8, 2)
+                    ),
+                ),
+                producer.fields[1],
+            ),
+        )
+        schema = pa.schema(
+            [
+                pa.field("renamed", pa.decimal256(8, 2), nullable=False),
+                pa.field("optional", pa.decimal256(9, 2), nullable=True),
+            ]
+        )
+        coordinated = a.ArrowResultBinding(
+            bad,
+            schema,
+            decimal_widths=tuple(
+                a.DecimalWidthRequest(f.field, 256) for f in bad.fields
+            ),
+        )
+        refusals["coordinated"] = refused(
+            lambda: a.verify_arrow_binding(coordinated, bad)
+        )
+        upstream = []
+        for precision, scale in ((8, 2), (9, 1)):
+            outcome = emit_project_sql(checked, decimal_input(target, precision, scale))
+            assert outcome.status == "BLOCKED"
+            upstream.append([b.code for b in outcome.blockers])
+        results["decimal_bindings"][target] = dict(
+            refusals=refusals,
+            upstream=upstream,
+            observed=[
+                dict(
+                    ordinal=o.ordinal,
+                    label=o.label,
+                    storage=o.storage,
+                    carrier=o.carrier,
+                    precision=cast(p.DecimalObservation, o.decimal).precision,
+                    scale=cast(p.DecimalObservation, o.decimal).scale,
+                )
+                for o in observed
+            ],
+        )
+        r0, r1 = (a.DecimalWidthRequest(f.field, 256) for f in producer.fields)
+        invalid_requests = (
+            (),
+            [],
+            (r0,),
+            (r0, r1, None),
+            (r0, r0),
+            (r1, r0),
+            (a.DecimalWidthRequest(foreign.fields[0].field, 256), r1),
+            (a.DecimalWidthRequest(r0.field, True), r1),
+            (a.DecimalWidthRequest(r0.field, 64), r1),
+            (a.IntegerWidthRequest(r0.field, 64), r1),
+        )
+        request_negatives = [
+            refused(lambda req=req: a.bind_arrow(producer, decimal_widths=req))
+            for req in invalid_requests
+        ]
+        high = built[39, 4][3]
+        _, _, _, high_null = decimal_fixture(
+            root / f"decimal-high-null-{target}", target, 39, 4, all_nullable=True
+        )
+        for candidate, rows in (
+            (high, []),
+            (high, [[decimal_literal(1, 4), None]]),
+            (high_null, [[None, None]]),
+        ):
+            req = tuple(a.DecimalWidthRequest(f.field, 128) for f in candidate.fields)
+            request_negatives.append(
+                refused(
+                    lambda candidate=candidate, rows=rows, req=req: a.build_owned_batch(
+                        a.bind_arrow(candidate, decimal_widths=req), rows
+                    )
+                )
+            )
+        selected = decimal_arrow(producer)
+        schema_bad = []
+        for wrong in (
+            pa.decimal128(8, 2),
+            pa.decimal128(9, 1),
+            pa.decimal256(9, 2),
+            pa.decimal32(9, 2),
+            pa.decimal64(9, 2),
+            pa.float64(),
+            pa.string(),
+            pa.binary(16),
+            DecimalExtension(),
+        ):
+            schema = pa.schema(
+                [pa.field("renamed", wrong, nullable=False), selected.schema[1]]
+            )
+            schema_bad.append(
+                refused(
+                    lambda schema=schema: a.verify_arrow_binding(
+                        replace(selected, schema=schema), producer
+                    )
+                )
+            )
+        schema_bad += [
+            refused(
+                lambda: a.verify_arrow_binding(
+                    replace(
+                        selected,
+                        schema=selected.schema.with_metadata({b"precision": b"65"}),
+                    ),
+                    producer,
+                )
+            ),
+            refused(
+                lambda: a.verify_arrow_binding(
+                    replace(
+                        selected,
+                        schema=pa.schema(
+                            [
+                                selected.schema[0].with_metadata({b"scale": b"0"}),
+                                selected.schema[1],
+                            ]
+                        ),
+                    ),
+                    producer,
+                )
+            ),
+        ]
+        results["decimal_requests"][target] = dict(
+            refusals=request_negatives, schema=schema_bad
+        )
+        mixed_checked, mixed_artifact, mixed_neutral, mixed = decimal_fixture(
+            root / f"decimal-mixed-{target}", target, 9, 2, mixed=True
+        )
+        mixed_arrow = decimal_arrow(mixed, mixed=True)
+        mixed_rows = decimal_rows(target, 9, 2, mixed=True)
+        mixed_batch = a.build_owned_batch(mixed_arrow, mixed_rows)
+        mixed_snapshot = decimal_snapshot(mixed_batch)
+        decimal_value_oracle(mixed_snapshot, 9, 2, mixed=True)
+        mixed_rows[0][:] = [None] * 6
+        mixed_rows.clear()
+        assert _exact(decimal_snapshot(mixed_batch), mixed_snapshot)
+        widened = a.build_owned_batch(
+            decimal_arrow(mixed, bits=256, mixed=True),
+            decimal_rows(target, 9, 2, mixed=True),
+        )
+        results["decimal_values"][target + "/mixed"] = dict(
+            default=mixed_snapshot, wide=decimal_snapshot(widened), overflow=[]
+        )
+        bad_req = (
+            None,
+            None,
+            a.DecimalWidthRequest(mixed.fields[2].field, 256),
+            None,
+            None,
+            None,
+        )
+        results["decimal_requests"][target]["wrong_kind"] = refused(
+            lambda: a.bind_arrow(mixed, decimal_widths=bad_req)
+        )
+        results["decimal_bindings"][target]["foreign_metadata"] = refused(
+            lambda: p.bind_producer(
+                mixed_neutral,
+                mixed_artifact,
+                tuple(
+                    replace(f.observation, decimal=p.DecimalObservation(9, 2))
+                    if i == 2
+                    else f.observation
+                    for i, f in enumerate(mixed.fields)
+                ),
+            )
+        )
+        for bits in (128, 256):
+            key = f"{target}/{bits}"
+            arrow = decimal_arrow(producer, bits=bits)
+            _, _, _, nullable = decimal_fixture(
+                root / f"decimal-null-{target}-{bits}", target, 9, 2, all_nullable=True
+            )
+            nonfinite = (
+                Decimal("NaN"),
+                Decimal("sNaN"),
+                Decimal("Infinity"),
+                Decimal("-Infinity"),
+            )
+            invalid = (
+                1,
+                True,
+                1.0,
+                "1",
+                b"1",
+                DecimalSubclass("1"),
+                CoercibleDecimal(),
+                *nonfinite,
+                Decimal("1E+1000000"),
+                Decimal("1E-1000000"),
+                Decimal("1.234"),
+            )
+            zeros = a.build_owned_batch(
+                arrow,
+                [
+                    [Decimal("0E+1000000"), Decimal("-0E-1000000")],
+                    [Decimal("-0.00"), Decimal("0.0000")],
+                ],
+            )
+            exact = a.build_owned_batch(
+                arrow, [[Decimal("1.23"), None], [Decimal("1.2300"), Decimal("123E-2")]]
+            )
+            results["decimal_empty_null"][key] = dict(
+                empty=decimal_snapshot(a.build_owned_batch(arrow, [])),
+                all_null=decimal_snapshot(
+                    a.build_owned_batch(
+                        decimal_arrow(nullable, bits=bits), [[None, None], [None, None]]
+                    )
+                ),
+                zeros=decimal_snapshot(zeros)["columns"],
+                exact_rescale=decimal_snapshot(exact)["columns"],
+                refusals=[
+                    refused(lambda v=v: a.build_owned_batch(arrow, [[v, None]]))
+                    for v in invalid
+                ]
+                + [refused(lambda: a.build_owned_batch(arrow, [[None, None]]))],
+            )
+            results["decimal_empty_null"][key]["high_default"] = (
+                None
+                if bits == 128
+                else dict(
+                    empty=decimal_snapshot(
+                        a.build_owned_batch(decimal_arrow(high), [])
+                    ),
+                    all_null=decimal_snapshot(
+                        a.build_owned_batch(
+                            decimal_arrow(high_null), [[None, None], [None, None]]
+                        )
+                    ),
+                )
+            )
+            impostors = []
+            for position, value in (
+                (0, 1),
+                (2, Decimal("1")),
+                (3, Decimal("1")),
+                (4, Decimal("1")),
+                (5, Decimal("1")),
+            ):
+                row = [
+                    Decimal("1.23"),
+                    None,
+                    7,
+                    True if target == "postgres" else 1,
+                    -0.0,
+                    "é",
+                ]
+                row[position] = value
+                impostors.append(
+                    refused(lambda row=row: a.build_owned_batch(mixed_arrow, [row]))
+                )
+            results["decimal_empty_null"][key]["mixed_impostors"] = impostors
+            allowance = 2 * (bits // 8 + 1)
+            allowed = a.build_owned_batch(
+                arrow, [[Decimal("1.23"), None]], limits=a.BatchLimits(bytes=allowance)
+            )
+            width = bits // 8
+            ty = arrow.schema[0].type
+            # Safe allocated buffers: two's-complement coefficient with exact declared scale.
+            data = pa.py_buffer(
+                b"".join(
+                    k.to_bytes(width, "little", signed=True)
+                    for k in (1, 10**9, -(10**9), 123)
+                )
+            )
+            invalid_array = pa.Array.from_buffers(ty, 4, [None, data]).slice(1, 1)
+            invalid_batch = pa.RecordBatch.from_arrays(
+                [invalid_array, pa.array([None], type=ty)], schema=arrow.schema
+            )
+            outcomes = [
+                refused(
+                    lambda: a.build_owned_batch(
+                        arrow,
+                        [[Decimal("1.23"), None]],
+                        limits=a.BatchLimits(bytes=allowance - 1),
+                    )
+                ),
+                refused(
+                    lambda: a.verify_batch(
+                        invalid_batch,
+                        arrow,
+                        producer,
+                        limits=a.BatchLimits(bytes=allowance),
+                    )
+                ),
+            ]
+            # Decimal(9,2), Decimal(65,30), 3 fixed scalars and a large_string 'é'.
+            mixed_allowance = 17 + 33 + 3 * 9 + 1 + 16 + 2
+            mixed_allowed = a.build_owned_batch(
+                mixed_arrow,
+                [
+                    [
+                        Decimal("1.23"),
+                        decimal_literal(1, 30),
+                        7,
+                        True if target == "postgres" else 1,
+                        -0.0,
+                        "é",
+                    ]
+                ],
+                limits=a.BatchLimits(bytes=mixed_allowance),
+            )
+            outcomes.append(
+                refused(
+                    lambda: a.build_owned_batch(
+                        mixed_arrow,
+                        [
+                            [
+                                Decimal("1.23"),
+                                decimal_literal(1, 30),
+                                7,
+                                True if target == "postgres" else 1,
+                                -0.0,
+                                "é",
+                            ]
+                        ],
+                        limits=a.BatchLimits(bytes=mixed_allowance - 1),
+                    )
+                )
+            )
+            results["decimal_resources"][key] = dict(
+                allowance=allowance,
+                columns=decimal_snapshot(allowed)["columns"],
+                mixed_allowance=mixed_allowance,
+                mixed_rows=mixed_allowed.num_rows,
+                refusals=outcomes,
+            )
+            original_array = pa.array
+
+            def forbidden_array(*args, **kwargs):
+                raise AssertionError("Arrow allocation preceded input preflight")
+
+            try:
+                setattr(pa, "array", forbidden_array)
+                results["decimal_resources"][key]["preflight"] = [
+                    refused(
+                        lambda: a.build_owned_batch(
+                            arrow,
+                            [[Decimal("1.23"), None]],
+                            limits=a.BatchLimits(bytes=allowance - 1),
+                        )
+                    ),
+                    refused(
+                        lambda: a.build_owned_batch(
+                            arrow,
+                            [[Decimal("1.23"), None]],
+                            limits=a.BatchLimits(rows=0),
+                        )
+                    ),
+                    refused(
+                        lambda: a.build_owned_batch(arrow, [[Decimal("1.234"), None]])
+                    ),
+                ]
+            finally:
+                setattr(pa, "array", original_array)
+            _, _, _, nullable_bound = decimal_fixture(
+                root / f"decimal-buffer-null-{target}-{bits}",
+                target,
+                9,
+                2,
+                all_nullable=True,
+            )
+            nullable_arrow = decimal_arrow(nullable_bound, bits=bits)
+            # Offset 1 includes a null slot with arbitrary out-of-precision bytes, then valid -123.
+            payload = pa.py_buffer(
+                b"".join(
+                    k.to_bytes(width, "little", signed=True)
+                    for k in (1, 10**12, -123, 123)
+                )
+            )
+            array = pa.Array.from_buffers(
+                ty, 4, [pa.py_buffer(b"\x0d"), payload]
+            ).slice(1, 2)
+            supplied = pa.RecordBatch.from_arrays(
+                [array, array], schema=nullable_arrow.schema
+            )
+            a.verify_batch(supplied, nullable_arrow, nullable_bound)
+            overflows = []
+            for k in (10**9, -(10**9)):
+                over = pa.Array.from_buffers(
+                    ty,
+                    1,
+                    [None, pa.py_buffer(k.to_bytes(width, "little", signed=True))],
+                )
+                candidate = pa.RecordBatch.from_arrays(
+                    [over, pa.array([None], type=ty)], schema=arrow.schema
+                )
+                overflows.append(
+                    refused(lambda: a.verify_batch(candidate, arrow, producer))
+                )
+            try:
+                pa.Array.from_buffers(ty, 1, [None, pa.py_buffer(b"\0" * (width - 1))])
+            except (ValueError, pa.ArrowException):
+                short = "CONSTRUCTOR"
+            else:
+                raise AssertionError("short Decimal buffer accepted by constructor")
+            null_batch = pa.RecordBatch.from_arrays(
+                [pa.array([None], type=ty), pa.array([None], type=ty)],
+                schema=arrow.schema,
+            )
+            results["decimal_supplied"][key] = dict(
+                offsets=[c.offset for c in supplied.columns],
+                columns=decimal_snapshot(supplied)["columns"],
+                overflow=overflows,
+                short_buffer=short,
+                null=refused(lambda: a.verify_batch(null_batch, arrow, producer)),
+                metadata=refused(
+                    lambda: a.verify_batch(
+                        supplied.replace_schema_metadata({b"precision": b"65"}),
+                        nullable_arrow,
+                        nullable_bound,
+                    )
+                ),
+            )
+        high_producer = built[65, 30][3]
+        high_arrow = decimal_arrow(high_producer)
+        context_results = []
+        for precision, rounding, trap in ((2, ROUND_DOWN, True), (7, ROUND_UP, False)):
+            rows = decimal_rows(target, 65, 30)
+            with localcontext() as context:
+                context.prec = precision
+                context.rounding = rounding
+                context.Emin = -2
+                context.Emax = 2
+                context.capitals = 1
+                context.clamp = 0
+                for signal in context.traps:
+                    context.traps[signal] = trap
+                context.clear_flags()
+                context.flags[Rounded] = True
+                before = decimal_context_snapshot(context)
+                values = decimal_snapshot(a.build_owned_batch(high_arrow, rows))
+                negatives = [
+                    refused(lambda v=v: a.build_owned_batch(high_arrow, [[v, None]]))
+                    for v in (
+                        Decimal("1E+1000000"),
+                        Decimal("1E-1000000"),
+                        Decimal("sNaN"),
+                        Decimal("NaN"),
+                        Decimal("Infinity"),
+                        Decimal("-Infinity"),
+                        Decimal("1E-31"),
+                    )
+                ]
+                after = decimal_context_snapshot(context)
+                assert getcontext() is context and before == after
+                context_results.append(
+                    dict(before=before, after=after, values=values, refusals=negatives)
+                )
+        results["decimal_context"][target] = context_results
+        original = a.build_owned_batch(
+            mixed_arrow, decimal_rows(target, 9, 2, mixed=True)
+        )
+        changed_batches = []
+        for replacement in (Decimal("1.24"), Decimal("-9999999.99")):
+            arrays = list(original.columns)
+            values = arrays[0].to_pylist()
+            values[0] = replacement
+            arrays[0] = pa.array(values, type=mixed_arrow.schema[0].type)
+            changed_batches.append(
+                pa.RecordBatch.from_arrays(arrays, schema=mixed_arrow.schema)
+            )
+        for indices in ([1, 0, 2, 3, 4, 5], [0, 1, 2, 3, 5], [0, 1, 2, 3, 4]):
+            changed_batches.append(original.take(indices))
+        arrays = list(original.columns)
+        values = arrays[1].to_pylist()
+        values[0] = decimal_literal(0, 30)
+        arrays[1] = pa.array(values, type=mixed_arrow.schema[1].type)
+        changed_batches.append(
+            pa.RecordBatch.from_arrays(arrays, schema=mixed_arrow.schema)
+        )
+        detected = []
+        for changed in changed_batches:
+            a.verify_batch(changed, mixed_arrow, mixed)
+            try:
+                decimal_value_oracle(decimal_snapshot(changed), 9, 2, mixed=True)
+            except ValueError:
+                detected.append("VALUE_CORRESPONDENCE")
+            else:
+                raise AssertionError("domain-valid Decimal substitution escaped oracle")
+        builder = a.build_owned_batch
+
+        def injected(binding, rows, **kwargs):
+            altered = [list(r) for r in rows]
+            altered[0][0] = Decimal("1.24")
+            return builder(binding, altered, **kwargs)
+
+        try:
+            a.build_owned_batch = injected
+            try:
+                decimal_value_oracle(
+                    decimal_snapshot(
+                        a.build_owned_batch(
+                            mixed_arrow, decimal_rows(target, 9, 2, mixed=True)
+                        )
+                    ),
+                    9,
+                    2,
+                    mixed=True,
+                )
+            except ValueError:
+                detected.append("VALUE_CORRESPONDENCE")
+            else:
+                raise AssertionError("injected Decimal builder escaped oracle")
+        finally:
+            a.build_owned_batch = builder
+        results["decimal_substitution"][target] = detected
+        for kind, checked_, neutral_ in [
+            ("decimal", built[39, 4][0], built[39, 4][2]),
+            ("mixed", mixed_checked, mixed_neutral),
+        ]:
+            exported = export_result_contract(neutral_, checked_)
+            verify_bound_export(exported, checked_)
+            assert (
+                pure.encode_document(
+                    pure.decode_contract(exported.canonical_bytes).document
+                )
+                == exported.canonical_bytes
+            )
+            results["decimal_codec"][target + "/" + kind] = (
+                exported.canonical_bytes.decode()
+            )
+    return results
+
+
+def verify_decimal_report(cases):
+    from pietto._project import project_result_contract_pure_boundary as pure
+
+    try:
+        targets = {"postgres", "mysql"}
+        width_keys = {f"{t}/{bits}" for t in targets for bits in (128, 256)}
+        for name in (
+            "decimal_bindings",
+            "decimal_requests",
+            "decimal_context",
+            "decimal_substitution",
+        ):
+            if set(cases[name]) != targets:
+                raise ValueError("Decimal target denominator")
+        for name in ("decimal_empty_null", "decimal_resources", "decimal_supplied"):
+            if set(cases[name]) != width_keys:
+                raise ValueError("Decimal width denominator")
+        if set(cases["decimal_values"]) != {
+            f"{t}/{p}/{s}" for t in targets for p, s in DECIMAL_PAIRS
+        } | {t + "/mixed" for t in targets}:
+            raise ValueError("Decimal precision matrix denominator")
+        if set(cases["decimal_codec"]) != {
+            t + "/" + k for t in targets for k in ("decimal", "mixed")
+        }:
+            raise ValueError("Decimal codec denominator")
+        for target in ("postgres", "mysql"):
+            for precision, scale in DECIMAL_PAIRS:
+                value = cases["decimal_values"][f"{target}/{precision}/{scale}"]
+                expected = dict(
+                    default=decimal_expected(precision, scale),
+                    wide=decimal_expected(precision, scale, bits=256),
+                    overflow=["VALUE_DOMAIN"] * 2,
+                )
+                if not _exact(value, expected):
+                    raise ValueError("Decimal exact boundary values")
+            if not _exact(
+                cases["decimal_values"][target + "/mixed"],
+                dict(
+                    default=decimal_expected(9, 2, mixed=True),
+                    wide=decimal_expected(9, 2, mixed=True, bits=256),
+                    overflow=[],
+                ),
+            ):
+                raise ValueError("Decimal mixed values")
+            keys = (
+                "precision",
+                "scale",
+                "bool_precision",
+                "float_precision",
+                "bool_scale",
+                "text_scale",
+                "storage",
+                "carrier",
+                "domain",
+                "lower",
+                "upper",
+                "text",
+                "missing",
+                "label",
+                "ordinal",
+                "family",
+                "nullable",
+                "coordinated",
+            )
+            expected = dict(
+                refusals={
+                    **dict.fromkeys(keys, "PRODUCER_OBSERVATION"),
+                    "foreign_root": "ROOT",
+                    "foreign_field": "PRODUCER_FIELDS",
+                    "tail": "PRODUCER_ROOT",
+                    "reordered": "PRODUCER_FIELDS",
+                    "duplicate": "PRODUCER_FIELDS",
+                },
+                upstream=[["PIE-B1002"] * 2] * 2,
+                observed=[
+                    dict(
+                        ordinal=i,
+                        label=DECIMAL_LABELS[i],
+                        storage="pg_numeric" if target == "postgres" else "my_decimal",
+                        carrier="decimal",
+                        precision=9,
+                        scale=2,
+                    )
+                    for i in range(2)
+                ],
+                foreign_metadata="PRODUCER_OBSERVATION",
+            )
+            if not _exact(cases["decimal_bindings"][target], expected):
+                raise ValueError("Decimal producer authority")
+            if not _exact(
+                cases["decimal_requests"][target],
+                dict(
+                    refusals=["ARROW_ADAPTATION"] * 13,
+                    schema=["ARROW_BINDING"] * 11,
+                    wrong_kind="ARROW_ADAPTATION",
+                ),
+            ):
+                raise ValueError("Decimal width/schema authority")
+            for bits in (128, 256):
+                key = f"{target}/{bits}"
+                expected_empty: dict[str, Any] = dict(
+                    empty=decimal_expected(9, 2, bits=bits, state="empty"),
+                    all_null=decimal_expected(
+                        9, 2, bits=bits, state="null", all_nullable=True
+                    ),
+                    zeros=[["0", "0"], ["0", "0"]],
+                    exact_rescale=[["123", "123"], [None, "123"]],
+                    refusals=["VALUE_DOMAIN"] * 14 + ["NULL"],
+                )
+                expected_empty["high_default"] = (
+                    None
+                    if bits == 128
+                    else dict(
+                        empty=decimal_expected(39, 4, state="empty"),
+                        all_null=decimal_expected(
+                            39, 4, state="null", all_nullable=True
+                        ),
+                    )
+                )
+                expected_empty["mixed_impostors"] = ["VALUE_DOMAIN"] * 5
+                expected_resource = dict(
+                    preflight=["LIMIT", "LIMIT", "VALUE_DOMAIN"],
+                    allowance=34 if bits == 128 else 66,
+                    columns=[["123"], [None]],
+                    mixed_allowance=96,
+                    mixed_rows=1,
+                    refusals=["LIMIT"] * 3,
+                )
+                expected_supplied = dict(
+                    offsets=[1, 1],
+                    columns=[[None, "-123"], [None, "-123"]],
+                    overflow=["ARROW_BATCH"] * 2,
+                    short_buffer="CONSTRUCTOR",
+                    null="NULL",
+                    metadata="ARROW_SCHEMA",
+                )
+                for name, expected in [
+                    ("decimal_empty_null", expected_empty),
+                    ("decimal_resources", expected_resource),
+                    ("decimal_supplied", expected_supplied),
+                ]:
+                    if not _exact(cases[name][key], expected):
+                        raise ValueError(name + " evidence")
+            contexts = cases["decimal_context"][target]
+            if type(contexts) is not list or len(contexts) != 2:
+                raise ValueError("Decimal context denominator")
+            signals = (
+                "InvalidOperation",
+                "FloatOperation",
+                "DivisionByZero",
+                "Overflow",
+                "Underflow",
+                "Subnormal",
+                "Inexact",
+                "Rounded",
+                "Clamped",
+            )
+            for actual, (precision, rounding, trap) in zip(
+                contexts, ((2, "ROUND_DOWN", True), (7, "ROUND_UP", False)), strict=True
+            ):
+                settings = dict(
+                    precision=precision,
+                    rounding=rounding,
+                    emin=-2,
+                    emax=2,
+                    capitals=1,
+                    clamp=0,
+                    flags={k: k == "Rounded" for k in signals},
+                    traps=dict.fromkeys(signals, trap),
+                )
+                if not _exact(
+                    actual,
+                    dict(
+                        before=settings,
+                        after=settings,
+                        values=decimal_expected(65, 30),
+                        refusals=["VALUE_DOMAIN"] * 7,
+                    ),
+                ):
+                    raise ValueError("Decimal context isolation")
+            if cases["decimal_substitution"][target] != ["VALUE_CORRESPONDENCE"] * 7:
+                raise ValueError("Decimal independent value oracle")
+            for kind in ("decimal", "mixed"):
+                document = pure.decode_contract(
+                    cases["decimal_codec"][target + "/" + kind].encode()
+                ).document
+                count = 2 if kind == "decimal" else 6
+                pairs = (
+                    [["39", "4"]] * 2
+                    if kind == "decimal"
+                    else [["9", "2"], ["65", "30"]]
+                )
+                fields = document["fields"]
+                if (
+                    [f["label"] for f in fields] != list(DECIMAL_LABELS[:count])
+                    or [f["canonical"] for f in fields]
+                    != [
+                        dict(kind="builtin", name=k, symbol=None)
+                        for k in (
+                            ["Decimal", "Decimal"]
+                            + (
+                                ["Int", "Bool", "Float", "Text"]
+                                if kind == "mixed"
+                                else []
+                            )
+                        )
+                    ]
+                    or [
+                        [a["value"]["value"] for a in f["declared"]["arguments"]]
+                        for f in fields[:2]
+                    ]
+                    != pairs
+                    or [f["nullability"] for f in fields]
+                    != ["nullable" if i in (1, 5) else "non_null" for i in range(count)]
+                ):
+                    raise ValueError("Decimal complete neutral parameters")
+    except (KeyError, TypeError, AttributeError, pure.ContractDocumentError) as exc:
+        raise ValueError("Decimal report evidence") from exc
+
+
 CONTRACT_CORPUS = ("postgres", "mysql", "descriptors", "imported")
 CONTRACT_SEEDS = (7, 19)
 
@@ -2642,6 +3884,7 @@ def verify_report(value, context, inputs):
     verify_contract_report(cases)
     verify_scalar_report(cases)
     verify_text_report(cases)
+    verify_decimal_report(cases)
     origins = value["origins"]
     prefix = Path(value["prefix"])
     required = {"pietto._project." + name for name in PRODUCTS} | {
@@ -2793,6 +4036,7 @@ def compare_product_reports(paths, repository, contexts):
                 value["cases"]["contract_documents"],
                 value["cases"]["scalar_codec"],
                 value["cases"]["text_codec"],
+                value["cases"]["decimal_codec"],
             )
         )
     if documents[0] != documents[1]:
@@ -2803,6 +4047,27 @@ def compare_product_reports(paths, repository, contexts):
 def reject_report_damage(value, context, inputs):
     """Mutate actual saved-data observations, never fake an Arrow success."""
     mutations = (
+        lambda v: v["cases"].pop("decimal_values"),
+        lambda v: v["cases"]["decimal_values"]["postgres/65/30"]["default"]["columns"][
+            0
+        ].__setitem__(0, "1"),
+        lambda v: v["cases"]["decimal_values"]["postgres/39/4"]["default"]["decimal"][
+            0
+        ].update(scale=3),
+        lambda v: v["cases"]["decimal_values"]["mysql/9/2"]["wide"]["decimal"][
+            0
+        ].update(bits=128),
+        lambda v: v["cases"]["decimal_values"]["postgres/9/2"]["overflow"].__setitem__(
+            0, "PASS"
+        ),
+        lambda v: v["cases"]["decimal_context"]["mysql"][0]["after"]["flags"].update(
+            Rounded=False
+        ),
+        lambda v: v["cases"]["decimal_resources"]["postgres/256"].update(allowance=34),
+        lambda v: v["cases"]["decimal_supplied"]["mysql/128"]["overflow"].__setitem__(
+            0, "PASS"
+        ),
+        lambda v: v["cases"]["decimal_codec"].pop("mysql/mixed"),
         lambda v: v["cases"].pop("text_values"),
         lambda v: v["cases"]["text_values"]["postgres/32"]["columns"][0].__setitem__(
             6, "é"
@@ -2956,7 +4221,7 @@ def main():
     }
     verify_report(value, context, input_closure(repository))
     rejected = reject_report_damage(value, context, input_closure(repository))
-    assert rejected == 36
+    assert rejected == 45
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with args.report.open("x") as stream:
         json.dump(value, stream, sort_keys=True, allow_nan=False)

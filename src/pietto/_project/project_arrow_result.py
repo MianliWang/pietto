@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 import importlib
 import math
 from typing import Any
@@ -37,11 +38,18 @@ class TextOffsetWidthRequest:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class DecimalWidthRequest:
+    field: ResultField = field(repr=False)
+    bits: int
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class ArrowResultBinding:
     producer: ProducerResultBinding = field(repr=False)
     schema: Any = field(repr=False)
     integer_widths: tuple[IntegerWidthRequest | None, ...] | None = None
     text_offset_widths: tuple[TextOffsetWidthRequest | None, ...] | None = None
+    decimal_widths: tuple[DecimalWidthRequest | None, ...] | None = None
 
 
 def _arrow() -> Any:
@@ -106,37 +114,75 @@ def _text_widths(producer, requests):
     return tuple(widths)
 
 
-def _arrow_type(pa, bound, width, text_width):
+def _decimal_widths(producer, requests):
+    if requests is None:
+        requests = (None,) * len(producer.fields)
+    if type(requests) is not tuple or len(requests) != len(producer.fields):
+        raise ResultError("ARROW_ADAPTATION")
+    widths = []
+    for bound, request in zip(producer.fields, requests, strict=True):
+        decimal = bound.observation.decimal
+        width = None if decimal is None else 128 if decimal.precision <= 38 else 256
+        if request is not None:
+            if (
+                decimal is None
+                or type(request) is not DecimalWidthRequest
+                or request.field is not bound.field
+                or type(request.bits) is not int
+                or request.bits not in (128, 256)
+                or (request.bits == 128 and decimal.precision > 38)
+            ):
+                raise ResultError("ARROW_ADAPTATION")
+            width = request.bits
+        widths.append(width)
+    return tuple(widths)
+
+
+def _arrow_type(pa, bound, width, text_width, decimal_width):
     kind = bound.field.shape.canonical.name
     if kind == "Int":
         return getattr(pa, f"int{width}")()
     if kind == "Text":
         return pa.string() if text_width == 32 else pa.large_string()
-    return pa.bool_() if kind == "Bool" else pa.float64()
+    if kind == "Decimal":
+        decimal = bound.observation.decimal
+        return getattr(pa, f"decimal{decimal_width}")(decimal.precision, decimal.scale)
+    if kind == "Bool":
+        return pa.bool_()
+    if kind == "Float":
+        return pa.float64()
+    raise ResultError("PRODUCER_UNSUPPORTED")
 
 
 def bind_arrow(
-    producer: ProducerResultBinding, *, integer_widths=None, text_offset_widths=None
+    producer: ProducerResultBinding,
+    *,
+    integer_widths=None,
+    text_offset_widths=None,
+    decimal_widths=None,
 ) -> ArrowResultBinding:
     if type(producer) is not ProducerResultBinding:
         raise ResultError("PRODUCER_ROOT")
     verify_producer_binding(producer, producer.contract, producer.artifact)
     widths = _widths(producer, integer_widths)
     text_widths = _text_widths(producer, text_offset_widths)
+    decimals = _decimal_widths(producer, decimal_widths)
     pa = _arrow()
     schema = pa.schema(
         [
             pa.field(
                 b.field.label,
-                _arrow_type(pa, b, width, text_width),
+                _arrow_type(pa, b, width, text_width, decimal_width),
                 nullable=b.nullable,
             )
-            for b, width, text_width in zip(
-                producer.fields, widths, text_widths, strict=True
+            for b, width, text_width, decimal_width in zip(
+                producer.fields, widths, text_widths, decimals, strict=True
             )
         ]
     )
-    binding = ArrowResultBinding(producer, schema, integer_widths, text_offset_widths)
+    binding = ArrowResultBinding(
+        producer, schema, integer_widths, text_offset_widths, decimal_widths
+    )
     verify_arrow_binding(binding, producer)
     return binding
 
@@ -149,6 +195,7 @@ def verify_arrow_binding(binding, producer) -> None:
         raise ResultError("ARROW_BINDING")
     widths = _widths(producer, binding.integer_widths)
     text_widths = _text_widths(producer, binding.text_offset_widths)
+    decimals = _decimal_widths(producer, binding.decimal_widths)
     pa = _arrow()
     if (
         not isinstance(binding.schema, pa.Schema)
@@ -156,12 +203,13 @@ def verify_arrow_binding(binding, producer) -> None:
         or binding.schema.metadata is not None
     ):
         raise ResultError("ARROW_BINDING")
-    for actual, expected, width, text_width in zip(
-        binding.schema, producer.fields, widths, text_widths, strict=True
+    for actual, expected, width, text_width, decimal_width in zip(
+        binding.schema, producer.fields, widths, text_widths, decimals, strict=True
     ):
         if (
             actual.name != expected.field.label
-            or actual.type != _arrow_type(pa, expected, width, text_width)
+            or actual.type
+            != _arrow_type(pa, expected, width, text_width, decimal_width)
             or actual.nullable is not expected.nullable
             or actual.metadata is not None
         ):
@@ -179,10 +227,16 @@ def _dimensions(fields, rows, limits):
 
 def _base_charge(binding, rows, limits):
     widths = _text_widths(binding.producer, binding.text_offset_widths)
+    decimals = _decimal_widths(binding.producer, binding.decimal_widths)
     # Keep the inherited eight-byte numeric/Bool/Float admission allowance.
     charge = sum(
-        (rows + 7) // 8 + (rows * 8 if width is None else width // 8 * (rows + 1))
-        for width in widths
+        (rows + 7) // 8
+        + (
+            rows * (decimal_width // 8 if decimal_width is not None else 8)
+            if width is None
+            else width // 8 * (rows + 1)
+        )
+        for width, decimal_width in zip(widths, decimals, strict=True)
     )
     if charge > min(limits.bytes, 8 * 1024 * 1024):
         raise ResultError("LIMIT")
@@ -202,6 +256,24 @@ def _text_bytes(value, remaining):
         if size > remaining:
             raise ResultError("LIMIT")
     return size
+
+
+def _decimal_value(value, decimal):
+    """Exact fixed-scale encoding, without consulting or changing Decimal context."""
+    if type(value) is not Decimal or not value.is_finite():
+        raise ResultError("VALUE_DOMAIN")
+    sign, digits, exponent = value.as_tuple()
+    end = len(digits)
+    while end and digits[end - 1] == 0:
+        end -= 1
+    if not end:
+        return Decimal((0, (0,), -decimal.scale))
+    assert isinstance(exponent, int)  # Finite Decimal exponents are integers.
+    shift = exponent + decimal.scale + len(digits) - end
+    if shift < 0 or end + shift > decimal.precision:
+        raise ResultError("VALUE_DOMAIN")
+    # Only now can the tuple grow, bounded by the retained precision (at most 65).
+    return Decimal((sign, digits[:end] + (0,) * shift, -decimal.scale))
 
 
 def _value(value, bound, *, logical=False):
@@ -231,8 +303,13 @@ def _value(value, bound, *, logical=False):
             or (bound.observation.storage == "pg_text" and "\0" in value)
         ):
             raise ResultError("VALUE_DOMAIN")
-    elif type(value) is not float or not math.isfinite(value):
-        raise ResultError("VALUE_DOMAIN")
+    elif kind == "Decimal":
+        return _decimal_value(value, bound.observation.decimal)
+    elif kind == "Float":
+        if type(value) is not float or not math.isfinite(value):
+            raise ResultError("VALUE_DOMAIN")
+    else:
+        raise ResultError("PRODUCER_UNSUPPORTED")
     return value
 
 

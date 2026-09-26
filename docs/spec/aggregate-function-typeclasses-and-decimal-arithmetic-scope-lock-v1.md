@@ -191,3 +191,7 @@ Slice 1 is complete when the approved plan/spec/register/test files record:
 - deferred-register classification for Phase 42-related future work.
 
 No compiler behavior is implemented by this slice.
+
+## Phase67 Slice06 parameter-domain distinction
+
+The approved [Slice06](../phases/phase-67/slice-06.md) extension changes the shared declared parameter domain to precision 1..65 and scale 0..p. It does not implement or revise the arithmetic fusion, rounding, promotion, aggregate or deferred 38-digit computed-precision policies recorded above. Direct declared facts and computed precision remain distinct evidence.

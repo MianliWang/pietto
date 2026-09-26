@@ -92,8 +92,9 @@ documentation does not supersede that evidence.
 | Phase 67 Slice 03 | `COMPLETED / PUBLISHED` |
 | Phase 67 Slice 04 | `COMPLETED / PUBLISHED` |
 | Phase 67 Slice 05 | `COMPLETED / PUBLISHED` |
-| Phase 67 Slice 06 | `NEXT / NOT STARTED` |
-| Phase 67 Slices 07–16 | `NOT STARTED` |
+| Phase 67 Slice 06 | `COMPLETED / PUBLISHED` |
+| Phase 67 Slice 07 | `NEXT / NOT STARTED` |
+| Phase 67 Slices 08–16 | `NOT STARTED` |
 | Interlude V | `COMPLETED` |
 | Interlude V route | `N=3` |
 | Interlude V Slice 1 | `COMPLETED / PUBLISHED` |
@@ -101,7 +102,7 @@ documentation does not supersede that evidence.
 | Interlude V S2 performance outcome | `MEASURED_GAIN` |
 | Interlude V Slice 3 | `COMPLETED / PUBLISHED` |
 | CI remaining-tail maintenance R1 | `COMPLETED / PUBLISHED` |
-| Next | `Phase67 Slice06 under a separate dispatch` |
+| Next | `Phase67 Slice07 under a separate dispatch` |
 
 ## Phase67 当前路线
 
@@ -111,8 +112,9 @@ Phase67 `ACTIVE`，N67=16。[Slice01](phases/phase-67/slice-01.md) 联合交付�
 一次普通commit/FF push、natural exact-head attempt1全部15jobs、逐runtime v2 coverage、readiness/health
 raw artifacts与native strict receipts通过后成立；此前为candidate。
 
-Slices01–05 `COMPLETED / PUBLISHED`；Slice06 `NEXT / NOT STARTED`；Slices07–16 `NOT STARTED`。Slice03 的 [canonical private result contract](phases/phase-67/slice-03.md) 保留独立 pure decoding、完整 runtime correspondence/invalidation 与原 Int producer/Arrow batch 链；仅在 sealed publication、全部15jobs和fresh raw evidence通过后完成，不自动进入Slice06。
+Slices01–06 `COMPLETED / PUBLISHED`；Slice07 `NEXT / NOT STARTED`；Slices08–16 `NOT STARTED`。Slice03 的 [canonical private result contract](phases/phase-67/slice-03.md) 保留独立 pure decoding、完整 runtime correspondence/invalidation 与原 Int producer/Arrow batch 链；仅在 sealed publication、全部15jobs和fresh raw evidence通过后完成，不自动进入Slice07。
 [Slice05](phases/phase-67/slice-05.md) 交付 checked Text/Unicode、默认string与显式large_string、完整producer事实及有界owned batch；新增8个product案例和4份Text/mixed canonical文档。上述完成状态仅在本Slice sealed publication、自然exact-head全部15jobs及fresh raw evidence闭合后成立；此前为candidate。
+[Slice06](phases/phase-67/slice-06.md) 包含已明确批准的shared Decimal parameter precision38→65接受扩展；语言scale≤p，当前两target emission/result仍要求scale≤min(p,30)。固定尺度数值、context隔离、默认/显式128/256与资源边界由required product链验证；旧38位合同和前提HOLD保留历史。当前Slice06完成状态仅在sealed publication、natural exact-head全部15jobs及fresh raw/native闭合后成立，此前为candidate。
 Phase66 COMPLETED/N66=16；Interlude V COMPLETED/total=3；R1单独完成；CI治理成本记入本次Slice01，
 不算Interlude V S4。package/CLI0.1.0，compiler core不变，Slice01不引入公开arrow extra。
 下面各已完成维护/旧phase段落中的NEXT、accepted candidate等是当时历史状态，不覆盖此当前路线。

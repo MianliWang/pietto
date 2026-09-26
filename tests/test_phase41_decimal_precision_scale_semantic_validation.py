@@ -70,11 +70,11 @@ def test_valid_decimal_precision_scale_type_arguments_remain_plain_decimal() -> 
         ("Decimal(+10, 2)", "Decimal precision and scale must be integer literals"),
         (
             "Decimal(0, 0)",
-            "Decimal precision must be an integer from 1 to 38",
+            "Decimal precision must be an integer from 1 to 65",
         ),
         (
-            "Decimal(39, 0)",
-            "Decimal precision must be an integer from 1 to 38",
+            "Decimal(66, 0)",
+            "Decimal precision must be an integer from 1 to 65",
         ),
         (
             "Decimal(10, 11)",
@@ -206,3 +206,17 @@ def _error_diagnostics(
         for diagnostic in diagnostics
         if diagnostic.severity is Severity.ERROR
     ]
+
+
+@pytest.mark.parametrize("precision,scale", ((39, 4), (65, 30), (65, 31), (65, 65)))
+def test_extended_parameter_domain_keeps_scale_independent_of_producer(
+    precision, scale
+):
+    script = _parse(
+        f"shape Product:\n    price: Decimal({precision}, {scale}) not null\n"
+    )
+    result = analyze(script)
+    assert result.diagnostics == ()
+    assert result.model.decimal_precision_scale_for(
+        _shape(script).fields[0].type_expr
+    ) == DecimalPrecisionScale(precision, scale)
