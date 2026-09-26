@@ -1,6 +1,6 @@
 # Phase67 路线：N67=16
 
-当前只展开已授权 [Slice03](slice-03.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
+当前只展开已授权 [Slice04](slice-04.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
 
 | Slice | 目标／acceptance链接 | 依赖／类型 |
 | --- | --- | --- |
@@ -46,3 +46,7 @@ Phase68接已验证result/binding/batch/finite-finalization合同，不重决编
 
 [Slice03](slice-03.md) 保留完整中立字段、类型与 import provenance 描述，分别执行 bounded pure consistency 和 supplied-live-authority correspondence。原14个产品案例与9个SDK案例保留；两runtime新增codec消费者、完整bytes比较和raw evidence核验均为必需。
 发布链通过后 Slices01–03 COMPLETED/PUBLISHED，Slice04 NEXT/NOT STARTED，Slices05–16 NOT STARTED。不开始Slice04。
+
+## Slice04 当前边界
+
+[Slice04](slice-04.md) 仅扩Int16/32/64、Bool、finite Float64的checked producer/Arrow owned batch；完整domain-total显式整数适配、physical/logical Bool分离、IEEE754 signed-zero值oracle保持。codec与上游语义不变。发布链全部通过后Slices01–04完成，Slice05 NEXT/NOT STARTED；不推进后续payload/reader/protocol/IPC。

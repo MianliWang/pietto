@@ -53,6 +53,13 @@ CASES = (
     "contract_malformed",
     "contract_order_substitution",
     "contract_live_grafts",
+    "integer_widths",
+    "integer_adaptation",
+    "scalar_mixed",
+    "scalar_refusals",
+    "scalar_batches",
+    "scalar_identity",
+    "scalar_codec",
 )
 
 
@@ -404,8 +411,633 @@ def run_cases(root):
         ) = original
     results["no_reconstruction"] = True
     results.update(run_contract_cases(root, built))
+    results.update(run_scalar_cases(root))
     assert set(results) == set(CASES)
     return results
+
+
+# Fixed S04 corpus; floats have an independent IEEE-754 byte oracle.
+SCALAR_LABELS = (
+    "renamed",
+    "maybe_integer",
+    "active",
+    "maybe_flag",
+    "measure",
+    "maybe_ratio",
+)
+FLOAT_BITS = (
+    "0000000000000000",
+    "8000000000000000",
+    "0000000000000000",
+    "8000000000000000",
+    "3fc0000000000000",
+    "0000000000000001",
+    "7fefffffffffffff",
+)
+
+
+def width_storage(target, bits):
+    return {
+        "postgres": {16: "pg_int2", 32: "pg_int4", 64: "pg_int8"},
+        "mysql": {16: "my_smallint", 32: "my_int", 64: "my_bigint"},
+    }[target][bits]
+
+
+def width_fixture(directory, target, bits, *, lower=None, upper=None, checked=None):
+    from pietto._project.project_sql_emission import emit_project_sql
+    from pietto._project.project_result_contract import build_result_contract
+    from pietto._project.project_result_binding import bind_producer
+
+    lower = -(1 << (bits - 1)) if lower is None else lower
+    upper = (1 << (bits - 1)) - 1 if upper is None else upper
+    if checked is None:
+        checked = build_neutral(directory, {"main.pietto": source(target)})
+    document = json.loads(emission_input(target, lower=lower, upper=upper))
+    for field in document["sources"][0]["fields"]:
+        field["representation"]["storage"]["kind"] = width_storage(target, bits)
+    result = emit_project_sql(checked, json.dumps(document).encode())
+    assert result.status == "VERIFIED" and result.artifact is not None
+    contract = build_result_contract(checked)
+    observed = tuple(
+        replace(o, storage=width_storage(target, bits))
+        for o in observations(target, lower=lower, upper=upper)
+    )
+    return (
+        checked,
+        result.artifact,
+        contract,
+        bind_producer(contract, result.artifact, observed),
+    )
+
+
+def scalar_fixture(directory, target, *, all_nullable=False):
+    from pietto._project.project_sql_emission import emit_project_sql
+    from pietto._project.project_result_contract import build_result_contract
+    from pietto._project.project_result_binding import (
+        ProducerObservation,
+        bind_producer,
+    )
+
+    names = ("integer", "maybe_integer", "flag", "maybe_flag", "ratio", "maybe_ratio")
+    kinds = ("Int", "Int", "Bool", "Bool", "Float", "Float")
+    text = "shape Row:\n" + "".join(
+        f"    {name}: {kind} {'nullable' if all_nullable or i % 2 else 'not null'}\n"
+        for i, (name, kind) in enumerate(zip(names, kinds, strict=True))
+    )
+    text += f'source rows: Row is {target}.table("opaque.result.fixture")\ntable result:\n    from rows\n    select:\n'
+    text += "".join(
+        f"        {label} = {name}\n"
+        for label, name in zip(SCALAR_LABELS, names, strict=True)
+    )
+    checked = build_neutral(directory, {"main.pietto": text})
+    contract = build_result_contract(checked)
+    document = json.loads(emission_input(target))
+    fields, observed = [], []
+    for i, (name, kind, label) in enumerate(
+        zip(names, kinds, SCALAR_LABELS, strict=True)
+    ):
+        if kind == "Int":
+            storage, domain, carrier = (
+                width_storage(target, 64),
+                {"kind": "int_range", "min": str(LOW), "max": str(HIGH)},
+                "int",
+            )
+            lower, upper = LOW, HIGH
+        elif kind == "Bool":
+            storage, domain = (
+                ("pg_bool" if target == "postgres" else "my_bool01"),
+                {"kind": "bool01"},
+            )
+            carrier = "bool" if target == "postgres" else "int01"
+            lower = upper = None
+        else:
+            storage, domain, carrier = (
+                ("pg_float8" if target == "postgres" else "my_double"),
+                {"kind": "finite_float", "format": "binary64"},
+                "float",
+            )
+            lower = upper = None
+        fields.append(
+            {
+                "ordinal": i,
+                "name": name,
+                "column": name,
+                "representation": {
+                    "storage": {"kind": storage},
+                    "nullable": bool(all_nullable or i % 2),
+                    "domain": domain,
+                },
+            }
+        )
+        observed.append(
+            ProducerObservation(
+                i,
+                label,
+                target,
+                storage,
+                lower,
+                upper,
+                domain=domain["kind"],
+                carrier=carrier,
+            )
+        )
+    document["sources"][0]["fields"] = fields
+    result = emit_project_sql(checked, json.dumps(document).encode())
+    assert result.status == "VERIFIED" and result.artifact is not None
+    producer = bind_producer(contract, result.artifact, tuple(observed))
+    return checked, result.artifact, contract, producer
+
+
+def scalar_rows(target):
+    floats = (
+        0.0,
+        -0.0,
+        0.0,
+        -0.0,
+        0.125,
+        float.fromhex("0x0.0000000000001p-1022"),
+        float.fromhex("0x1.fffffffffffffp+1023"),
+    )
+    integers = (BIG, BIG, -BIG, 0, -1, LOW, HIGH)
+    return [
+        [
+            n,
+            None if i % 2 else n,
+            bool(i % 2) if target == "postgres" else i % 2,
+            None if i % 2 else (True if target == "postgres" else 1),
+            x,
+            None if i % 2 else x,
+        ]
+        for i, (n, x) in enumerate(zip(integers, floats, strict=True))
+    ]
+
+
+def scalar_snapshot(batch):
+    import struct
+
+    return {
+        "types": [str(f.type) for f in batch.schema],
+        "labels": batch.schema.names,
+        "nullable": [f.nullable for f in batch.schema],
+        "columns": [
+            [
+                None if v is None else struct.pack(">d", v).hex() if i in (4, 5) else v
+                for v in column.to_pylist()
+            ]
+            for i, column in enumerate(batch.columns)
+        ],
+    }
+
+
+def scalar_value_oracle(snapshot):
+    integers = [BIG, BIG, -BIG, 0, -1, LOW, HIGH]
+    expected = {
+        "types": ["int64", "int64", "bool", "bool", "double", "double"],
+        "labels": list(SCALAR_LABELS),
+        "nullable": [False, True, False, True, False, True],
+        "columns": [
+            integers,
+            [n if i % 2 == 0 else None for i, n in enumerate(integers)],
+            [False, True, False, True, False, True, False],
+            [True, None, True, None, True, None, True],
+            list(FLOAT_BITS),
+            [x if i % 2 == 0 else None for i, x in enumerate(FLOAT_BITS)],
+        ],
+    }
+    if not _exact(snapshot, expected):
+        raise ValueError("scalar value/NULL/IEEE754 correspondence")
+
+
+class CoercibleScalar:
+    def __int__(self):
+        raise AssertionError("implicit integer conversion")
+
+    def __float__(self):
+        raise AssertionError("implicit float conversion")
+
+    def __bool__(self):
+        raise AssertionError("implicit truthiness")
+
+
+def run_scalar_cases(root):
+    from decimal import Decimal
+    from pietto._project import project_arrow_result as a, project_result_binding as p
+    from pietto._project.project_result_contract_portable import export_result_contract
+    from pietto._project.project_result_contract_correspondence import (
+        verify_bound_export,
+    )
+    from pietto._project import project_result_contract_pure_boundary as pure
+
+    pa = importlib.import_module("pyarrow")
+    widths, adaptation, mixed, negatives, batches, identities, documents = (
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+    )
+    for target in ("postgres", "mysql"):
+        for bits in (16, 32, 64):
+            checked, artifact, contract, producer = width_fixture(
+                root / f"{target}-{bits}", target, bits
+            )
+            low, high = -(1 << (bits - 1)), (1 << (bits - 1)) - 1
+            rows = [[low, None], [high, low], [0, high], [-1, 0], [low, None]]
+            default = a.bind_arrow(producer)
+            widened = a.bind_arrow(
+                producer,
+                integer_widths=tuple(
+                    a.IntegerWidthRequest(f.field, 64) for f in producer.fields
+                ),
+            )
+            normal, wide = (
+                a.build_owned_batch(default, rows),
+                a.build_owned_batch(widened, rows),
+            )
+            widths[f"{target}/{bits}"] = {
+                "types": [str(f.type) for f in normal.schema],
+                "wide_types": [str(f.type) for f in wide.schema],
+                "columns": [col.to_pylist() for col in normal.columns],
+                "wide_columns": [col.to_pylist() for col in wide.columns],
+                "outside": refused(
+                    lambda: a.build_owned_batch(default, [[high + 1, None]])
+                ),
+            }
+        # Last loop's neutral root is retained across a different legal domain.
+        before = export_result_contract(contract, checked).canonical_bytes
+        _, _, narrow_contract, narrow_producer = width_fixture(
+            root / "unused", target, 64, lower=-100, upper=100, checked=checked
+        )
+        assert (
+            export_result_contract(narrow_contract, checked).canonical_bytes == before
+        )
+        selected = a.bind_arrow(
+            narrow_producer,
+            integer_widths=tuple(
+                a.IntegerWidthRequest(f.field, 16) for f in narrow_producer.fields
+            ),
+        )
+        selected_batch = a.build_owned_batch(
+            selected, [[-100, None], [100, -100], [0, 100]]
+        )
+        original_batch = a.build_owned_batch(
+            a.bind_arrow(narrow_producer), [[-100, None], [100, -100], [0, 100]]
+        )
+        invalid = (a.IntegerWidthRequest(producer.fields[0].field, 16), None)
+        foreign = (a.IntegerWidthRequest(narrow_producer.fields[0].field, 16), None)
+        edges = []
+        for lower, upper in ((-32768, 32767), (-32769, 32767), (-32768, 32768)):
+            _, _, _, edge = width_fixture(
+                root / "unused-edge",
+                target,
+                64,
+                lower=lower,
+                upper=upper,
+                checked=checked,
+            )
+            edge_requests = tuple(
+                a.IntegerWidthRequest(f.field, 16) for f in edge.fields
+            )
+            if (lower, upper) == (-32768, 32767):
+                edge_batch = a.build_owned_batch(
+                    a.bind_arrow(edge, integer_widths=edge_requests),
+                    [[-32768, None], [32767, 0]],
+                )
+                edges.append(
+                    {
+                        "types": [str(f.type) for f in edge_batch.schema],
+                        "columns": [col.to_pylist() for col in edge_batch.columns],
+                    }
+                )
+            else:
+                edges.append(
+                    refused(lambda: a.bind_arrow(edge, integer_widths=edge_requests))
+                )
+        r0, r1 = (a.IntegerWidthRequest(f.field, 64) for f in producer.fields)
+        adaptation[target] = {
+            "edges": edges,
+            "types": [str(f.type) for f in selected_batch.schema],
+            "default_types": [str(f.type) for f in original_batch.schema],
+            "columns": [col.to_pylist() for col in selected_batch.columns],
+            "default_columns": [col.to_pylist() for col in original_batch.columns],
+            "refusals": [
+                refused(lambda req=req: a.bind_arrow(producer, integer_widths=req))
+                for req in (
+                    (r0, r0),
+                    (r1, r0),
+                    (object(), None),
+                    invalid,
+                    foreign,
+                    (),
+                    [],
+                    (a.IntegerWidthRequest(producer.fields[0].field, True), None),
+                    (a.IntegerWidthRequest(producer.fields[0].field, 8), None),
+                )
+            ],
+            "empty_small_independent": [
+                refused(
+                    lambda rows=rows: a.build_owned_batch(
+                        a.bind_arrow(producer, integer_widths=invalid), rows
+                    )
+                )
+                for rows in ([], [[0, None]])
+            ],
+        }
+        checked, artifact, contract, producer = scalar_fixture(
+            root / f"mixed-{target}", target
+        )
+        arrow = a.bind_arrow(producer)
+        rows = scalar_rows(target)
+        owned = a.build_owned_batch(arrow, rows)
+        snapshot = scalar_snapshot(owned)
+        scalar_value_oracle(snapshot)
+        rows[0][:] = [0] * 6
+        rows.clear()
+        assert _exact(scalar_snapshot(owned), snapshot)
+        mixed[target] = snapshot
+        integer_bad = (True, 1.0, Decimal(1), "1", CoercibleScalar())
+        bool_bad = (
+            (0, 1, 2, -1, 0.0, "1", object())
+            if target == "postgres"
+            else (False, True, 2, -1, 0.0, "1", object())
+        )
+        bool_bad = (*bool_bad, CoercibleScalar())
+        float_bad = (
+            0,
+            True,
+            Decimal("0.125"),
+            "0.125",
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+            CoercibleScalar(),
+        )
+        negatives[target] = {}
+        for kind, position, bad in (
+            ("Int", 0, integer_bad),
+            ("Bool", 2, bool_bad),
+            ("Float", 4, float_bad),
+        ):
+            outcomes = []
+            for value in bad:
+                row = scalar_rows(target)[0]
+                row[position] = value
+                outcomes.append(
+                    refused(lambda row=row: a.build_owned_batch(arrow, [row]))
+                )
+            row = scalar_rows(target)[0]
+            row[position] = None
+            outcomes.append(refused(lambda row=row: a.build_owned_batch(arrow, [row])))
+            negatives[target][kind] = outcomes
+        empty = a.build_owned_batch(arrow, [])
+        _, _, _, nullable_producer = scalar_fixture(
+            root / f"nulls-{target}", target, all_nullable=True
+        )
+        nulls = a.build_owned_batch(
+            a.bind_arrow(nullable_producer), [[None] * 6, [None] * 6]
+        )
+        corrupt = []
+        for index in (0, 2, 4):
+            arrays = list(owned.columns)
+            arrays[index] = pa.array([None] * 7, type=arrow.schema[index].type)
+            bad = pa.RecordBatch.from_arrays(arrays, schema=arrow.schema)
+            corrupt.append(
+                refused(lambda bad=bad: a.verify_batch(bad, arrow, producer))
+            )
+        for value in (float("nan"), float("inf"), float("-inf")):
+            arrays = list(owned.columns)
+            arrays[4] = pa.array([value] * 7, type=pa.float64(), from_pandas=False)
+            bad = pa.RecordBatch.from_arrays(arrays, schema=arrow.schema)
+            corrupt.append(
+                refused(lambda bad=bad: a.verify_batch(bad, arrow, producer))
+            )
+        wrong_schema = pa.RecordBatch.from_arrays(
+            [pa.array([0], type=pa.int64())] * 6, names=list(SCALAR_LABELS)
+        )
+        corrupt.append(refused(lambda: a.verify_batch(wrong_schema, arrow, producer)))
+        retained = owned.slice(0, 1)
+        corrupt.append(
+            refused(
+                lambda: a.verify_batch(
+                    retained, arrow, producer, limits=a.BatchLimits(bytes=60)
+                )
+            )
+        )
+        arrays = list(owned.columns)
+        floats = arrays[4].to_pylist()
+        floats[1] = 0.0
+        arrays[4] = pa.array(floats, type=pa.float64())
+        sign_flip = pa.RecordBatch.from_arrays(arrays, schema=arrow.schema)
+        a.verify_batch(sign_flip, arrow, producer)
+        try:
+            scalar_value_oracle(scalar_snapshot(sign_flip))
+        except ValueError:
+            sign_sensitive = "VALUE_CORRESPONDENCE"
+        else:
+            raise AssertionError("sign-flip value oracle did not discriminate")
+        batches[target] = {
+            "empty": scalar_snapshot(empty),
+            "all_null": scalar_snapshot(nulls),
+            "corruption": corrupt,
+            "sign_flip": {"domain": "PASS", "value": sign_sensitive},
+            "limits": [
+                refused(
+                    lambda limit=limit: a.build_owned_batch(
+                        arrow, [scalar_rows(target)[0]], limits=limit
+                    )
+                )
+                for limit in (
+                    a.BatchLimits(fields=5),
+                    a.BatchLimits(rows=0),
+                    a.BatchLimits(bytes=53),
+                )
+            ],
+        }
+        bad_obs = replace(
+            producer.fields[0].observation, storage=width_storage(target, 16)
+        )
+        damaged = replace(
+            producer,
+            fields=(
+                replace(producer.fields[0], observation=bad_obs),
+                *producer.fields[1:],
+            ),
+        )
+        matching_schema = pa.schema(
+            [
+                pa.field(f.name, pa.int16() if i == 0 else f.type, nullable=f.nullable)
+                for i, f in enumerate(arrow.schema)
+            ]
+        )
+        coordinated = a.ArrowResultBinding(damaged, matching_schema)
+        malformed = [
+            refused(lambda fs=fs: a.bind_arrow(replace(producer, fields=fs)))
+            for fs in (
+                producer.fields[:-1],
+                producer.fields[::-1],
+                (producer.fields[0],) * 6,
+            )
+        ]
+        malformed.append(refused(lambda: a.verify_arrow_binding(coordinated, damaged)))
+        for index, updates in (
+            (2, {"domain": "int_range"}),
+            (2, {"carrier": "int"}),
+            (4, {"domain": "bool01"}),
+            (4, {"lower": 0}),
+        ):
+            observations_ = [f.observation for f in producer.fields]
+            observations_[index] = replace(observations_[index], **updates)
+            malformed.append(
+                refused(
+                    lambda obs=tuple(observations_): p.bind_producer(
+                        contract, artifact, obs
+                    )
+                )
+            )
+        malformed.append(
+            refused(
+                lambda: a.bind_arrow(
+                    producer,
+                    integer_widths=(
+                        None,
+                        None,
+                        a.IntegerWidthRequest(producer.fields[2].field, 16),
+                        None,
+                        None,
+                        None,
+                    ),
+                )
+            )
+        )
+        identities[target] = malformed
+        exported = export_result_contract(contract, checked)
+        verify_bound_export(exported, checked)
+        assert (
+            pure.encode_document(
+                pure.decode_contract(exported.canonical_bytes).document
+            )
+            == exported.canonical_bytes
+        )
+        documents[target] = exported.canonical_bytes.decode()
+    assert pure_child(documents) == {
+        target: list(SCALAR_LABELS) for target in documents
+    }
+    return dict(
+        integer_widths=widths,
+        integer_adaptation=adaptation,
+        scalar_mixed=mixed,
+        scalar_refusals=negatives,
+        scalar_batches=batches,
+        scalar_identity=identities,
+        scalar_codec=documents,
+    )
+
+
+def verify_scalar_report(cases):
+    from pietto._project import project_result_contract_pure_boundary as pure
+
+    try:
+        for key in (
+            "integer_adaptation",
+            "scalar_mixed",
+            "scalar_refusals",
+            "scalar_batches",
+            "scalar_identity",
+            "scalar_codec",
+        ):
+            if set(cases[key]) != {"postgres", "mysql"}:
+                raise ValueError("scalar target denominator")
+        if set(cases["integer_widths"]) != {
+            f"{t}/{w}" for t in ("postgres", "mysql") for w in (16, 32, 64)
+        }:
+            raise ValueError("integer width denominator")
+        for target in ("postgres", "mysql"):
+            for bits in (16, 32, 64):
+                low, high = -(1 << (bits - 1)), (1 << (bits - 1)) - 1
+                columns = [[low, high, 0, -1, low], [None, low, high, 0, None]]
+                expected = {
+                    "types": [f"int{bits}"] * 2,
+                    "wide_types": ["int64"] * 2,
+                    "columns": columns,
+                    "wide_columns": columns,
+                    "outside": "VALUE_DOMAIN",
+                }
+                if not _exact(cases["integer_widths"][f"{target}/{bits}"], expected):
+                    raise ValueError("integer width/value evidence")
+            columns = [[-100, 100, 0], [None, -100, 100]]
+            expected = {
+                "types": ["int16"] * 2,
+                "default_types": ["int64"] * 2,
+                "columns": columns,
+                "default_columns": columns,
+                "refusals": ["ARROW_ADAPTATION"] * 9,
+                "edges": [
+                    {
+                        "types": ["int16", "int16"],
+                        "columns": [[-32768, 32767], [None, 0]],
+                    },
+                    "ARROW_ADAPTATION",
+                    "ARROW_ADAPTATION",
+                ],
+                "empty_small_independent": ["ARROW_ADAPTATION"] * 2,
+            }
+            if not _exact(cases["integer_adaptation"][target], expected):
+                raise ValueError("domain-total adaptation evidence")
+            scalar_value_oracle(cases["scalar_mixed"][target])
+            if not _exact(
+                cases["scalar_refusals"][target],
+                {
+                    "Int": ["VALUE_DOMAIN"] * 5 + ["NULL"],
+                    "Bool": ["VALUE_DOMAIN"] * 8 + ["NULL"],
+                    "Float": ["VALUE_DOMAIN"] * 8 + ["NULL"],
+                },
+            ):
+                raise ValueError("exact scalar carrier evidence")
+            empty = {
+                "types": ["int64", "int64", "bool", "bool", "double", "double"],
+                "labels": list(SCALAR_LABELS),
+                "nullable": [False, True, False, True, False, True],
+                "columns": [[] for _ in range(6)],
+            }
+            nulls = {
+                **empty,
+                "nullable": [True] * 6,
+                "columns": [[None, None] for _ in range(6)],
+            }
+            expected = {
+                "empty": empty,
+                "all_null": nulls,
+                "corruption": ["NULL"] * 3
+                + ["VALUE_DOMAIN"] * 3
+                + ["ARROW_SCHEMA", "LIMIT"],
+                "sign_flip": {"domain": "PASS", "value": "VALUE_CORRESPONDENCE"},
+                "limits": ["LIMIT"] * 3,
+            }
+            if not _exact(cases["scalar_batches"][target], expected):
+                raise ValueError("scalar batch/ownership/resource evidence")
+            if cases["scalar_identity"][target] != [
+                "PRODUCER_ROOT",
+                "PRODUCER_FIELDS",
+                "PRODUCER_FIELDS",
+            ] + ["PRODUCER_OBSERVATION"] * 5 + ["ARROW_ADAPTATION"]:
+                raise ValueError("scalar binding identity evidence")
+            view = pure.decode_contract(cases["scalar_codec"][target].encode())
+            document = view.document
+            if (
+                [f["label"] for f in document["fields"]] != list(SCALAR_LABELS)
+                or [f["canonical"] for f in document["fields"]]
+                != [
+                    {"kind": "builtin", "name": tag, "symbol": None}
+                    for tag in ("Int", "Int", "Bool", "Bool", "Float", "Float")
+                ]
+                or [f["nullability"] for f in document["fields"]]
+                != ["non_null", "nullable"] * 3
+            ):
+                raise ValueError("scalar neutral descriptor evidence")
+    except (KeyError, TypeError, AttributeError, pure.ContractDocumentError) as exc:
+        raise ValueError("scalar report evidence") from exc
 
 
 CONTRACT_CORPUS = ("postgres", "mysql", "descriptors", "imported")
@@ -1011,6 +1643,7 @@ def verify_report(value, context, inputs):
     if any(not _exact(cases[k], v) for k, v in expected.items()):
         raise ValueError("product negative/ownership evidence")
     verify_contract_report(cases)
+    verify_scalar_report(cases)
     origins = value["origins"]
     prefix = Path(value["prefix"])
     required = {"pietto._project." + name for name in PRODUCTS} | {
@@ -1157,7 +1790,9 @@ def compare_product_reports(paths, repository, contexts):
             raise ValueError("product comparison context")
         verify_report(value, context, input_closure(repository))
         reject_report_damage(value, context, input_closure(repository))
-        documents.append(value["cases"]["contract_documents"])
+        documents.append(
+            (value["cases"]["contract_documents"], value["cases"]["scalar_codec"])
+        )
     if documents[0] != documents[1]:
         raise ValueError("cross-runtime complete canonical bytes differ")
     print("verified complete canonical document bytes across Python 3.12/3.13")
@@ -1166,6 +1801,19 @@ def compare_product_reports(paths, repository, contexts):
 def reject_report_damage(value, context, inputs):
     """Mutate actual saved-data observations, never fake an Arrow success."""
     mutations = (
+        lambda v: v["cases"].pop("integer_widths"),
+        lambda v: v["cases"]["integer_widths"].pop("mysql/16"),
+        lambda v: v["cases"]["integer_adaptation"]["postgres"]["refusals"].__setitem__(
+            0, "PASS"
+        ),
+        lambda v: v["cases"]["scalar_mixed"]["mysql"]["columns"][2].__setitem__(0, 0),
+        lambda v: v["cases"]["scalar_mixed"]["postgres"]["columns"][4].__setitem__(
+            1, "0000000000000000"
+        ),
+        lambda v: v["cases"]["scalar_batches"]["mysql"]["sign_flip"].update(
+            value="PASS"
+        ),
+        lambda v: v["cases"]["scalar_codec"].pop("postgres"),
         lambda v: v["context"].update(checkout="0" * 40),
         lambda v: v["context"].update(run_attempt=True),
         lambda v: v["context"].update(python="0.0"),
@@ -1292,7 +1940,7 @@ def main():
     }
     verify_report(value, context, input_closure(repository))
     rejected = reject_report_damage(value, context, input_closure(repository))
-    assert rejected == 21
+    assert rejected == 28
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with args.report.open("x") as stream:
         json.dump(value, stream, sort_keys=True, allow_nan=False)

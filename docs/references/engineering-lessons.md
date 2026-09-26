@@ -20,3 +20,5 @@ Slice02 消费 J02–J06：contract/producer/Arrow 三层分别保留权威；�
 也改变 native input closure，旧 receipt 不能证明当前候选。SDK readiness 与产品消费证据必须各自保留。
 
 Slice03：freeze前必须按真实新增production/test文件逐项检查直接inventory readers；本次漏项触发有效HOLD，续行仅批准一个reader。中立description应保留provenance路径分组及ORDER引用，不能flatten后以共同遗漏的roundtrip自证。既有required product路径足够时不增加重复workflow下载。具体一个Enum程序的上游拒绝不能推广为全类型结论。
+
+Slice04消费S03教训：freeze前逐项核对inventory/lifecycle/probe readers，使用既有required product链；Float signed-zero需要独立bits/value witness，schema/domain不能认证payload历史。native证据先准备普通独立文件及精确pair-only布局再计数运行strict checker。

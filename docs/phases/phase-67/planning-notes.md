@@ -73,3 +73,11 @@ Q1 确认三层接受和 finite witness manifest 可执行，全部属于已有�
 
 原16路径freeze及HOLD保留；续行只批准typing-inventory reader，扩为17条allowlist，A≤5/D0。三新增production modules与一个principal逐项解释228/499，保持exact equality。删除agent-owned冗余workflow wiring后workflow与baseline相同；完整bytes比较仍由本地及下载CI reports后执行。
 Q1维持P67-A01/A05/A15与单一scalar authority；Q2及最终审查/验证事实绑定外部review/seal，不能由bytes相同代替live identity，也不把一个不可用Enum程序泛化为全部Enum支持。
+
+## Slice04 Q1
+
+已按既有16行route冻结15路径A2/M13/D0，两个result owners扩展；六个target/width组合的Int/Bool/Float真实source及codec前提已验证。D67.13/14在产品编辑前记录显式domain-total适配与physical carrier。typing reader按228/500完整inventory更新；不增加workflow接线、codec schema或upstream solver。
+
+## Slice04 Q2 / final gate约束
+
+两owner实现与完整manifest经过一次主作者/Ponytail review；R1精确damage reader和R2边界见证合并修正。后续只做一次targeted follow-up、浅depth reader检查、一次最终3.13 equivalent与原授权publication/raw-evidence闭合。支撑集及15路径不扩，S05保持未开始；实际Q2/seal及所有失败/累计预算见外部记录。

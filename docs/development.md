@@ -389,3 +389,7 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 [Slice03](phases/phase-67/slice-03.md) 增加三private owners：stdlib-only pure boundary、checked exporter、独立runtime correspondence。原两compiler/package jobs及completion沿用现有required product report；不得把pure PASS、metadata或canonical bytes当作producer binding authority。比较两runtime的完整documents，排除外部evidence envelope；native inputs随新模块改变，必须消费fresh自然CI receipts。
 
 每个后续Slice在原外部ledger旁记录轻量JSONL步骤及中文成本摘要：meaningful step的start/end/recovered/note，workflow/step/parent、起止/monotonic elapsed、timing basis、purpose、sanitized action、outcome/reason/retry、evidence refs、budget categories。长命令启动前写start，结束后写同step end；ledger仍唯一计数权威，raw logs留外部。报告区分Slice观察窗口、命令时间、HOLD/user wait、CI wall与runner sum，parent/child不重复相加；缺失时间明确unknown。终态附evidence-linked步骤/成本摘要和下一Slice至多三条改进建议，历史缺口不否定正确执行的product gates，不自动增加benchmark、豁免或scope。
+
+## Slice04 scalar result检查
+
+[Slice04](phases/phase-67/slice-04.md) 沿用同一private consumer，默认Arrow保留signed producer width，显式request按完整int_range判断无损；Bool行carrier与logical batch不同，finite Float64按IEEE bits验证signed zero。原23product与9SDK案例独立保留，新案例通过同一report/damage/input-origin链；core仍Arrow-free，codec格式及batch limits保持。native普通文件准备统一预检，不重跑已绿gates改善计时。

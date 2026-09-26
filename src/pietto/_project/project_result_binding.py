@@ -1,4 +1,4 @@
-"""Producer observations are checked against exact upstream Int realizations."""
+"""Producer observations are checked against exact upstream scalar realizations."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from pietto._project.project_result_contract import (
 )
 from pietto._project.project_sql_emission_ast import SQLColumn, SQLSelect
 from pietto._project.project_sql_emission_inspection import inspect_project_sql_emission
-from pietto._project.project_sql_emission_rows import field_realization
+from pietto._project.project_sql_emission_rows import field_realization, signed_range
 
 __all__: tuple[str, ...] = ()
 
@@ -25,10 +25,12 @@ class ProducerObservation:
     label: str
     family: str
     storage: str
-    lower: int
-    upper: int
+    lower: int | None = None
+    upper: int | None = None
     # Protocol metadata can be unknown; it is not logical NULL authority.
     protocol_nullable: bool | None = None
+    domain: str = "int_range"
+    carrier: str = "int"
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -86,7 +88,18 @@ def verify_producer_binding(binding, contract, artifact) -> None:
     ):
         raise ResultError("PRODUCER_ROOT")
     family = artifact.request.family
-    storage = {"postgres": "pg_int8", "mysql": "my_bigint"}.get(family)
+    storages = {
+        "postgres": {
+            "Int": ("pg_int2", "pg_int4", "pg_int8"),
+            "Bool": ("pg_bool",),
+            "Float": ("pg_float8",),
+        },
+        "mysql": {
+            "Int": ("my_smallint", "my_int", "my_bigint"),
+            "Bool": ("my_bool01",),
+            "Float": ("my_double",),
+        },
+    }.get(family, {})
     for ordinal, (bound, leaf, column) in enumerate(
         zip(binding.fields, contract.shape.fields, columns, strict=True)
     ):
@@ -102,12 +115,12 @@ def verify_producer_binding(binding, contract, artifact) -> None:
         realized = field_realization(column.source_field)
         if (
             realized is None
-            or realized.tag != "Int"
+            or realized.tag not in storages
             or leaf.shape.canonical.kind is not ProjectResolvedTypeKind.BUILTIN
-            or leaf.shape.canonical.name != "Int"
-            or realized.storage != {"kind": storage}
+            or leaf.shape.canonical.name != realized.tag
+            or realized.storage.get("kind") not in storages[realized.tag]
+            or set(realized.storage) != {"kind"}
             or type(realized.nullable) is not bool
-            or realized.domain.get("kind") != "int_range"
             or leaf.nullability
             not in (
                 ProjectRowFieldNullability.NULLABLE,
@@ -116,19 +129,54 @@ def verify_producer_binding(binding, contract, artifact) -> None:
         ):
             raise ResultError("PRODUCER_UNSUPPORTED")
         nullable = leaf.nullability is ProjectRowFieldNullability.NULLABLE
-        lower, upper = int(realized.domain["min"]), int(realized.domain["max"])
-        if not -(2**63) <= lower <= upper < 2**63 or realized.nullable is not nullable:
+        storage = realized.storage["kind"]
+        lower = upper = None
+        if realized.tag == "Int":
+            if (
+                set(realized.domain) != {"kind", "min", "max"}
+                or realized.domain["kind"] != "int_range"
+            ):
+                raise ResultError("PRODUCER_DOMAIN")
+            lower, upper = int(realized.domain["min"]), int(realized.domain["max"])
+            bounds = signed_range(realized.storage)
+            if bounds is None or not bounds[0] <= lower <= upper <= bounds[1]:
+                raise ResultError("PRODUCER_DOMAIN")
+            domain, carrier = "int_range", "int"
+        elif realized.tag == "Bool":
+            if realized.domain != {"kind": "bool01"}:
+                raise ResultError("PRODUCER_DOMAIN")
+            domain, carrier = "bool01", "bool" if family == "postgres" else "int01"
+        else:
+            if realized.domain != {"kind": "finite_float", "format": "binary64"}:
+                raise ResultError("PRODUCER_DOMAIN")
+            domain, carrier = "finite_float", "float"
+        if realized.nullable is not nullable:
             raise ResultError("PRODUCER_DOMAIN")
         obs = bound.observation
         if (
             type(obs) is not ProducerObservation
             or type(obs.ordinal) is not int
             or obs.ordinal != ordinal
+            or type(obs.label) is not str
             or obs.label != leaf.label
+            or type(obs.family) is not str
             or obs.family != family
+            or type(obs.storage) is not str
             or obs.storage != storage
-            or type(obs.lower) is not int
-            or type(obs.upper) is not int
+            or type(obs.domain) is not str
+            or obs.domain != domain
+            or type(obs.carrier) is not str
+            or obs.carrier != carrier
+            or (
+                type(obs.lower) is not int
+                if lower is not None
+                else obs.lower is not None
+            )
+            or (
+                type(obs.upper) is not int
+                if upper is not None
+                else obs.upper is not None
+            )
             or (obs.lower, obs.upper) != (lower, upper)
             or type(bound.nullable) is not bool
             or bound.nullable is not nullable
