@@ -465,6 +465,12 @@ def _value(value, bound, *, logical=False):
 
 
 def build_owned_batch(binding: ArrowResultBinding, rows, *, limits=BatchLimits()):
+    return _build_owned_batch_with_usage(binding, rows, limits=limits)[0]
+
+
+def _build_owned_batch_with_usage(
+    binding: ArrowResultBinding, rows, *, limits=BatchLimits()
+):
     if type(binding) is not ArrowResultBinding:
         raise ResultError("ARROW_BINDING")
     verify_arrow_binding(binding, binding.producer)
@@ -499,8 +505,8 @@ def build_owned_batch(binding: ArrowResultBinding, rows, *, limits=BatchLimits()
         for i in range(len(fields))
     ]
     batch = pa.RecordBatch.from_arrays(arrays, schema=binding.schema)
-    verify_batch(batch, binding, binding.producer, limits=limits)
-    return batch
+    usage = _checked_batch_usage(batch, binding, binding.producer, limits=limits)
+    return batch, usage
 
 
 def _verify_schema(schema, binding) -> None:

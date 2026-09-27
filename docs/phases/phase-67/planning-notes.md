@@ -121,3 +121,7 @@ Q1冻结14路径/新增2，读过Arrow全owner、producer精确labels、真实fi
 ## Slice09 Q2
 
 收敛范围与批准的conditional completion一致，Q2消费一次author/Ponytail finding集及单批修复；后续仅定向复核、depth-one、一次完整3.13 equivalent、普通commit/FF push与自然CI/raw/native。preserved original observations与原extent不能被receipt/counter共同改写替代；normal EOF后cleanup控制异常保留其单一身份。S10及其余owner仍未开始。
+
+## Slice10 Q1/Q2
+
+按ACTIVE dispatch展开[唯一S10合同](slice-10.md)，两runtime premise先证capsules/owner pin/close传播，再冻结17路径。原22中立文档和S09条件完成保持；实际Q2、一次author/Ponytail finding集、复核与publication/raw闭合由外部ledger绑定，不重做Phase启动或midpoint。

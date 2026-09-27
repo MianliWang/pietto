@@ -340,8 +340,9 @@ EXPECTED_STATUS = (
     ("Phase 67 Slice 07", "`COMPLETED / PUBLISHED`"),
     ("Phase 67 Slice 08", "`COMPLETED / PUBLISHED`"),
     ("Phase 67 Slice 09", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 10", "`NEXT / NOT STARTED`"),
-    ("Phase 67 Slices 11–16", "`NOT STARTED`"),
+    ("Phase 67 Slice 10", "`COMPLETED / PUBLISHED`"),
+    ("Phase 67 Slice 11", "`NEXT / NOT STARTED`"),
+    ("Phase 67 Slices 12–16", "`NOT STARTED`"),
     ("Interlude V", "`COMPLETED`"),
     ("Interlude V route", "`N=3`"),
     ("Interlude V Slice 1", "`COMPLETED / PUBLISHED`"),
@@ -349,7 +350,7 @@ EXPECTED_STATUS = (
     ("Interlude V S2 performance outcome", "`MEASURED_GAIN`"),
     ("Interlude V Slice 3", "`COMPLETED / PUBLISHED`"),
     ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
-    ("Next", "`Phase67 Slice10 under a separate dispatch`"),
+    ("Next", "`Phase67 Slice11 under a separate dispatch`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
@@ -1477,7 +1478,7 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "tests/test_active_phase_lifecycle.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
-EXPECTED_CURRENT_OWNER_SENTENCE = "Phase67 is `ACTIVE`, N67=16; Slices01–09 connect checked finite scalars and bounded pull readers whose normal completion is relative to an explicit caller-declared extent."
+EXPECTED_CURRENT_OWNER_SENTENCE = "Phase67 is `ACTIVE`, N67=16; Slices01–10 connect finite checked results with explicit buffer ownership and CPU Arrow C Data/C Stream consumers."
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
     "tests/_pietto_differential_process_acquisition.py",
@@ -6101,7 +6102,7 @@ def test_phase66_slice16_completion_and_accepted_phase67_plan_are_conditional() 
     assert (STATUS.parent / target).is_file()
 
 
-def test_phase67_slice09_keeps_the_next_ownership_slice_unstarted() -> None:
+def test_phase67_slice10_keeps_the_next_ingress_slice_unstarted() -> None:
     for path in (STATUS, ROADMAP):
         document = _read(path)
         current = document.split("## Phase67 当前路线", 1)[1].split(
@@ -6113,8 +6114,8 @@ def test_phase67_slice09_keeps_the_next_ownership_slice_unstarted() -> None:
         )
         assert "N67=16" in current and "全部15jobs" in current
         assert (
-            "Slice10 `NEXT / NOT STARTED`" in current
-            and "Slices11–16 `NOT STARTED`" in current
+            "Slice11 `NEXT / NOT STARTED`" in current
+            and "Slices12–16 `NOT STARTED`" in current
         )
-        assert "phases/phase-67/slice-09.md" in current
+        assert "phases/phase-67/slice-10.md" in current
         assert "Slice01不引入公开arrow extra" in current

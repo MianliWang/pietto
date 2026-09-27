@@ -413,3 +413,7 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 ## Slice09 bounded finite reader验证
 
 [Slice09](phases/phase-67/slice-09.md) 复用S08 fixtures和单一scalar checker，usage由同一次validated traversal返回；verify_batch原返回None行为保持。required product精确74groups/72damage controls，9SDK组及22份neutral完整documents不变，新增reader模块由实际installed origins/input closure消费。source失败使用真实from_batches iterable；稀有close/StopIteration/控制流异常明确标为test injection。初组就覆盖unknown/short/extra、empty≠EOF、late error及cleanup；actual doc scanners/current reader/typing inventory在full前执行。四分区、自然15jobs及fresh native receipts仍必需，native package-members新增reader路径不豁免33MiB限制。
+
+## Slice10 CPU协议验证
+
+[S10](phases/phase-67/slice-10.md) 将required product扩为84groups/82实质damage controls，保留9SDK和22全文。真实consumer与wrapper计数/注入控制分别标明；native输入closure随interop模块刷新。自然CI观察允许foreground串行预取已上传raw，最终required inventory/context/bytes与三个data-only native strict仍完整执行，提前下载不证明成功。

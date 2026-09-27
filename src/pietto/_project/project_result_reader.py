@@ -127,6 +127,30 @@ def _policy_snapshot(binding):
     )
 
 
+def _verify_binding_snapshot(binding, roots, schema, policies):
+    try:
+        if binding.schema is not schema or any(
+            a is not b for a, b in zip(_roots(binding), roots, strict=True)
+        ):
+            raise ResultError("READER_IDENTITY")
+        for name, requests, captured, attribute in policies:
+            if getattr(binding, name) is not requests:
+                raise ResultError("READER_IDENTITY")
+            for item in captured:
+                if item is not None:
+                    request, field_, value = item
+                    actual = getattr(request, attribute)
+                    if (
+                        request.field is not field_
+                        or type(actual) is not type(value)
+                        or actual != value
+                    ):
+                        raise ResultError("READER_IDENTITY")
+        arrow.verify_arrow_binding(binding, binding.producer)
+    except (AttributeError, TypeError, IndexError) as exc:
+        raise ResultError("READER_IDENTITY") from exc
+
+
 def _read_source(source):
     return source.read_next_batch()
 
@@ -187,6 +211,7 @@ class CheckedFiniteReader:
         )
         # Acceptance: all checks above leave an unsuccessful source with its caller.
         self._source = source
+        self._consumer = None
         self._state = "OPEN"
         self._observations: tuple[tuple[int, ...], ...] = ()
         self._rows = self._charge = self._pulls = 0
@@ -271,28 +296,13 @@ class CheckedFiniteReader:
                 or expected.expected_rows != rows
                 or expected.limits is not limits
                 or _limits_values(limits) != values
-                or binding.schema is not schema
-                or any(a is not b for a, b in zip(_roots(binding), roots, strict=True))
                 or (
                     self._state == "OPEN"
                     and (self._source is None or self._source is not source())
                 )
             ):
                 raise ResultError("READER_IDENTITY")
-            for name, requests, captured, attribute in policies:
-                if getattr(binding, name) is not requests:
-                    raise ResultError("READER_IDENTITY")
-                for item in captured:
-                    if item is not None:
-                        request, field_, value = item
-                        actual = getattr(request, attribute)
-                        if (
-                            request.field is not field_
-                            or type(actual) is not type(value)
-                            or actual != value
-                        ):
-                            raise ResultError("READER_IDENTITY")
-            arrow.verify_arrow_binding(binding, binding.producer)
+            _verify_binding_snapshot(binding, roots, schema, policies)
         except (AttributeError, TypeError, IndexError) as exc:
             raise ResultError("READER_IDENTITY") from exc
 
@@ -360,7 +370,19 @@ class CheckedFiniteReader:
             self._fail(exc, "READER_VALIDATION")
         raise StopIteration
 
+    def _claim(self):
+        self._ensure_identity()
+        if self._state != "OPEN" or self._pulls != 0 or self._consumer is not None:
+            raise ResultError("READER_CLAIMED")
+        self._consumer = object()
+        return self._consumer
+
     def read_next_batch(self):
+        return self._pull(None)
+
+    def _pull(self, consumer):
+        if self._consumer is not None and consumer is not self._consumer:
+            raise ResultError("READER_CLAIMED")
         if self._state == "COMPLETE":
             self.completion
             raise StopIteration

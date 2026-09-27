@@ -42,3 +42,6 @@ Timestamp/UUID显式private meaning已由Slice07取得upstream witnesses；默�
 | D67.24 | 显式caller extent绑定exact fresh/exclusive source、binding和session；normal EOF、exact rows、successful close共同允许completion | S09三项选择已明确批准；不认证调用方/原值/DB完整性，不要求未来executor预先COUNT |
 | D67.25 | 同步checked pull保留每个batch/empty，count equality不是EOF，early close incomplete，late/read/cleanup失败终态无receipt | S09；返回supplied carrier不升级ownership；S10/S11/S12及Phase68各留原职责 |
 | D67.26 | 保留batch/codec/label上限；新增1024批/1048576行/64MiB sum(max(logical,referenced))，重复引用/empty计费，max_batches+1次source pull | S09；caller-only tightening，不能限定单次upstream分配/阻塞，无timeout或backpressure承诺 |
+
+| D67.27 | buffer copy/borrow与C handle transfer是独立维度；默认真实buffer copy，显式BorrowLease经Python buffer exporter pin原owner至所有consumer释放 | S10 ACTIVE dispatch；holding owner不阻止alias mutation，实际机制/边界见[S10](phases/phase-67/slice-10.md) |
+| D67.28 | C schema请求仅None/exact equivalent，无cast；fresh S09 reader授予一个managed stream consumer，显式interop session负责确定性cleanup | S10两runtime premise证实SDK close不执行generator finally；source completion与downstream error分列 |

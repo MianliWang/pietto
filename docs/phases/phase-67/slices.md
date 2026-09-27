@@ -1,6 +1,6 @@
 # Phase67 路线：N67=16
 
-当前只展开已授权 [Slice09](slice-09.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
+当前只展开已授权 [Slice10](slice-10.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
 
 | Slice | 目标／acceptance链接 | 依赖／类型 |
 | --- | --- | --- |
@@ -13,7 +13,7 @@
 | 07 | [Timestamp/UUID与显式upstream meaning](slice-07.md)（P67-A02–A04/A06–A07；[验收](brief.md#三层完成验收与回归)） | 04 + 01 decisions |
 | 08 | [empty/all-null/duplicate-label carrier及完整finite-type integration；midpoint](slice-08.md)（P67-A02/A06/A08；[验收](brief.md#三层完成验收与回归)） | 04–07 |
 | 09 | [bounded finite reader/finalization、rechunk、BAG/order](slice-09.md)（P67-A09–A10/A15；[验收](brief.md#三层完成验收与回归)） | 08 |
-| 10 | ownership/copy/borrow、CPU、C Data/C stream/PyCapsule（P67-A07/A11/A13/A15；[验收](brief.md#三层完成验收与回归)） | 09 |
+| 10 | [ownership/copy/borrow、CPU、C Data/C stream/PyCapsule](slice-10.md)（P67-A07/A11/A13/A15；[验收](brief.md#三层完成验收与回归)） | 09 |
 | 11 | row与Arrow-native ingress correspondence（P67-A09/A12/A15；[验收](brief.md#三层完成验收与回归)） | 09–10 |
 | 12 | bounded private IPC、truncation/completion、metadata（P67-A07/A10/A14/A15；[验收](brief.md#三层完成验收与回归)） | 09–11 |
 | 13 | 公开可安装optional extra与wheel isolation（P67-A16；[验收](brief.md#三层完成验收与回归)） | 02–12；消费Slice01实验，不重复实验campaign |

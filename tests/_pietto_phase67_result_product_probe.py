@@ -30,6 +30,7 @@ PRODUCTS = (
     "project_result_contract_correspondence",
     "project_scalar_meaning",
     "project_result_reader",
+    "project_arrow_interop",
 )
 CASES = (
     "postgres",
@@ -106,6 +107,16 @@ CASES = (
     "reader_identity",
     "reader_correspondence",
     "reader_incremental",
+    "ownership_copy",
+    "ownership_borrow",
+    "ownership_transfer",
+    "c_schema_array",
+    "c_schema_requests",
+    "c_stream_values",
+    "c_stream_terminal",
+    "c_protocol_lifetime",
+    "cpu_protocol_resources",
+    "interop_correspondence",
 )
 
 
@@ -463,6 +474,7 @@ def run_cases(root):
     results.update(run_temporal_cases(root))
     results.update(run_finite_cases(root))
     results.update(run_reader_cases(root))
+    results.update(run_interop_cases(root))
     assert set(results) == set(CASES)
     return results
 
@@ -6990,6 +7002,1113 @@ def verify_reader_report(cases):
         raise ValueError("reader observed report evidence") from exc
 
 
+INTEROP_GROUPS = (
+    "ownership_copy",
+    "ownership_borrow",
+    "ownership_transfer",
+    "c_schema_array",
+    "c_schema_requests",
+    "c_stream_values",
+    "c_stream_terminal",
+    "c_protocol_lifetime",
+    "cpu_protocol_resources",
+    "interop_correspondence",
+)
+
+
+class InteropOwner:
+    def __init__(self):
+        self.buffers: dict[tuple[int, int], bytearray] = {}
+
+
+def mutable_finite(batch):
+    pa = importlib.import_module("pyarrow")
+    owner = InteropOwner()
+    columns = []
+    for i, column in enumerate(batch.columns):
+        extension = type(column.type) is type(pa.uuid())
+        storage = column.storage if extension else column
+        buffers = []
+        for j, buffer in enumerate(storage.buffers()):
+            if buffer is None:
+                buffers.append(None)
+            else:
+                backing = bytearray(memoryview(buffer))
+                owner.buffers[i, j] = backing
+                buffers.append(pa.py_buffer(backing))
+        array_ = pa.Array.from_buffers(
+            storage.type, len(storage), buffers, offset=storage.offset, null_count=-1
+        )
+        columns.append(
+            pa.ExtensionArray.from_storage(column.type, array_) if extension else array_
+        )
+    return pa.RecordBatch.from_arrays(columns, schema=batch.schema), owner
+
+
+def mutate_finite(owner):
+    for i, value, width in (
+        (0, 17, 2),
+        (1, 333, 4),
+        (2, BIG + 2, 8),
+        (7, 4321, 16),
+        (8, 17, 32),
+        (9, 1, 8),
+        (12, -9, 2),
+    ):
+        owner.buffers[i, 1][:width] = value.to_bytes(width, "little", signed=True)
+    owner.buffers[1, 0][0] &= ~2
+    owner.buffers[3, 1][0] |= 1
+    owner.buffers[4, 1][:8] = bytes(8)
+    owner.buffers[5, 1][4:8] = (1).to_bytes(4, "little")
+    owner.buffers[6, 2][:2] = bytes.fromhex("c3a8")
+    owner.buffers[10, 1][:16] = bytes.fromhex("102132435465768798a9bacbdcedfe0f")
+    owner.buffers[11, 1][:16] = b"\xff" * 16
+
+
+def protocol_expected(**kwargs) -> dict[str, Any]:
+    expected = finite_expected(**kwargs)
+    expected["fields"][10]["metadata"] = {}
+    return expected
+
+
+def protocol_oracle(snapshot):
+    if not _exact(snapshot, protocol_expected()):
+        raise ValueError("protocol positional source/value correspondence")
+
+
+def mutated_finite_expected() -> dict[str, Any]:
+    expected = finite_expected()
+    expected["rows"][0] = [
+        17,
+        333,
+        BIG + 2,
+        True,
+        "0000000000000000",
+        "65",
+        "c3a8",
+        "4321",
+        "17",
+        1,
+        "102132435465768798a9bacbdcedfe0f",
+        "ffffffffffffffffffffffffffffffff",
+        -9,
+    ]
+    expected["rows"][1][5] = "cc81"
+    expected["rows"][1][1] = None
+    expected["valid"][1][1] = False
+    return expected
+
+
+def interop_snapshot_slice(start, stop) -> dict[str, Any]:
+    expected = protocol_expected()
+    expected["rows"] = expected["rows"][start:stop]
+    expected["valid"] = expected["valid"][start:stop]
+    return expected
+
+
+def protocol_error(action):
+    from pietto._project.project_result_contract import ResultError
+
+    try:
+        action()
+    except ResultError as exc:
+        return exc.category
+    except Exception as exc:
+        return type(exc).__name__
+    raise AssertionError("protocol negative unexpectedly accepted")
+
+
+class ProtocolBatch:
+    def __init__(self, batch):
+        self.batch = batch
+        self.calls = 0
+
+    def __arrow_c_array__(self, requested_schema=None):
+        self.calls += 1
+        return self.batch.__arrow_c_array__(requested_schema)
+
+
+class ProtocolStream:
+    def __init__(self, source):
+        self.source = source
+        self.calls = 0
+
+    def __arrow_c_stream__(self, requested_schema=None):
+        self.calls += 1
+        return self.source.__arrow_c_stream__(requested_schema)
+
+
+def interop_stream(
+    binding,
+    batches,
+    total,
+    *,
+    limits=None,
+    late=False,
+    early=False,
+    close_error=None,
+    borrow=False,
+) -> dict[str, Any]:
+    from pietto._project import project_arrow_interop as interop
+    from pietto._project import project_result_reader as reader_api
+
+    pa = importlib.import_module("pyarrow")
+    with ReaderTrace(
+        binding.schema, batches, late=late, close_error=close_error
+    ) as trace:
+        reader = reader_api.open_finite_reader(
+            binding,
+            trace.source,
+            expected_rows=total,
+            limits=reader_api.FiniteReaderLimits() if limits is None else limits,
+        )
+        owner = InteropOwner()
+        lease = interop.BorrowLease(reader, binding, owner, True) if borrow else None
+        session = interop.manage_stream(reader, lease=lease)
+        consumer = pa.RecordBatchReader.from_stream(session)
+        assert reader.pulls == 0 and trace.reads == 0
+        competing = refused(reader.read_next_batch)
+        snapshots = []
+        error = None
+        foreign_error = None
+        try:
+            if early:
+                snapshots.append(finite_snapshot(consumer.read_next_batch()))
+            else:
+                for batch in consumer:
+                    snapshots.append(finite_snapshot(batch))
+        except Exception as exc:
+            foreign_error = type(exc).__name__
+            primary = session.primary_error
+            error = (
+                primary.category
+                if isinstance(primary, reader_api.ResultError)
+                else type(primary).__name__
+                if primary is not None
+                else foreign_error
+            )
+        before = [session.state, reader.state]
+        consumer.close()
+        after_foreign = reader.state
+        try:
+            session.close()
+        except Exception as exc:
+            if error is None:
+                error = (
+                    exc.category
+                    if isinstance(exc, reader_api.ResultError)
+                    else type(exc).__name__
+                )
+        session.close()
+        result = dict(
+            before=before,
+            after=[session.state, reader.state],
+            after_foreign=after_foreign,
+            source_complete=session.input_completion is not None,
+            charge=session.charge,
+            descriptors=[list(d) for d in session.descriptors],
+            chunks=[len(s["rows"]) for s in snapshots],
+            rows=[r for s in snapshots for r in s["rows"]],
+            error=error,
+            foreign_error=foreign_error,
+            source_rows=reader.rows,
+            competing=competing,
+            closes=trace.closes,
+            reads=trace.reads,
+        )
+        return result
+
+
+def interop_stream_expected(
+    usages,
+    rows,
+    *,
+    failure=None,
+    early=False,
+    counts=None,
+    input_state=None,
+    borrow=False,
+) -> dict[str, Any]:
+    sizes = [u[0] for u in usages]
+    counts = sizes if counts is None else counts
+    state = input_state or (
+        "FAILED" if failure else "CLOSED_INCOMPLETE" if early else "COMPLETE"
+    )
+    before_input = "OPEN" if early else state
+    return dict(
+        before=[
+            "FAILED" if failure else "EXPORTED" if early else "EXHAUSTED",
+            before_input,
+        ],
+        after=[
+            "FAILED" if failure else "CLOSED_INCOMPLETE" if early else "CLOSED",
+            state,
+        ],
+        after_foreign=before_input,
+        source_complete=state == "COMPLETE",
+        charge=sum(max(logical, retained) for _, logical, retained in usages),
+        descriptors=[
+            [n, logical, retained, logical, retained, 0 if borrow else retained * 2]
+            for n, logical, retained in usages
+        ],
+        chunks=sizes,
+        rows=rows,
+        error=failure,
+        foreign_error="ArrowInvalid" if failure else None,
+        source_rows=sum(u[0] for u in usages),
+        competing="READER_CLAIMED",
+        closes=1,
+        reads=len(counts)
+        if early
+        or failure == "LIMIT"
+        or (failure == "READER_EXTENT" and len(counts) > len(usages))
+        else len(counts) + 1,
+    )
+
+
+def run_interop_cases(root):
+    import gc
+    import itertools
+    import weakref
+    from pietto._project import project_arrow_interop as interop
+    from pietto._project import project_arrow_result as a
+    from pietto._project import project_result_reader as r
+
+    pa = importlib.import_module("pyarrow")
+    results: dict[str, Any] = {name: {} for name in INTEROP_GROUPS}
+    for target in ("postgres", "mysql"):
+        *_, producer, _ = finite_fixture(root / ("interop-" + target), target)
+        *_, nullable_producer, _ = finite_fixture(
+            root / ("interop-null-" + target), target, all_nullable=True
+        )
+        binding = a.bind_arrow(producer, **finite_policy(producer))
+        nullable = a.bind_arrow(nullable_producer, **finite_policy(nullable_producer))
+        rows = finite_rows(target)
+        batch = a.build_owned_batch(binding, rows)
+        empty = a.build_owned_batch(binding, [])
+        nulls = a.build_owned_batch(nullable, finite_rows(target, state="null"))
+        source, owner = mutable_finite(batch)
+        managed = interop.manage_batch(binding, source)
+        owned = pa.record_batch(managed)
+        independent = all(
+            x.address != y.address
+            for c, d in zip(source.columns, owned.columns, strict=True)
+            for x, y in zip(c.buffers(), d.buffers(), strict=True)
+            if x is not None and y is not None and x.size
+        )
+        mutate_finite(owner)
+        protocol_oracle(finite_snapshot(owned))
+        managed.close()
+        managed.close()
+        copy_cases = dict(
+            values=finite_snapshot(owned),
+            source_after=finite_snapshot(source),
+            independent=independent,
+            closed=refused(lambda: pa.record_batch(managed)),
+            empty=finite_snapshot(
+                pa.record_batch(interop.manage_batch(binding, empty))
+            ),
+            sliced=finite_snapshot(
+                pa.record_batch(interop.manage_batch(binding, batch.slice(1, 2)))
+            ),
+            all_null=finite_snapshot(
+                pa.record_batch(interop.manage_batch(nullable, nulls))
+            ),
+        )
+        original_copy = interop._copy_batch
+
+        def forbidden(*args, **kwargs):
+            raise AssertionError("copy before source validation")
+
+        invalid = pa.RecordBatch.from_arrays(
+            [
+                pa.array([float("nan")] * 4, type=pa.float64()) if j == 4 else column
+                for j, column in enumerate(batch.columns)
+            ],
+            schema=binding.schema,
+        )
+        try:
+            interop._copy_batch = forbidden
+            copy_cases["invalid_before_copy"] = refused(
+                lambda: interop.manage_batch(binding, invalid)
+            )
+            fresh = interop.build_managed_batch(binding, rows)
+            copy_cases["fresh_owned"] = finite_snapshot(pa.record_batch(fresh))
+            fresh.close()
+        finally:
+            interop._copy_batch = original_copy
+        fresh = interop.build_managed_batch(binding, rows)
+        import struct
+
+        assert fresh._batch is not None
+        memoryview(fresh._batch.column(4).buffers()[1]).cast("B")[:8] = struct.pack(
+            "<d", float("nan")
+        )
+        copy_cases["fresh_mutable_guard"] = refused(lambda: pa.record_batch(fresh))
+        fresh.close()
+        results["ownership_copy"][target] = copy_cases
+
+        source, owner = mutable_finite(batch)
+        owner_ref = weakref.ref(owner)
+        lease = interop.BorrowLease(source, binding, owner, True)
+        borrowed = interop.manage_batch(binding, source, lease=lease)
+        imported = pa.record_batch(borrowed)
+        shared = all(
+            x.address == y.address
+            for c, d in zip(source.columns, imported.columns, strict=True)
+            for x, y in zip(c.buffers(), d.buffers(), strict=True)
+            if x is not None and y is not None
+        )
+        mutate_finite(owner)
+        after_alias = finite_snapshot(imported)
+        refusals = []
+        for broken in (
+            interop.BorrowLease(source, binding, owner, False),
+            interop.BorrowLease(batch, binding, owner, True),
+            interop.BorrowLease(source, binding, None, True),
+            interop.BorrowLease(source, nullable, owner, True),
+        ):
+            refusals.append(
+                refused(
+                    lambda lease=broken, source=source: interop.manage_batch(
+                        binding, source, lease=lease
+                    )
+                )
+            )
+        del broken
+        object.__delattr__(lease, "non_mutation")
+        deleted = refused(lambda borrowed=borrowed: pa.record_batch(borrowed))
+        object.__setattr__(lease, "non_mutation", True)
+        borrowed.close()
+        del borrowed, lease, source, owner
+        gc.collect()
+        pinned = owner_ref() is not None
+        del imported
+        gc.collect()
+        results["ownership_borrow"][target] = dict(
+            shared=shared,
+            alias_values=after_alias,
+            refusals=refusals,
+            deleted_commitment=deleted,
+            pinned_after_exporter_close=pinned,
+            released_after_consumer=owner_ref() is None,
+            obligation="stable backing through every derived consumer",
+        )
+
+        managed = interop.manage_batch(binding, batch)
+        grant = managed.transfer()
+        copied_transfer = refused(lambda: pa.record_batch(copy(grant)))
+        transferred = pa.record_batch(grant)
+        replay = refused(lambda: pa.record_batch(grant))
+        pending = managed.transfer()
+        pending.close()
+        disposed = refused(lambda: pa.record_batch(pending))
+        original_export = interop._export_array
+
+        def broken_export(batch):
+            raise RuntimeError("injected export failure")
+
+        try:
+            interop._export_array = broken_export
+            failed = managed.transfer()
+            failure = protocol_error(lambda: pa.record_batch(failed))
+        finally:
+            interop._export_array = original_export
+        failed_replay = refused(lambda: pa.record_batch(failed))
+        capsules = managed.__arrow_c_array__()
+        capsule_value = pa.RecordBatch._import_from_c_capsule(*capsules)
+        native_replay = protocol_error(
+            lambda: pa.RecordBatch._import_from_c_capsule(*capsules)
+        )
+        unused = managed.__arrow_c_array__()
+        del unused
+        gc.collect()
+        managed.close()
+        results["ownership_transfer"][target] = dict(
+            values=finite_snapshot(transferred),
+            capsule_values=finite_snapshot(capsule_value),
+            replay=replay,
+            disposed=disposed,
+            failure=failure,
+            failed_replay=failed_replay,
+            native_replay=native_replay,
+            buffer_policy=managed.buffer_policy,
+            copied_transfer=copied_transfer,
+        )
+        exported = interop.manage_batch(binding, batch)
+        schema = pa.schema(exported)
+        provider = ProtocolBatch(batch)
+        adopted = interop.import_batch(binding, provider)
+        results["c_schema_array"][target] = dict(
+            schema_equal=schema.equals(binding.schema, check_metadata=True),
+            values=finite_snapshot(pa.record_batch(exported)),
+            imported=finite_snapshot(pa.record_batch(adopted)),
+            provider_calls=provider.calls,
+            consumer="pyarrow",
+            independent_c_implementation=False,
+        )
+        exported.close()
+        adopted.close()
+
+        managed = interop.manage_batch(binding, batch)
+        changes = {
+            "int": (0, pa.int32(), None, None),
+            "text": (5, pa.large_string(), None, None),
+            "precision": (7, pa.decimal128(8, 2), None, None),
+            "scale": (7, pa.decimal128(9, 1), None, None),
+            "unit": (9, pa.timestamp("ms"), None, None),
+            "timezone": (9, pa.timestamp("us", tz="UTC"), None, None),
+            "uuid": (10, pa.binary(16), None, None),
+            "label": (12, None, "other", None),
+            "nullable": (0, None, None, True),
+            "metadata": (0, None, None, None),
+        }
+        request_errors = {}
+        for name, (position, kind, label, optional) in changes.items():
+            fields = [
+                pa.field(
+                    label if label is not None and j == position else f.name,
+                    kind if kind is not None and j == position else f.type,
+                    nullable=optional
+                    if optional is not None and j == position
+                    else f.nullable,
+                    metadata={b"fake": b"authority"}
+                    if name == "metadata" and j == position
+                    else None,
+                )
+                for j, f in enumerate(binding.schema)
+            ]
+            request = pa.schema(fields)
+            grant = managed.transfer()
+            request_errors[name] = refused(
+                lambda: grant.__arrow_c_array__(request.__arrow_c_schema__())
+            )
+            assert finite_snapshot(pa.record_batch(grant)) == protocol_expected()
+        request_errors["schema_metadata"] = refused(
+            lambda: managed.__arrow_c_array__(
+                binding.schema.with_metadata(
+                    {b"fake": b"authority"}
+                ).__arrow_c_schema__()
+            )
+        )
+        equivalent = pa.RecordBatch._import_from_c_capsule(
+            *managed.__arrow_c_array__(binding.schema.__arrow_c_schema__())
+        )
+        with ReaderTrace(binding.schema, [batch]) as trace:
+            reader = r.open_finite_reader(binding, trace.source, expected_rows=4)
+            stream = interop.manage_stream(reader)
+            bad_request = binding.schema.set(
+                0, pa.field("wrong", pa.int16(), nullable=False)
+            )
+            stream_error = refused(
+                lambda: stream.__arrow_c_stream__(bad_request.__arrow_c_schema__())
+            )
+            no_pulls = trace.reads
+            capsule = stream.__arrow_c_stream__(binding.schema.__arrow_c_schema__())
+            foreign = pa.RecordBatchReader._import_from_c_capsule(capsule)
+            stream_rows = [
+                row for part in foreign for row in finite_snapshot(part)["rows"]
+            ]
+            foreign.close()
+            stream.close()
+        results["c_schema_requests"][target] = dict(
+            refusals=request_errors,
+            equivalent=finite_snapshot(equivalent),
+            stream_refusal=stream_error,
+            request_pulls=no_pulls,
+            stream_rows=stream_rows,
+        )
+        managed.close()
+
+        layouts = [
+            empty,
+            batch.slice(0, 1),
+            empty,
+            batch.slice(1, 2),
+            batch.slice(3, 1),
+            empty,
+        ]
+        values = interop_stream(binding, layouts, 4)
+        borrowed_stream = interop_stream(binding, [batch], 4, borrow=True)
+        raw = pa.RecordBatchReader.from_batches(binding.schema, [batch])
+        provider = ProtocolStream(raw)
+        imported_session = interop.import_stream(binding, provider, expected_rows=4)
+        with imported_session:
+            foreign = pa.RecordBatchReader.from_stream(imported_session)
+            imported_rows = [
+                row for part in foreign for row in finite_snapshot(part)["rows"]
+            ]
+            foreign.close()
+        results["c_stream_values"][target] = dict(
+            mixed=values,
+            borrowed=borrowed_stream,
+            all_null=interop_stream(nullable, [nulls], 2),
+            zero=interop_stream(binding, [], 0),
+            imported_rows=imported_rows,
+            imported_complete=imported_session.input_completion is not None,
+            provider_calls=provider.calls,
+        )
+        terminal: dict[str, Any] = dict(
+            short=interop_stream(binding, [batch.slice(0, 3)], 4),
+            extra=interop_stream(binding, [batch, batch], 4),
+            late=interop_stream(binding, [batch], 4, late=True),
+            early=interop_stream(binding, [batch], 4, early=True),
+            normal=interop_stream(binding, [batch, empty], 4),
+            cleanup=interop_stream(
+                binding, [batch], 4, close_error=RuntimeError("injected source close")
+            ),
+        )
+        with ReaderTrace(binding.schema, [batch]) as trace:
+            reader = r.open_finite_reader(binding, trace.source, expected_rows=4)
+            stream = interop.manage_stream(reader)
+            foreign = pa.RecordBatchReader.from_stream(stream)
+            original_copy = interop._copy_batch
+
+            def invalid_copy(*args, **kwargs):
+                raise StopIteration("injected bridge stop")
+
+            try:
+                interop._copy_batch = invalid_copy
+                bridge_error = protocol_error(foreign.read_next_batch)
+            finally:
+                interop._copy_batch = original_copy
+            foreign.close()
+            stream.close()
+            terminal["bridge_failure"] = dict(
+                error=bridge_error,
+                primary=type(stream.primary_error).__name__,
+                states=[reader.state, stream.state],
+                rows=reader.rows,
+                delivered=len(stream.descriptors),
+                input_complete=stream.input_completion is not None,
+            )
+        original_close = interop._close_bridge
+        with ReaderTrace(binding.schema, [batch]) as trace:
+            reader = r.open_finite_reader(binding, trace.source, expected_rows=4)
+            stream = interop.manage_stream(reader)
+            foreign = pa.RecordBatchReader.from_stream(stream)
+            list(foreign)
+            foreign.close()
+
+            def close_failure(bridge):
+                original_close(bridge)
+                raise RuntimeError("injected downstream close")
+
+            try:
+                interop._close_bridge = close_failure
+                close_error = refused(stream.close)
+            finally:
+                interop._close_bridge = original_close
+            terminal["completed_input_failed_delivery_cleanup"] = dict(
+                error=close_error,
+                states=[reader.state, stream.state],
+                input_complete=stream.input_completion is not None,
+            )
+        with ReaderTrace(binding.schema, [batch]) as trace:
+            reader = r.open_finite_reader(binding, trace.source, expected_rows=4)
+            stream = interop.manage_stream(reader)
+            foreign = pa.RecordBatchReader.from_stream(stream)
+            old_copy = interop._copy_batch
+
+            def interrupted_copy(*args, **kwargs):
+                raise KeyboardInterrupt("injected bridge control")
+
+            try:
+                interop._copy_batch = interrupted_copy
+                try:
+                    with stream:
+                        foreign.read_next_batch()
+                except KeyboardInterrupt:
+                    terminal["context_control"] = [
+                        stream.state,
+                        reader.state,
+                        type(stream.primary_error).__name__,
+                        trace.closes,
+                    ]
+                else:
+                    raise AssertionError("context lost original control exception")
+            finally:
+                interop._copy_batch = old_copy
+                foreign.close()
+        results["c_stream_terminal"][target] = terminal
+
+        with ReaderTrace(binding.schema, [batch]) as trace:
+            reader = r.open_finite_reader(binding, trace.source, expected_rows=4)
+            stream = interop.manage_stream(reader)
+            foreign = pa.RecordBatchReader.from_stream(stream)
+            retained = foreign.read_next_batch()
+            foreign.close()
+            native_close_did_not_finish = reader.state
+            stream.close()
+            stream.close()
+            closed_states = [stream.state, reader.state]
+            del foreign, stream
+            gc.collect()
+            lifetime_values = finite_snapshot(retained)
+        with ReaderTrace(binding.schema, [batch]) as trace:
+            reader = r.open_finite_reader(binding, trace.source, expected_rows=4)
+            stream = interop.manage_stream(reader)
+            capsule = stream.__arrow_c_stream__()
+            del capsule
+            gc.collect()
+            unread = [reader.pulls, reader.state]
+            stream.close()
+            unconsumed = [reader.pulls, reader.state, trace.closes]
+        with ReaderTrace(binding.schema, [batch]) as trace:
+            reader = r.open_finite_reader(binding, trace.source, expected_rows=4)
+            stream_owner = InteropOwner()
+            stream_owner_ref = weakref.ref(stream_owner)
+            stream_lease = interop.BorrowLease(reader, binding, stream_owner, True)
+            stream = interop.manage_stream(reader, lease=stream_lease)
+            foreign = pa.RecordBatchReader.from_stream(stream)
+            retained_borrow = foreign.read_next_batch()
+            foreign.close()
+            stream.close()
+            del stream, stream_lease, stream_owner, foreign
+            gc.collect()
+            stream_pinned = stream_owner_ref() is not None
+            assert finite_snapshot(retained_borrow)["rows"] == finite_expected()["rows"]
+            del retained_borrow
+            gc.collect()
+            stream_released = stream_owner_ref() is None
+        results["c_protocol_lifetime"][target] = dict(
+            retained=lifetime_values,
+            foreign_close_state=native_close_did_not_finish,
+            explicit_close_states=closed_states,
+            unconsumed_before=unread,
+            unconsumed_after=unconsumed,
+            callback_count_claim=False,
+            borrowed_stream_owner=[stream_pinned, stream_released],
+        )
+
+        class DeviceOnly:
+            calls = 0
+
+            def __arrow_c_device_array__(self, *args, **kwargs):
+                self.calls += 1
+                raise AssertionError("device route invoked")
+
+            def __arrow_c_device_stream__(self, *args, **kwargs):
+                self.calls += 1
+                raise AssertionError("device stream invoked")
+
+        device = DeviceOnly()
+
+        class BadArray:
+            def __arrow_c_array__(self, requested_schema=None):
+                return (None, None)
+
+        class BadStream:
+            def __arrow_c_stream__(self, requested_schema=None):
+                return None
+
+        exact = interop.manage_batch(binding, batch, limits=a.BatchLimits(bytes=630))
+        exact_value = finite_snapshot(pa.record_batch(exact))
+        exact.close()
+        tiny = invalid.slice(0, 1)
+        original_copy = interop._copy_batch
+        try:
+            interop._copy_batch = forbidden
+            retained_first = refused(
+                lambda: interop.manage_batch(
+                    binding, tiny, limits=a.BatchLimits(bytes=527)
+                )
+            )
+        finally:
+            interop._copy_batch = original_copy
+
+        def padded_copy(value, lease):
+            copied = original_copy(value, lease)
+            columns = list(copied.columns)
+            column = columns[0]
+            validity, data = column.buffers()
+            buffer = pa.py_buffer(bytes(memoryview(data)) + bytes(1024))
+            columns[0] = pa.Array.from_buffers(
+                column.type,
+                len(column),
+                [validity, buffer],
+                offset=column.offset,
+                null_count=-1,
+            )
+            return pa.RecordBatch.from_arrays(columns, schema=copied.schema)
+
+        try:
+            interop._copy_batch = padded_copy
+            delivery_limit = refused(
+                lambda: interop.manage_batch(
+                    binding, batch, limits=a.BatchLimits(bytes=630)
+                )
+            )
+        finally:
+            interop._copy_batch = original_copy
+
+        def slightly_padded_copy(value, lease):
+            copied = original_copy(value, lease)
+            columns = list(copied.columns)
+            column = columns[0]
+            validity, data = column.buffers()
+            columns[0] = pa.Array.from_buffers(
+                column.type,
+                len(column),
+                [validity, pa.py_buffer(bytes(memoryview(data)) + bytes(128))],
+                offset=column.offset,
+                null_count=-1,
+            )
+            return pa.RecordBatch.from_arrays(columns, schema=copied.schema)
+
+        try:
+            interop._copy_batch = slightly_padded_copy
+            delivery_total = interop_stream(
+                binding,
+                [batch, batch],
+                8,
+                limits=r.FiniteReaderLimits(max_total_bytes=1311),
+            )
+        finally:
+            interop._copy_batch = original_copy
+        results["cpu_protocol_resources"][target] = dict(
+            cpu=batch.is_cpu,
+            device=[
+                refused(lambda: interop.import_batch(binding, device)),
+                refused(
+                    lambda: interop.import_stream(binding, device, expected_rows=0)
+                ),
+            ],
+            device_calls=device.calls,
+            malformed=[
+                protocol_error(lambda: interop.import_batch(binding, BadArray())),
+                protocol_error(
+                    lambda: interop.import_stream(binding, BadStream(), expected_rows=0)
+                ),
+            ],
+            exact=exact_value,
+            under=refused(
+                lambda: interop.manage_batch(
+                    binding, batch, limits=a.BatchLimits(bytes=629)
+                )
+            ),
+            retained_first=retained_first,
+            delivery_limit=delivery_limit,
+            stream_under=interop_stream(
+                binding,
+                [batch, batch],
+                8,
+                limits=r.FiniteReaderLimits(max_total_bytes=1259),
+            ),
+            empty_cap=interop_stream(
+                binding,
+                itertools.repeat(empty),
+                0,
+                limits=r.FiniteReaderLimits(max_batches=2),
+            ),
+            gpu_executed=False,
+            delivery_total=delivery_total,
+        )
+
+        managed = interop.manage_batch(binding, batch)
+        original = managed._captured
+        foreign_binding = a.bind_arrow(
+            nullable_producer, **finite_policy(nullable_producer)
+        )
+        try:
+            managed._captured = (foreign_binding, *original[1:])
+            graft = refused(lambda: pa.record_batch(managed))
+        finally:
+            managed._captured = original
+        old_policy = managed._policy
+        try:
+            managed._policy = "borrowed"
+            policy_error = refused(lambda: pa.record_batch(managed))
+        finally:
+            managed._policy = old_policy
+        managed.close()
+        with ReaderTrace(binding.schema, [batch]) as trace:
+            reader = r.open_finite_reader(binding, trace.source, expected_rows=4)
+            stream = interop.manage_stream(reader)
+            reuse = refused(lambda: interop.manage_stream(reader))
+            copied_stream = copy(stream)
+            copied_refusal = refused(
+                lambda copied_stream=copied_stream: pa.RecordBatchReader.from_stream(
+                    copied_stream
+                )
+            )
+            del copied_stream
+            gc.collect()
+            copy_disposal_state = reader.state
+            foreign = pa.RecordBatchReader.from_stream(stream)
+            duplicate_grant = refused(lambda: pa.RecordBatchReader.from_stream(stream))
+            foreign.close()
+            stream.close()
+        swaps = []
+        columns = list(batch.columns)
+        columns[0], columns[12] = columns[12], columns[0]
+        swapped = pa.RecordBatch.from_arrays(columns, schema=binding.schema)
+        for candidate in (swapped,):
+            observed = interop_stream(binding, [candidate], 4)
+            try:
+                finite_oracle(dict(finite_expected(), rows=observed["rows"]))
+            except ValueError:
+                swaps.append(
+                    dict(
+                        rows=observed["rows"],
+                        source_complete=observed["source_complete"],
+                        oracle="VALUE_CORRESPONDENCE",
+                    )
+                )
+            else:
+                raise AssertionError("protocol swap escaped original values")
+
+        def changed_copy(value, lease):
+            copied = original_copy(value, lease)
+            cols = list(copied.columns)
+            cols[0], cols[12] = cols[12], cols[0]
+            return pa.RecordBatch.from_arrays(cols, schema=copied.schema)
+
+        try:
+            interop._copy_batch = changed_copy
+            observed = interop_stream(binding, [batch], 4)
+            try:
+                finite_oracle(dict(finite_expected(), rows=observed["rows"]))
+            except ValueError:
+                injected = "VALUE_CORRESPONDENCE"
+            else:
+                raise AssertionError("value-changing bridge manufactured success")
+        finally:
+            interop._copy_batch = original_copy
+        results["interop_correspondence"][target] = dict(
+            binding=graft,
+            policy=policy_error,
+            reuse=reuse,
+            duplicate_grant=duplicate_grant,
+            copied_stream=copied_refusal,
+            copy_disposal_state=copy_disposal_state,
+            swaps=swaps,
+            injected=injected,
+        )
+    return results
+
+
+def verify_interop_report(cases):
+    try:
+        if any(set(cases[name]) != {"postgres", "mysql"} for name in INTEROP_GROUPS):
+            raise ValueError("interop denominator")
+        rows = protocol_expected()["rows"]
+        whole = READER_LAYOUTS["whole"]
+        for target in ("postgres", "mysql"):
+
+            def require(name, expected):
+                if not _exact(cases[name][target], expected):
+                    raise ValueError(
+                        "interop observed "
+                        + name
+                        + ": "
+                        + json.dumps(
+                            {"actual": cases[name][target], "expected": expected},
+                            sort_keys=True,
+                        )
+                    )
+
+            require(
+                "ownership_copy",
+                dict(
+                    values=protocol_expected(),
+                    source_after=mutated_finite_expected(),
+                    independent=True,
+                    closed="INTEROP_CLOSED",
+                    empty=protocol_expected(state="empty"),
+                    sliced=interop_snapshot_slice(1, 3),
+                    all_null=protocol_expected(state="null", all_nullable=True),
+                    invalid_before_copy="VALUE_DOMAIN",
+                    fresh_owned=protocol_expected(),
+                    fresh_mutable_guard="VALUE_DOMAIN",
+                ),
+            )
+            require(
+                "ownership_borrow",
+                dict(
+                    shared=True,
+                    alias_values={
+                        **mutated_finite_expected(),
+                        "fields": protocol_expected()["fields"],
+                    },
+                    refusals=["INTEROP_LEASE"] * 4,
+                    deleted_commitment="INTEROP_LEASE",
+                    pinned_after_exporter_close=True,
+                    released_after_consumer=True,
+                    obligation="stable backing through every derived consumer",
+                ),
+            )
+            require(
+                "ownership_transfer",
+                dict(
+                    values=protocol_expected(),
+                    capsule_values=protocol_expected(),
+                    replay="INTEROP_SPENT",
+                    disposed="INTEROP_SPENT",
+                    failure="RuntimeError",
+                    failed_replay="INTEROP_SPENT",
+                    native_replay="ArrowInvalid",
+                    buffer_policy="owned_copy",
+                    copied_transfer="INTEROP_BINDING",
+                ),
+            )
+            require(
+                "c_schema_array",
+                dict(
+                    schema_equal=True,
+                    values=protocol_expected(),
+                    imported=protocol_expected(),
+                    provider_calls=1,
+                    consumer="pyarrow",
+                    independent_c_implementation=False,
+                ),
+            )
+            require(
+                "c_schema_requests",
+                dict(
+                    refusals=dict.fromkeys(
+                        (
+                            "int",
+                            "text",
+                            "precision",
+                            "scale",
+                            "unit",
+                            "timezone",
+                            "uuid",
+                            "label",
+                            "nullable",
+                            "metadata",
+                            "schema_metadata",
+                        ),
+                        "INTEROP_REQUEST",
+                    ),
+                    equivalent=protocol_expected(),
+                    stream_refusal="INTEROP_REQUEST",
+                    request_pulls=0,
+                    stream_rows=rows,
+                ),
+            )
+            require(
+                "c_stream_values",
+                dict(
+                    mixed=interop_stream_expected(
+                        READER_LAYOUTS["empty_interleaved"], rows
+                    ),
+                    borrowed=interop_stream_expected(whole, rows, borrow=True),
+                    all_null=interop_stream_expected(
+                        ((2, 321, 274),), [[None] * 13] * 2
+                    ),
+                    zero=interop_stream_expected((), []),
+                    imported_rows=rows,
+                    imported_complete=True,
+                    provider_calls=1,
+                ),
+            )
+            require(
+                "c_stream_terminal",
+                dict(
+                    short=interop_stream_expected(
+                        ((3, 480, 528),), rows[:3], failure="READER_EXTENT"
+                    ),
+                    extra=interop_stream_expected(
+                        whole, rows, failure="READER_EXTENT", counts=[4, 4]
+                    ),
+                    late=interop_stream_expected(whole, rows, failure="READER_SOURCE"),
+                    early=interop_stream_expected(whole, rows, early=True),
+                    normal=interop_stream_expected((*whole, (0, 12, 12)), rows),
+                    cleanup=interop_stream_expected(
+                        whole, rows, failure="READER_CLEANUP"
+                    ),
+                    bridge_failure=dict(
+                        error="ArrowInvalid",
+                        primary="StopIteration",
+                        states=["CLOSED_INCOMPLETE", "FAILED"],
+                        rows=4,
+                        delivered=0,
+                        input_complete=False,
+                    ),
+                    context_control=[
+                        "FAILED",
+                        "CLOSED_INCOMPLETE",
+                        "KeyboardInterrupt",
+                        1,
+                    ],
+                    completed_input_failed_delivery_cleanup=dict(
+                        error="INTEROP_CLEANUP",
+                        states=["COMPLETE", "FAILED"],
+                        input_complete=True,
+                    ),
+                ),
+            )
+            require(
+                "c_protocol_lifetime",
+                dict(
+                    retained=protocol_expected(),
+                    foreign_close_state="OPEN",
+                    explicit_close_states=["CLOSED_INCOMPLETE", "CLOSED_INCOMPLETE"],
+                    unconsumed_before=[0, "OPEN"],
+                    unconsumed_after=[0, "CLOSED_INCOMPLETE", 1],
+                    callback_count_claim=False,
+                    borrowed_stream_owner=[True, True],
+                ),
+            )
+            delivery_total = interop_stream_expected(
+                whole,
+                rows,
+                failure="LIMIT",
+                counts=[4, 4],
+                input_state="CLOSED_INCOMPLETE",
+            )
+            delivery_total.update(
+                charge=656, descriptors=[[4, 630, 528, 630, 656, 1184]], source_rows=8
+            )
+            require(
+                "cpu_protocol_resources",
+                dict(
+                    cpu=True,
+                    device=["INTEROP_DEVICE"] * 2,
+                    device_calls=0,
+                    malformed=["INTEROP_PROTOCOL"] * 2,
+                    exact=protocol_expected(),
+                    under="LIMIT",
+                    retained_first="LIMIT",
+                    delivery_limit="LIMIT",
+                    stream_under=interop_stream_expected(
+                        whole, rows, failure="LIMIT", counts=[4, 4]
+                    ),
+                    empty_cap=interop_stream_expected(
+                        ((0, 12, 12),) * 2, [], failure="LIMIT", counts=[0, 0, 0]
+                    ),
+                    gpu_executed=False,
+                    delivery_total=delivery_total,
+                ),
+            )
+            swapped = json.loads(json.dumps(rows))
+            for row in swapped:
+                row[0], row[12] = row[12], row[0]
+            require(
+                "interop_correspondence",
+                dict(
+                    binding="READER_IDENTITY",
+                    policy="INTEROP_BINDING",
+                    reuse="READER_CLAIMED",
+                    duplicate_grant="INTEROP_SPENT",
+                    copied_stream="INTEROP_BINDING",
+                    copy_disposal_state="OPEN",
+                    swaps=[
+                        dict(
+                            rows=swapped,
+                            source_complete=True,
+                            oracle="VALUE_CORRESPONDENCE",
+                        )
+                    ],
+                    injected="VALUE_CORRESPONDENCE",
+                ),
+            )
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ValueError("interop report evidence") from exc
+
+
 CONTRACT_CORPUS = ("postgres", "mysql", "descriptors", "imported")
 CONTRACT_SEEDS = (7, 19)
 
@@ -7599,6 +8718,7 @@ def verify_report(value, context, inputs):
     verify_temporal_report(cases)
     verify_finite_report(cases)
     verify_reader_report(cases)
+    verify_interop_report(cases)
     origins = value["origins"]
     prefix = Path(value["prefix"])
     required = {"pietto._project." + name for name in PRODUCTS} | {
@@ -7763,6 +8883,34 @@ def compare_product_reports(paths, repository, contexts):
 def reject_report_damage(value, context, inputs):
     """Mutate actual saved-data observations, never fake an Arrow success."""
     mutations = (
+        lambda v: v["cases"]["ownership_copy"]["postgres"]["values"]["rows"][
+            0
+        ].__setitem__(4, "0000000000000000"),
+        lambda v: v["cases"]["ownership_borrow"]["mysql"].update(
+            pinned_after_exporter_close=False
+        ),
+        lambda v: v["cases"]["ownership_transfer"]["postgres"].update(
+            failed_replay="PASS"
+        ),
+        lambda v: v["cases"]["c_schema_array"]["mysql"]["imported"]["fields"][
+            12
+        ].update(label="lost"),
+        lambda v: v["cases"]["c_schema_requests"]["postgres"].update(request_pulls=1),
+        lambda v: v["cases"]["c_stream_values"]["mysql"]["mixed"]["rows"][
+            0
+        ].__setitem__(12, 1),
+        lambda v: v["cases"]["c_stream_terminal"]["postgres"]["late"].update(
+            source_complete=True
+        ),
+        lambda v: v["cases"]["c_protocol_lifetime"]["mysql"].update(
+            foreign_close_state="COMPLETE"
+        ),
+        lambda v: v["cases"]["cpu_protocol_resources"]["postgres"]["empty_cap"].update(
+            reads=99
+        ),
+        lambda v: v["cases"]["interop_correspondence"]["mysql"]["swaps"][0]["rows"][
+            0
+        ].__setitem__(12, -7),
         lambda v: v["cases"]["reader_values"]["postgres"]["result"]["rows"][
             0
         ].__setitem__(12, 1),
@@ -8013,8 +9161,8 @@ def main():
     }
     verify_report(value, context, input_closure(repository))
     rejected = reject_report_damage(value, context, input_closure(repository))
-    assert len(cases) == 74
-    assert rejected == 72
+    assert len(cases) == 84
+    assert rejected == 82
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with args.report.open("x") as stream:
         json.dump(value, stream, sort_keys=True, allow_nan=False)
