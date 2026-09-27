@@ -31,6 +31,7 @@ PRODUCTS = (
     "project_scalar_meaning",
     "project_result_reader",
     "project_arrow_interop",
+    "project_result_ingress",
 )
 CASES = (
     "postgres",
@@ -117,6 +118,14 @@ CASES = (
     "c_protocol_lifetime",
     "cpu_protocol_resources",
     "interop_correspondence",
+    "ingress_rows",
+    "ingress_batch",
+    "ingress_reader",
+    "ingress_parity",
+    "ingress_refusals",
+    "ingress_ownership",
+    "ingress_resources",
+    "ingress_independence",
 )
 
 
@@ -475,6 +484,7 @@ def run_cases(root):
     results.update(run_finite_cases(root))
     results.update(run_reader_cases(root))
     results.update(run_interop_cases(root))
+    results.update(run_ingress_cases(root))
     assert set(results) == set(CASES)
     return results
 
@@ -7148,6 +7158,7 @@ def interop_stream(
     early=False,
     close_error=None,
     borrow=False,
+    route="checked",
 ) -> dict[str, Any]:
     from pietto._project import project_arrow_interop as interop
     from pietto._project import project_result_reader as reader_api
@@ -7156,15 +7167,40 @@ def interop_stream(
     with ReaderTrace(
         binding.schema, batches, late=late, close_error=close_error
     ) as trace:
-        reader = reader_api.open_finite_reader(
-            binding,
-            trace.source,
-            expected_rows=total,
-            limits=reader_api.FiniteReaderLimits() if limits is None else limits,
-        )
+        from pietto._project import project_result_ingress as ingress
+
         owner = InteropOwner()
-        lease = interop.BorrowLease(reader, binding, owner, True) if borrow else None
-        session = interop.manage_stream(reader, lease=lease)
+        policy = reader_api.FiniteReaderLimits() if limits is None else limits
+        provider = None
+        if route == "checked":
+            reader = reader_api.open_finite_reader(
+                binding, trace.source, expected_rows=total, limits=policy
+            )
+            lease = (
+                interop.BorrowLease(reader, binding, owner, True) if borrow else None
+            )
+            session = interop.manage_stream(reader, lease=lease)
+        elif route == "raw":
+            lease = (
+                interop.BorrowLease(trace.source, binding, owner, True)
+                if borrow
+                else None
+            )
+            session = ingress.ingest_reader(
+                binding, trace.source, expected_rows=total, limits=policy, lease=lease
+            )
+            reader = session._reader
+        else:
+            assert route == "protocol"
+            provider = ProtocolStream(trace.source)
+            lease = (
+                interop.BorrowLease(provider, binding, owner, True) if borrow else None
+            )
+            session = interop.import_stream(
+                binding, provider, expected_rows=total, limits=policy, lease=lease
+            )
+            reader = session._reader
+        pre_read = trace.reads
         consumer = pa.RecordBatchReader.from_stream(session)
         assert reader.pulls == 0 and trace.reads == 0
         competing = refused(reader.read_next_batch)
@@ -7200,7 +7236,7 @@ def interop_stream(
                     else type(exc).__name__
                 )
         session.close()
-        result = dict(
+        result: dict[str, Any] = dict(
             before=before,
             after=[session.state, reader.state],
             after_foreign=after_foreign,
@@ -7216,6 +7252,13 @@ def interop_stream(
             closes=trace.closes,
             reads=trace.reads,
         )
+        if route != "checked":
+            result.update(
+                route=route,
+                pre_read=pre_read,
+                provider_calls=0 if provider is None else provider.calls,
+                snapshots=snapshots,
+            )
         return result
 
 
@@ -8113,6 +8156,1200 @@ CONTRACT_CORPUS = ("postgres", "mysql", "descriptors", "imported")
 CONTRACT_SEEDS = (7, 19)
 
 
+INGRESS_GROUPS = (
+    "ingress_rows",
+    "ingress_batch",
+    "ingress_reader",
+    "ingress_parity",
+    "ingress_refusals",
+    "ingress_ownership",
+    "ingress_resources",
+    "ingress_independence",
+)
+INGRESS_STATES = ("values", "empty", "null", "first_null")
+INGRESS_USAGES = {
+    "values": (630, 528),
+    "empty": (12, 12),
+    "null": (321, 274),
+    "first_null": (778, 659),
+}
+
+
+def native_finite(*, state="values"):
+    """SDK fixture from authored logical literals, never the producer row mapper."""
+    import struct
+    from decimal import Decimal
+
+    pa = importlib.import_module("pyarrow")
+    nullable = state in ("null", "first_null")
+    literals = finite_expected(state=state, all_nullable=nullable)
+    types = [
+        pa.int16(),
+        pa.int32(),
+        pa.int64(),
+        pa.bool_(),
+        pa.float64(),
+        pa.string(),
+        pa.large_string(),
+        pa.decimal128(9, 2),
+        pa.decimal256(65, 30),
+        pa.timestamp("us"),
+        pa.uuid(),
+        pa.binary(16),
+        pa.int16(),
+    ]
+    columns = []
+    for i, type_ in enumerate(types):
+        values = []
+        for row in literals["rows"]:
+            value = row[i]
+            if value is not None:
+                if i == 4:
+                    value = struct.unpack(">d", bytes.fromhex(value))[0]
+                elif i in (5, 6):
+                    value = bytes.fromhex(value).decode("utf-8")
+                elif i in (7, 8):
+                    coefficient = int(value)
+                    value = Decimal(
+                        (
+                            int(coefficient < 0),
+                            tuple(map(int, str(abs(coefficient)))),
+                            -type_.scale,
+                        )
+                    )
+                elif i in (10, 11):
+                    value = bytes.fromhex(value)
+            values.append(value)
+        columns.append(pa.array(values, type=type_))
+    schema = pa.schema(
+        [
+            pa.field(f["label"], type_, nullable=f["nullable"])
+            for f, type_ in zip(literals["fields"], types, strict=True)
+        ]
+    )
+    return pa.RecordBatch.from_arrays(columns, schema=schema)
+
+
+def ingress_batch_snapshot(managed) -> dict[str, Any]:
+    pa = importlib.import_module("pyarrow")
+    try:
+        output = pa.record_batch(managed)
+        return dict(
+            snapshot=finite_snapshot(output),
+            policy=managed.buffer_policy,
+            source_usage=list(managed.source_usage),
+            usage=list(managed.usage),
+            completion=hasattr(managed, "input_completion"),
+        )
+    finally:
+        managed.close()
+
+
+def ingress_batch_expected(state="values") -> dict[str, Any]:
+    return dict(
+        snapshot=protocol_expected(
+            state=state, all_nullable=state in ("null", "first_null")
+        ),
+        policy="owned_copy",
+        source_usage=list(INGRESS_USAGES[state]),
+        usage=list(INGRESS_USAGES[state]),
+        completion=False,
+    )
+
+
+def ingress_stream_expected(usages, rows, *, route="raw", nullable=False, **kwargs):
+    expected = interop_stream_expected(usages, rows, **kwargs)
+    snapshots = []
+    start = 0
+    for count in expected["chunks"]:
+        value = protocol_expected(all_nullable=nullable)
+        value["rows"] = rows[start : start + count]
+        value["valid"] = [[v is not None for v in row] for row in value["rows"]]
+        snapshots.append(value)
+        start += count
+    expected.update(
+        route=route,
+        pre_read=0,
+        provider_calls=int(route == "protocol"),
+        snapshots=snapshots,
+    )
+    return expected
+
+
+def ingress_value_oracle(rows):
+    if not _exact(rows, finite_expected()["rows"]):
+        raise ValueError("ingress original-value correspondence")
+
+
+def run_ingress_cases(root):
+    import gc
+    import itertools
+    import weakref
+    from decimal import Decimal
+    from pietto._project import project_arrow_result as a
+    from pietto._project import project_arrow_interop as i
+    from pietto._project import project_result_reader as r
+    from pietto._project import project_result_ingress as ingress
+    from pietto._project.project_result_contract_portable import export_result_contract
+
+    pa = importlib.import_module("pyarrow")
+    results: dict[str, Any] = {name: {} for name in INGRESS_GROUPS}
+    for target in ("postgres", "mysql"):
+        checked, _, _, neutral, producer, _ = finite_fixture(
+            root / ("ingress-" + target), target
+        )
+        *_, np, _ = finite_fixture(
+            root / ("ingress-null-" + target), target, all_nullable=True
+        )
+        binding = a.bind_arrow(producer, **finite_policy(producer))
+        nullable = a.bind_arrow(np, **finite_policy(np))
+        rows = finite_rows(target)
+        native = native_finite()
+        empty = native_finite(state="empty")
+        before = export_result_contract(neutral, checked).canonical_bytes
+        row_cases = {}
+        old_copy = i._copy_batch
+
+        def forbidden(*args, **kwargs):
+            raise AssertionError("unexpected conversion or copy")
+
+        try:
+            i._copy_batch = forbidden
+            for state in INGRESS_STATES:
+                chosen = nullable if state in ("null", "first_null") else binding
+                supplied = finite_rows(target, state=state)
+                managed = ingress.ingest_rows(chosen, supplied)
+                # Mutating caller containers cannot modify the already built buffers.
+                if supplied:
+                    supplied[0][12] = 42
+                row_cases[state] = ingress_batch_snapshot(managed)
+        finally:
+            i._copy_batch = old_copy
+        bad_rows = [
+            dict(value=1),
+            iter(rows),
+            [rows[0][:-1]],
+            [dict(enumerate(rows[0]))],
+        ]
+        row_errors = [
+            refused(lambda value=value: ingress.ingest_rows(binding, value))
+            for value in bad_rows
+        ]
+        for ordinal, value in (
+            (3, 0 if target == "postgres" else False),
+            (9, -1),
+            (10, bytes(16) if target == "postgres" else __import__("uuid").UUID(int=0)),
+            (7, 12.34),
+        ):
+            wrong = list(rows[0])
+            wrong[ordinal] = value
+            row_errors.append(
+                refused(lambda wrong=wrong: ingress.ingest_rows(binding, [wrong]))
+            )
+        redundant = [list(row) for row in rows]
+        redundant[0][7] = Decimal("12.3400")
+        row_cases.update(
+            refusals=row_errors,
+            redundant=ingress_batch_snapshot(ingress.ingest_rows(binding, redundant)),
+        )
+        results["ingress_rows"][target] = row_cases
+
+        batch_cases: dict[str, Any] = {
+            state: ingress_batch_snapshot(
+                ingress.ingest_batch(
+                    nullable if state in ("null", "first_null") else binding,
+                    native_finite(state=state),
+                )
+            )
+            for state in INGRESS_STATES
+        }
+        sliced = native.slice(1, 2)
+        batch_cases["sliced"] = ingress_batch_snapshot(
+            ingress.ingest_batch(binding, sliced)
+        )
+        batch_cases["offsets"] = [c.offset for c in sliced.columns]
+        # Legal absent zero-length fixed-width buffers: no reconstruction is needed.
+        cols = list(empty.columns)
+        for position in (9, 10, 11):
+            col = cols[position]
+            extension = position == 10
+            storage_type = pa.binary(16) if extension else col.type
+            storage = pa.Array.from_buffers(storage_type, 0, [None, None])
+            cols[position] = (
+                pa.ExtensionArray.from_storage(pa.uuid(), storage)
+                if extension
+                else storage
+            )
+        absent = pa.RecordBatch.from_arrays(cols, schema=empty.schema)
+        batch_cases["absent"] = ingress_batch_snapshot(
+            ingress.ingest_batch(binding, absent)
+        )
+        invalid = {}
+        for name, position, col in (
+            ("float", 4, pa.array([float("nan")] * 4, type=pa.float64())),
+            (
+                "utf8",
+                5,
+                pa.Array.from_buffers(
+                    pa.string(),
+                    4,
+                    [
+                        None,
+                        pa.py_buffer(b"\0\0\0\0" + (1).to_bytes(4, "little") * 4),
+                        pa.py_buffer(b"\xff"),
+                    ],
+                ),
+            ),
+            (
+                "precision",
+                7,
+                pa.Array.from_buffers(
+                    pa.decimal128(9, 2),
+                    4,
+                    [None, pa.py_buffer((10**9).to_bytes(16, "little") * 4)],
+                ),
+            ),
+            (
+                "timestamp",
+                9,
+                pa.Array.from_buffers(
+                    pa.timestamp("us"),
+                    4,
+                    [None, pa.py_buffer((2**63 - 1).to_bytes(8, "little") * 4)],
+                ),
+            ),
+            ("null", 12, pa.array([None] * 4, type=pa.int16())),
+        ):
+            columns = list(native.columns)
+            columns[position] = col
+            invalid[name] = pa.RecordBatch.from_arrays(columns, schema=native.schema)
+        try:
+            i._copy_batch = forbidden
+            batch_cases["original_refusals"] = {
+                name: refused(lambda batch=batch: ingress.ingest_batch(binding, batch))
+                for name, batch in invalid.items()
+            }
+        finally:
+            i._copy_batch = old_copy
+        results["ingress_batch"][target] = batch_cases
+
+        layouts = {
+            "whole": [native],
+            "uneven": [native.slice(0, 1), native.slice(1, 2), native.slice(3, 1)],
+            "empty_interleaved": [
+                empty,
+                native.slice(0, 1),
+                empty,
+                native.slice(1, 2),
+                native.slice(3, 1),
+                empty,
+            ],
+            "zero": [],
+            "empty": [empty],
+            "trailing_empty": [native, empty],
+        }
+        reader_cases = {
+            name: interop_stream(
+                binding, batches, 0 if name in ("zero", "empty") else 4, route="raw"
+            )
+            for name, batches in layouts.items()
+        }
+        reader_cases["short"] = interop_stream(
+            binding, [native.slice(0, 3)], 4, route="raw"
+        )
+        reader_cases["extra"] = interop_stream(binding, [native], 3, route="raw")
+        for state in ("null", "first_null"):
+            reader_cases[state] = interop_stream(
+                nullable,
+                [native_finite(state=state)],
+                2 if state == "null" else 5,
+                route="raw",
+            )
+        results["ingress_reader"][target] = reader_cases
+        provider = ProtocolBatch(native_finite())
+        parity = dict(
+            rows=ingress_batch_snapshot(
+                ingress.ingest_rows(binding, finite_rows(target))
+            ),
+            batch=ingress_batch_snapshot(
+                ingress.ingest_batch(binding, native_finite())
+            ),
+            reader=interop_stream(binding, [native_finite()], 4, route="raw"),
+            array=ingress_batch_snapshot(i.import_batch(binding, provider)),
+            stream=interop_stream(binding, [native_finite()], 4, route="protocol"),
+            array_calls=provider.calls,
+            row_carriers=[type(rows[0][j]).__name__ for j in (3, 9, 10, 7)],
+            logical_bool=type(native.column(3)[0].as_py()).__name__,
+        )
+        results["ingress_parity"][target] = parity
+
+        class Fake:
+            def __init__(self):
+                self.calls = 0
+
+            def hook(self, *args, **kwargs):
+                self.calls += 1
+                raise AssertionError("implicit conversion invoked")
+
+            to_arrow = __dataframe__ = to_batches = __arrow_c_array__ = (
+                __arrow_c_stream__
+            ) = hook
+            __arrow_c_device_array__ = __arrow_c_device_stream__ = hook
+
+        fake = Fake()
+        wrong_routes = [
+            refused(lambda: ingress.ingest_rows(binding, fake)),
+            refused(lambda: ingress.ingest_batch(binding, fake)),
+            refused(lambda: ingress.ingest_reader(binding, fake, expected_rows=0)),
+            refused(
+                lambda: ingress.ingest_batch(binding, pa.Table.from_batches([native]))
+            ),
+            refused(
+                lambda: ingress.ingest_batch(
+                    binding, pa.chunked_array([native.column(0)])
+                )
+            ),
+            refused(lambda: ingress.ingest_batch(binding, b"IPC")),
+            refused(lambda: ingress.ingest_batch(binding, 0)),
+            refused(lambda: ingress.ingest_rows(binding, native)),
+            refused(lambda: ingress.ingest_reader(binding, native, expected_rows=4)),
+        ]
+        schemas = []
+        for position, field_ in (
+            (12, native.schema[12].with_name("changed")),
+            (12, native.schema[12].with_nullable(True)),
+            (12, native.schema[12].with_metadata({b"wrong": b"metadata"})),
+            (0, pa.field("repeated", pa.int32(), nullable=False)),
+        ):
+            fields = list(native.schema)
+            fields[position] = field_
+            columns = list(native.columns)
+            if position == 0:
+                columns[0] = pa.array([1, 0, 1, 1], type=pa.int32())
+            schemas.append(
+                pa.RecordBatch.from_arrays(columns, schema=pa.schema(fields))
+            )
+        schemas.append(native.replace_schema_metadata({b"wrong": b"metadata"}))
+        schema_refusals = [
+            refused(lambda batch=batch: ingress.ingest_batch(binding, batch))
+            for batch in schemas
+        ]
+        foreign = replace(binding, integer_widths=finite_policy(np)["integer_widths"])
+        corrupted = replace(
+            binding,
+            producer=replace(
+                producer,
+                contract=replace(neutral, scalar_meaning=np.contract.scalar_meaning),
+            ),
+        )
+        authority = [
+            refused(lambda b=b: ingress.ingest_rows(b, fake))
+            for b in (None, foreign, corrupted)
+        ]
+        preaccept = []
+        for mode in ("binding", "schema", "extent", "lease", "policy", "meaning"):
+            with ReaderTrace(
+                schemas[0].schema if mode == "schema" else binding.schema,
+                [schemas[0] if mode == "schema" else native],
+            ) as trace:
+                b = (
+                    None
+                    if mode == "binding"
+                    else foreign
+                    if mode == "policy"
+                    else corrupted
+                    if mode == "meaning"
+                    else binding
+                )
+                lease = (
+                    i.BorrowLease(object(), binding, object(), True)
+                    if mode == "lease"
+                    else None
+                )
+                error = refused(
+                    lambda lease=lease: ingress.ingest_reader(
+                        b,
+                        trace.source,
+                        expected_rows=True if mode == "extent" else 4,
+                        lease=lease,
+                    )
+                )
+                before_counts = [trace.reads, trace.closes]
+                caller_batch = trace.source.read_next_batch()
+                trace.source.close()
+                preaccept.append(
+                    dict(
+                        mode=mode,
+                        error=error,
+                        before=before_counts,
+                        caller_rows=caller_batch.num_rows,
+                    )
+                )
+        signature_errors = [
+            protocol_error(lambda: cast(Any, ingress.ingest_reader)(binding, fake)),
+            protocol_error(
+                lambda: cast(Any, ingress.ingest_rows)(binding, rows, lease=None)
+            ),
+        ]
+        results["ingress_refusals"][target] = dict(
+            wrong_routes=wrong_routes,
+            hook_calls=fake.calls,
+            schema=schema_refusals,
+            authority=authority,
+            preaccept=preaccept,
+            signatures=signature_errors,
+        )
+
+        source, owner = mutable_finite(native)
+        managed = ingress.ingest_batch(binding, source)
+        copied = pa.record_batch(managed)
+        independent = all(
+            x.address != y.address
+            for c, d in zip(source.columns, copied.columns, strict=True)
+            for x, y in zip(c.buffers(), d.buffers(), strict=True)
+            if x is not None and y is not None and x.size
+        )
+        mutate_finite(owner)
+        isolated = finite_snapshot(copied)
+        managed.close()
+        source, owner = mutable_finite(native)
+        reference = weakref.ref(owner)
+        lease = i.BorrowLease(source, binding, owner, True)
+        borrowed = ingress.ingest_batch(binding, source, lease=lease)
+        output = pa.record_batch(borrowed)
+        shared = all(
+            x.address == y.address
+            for c, d in zip(source.columns, output.columns, strict=True)
+            for x, y in zip(c.buffers(), d.buffers(), strict=True)
+            if x is not None and y is not None
+        )
+        batch_lease = refused(
+            lambda lease=lease: ingress.ingest_batch(binding, native, lease=lease)
+        )
+        borrowed.close()
+        del borrowed, source, lease, owner
+        gc.collect()
+        batch_pinned = reference() is not None
+        del output
+        gc.collect()
+        batch_released = reference() is None
+        borrowed_source, owner = mutable_finite(native)
+        with ReaderTrace(binding.schema, [borrowed_source]) as trace:
+            owner_ref = weakref.ref(owner)
+            lease = i.BorrowLease(trace.source, binding, owner, True)
+            session = ingress.ingest_reader(
+                binding, trace.source, expected_rows=4, lease=lease
+            )
+            assert session._lease is not None
+            raw_identity = (
+                session._lease[1] is trace.source and session._lease[0] is lease
+            )
+            foreign_reader = pa.RecordBatchReader.from_stream(session)
+            output = foreign_reader.read_next_batch()
+            sharing = all(
+                x.address == y.address
+                for c, d in zip(borrowed_source.columns, output.columns, strict=True)
+                for x, y in zip(c.buffers(), d.buffers(), strict=True)
+                if x is not None and y is not None
+            )
+            copied_session = copy(session)
+            copy_error = refused(
+                lambda copied_session=copied_session: pa.RecordBatchReader.from_stream(
+                    copied_session
+                )
+            )
+            copied_close = refused(copied_session.close)
+            del copied_session
+            competing = refused(session._reader.read_next_batch)
+            second = refused(
+                lambda session=session: pa.RecordBatchReader.from_stream(session)
+            )
+            foreign_reader.close()
+            session.close()
+            session.close()
+            after = [session.state, session._reader.state, trace.reads, trace.closes]
+            del foreign_reader, session, lease, owner
+            gc.collect()
+            reader_pinned = owner_ref() is not None
+            del output
+            gc.collect()
+            reader_released = owner_ref() is None
+        wrapping = []
+        original_initialize = i.ManagedStream._initialize
+
+        def fail_initialize(*args):
+            raise RuntimeError("injected post-acceptance initialization")
+
+        for cleanup in (None, RuntimeError("injected accepted close")):
+            with ReaderTrace(binding.schema, [native], close_error=cleanup) as trace:
+                try:
+                    setattr(i.ManagedStream, "_initialize", fail_initialize)
+                    try:
+                        ingress.ingest_reader(binding, trace.source, expected_rows=4)
+                    except BaseException as exc:
+                        wrapping.append(
+                            dict(
+                                error=type(exc).__name__,
+                                errors=[type(e).__name__ for e in exc.exceptions]
+                                if isinstance(exc, BaseExceptionGroup)
+                                else [],
+                                reads=trace.reads,
+                                closes=trace.closes,
+                            )
+                        )
+                    else:
+                        raise AssertionError("composition injection ignored")
+                finally:
+                    i.ManagedStream._initialize = original_initialize
+        late = interop_stream(binding, [native], 4, route="raw", late=True)
+        early = interop_stream(binding, [native], 4, route="raw", early=True)
+        cleanup = interop_stream(
+            binding,
+            [native],
+            4,
+            route="raw",
+            close_error=RuntimeError("injected source cleanup"),
+        )
+        old_close = i._close_bridge
+
+        def fail_close(bridge):
+            old_close(bridge)
+            raise RuntimeError("injected delivery cleanup")
+
+        try:
+            i._close_bridge = fail_close
+            downstream = interop_stream(binding, [native], 4, route="raw")
+        finally:
+            i._close_bridge = old_close
+
+        def fail_copy(*args):
+            raise StopIteration("not source EOF")
+
+        try:
+            i._copy_batch = fail_copy
+            not_eof = interop_stream(binding, [native], 4, route="raw")
+        finally:
+            i._copy_batch = old_copy
+        results["ingress_ownership"][target] = dict(
+            independent=independent,
+            isolated=isolated,
+            batch_shared=shared,
+            batch_lease=batch_lease,
+            batch_pinned=batch_pinned,
+            batch_released=batch_released,
+            raw_lease_identity=raw_identity,
+            reader_shared=sharing,
+            reader_pinned=reader_pinned,
+            reader_released=reader_released,
+            copy=copy_error,
+            copied_close=copied_close,
+            competing=competing,
+            second=second,
+            early_state=after,
+            wrapping=wrapping,
+            early=early,
+            late=late,
+            cleanup=cleanup,
+            downstream=downstream,
+            not_eof=not_eof,
+        )
+
+        # Direct-reader ownership must be observed at this new acceptance seam.
+        source, owner = mutable_finite(native)
+        with ReaderTrace(binding.schema, [source]) as trace:
+            session = ingress.ingest_reader(binding, trace.source, expected_rows=4)
+            consumer = pa.RecordBatchReader.from_stream(session)
+            output = consumer.read_next_batch()
+            mutate_finite(owner)
+            raw_isolated = finite_snapshot(output)
+            consumer.close()
+            session.close()
+            raw_isolation_counts = [trace.reads, trace.closes]
+        with ReaderTrace(binding.schema, [native]) as trace:
+            lease = i.BorrowLease(trace.source, binding, InteropOwner(), True)
+            session = ingress.ingest_reader(
+                binding, trace.source, expected_rows=4, lease=lease
+            )
+            consumer = pa.RecordBatchReader.from_stream(session)
+            object.__setattr__(lease, "non_mutation", False)
+            lease_abi = protocol_error(consumer.read_next_batch)
+            lease_primary = session.primary_error
+            assert isinstance(lease_primary, a.ResultError)
+            consumer.close()
+            session.close()
+            raw_lease_change = dict(
+                error=lease_primary.category,
+                foreign=lease_abi,
+                reads=trace.reads,
+                closes=trace.closes,
+            )
+        original_claim = r.CheckedFiniteReader._claim
+
+        def claim_failure(self):
+            raise RuntimeError("injected accepted claim failure")
+
+        with ReaderTrace(binding.schema, [native]) as trace:
+            try:
+                setattr(r.CheckedFiniteReader, "_claim", claim_failure)
+                claim_error = protocol_error(
+                    lambda: ingress.ingest_reader(
+                        binding, trace.source, expected_rows=4
+                    )
+                )
+            finally:
+                setattr(r.CheckedFiniteReader, "_claim", original_claim)
+            claim_counts = [trace.reads, trace.closes]
+        control = KeyboardInterrupt("injected source close control")
+        with ReaderTrace(binding.schema, [native], close_error=control) as trace:
+            session = ingress.ingest_reader(binding, trace.source, expected_rows=4)
+            consumer = pa.RecordBatchReader.from_stream(session)
+            foreign_control = None
+            try:
+                with session:
+                    try:
+                        list(consumer)
+                    except Exception as exc:
+                        foreign_control = type(exc).__name__
+                        raise
+            except KeyboardInterrupt as exc:
+                original_control = exc is control
+            else:
+                raise AssertionError("original control lost across ABI")
+            consumer.close()
+            control_result = dict(
+                original=original_control,
+                foreign=foreign_control,
+                state=session.state,
+                complete=session.input_completion is not None,
+                closes=trace.closes,
+            )
+        results["ingress_ownership"][target].update(
+            raw_isolated=raw_isolated,
+            raw_isolation_counts=raw_isolation_counts,
+            raw_lease_change=raw_lease_change,
+            claim_error=claim_error,
+            claim_counts=claim_counts,
+            control=control_result,
+        )
+
+        class DeviceOnly:
+            def __init__(self):
+                self.calls = 0
+
+            def hook(self, *args, **kwargs):
+                self.calls += 1
+                raise AssertionError("device fallback invoked")
+
+            __arrow_c_device_array__ = __arrow_c_device_stream__ = hook
+
+        device = DeviceOnly()
+        results["ingress_refusals"][target]["device"] = dict(
+            errors=[
+                refused(lambda: ingress.ingest_rows(binding, device)),
+                refused(lambda: ingress.ingest_batch(binding, device)),
+                refused(
+                    lambda: ingress.ingest_reader(binding, device, expected_rows=0)
+                ),
+            ],
+            calls=device.calls,
+        )
+
+        resource = {}
+        for state in INGRESS_STATES:
+            chosen = nullable if state in ("null", "first_null") else binding
+            cap = max(INGRESS_USAGES[state])
+            resource[state] = dict(
+                rows=ingress_batch_snapshot(
+                    ingress.ingest_rows(
+                        chosen,
+                        finite_rows(target, state=state),
+                        limits=a.BatchLimits(bytes=cap),
+                    )
+                ),
+                batch=ingress_batch_snapshot(
+                    ingress.ingest_batch(
+                        chosen,
+                        native_finite(state=state),
+                        limits=a.BatchLimits(bytes=cap),
+                    )
+                ),
+                under=[
+                    refused(
+                        lambda: ingress.ingest_rows(
+                            chosen,
+                            finite_rows(target, state=state),
+                            limits=a.BatchLimits(bytes=cap - 1),
+                        )
+                    ),
+                    refused(
+                        lambda: ingress.ingest_batch(
+                            chosen,
+                            native_finite(state=state),
+                            limits=a.BatchLimits(bytes=cap - 1),
+                        )
+                    ),
+                ],
+            )
+        resource["slice"] = ingress_batch_snapshot(
+            ingress.ingest_batch(
+                binding, native.slice(0, 1), limits=a.BatchLimits(bytes=528)
+            )
+        )
+        resource["one_row"] = ingress_batch_snapshot(
+            ingress.ingest_rows(binding, rows[:1], limits=a.BatchLimits(bytes=175))
+        )
+        resource["slice_under"] = refused(
+            lambda: ingress.ingest_batch(
+                binding, native.slice(0, 1), limits=a.BatchLimits(bytes=527)
+            )
+        )
+        try:
+            i._copy_batch = forbidden
+            resource["retained_first"] = refused(
+                lambda: ingress.ingest_batch(
+                    binding,
+                    invalid["float"].slice(0, 1),
+                    limits=a.BatchLimits(bytes=527),
+                )
+            )
+        finally:
+            i._copy_batch = old_copy
+
+        def padded(value, lease):
+            copied = old_copy(value, lease)
+            columns = list(copied.columns)
+            col = columns[0]
+            validity, data = col.buffers()
+            columns[0] = pa.Array.from_buffers(
+                col.type,
+                len(col),
+                [validity, pa.py_buffer(bytes(memoryview(data)) + bytes(128))],
+                offset=col.offset,
+                null_count=-1,
+            )
+            return pa.RecordBatch.from_arrays(columns, schema=copied.schema)
+
+        try:
+            i._copy_batch = padded
+            resource["delivery_under"] = interop_stream(
+                binding,
+                [native, native],
+                8,
+                route="raw",
+                limits=r.FiniteReaderLimits(max_total_bytes=1311),
+            )
+            resource["delivery_exact"] = interop_stream(
+                binding,
+                [native, native],
+                8,
+                route="raw",
+                limits=r.FiniteReaderLimits(max_total_bytes=1312),
+            )
+        finally:
+            i._copy_batch = old_copy
+        resource["empty_cap"] = interop_stream(
+            binding,
+            itertools.repeat(empty),
+            0,
+            route="raw",
+            limits=r.FiniteReaderLimits(max_batches=2),
+        )
+        results["ingress_resources"][target] = resource
+
+        try:
+            i._copy_batch = forbidden
+            resource["raw_retained_first"] = interop_stream(
+                binding,
+                [invalid["float"].slice(0, 1)],
+                1,
+                route="raw",
+                limits=r.FiniteReaderLimits(max_total_bytes=527),
+            )
+        finally:
+            i._copy_batch = old_copy
+
+        # All five paths really call the shared checker; no unchecked route or fabricated usage.
+        original_checker = a._checked_batch_usage
+        reached = []
+        for route in ("rows", "batch", "raw", "array", "protocol"):
+            calls = []
+
+            def reject_checked(*args, **kwargs):
+                calls.append("actual batch checker")
+                raise a.ResultError("VALUE_DOMAIN")
+
+            try:
+                a._checked_batch_usage = reject_checked
+                if route == "rows":
+                    error = refused(lambda: ingress.ingest_rows(binding, rows))
+                elif route == "batch":
+                    error = refused(lambda: ingress.ingest_batch(binding, native))
+                elif route == "array":
+                    error = refused(
+                        lambda: i.import_batch(binding, ProtocolBatch(native))
+                    )
+                else:
+                    error = interop_stream(binding, [native], 4, route=route)["error"]
+                reached.append(dict(route=route, error=error, calls=len(calls)))
+            finally:
+                a._checked_batch_usage = original_checker
+        altered = {}
+        wrong = [list(row) for row in rows]
+        wrong[0][4] = float("nan")
+        altered["rows"] = refused(lambda: ingress.ingest_rows(binding, wrong))
+        altered["batch"] = refused(
+            lambda: ingress.ingest_batch(binding, invalid["float"])
+        )
+        altered["array"] = refused(
+            lambda: i.import_batch(binding, ProtocolBatch(invalid["float"]))
+        )
+        for route in ("raw", "protocol"):
+            observed = interop_stream(binding, [invalid["float"]], 4, route=route)
+            altered[route] = dict(
+                error=observed["error"],
+                complete=observed["source_complete"],
+                delivered=observed["chunks"],
+            )
+        columns = list(native.columns)
+        columns[0], columns[12] = columns[12], columns[0]
+        swapped = pa.RecordBatch.from_arrays(columns, schema=native.schema)
+        columns = list(native.columns)
+        columns[12] = pa.array([-8, 9, -7, -7], type=pa.int16())
+        substituted = pa.RecordBatch.from_arrays(columns, schema=native.schema)
+        substitutions = []
+        for name, batch in (
+            ("swap", swapped),
+            ("non_first", substituted),
+            ("lost_duplicate", native.slice(0, 3)),
+        ):
+            observed = interop_stream(binding, [batch], batch.num_rows, route="raw")
+            error = protocol_error(lambda: ingress_value_oracle(observed["rows"]))
+            substitutions.append(
+                dict(
+                    kind=name,
+                    rows=observed["rows"],
+                    source_complete=observed["source_complete"],
+                    oracle=error,
+                )
+            )
+
+        def changed_copy(value, lease):
+            copied = old_copy(value, lease)
+            columns = list(copied.columns)
+            columns[0], columns[12] = columns[12], columns[0]
+            return pa.RecordBatch.from_arrays(columns, schema=copied.schema)
+
+        try:
+            i._copy_batch = changed_copy
+            changed = interop_stream(binding, [native], 4, route="raw")
+        finally:
+            i._copy_batch = old_copy
+        results["ingress_independence"][target] = dict(
+            altered=altered,
+            checker=reached,
+            substitutions=substitutions,
+            injected=dict(
+                rows=changed["rows"],
+                source_complete=changed["source_complete"],
+                oracle=protocol_error(lambda: ingress_value_oracle(changed["rows"])),
+            ),
+            neutral_unchanged=export_result_contract(neutral, checked).canonical_bytes
+            == before,
+        )
+    return results
+
+
+def verify_ingress_report(cases):
+    try:
+        if any(set(cases[name]) != {"postgres", "mysql"} for name in INGRESS_GROUPS):
+            raise ValueError("ingress denominator")
+        rows = finite_expected()["rows"]
+        whole = READER_LAYOUTS["whole"]
+        failures = []
+        for target in ("postgres", "mysql"):
+
+            def require(name, expected):
+                if not _exact(cases[name][target], expected):
+                    failures.append(
+                        "ingress observed "
+                        + name
+                        + ": "
+                        + json.dumps(
+                            {"actual": cases[name][target], "expected": expected},
+                            sort_keys=True,
+                        )
+                    )
+
+            row_cases: dict[str, Any] = {
+                state: ingress_batch_expected(state) for state in INGRESS_STATES
+            }
+            row_cases.update(
+                refusals=["ROWS", "ROWS", "ROW_ARITY", "ROW_ARITY"]
+                + ["VALUE_DOMAIN"] * 4,
+                redundant=ingress_batch_expected(),
+            )
+            require("ingress_rows", row_cases)
+            batch_cases: dict[str, Any] = {
+                state: ingress_batch_expected(state) for state in INGRESS_STATES
+            }
+            sliced = ingress_batch_expected()
+            sliced.update(
+                snapshot=interop_snapshot_slice(1, 3),
+                source_usage=[330, 528],
+                usage=[330, 528],
+            )
+            batch_cases.update(
+                sliced=sliced,
+                offsets=[1] * 13,
+                absent=ingress_batch_expected("empty"),
+                original_refusals=dict(
+                    float="VALUE_DOMAIN",
+                    utf8="ARROW_BATCH",
+                    precision="ARROW_BATCH",
+                    timestamp="VALUE_DOMAIN",
+                    null="NULL",
+                ),
+            )
+            require("ingress_batch", batch_cases)
+            reader_cases = {
+                name: ingress_stream_expected(usages, rows)
+                for name, usages in READER_LAYOUTS.items()
+            }
+            reader_cases.update(
+                zero=ingress_stream_expected((), []),
+                empty=ingress_stream_expected(((0, 12, 12),), []),
+                trailing_empty=ingress_stream_expected((*whole, (0, 12, 12)), rows),
+                short=ingress_stream_expected(
+                    ((3, 480, 528),), rows[:3], failure="READER_EXTENT"
+                ),
+                extra=ingress_stream_expected(
+                    (), [], failure="READER_EXTENT", counts=[4]
+                ),
+            )
+            for state in ("null", "first_null"):
+                count = 2 if state == "null" else 5
+                reader_cases[state] = ingress_stream_expected(
+                    ((count, *INGRESS_USAGES[state]),),
+                    finite_expected(state=state)["rows"],
+                    nullable=True,
+                )
+            require("ingress_reader", reader_cases)
+            require(
+                "ingress_parity",
+                dict(
+                    rows=ingress_batch_expected(),
+                    batch=ingress_batch_expected(),
+                    reader=ingress_stream_expected(whole, rows),
+                    array=ingress_batch_expected(),
+                    stream=ingress_stream_expected(whole, rows, route="protocol"),
+                    array_calls=1,
+                    row_carriers=[
+                        "bool" if target == "postgres" else "int",
+                        "datetime",
+                        "UUID" if target == "postgres" else "bytes",
+                        "Decimal",
+                    ],
+                    logical_bool="bool",
+                ),
+            )
+            require(
+                "ingress_refusals",
+                dict(
+                    wrong_routes=[
+                        "ROWS",
+                        "ARROW_BATCH",
+                        "READER_SOURCE",
+                        "ARROW_BATCH",
+                        "ARROW_BATCH",
+                        "ARROW_BATCH",
+                        "ARROW_BATCH",
+                        "ROWS",
+                        "READER_SOURCE",
+                    ],
+                    hook_calls=0,
+                    schema=["ARROW_SCHEMA"] * 5,
+                    authority=["ARROW_BINDING", "ARROW_ADAPTATION", "MEANING_ROOT"],
+                    preaccept=[
+                        dict(mode=mode, error=error, before=[0, 0], caller_rows=4)
+                        for mode, error in zip(
+                            (
+                                "binding",
+                                "schema",
+                                "extent",
+                                "lease",
+                                "policy",
+                                "meaning",
+                            ),
+                            (
+                                "ARROW_BINDING",
+                                "ARROW_SCHEMA",
+                                "READER_DECLARATION",
+                                "INTEROP_LEASE",
+                                "ARROW_ADAPTATION",
+                                "MEANING_ROOT",
+                            ),
+                            strict=True,
+                        )
+                    ],
+                    signatures=["TypeError"] * 2,
+                    device=dict(
+                        errors=["ROWS", "ARROW_BATCH", "READER_SOURCE"], calls=0
+                    ),
+                ),
+            )
+            downstream = ingress_stream_expected(whole, rows)
+            downstream.update(after=["FAILED", "COMPLETE"], error="INTEROP_CLEANUP")
+            not_eof = ingress_stream_expected(
+                (),
+                [],
+                failure="StopIteration",
+                counts=[4],
+                input_state="CLOSED_INCOMPLETE",
+            )
+            not_eof.update(source_rows=4, reads=1)
+            require(
+                "ingress_ownership",
+                dict(
+                    raw_isolated=protocol_expected(),
+                    raw_isolation_counts=[1, 1],
+                    raw_lease_change=dict(
+                        error="INTEROP_LEASE", foreign="ArrowInvalid", reads=0, closes=1
+                    ),
+                    claim_error="RuntimeError",
+                    claim_counts=[0, 1],
+                    control=dict(
+                        original=True,
+                        foreign="ArrowInvalid",
+                        state="FAILED",
+                        complete=False,
+                        closes=1,
+                    ),
+                    independent=True,
+                    isolated=protocol_expected(),
+                    batch_shared=True,
+                    batch_lease="INTEROP_LEASE",
+                    batch_pinned=True,
+                    batch_released=True,
+                    raw_lease_identity=True,
+                    reader_shared=True,
+                    reader_pinned=True,
+                    reader_released=True,
+                    copy="INTEROP_BINDING",
+                    copied_close="INTEROP_BINDING",
+                    competing="READER_CLAIMED",
+                    second="INTEROP_SPENT",
+                    early_state=["CLOSED_INCOMPLETE", "CLOSED_INCOMPLETE", 1, 1],
+                    wrapping=[
+                        dict(error="RuntimeError", errors=[], reads=0, closes=1),
+                        dict(
+                            error="ExceptionGroup",
+                            errors=["RuntimeError", "ResultError"],
+                            reads=0,
+                            closes=1,
+                        ),
+                    ],
+                    early=ingress_stream_expected(whole, rows, early=True),
+                    late=ingress_stream_expected(whole, rows, failure="READER_SOURCE"),
+                    cleanup=ingress_stream_expected(
+                        whole, rows, failure="READER_CLEANUP"
+                    ),
+                    downstream=downstream,
+                    not_eof=not_eof,
+                ),
+            )
+            resource: dict[str, Any] = {
+                state: dict(
+                    rows=ingress_batch_expected(state),
+                    batch=ingress_batch_expected(state),
+                    under=["LIMIT"] * 2,
+                )
+                for state in INGRESS_STATES
+            }
+            sliced = ingress_batch_expected()
+            sliced.update(
+                snapshot=interop_snapshot_slice(0, 1),
+                source_usage=[175, 528],
+                usage=[175, 528],
+            )
+            one = ingress_batch_expected()
+            one.update(
+                snapshot=protocol_expected(state="one"),
+                source_usage=[175, 139],
+                usage=[175, 139],
+            )
+            under = ingress_stream_expected(
+                whole,
+                rows,
+                failure="LIMIT",
+                counts=[4, 4],
+                input_state="CLOSED_INCOMPLETE",
+            )
+            under.update(
+                charge=656, descriptors=[[4, 630, 528, 630, 656, 1184]], source_rows=8
+            )
+            exact = ingress_stream_expected((*whole, *whole), rows + rows)
+            exact.update(charge=1312, descriptors=[[4, 630, 528, 630, 656, 1184]] * 2)
+            resource.update(
+                slice=sliced,
+                one_row=one,
+                slice_under="LIMIT",
+                retained_first="LIMIT",
+                raw_retained_first=ingress_stream_expected(
+                    (), [], failure="LIMIT", counts=[1]
+                ),
+                delivery_under=under,
+                delivery_exact=exact,
+                empty_cap=ingress_stream_expected(
+                    ((0, 12, 12), (0, 12, 12)), [], failure="LIMIT", counts=[0, 0, 0]
+                ),
+            )
+            require("ingress_resources", resource)
+            swapped = json.loads(json.dumps(rows))
+            for row in swapped:
+                row[0], row[12] = row[12], row[0]
+            substitute = json.loads(json.dumps(rows))
+            substitute[0][12] = -8
+            require(
+                "ingress_independence",
+                dict(
+                    altered=dict(
+                        rows="VALUE_DOMAIN",
+                        batch="VALUE_DOMAIN",
+                        array="VALUE_DOMAIN",
+                        raw=dict(error="VALUE_DOMAIN", complete=False, delivered=[]),
+                        protocol=dict(
+                            error="VALUE_DOMAIN", complete=False, delivered=[]
+                        ),
+                    ),
+                    checker=[
+                        dict(route=route, error="VALUE_DOMAIN", calls=1)
+                        for route in ("rows", "batch", "raw", "array", "protocol")
+                    ],
+                    substitutions=[
+                        dict(
+                            kind=name,
+                            rows=value,
+                            source_complete=True,
+                            oracle="ValueError",
+                        )
+                        for name, value in (
+                            ("swap", swapped),
+                            ("non_first", substitute),
+                            ("lost_duplicate", rows[:3]),
+                        )
+                    ],
+                    injected=dict(
+                        rows=swapped, source_complete=True, oracle="ValueError"
+                    ),
+                    neutral_unchanged=True,
+                ),
+            )
+        if failures:
+            raise ValueError("\n".join(failures))
+    except (KeyError, TypeError, IndexError) as exc:
+        raise ValueError("ingress observations") from exc
+
+
 def descriptor_sources(imported=False):
     types = """type Money = Decimal(12, 2)
 type Label = Text:
@@ -8719,6 +9956,7 @@ def verify_report(value, context, inputs):
     verify_finite_report(cases)
     verify_reader_report(cases)
     verify_interop_report(cases)
+    verify_ingress_report(cases)
     origins = value["origins"]
     prefix = Path(value["prefix"])
     required = {"pietto._project." + name for name in PRODUCTS} | {
@@ -8883,6 +10121,30 @@ def compare_product_reports(paths, repository, contexts):
 def reject_report_damage(value, context, inputs):
     """Mutate actual saved-data observations, never fake an Arrow success."""
     mutations = (
+        lambda v: v["cases"]["ingress_rows"]["postgres"]["values"]["snapshot"]["rows"][
+            0
+        ].__setitem__(12, 1),
+        lambda v: v["cases"]["ingress_batch"]["mysql"]["sliced"]["snapshot"]["valid"][
+            1
+        ].__setitem__(1, True),
+        lambda v: v["cases"]["ingress_reader"]["postgres"]["trailing_empty"].update(
+            source_complete=False
+        ),
+        lambda v: v["cases"]["ingress_parity"]["mysql"]["batch"]["snapshot"]["rows"][
+            0
+        ].__setitem__(4, "0000000000000000"),
+        lambda v: v["cases"]["ingress_refusals"]["postgres"]["preaccept"][0][
+            "before"
+        ].__setitem__(1, 1),
+        lambda v: v["cases"]["ingress_ownership"]["mysql"]["downstream"][
+            "after"
+        ].__setitem__(0, "CLOSED"),
+        lambda v: v["cases"]["ingress_resources"]["postgres"]["delivery_under"].update(
+            charge=630
+        ),
+        lambda v: v["cases"]["ingress_independence"]["mysql"]["substitutions"][1][
+            "rows"
+        ][0].__setitem__(12, -7),
         lambda v: v["cases"]["ownership_copy"]["postgres"]["values"]["rows"][
             0
         ].__setitem__(4, "0000000000000000"),
@@ -9161,8 +10423,8 @@ def main():
     }
     verify_report(value, context, input_closure(repository))
     rejected = reject_report_damage(value, context, input_closure(repository))
-    assert len(cases) == 84
-    assert rejected == 82
+    assert len(cases) == 92
+    assert rejected == 90
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with args.report.open("x") as stream:
         json.dump(value, stream, sort_keys=True, allow_nan=False)

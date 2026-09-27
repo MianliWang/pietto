@@ -14,7 +14,7 @@
 | 08 | [empty/all-null/duplicate-label carrier及完整finite-type integration；midpoint](slice-08.md)（P67-A02/A06/A08；[验收](brief.md#三层完成验收与回归)） | 04–07 |
 | 09 | [bounded finite reader/finalization、rechunk、BAG/order](slice-09.md)（P67-A09–A10/A15；[验收](brief.md#三层完成验收与回归)） | 08 |
 | 10 | [ownership/copy/borrow、CPU、C Data/C stream/PyCapsule](slice-10.md)（P67-A07/A11/A13/A15；[验收](brief.md#三层完成验收与回归)） | 09 |
-| 11 | row与Arrow-native ingress correspondence（P67-A09/A12/A15；[验收](brief.md#三层完成验收与回归)） | 09–10 |
+| 11 | [row与Arrow-native ingress correspondence](slice-11.md)（P67-A09/A12/A15；[验收](brief.md#三层完成验收与回归)） | 09–10 |
 | 12 | bounded private IPC、truncation/completion、metadata（P67-A07/A10/A14/A15；[验收](brief.md#三层完成验收与回归)） | 09–11 |
 | 13 | 公开可安装optional extra与wheel isolation（P67-A16；[验收](brief.md#三层完成验收与回归)） | 02–12；消费Slice01实验，不重复实验campaign |
 | 14 | 真实producer/result consumer integration，无产品executor（P67-A03/A13/A16–A17；[验收](brief.md#三层完成验收与回归)） | 13 |

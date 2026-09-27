@@ -34,3 +34,7 @@ Slice08：完整schema与原始输入positional values是两种证据；同type�
 Slice09：声明extent先于候选消费，正常source EOF只在read操作边界解释；达到行数、empty批或cleanup成功单独都不够。累计处理费用使用每批max(logical,referenced)再求和，切片/重分批可改变成本；原值正确性仍由独立positional oracle验证。真实SDK无预读/weakref/close后返回值前提先测，罕见cleanup异常注明注入，不能把测试sentinel描述为自然SDK行为。
 
 Slice10：先测真实capsule/close/owner保活；C handle release不代表独占buffer，也不保证关闭原checked source。协议消费后的SDK空metadata表示与跨C ABI异常表示应如实记录，保留原binding规则和原primary cause；不要将表示差异误判为值复制损坏或用归一化隐藏它。
+
+### Phase67 Slice11：入口组合的验收责任
+
+显式入口可直接别名已有owned builder/managed batch；raw reader应直接组合接受与delivery，不用C导出再导入绕行。source-specific lease在接受前capture，接受后claim失败由原session一次cleanup。logical Arrow与producer carriers分别建fixture；layout成本不强求相等，原值oracle与domain checker各司其职。细节与限制见[唯一S11合同](../phases/phase-67/slice-11.md)。

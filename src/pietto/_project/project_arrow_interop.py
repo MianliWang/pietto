@@ -565,14 +565,30 @@ def import_stream(
         reader = r.open_finite_reader(
             binding, source, expected_rows=expected_rows, limits=limits
         )
-        session = object.__new__(ManagedStream)
-        session._initialize(reader, captured, borrowed)
-        return session
     except BaseException as primary:
         try:
             source.close()
         except BaseException as cleanup:
             raise BaseExceptionGroup(
                 "stream import and cleanup failures", [primary, cleanup]
+            )
+        raise
+    return _manage_accepted_reader(reader, captured, borrowed)
+
+
+def _manage_accepted_reader(reader, captured, borrowed):
+    """Take cleanup responsibility only for an already accepted S09 session."""
+    try:
+        _check_binding(captured)
+        _check_lease(borrowed)
+        session = object.__new__(ManagedStream)
+        session._initialize(reader, captured, borrowed)
+        return session
+    except BaseException as primary:
+        try:
+            reader.close()
+        except BaseException as cleanup:
+            raise BaseExceptionGroup(
+                "stream composition and cleanup failures", [primary, cleanup]
             )
         raise

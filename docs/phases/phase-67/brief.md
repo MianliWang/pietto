@@ -85,3 +85,5 @@ health/history 只作 advisory；没有新 alert 不启动 CI 维护。
 [Slice09](slice-09.md) 连接P67-A09/A10及A15的有界stream部分：保持真实batch boundaries、NULL与positional values，逐批sum(max(A,R))记账，normal EOF+exact caller extent+successful close才发session-bound completion。P67-A09的broader ingress/whole-result仍归S11/S15；A10的IPC及execution归S12/Phase68；A15的protocol/IPC界面仍归S10/S12。S08 midpoint路线保留，不把这些跨Slice义务整项提前完成。
 
 [Slice10 ownership/CPU interop](slice-10.md) 关闭P67-A11/A13及A07/A15的当前protocol部分；cooperative CPU范围、borrowed non-mutation义务、原S09条件完成与PyArrow消费者证据限制见唯一合同，不宣称独立C实现或executor成功。
+
+[Slice11](slice-11.md) 连接A09/A12及A15的explicit rows/RecordBatch/raw reader入口；复用原checker/ownership/conditional completion。A09 whole-result assurance仍归S15，A15 IPC仍归S12；协作输入前提与原值correspondence边界见唯一合同。

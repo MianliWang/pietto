@@ -10,8 +10,8 @@ Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. Phase64 and its 11 numbered Slices are completed
 through their accepted publication chains. Phase65 and Slices1–16 are completed
 through the accepted Slice16 audit publication. Phase66 and Slices1–16 are completed through the Slice16 audit publication and exact-head CI described below.
-Phase67 is `ACTIVE`, N67=16; Slices01–10 connect finite checked results with explicit buffer ownership and CPU Arrow C Data/C Stream consumers.
-Slice11 remains `NEXT / NOT STARTED`; later Slices12–16 are not started.
+Phase67 is `ACTIVE`, N67=16; Slices01–11 connect positional rows and native Arrow ingress with finite checking, ownership and CPU C consumers.
+Slice12 remains `NEXT / NOT STARTED`; later Slices13–16 are not started.
 The Validation/Test Performance Optimization Interlude II is `COMPLETED`.
 Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -57,7 +57,7 @@ Phase67 `ACTIVE`，N67=16。[Slice01](phases/phase-67/slice-01.md) 联合交付�
 一次普通commit/FF push、natural exact-head attempt1全部15jobs、逐runtime v2 coverage、readiness/health
 raw artifacts与native strict receipts通过后成立；此前为candidate。
 
-Slices01–10 `COMPLETED / PUBLISHED`；Slice11 `NEXT / NOT STARTED`；Slices12–16 `NOT STARTED`。Slice03 的 [canonical private result contract](phases/phase-67/slice-03.md) 保留独立 pure decoding、完整 runtime correspondence/invalidation 与原 Int producer/Arrow batch 链；仅在 sealed publication、全部15jobs和fresh raw evidence通过后完成，不自动进入Slice11。
+Slices01–11 `COMPLETED / PUBLISHED`；Slice12 `NEXT / NOT STARTED`；Slices13–16 `NOT STARTED`。Slice03 的 [canonical private result contract](phases/phase-67/slice-03.md) 保留独立 pure decoding、完整 runtime correspondence/invalidation 与原 Int producer/Arrow batch 链；仅在 sealed publication、全部15jobs和fresh raw evidence通过后完成，不自动进入Slice12。
 [Slice05](phases/phase-67/slice-05.md) 交付 checked Text/Unicode、默认string与显式large_string、完整producer事实及有界owned batch；新增8个product案例和4份Text/mixed canonical文档。上述完成状态仅在本Slice sealed publication、自然exact-head全部15jobs及fresh raw evidence闭合后成立；此前为candidate。
 [Slice06](phases/phase-67/slice-06.md) 包含已明确批准的shared Decimal parameter precision38→65接受扩展；语言scale≤p，当前两target emission/result仍要求scale≤min(p,30)。固定尺度数值、context隔离、默认/显式128/256与资源边界由required product链验证；旧38位合同和前提HOLD保留历史。当前Slice06完成状态仅在sealed publication、natural exact-head全部15jobs及fresh raw/native闭合后成立，此前为candidate。
 [Slice07](phases/phase-67/slice-07.md) 通过显式private meaning输入连接civil Timestamp与标准128-bit UUID；默认public/CLI调用仍不取得meaning。Timestamp共同区间截至9999-12-31 23:59:59.499999，canonical UUID默认、binary16显式选择。当前S07完成状态仅在同候选sealed publication、自然exact-head全部15jobs及fresh raw/native闭合后成立；此前为candidate。
@@ -71,7 +71,9 @@ Phase66 COMPLETED/N66=16；Interlude V COMPLETED/total=3；R1单独完成；CI�
 
 [Slice09](phases/phase-67/slice-09.md) 的private同步reader保留source批次/empty/positional序列；fresh/exclusive调用前提下，精确caller extent、normal EOF与一次成功close共同允许session-bound completion。不是source/value/SQL/DB完整性认证。1024批/1048576行/64MiB累计sum(max(logical,retained))与旧batch/codec/labels上限并存。当前S09完成以同tree本地closure、普通publication、自然exact-head全部15jobs和fresh raw/native闭合为条件；此前为candidate。
 
-[Slice10](phases/phase-67/slice-10.md) 连接owned copy、显式lease借用及CPU C Data/C Stream；buffer政策与单次C handle transfer分离，显式session cleanup保持S09条件完成。完成以同tree local、ordinary publication、自然15jobs和fresh raw/native闭合为条件；此前为candidate。S11 NEXT，不提前实现一般ingress/IPC/extra。
+[Slice10](phases/phase-67/slice-10.md) 连接owned copy、显式lease借用及CPU C Data/C Stream；buffer政策与单次C handle transfer分离，显式session cleanup保持S09条件完成。完成以同tree local、ordinary publication、自然15jobs和fresh raw/native闭合为条件；此前为candidate。S11 ingress见下；S12 IPC与后续extra不提前实现。
+
+[Slice11](phases/phase-67/slice-11.md) 提供显式rows/batch/raw reader入口，复用原checker、fresh-owned或lease、S09条件完成和S10 delivery。required product严格92groups/90damage；22中立全文保持，接受前caller责任与接受后cleanup分开。完成仍以同tree local/自然15jobs/raw/native闭合为条件；S12 NEXT，只负责后续bounded private IPC。
 
 ## CI remaining-tail maintenance R1
 

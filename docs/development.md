@@ -417,3 +417,7 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 ## Slice10 CPU协议验证
 
 [S10](phases/phase-67/slice-10.md) 将required product扩为84groups/82实质damage controls，保留9SDK和22全文。真实consumer与wrapper计数/注入控制分别标明；native输入closure随interop模块刷新。自然CI观察允许foreground串行预取已上传raw，最终required inventory/context/bytes与三个data-only native strict仍完整执行，提前下载不证明成功。
+
+## Slice11 ingress验证
+
+[S11](phases/phase-67/slice-11.md) 沿用required consumer，严格92product/90damage及9SDK，原22documents四runtime全文一致。独立SDK native fixture与producer rows配对，不经producer mapper重建Arrow输入；接受点、原raw-reader lease、source/delivery终态与layout-specific cost分别观测。S09/S10直接manifest readers、typing/lifecycle及实际doc scanner在full前检查。

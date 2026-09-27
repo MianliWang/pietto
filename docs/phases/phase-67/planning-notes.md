@@ -125,3 +125,7 @@ Q1冻结14路径/新增2，读过Arrow全owner、producer精确labels、真实fi
 ## Slice10 Q1/Q2
 
 按ACTIVE dispatch展开[唯一S10合同](slice-10.md)，两runtime premise先证capsules/owner pin/close传播，再冻结17路径。原22中立文档和S09条件完成保持；实际Q2、一次author/Ponytail finding集、复核与publication/raw闭合由外部ledger绑定，不重做Phase启动或midpoint。
+
+## Slice11 Q1/Q2
+
+按ACTIVE dispatch只展开[唯一S11合同](slice-11.md)，19路径/新增3及92/90精确report读者。入口为两直接别名和raw-reader组合，未创建第二套scalar/stream状态。Q2/review/followup及最终seal事实归外部唯一ledger；不重复Phase-start或midpoint。
