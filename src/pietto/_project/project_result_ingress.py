@@ -24,9 +24,24 @@ def ingest_reader(
     limits=reader.FiniteReaderLimits(),
     lease=None,
 ) -> interop.ManagedStream:
-    captured = interop._capture(binding)
-    borrowed = interop._lease_capture(lease, source, binding)
-    accepted = reader.open_finite_reader(
-        binding, source, expected_rows=expected_rows, limits=limits
-    )
+    return _ingest_reader(binding, source, expected_rows, limits, lease, owned=False)
+
+
+def _ingest_reader(binding, source, expected_rows, limits, lease, *, owned):
+    """An internally opened reader also needs cleanup before S09 acceptance."""
+    try:
+        captured = interop._capture(binding)
+        borrowed = interop._lease_capture(lease, source, binding)
+        accepted = reader.open_finite_reader(
+            binding, source, expected_rows=expected_rows, limits=limits
+        )
+    except BaseException as primary:
+        if owned:
+            try:
+                reader._close_source(source)
+            except BaseException as cleanup:
+                raise BaseExceptionGroup(
+                    "owned reader acceptance and cleanup failures", [primary, cleanup]
+                )
+        raise
     return interop._manage_accepted_reader(accepted, captured, borrowed)

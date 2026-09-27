@@ -1,6 +1,6 @@
 # Phase67 路线：N67=16
 
-当前只展开已授权 [Slice10](slice-10.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
+当前只展开已授权 [Slice12](slice-12.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
 
 | Slice | 目标／acceptance链接 | 依赖／类型 |
 | --- | --- | --- |
@@ -15,7 +15,7 @@
 | 09 | [bounded finite reader/finalization、rechunk、BAG/order](slice-09.md)（P67-A09–A10/A15；[验收](brief.md#三层完成验收与回归)） | 08 |
 | 10 | [ownership/copy/borrow、CPU、C Data/C stream/PyCapsule](slice-10.md)（P67-A07/A11/A13/A15；[验收](brief.md#三层完成验收与回归)） | 09 |
 | 11 | [row与Arrow-native ingress correspondence](slice-11.md)（P67-A09/A12/A15；[验收](brief.md#三层完成验收与回归)） | 09–10 |
-| 12 | bounded private IPC、truncation/completion、metadata（P67-A07/A10/A14/A15；[验收](brief.md#三层完成验收与回归)） | 09–11 |
+| 12 | [bounded private IPC、truncation/completion、metadata](slice-12.md)（P67-A07/A10/A14/A15；[验收](brief.md#三层完成验收与回归)） | 09–11 |
 | 13 | 公开可安装optional extra与wheel isolation（P67-A16；[验收](brief.md#三层完成验收与回归)） | 02–12；消费Slice01实验，不重复实验campaign |
 | 14 | 真实producer/result consumer integration，无产品executor（P67-A03/A13/A16–A17；[验收](brief.md#三层完成验收与回归)） | 13 |
 | 15 | whole-result differential/metamorphic assurance与Phase68交接（P67-A01/A03/A05/A09/A13–A14/A17；[验收](brief.md#三层完成验收与回归)） | 14 |
@@ -70,3 +70,5 @@ Phase68接已验证result/binding/batch/finite-finalization合同，不重决编
 ## Slice09 交付边界
 
 S08延后的extent/attester/limits三项已由用户明确批准：caller先声明，session绑定exact source/binding，完成只相对声明；同步pull与source布局保留；最多1024批/1048576行/64MiB累计费用。正常EOF、close成功与独立session receipt共同验收。S10ownership/non-mutation/protocol、S11ingress、S12IPC/独立completion envelope及后续owner未提前实现。发布闭环后Slice10 NEXT/NOT STARTED，11–16未开始。
+
+[Slice12](slice-12.md) 连接A14及A07/A10/A15的IPC部分：framing完整性、caller extent与原S09完成条件分开；metadata不授权。S12本地candidate交supervisor闭合publication/自然CI/raw/native后才完成；S13 NEXT且未开始，N67=16不变。

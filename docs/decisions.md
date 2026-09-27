@@ -47,3 +47,7 @@ Timestamp/UUID显式private meaning已由Slice07取得upstream witnesses；默�
 | D67.28 | C schema请求仅None/exact equivalent，无cast；fresh S09 reader授予一个managed stream consumer，显式interop session负责确定性cleanup | S10两runtime premise证实SDK close不执行generator finally；source completion与downstream error分列 |
 
 | D67.29 | rows/batch/raw reader显式入口复用原S08–S10机制；raw-reader lease绑定原source，接受前caller保留责任、接受后composition失败清理session | S11 ACTIVE已委派private接口；[合同](phases/phase-67/slice-11.md)，无新envelope或状态机 |
+
+## Phase67 Slice12 private transport
+
+[Slice12](phases/phase-67/slice-12.md) 将既有有限结果封装为standard Arrow IPC与固定100-byte header、无trailer、96MiB frame。payload/canonical-contract SHA-256、length及rows/batches只检查transport correspondence；message metadata不授予authority；live binding及原值correspondence仍独立，stronger trust/signing归Phase84。此为已批准private实现选择，不冻结公共wire格式。

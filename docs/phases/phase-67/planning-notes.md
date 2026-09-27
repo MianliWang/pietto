@@ -129,3 +129,7 @@ Q1冻结14路径/新增2，读过Arrow全owner、producer精确labels、真实fi
 ## Slice11 Q1/Q2
 
 按ACTIVE dispatch只展开[唯一S11合同](slice-11.md)，19路径/新增3及92/90精确report读者。入口为两直接别名和raw-reader组合，未创建第二套scalar/stream状态。Q2/review/followup及最终seal事实归外部唯一ledger；不重复Phase-start或midpoint。
+
+## Slice12 Q3/Q4 当前合同续行
+
+[唯一合同](slice-12.md) 按明确续行授权改为100-byte header/96MiB、S11 managed encode、canonical-contract digest、frame batches与原S09 receipt/cleanup核验、message metadata非权威。保留旧18路径/c1bb0f89候选/full/review和累计预算，旧证据不转作新合同PASS。Q3重冻结；Review2/followup2/Q4、depth-one/full2及Git/CI/raw/native绑定新tree，不重做Phase启动或midpoint。

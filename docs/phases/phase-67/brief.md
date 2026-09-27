@@ -2,7 +2,7 @@
 
 规划层级 FULL；N67=16。描述性 Stage 目标是建立有限结果交换边界；现有资料没有数字 Stage，故不另造编号。
 这是已接受全 Phase 计划的耐久入口。Slice01 的 CI/SDK 实验范围与预算见其历史记录；当前只授权
-[Slice10](slice-10.md)，后续 Slice 仍逐次 dispatch。包/CLI 保持0.1.0。
+[Slice12](slice-12.md)，后续 Slice 仍逐次 dispatch。包/CLI 保持0.1.0。
 
 ## 使命、当前能力与边界
 
@@ -12,7 +12,7 @@ PiettoResultContract 与 scalar-first ResultShape，再分别核对 ProducerResu
 交付 RecordBatch／有限 reader 消费链。转换不能修补 producer 谎报，下游不重解上游语义。
 
 Slice01 已发布 CI governance 与两解释器真实 PyArrow25.0.1 SDK/lifetime/device 实验；它未实现产品结果。
-Slice02 交付 private Int batch 薄纵向；Slice03 增加独立 canonical private bytes、bounded pure decoder、runtime correspondence/invalidation。Slice09增加相对显式caller extent的有限完成；Slice10连接CPU C协议及ownership；IPC、公开optional extra仍待各自Slice。
+Slice02 交付 private Int batch 薄纵向；Slice03 增加独立 canonical private bytes、bounded pure decoder、runtime correspondence/invalidation。Slice09增加相对显式caller extent的有限完成；Slice10连接CPU C协议及ownership，Slice12候选连接有界private IPC；公开optional extra仍归Slice13。
 Slice07已关闭显式private Timestamp/UUID meaning前提；默认无meaning仍拒绝。Slice08连接有限scalar、typed empty/all-NULL和显式carrier labels。CPU是当前成功域。
 
 ## 三层完成验收与回归
@@ -87,3 +87,5 @@ health/history 只作 advisory；没有新 alert 不启动 CI 维护。
 [Slice10 ownership/CPU interop](slice-10.md) 关闭P67-A11/A13及A07/A15的当前protocol部分；cooperative CPU范围、borrowed non-mutation义务、原S09条件完成与PyArrow消费者证据限制见唯一合同，不宣称独立C实现或executor成功。
 
 [Slice11](slice-11.md) 连接A09/A12及A15的explicit rows/RecordBatch/raw reader入口；复用原checker/ownership/conditional completion。A09 whole-result assurance仍归S15，A15 IPC仍归S12；协作输入前提与原值correspondence边界见唯一合同。
+
+[Slice12](slice-12.md) 连接A14及A07/A10/A15的IPC部分：framing完整性、caller extent与原S09完成条件分开；metadata不授权。S12本地candidate交supervisor闭合publication/自然CI/raw/native后才完成；S13 NEXT且未开始，N67=16不变。

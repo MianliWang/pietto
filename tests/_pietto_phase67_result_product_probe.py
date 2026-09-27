@@ -32,6 +32,7 @@ PRODUCTS = (
     "project_result_reader",
     "project_arrow_interop",
     "project_result_ingress",
+    "project_result_ipc",
 )
 CASES = (
     "postgres",
@@ -126,6 +127,16 @@ CASES = (
     "ingress_ownership",
     "ingress_resources",
     "ingress_independence",
+    "ipc_roundtrip",
+    "ipc_boundary_truncation",
+    "ipc_mid_message_truncation",
+    "ipc_completion",
+    "ipc_metadata",
+    "ipc_corruption",
+    "ipc_limits",
+    "ipc_lifecycle",
+    "ipc_uuid_representation",
+    "ipc_correspondence",
 )
 
 
@@ -485,6 +496,7 @@ def run_cases(root):
     results.update(run_reader_cases(root))
     results.update(run_interop_cases(root))
     results.update(run_ingress_cases(root))
+    results.update(run_ipc_cases(root))
     assert set(results) == set(CASES)
     return results
 
@@ -9350,6 +9362,1113 @@ def verify_ingress_report(cases):
         raise ValueError("ingress observations") from exc
 
 
+IPC_GROUPS = (
+    "ipc_roundtrip",
+    "ipc_boundary_truncation",
+    "ipc_mid_message_truncation",
+    "ipc_completion",
+    "ipc_metadata",
+    "ipc_corruption",
+    "ipc_limits",
+    "ipc_lifecycle",
+    "ipc_uuid_representation",
+    "ipc_correspondence",
+)
+
+
+def ipc_envelope(payload, extent, batches=1, contract_digest=bytes(32)):
+    """Independent test framing; no product writer/decoder supplies these fields."""
+    import struct
+
+    return (
+        struct.pack(
+            ">12sQQQ32s32s",
+            b"PIETTO-IPC1\0",
+            extent,
+            batches,
+            len(payload),
+            contract_digest,
+            hashlib.sha256(payload).digest(),
+        )
+        + payload
+    )
+
+
+def ipc_frame_observation(data):
+    import struct
+
+    header = struct.unpack_from(">12sQQQ32s32s", data)
+    return dict(
+        encoded_hex=data.hex(),
+        encoded_bytes=len(data),
+        payload_bytes=header[3],
+        declared_rows=header[1],
+        declared_batches=header[2],
+        contract_sha256=header[4].hex(),
+        payload_sha256=header[5].hex(),
+    )
+
+
+def ipc_error_tags(error):
+    from pietto._project.project_result_contract import ResultError
+
+    if error is None:
+        return []
+    if isinstance(error, BaseExceptionGroup):
+        return [tag for item in error.exceptions for tag in ipc_error_tags(item)]
+    tags = [error.category if isinstance(error, ResultError) else type(error).__name__]
+    if error.__cause__ is not None:
+        tags += ipc_error_tags(error.__cause__)
+    return tags
+
+
+def ipc_encode_observation(
+    binding,
+    batches,
+    extent,
+    *,
+    limits=None,
+    cap=None,
+    late=False,
+    close_error=None,
+    write_error=False,
+    finalize_error=False,
+):
+    from unittest.mock import patch
+    from pietto._project import project_result_ipc as ipc
+    from pietto._project import project_result_reader as r
+
+    pa = importlib.import_module("pyarrow")
+    original_open, original_writer = r.open_finite_reader, pa.ipc.new_stream
+    sessions = []
+    complete_at_write = []
+    writes = closes = 0
+    profiles = []
+
+    def accept(*args, **kwargs):
+        session = original_open(*args, **kwargs)
+        sessions.append(session)
+        return session
+
+    class Writer:
+        def __init__(self, *args, **kwargs):
+            options = kwargs["options"]
+            profiles.append(
+                dict(
+                    version=options.metadata_version.name,
+                    legacy=options.use_legacy_format,
+                    allow64=options.allow_64bit,
+                    compression=options.compression,
+                    schema_identity=args[1] is binding.schema,
+                )
+            )
+            self.actual = original_writer(*args, **kwargs)
+
+        def write_batch(self, batch, custom_metadata=None):
+            nonlocal writes
+            writes += 1
+            complete_at_write.append(sessions[0].completion is not None)
+            if write_error:
+                raise ValueError("injected IPC write failure")
+            assert custom_metadata is None
+            self.actual.write_batch(batch, custom_metadata=custom_metadata)
+
+        def close(self):
+            nonlocal closes
+            closes += 1
+            self.actual.close()
+            if finalize_error:
+                raise RuntimeError("injected IPC finalization failure")
+
+    data = None
+    errors = []
+    with ReaderTrace(
+        binding.schema, batches, late=late, close_error=close_error
+    ) as trace:
+        with (
+            patch.object(r, "open_finite_reader", accept),
+            patch.object(pa.ipc, "new_stream", Writer),
+        ):
+            try:
+                data = ipc.encode_ipc(
+                    binding,
+                    trace.source,
+                    expected_rows=extent,
+                    reader_limits=limits or r.FiniteReaderLimits(),
+                    ipc_limits=ipc.IPCLimits() if cap is None else ipc.IPCLimits(cap),
+                )
+            except BaseException as exc:
+                errors = ipc_error_tags(exc)
+        observation = dict(
+            declared_rows=extent,
+            profile=profiles,
+            claimed=bool(sessions and sessions[0]._consumer is not None),
+            trace=trace.snapshot(),
+            receipt=reader_receipt(sessions[0]) if sessions else None,
+            writes=writes,
+            complete_at_write=complete_at_write,
+            writer_closes=closes,
+            errors=errors,
+            published_bytes=0 if data is None else len(data),
+        )
+    return data, observation
+
+
+def ipc_decode_observation(
+    binding, data, extent, *, limits=None, early=False
+) -> dict[str, Any]:
+    from unittest.mock import patch
+    from pietto._project import project_result_ipc as ipc
+    from pietto._project import project_result_reader as r
+
+    pa = importlib.import_module("pyarrow")
+    original_read, original_close = r._read_source, r._close_source
+    reads = closes = 0
+    batches = []
+    errors = []
+    foreign_error = None
+    managed = native = None
+
+    def read(source):
+        nonlocal reads
+        reads += 1
+        return original_read(source)
+
+    def close(source):
+        nonlocal closes
+        closes += 1
+        return original_close(source)
+
+    with patch.object(r, "_read_source", read), patch.object(r, "_close_source", close):
+        try:
+            managed = ipc.open_ipc(
+                binding,
+                data,
+                expected_rows=extent,
+                reader_limits=limits or r.FiniteReaderLimits(),
+            )
+            assert reads == 0
+            native = pa.RecordBatchReader.from_stream(managed)
+            for batch in native:
+                batches.append(batch)
+                if early:
+                    break
+        except BaseException as exc:
+            foreign_error = type(exc).__name__
+            primary = managed.primary_error if managed is not None else None
+            errors = ipc_error_tags(primary if primary is not None else exc)
+        finally:
+            if native is not None:
+                native.close()
+            if managed is not None:
+                try:
+                    managed.close()
+                except BaseException as exc:
+                    errors += ipc_error_tags(exc)
+    completed = None
+    if managed is not None and managed.state == "CLOSED":
+        try:
+            completed = ipc.verify_ipc_completion(managed)
+        except BaseException as exc:
+            errors += ipc_error_tags(exc)
+    # Observe after both wrappers close: the delivered native arrays own their bytes.
+    snapshots = [finite_snapshot(batch) for batch in batches]
+    return dict(
+        declared_rows=extent,
+        chunks=[batch.num_rows for batch in batches],
+        snapshots=snapshots,
+        rows=[row for snap in snapshots for row in snap["rows"]],
+        reads=reads,
+        closes=closes,
+        errors=errors,
+        foreign_error=foreign_error,
+        ipc_complete=completed is not None,
+        receipt_identity=completed is not None
+        and managed is not None
+        and completed is managed.input_completion,
+        source_complete=managed is not None and managed.input_completion is not None,
+        state=None if managed is None else managed.state,
+    )
+
+
+def ipc_decoded_expected(
+    counts, *, state="values", errors=(), complete=True, closed="CLOSED", extent=None
+):
+    original = protocol_expected(
+        state=state, all_nullable=state in ("null", "first_null")
+    )
+    start = 0
+    snapshots = []
+    for count in counts:
+        snap = json.loads(json.dumps(original))
+        snap["rows"] = original["rows"][start : start + count]
+        snap["valid"] = original["valid"][start : start + count]
+        snapshots.append(snap)
+        start += count
+    return dict(
+        declared_rows=len(original["rows"]) if extent is None else extent,
+        chunks=list(counts),
+        snapshots=snapshots,
+        rows=original["rows"][:start],
+        reads=len(counts) + int(complete or bool(errors)),
+        closes=1,
+        errors=list(errors),
+        foreign_error="ArrowInvalid" if errors else None,
+        ipc_complete=complete,
+        receipt_identity=complete,
+        source_complete=complete,
+        state=closed,
+    )
+
+
+def run_ipc_cases(root):
+    from unittest.mock import patch
+    from pietto._project import project_arrow_result as a
+    from pietto._project import project_result_ipc as ipc
+    from pietto._project import project_result_reader as r
+
+    pa = importlib.import_module("pyarrow")
+    results: dict[str, Any] = {name: {} for name in IPC_GROUPS}
+
+    def raw_payload(schema, batches, metadata=None):
+        sink = pa.BufferOutputStream()
+        with pa.ipc.new_stream(
+            sink, schema, options=pa.ipc.IpcWriteOptions(compression=None)
+        ) as writer:
+            for batch in batches:
+                writer.write_batch(batch, custom_metadata=metadata)
+        return sink.getvalue().to_pybytes()
+
+    def reject(binding, data, extent=4, **kwargs):
+        try:
+            managed = ipc.open_ipc(binding, data, expected_rows=extent, **kwargs)
+        except BaseException as error:
+            return ipc_error_tags(error)
+        managed.close()
+        return ["ACCEPTED"]
+
+    for target in ("postgres", "mysql"):
+        *_, producer, _ = finite_fixture(root / ("ipc-" + target), target)
+        binding = a.bind_arrow(producer, **finite_policy(producer))
+        from pietto._project.project_result_contract_portable import (
+            export_result_contract,
+        )
+
+        canonical = export_result_contract(
+            producer.contract, producer.contract.authority
+        ).canonical_bytes
+        contract_digest = hashlib.sha256(canonical).digest()
+
+        def envelope(payload, extent, batches=1):
+            return ipc_envelope(payload, extent, batches, contract_digest)
+
+        *_, nullable, _ = finite_fixture(
+            root / ("ipc-null-" + target), target, all_nullable=True
+        )
+        null_binding = a.bind_arrow(nullable, **finite_policy(nullable))
+        batch, empty = native_finite(), native_finite(state="empty")
+        roundtrips = {}
+        for state in ("values", "empty", "null", "first_null"):
+            bound = null_binding if state in ("null", "first_null") else binding
+            value = native_finite(state=state)
+            batches = (
+                [empty, value.slice(0, 1), value.slice(1, 2), value.slice(3, 1), empty]
+                if state == "values"
+                else [value]
+            )
+            data, encoded = ipc_encode_observation(bound, batches, value.num_rows)
+            assert data is not None
+            roundtrips[state] = dict(
+                frame=ipc_frame_observation(data),
+                encoded=encoded,
+                decoded=ipc_decode_observation(bound, data, value.num_rows),
+            )
+        results["ipc_roundtrip"][target] = roundtrips
+        data, encoded = ipc_encode_observation(
+            binding, [batch.slice(0, 2), batch.slice(2, 2)], 4
+        )
+        assert data is not None
+        payload = data[100:]
+        cursor = pa.BufferReader(payload)
+        pa.ipc.read_message(cursor)
+        pa.ipc.read_message(cursor)
+        boundary = cursor.tell()
+        cursor.close()
+        with pa.ipc.open_stream(payload[:boundary]) as raw:
+            raw_chunks = [finite_snapshot(value) for value in raw]
+        results["ipc_boundary_truncation"][target] = dict(
+            frame=ipc_frame_observation(data),
+            boundary=boundary,
+            raw_chunks=[len(value["rows"]) for value in raw_chunks],
+            raw_rows=[row for value in raw_chunks for row in value["rows"]],
+            truncated_bytes=100 + boundary,
+            errors=reject(binding, data[: 100 + boundary]),
+            reframed_short=ipc_decode_observation(
+                binding, envelope(payload[:boundary], 4), 4
+            ),
+        )
+        mid = []
+        for offset in (boundary - 1, boundary - 4):
+            try:
+                with pa.ipc.open_stream(payload[:offset]) as raw:
+                    list(raw)
+            except (pa.ArrowInvalid, OSError) as error:
+                sdk = type(error).__name__
+            else:
+                sdk = "ACCEPTED"
+            mid.append(
+                dict(
+                    payload_offset=offset,
+                    sdk=sdk,
+                    pietto=reject(binding, data[: 100 + offset]),
+                )
+            )
+        frame_cuts = [
+            {"offset": offset, "errors": reject(binding, data[:offset])}
+            for offset in (50, 99, 100, len(data) - 9, len(data) - 1)
+        ]
+        results["ipc_mid_message_truncation"][target] = dict(
+            mid=mid, frame_cuts=frame_cuts
+        )
+        completion = {}
+        for name, values, extent, kwargs in (
+            ("normal", [batch], 4, {}),
+            ("trailing_empty", [batch, empty], 4, {}),
+            ("short", [batch.slice(0, 3)], 4, {}),
+            ("extra", [batch, batch.slice(0, 1)], 4, {}),
+            ("late", [batch], 4, {"late": True}),
+            ("writer_finalization", [batch], 4, {"finalize_error": True}),
+        ):
+            _, observation = ipc_encode_observation(binding, values, extent, **kwargs)
+            completion[name] = observation
+        session = ipc.open_ipc(binding, data, expected_rows=4)
+        native = pa.RecordBatchReader.from_stream(session)
+        checks = [refused(lambda: ipc.verify_ipc_completion(session))]
+        first = native.read_next_batch()
+        second = native.read_next_batch()
+        checks.append(refused(lambda: ipc.verify_ipc_completion(session)))
+        assert first.num_rows + second.num_rows == 4
+        assert list(native) == []
+        checks.append(refused(lambda: ipc.verify_ipc_completion(session)))
+        native.close()
+        session.close()
+        receipt = ipc.verify_ipc_completion(session)
+        identities = [refused(lambda: ipc.verify_ipc_completion(copy(session)))]
+        for attribute, changed in (
+            ("_claims", (*session._claims[:2], 1, *session._claims[3:])),
+            ("_frame", bytes(bytearray(data))),
+            ("_binding", copy(binding)),
+        ):
+            original = getattr(session, attribute)
+            try:
+                setattr(session, attribute, changed)
+                identities.append(refused(lambda: ipc.verify_ipc_completion(session)))
+            finally:
+                setattr(session, attribute, original)
+        completion["verification"] = dict(
+            before=checks,
+            same_receipt=receipt is session.input_completion,
+            rows=receipt.rows,
+            batches=receipt.batches,
+            identities=identities,
+            wrong_batches=ipc_decode_observation(binding, envelope(payload, 4, 1), 4),
+            batch_ceiling=reject(binding, envelope(payload, 4, 1025)),
+        )
+        results["ipc_completion"][target] = completion
+
+        metadata = {}
+        variants = {
+            "schema_metadata": binding.schema.with_metadata({b"binding": b"forged"}),
+            "field_metadata": binding.schema.set(
+                0, binding.schema.field(0).with_metadata({b"meaning": b"forged"})
+            ),
+            "label": binding.schema.set(0, binding.schema.field(0).with_name("forged")),
+            "nullability": binding.schema.set(
+                0, binding.schema.field(0).with_nullable(True)
+            ),
+            "integer": binding.schema.set(
+                0, pa.field("same", pa.int32(), nullable=False)
+            ),
+            "decimal": binding.schema.set(
+                7,
+                pa.field(
+                    binding.schema.field(7).name, pa.decimal128(10, 3), nullable=True
+                ),
+            ),
+            "timestamp": binding.schema.set(
+                9,
+                pa.field(
+                    binding.schema.field(9).name,
+                    pa.timestamp("ms", "UTC"),
+                    nullable=True,
+                ),
+            ),
+            "extension": binding.schema.set(
+                10,
+                pa.field(
+                    binding.schema.field(10).name,
+                    pa.binary(16),
+                    nullable=False,
+                    metadata={
+                        b"ARROW:extension:name": b"foreign.uuid",
+                        b"ARROW:extension:metadata": b"forged",
+                    },
+                ),
+            ),
+        }
+        for name, schema in variants.items():
+            foreign = envelope(raw_payload(schema, []), 0, 0)
+            metadata[name] = dict(
+                layer="Pietto schema preflight", errors=reject(binding, foreign, 0)
+            )
+        # SDK empty-map representation is accepted without importing semantic facts.
+        allowed = binding.schema.with_metadata({})
+        metadata["empty_metadata"] = ipc_decode_observation(
+            binding, envelope(raw_payload(allowed, []), 0, 0), 0
+        )
+        metadata["missing_binding"] = reject(None, data)
+        metadata["caller_extent"] = reject(binding, data, 3)
+        invalid = batch.set_column(
+            4, batch.schema.field(4), pa.array([float("nan"), 0.0, -0.0, -0.0])
+        )
+        metadata["invalid_domain"] = ipc_decode_observation(
+            binding, envelope(raw_payload(invalid.schema, [invalid]), 4), 4
+        )
+        custom = {
+            b"owner": b"forged-root",
+            b"meaning": b"forged-meaning",
+            b"expected_rows": b"999",
+            b"completion": b"true",
+            b"ownership": b"borrowed",
+            b"trust": b"authenticated",
+        }
+        custom_payload = raw_payload(binding.schema, [batch], custom)
+        with pa.ipc.open_stream(custom_payload) as custom_reader:
+            observed = (
+                custom_reader.read_next_batch_with_custom_metadata().custom_metadata
+            )
+            actual_custom = {
+                key.decode(): value.decode() for key, value in observed.items()
+            }
+        custom_frame = envelope(custom_payload, 4)
+        custom_session = ipc.open_ipc(binding, custom_frame, expected_rows=4)
+        bound_identity = custom_session._binding is binding
+        owned_policy = custom_session._managed._lease is None
+        custom_session.close()
+        metadata["message"] = dict(
+            metadata=actual_custom,
+            binding_identity=bound_identity,
+            owned=owned_policy,
+            decoded=ipc_decode_observation(binding, custom_frame, 4),
+        )
+        with pa.ipc.open_stream(payload) as own_reader:
+            own_metadata = []
+            while True:
+                try:
+                    item = own_reader.read_next_batch_with_custom_metadata()
+                except StopIteration:
+                    break
+                own_metadata.append(item.custom_metadata is None)
+        metadata["writer_metadata_none"] = own_metadata
+        results["ipc_metadata"][target] = metadata
+
+        corruptions = {}
+        for name, index in (
+            ("magic", 0),
+            ("rows", 19),
+            ("length", 35),
+            ("contract", 67),
+            ("payload", 108),
+            ("digest", 99),
+        ):
+            damaged = bytearray(data)
+            damaged[index] ^= 1
+            corruptions[name] = dict(
+                offset=index, bytes=len(damaged), errors=reject(binding, bytes(damaged))
+            )
+        corruptions["trailing"] = dict(
+            offset=len(data), bytes=len(data) + 1, errors=reject(binding, data + b"x")
+        )
+        results["ipc_corruption"][target] = corruptions
+
+        small, _ = ipc_encode_observation(binding, [empty], 0)
+        assert small is not None
+        tight, tight_observation = ipc_encode_observation(
+            binding, [empty], 0, cap=len(small)
+        )
+        _, under = ipc_encode_observation(binding, [empty], 0, cap=len(small) - 1)
+        sdk_calls = []
+        original_sdk = a._arrow
+
+        def tracked_sdk():
+            sdk_calls.append("arrow")
+            return original_sdk()
+
+        with patch.object(a, "_arrow", tracked_sdk):
+            refused_large = reject(
+                binding, small, 0, ipc_limits=ipc.IPCLimits(len(small) - 1)
+            )
+        limited = {}
+        for name, values, extent, limits in (
+            (
+                "batch_rows",
+                [batch],
+                4,
+                r.FiniteReaderLimits(batch=a.BatchLimits(rows=3)),
+            ),
+            ("session_bytes", [batch], 4, r.FiniteReaderLimits(max_total_bytes=629)),
+            ("empty_batches", [empty, empty], 0, r.FiniteReaderLimits(max_batches=1)),
+        ):
+            _, limited[name] = ipc_encode_observation(
+                binding, values, extent, limits=limits
+            )
+        results["ipc_limits"][target] = dict(
+            exact_cap=len(small),
+            exact_bytes=0 if tight is None else len(tight),
+            exact=tight_observation,
+            under=under,
+            input_errors=refused_large,
+            sdk_calls=len(sdk_calls),
+            finite=limited,
+            decoded_limit=ipc_decode_observation(
+                binding,
+                data,
+                4,
+                limits=r.FiniteReaderLimits(
+                    max_total_rows=4, batch=a.BatchLimits(rows=1)
+                ),
+            ),
+        )
+        lifecycle = {}
+        for name, kwargs in (
+            (
+                "source_close",
+                {"close_error": RuntimeError("injected source close failure")},
+            ),
+            (
+                "write_and_close",
+                {
+                    "write_error": True,
+                    "close_error": RuntimeError("injected source close failure"),
+                    "finalize_error": True,
+                },
+            ),
+            ("late_and_finalize", {"late": True, "finalize_error": True}),
+        ):
+            _, lifecycle[name] = ipc_encode_observation(
+                binding, [batch], 4, **cast(dict[str, Any], kwargs)
+            )
+        lifecycle["early_decode"] = ipc_decode_observation(binding, data, 4, early=True)
+        lifecycle["retained"] = ipc_decode_observation(binding, data, 4)
+        lifecycle["late_decode"] = ipc_decode_observation(
+            binding, envelope(payload[:-9], 4, 2), 4
+        )
+        from pietto._project import project_arrow_interop as interop
+
+        close_bridge = interop._close_bridge
+
+        def fail_bridge(bridge):
+            close_bridge(bridge)
+            raise RuntimeError("injected IPC delivery cleanup")
+
+        with patch.object(interop, "_close_bridge", fail_bridge):
+            lifecycle["decoded_cleanup"] = ipc_decode_observation(binding, data, 4)
+        results["ipc_lifecycle"][target] = lifecycle
+        restored = ipc_decode_observation(binding, data, 4)
+        assert restored["snapshots"], restored
+        uuid_snapshot = restored["snapshots"][0]
+        # Both policies occur in the same original positional fixture.
+        results["ipc_uuid_representation"][target] = dict(
+            types=[uuid_snapshot["fields"][n]["type"] for n in (10, 11)],
+            values=[[row[n] for n in (10, 11)] for row in restored["rows"]],
+            wrong_policy=reject(
+                a.bind_arrow(
+                    producer,
+                    **{**finite_policy(producer), "uuid_representations": None},
+                ),
+                data,
+            ),
+        )
+        substitutions = []
+        for name, changed in (
+            (
+                "substitution",
+                batch.set_column(
+                    12,
+                    batch.schema.field(12),
+                    pa.array([-6, 9, -7, -7], type=pa.int16()),
+                ),
+            ),
+            (
+                "swap",
+                pa.RecordBatch.from_arrays(
+                    [
+                        batch.column(12)
+                        if n == 0
+                        else batch.column(0)
+                        if n == 12
+                        else batch.column(n)
+                        for n in range(13)
+                    ],
+                    schema=batch.schema,
+                ),
+            ),
+            (
+                "lost_duplicate",
+                pa.RecordBatch.from_arrays(
+                    [
+                        pa.concat_arrays(
+                            [column.slice(0, 2), column.slice(3, 1), column.slice(3, 1)]
+                        )
+                        for column in batch.columns
+                    ],
+                    schema=batch.schema,
+                ),
+            ),
+            ("prefix", batch.slice(0, 3)),
+        ):
+            forged = envelope(raw_payload(changed.schema, [changed]), changed.num_rows)
+            observed = ipc_decode_observation(binding, forged, changed.num_rows)
+            try:
+                ingress_value_oracle(observed["rows"])
+            except ValueError:
+                original_oracle = "REJECTED"
+            else:
+                original_oracle = "ACCEPTED"
+            substitutions.append(
+                dict(
+                    name=name,
+                    same_size=(
+                        len(forged)
+                        == len(envelope(raw_payload(batch.schema, [batch]), 4))
+                    )
+                    if name == "substitution"
+                    else None,
+                    frame=ipc_frame_observation(forged),
+                    decoded=observed,
+                    original_oracle=original_oracle,
+                )
+            )
+        reordered = envelope(
+            raw_payload(binding.schema, [batch.slice(2, 2), batch.slice(0, 2)]), 4, 2
+        )
+        observed = ipc_decode_observation(binding, reordered, 4)
+        substitutions.append(
+            dict(
+                name="batch_order",
+                same_size=None,
+                frame=ipc_frame_observation(reordered),
+                decoded=observed,
+                original_oracle="REJECTED"
+                if protocol_error(lambda: ingress_value_oracle(observed["rows"]))
+                == "ValueError"
+                else "ACCEPTED",
+            )
+        )
+        results["ipc_correspondence"][target] = substitutions
+    return results
+
+
+def verify_ipc_frame(value, extent, batches=1, contract_digest=bytes(32)):
+    """Independent fixed-header arithmetic and hashes; no product or SDK call."""
+    import struct
+
+    data = bytes.fromhex(value["encoded_hex"])
+    if not 100 <= len(data) <= 96 * 1024 * 1024:
+        raise ValueError("IPC report size")
+    header = struct.unpack_from(">12sQQQ32s32s", data)
+    length = len(data) - 100
+    digest = hashlib.sha256(data[100:]).digest()
+    if header != (b"PIETTO-IPC1\0", extent, batches, length, contract_digest, digest):
+        raise ValueError("IPC report framing/digest")
+    if not _exact(
+        value,
+        dict(
+            encoded_hex=data.hex(),
+            encoded_bytes=len(data),
+            payload_bytes=length,
+            declared_rows=extent,
+            declared_batches=batches,
+            contract_sha256=contract_digest.hex(),
+            payload_sha256=digest.hex(),
+        ),
+    ):
+        raise ValueError("IPC report lengths/digest")
+    return data
+
+
+def verify_ipc_report(cases):
+    try:
+        if any(set(cases[name]) != {"postgres", "mysql"} for name in IPC_GROUPS):
+            raise ValueError("IPC target denominator")
+
+        mismatches = []
+
+        def exact(actual, expected):
+            if not _exact(actual, expected):
+                mismatches.append(
+                    "IPC measured observation: " + repr((actual, expected))[:1600]
+                )
+
+        for target in ("postgres", "mysql"):
+            digest = hashlib.sha256(
+                cases["finite_codec"][target + "/mixed"].encode()
+            ).digest()
+            null_digest = hashlib.sha256(
+                cases["finite_codec"][target + "/nullable"].encode()
+            ).digest()
+            rt = cases["ipc_roundtrip"][target]
+            exact(sorted(rt), ["empty", "first_null", "null", "values"])
+            for state, counts in (
+                ("values", [0, 1, 2, 1, 0]),
+                ("empty", [0]),
+                ("null", [2]),
+                ("first_null", [5]),
+            ):
+                value = rt[state]
+                extent = sum(counts)
+                data = verify_ipc_frame(
+                    value["frame"],
+                    extent,
+                    len(counts),
+                    null_digest if state in ("null", "first_null") else digest,
+                )
+                exact(value["decoded"], ipc_decoded_expected(counts, state=state))
+                usages = (
+                    ((0, 12, 12), *READER_LAYOUTS["uneven"], (0, 12, 12))
+                    if state == "values"
+                    else ((extent, *INGRESS_USAGES[state]),)
+                )
+                exact(
+                    value["encoded"],
+                    dict(
+                        declared_rows=extent,
+                        profile=[
+                            dict(
+                                version="V5",
+                                legacy=False,
+                                allow64=False,
+                                compression=None,
+                                schema_identity=True,
+                            )
+                        ],
+                        claimed=True,
+                        trace=reader_trace_expected(counts),
+                        receipt=reader_expected(usages),
+                        writes=len(counts),
+                        complete_at_write=[False] * len(counts),
+                        writer_closes=1,
+                        errors=[],
+                        published_bytes=len(data),
+                    ),
+                )
+            boundary = cases["ipc_boundary_truncation"][target]
+            full = verify_ipc_frame(boundary["frame"], 4, 2, digest)
+            cut = boundary["boundary"]
+            if type(cut) is not int or not 0 < cut < len(full) - 100:
+                raise ValueError("IPC boundary offset")
+            exact(boundary["raw_chunks"], [2])
+            exact(boundary["raw_rows"], finite_expected()["rows"][:2])
+            exact(boundary["truncated_bytes"], 100 + cut)
+            exact(boundary["errors"], ["IPC_FRAME"])
+            exact(
+                boundary["reframed_short"],
+                ipc_decoded_expected(
+                    [2], errors=["READER_EXTENT"], complete=False, closed="FAILED"
+                ),
+            )
+            mid = cases["ipc_mid_message_truncation"][target]
+            exact(
+                mid["frame_cuts"],
+                [
+                    dict(offset=o, errors=["IPC_FRAME"])
+                    for o in (50, 99, 100, len(full) - 9, len(full) - 1)
+                ],
+            )
+            mid = mid["mid"]
+            exact(len(mid), 2)
+            for entry, delta in zip(mid, (1, 4), strict=True):
+                exact(entry["payload_offset"], cut - delta)
+                if entry["sdk"] not in ("ArrowInvalid", "OSError"):
+                    raise ValueError("SDK mid-message parser evidence")
+                exact(entry["pietto"], ["IPC_FRAME"])
+            completion = cases["ipc_completion"][target]
+            exact(
+                sorted(completion),
+                [
+                    "extra",
+                    "late",
+                    "normal",
+                    "short",
+                    "trailing_empty",
+                    "verification",
+                    "writer_finalization",
+                ],
+            )
+            for name, count, pulls, rows, complete, errors in (
+                ("normal", 1, 2, 4, True, []),
+                ("trailing_empty", 2, 3, 4, True, []),
+                ("short", 1, 2, 3, False, ["READER_EXTENT"]),
+                ("extra", 1, 2, 4, False, ["READER_EXTENT"]),
+                ("late", 1, 2, 4, False, ["READER_SOURCE", "RuntimeError"]),
+                ("writer_finalization", 1, 2, 4, True, ["IPC_WRITE", "RuntimeError"]),
+            ):
+                value = completion[name]
+                exact(value["declared_rows"], 4)
+                exact(value["writes"], count)
+                exact(value["complete_at_write"], [False] * count)
+                exact(value["writer_closes"], 1)
+                exact(value["errors"], errors)
+                receipt = value["receipt"]
+                exact(
+                    [
+                        receipt["complete"],
+                        receipt["rows"],
+                        receipt["pulls"],
+                        receipt["batches"],
+                    ],
+                    [complete, rows, pulls, count],
+                )
+                exact(value["trace"]["closes"], 1)
+                exact(value["trace"]["close_success"], 1)
+                exact(value["trace"]["reads"], pulls)
+                exact(value["published_bytes"] > 0, not errors)
+                expected_end = (
+                    ["error"]
+                    if name == "late"
+                    else ["data", 1]
+                    if name == "extra"
+                    else ["eof"]
+                )
+                exact(value["trace"]["events"][-1], expected_end)
+            wrong = ipc_decoded_expected([2, 2])
+            wrong.update(
+                errors=["IPC_COMPLETION"], ipc_complete=False, receipt_identity=False
+            )
+            exact(
+                completion["verification"],
+                dict(
+                    before=["IPC_COMPLETION"] * 3,
+                    same_receipt=True,
+                    rows=4,
+                    batches=2,
+                    identities=["IPC_IDENTITY"] * 4,
+                    wrong_batches=wrong,
+                    batch_ceiling=["LIMIT"],
+                ),
+            )
+            meta = cases["ipc_metadata"][target]
+            exact(
+                sorted(meta),
+                sorted(
+                    [
+                        "schema_metadata",
+                        "field_metadata",
+                        "label",
+                        "nullability",
+                        "integer",
+                        "decimal",
+                        "timestamp",
+                        "extension",
+                        "empty_metadata",
+                        "missing_binding",
+                        "caller_extent",
+                        "invalid_domain",
+                        "message",
+                        "writer_metadata_none",
+                    ]
+                ),
+            )
+            for name in (
+                "schema_metadata",
+                "field_metadata",
+                "label",
+                "nullability",
+                "integer",
+                "decimal",
+                "timestamp",
+                "extension",
+            ):
+                exact(
+                    meta[name],
+                    dict(layer="Pietto schema preflight", errors=["ARROW_SCHEMA"]),
+                )
+            exact(meta["empty_metadata"], ipc_decoded_expected([], extent=0))
+            exact(meta["missing_binding"], ["ARROW_BINDING"])
+            exact(meta["caller_extent"], ["IPC_EXTENT"])
+            exact(
+                meta["invalid_domain"],
+                ipc_decoded_expected(
+                    [], errors=["VALUE_DOMAIN"], complete=False, closed="FAILED"
+                ),
+            )
+            exact(
+                meta["message"],
+                dict(
+                    metadata=dict(
+                        owner="forged-root",
+                        meaning="forged-meaning",
+                        expected_rows="999",
+                        completion="true",
+                        ownership="borrowed",
+                        trust="authenticated",
+                    ),
+                    binding_identity=True,
+                    owned=True,
+                    decoded=ipc_decoded_expected([4]),
+                ),
+            )
+            exact(meta["writer_metadata_none"], [True, True])
+            corruption = cases["ipc_corruption"][target]
+            offsets = dict(
+                magic=0,
+                rows=19,
+                length=35,
+                contract=67,
+                payload=108,
+                digest=99,
+                trailing=len(full),
+            )
+            exact(set(corruption) == set(offsets), True)
+            for name, offset in offsets.items():
+                exact(
+                    corruption[name],
+                    dict(
+                        offset=offset,
+                        bytes=len(full) + int(name == "trailing"),
+                        errors=[
+                            "IPC_EXTENT"
+                            if name == "rows"
+                            else "IPC_CONTRACT"
+                            if name == "contract"
+                            else "IPC_FRAME"
+                        ],
+                    ),
+                )
+            limits = cases["ipc_limits"][target]
+            if (
+                type(limits["exact_cap"]) is not int
+                or not 100 < limits["exact_cap"] < 65536
+            ):
+                raise ValueError("IPC small limit witness")
+            exact(limits["exact_bytes"], limits["exact_cap"])
+            exact(limits["exact"]["published_bytes"], limits["exact_cap"])
+            exact(limits["exact"]["errors"], [])
+            exact(limits["under"]["errors"], ["LIMIT"])
+            exact(limits["under"]["published_bytes"], 0)
+            exact(limits["input_errors"], ["LIMIT"])
+            exact(limits["sdk_calls"], 0)
+            exact(
+                sorted(limits["finite"]),
+                ["batch_rows", "empty_batches", "session_bytes"],
+            )
+            for value in limits["finite"].values():
+                exact(value["errors"], ["LIMIT"])
+                exact(value["receipt"]["complete"], False)
+                exact(value["trace"]["closes"], 1)
+                exact(value["published_bytes"], 0)
+            exact(
+                limits["decoded_limit"],
+                ipc_decoded_expected(
+                    [], errors=["LIMIT"], complete=False, closed="FAILED"
+                ),
+            )
+            lifecycle = cases["ipc_lifecycle"][target]
+            for name, tags in (
+                ("source_close", ["READER_CLEANUP", "RuntimeError"]),
+                (
+                    "write_and_close",
+                    [
+                        "ValueError",
+                        "RuntimeError",
+                        "INTEROP_CLEANUP",
+                        "READER_CLEANUP",
+                        "RuntimeError",
+                    ],
+                ),
+                (
+                    "late_and_finalize",
+                    ["READER_SOURCE", "RuntimeError", "RuntimeError"],
+                ),
+            ):
+                value = lifecycle[name]
+                exact(value["errors"], tags)
+                exact(value["trace"]["closes"], 1)
+                exact(value["writer_closes"], 1)
+                exact(value["published_bytes"], 0)
+                exact(value["receipt"]["complete"], False)
+            exact(
+                lifecycle["early_decode"],
+                ipc_decoded_expected([2], complete=False, closed="CLOSED_INCOMPLETE"),
+            )
+            exact(lifecycle["retained"], ipc_decoded_expected([2, 2]))
+            exact(
+                lifecycle["late_decode"],
+                ipc_decoded_expected(
+                    [2],
+                    errors=["READER_SOURCE", "OSError"],
+                    complete=False,
+                    closed="FAILED",
+                ),
+            )
+            failed_cleanup = ipc_decoded_expected([2, 2])
+            failed_cleanup.update(
+                errors=["INTEROP_CLEANUP", "RuntimeError"],
+                state="FAILED",
+                ipc_complete=False,
+                receipt_identity=False,
+            )
+            exact(lifecycle["decoded_cleanup"], failed_cleanup)
+            uuids = cases["ipc_uuid_representation"][target]
+            exact(
+                uuids,
+                dict(
+                    types=["extension<arrow.uuid>", "fixed_size_binary[16]"],
+                    values=[
+                        [row[n] for n in (10, 11)] for row in finite_expected()["rows"]
+                    ],
+                    wrong_policy=["ARROW_SCHEMA"],
+                ),
+            )
+            substitutions = cases["ipc_correspondence"][target]
+            exact(
+                [v["name"] for v in substitutions],
+                ["substitution", "swap", "lost_duplicate", "prefix", "batch_order"],
+            )
+            for value in substitutions:
+                name = value["name"]
+                exact(value["same_size"], True if name == "substitution" else None)
+                rows = json.loads(json.dumps(finite_expected()["rows"]))
+                if name == "substitution":
+                    rows[0][12] = -6
+                elif name == "swap":
+                    for row in rows:
+                        row[0], row[12] = row[12], row[0]
+                elif name == "lost_duplicate":
+                    rows = [rows[0], rows[1], rows[3], rows[3]]
+                elif name == "prefix":
+                    rows = rows[:3]
+                else:
+                    rows = rows[2:] + rows[:2]
+                counts = [2, 2] if name == "batch_order" else [len(rows)]
+                verify_ipc_frame(value["frame"], len(rows), len(counts), digest)
+                expected = ipc_decoded_expected(counts, extent=len(rows))
+                expected["rows"] = rows
+                offset = 0
+                for snapshot, count in zip(expected["snapshots"], counts, strict=True):
+                    snapshot["rows"] = rows[offset : offset + count]
+                    snapshot["valid"] = [
+                        [v is not None for v in row] for row in snapshot["rows"]
+                    ]
+                    offset += count
+                exact(value["decoded"], expected)
+                exact(value["original_oracle"], "REJECTED")
+        if mismatches:
+            raise ValueError("\n".join(mismatches))
+    except (KeyError, TypeError, IndexError, AttributeError, OverflowError) as exc:
+        raise ValueError("IPC evidence shape") from exc
+
+
 def descriptor_sources(imported=False):
     types = """type Money = Decimal(12, 2)
 type Label = Text:
@@ -9957,6 +11076,7 @@ def verify_report(value, context, inputs):
     verify_reader_report(cases)
     verify_interop_report(cases)
     verify_ingress_report(cases)
+    verify_ipc_report(cases)
     origins = value["origins"]
     prefix = Path(value["prefix"])
     required = {"pietto._project." + name for name in PRODUCTS} | {
@@ -10121,6 +11241,30 @@ def compare_product_reports(paths, repository, contexts):
 def reject_report_damage(value, context, inputs):
     """Mutate actual saved-data observations, never fake an Arrow success."""
     mutations = (
+        lambda v: v["cases"]["ipc_roundtrip"]["postgres"]["values"]["decoded"]["rows"][
+            0
+        ].__setitem__(12, 1),
+        lambda v: v["cases"]["ipc_boundary_truncation"]["mysql"].update(
+            truncated_bytes=1
+        ),
+        lambda v: v["cases"]["ipc_mid_message_truncation"]["postgres"]["mid"][0].update(
+            payload_offset=0
+        ),
+        lambda v: v["cases"]["ipc_completion"]["mysql"]["verification"].update(
+            batches=1
+        ),
+        lambda v: v["cases"]["ipc_metadata"]["postgres"]["message"].update(owned=False),
+        lambda v: v["cases"]["ipc_corruption"]["mysql"]["digest"].update(bytes=0),
+        lambda v: v["cases"]["ipc_limits"]["postgres"].update(sdk_calls=1),
+        lambda v: v["cases"]["ipc_lifecycle"]["mysql"]["write_and_close"].update(
+            writer_closes=2
+        ),
+        lambda v: v["cases"]["ipc_uuid_representation"]["postgres"]["values"][
+            0
+        ].__setitem__(0, "00" * 16),
+        lambda v: v["cases"]["ipc_correspondence"]["mysql"][0]["frame"].update(
+            payload_sha256="00" * 32
+        ),
         lambda v: v["cases"]["ingress_rows"]["postgres"]["values"]["snapshot"]["rows"][
             0
         ].__setitem__(12, 1),
@@ -10423,8 +11567,8 @@ def main():
     }
     verify_report(value, context, input_closure(repository))
     rejected = reject_report_damage(value, context, input_closure(repository))
-    assert len(cases) == 92
-    assert rejected == 90
+    assert len(cases) == 102
+    assert rejected == 100
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with args.report.open("x") as stream:
         json.dump(value, stream, sort_keys=True, allow_nan=False)

@@ -38,3 +38,7 @@ Slice10：先测真实capsule/close/owner保活；C handle release不代表独�
 ### Phase67 Slice11：入口组合的验收责任
 
 显式入口可直接别名已有owned builder/managed batch；raw reader应直接组合接受与delivery，不用C导出再导入绕行。source-specific lease在接受前capture，接受后claim失败由原session一次cleanup。logical Arrow与producer carriers分别建fixture；layout成本不强求相等，原值oracle与domain checker各司其职。细节与限制见[唯一S11合同](../phases/phase-67/slice-11.md)。
+
+### Phase67 Slice12：transport与完成的责任
+
+Arrow接受complete-message prefix不证明原有限结果完成。固定framing检测普通截断，caller extent仍交原session检查；源完成之后writer finalization仍可能失败。内部创建reader的接受前cleanup归transport，接受后的close归原reader owner，不能重复关闭或覆盖primary错误。

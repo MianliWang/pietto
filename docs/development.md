@@ -421,3 +421,7 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 ## Slice11 ingress验证
 
 [S11](phases/phase-67/slice-11.md) 沿用required consumer，严格92product/90damage及9SDK，原22documents四runtime全文一致。独立SDK native fixture与producer rows配对，不经producer mapper重建Arrow输入；接受点、原raw-reader lease、source/delivery终态与layout-specific cost分别观测。S09/S10直接manifest readers、typing/lifecycle及实际doc scanner在full前检查。
+
+## Slice12 private IPC验证
+
+[Slice12](phases/phase-67/slice-12.md) required product为102groups/100实质damage controls，九SDK和22份完整neutral文档保持。S01 boundary-prefix见证仅说明Arrow短流可读；产品framing与caller extent各自拒绝对应损坏。原S11 launcher/guard验证双runtime实际wheel/origins，Git/network由supervisor闭合；local candidate不宣称发布或native执行。
