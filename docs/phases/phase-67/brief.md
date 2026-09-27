@@ -2,7 +2,7 @@
 
 规划层级 FULL；N67=16。描述性 Stage 目标是建立有限结果交换边界；现有资料没有数字 Stage，故不另造编号。
 这是已接受全 Phase 计划的耐久入口。Slice01 的 CI/SDK 实验范围与预算见其历史记录；当前只授权
-[Slice12](slice-12.md)，后续 Slice 仍逐次 dispatch。包/CLI 保持0.1.0。
+[Slice13](slice-13.md)，后续 Slice 仍逐次 dispatch。包/CLI 保持0.1.0。
 
 ## 使命、当前能力与边界
 
@@ -12,7 +12,7 @@ PiettoResultContract 与 scalar-first ResultShape，再分别核对 ProducerResu
 交付 RecordBatch／有限 reader 消费链。转换不能修补 producer 谎报，下游不重解上游语义。
 
 Slice01 已发布 CI governance 与两解释器真实 PyArrow25.0.1 SDK/lifetime/device 实验；它未实现产品结果。
-Slice02 交付 private Int batch 薄纵向；Slice03 增加独立 canonical private bytes、bounded pure decoder、runtime correspondence/invalidation。Slice09增加相对显式caller extent的有限完成；Slice10连接CPU C协议及ownership，Slice12候选连接有界private IPC；公开optional extra仍归Slice13。
+Slice02 交付 private Int batch 薄纵向；Slice03 增加独立 canonical private bytes、bounded pure decoder、runtime correspondence/invalidation。Slice09增加相对显式caller extent的有限完成；Slice10连接CPU C协议及ownership，Slice12连接有界private IPC；Slice13交付公开optional extra及安装隔离。
 Slice07已关闭显式private Timestamp/UUID meaning前提；默认无meaning仍拒绝。Slice08连接有限scalar、typed empty/all-NULL和显式carrier labels。CPU是当前成功域。
 
 ## 三层完成验收与回归
@@ -88,4 +88,9 @@ health/history 只作 advisory；没有新 alert 不启动 CI 维护。
 
 [Slice11](slice-11.md) 连接A09/A12及A15的explicit rows/RecordBatch/raw reader入口；复用原checker/ownership/conditional completion。A09 whole-result assurance仍归S15，A15 IPC仍归S12；协作输入前提与原值correspondence边界见唯一合同。
 
-[Slice12](slice-12.md) 连接A14及A07/A10/A15的IPC部分：framing完整性、caller extent与原S09完成条件分开；metadata不授权。S12本地candidate交supervisor闭合publication/自然CI/raw/native后才完成；S13 NEXT且未开始，N67=16不变。
+[Slice12](slice-12.md) 连接A14及A07/A10/A15的IPC部分：framing完整性、caller extent与原S09完成条件分开；metadata不授权。S12已在 `8f5333fd` / CI `36343560204` 完成publication与raw/native闭合；N67=16不变。
+
+[Slice13](slice-13.md) 交付唯一 `pietto[arrow]` / `pyarrow==25.0.1`，compiler core仍Arrow-free，
+结果API仍私有。same-wheel core/extra在Linux x86-64的CPython3.12/3.13分别验收；原9SDK、
+102product/100damage与22neutral全文保持。仅在tested tree普通发布、自然15jobs与raw/native
+全部闭合后Slices01–13完成，Slice14 NEXT/NOT STARTED，15–16未开始；不是release。

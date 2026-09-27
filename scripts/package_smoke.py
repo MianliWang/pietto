@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+import argparse
+from collections import Counter
+from contextlib import redirect_stdout
 import configparser
+import hashlib
+import importlib
+import importlib.metadata
+import importlib.util
+import io
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -112,6 +121,7 @@ class ProjectContract:
     dependencies: tuple[str, ...]
     console_entry: str
     readme: str | None
+    extras: tuple[tuple[str, tuple[str, ...]], ...]
 
 
 class SmokeFailure(Exception):
@@ -122,10 +132,12 @@ class SmokeFailure(Exception):
         self.exit_code = exit_code
 
 
-def _project_contract() -> ProjectContract:
+def _project_contract(project_text: str | None = None) -> ProjectContract:
     try:
         document = tomllib.loads(
             (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+            if project_text is None
+            else project_text
         )
         project = document["project"]
         scripts = project["scripts"]
@@ -136,6 +148,10 @@ def _project_contract() -> ProjectContract:
             dependencies=tuple(project.get("dependencies", ())),
             console_entry=scripts["pietto"],
             readme=project.get("readme"),
+            extras=tuple(
+                (name, tuple(deps))
+                for name, deps in project.get("optional-dependencies", {}).items()
+            ),
         )
     except (OSError, KeyError, TypeError, tomllib.TOMLDecodeError) as error:
         raise SmokeFailure(f"cannot read packaging contract: {error}") from error
@@ -208,6 +224,17 @@ def _required_runtime_files(prefix: str) -> frozenset[str]:
         f"{prefix}/_project/package_capability_requirements.py",
         f"{prefix}/_project/package_extension_signature_selectors.py",
         f"{prefix}/_project/package_graph.py",
+        f"{prefix}/_project/project_result_contract.py",
+        f"{prefix}/_project/project_result_binding.py",
+        f"{prefix}/_project/project_arrow_result.py",
+        f"{prefix}/_project/project_result_contract_pure_boundary.py",
+        f"{prefix}/_project/project_result_contract_portable.py",
+        f"{prefix}/_project/project_result_contract_correspondence.py",
+        f"{prefix}/_project/project_scalar_meaning.py",
+        f"{prefix}/_project/project_result_reader.py",
+        f"{prefix}/_project/project_arrow_interop.py",
+        f"{prefix}/_project/project_result_ingress.py",
+        f"{prefix}/_project/project_result_ipc.py",
         f"{prefix}/_project/package_graph_inspection.py",
         f"{prefix}/_project/project_capability_environment.py",
         f"{prefix}/_project/extension_catalog_availability.py",
@@ -232,6 +259,31 @@ def _missing_files(inventory: set[str], required: frozenset[str]) -> tuple[str, 
     return tuple(sorted(required - inventory))
 
 
+def _dependency(value: str) -> tuple[str, str, str, str | None]:
+    """Parse only the two current requirement forms, including legal spacing."""
+    requirement, separator, marker = value.partition(";")
+    specifier = r"(?:>=|==)\s*[0-9]+(?:\.[0-9]+)*"
+    match = re.fullmatch(
+        rf"\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(\(\s*{specifier}\s*\)|{specifier})\s*",
+        requirement,
+    )
+    if match is None:
+        raise SmokeFailure(f"unsupported artifact dependency {value!r}")
+    name, spec = match.groups()
+    spec = re.sub(r"[\s()]", "", spec)
+    operator = spec[:2]
+    extra = None
+    if separator:
+        marker = marker.strip()
+        if marker.startswith("(") and marker.endswith(")"):
+            marker = marker[1:-1].strip()
+        selected = re.fullmatch(r"extra\s*==\s*(['\"])([A-Za-z0-9._-]+)\1", marker)
+        if selected is None:
+            raise SmokeFailure(f"unsupported artifact extra condition {value!r}")
+        extra = selected[2]
+    return re.sub(r"[-_.]+", "-", name).lower(), operator, spec[2:], extra
+
+
 def _validate_core_metadata(metadata_bytes: bytes, contract: ProjectContract) -> None:
     metadata = BytesParser(policy=policy.default).parsebytes(metadata_bytes)
     expected = {
@@ -240,24 +292,34 @@ def _validate_core_metadata(metadata_bytes: bytes, contract: ProjectContract) ->
         "Requires-Python": contract.requires_python,
     }
     for field, value in expected.items():
-        if metadata.get(field) != value:
+        if metadata.get_all(field) != [value]:
             raise SmokeFailure(
                 f"artifact metadata {field} is {metadata.get(field)!r}, "
                 f"expected {value!r}"
             )
 
-    declared_dependencies = tuple(metadata.get_all("Requires-Dist", ()))
-    for dependency in contract.dependencies:
-        if dependency not in declared_dependencies:
-            raise SmokeFailure(
-                f"artifact metadata is missing runtime dependency {dependency!r}"
-            )
+    expected_dependencies = [_dependency(value) for value in contract.dependencies]
+    for extra, dependencies in contract.extras:
+        expected_dependencies.extend(
+            _dependency(f"{value}; extra == '{extra}'") for value in dependencies
+        )
+    declared_dependencies = [
+        _dependency(str(value)) for value in metadata.get_all("Requires-Dist", ())
+    ]
+    if Counter(declared_dependencies) != Counter(expected_dependencies):
+        raise SmokeFailure("artifact runtime dependency/extra declarations differ")
+    if Counter(metadata.get_all("Provides-Extra", ())) != Counter(
+        name for name, _ in contract.extras
+    ):
+        raise SmokeFailure("artifact Provides-Extra declarations differ")
 
     if contract.readme is not None:
-        if metadata.get("Description-Content-Type") != "text/markdown":
+        if metadata.get_all("Description-Content-Type") != ["text/markdown"]:
             raise SmokeFailure("artifact metadata is missing Markdown README metadata")
-        payload = metadata.get_payload()
-        if not isinstance(payload, str) or "# Pietto" not in payload:
+        payload = metadata.get_payload(decode=True)
+        if not isinstance(payload, bytes) or payload.replace(b"\r\n", b"\n") != (
+            REPO_ROOT / contract.readme
+        ).read_bytes().replace(b"\r\n", b"\n"):
             raise SmokeFailure("artifact metadata is missing the declared README body")
 
 
@@ -323,7 +385,18 @@ def _inspect_sdist(sdist: Path, contract: ProjectContract) -> None:
                     f"sdist is missing required files: {', '.join(missing)}"
                 )
             metadata_bytes = _read_tar_member(archive, metadata_path)
-    except (OSError, tarfile.TarError, KeyError) as error:
+            project = _read_tar_member(archive, f"{prefix}/pyproject.toml").decode(
+                "utf-8"
+            )
+            if _project_contract(project) != contract:
+                raise SmokeFailure("sdist project metadata/console entry differs")
+            if (
+                contract.readme is not None
+                and _read_tar_member(archive, f"{prefix}/{contract.readme}")
+                != (REPO_ROOT / contract.readme).read_bytes()
+            ):
+                raise SmokeFailure("sdist README differs")
+    except (OSError, UnicodeError, tarfile.TarError, KeyError) as error:
         raise SmokeFailure(f"cannot inspect sdist {sdist.name}: {error}") from error
 
     _validate_core_metadata(metadata_bytes, contract)
@@ -1075,31 +1148,236 @@ def _smoke_project_emit_sql(
         raise SmokeFailure("installed project emit-sql rejection is unexpected")
 
 
-def main() -> int:
+def _installed_path(path: Path) -> Path:
+    resolved = path.resolve()
+    if (
+        not resolved.is_relative_to(Path(sys.prefix).resolve())
+        or "site-packages" not in resolved.parts
+        or resolved.is_relative_to(REPO_ROOT)
+    ):
+        raise SmokeFailure(f"foreign installed origin: {resolved}")
+    return resolved
+
+
+def _installed_check(wheel: Path, extra: str) -> None:
+    """Run under the clean installed interpreter, without checkout imports."""
+    contract = _project_contract()
+    distribution = importlib.metadata.distribution(contract.name)
+    with zipfile.ZipFile(wheel) as archive:
+        for member in archive.namelist():
+            if member.endswith("/") or not (
+                member.startswith("pietto/")
+                or member.endswith(("/METADATA", "/entry_points.txt", "/WHEEL"))
+            ):
+                continue
+            installed = _installed_path(Path(distribution.locate_file(member)))
+            if installed.read_bytes() != archive.read(member):
+                raise SmokeFailure(f"installed candidate wheel bytes differ: {member}")
+        _validate_core_metadata(
+            archive.read(f"{contract.name}-{contract.version}.dist-info/METADATA"),
+            contract,
+        )
+    direct = json.loads(distribution.read_text("direct_url.json") or "null")
+    if not isinstance(direct, dict) or direct.get("url") != wheel.resolve().as_uri():
+        raise SmokeFailure("installed candidate wheel location differs")
+    importlib.import_module("pietto")
+    cli = importlib.import_module("pietto.cli")
+    for arguments in (
+        ("--version",),
+        ("--help",),
+        ("check", CHECK_INPUT.as_posix()),
+        ("emit-sql", POSTGRES_INPUT.as_posix(), "--dialect", "postgres"),
+        ("emit-sql", MYSQL_INPUT.as_posix(), "--dialect", "mysql", "--format", "json"),
+    ):
+        with redirect_stdout(io.StringIO()):
+            try:
+                status = cli.main(arguments)
+            except SystemExit as error:
+                status = error.code
+        if status != 0:
+            raise SmokeFailure("installed CLI failed")
+    for member in _required_runtime_files("pietto"):
+        if "/_project/project_" in member:
+            importlib.import_module(member[:-3].replace("/", "."))
+    if any(name == "pyarrow" or name.startswith("pyarrow.") for name in sys.modules):
+        raise SmokeFailure("public/CLI/private import eagerly loaded PyArrow")
+    for name, module in tuple(sys.modules.items()):
+        if name == "pietto" or name.startswith("pietto."):
+            _installed_path(Path(module.__file__))
+    antlr = importlib.import_module("antlr4")
+    dependencies = {
+        "antlr4-python3-runtime": {
+            "version": importlib.metadata.version("antlr4-python3-runtime"),
+            "path": str(_installed_path(Path(antlr.__file__))),
+        }
+    }
+    loader = importlib.import_module("pietto._project.project_arrow_result")._arrow
+    if extra == "core":
+        try:
+            importlib.metadata.distribution("pyarrow")
+        except importlib.metadata.PackageNotFoundError:
+            pass
+        else:
+            raise SmokeFailure("core installation contains PyArrow distribution")
+        if importlib.util.find_spec("pyarrow") is not None:
+            raise SmokeFailure("core installation can resolve PyArrow")
+        result_error = importlib.import_module(
+            "pietto._project.project_result_contract"
+        ).ResultError
+        try:
+            loader()
+        except result_error as error:
+            if str(error) != "ARROW_DEPENDENCY_MISSING":
+                raise SmokeFailure("unexpected missing Arrow diagnostic") from error
+        else:
+            raise SmokeFailure("missing Arrow dependency was accepted")
+    else:
+        pa = loader()
+        if (
+            pa.__version__ != "25.0.1"
+            or importlib.metadata.version("pyarrow") != "25.0.1"
+        ):
+            raise SmokeFailure("installed PyArrow pin differs")
+        dependencies["pyarrow"] = {
+            "version": pa.__version__,
+            "path": str(_installed_path(Path(pa.__file__))),
+        }
+    print(
+        json.dumps(
+            {
+                "cell": extra,
+                "prefix": str(Path(sys.prefix).resolve()),
+                "wheel": str(wheel.resolve()),
+                "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+                "provides_extra": distribution.metadata.get_all("Provides-Extra"),
+                "requires_dist": distribution.requires,
+                "dependencies": dependencies,
+                "lazy_import": True,
+                "missing_arrow": extra == "core",
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def _check_installed_cell(
+    venv_dir: Path, scratch_dir: Path, wheel: Path, extra: str
+) -> None:
+    result = _run_command(
+        f"installed {extra} dependency isolation",
+        (
+            str(_venv_python(venv_dir)),
+            "-I",
+            str(Path(__file__).resolve()),
+            "--installed-check",
+            extra,
+            "--wheel",
+            str(wheel),
+        ),
+        cwd=scratch_dir,
+        capture_output=True,
+        env=_clean_environment(),
+    )
+    print(result.stdout.decode(), end="", flush=True)
+
+
+def _install_extra(venv_dir: Path, scratch_dir: Path, wheel: Path) -> None:
+    if venv_dir.exists() or venv_dir.is_symlink():
+        raise SmokeFailure("extra environment must begin at a new owned path")
+    _run_command(
+        "create clean extra environment",
+        ("uv", "venv", "--python", sys.executable, str(venv_dir)),
+        cwd=scratch_dir,
+        env=_clean_environment(),
+    )
+    core = scratch_dir / "core-requirements.txt"
+    _run_command(
+        "export locked core dependencies",
+        ("uv", "export", "--locked", "--no-dev", "--no-emit-project", "-o", str(core)),
+        cwd=REPO_ROOT,
+        env=_clean_environment(),
+    )
+    # Hash verification pre-seeds dependencies; the wheel extra resolves them below.
+    _run_command(
+        "verify tested dependency wheels",
+        (
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(_venv_python(venv_dir)),
+            "--require-hashes",
+            "--only-binary",
+            ":all:",
+            "--no-deps",
+            "-r",
+            str(core),
+            "-r",
+            str(REPO_ROOT / "ci/phase67-arrow-compatibility-requirements.txt"),
+        ),
+        cwd=scratch_dir,
+        env=_clean_environment(),
+    )
+    _run_command(
+        "install candidate arrow extra",
+        (
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(_venv_python(venv_dir)),
+            "--no-index",
+            f"{wheel}[arrow]",
+        ),
+        cwd=scratch_dir,
+        env=_clean_environment(),
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
     """Run the independent packaging and installed-CLI smoke validation."""
 
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dist-dir", type=Path)
+    parser.add_argument("--extra-env", type=Path)
+    parser.add_argument("--installed-check", choices=("core", "arrow"))
+    parser.add_argument("--wheel", type=Path)
+    args = parser.parse_args(argv)
     try:
+        if args.installed_check:
+            if args.wheel is None:
+                parser.error("--installed-check requires --wheel")
+            _installed_check(args.wheel, args.installed_check)
+            return 0
+        if args.extra_env is not None and (
+            args.extra_env.exists() or args.extra_env.is_symlink()
+        ):
+            raise SmokeFailure("extra environment must begin at a new owned path")
         contract = _project_contract()
         with tempfile.TemporaryDirectory(prefix="pietto-package-smoke-") as temporary:
             temporary_root = Path(temporary)
-            dist_dir = temporary_root / "dist"
+            dist_dir = (
+                args.dist_dir.resolve() if args.dist_dir else temporary_root / "dist"
+            )
             venv_dir = temporary_root / "venv"
             scratch_dir = temporary_root / "scratch"
-            dist_dir.mkdir()
+            build = not dist_dir.exists()
+            dist_dir.mkdir(exist_ok=True)
             scratch_dir.mkdir()
 
-            _run_command(
-                "build sdist and wheel",
-                (
-                    "uv",
-                    "build",
-                    "--sdist",
-                    "--wheel",
-                    "--out-dir",
-                    str(dist_dir),
-                ),
-                cwd=REPO_ROOT,
-            )
+            if build:
+                _run_command(
+                    "build sdist and wheel",
+                    (
+                        "uv",
+                        "build",
+                        "--sdist",
+                        "--wheel",
+                        "--out-dir",
+                        str(dist_dir),
+                    ),
+                    cwd=REPO_ROOT,
+                )
             sdist, wheel = _find_artifacts(dist_dir)
             print(f"[package-smoke] built sdist: {sdist.name}")
             print(f"[package-smoke] built wheel: {wheel.name}")
@@ -1128,6 +1406,14 @@ def main() -> int:
                 env=_clean_environment(),
             )
             _smoke_installed_cli(venv_dir, scratch_dir, contract)
+            _check_installed_cell(venv_dir, scratch_dir, wheel, "core")
+            if args.extra_env is not None:
+                extra_dir = args.extra_env.absolute()
+                extra_scratch = temporary_root / "extra-scratch"
+                extra_scratch.mkdir()
+                _install_extra(extra_dir, extra_scratch, wheel)
+                _smoke_installed_cli(extra_dir, extra_scratch, contract)
+                _check_installed_cell(extra_dir, extra_scratch, wheel, "arrow")
     except SmokeFailure as error:
         print(f"[package-smoke] error: {error}", file=sys.stderr)
         return error.exit_code

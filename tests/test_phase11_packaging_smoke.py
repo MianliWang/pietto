@@ -82,14 +82,7 @@ def test_builds_sdist_and_wheel_and_installs_a_non_editable_wheel() -> None:
 def test_wheel_and_sdist_inventory_metadata_and_entry_point_are_checked(
     tmp_path: Path,
 ) -> None:
-    contract = smoke.ProjectContract(
-        name="pietto",
-        version="0.1.0",
-        requires_python=">=3.12",
-        dependencies=_runtime_dependency_specifiers(),
-        console_entry="pietto.cli:main",
-        readme="README.md",
-    )
+    contract = smoke._project_contract()
     wheel = tmp_path / "pietto-0.1.0-py3-none-any.whl"
     sdist = tmp_path / "pietto-0.1.0.tar.gz"
     wheel_prefix = "pietto-0.1.0.dist-info"
@@ -114,6 +107,10 @@ def test_wheel_and_sdist_inventory_metadata_and_entry_point_are_checked(
         }
         for name in names:
             content = metadata if name.endswith("PKG-INFO") else b""
+            if name.endswith("pyproject.toml"):
+                content = (REPO_ROOT / "pyproject.toml").read_bytes()
+            elif name.endswith("README.md"):
+                content = (REPO_ROOT / "README.md").read_bytes()
             info = tarfile.TarInfo(name)
             info.size = len(content)
             archive.addfile(info, io.BytesIO(content))
@@ -123,14 +120,7 @@ def test_wheel_and_sdist_inventory_metadata_and_entry_point_are_checked(
 
 
 def test_missing_generated_module_fails_artifact_inspection(tmp_path: Path) -> None:
-    contract = smoke.ProjectContract(
-        name="pietto",
-        version="0.1.0",
-        requires_python=">=3.12",
-        dependencies=_runtime_dependency_specifiers(),
-        console_entry="pietto.cli:main",
-        readme="README.md",
-    )
+    contract = smoke._project_contract()
     wheel = tmp_path / "pietto-0.1.0-py3-none-any.whl"
     prefix = "pietto-0.1.0.dist-info"
     required = smoke._required_runtime_files("pietto") - {
@@ -268,9 +258,11 @@ def _metadata_bytes() -> bytes:
             b"Version: 0.1.0\n",
             b"Requires-Python: >=3.12\n",
             dependency_metadata,
+            b"Provides-Extra: arrow\n",
+            b"Requires-Dist: pyarrow==25.0.1; extra == 'arrow'\n",
             b"Description-Content-Type: text/markdown\n",
             b"\n",
-            b"# Pietto\n",
+            (REPO_ROOT / "README.md").read_bytes(),
         )
     )
 

@@ -498,10 +498,10 @@ def test_marker_registration_and_workflow_policy_are_connected():
         checks = _job(workflow, "checks_" + word)
         assert "name: Compiler / Package " + py in checks
         assert (
-            "Run real isolated Arrow readiness experiment" in checks
+            "Run real isolated Arrow readiness consumer" in checks
             and "check-arrow --python " + py in checks
         )
-        assert "--require-hashes --only-binary :all: --no-deps" in checks
+        assert '--extra-env "$RUNNER_TEMP/arrow-ready"' in checks
         completion = _job(workflow, "python_" + word)
         assert (
             "--health-dir" in completion

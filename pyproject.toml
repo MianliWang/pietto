@@ -11,6 +11,11 @@ dependencies = [
     "antlr4-python3-runtime>=4.13.2",
 ]
 
+[project.optional-dependencies]
+arrow = [
+    "pyarrow==25.0.1",
+]
+
 [project.scripts]
 pietto = "pietto.cli:main"
 

@@ -51,3 +51,10 @@ Timestamp/UUID显式private meaning已由Slice07取得upstream witnesses；默�
 ## Phase67 Slice12 private transport
 
 [Slice12](phases/phase-67/slice-12.md) 将既有有限结果封装为standard Arrow IPC与固定100-byte header、无trailer、96MiB frame。payload/canonical-contract SHA-256、length及rows/batches只检查transport correspondence；message metadata不授予authority；live binding及原值correspondence仍独立，stronger trust/signing归Phase84。此为已批准private实现选择，不冻结公共wire格式。
+
+## Phase67 Slice13 optional dependency
+
+D67.30：用户批准唯一公开selector `pietto[arrow]`，精确 `pyarrow==25.0.1`；core依赖、
+`requires-python >=3.12`、package/CLI0.1.0保持。已验证支撑集仅CPython3.12/3.13、Linux
+x86-64，不将支持表变为marker；独立hash lock保留tested-wheel integrity。此为依赖公开可安装，
+result API仍private、Phase69负责public alpha，不构成release。实测与隔离见[S13](phases/phase-67/slice-13.md)。

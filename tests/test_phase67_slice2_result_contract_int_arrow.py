@@ -225,13 +225,16 @@ def test_exit_zero_does_not_supply_product_evidence():
         )
 
 
-def test_private_product_does_not_change_public_api_or_optional_lock():
+def test_private_product_does_not_change_public_api_or_core_dependencies():
     import pietto
 
     assert not hasattr(pietto, "PiettoResultContract")
     root = Path(__file__).resolve().parents[1]
-    assert "pyarrow" not in (root / "pyproject.toml").read_text().lower()
-    assert "pyarrow" not in (root / "uv.lock").read_text().lower()
+    import tomllib
+
+    project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
+    assert project["dependencies"] == ["antlr4-python3-runtime>=4.13.2"]
+    assert project["optional-dependencies"] == {"arrow": ["pyarrow==25.0.1"]}
     assert json.loads(probe.emission_input("mysql"))["target"]["family"] == "mysql"
 
 
@@ -251,6 +254,6 @@ def test_ci_requires_separate_installed_product_evidence():
     workflow = (
         Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml"
     ).read_text()
-    assert workflow.count("Run installed Int result product consumer") == 2
+    assert workflow.count("Run installed result product consumer") == 2
     assert workflow.count("Download required installed result product evidence") == 2
     assert workflow.count('--product "$RUNNER_TEMP/product-reports/') == 2

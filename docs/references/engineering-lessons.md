@@ -42,3 +42,9 @@ Slice10：先测真实capsule/close/owner保活；C handle release不代表独�
 ### Phase67 Slice12：transport与完成的责任
 
 Arrow接受complete-message prefix不证明原有限结果完成。固定framing检测普通截断，caller extent仍交原session检查；源完成之后writer finalization仍可能失败。内部创建reader的接受前cleanup归transport，接受后的close归原reader owner，不能重复关闭或覆盖primary错误。
+
+### Phase67 Slice13：依赖选择与安装证据
+
+先测真实artifact metadata和local-wheel extra语法，再接CI。core/extra必须从两个干净prefix
+安装同一个wheel；hash预置不能替代extra解析。metadata、wheel bytes和resolved origins共同
+约束安装身份，SDK/version字符串本身不够；依赖公开可安装不等于private API已公开。

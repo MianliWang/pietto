@@ -133,3 +133,18 @@ Q1冻结14路径/新增2，读过Arrow全owner、producer精确labels、真实fi
 ## Slice12 Q3/Q4 当前合同续行
 
 [唯一合同](slice-12.md) 按明确续行授权改为100-byte header/96MiB、S11 managed encode、canonical-contract digest、frame batches与原S09 receipt/cleanup核验、message metadata非权威。保留旧18路径/c1bb0f89候选/full/review和累计预算，旧证据不转作新合同PASS。Q3重冻结；Review2/followup2/Q4、depth-one/full2及Git/CI/raw/native绑定新tree，不重做Phase启动或midpoint。
+
+## Slice13 Q1
+
+用户已锁定唯一 `arrow` extra与精确PyArrow25.0.1，见[唯一S13合同](slice-13.md)。
+冻结22路径/A2，复用原package smoke承接metadata、same-wheel clean core/extra与origin检查；
+两个当前CI compiler jobs保留原SDK/product reports和15-job拓扑。原core解释器不sync，
+102/100分母、22全文和所有production不变；无需第三helper或新schema。Q2消费完整review/
+follow-up与实际安装前提后再封树；实际启动、失败和费用归新S13唯一ledger。
+
+## Slice13 Q2候选审查
+
+一次完整author/Ponytail审查冻结metadata singleton重复、同process实际compiler lazy-import见证、
+extra-prefix symlink预检三个根因；在同一批修复并删除无caller默认值。development真实core/extra
+及102/100产品已通过；一个targeted follow-up、depth-one与最终full/CI/raw/native仍按S13合同
+执行，不因早期绿灯省略。精确tree、Q2与终态验证结果归外部ledger。

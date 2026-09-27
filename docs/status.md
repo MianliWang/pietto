@@ -99,8 +99,9 @@ documentation does not supersede that evidence.
 | Phase 67 Slice 10 | `COMPLETED / PUBLISHED` |
 | Phase 67 Slice 11 | `COMPLETED / PUBLISHED` |
 | Phase 67 Slice 12 | `COMPLETED / PUBLISHED` |
-| Phase 67 Slice 13 | `NEXT / NOT STARTED` |
-| Phase 67 Slices 14–16 | `NOT STARTED` |
+| Phase 67 Slice 13 | `COMPLETED / PUBLISHED` |
+| Phase 67 Slice 14 | `NEXT / NOT STARTED` |
+| Phase 67 Slices 15–16 | `NOT STARTED` |
 | Interlude V | `COMPLETED` |
 | Interlude V route | `N=3` |
 | Interlude V Slice 1 | `COMPLETED / PUBLISHED` |
@@ -108,7 +109,7 @@ documentation does not supersede that evidence.
 | Interlude V S2 performance outcome | `MEASURED_GAIN` |
 | Interlude V Slice 3 | `COMPLETED / PUBLISHED` |
 | CI remaining-tail maintenance R1 | `COMPLETED / PUBLISHED` |
-| Next | `Phase67 Slice13 under a separate dispatch` |
+| Next | `Phase67 Slice14 under a separate dispatch` |
 
 ## Phase67 当前路线
 
@@ -118,7 +119,7 @@ Phase67 `ACTIVE`，N67=16。[Slice01](phases/phase-67/slice-01.md) 联合交付�
 一次普通commit/FF push、natural exact-head attempt1全部15jobs、逐runtime v2 coverage、readiness/health
 raw artifacts与native strict receipts通过后成立；此前为candidate。
 
-Slices01–12 `COMPLETED / PUBLISHED` 以本段 S12 publication 条件为准；Slice13 `NEXT / NOT STARTED`；Slices14–16 `NOT STARTED`。Slice03 的 [canonical private result contract](phases/phase-67/slice-03.md) 保留独立 pure decoding、完整 runtime correspondence/invalidation 与原 Int producer/Arrow batch 链；仅在 sealed publication、全部15jobs和fresh raw evidence通过后完成，不自动进入Slice13。
+Slices01–13 `COMPLETED / PUBLISHED` 以本段 S13 publication 条件为准；Slice14 `NEXT / NOT STARTED`；Slices15–16 `NOT STARTED`。Slice03 的 [canonical private result contract](phases/phase-67/slice-03.md) 保留独立 pure decoding、完整 runtime correspondence/invalidation 与原 Int producer/Arrow batch 链；仅在 sealed publication、全部15jobs和fresh raw evidence通过后完成，不自动进入Slice14。
 [Slice05](phases/phase-67/slice-05.md) 交付 checked Text/Unicode、默认string与显式large_string、完整producer事实及有界owned batch；新增8个product案例和4份Text/mixed canonical文档。上述完成状态仅在本Slice sealed publication、自然exact-head全部15jobs及fresh raw evidence闭合后成立；此前为candidate。
 [Slice06](phases/phase-67/slice-06.md) 包含已明确批准的shared Decimal parameter precision38→65接受扩展；语言scale≤p，当前两target emission/result仍要求scale≤min(p,30)。固定尺度数值、context隔离、默认/显式128/256与资源边界由required product链验证；旧38位合同和前提HOLD保留历史。当前Slice06完成状态仅在sealed publication、natural exact-head全部15jobs及fresh raw/native闭合后成立，此前为candidate。
 [Slice07](phases/phase-67/slice-07.md) 通过显式private meaning输入连接civil Timestamp与标准128-bit UUID；默认public/CLI调用仍不取得meaning。Timestamp共同区间截至9999-12-31 23:59:59.499999，canonical UUID默认、binary16显式选择。当前S07完成状态仅在同候选sealed publication、自然exact-head全部15jobs及fresh raw/native闭合后成立；此前为candidate。
@@ -138,7 +139,14 @@ Phase66 COMPLETED/N66=16；Interlude V COMPLETED/total=3；R1单独完成；CI�
 
 [Slice12](phases/phase-67/slice-12.md) 使用固定100-byte header及standard uncompressed Arrow stream payload，无trailer；96MiB总上限、rows/batches/length、live canonical-contract digest与payload digest先于SDK检查。encode复用S11/S10/S09；IPCStream只保留frame claims，完成返回原S09 receipt并要求成功delivery cleanup。message custom metadata不授予authority，schema metadata保持既有exact检查；coherent shorter frames是不同conditional result。required product严格102groups/100damage，9SDK及22中立全文保持。
 
-S12表中 `COMPLETED / PUBLISHED` 只在当前合同的tested tree完成ordinary publication、自然exact-head全部15jobs与fresh raw/native闭合后成立。旧c1bb0f89候选/full/review保留历史，不验证本次100-byte合同。当前续行由本执行代理完成授权闭环；S13与后续未开始，package/CLI0.1.0。
+S12表中 `COMPLETED / PUBLISHED` 只在当前合同的tested tree完成ordinary publication、自然exact-head全部15jobs与fresh raw/native闭合后成立。旧c1bb0f89候选/full/review保留历史，不验证本次100-byte合同。S12已在 `8f5333fd` / CI `36343560204` 完成上述闭环，package/CLI0.1.0。
+
+[Slice13](phases/phase-67/slice-13.md) 增加唯一 `pietto[arrow]` / `pyarrow==25.0.1`。
+core-only与arrow-extra使用same candidate wheel及两个干净prefix；verified matrix仅Linux
+x86-64、CPython3.12/3.13。compiler core、public API/CLI/version、private result semantics及
+22neutral全文保持；SDK9与product102/100沿用原消费者。S13表中完成只在当前合同的tested tree
+普通commit/FF push、自然exact-head attempt1全部15jobs、fresh raw artifacts及native strict
+闭合后成立；此前为candidate。Slice14及后续未开始，不执行release/tag/upload。
 
 ## CI remaining-tail maintenance R1
 

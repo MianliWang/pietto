@@ -41,6 +41,33 @@ uv run pietto --version
 uv run pietto --help
 ```
 
+### Optional Arrow interoperability
+
+The core compiler and CLI need no PyArrow. The only optional distribution
+selector is `pietto[arrow]`, which selects exactly `pyarrow==25.0.1`.
+From this checkout, install it into a separate environment:
+
+```bash
+uv venv /tmp/pietto-arrow
+uv pip install --python /tmp/pietto-arrow/bin/python ".[arrow]"
+```
+
+Or build and select the extra on that exact local wheel:
+
+```bash
+uv build --wheel
+uv pip install --python /tmp/pietto-arrow/bin/python "./dist/pietto-0.1.0-py3-none-any.whl[arrow]"
+```
+
+For a core-only wheel install, omit `[arrow]` and use a fresh environment.
+These are checkout/local-wheel instructions, not a claim of a PyPI release.
+Package and CLI version remain **0.1.0**. The verified optional-extra matrix
+is **CPython 3.12 and 3.13, Linux x86-64, PyArrow 25.0.1**; other platforms,
+interpreters and Arrow versions are not covered by this evidence.
+Phase67 result APIs remain private under `pietto._project`; installing the
+extra only makes the dependency available. Public result APIs belong to
+Phase69, and the extra does not enable database execution.
+
 ## Quick start
 
 Create `active_users.pietto`:

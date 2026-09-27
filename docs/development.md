@@ -374,7 +374,7 @@ health不足历史可为INSUFFICIENT_EVIDENCE；slow正确结果不失败，不�
 
 [Slice02](phases/phase-67/slice-02.md) 在普通 Arrow-free tests 中检查 retained contract/producer identity；
 两 compiler/package jobs 另在 fresh isolated3.12/3.13 环境安装 locked core dependencies、candidate wheel，
-然后按原 hash lock 安装 PyArrow25.0.1。原九组 SDK probe 保持；新增 installed product consumer 使用 `-I`，
+然后按原 hash lock 安装 PyArrow25.0.1（Slice02历史路径；当前S13见下）。原九组 SDK probe 保持；新增 installed product consumer 使用 `-I`，
 核验全部实际 Pietto import origins、当前 source input closure、14组测值/负例及 run context。
 completion 必须消费独立 product artifact；coverage、health 和 SDK report schema 不变。
 新增 src 文件改变 native package input fingerprint，必须取得当前 head 的 fresh native receipts。
@@ -425,3 +425,17 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 ## Slice12 private IPC验证
 
 [Slice12](phases/phase-67/slice-12.md) required product为102groups/100实质damage controls，九SDK和22份完整neutral文档保持。S01 boundary-prefix见证仅说明Arrow短流可读；产品framing与caller extent各自拒绝对应损坏。原S11 launcher/guard验证双runtime实际wheel/origins，Git/network由supervisor闭合；local candidate不宣称发布或native执行。
+
+## Slice13 optional Arrow extra 与安装隔离
+
+[Slice13](phases/phase-67/slice-13.md) 通过唯一 `pietto[arrow]` 选择精确
+`pyarrow==25.0.1`，默认 locked setup 与既有core `.venv` 保持Arrow-free。
+两compiler/package jobs由 `scripts/package_smoke.py --dist-dir ... --extra-env ...`
+各构建或消费同一个wheel/sdist，先在全新core环境验证无PyArrow、lazy imports、真实缺依赖
+拒绝及原CLI/SQL，再在另一个全新prefix以候选wheel的 `[arrow]` 安装。hash-pinned
+requirements仅预置并校验tested dependencies，随后wheel extra完整解析，不使用 `--no-deps`
+绕过selector。独立SDK9、product102/100及原22份neutral全文仍走既有required reports。
+
+实测矩阵只覆盖Linux x86-64、CPython3.12/3.13、PyArrow25.0.1；不是环境marker或其他平台
+支持承诺。安装日志记录exact wheel SHA、distribution metadata与resolved site-packages
+origins；raw/native闭合分别证明CI产物与既有native设施，不宣称数据库执行安装测试。

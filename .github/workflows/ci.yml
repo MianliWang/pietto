@@ -49,18 +49,11 @@ jobs:
       - name: Audit golden fixtures
         run: uv run python scripts/check_goldens.py
       - name: Smoke test installed package
-        run: uv run python scripts/package_smoke.py
-      - name: Prepare installed result product environment
         run: |
-          uv venv --python "$pythonLocation/bin/python" "$RUNNER_TEMP/arrow-ready"
-          uv export --locked --no-dev --no-emit-project -o "$RUNNER_TEMP/result-core.txt"
-          uv build --wheel --out-dir "$RUNNER_TEMP/result-dist"
-          uv pip install --python "$RUNNER_TEMP/arrow-ready/bin/python" --require-hashes --no-deps -r "$RUNNER_TEMP/result-core.txt"
-          uv pip install --python "$RUNNER_TEMP/arrow-ready/bin/python" --no-deps "$RUNNER_TEMP"/result-dist/*.whl
-      - name: Run real isolated Arrow readiness experiment
+          uv run python scripts/package_smoke.py --dist-dir "$RUNNER_TEMP/result-dist" --extra-env "$RUNNER_TEMP/arrow-ready"
+      - name: Run real isolated Arrow readiness consumer
         run: |
-          uv pip install --python "$RUNNER_TEMP/arrow-ready/bin/python" --require-hashes --only-binary :all: --no-deps -r ci/phase67-arrow-compatibility-requirements.txt
-          "$RUNNER_TEMP/arrow-ready/bin/python" tests/_pietto_phase67_arrow_compatibility_probe.py --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.12.json"
+          "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_phase67_arrow_compatibility_probe.py --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.12.json"
           uv run python scripts/ci_validation.py check-arrow --python 3.12 --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.12.json"
       - name: Upload exact Arrow readiness
         if: always()
@@ -83,7 +76,7 @@ jobs:
           uv run python scripts/ci_validation.py artifact --python 3.12 \
             --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.12.json" \
             --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
-      - name: Run installed Int result product consumer
+      - name: Run installed result product consumer
         run: |
           "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_phase67_result_product_probe.py --repository "$GITHUB_WORKSPACE" --report "$RUNNER_TEMP/product-reports/result-product-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.12.json"
           uv run python scripts/ci_validation.py check-product --python 3.12 --report "$RUNNER_TEMP/product-reports/result-product-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.12.json"
@@ -398,18 +391,11 @@ jobs:
       - name: Audit golden fixtures
         run: uv run python scripts/check_goldens.py
       - name: Smoke test installed package
-        run: uv run python scripts/package_smoke.py
-      - name: Prepare installed result product environment
         run: |
-          uv venv --python "$pythonLocation/bin/python" "$RUNNER_TEMP/arrow-ready"
-          uv export --locked --no-dev --no-emit-project -o "$RUNNER_TEMP/result-core.txt"
-          uv build --wheel --out-dir "$RUNNER_TEMP/result-dist"
-          uv pip install --python "$RUNNER_TEMP/arrow-ready/bin/python" --require-hashes --no-deps -r "$RUNNER_TEMP/result-core.txt"
-          uv pip install --python "$RUNNER_TEMP/arrow-ready/bin/python" --no-deps "$RUNNER_TEMP"/result-dist/*.whl
-      - name: Run real isolated Arrow readiness experiment
+          uv run python scripts/package_smoke.py --dist-dir "$RUNNER_TEMP/result-dist" --extra-env "$RUNNER_TEMP/arrow-ready"
+      - name: Run real isolated Arrow readiness consumer
         run: |
-          uv pip install --python "$RUNNER_TEMP/arrow-ready/bin/python" --require-hashes --only-binary :all: --no-deps -r ci/phase67-arrow-compatibility-requirements.txt
-          "$RUNNER_TEMP/arrow-ready/bin/python" tests/_pietto_phase67_arrow_compatibility_probe.py --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13.json"
+          "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_phase67_arrow_compatibility_probe.py --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13.json"
           uv run python scripts/ci_validation.py check-arrow --python 3.13 --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13.json"
       - name: Upload exact Arrow readiness
         if: always()
@@ -432,7 +418,7 @@ jobs:
           uv run python scripts/ci_validation.py artifact --python 3.13 \
             --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13.json" \
             --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
-      - name: Run installed Int result product consumer
+      - name: Run installed result product consumer
         run: |
           "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_phase67_result_product_probe.py --repository "$GITHUB_WORKSPACE" --report "$RUNNER_TEMP/product-reports/result-product-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13.json"
           uv run python scripts/ci_validation.py check-product --python 3.13 --report "$RUNNER_TEMP/product-reports/result-product-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13.json"
