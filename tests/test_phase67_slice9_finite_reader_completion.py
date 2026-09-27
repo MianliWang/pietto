@@ -78,7 +78,7 @@ def test_unconstructed_receipts_and_missing_session_storage_cannot_complete():
 
 
 def test_frozen_reader_manifests_and_independent_layout_arithmetic():
-    assert len(probe.CASES) == len(set(probe.CASES)) == 102
+    assert len(probe.CASES) == len(set(probe.CASES)) == 110
     assert tuple(probe.CASES[64:74]) == probe.READER_GROUPS
     assert "project_result_reader" in probe.PRODUCTS
     assert probe.reader_expected(probe.READER_LAYOUTS["whole"])["charge"] == 630

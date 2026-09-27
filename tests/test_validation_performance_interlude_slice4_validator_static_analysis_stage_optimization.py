@@ -92,8 +92,8 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
     # Phase67 Slice01 adds one inert Arrow probe and one governance/readiness principal.
     # Phase67 Slice03 adds three private codec owners and one ordinary principal.
     assert len(production_files) == 233
-    # Slice13 adds one ordinary package-isolation principal; production is unchanged.
-    assert len(test_files) == 509
+    # Slice14 adds one inert integration helper and one ordinary principal; production is unchanged.
+    assert len(test_files) == 511
     assert set(production_files).isdisjoint(test_files)
 
 

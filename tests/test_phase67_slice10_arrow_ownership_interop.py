@@ -88,7 +88,7 @@ def test_device_only_hook_is_not_invoked(kind):
 def test_private_origin_and_exact_group_inventory():
     assert interop.__all__ == ()
     assert "project_arrow_interop" in probe.PRODUCTS
-    assert len(probe.CASES) == len(set(probe.CASES)) == 102
+    assert len(probe.CASES) == len(set(probe.CASES)) == 110
     assert tuple(probe.CASES[74:84]) == probe.INTEROP_GROUPS
     assert importlib.util.find_spec("pyarrow") is None
 

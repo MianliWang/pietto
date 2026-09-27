@@ -1,6 +1,6 @@
 # Phase67 路线：N67=16
 
-当前只展开已授权 [Slice13](slice-13.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
+当前只展开已授权 [Slice14](slice-14.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
 
 | Slice | 目标／acceptance链接 | 依赖／类型 |
 | --- | --- | --- |
@@ -17,7 +17,7 @@
 | 11 | [row与Arrow-native ingress correspondence](slice-11.md)（P67-A09/A12/A15；[验收](brief.md#三层完成验收与回归)） | 09–10 |
 | 12 | [bounded private IPC、truncation/completion、metadata](slice-12.md)（P67-A07/A10/A14/A15；[验收](brief.md#三层完成验收与回归)） | 09–11 |
 | 13 | [公开可安装optional extra与wheel isolation](slice-13.md)（P67-A16；[验收](brief.md#三层完成验收与回归)） | 02–12；消费Slice01实验，不重复实验campaign |
-| 14 | 真实producer/result consumer integration，无产品executor（P67-A03/A13/A16–A17；[验收](brief.md#三层完成验收与回归)） | 13 |
+| 14 | [真实producer/result consumer integration，无产品executor](slice-14.md)（P67-A03/A13/A16–A17；[验收](brief.md#三层完成验收与回归)） | 13 |
 | 15 | whole-result differential/metamorphic assurance与Phase68交接（P67-A01/A03/A05/A09/A13–A14/A17；[验收](brief.md#三层完成验收与回归)） | 14 |
 | 16 | 三层完成审计、回归、retrospective与lessons（P67-A01/A18；[验收](brief.md#三层完成验收与回归)） | 15 |
 
@@ -77,3 +77,10 @@ S08延后的extent/attester/limits三项已由用户明确批准：caller先声�
 结果API仍私有。same-wheel core/extra在Linux x86-64的CPython3.12/3.13分别验收；原9SDK、
 102product/100damage与22neutral全文保持。仅在tested tree普通发布、自然15jobs与raw/native
 全部闭合后Slices01–13完成，Slice14 NEXT/NOT STARTED，15–16未开始；不是release。
+
+[Slice14](slice-14.md) 在两target原G/H/I/J八cells连接真实source/binding、rows与独立SDK输入、
+C-array/C-stream及IPC三route；TABLE populated/empty另经一个移动project后的installed child。
+fixture执行与已strict验证native receipt的实际rows重放分开；无新查询/driver/executor。
+原102/100扩为110/108，SDK9及22neutral全文保留；aggregate在原strict后新增required ≤2MiB
+sidecar，原27份加1为28。成功发布/自然15jobs/raw/native及当前receipts双local replay闭合后
+Slices01–14完成，Slice15 NEXT/NOT STARTED、Slice16未开始；N67=16不变。

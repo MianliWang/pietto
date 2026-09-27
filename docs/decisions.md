@@ -58,3 +58,11 @@ D67.30：用户批准唯一公开selector `pietto[arrow]`，精确 `pyarrow==25.
 `requires-python >=3.12`、package/CLI0.1.0保持。已验证支撑集仅CPython3.12/3.13、Linux
 x86-64，不将支持表变为marker；独立hash lock保留tested-wheel integrity。此为依赖公开可安装，
 result API仍private、Phase69负责public alpha，不构成release。实测与隔离见[S13](phases/phase-67/slice-13.md)。
+
+## Phase67 Slice14 real consumer
+
+D67.31：用户批准两条有限证据链：真实编译/result/SDK搭配supplied fixtures，以及已由原strict
+接受的同次Phase66原生执行观察重放。后者实际输入只取observations.rows，先核对原recipe、
+artifact、protocol facts和lifecycle；声明domain仍为声明。预先复用receipt行数作extent是replay
+调用方声明，不是独立DB completeness证据。原strict留core，额外Arrow环境不引入driver依赖。
+只新增一个test-only sidecar/纯数据checker，不新增公共schema、executor或native查询。

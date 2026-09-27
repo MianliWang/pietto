@@ -439,3 +439,16 @@ requirements仅预置并校验tested dependencies，随后wheel extra完整解�
 实测矩阵只覆盖Linux x86-64、CPython3.12/3.13、PyArrow25.0.1；不是环境marker或其他平台
 支持承诺。安装日志记录exact wheel SHA、distribution metadata与resolved site-packages
 origins；raw/native闭合分别证明CI产物与既有native设施，不宣称数据库执行安装测试。
+
+## Slice14 fixture与captured-native replay
+
+[S14](phases/phase-67/slice-14.md) 在原installed product consumer加入八组，固定110/108，
+保留九SDK及22份neutral全文；普通pytest仍offline。新helper仅显式加载闭合test-helper集合，
+小child复制该集合并移动TABLE projects，production origins必须来自同一installed wheel。
+
+原aggregate严格验两份完整native receipts后，复用S13 `_install_extra` 安装当前wheel[arrow]
+到独立3.13环境，再消费八个原执行观察；不重跑110组或SDK。sidecar≤2MiB且位于pair-only
+目录外，raw artifact总数28；其自身失败、上传或identity失败均使aggregate失败。native
+receipt schema/fixtures/queries及15-job图不变。自然CI后同一helper在保留的两个final local
+extra环境重放当前receipt，比较semantic observations及typed BAG，不比较路径/偶然fetch顺序。
+只有该closure后才清理owned环境。外层driver与child都固定已核验解释器，所有失败累计记录。

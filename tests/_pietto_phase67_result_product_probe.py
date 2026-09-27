@@ -8,6 +8,7 @@ from dataclasses import replace
 import hashlib
 import importlib
 import importlib.metadata
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,22 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 from typing import Any, cast
+
+
+def _integration():
+    name = "_pietto_phase67_real_consumer_probe"
+    path = Path(__file__).with_name(name + ".py").resolve()
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    filename = sys.modules[name].__file__
+    if filename is None or Path(filename).resolve() != path:
+        raise ValueError("foreign integration helper")
+    return cast(Any, sys.modules[name])
+
 
 FORMAT = "pietto.result-product.v1"
 PIN = "25.0.1"
@@ -138,6 +155,8 @@ CASES = (
     "ipc_uuid_representation",
     "ipc_correspondence",
 )
+
+CASES += _integration().GROUPS
 
 
 def source(target):
@@ -497,6 +516,7 @@ def run_cases(root):
     results.update(run_interop_cases(root))
     results.update(run_ingress_cases(root))
     results.update(run_ipc_cases(root))
+    results.update(_integration().fixture_groups(root / "integration"))
     assert set(results) == set(CASES)
     return results
 
@@ -10985,6 +11005,12 @@ def input_closure(repository):
             "uv.lock",
         )
     ]
+    paths.extend(
+        repository / "tests" / (name + ".py")
+        for name in (*_integration().HELPERS, "_pietto_phase67_real_consumer_probe")
+        if name != "_pietto_phase67_result_product_probe"
+    )
+    paths.append(repository / "scripts/package_smoke.py")
     return {
         p.relative_to(repository).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
         for p in paths
@@ -11077,6 +11103,7 @@ def verify_report(value, context, inputs):
     verify_interop_report(cases)
     verify_ingress_report(cases)
     verify_ipc_report(cases)
+    _integration().verify_fixture_groups(cases, inputs)
     origins = value["origins"]
     prefix = Path(value["prefix"])
     required = {"pietto._project." + name for name in PRODUCTS} | {
@@ -11479,6 +11506,7 @@ def reject_report_damage(value, context, inputs):
             path="/checkout/pyarrow/__init__.py"
         ),
     )
+    mutations += _integration().product_damage()
     for mutate in mutations:
         bad = json.loads(json.dumps(value))
         mutate(bad)
@@ -11567,8 +11595,8 @@ def main():
     }
     verify_report(value, context, input_closure(repository))
     rejected = reject_report_damage(value, context, input_closure(repository))
-    assert len(cases) == 102
-    assert rejected == 100
+    assert len(cases) == 110
+    assert rejected == 108
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with args.report.open("x") as stream:
         json.dump(value, stream, sort_keys=True, allow_nan=False)

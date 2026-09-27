@@ -48,3 +48,9 @@ Arrow接受complete-message prefix不证明原有限结果完成。固定framing
 先测真实artifact metadata和local-wheel extra语法，再接CI。core/extra必须从两个干净prefix
 安装同一个wheel；hash预置不能替代extra解析。metadata、wheel bytes和resolved origins共同
 约束安装身份，SDK/version字符串本身不够；依赖公开可安装不等于private API已公开。
+
+### Phase67 Slice14：真实观察与独立消费者
+
+receipt replay的输入是原execution rows，预期答案只能用来核验；decoder与原值oracle不共用
+同一个转换入口。先证明populated/empty可达，再扩固定corpus。原strict receipt证明与额外
+consumer证明分开；frame/extent通过仍不能认证原值、重复行或DB未遗漏。解释器固定覆盖外层driver。

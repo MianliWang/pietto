@@ -148,3 +148,21 @@ follow-up与实际安装前提后再封树；实际启动、失败和费用归�
 extra-prefix symlink预检三个根因；在同一批修复并删除无caller默认值。development真实core/extra
 及102/100产品已通过；一个targeted follow-up、depth-one与最终full/CI/raw/native仍按S13合同
 执行，不因早期绿灯省略。精确tree、Q2与终态验证结果归外部ledger。
+
+## Slice14 Q1
+
+[唯一S14合同](slice-14.md) 冻结19路径/A3/M16/D0与原G/H/I/J两target八cells，未冻结生产修改。
+先以G populated与I empty实证live binder及三条真实consumer链，均通过后再扩完整corpus。
+reuse原helper、S13 wheel-extra安装、原strict native verifier；observer scalar decoder与原值oracle
+分别实现，避免同一decoder错误成为两边答案。历史replay若使用只归原head/context，不能覆盖
+未来receipt；新sidecar只是现有strict之后的附加消费者。Q2和全量/发布事实归外部单一ledger。
+
+## Slice14 Q2：收敛候选
+
+唯一author/Ponytail审查的完整finding集已关闭：receipt format/submission types与实际replay
+解释器标签精确核对，删除独立SDK builder和relocated child的unused authority参数。
+一次targeted follow-up通过全部当前Phase67/lifecycle/package/CI/doc readers、Ruff及两类Pyright。
+3.13开发消费者110/108与唯一旧S13 receipt replay均通过；旧replay只归旧head/context。
+当前19路径/A3/M16/D0，无production/native-helper/依赖/lock变化。最终depth-one、一次完整
+coverage-equivalent、final同wheel双runtime4安装cells/SDK/product/22全文、ordinary publication、
+自然15jobs及28raw/native/current-replay闭合仍为必需。精确tree与实测归外部ledger，不启动S15。

@@ -100,8 +100,9 @@ documentation does not supersede that evidence.
 | Phase 67 Slice 11 | `COMPLETED / PUBLISHED` |
 | Phase 67 Slice 12 | `COMPLETED / PUBLISHED` |
 | Phase 67 Slice 13 | `COMPLETED / PUBLISHED` |
-| Phase 67 Slice 14 | `NEXT / NOT STARTED` |
-| Phase 67 Slices 15–16 | `NOT STARTED` |
+| Phase 67 Slice 14 | `COMPLETED / PUBLISHED` |
+| Phase 67 Slice 15 | `NEXT / NOT STARTED` |
+| Phase 67 Slice 16 | `NOT STARTED` |
 | Interlude V | `COMPLETED` |
 | Interlude V route | `N=3` |
 | Interlude V Slice 1 | `COMPLETED / PUBLISHED` |
@@ -109,7 +110,7 @@ documentation does not supersede that evidence.
 | Interlude V S2 performance outcome | `MEASURED_GAIN` |
 | Interlude V Slice 3 | `COMPLETED / PUBLISHED` |
 | CI remaining-tail maintenance R1 | `COMPLETED / PUBLISHED` |
-| Next | `Phase67 Slice14 under a separate dispatch` |
+| Next | `Phase67 Slice15 under a separate dispatch` |
 
 ## Phase67 当前路线
 
@@ -119,7 +120,7 @@ Phase67 `ACTIVE`，N67=16。[Slice01](phases/phase-67/slice-01.md) 联合交付�
 一次普通commit/FF push、natural exact-head attempt1全部15jobs、逐runtime v2 coverage、readiness/health
 raw artifacts与native strict receipts通过后成立；此前为candidate。
 
-Slices01–13 `COMPLETED / PUBLISHED` 以本段 S13 publication 条件为准；Slice14 `NEXT / NOT STARTED`；Slices15–16 `NOT STARTED`。Slice03 的 [canonical private result contract](phases/phase-67/slice-03.md) 保留独立 pure decoding、完整 runtime correspondence/invalidation 与原 Int producer/Arrow batch 链；仅在 sealed publication、全部15jobs和fresh raw evidence通过后完成，不自动进入Slice14。
+Slices01–14 `COMPLETED / PUBLISHED` 以本段 S14 publication 条件为准；Slice15 `NEXT / NOT STARTED`；Slice16 `NOT STARTED`。Slice03 的 [canonical private result contract](phases/phase-67/slice-03.md) 保留独立 pure decoding、完整 runtime correspondence/invalidation 与原 Int producer/Arrow batch 链；仅在 sealed publication、全部15jobs和fresh raw evidence通过后完成，不自动进入Slice15。
 [Slice05](phases/phase-67/slice-05.md) 交付 checked Text/Unicode、默认string与显式large_string、完整producer事实及有界owned batch；新增8个product案例和4份Text/mixed canonical文档。上述完成状态仅在本Slice sealed publication、自然exact-head全部15jobs及fresh raw evidence闭合后成立；此前为candidate。
 [Slice06](phases/phase-67/slice-06.md) 包含已明确批准的shared Decimal parameter precision38→65接受扩展；语言scale≤p，当前两target emission/result仍要求scale≤min(p,30)。固定尺度数值、context隔离、默认/显式128/256与资源边界由required product链验证；旧38位合同和前提HOLD保留历史。当前Slice06完成状态仅在sealed publication、natural exact-head全部15jobs及fresh raw/native闭合后成立，此前为candidate。
 [Slice07](phases/phase-67/slice-07.md) 通过显式private meaning输入连接civil Timestamp与标准128-bit UUID；默认public/CLI调用仍不取得meaning。Timestamp共同区间截至9999-12-31 23:59:59.499999，canonical UUID默认、binary16显式选择。当前S07完成状态仅在同候选sealed publication、自然exact-head全部15jobs及fresh raw/native闭合后成立；此前为candidate。
@@ -146,7 +147,15 @@ core-only与arrow-extra使用same candidate wheel及两个干净prefix；verifie
 x86-64、CPython3.12/3.13。compiler core、public API/CLI/version、private result semantics及
 22neutral全文保持；SDK9与product102/100沿用原消费者。S13表中完成只在当前合同的tested tree
 普通commit/FF push、自然exact-head attempt1全部15jobs、fresh raw artifacts及native strict
-闭合后成立；此前为candidate。Slice14及后续未开始，不执行release/tag/upload。
+闭合后成立；此前为candidate。S13已于 `8bf64190` / CI `36348807929` 闭合，不执行release/tag/upload。
+
+[Slice14](phases/phase-67/slice-14.md) 固定两target原G/H/I/J八cells，分别连接fixture执行与
+strict原生receipt实际rows重放。三route为rows/C-array、独立Arrow/C-stream和IPC/incremental
+completion；移动TABLE project的child重建live authority。product严格110groups/108damage，
+SDK9和22neutral全文保持；required sidecar≤2MiB，原27raw加1为28，不新增DB查询或executor。
+S14完成仅在当前合同的tested tree普通publication、自然exact-head attempt1全部15jobs含aggregate
+replay、fresh raw/native strict与两个final local extra环境的当前receipt replay均闭合后成立；
+此前为candidate。Slice15及后续未开始，Phase67仍ACTIVE/N67=16，package/CLI0.1.0。
 
 ## CI remaining-tail maintenance R1
 

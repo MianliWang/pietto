@@ -2,7 +2,7 @@
 
 规划层级 FULL；N67=16。描述性 Stage 目标是建立有限结果交换边界；现有资料没有数字 Stage，故不另造编号。
 这是已接受全 Phase 计划的耐久入口。Slice01 的 CI/SDK 实验范围与预算见其历史记录；当前只授权
-[Slice13](slice-13.md)，后续 Slice 仍逐次 dispatch。包/CLI 保持0.1.0。
+[Slice14](slice-14.md)，后续 Slice 仍逐次 dispatch。包/CLI 保持0.1.0。
 
 ## 使命、当前能力与边界
 
@@ -94,3 +94,10 @@ health/history 只作 advisory；没有新 alert 不启动 CI 维护。
 结果API仍私有。same-wheel core/extra在Linux x86-64的CPython3.12/3.13分别验收；原9SDK、
 102product/100damage与22neutral全文保持。仅在tested tree普通发布、自然15jobs与raw/native
 全部闭合后Slices01–13完成，Slice14 NEXT/NOT STARTED，15–16未开始；不是release。
+
+[Slice14](slice-14.md) 在两target原G/H/I/J八cells连接真实source/binding、rows与独立SDK输入、
+C-array/C-stream及IPC三route；TABLE populated/empty另经一个移动project后的installed child。
+fixture执行与已strict验证native receipt的实际rows重放分开；无新查询/driver/executor。
+原102/100扩为110/108，SDK9及22neutral全文保留；aggregate在原strict后新增required ≤2MiB
+sidecar，原27份加1为28。成功发布/自然15jobs/raw/native及当前receipts双local replay闭合后
+Slices01–14完成，Slice15 NEXT/NOT STARTED、Slice16未开始；N67=16不变。

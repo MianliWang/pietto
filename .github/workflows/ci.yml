@@ -815,6 +815,32 @@ jobs:
             --expected-commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
             --run-attempt "$GITHUB_RUN_ATTEMPT" \
             --compiler-status "$COMPILER_STATUS" --target-status "$TARGET_STATUS"
+      - name: Prepare isolated Arrow-extra integration consumer
+        run: |
+          uv run python tests/_pietto_phase67_real_consumer_probe.py prepare --repository "$GITHUB_WORKSPACE" --environment "$RUNNER_TEMP/phase67-consumer-extra" --dist-dir "$RUNNER_TEMP/phase67-consumer-dist"
+      - name: Replay strictly verified current native observations
+        run: |
+          "$RUNNER_TEMP/phase67-consumer-extra/bin/python" -I tests/_pietto_phase67_real_consumer_probe.py replay --repository "$GITHUB_WORKSPACE" --receipts "$RUNNER_TEMP/phase66-receipts" --wheel "$RUNNER_TEMP/phase67-consumer-dist/pietto-0.1.0-py3-none-any.whl" --report "$RUNNER_TEMP/integration-reports/phase67-consumer-integration-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json" --expected-commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT"
+          uv run python tests/_pietto_phase67_real_consumer_probe.py verify --repository "$GITHUB_WORKSPACE" --receipts "$RUNNER_TEMP/phase66-receipts" --wheel "$RUNNER_TEMP/phase67-consumer-dist/pietto-0.1.0-py3-none-any.whl" --report "$RUNNER_TEMP/integration-reports/phase67-consumer-integration-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json" --expected-commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --python 3.13
+      - name: Upload required real-consumer integration
+        if: always()
+        id: integration
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase67-consumer-integration-${{ github.run_id }}-${{ github.run_attempt }}.json
+          path: ${{ runner.temp }}/integration-reports/phase67-consumer-integration-${{ github.run_id }}-${{ github.run_attempt }}.json
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+          retention-days: 1
+      - name: Verify raw integration sidecar identity
+        if: always()
+        env:
+          ARTIFACT_ID: ${{ steps.integration.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.integration.outputs.artifact-digest }}
+        run: |
+          uv run python tests/_pietto_phase67_real_consumer_probe.py verify --repository "$GITHUB_WORKSPACE" --receipts "$RUNNER_TEMP/phase66-receipts" --wheel "$RUNNER_TEMP/phase67-consumer-dist/pietto-0.1.0-py3-none-any.whl" --report "$RUNNER_TEMP/integration-reports/phase67-consumer-integration-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json" --expected-commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --python 3.13 --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
       - name: Report workload health and bounded trusted history
         env:
           CI_HEALTH_TOKEN: ${{ github.token }}
