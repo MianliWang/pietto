@@ -29,6 +29,7 @@ PRODUCTS = (
     "project_result_contract_portable",
     "project_result_contract_correspondence",
     "project_scalar_meaning",
+    "project_result_reader",
 )
 CASES = (
     "postgres",
@@ -95,6 +96,16 @@ CASES = (
     "finite_resources",
     "finite_correspondence",
     "finite_codec",
+    "reader_values",
+    "reader_empty_null",
+    "reader_extent",
+    "reader_terminal",
+    "reader_lifecycle",
+    "reader_limits",
+    "reader_rechunk",
+    "reader_identity",
+    "reader_correspondence",
+    "reader_incremental",
 )
 
 
@@ -451,6 +462,7 @@ def run_cases(root):
     results.update(run_decimal_cases(root))
     results.update(run_temporal_cases(root))
     results.update(run_finite_cases(root))
+    results.update(run_reader_cases(root))
     assert set(results) == set(CASES)
     return results
 
@@ -4852,6 +4864,16 @@ FINITE_GROUPS = (
     "finite_resources",
     "finite_correspondence",
     "finite_codec",
+    "reader_values",
+    "reader_empty_null",
+    "reader_extent",
+    "reader_terminal",
+    "reader_lifecycle",
+    "reader_limits",
+    "reader_rechunk",
+    "reader_identity",
+    "reader_correspondence",
+    "reader_incremental",
 )
 
 
@@ -5838,6 +5860,1136 @@ def verify_finite_report(cases):
         raise ValueError("finite scalar report evidence") from exc
 
 
+READER_GROUPS = (
+    "reader_values",
+    "reader_empty_null",
+    "reader_extent",
+    "reader_terminal",
+    "reader_lifecycle",
+    "reader_limits",
+    "reader_rechunk",
+    "reader_identity",
+    "reader_correspondence",
+    "reader_incremental",
+)
+
+
+def reader_receipt(reader) -> dict[str, Any]:
+    completion = reader.completion
+    return dict(
+        state=reader.state,
+        rows=reader.rows,
+        batches=reader.batch_count,
+        charge=reader.charge,
+        pulls=reader.pulls,
+        descriptors=[]
+        if completion is None
+        else [
+            [d.ordinal, d.row_start, d.rows, d.logical_bytes, d.retained_bytes]
+            for d in completion.descriptors
+        ],
+        complete=completion is not None,
+    )
+
+
+def reader_expected(usages, *, state="COMPLETE", pulls=None) -> dict[str, Any]:
+    rows = charge = 0
+    descriptors = []
+    for i, (count, logical, retained) in enumerate(usages):
+        descriptors.append([i, rows, count, logical, retained])
+        rows += count
+        charge += max(logical, retained)
+    return dict(
+        state=state,
+        rows=rows,
+        batches=len(usages),
+        charge=charge,
+        pulls=len(usages) + 1 if pulls is None else pulls,
+        descriptors=descriptors if state == "COMPLETE" else [],
+        complete=state == "COMPLETE",
+    )
+
+
+# Independent physical allowances: S08 original four-row mixed has A=630/R=528;
+# its slices retain R=528. These are fixture arithmetic, not product receipts.
+READER_LAYOUTS = {
+    "whole": ((4, 630, 528),),
+    "uneven": ((1, 175, 528), (2, 330, 528), (1, 175, 528)),
+    "empty_interleaved": (
+        (0, 12, 12),
+        (1, 175, 528),
+        (0, 12, 12),
+        (2, 330, 528),
+        (1, 175, 528),
+        (0, 12, 12),
+    ),
+}
+
+
+class ReaderTrace:
+    """Test-only observation around real SDK operations, with named fault controls."""
+
+    def __init__(self, schema, batches, *, late=False, close_error=None):
+        self.schema = schema
+        self.batches = batches
+        self.late = late
+        self.close_error = close_error
+        self.events: list[Any] = []
+        self.reads = self.closes = self.close_success = 0
+        self.last = None
+
+    def __enter__(self):
+        from pietto._project import project_result_reader as r
+
+        pa = importlib.import_module("pyarrow")
+
+        def values():
+            for batch in self.batches:
+                self.events.append(["data", batch.num_rows])
+                yield batch
+            self.events.append(["error" if self.late else "eof"])
+            if self.late:
+                raise RuntimeError("late cooperative source failure")
+
+        self.source = pa.RecordBatchReader.from_batches(self.schema, values())
+        self.read_original, self.close_original = r._read_source, r._close_source
+
+        def read(source):
+            self.reads += 1
+            batch = self.read_original(source)
+            self.last = id(batch)
+            return batch
+
+        def close(source):
+            self.closes += 1
+            self.close_original(source)
+            if self.close_error is not None:
+                raise self.close_error
+            self.close_success += 1
+
+        r._read_source, r._close_source = read, close
+        return self
+
+    def __exit__(self, *args):
+        from pietto._project import project_result_reader as r
+
+        r._read_source, r._close_source = self.read_original, self.close_original
+        return False
+
+    def snapshot(self):
+        return dict(
+            events=self.events,
+            reads=self.reads,
+            closes=self.closes,
+            close_success=self.close_success,
+        )
+
+
+def reader_trace_expected(
+    counts, *, late=False, closes=1, close_success=1
+) -> dict[str, Any]:
+    return dict(
+        events=[["data", n] for n in counts] + [["error" if late else "eof"]],
+        reads=len(counts) + 1,
+        closes=closes,
+        close_success=close_success,
+    )
+
+
+def reader_consume(
+    binding, batches, expected_rows, *, limits=None, late=False, close_error=None
+) -> dict[str, Any]:
+    from pietto._project import project_result_reader as r
+
+    snapshots = []
+    with ReaderTrace(
+        binding.schema, batches, late=late, close_error=close_error
+    ) as trace:
+        reader = r.open_finite_reader(
+            binding,
+            trace.source,
+            expected_rows=expected_rows,
+            limits=r.FiniteReaderLimits() if limits is None else limits,
+        )
+        assert (
+            trace.reads == 0
+            and reader.schema is binding.schema
+            and reader.completion is None
+        )
+        error = None
+        try:
+            for batch in reader:
+                assert id(batch) == trace.last
+                snapshots.append(finite_snapshot(batch))
+        except r.ResultError as exc:
+            error = exc.category
+        result = dict(
+            receipt=reader_receipt(reader),
+            trace=trace.snapshot(),
+            error=error,
+            rows=[row for snapshot in snapshots for row in snapshot["rows"]],
+            primary=reader.primary_error.category
+            if isinstance(reader.primary_error, r.ResultError)
+            else None
+            if reader.primary_error is None
+            else type(reader.primary_error).__name__,
+            cleanup=None
+            if reader.cleanup_error is None
+            else type(reader.cleanup_error).__name__,
+        )
+        if error is not None:
+            assert reader.completion is None
+            assert refused(reader.read_next_batch) == "READER_FAILED"
+        else:
+            receipt = reader.completion
+            r.verify_finite_completion(reader, reader.expectation, receipt)
+            assert reader.completion is receipt
+            try:
+                reader.read_next_batch()
+            except StopIteration:
+                pass
+            else:
+                raise AssertionError("completed session read again")
+        reader.close()
+        reader.close()
+        assert trace.closes == 1
+        return result
+
+
+def reader_expected_result(
+    usages,
+    rows,
+    *,
+    state="COMPLETE",
+    error=None,
+    counts=None,
+    late=False,
+    pulls=None,
+    eof=True,
+    close_success=1,
+) -> dict[str, Any]:
+    counts = [u[0] for u in usages] if counts is None else counts
+    trace = reader_trace_expected(counts, late=late, close_success=close_success)
+    if not eof:
+        trace["events"] = trace["events"][:-1]
+        trace["reads"] -= 1
+    return dict(
+        receipt=reader_expected(usages, state=state, pulls=pulls),
+        trace=trace,
+        error=error,
+        rows=rows,
+        primary="RuntimeError" if error == "READER_SOURCE" else error,
+        cleanup="RuntimeError" if close_success == 0 else None,
+    )
+
+
+def run_reader_cases(root):
+    import gc
+    import itertools
+    import weakref
+    from pietto._project import project_result_reader as r
+    from pietto._project import project_arrow_result as a
+    from pietto._project.project_result_contract_portable import export_result_contract
+
+    pa = importlib.import_module("pyarrow")
+    results: dict[str, Any] = {name: {} for name in READER_GROUPS}
+    for target in ("postgres", "mysql"):
+        checked, _, _, neutral, producer, _ = finite_fixture(
+            root / ("reader-" + target), target
+        )
+        _, _, _, _, nproducer, _ = finite_fixture(
+            root / ("reader-null-" + target), target, all_nullable=True
+        )
+        binding = a.bind_arrow(producer, **finite_policy(producer))
+        nullable = a.bind_arrow(nproducer, **finite_policy(nproducer))
+        expected_rows = (
+            4  # Declared from the independent original sequence, before reads.
+        )
+        batch = a.build_owned_batch(binding, finite_rows(target))
+        empty = a.build_owned_batch(binding, [])
+        before = export_result_contract(neutral, checked).canonical_bytes
+        values = reader_consume(binding, [batch], expected_rows)
+        finite_oracle(dict(finite_expected(), rows=values["rows"]))
+        results["reader_values"][target] = dict(
+            result=values,
+            schema=finite_snapshot(batch)["fields"],
+            declared_rows=expected_rows,
+            borrowed_claim=False,
+        )
+        absent = list(empty.columns)
+        for i in (9, 10, 11):
+            kind = pa.binary(16) if i == 10 else binding.schema[i].type
+            column = pa.Array.from_buffers(kind, 0, [None, None])
+            absent[i] = (
+                pa.ExtensionArray.from_storage(pa.uuid(), column) if i == 10 else column
+            )
+        absent_batch = pa.RecordBatch.from_arrays(absent, schema=binding.schema)
+        nulls = a.build_owned_batch(nullable, finite_rows(target, state="null"))
+        first_null = a.build_owned_batch(
+            nullable, finite_rows(target, state="first_null")
+        )
+        wrong_schema = pa.schema(
+            [
+                pa.field("wrong" if i == 12 else f.name, f.type, nullable=f.nullable)
+                for i, f in enumerate(binding.schema)
+            ]
+        )
+        with ReaderTrace(wrong_schema, []) as trace:
+            wrong = refused(
+                lambda: r.open_finite_reader(binding, trace.source, expected_rows=0)
+            )
+            assert trace.reads == trace.closes == 0
+            trace.source.close()
+        invalid_null = pa.RecordBatch.from_arrays(nulls.columns, schema=binding.schema)
+        from pietto._project.project_result_contract import build_result_contract
+
+        no_meaning = replace(producer, contract=build_result_contract(checked))
+        with ReaderTrace(binding.schema, []) as trace:
+            missing = refused(
+                lambda: r.open_finite_reader(
+                    replace(binding, producer=no_meaning), trace.source, expected_rows=0
+                )
+            )
+            assert trace.reads == trace.closes == 0
+            trace.source.close()
+        results["reader_empty_null"][target] = dict(
+            zero=reader_consume(binding, [], 0),
+            empty=reader_consume(binding, [empty, absent_batch, empty], 0),
+            all_null=reader_consume(nullable, [nulls], 2),
+            first_null=reader_consume(nullable, [first_null], 5),
+            wrong_schema=wrong,
+            missing_meaning=missing,
+            nonnullable=reader_consume(binding, [invalid_null], 2),
+        )
+
+        invalid = []
+        with ReaderTrace(binding.schema, [batch]) as trace:
+            for total in (None, True, 4.0, -1, "4", CoercibleScalar(), 1048577):
+                invalid.append(
+                    refused(
+                        lambda total=total: r.open_finite_reader(
+                            binding, trace.source, expected_rows=total
+                        )
+                    )
+                )
+            invalid.append(
+                refused(
+                    lambda: r.open_finite_reader(
+                        binding,
+                        trace.source,
+                        expected_rows=4,
+                        limits=r.FiniteReaderLimits(max_total_rows=3),
+                    )
+                )
+            )
+            assert trace.reads == trace.closes == 0
+            invalid_trace = trace.snapshot()
+            trace.source.close()
+        results["reader_extent"][target] = dict(
+            source_types=[
+                refused(
+                    lambda source=source: r.open_finite_reader(
+                        binding, source, expected_rows=0
+                    )
+                )
+                for source in (None, object(), iter(()))
+            ],
+            invalid=invalid,
+            invalid_trace=invalid_trace,
+            short=reader_consume(binding, [batch.slice(0, 3)], 4),
+            extra=reader_consume(binding, [batch, batch.slice(0, 1)], 4),
+            zero_extra=reader_consume(binding, [batch], 0),
+        )
+        late = reader_consume(binding, [batch], 4, late=True)
+        trailing = reader_consume(binding, [batch, empty, empty], 4)
+        early = []
+        for batches, total, pulls in (([batch], 4, 1), ([], 0, 0)):
+            with ReaderTrace(binding.schema, batches) as trace:
+                reader = r.open_finite_reader(
+                    binding, trace.source, expected_rows=total
+                )
+                for _ in range(pulls):
+                    reader.read_next_batch()
+                assert reader.completion is None
+                reader.close()
+                reader.close()
+                early.append(
+                    dict(
+                        receipt=reader_receipt(reader),
+                        trace=trace.snapshot(),
+                        subsequent=refused(reader.read_next_batch),
+                    )
+                )
+        results["reader_terminal"][target] = dict(
+            late=late, trailing=trailing, early=early
+        )
+
+        cleanup = reader_consume(
+            binding, [batch], 4, close_error=RuntimeError("injected cleanup failure")
+        )
+        combined = reader_consume(
+            binding,
+            [batch],
+            4,
+            late=True,
+            close_error=RuntimeError("injected cleanup failure"),
+        )
+        controls: dict[str, Any] = {}
+        for operation in (
+            "validation_stop",
+            "finalization_stop",
+            "close_stop",
+            "read_interrupt",
+            "read_exit",
+        ):
+            with ReaderTrace(binding.schema, [batch]) as trace:
+                reader = r.open_finite_reader(binding, trace.source, expected_rows=4)
+                if operation == "finalization_stop":
+                    reader.read_next_batch()
+                owner, attribute = (
+                    (a, "_checked_batch_usage")
+                    if operation == "validation_stop"
+                    else (r, "_make_completion")
+                    if operation == "finalization_stop"
+                    else (r, "_close_source")
+                    if operation == "close_stop"
+                    else (r, "_read_source")
+                )
+                original = getattr(owner, attribute)
+                error = (
+                    KeyboardInterrupt()
+                    if operation == "read_interrupt"
+                    else SystemExit(9)
+                    if operation == "read_exit"
+                    else StopIteration("injected non-source stop")
+                )
+
+                def injected(*args, **kwargs):
+                    raise error
+
+                try:
+                    setattr(owner, attribute, injected)
+                    try:
+                        if operation == "close_stop":
+                            reader.close()
+                        else:
+                            reader.read_next_batch()
+                    except BaseException as exc:
+                        controls[operation] = dict(
+                            error=exc.category
+                            if isinstance(exc, r.ResultError)
+                            else type(exc).__name__,
+                            state=reader.state,
+                            complete=reader.completion is not None,
+                        )
+                    else:
+                        raise AssertionError("injected reader failure accepted")
+                finally:
+                    setattr(owner, attribute, original)
+                    # The close sentinel did not call the real SDK; caller releases this test handle.
+                    if operation == "close_stop":
+                        trace.source.close()
+        with ReaderTrace(binding.schema, [batch]) as trace:
+            reader = r.open_finite_reader(binding, trace.source, expected_rows=4)
+            returned = None
+            try:
+                with reader:
+                    returned = reader.read_next_batch()
+                    raise ValueError("body failure")
+            except ValueError:
+                pass
+            assert returned is not None
+            body = dict(
+                state=reader.state,
+                closes=trace.closes,
+                complete=reader.completion is not None,
+                retained=finite_snapshot(returned),
+            )
+        with ReaderTrace(binding.schema, [batch]) as trace:
+            reader = r.open_finite_reader(binding, trace.source, expected_rows=4)
+            returned = reader.read_next_batch()
+            try:
+                reader.read_next_batch()
+            except StopIteration:
+                pass
+            source_ref = weakref.ref(trace.source)
+            del trace.source
+            gc.collect()
+            release = dict(
+                source_released=source_ref() is None,
+                active_source_released=reader._source is None,
+                retained=finite_snapshot(returned),
+            )
+        for name, cleanup_error in (
+            ("eof_cleanup_interrupt", KeyboardInterrupt()),
+            ("eof_cleanup_exit", SystemExit(10)),
+        ):
+            with ReaderTrace(binding.schema, [], close_error=cleanup_error) as trace:
+                reader = r.open_finite_reader(binding, trace.source, expected_rows=0)
+                try:
+                    reader.read_next_batch()
+                except BaseException as exc:
+                    controls[name] = dict(
+                        error=type(exc).__name__,
+                        state=reader.state,
+                        complete=reader.completion is not None,
+                    )
+                    assert exc is cleanup_error and trace.closes == 1
+                else:
+                    raise AssertionError("cleanup control exception was swallowed")
+        with ReaderTrace(binding.schema, [], close_error=KeyboardInterrupt()) as trace:
+            reader = r.open_finite_reader(binding, trace.source, expected_rows=0)
+            try:
+                with reader:
+                    raise ValueError("body and cleanup")
+            except BaseExceptionGroup as exc:
+                controls["context_cleanup_interrupt"] = dict(
+                    errors=[type(e).__name__ for e in exc.exceptions],
+                    state=reader.state,
+                    closes=trace.closes,
+                    complete=reader.completion is not None,
+                )
+            else:
+                raise AssertionError("combined context failure was swallowed")
+        results["reader_lifecycle"][target] = dict(
+            cleanup=cleanup,
+            combined=combined,
+            controls=controls,
+            body=body,
+            release=release,
+            cleanup_controls="test-injected around real SDK close",
+        )
+
+        limits: dict[str, Any] = {}
+        for name, batches, total, policy in (
+            (
+                "exact_bytes",
+                [batch, batch],
+                8,
+                r.FiniteReaderLimits(max_total_bytes=1260),
+            ),
+            (
+                "under_bytes",
+                [batch, batch],
+                8,
+                r.FiniteReaderLimits(max_total_bytes=1259),
+            ),
+            ("exact_batches", [batch], 4, r.FiniteReaderLimits(max_batches=1)),
+            (
+                "zero_batches",
+                [],
+                0,
+                r.FiniteReaderLimits(
+                    max_batches=0, max_total_rows=0, max_total_bytes=0
+                ),
+            ),
+            (
+                "endless_empty",
+                itertools.repeat(empty),
+                0,
+                r.FiniteReaderLimits(max_batches=2),
+            ),
+            ("empty_under", [empty], 0, r.FiniteReaderLimits(max_total_bytes=11)),
+            (
+                "batch_rows",
+                [batch],
+                4,
+                r.FiniteReaderLimits(batch=a.BatchLimits(rows=3)),
+            ),
+        ):
+            limits[name] = reader_consume(binding, batches, total, limits=policy)
+        arrays = list(batch.columns)
+        arrays[4] = pa.array([float("nan")] * 4, type=pa.float64())
+        tiny = pa.RecordBatch.from_arrays(arrays, schema=binding.schema).slice(0, 1)
+        original_value = a._value
+
+        def forbidden(*args, **kwargs):
+            raise AssertionError("retained buffers not checked first")
+
+        try:
+            a._value = forbidden
+            limits["retained_first"] = reader_consume(
+                binding, [tiny], 1, limits=r.FiniteReaderLimits(max_total_bytes=527)
+            )
+        finally:
+            a._value = original_value
+        limits["invalid_after_retained"] = reader_consume(
+            binding, [tiny], 1, limits=r.FiniteReaderLimits(max_total_bytes=528)
+        )
+        with ReaderTrace(binding.schema, []) as trace:
+            invalid_limits = [
+                r.FiniteReaderLimits(max_batches=True),
+                r.FiniteReaderLimits(max_batches=1025),
+                r.FiniteReaderLimits(max_total_rows=1048577),
+                r.FiniteReaderLimits(max_total_bytes=64 * 1024 * 1024 + 1),
+                r.FiniteReaderLimits(max_total_bytes=-1),
+                r.FiniteReaderLimits(batch=a.BatchLimits(rows=4097)),
+                r.FiniteReaderLimits(batch=a.BatchLimits(fields=12)),
+            ]
+            limits["invalid"] = [
+                refused(
+                    lambda policy=policy: r.open_finite_reader(
+                        binding, trace.source, expected_rows=0, limits=policy
+                    )
+                )
+                for policy in invalid_limits
+            ]
+            assert trace.reads == trace.closes == 0
+            trace.source.close()
+        limits["exact_rows"] = reader_consume(
+            binding, [batch], 4, limits=r.FiniteReaderLimits(max_total_rows=4)
+        )
+        results["reader_extent"][target]["new_declaration"] = reader_consume(
+            binding, [batch.slice(0, 3)], 3
+        )
+        results["reader_limits"][target] = limits
+        layouts = dict(
+            whole=[batch],
+            uneven=[batch.slice(0, 1), batch.slice(1, 2), batch.slice(3, 1)],
+            empty_interleaved=[
+                empty,
+                batch.slice(0, 1),
+                empty,
+                batch.slice(1, 2),
+                batch.slice(3, 1),
+                empty,
+            ],
+        )
+        rechunk = {
+            name: reader_consume(binding, chunks, 4) for name, chunks in layouts.items()
+        }
+        assert all(
+            value["rows"] == finite_expected()["rows"] for value in rechunk.values()
+        )
+        assert export_result_contract(neutral, checked).canonical_bytes == before
+        results["reader_rechunk"][target] = dict(
+            layouts=rechunk, neutral_unchanged=True
+        )
+
+        with ReaderTrace(binding.schema, [batch]) as trace:
+            reader = r.open_finite_reader(binding, trace.source, expected_rows=4)
+            list(reader)
+            expected = reader.expectation
+            receipt = reader.completion
+            assert receipt is not None
+            copied_receipt = replace(receipt)
+
+            def verify():
+                r.verify_finite_completion(reader, expected, receipt)
+
+            identities: dict[str, Any] = dict(
+                copy=refused(
+                    lambda: r.verify_finite_completion(copy(reader), expected, receipt)
+                ),
+                expectation_copy=refused(
+                    lambda: r.verify_finite_completion(
+                        reader, replace(expected), receipt
+                    )
+                ),
+                receipt_copy=refused(
+                    lambda: r.verify_finite_completion(reader, expected, copied_receipt)
+                ),
+            )
+            for name, value in (
+                ("rows", 3),
+                ("batches", 0),
+                ("charge", 0),
+                ("pulls", 1),
+                ("descriptors", ()),
+                ("_session", object()),
+                ("binding", a.bind_arrow(producer, **finite_policy(producer))),
+                ("_terminal", object()),
+            ):
+                previous = getattr(receipt, name)
+                try:
+                    object.__setattr__(receipt, name, value)
+                    identities[name] = refused(verify)
+                finally:
+                    object.__setattr__(receipt, name, previous)
+            for record, name, key in (
+                (receipt, "rows", "deleted_receipt"),
+                (expected, "expected_rows", "deleted_expectation"),
+                (receipt.descriptors[0], "retained_bytes", "deleted_descriptor"),
+            ):
+                previous = getattr(record, name)
+                try:
+                    object.__delattr__(record, name)
+                    identities[key] = refused(verify)
+                finally:
+                    object.__setattr__(record, name, previous)
+            previous = reader._rows
+            try:
+                reader._rows = 3
+                object.__setattr__(receipt, "rows", 3)
+                identities["coordinated_counts"] = refused(verify)
+                object.__setattr__(expected, "expected_rows", 3)
+                identities["coordinated_declaration"] = refused(verify)
+            finally:
+                reader._rows = previous
+                object.__setattr__(receipt, "rows", 4)
+                object.__setattr__(expected, "expected_rows", 4)
+            with ReaderTrace(binding.schema, [batch]) as other_trace:
+                other = r.open_finite_reader(
+                    binding, other_trace.source, expected_rows=4
+                )
+                list(other)
+                identities["foreign_session"] = refused(
+                    lambda: r.verify_finite_completion(other, expected, receipt)
+                )
+                previous_ref = expected._source_ref
+                try:
+                    object.__setattr__(
+                        expected, "_source_ref", other.expectation._source_ref
+                    )
+                    identities["foreign_source"] = refused(verify)
+                finally:
+                    object.__setattr__(expected, "_source_ref", previous_ref)
+            verify()
+        for mutation in (
+            "source",
+            "binding",
+            "policy",
+            "limit",
+            "deleted_policy",
+            "protocol",
+        ):
+            with ReaderTrace(binding.schema, [batch]) as trace:
+                session_binding = a.bind_arrow(producer, **finite_policy(producer))
+                reader = r.open_finite_reader(
+                    session_binding, trace.source, expected_rows=4
+                )
+                if mutation == "source":
+                    reader._source = pa.RecordBatchReader.from_batches(
+                        binding.schema, []
+                    )
+                elif mutation == "binding":
+                    object.__setattr__(reader.expectation, "binding", binding)
+                elif mutation == "limit":
+                    object.__setattr__(reader.expectation.limits, "max_total_bytes", 1)
+                elif mutation == "protocol":
+                    object.__setattr__(
+                        session_binding.producer.fields[0].observation,
+                        "protocol_nullable",
+                        True,
+                    )
+                elif mutation == "deleted_policy":
+                    object.__delattr__(session_binding, "field_labels")
+                else:
+                    requests = session_binding.field_labels
+                    assert requests is not None and requests[0] is not None
+                    object.__setattr__(requests[0], "label", "changed")
+                try:
+                    identities["live_" + mutation] = refused(reader.read_next_batch)
+                    assert trace.reads == 0 and trace.closes == 1
+                finally:
+                    # Restore the shared frozen default limit, not a failed session.
+                    if mutation == "protocol":
+                        object.__setattr__(
+                            session_binding.producer.fields[0].observation,
+                            "protocol_nullable",
+                            None,
+                        )
+                    if mutation == "limit":
+                        object.__setattr__(
+                            reader.expectation.limits,
+                            "max_total_bytes",
+                            64 * 1024 * 1024,
+                        )
+        results["reader_identity"][target] = identities
+
+        altered = []
+        columns = list(batch.columns)
+        columns[0], columns[12] = columns[12], columns[0]
+        altered.append(pa.RecordBatch.from_arrays(columns, schema=binding.schema))
+        rows = finite_rows(target)
+        changed = [list(row) for row in rows]
+        changed[0][12] = 11
+        altered.append(a.build_owned_batch(binding, changed))
+        altered.append(a.build_owned_batch(binding, [rows[1], rows[0], *rows[2:]]))
+        altered.append(a.build_owned_batch(binding, [*rows[:3], rows[1]]))
+        correspondence = []
+        for candidate in altered:
+            observed = reader_consume(binding, [candidate], 4)
+            try:
+                finite_oracle(dict(finite_expected(), rows=observed["rows"]))
+            except ValueError:
+                correspondence.append(
+                    dict(
+                        complete=observed["receipt"]["complete"],
+                        original_values="VALUE_CORRESPONDENCE",
+                        rows=observed["rows"],
+                    )
+                )
+            else:
+                raise AssertionError(
+                    "same-count corruption escaped original-input oracle"
+                )
+        original_builder = a.build_owned_batch
+
+        def injected_builder(binding, values, **kwargs):
+            copied = [list(row) for row in values]
+            copied[0][12] = 11
+            return original_builder(binding, copied, **kwargs)
+
+        try:
+            a.build_owned_batch = injected_builder
+            candidate = a.build_owned_batch(binding, finite_rows(target))
+            measured = reader_consume(binding, [candidate], 4)
+            try:
+                finite_oracle(dict(finite_expected(), rows=measured["rows"]))
+            except ValueError:
+                injection = "VALUE_CORRESPONDENCE"
+            else:
+                raise AssertionError(
+                    "injected builder manufactured reader value evidence"
+                )
+        finally:
+            a.build_owned_batch = original_builder
+        results["reader_correspondence"][target] = dict(
+            cases=correspondence,
+            injected=injection,
+            conditional_claim="declared extent, not original-value authentication",
+        )
+        with ReaderTrace(binding.schema, layouts["uneven"]) as trace:
+            reader = r.open_finite_reader(binding, trace.source, expected_rows=4)
+            opening = trace.reads
+            for _ in range(3):
+                assert reader.schema is binding.schema and reader.completion is None
+            inspections = trace.reads
+            first = reader.read_next_batch()
+            first_pull = trace.reads
+            assert id(first) == trace.last
+            assert all(
+                type(item) is tuple and all(type(n) is int for n in item)
+                for item in reader._observations
+            )
+            reader.close()
+            results["reader_incremental"][target] = dict(
+                opening_pulls=opening,
+                inspection_pulls=inspections,
+                first_pulls=first_pull,
+                first=finite_snapshot(first),
+                descriptors_retained=len(reader._observations),
+                state=reader.state,
+                trace=trace.snapshot(),
+                forbidden_api=any(
+                    hasattr(reader, name)
+                    for name in (
+                        "read_all",
+                        "to_pandas",
+                        "combine_chunks",
+                        "source",
+                        "__arrow_c_stream__",
+                    )
+                ),
+            )
+    return results
+
+
+def verify_reader_report(cases):
+    try:
+        if any(set(cases[name]) != {"postgres", "mysql"} for name in READER_GROUPS):
+            raise ValueError("reader exact target/group denominator")
+        rows = finite_expected()["rows"]
+        whole = READER_LAYOUTS["whole"]
+        complete = reader_expected_result(whole, rows)
+        for target in ("postgres", "mysql"):
+
+            def require(name, expected):
+                if not _exact(cases[name][target], expected):
+                    raise ValueError("reader observed " + name)
+
+            require(
+                "reader_values",
+                dict(
+                    result=complete,
+                    schema=finite_expected()["fields"],
+                    declared_rows=4,
+                    borrowed_claim=False,
+                ),
+            )
+            require(
+                "reader_empty_null",
+                dict(
+                    zero=reader_expected_result((), []),
+                    empty=reader_expected_result(((0, 12, 12),) * 3, []),
+                    all_null=reader_expected_result(
+                        ((2, 321, 274),), [[None] * 13] * 2
+                    ),
+                    first_null=reader_expected_result(
+                        ((5, 778, 659),), [[None] * 13, *rows]
+                    ),
+                    wrong_schema="ARROW_SCHEMA",
+                    missing_meaning="PRODUCER_ROOT",
+                    nonnullable=reader_expected_result(
+                        (),
+                        [],
+                        state="FAILED",
+                        error="NULL",
+                        counts=[2],
+                        pulls=1,
+                        eof=False,
+                    ),
+                ),
+            )
+            require(
+                "reader_extent",
+                dict(
+                    source_types=["READER_SOURCE"] * 3,
+                    invalid=["READER_DECLARATION"] * 8,
+                    invalid_trace=dict(events=[], reads=0, closes=0, close_success=0),
+                    new_declaration=reader_expected_result(((3, 480, 528),), rows[:3]),
+                    short=reader_expected_result(
+                        ((3, 480, 528),),
+                        rows[:3],
+                        state="FAILED",
+                        error="READER_EXTENT",
+                    ),
+                    extra=reader_expected_result(
+                        whole,
+                        rows,
+                        state="FAILED",
+                        error="READER_EXTENT",
+                        counts=[4, 1],
+                        pulls=2,
+                        eof=False,
+                    ),
+                    zero_extra=reader_expected_result(
+                        (),
+                        [],
+                        state="FAILED",
+                        error="READER_EXTENT",
+                        counts=[4],
+                        pulls=1,
+                        eof=False,
+                    ),
+                ),
+            )
+            early = [
+                dict(
+                    receipt=reader_expected(whole, state="CLOSED_INCOMPLETE", pulls=1),
+                    trace=dict(
+                        events=[["data", 4]], reads=1, closes=1, close_success=1
+                    ),
+                    subsequent="READER_CLOSED",
+                ),
+                dict(
+                    receipt=reader_expected((), state="CLOSED_INCOMPLETE", pulls=0),
+                    trace=dict(events=[], reads=0, closes=1, close_success=1),
+                    subsequent="READER_CLOSED",
+                ),
+            ]
+            require(
+                "reader_terminal",
+                dict(
+                    late=reader_expected_result(
+                        whole, rows, state="FAILED", error="READER_SOURCE", late=True
+                    ),
+                    trailing=reader_expected_result(
+                        (*whole, (0, 12, 12), (0, 12, 12)), rows
+                    ),
+                    early=early,
+                ),
+            )
+            controls: dict[str, Any] = {
+                name: dict(error=error, state="FAILED", complete=False)
+                for name, error in (
+                    ("validation_stop", "READER_VALIDATION"),
+                    ("finalization_stop", "READER_VALIDATION"),
+                    ("close_stop", "READER_CLEANUP"),
+                    ("read_interrupt", "KeyboardInterrupt"),
+                    ("read_exit", "SystemExit"),
+                )
+            }
+            controls.update(
+                eof_cleanup_interrupt=dict(
+                    error="KeyboardInterrupt", state="FAILED", complete=False
+                ),
+                eof_cleanup_exit=dict(
+                    error="SystemExit", state="FAILED", complete=False
+                ),
+                context_cleanup_interrupt=dict(
+                    errors=["ValueError", "KeyboardInterrupt"],
+                    state="FAILED",
+                    closes=1,
+                    complete=False,
+                ),
+            )
+            require(
+                "reader_lifecycle",
+                dict(
+                    cleanup=reader_expected_result(
+                        whole,
+                        rows,
+                        state="FAILED",
+                        error="READER_CLEANUP",
+                        close_success=0,
+                    ),
+                    combined=reader_expected_result(
+                        whole,
+                        rows,
+                        state="FAILED",
+                        error="READER_SOURCE",
+                        late=True,
+                        close_success=0,
+                    ),
+                    controls=controls,
+                    body=dict(
+                        state="FAILED",
+                        closes=1,
+                        complete=False,
+                        retained=finite_expected(),
+                    ),
+                    release=dict(
+                        source_released=True,
+                        active_source_released=True,
+                        retained=finite_expected(),
+                    ),
+                    cleanup_controls="test-injected around real SDK close",
+                ),
+            )
+            limits = dict(
+                exact_bytes=reader_expected_result(whole * 2, rows * 2),
+                under_bytes=reader_expected_result(
+                    whole,
+                    rows,
+                    state="FAILED",
+                    error="LIMIT",
+                    counts=[4, 4],
+                    pulls=2,
+                    eof=False,
+                ),
+                exact_batches=complete,
+                zero_batches=reader_expected_result((), []),
+                endless_empty=reader_expected_result(
+                    ((0, 12, 12),) * 2,
+                    [],
+                    state="FAILED",
+                    error="LIMIT",
+                    counts=[0, 0, 0],
+                    pulls=3,
+                    eof=False,
+                ),
+                empty_under=reader_expected_result(
+                    (),
+                    [],
+                    state="FAILED",
+                    error="LIMIT",
+                    counts=[0],
+                    pulls=1,
+                    eof=False,
+                ),
+                batch_rows=reader_expected_result(
+                    (),
+                    [],
+                    state="FAILED",
+                    error="LIMIT",
+                    counts=[4],
+                    pulls=1,
+                    eof=False,
+                ),
+                retained_first=reader_expected_result(
+                    (),
+                    [],
+                    state="FAILED",
+                    error="LIMIT",
+                    counts=[1],
+                    pulls=1,
+                    eof=False,
+                ),
+                invalid_after_retained=reader_expected_result(
+                    (),
+                    [],
+                    state="FAILED",
+                    error="VALUE_DOMAIN",
+                    counts=[1],
+                    pulls=1,
+                    eof=False,
+                ),
+                invalid=["LIMIT"] * 7,
+                exact_rows=complete,
+            )
+            require("reader_limits", limits)
+            require(
+                "reader_rechunk",
+                dict(
+                    layouts={
+                        name: reader_expected_result(usage, rows)
+                        for name, usage in READER_LAYOUTS.items()
+                    },
+                    neutral_unchanged=True,
+                ),
+            )
+            identities = dict.fromkeys(
+                (
+                    "copy",
+                    "expectation_copy",
+                    "receipt_copy",
+                    "rows",
+                    "batches",
+                    "charge",
+                    "pulls",
+                    "descriptors",
+                    "_session",
+                    "binding",
+                    "_terminal",
+                    "deleted_receipt",
+                    "deleted_expectation",
+                    "deleted_descriptor",
+                    "coordinated_counts",
+                    "coordinated_declaration",
+                    "foreign_session",
+                    "foreign_source",
+                    "live_source",
+                    "live_binding",
+                    "live_policy",
+                    "live_limit",
+                    "live_deleted_policy",
+                    "live_protocol",
+                ),
+                "READER_IDENTITY",
+            )
+            require("reader_identity", identities)
+            variants = json.loads(json.dumps([rows] * 4))
+            for row in variants[0]:
+                row[0], row[12] = row[12], row[0]
+            variants[1][0][12] = 11
+            variants[2][0], variants[2][1] = variants[2][1], variants[2][0]
+            variants[3][-1] = rows[1]
+            require(
+                "reader_correspondence",
+                dict(
+                    cases=[
+                        dict(
+                            complete=True,
+                            original_values="VALUE_CORRESPONDENCE",
+                            rows=variant,
+                        )
+                        for variant in variants
+                    ],
+                    injected="VALUE_CORRESPONDENCE",
+                    conditional_claim="declared extent, not original-value authentication",
+                ),
+            )
+            require(
+                "reader_incremental",
+                dict(
+                    opening_pulls=0,
+                    inspection_pulls=0,
+                    first_pulls=1,
+                    first=finite_expected(state="one"),
+                    descriptors_retained=1,
+                    state="CLOSED_INCOMPLETE",
+                    trace=dict(
+                        events=[["data", 1]], reads=1, closes=1, close_success=1
+                    ),
+                    forbidden_api=False,
+                ),
+            )
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ValueError("reader observed report evidence") from exc
+
+
 CONTRACT_CORPUS = ("postgres", "mysql", "descriptors", "imported")
 CONTRACT_SEEDS = (7, 19)
 
@@ -6446,6 +7598,7 @@ def verify_report(value, context, inputs):
     verify_decimal_report(cases)
     verify_temporal_report(cases)
     verify_finite_report(cases)
+    verify_reader_report(cases)
     origins = value["origins"]
     prefix = Path(value["prefix"])
     required = {"pietto._project." + name for name in PRODUCTS} | {
@@ -6610,6 +7763,34 @@ def compare_product_reports(paths, repository, contexts):
 def reject_report_damage(value, context, inputs):
     """Mutate actual saved-data observations, never fake an Arrow success."""
     mutations = (
+        lambda v: v["cases"]["reader_values"]["postgres"]["result"]["rows"][
+            0
+        ].__setitem__(12, 1),
+        lambda v: v["cases"]["reader_empty_null"]["mysql"]["empty"]["receipt"].update(
+            batches=0
+        ),
+        lambda v: v["cases"]["reader_extent"]["postgres"]["short"]["receipt"].update(
+            state="COMPLETE"
+        ),
+        lambda v: v["cases"]["reader_terminal"]["mysql"]["late"]["trace"][
+            "events"
+        ].__setitem__(-1, ["eof"]),
+        lambda v: v["cases"]["reader_lifecycle"]["postgres"]["cleanup"]["trace"].update(
+            close_success=1
+        ),
+        lambda v: v["cases"]["reader_limits"]["mysql"]["under_bytes"]["receipt"].update(
+            charge=0
+        ),
+        lambda v: v["cases"]["reader_rechunk"]["postgres"]["layouts"]["uneven"][
+            "receipt"
+        ]["descriptors"][1].__setitem__(1, 0),
+        lambda v: v["cases"]["reader_identity"]["mysql"].update(
+            coordinated_counts="PASS"
+        ),
+        lambda v: v["cases"]["reader_correspondence"]["postgres"]["cases"][0]["rows"][
+            0
+        ].__setitem__(12, -7),
+        lambda v: v["cases"]["reader_incremental"]["mysql"].update(first_pulls=3),
         lambda v: v["cases"]["finite_mixed_values"]["postgres"]["values"]["rows"][
             0
         ].__setitem__(12, 1),
@@ -6832,8 +8013,8 @@ def main():
     }
     verify_report(value, context, input_closure(repository))
     rejected = reject_report_damage(value, context, input_closure(repository))
-    assert len(cases) == 64
-    assert rejected == 62
+    assert len(cases) == 74
+    assert rejected == 72
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with args.report.open("x") as stream:
         json.dump(value, stream, sort_keys=True, allow_nan=False)

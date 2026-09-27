@@ -30,3 +30,5 @@ Slice06：下游representation的65位上限未证明上游能产生相应fact�
 Slice07：先验证实际meaning producer与explicit consumption，再建立Arrow矩阵；补齐新runtime field对应的旧observation CUTOFF inventory，保持完整字段断言。处理新增optional authority时应同时测试字段删除的typed failure，并防止显式opt-in顺带开放本Slice未授权的旧lowering。SQL/数据结果观察、pure描述和source-value真实性仍是不同证据。
 
 Slice08：完整schema与原始输入positional values是两种证据；同type同名column交换可能通过batch schema/domain，必须由独立原输入oracle拒绝。零行数组可合法没有data buffer，先遵守pinned SDK full validation再处理零长度，不能把owned constructor的分配细节当输入约束。S06/S07的先证可达域、字段删除typed failure、完整reader inventory及文档diagnostic scanner已纳入本Slice前置检查。
+
+Slice09：声明extent先于候选消费，正常source EOF只在read操作边界解释；达到行数、empty批或cleanup成功单独都不够。累计处理费用使用每批max(logical,referenced)再求和，切片/重分批可改变成本；原值正确性仍由独立positional oracle验证。真实SDK无预读/weakref/close后返回值前提先测，罕见cleanup异常注明注入，不能把测试sentinel描述为自然SDK行为。

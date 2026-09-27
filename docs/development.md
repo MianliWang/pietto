@@ -409,3 +409,7 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 ## Slice08 finite scalar与midpoint验证
 
 [Slice08](phases/phase-67/slice-08.md) 在原required consumer新增8组，精确64product/62damage controls，保留9SDK和原18份完整canonical documents，新增4份mixed/nullable文档。positional snapshots同时记录ordinal、label、type、values与validity；重复label不用dict列oracle。合法empty absent buffer先经full structural validation再跳过零长度值扫描，非空检查不减。actual文档scanner与current lifecycle读者在full前执行；midpoint文档进入final tested tree，费用/raw/native终态保留外部ledger。
+
+## Slice09 bounded finite reader验证
+
+[Slice09](phases/phase-67/slice-09.md) 复用S08 fixtures和单一scalar checker，usage由同一次validated traversal返回；verify_batch原返回None行为保持。required product精确74groups/72damage controls，9SDK组及22份neutral完整documents不变，新增reader模块由实际installed origins/input closure消费。source失败使用真实from_batches iterable；稀有close/StopIteration/控制流异常明确标为test injection。初组就覆盖unknown/short/extra、empty≠EOF、late error及cleanup；actual doc scanners/current reader/typing inventory在full前执行。四分区、自然15jobs及fresh native receipts仍必需，native package-members新增reader路径不豁免33MiB限制。

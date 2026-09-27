@@ -503,7 +503,27 @@ def build_owned_batch(binding: ArrowResultBinding, rows, *, limits=BatchLimits()
     return batch
 
 
+def _verify_schema(schema, binding) -> None:
+    pa = _arrow()
+    if not isinstance(schema, pa.Schema):
+        raise ResultError("ARROW_SCHEMA")
+    if len(schema) != len(binding.producer.fields):
+        raise ResultError("ARROW_SCHEMA")
+    if any(
+        bound.field.shape.canonical.name == "UUID"
+        and type(schema[i].type) is not type(binding.schema[i].type)
+        for i, bound in enumerate(binding.producer.fields)
+    ):
+        raise ResultError("ARROW_SCHEMA")
+    if not schema.equals(binding.schema, check_metadata=True):
+        raise ResultError("ARROW_SCHEMA")
+
+
 def verify_batch(batch, binding, producer, *, limits=BatchLimits()) -> None:
+    _checked_batch_usage(batch, binding, producer, limits=limits)
+
+
+def _checked_batch_usage(batch, binding, producer, *, limits=BatchLimits()):
     """Check the supplied carrier, not a rebuilt candidate or a checked flag.
 
     This proves bounded batch correspondence, not EOF or whole-result completion.
@@ -513,16 +533,7 @@ def verify_batch(batch, binding, producer, *, limits=BatchLimits()) -> None:
     if not isinstance(batch, pa.RecordBatch) or not batch.is_cpu:
         raise ResultError("ARROW_BATCH")
     _dimensions(batch.num_columns, batch.num_rows, limits)
-    if batch.num_columns != len(producer.fields):
-        raise ResultError("ARROW_SCHEMA")
-    if any(
-        bound.field.shape.canonical.name == "UUID"
-        and type(batch.schema[i].type) is not type(binding.schema[i].type)
-        for i, bound in enumerate(producer.fields)
-    ):
-        raise ResultError("ARROW_SCHEMA")
-    if not batch.schema.equals(binding.schema, check_metadata=True):
-        raise ResultError("ARROW_SCHEMA")
+    _verify_schema(batch.schema, binding)
     charge = _base_charge(binding, batch.num_rows, limits)
     retained_bytes = sum(
         buffer.size
@@ -578,3 +589,4 @@ def verify_batch(batch, binding, producer, *, limits=BatchLimits()) -> None:
         raise
     except (ValueError, pa.ArrowException) as exc:
         raise ResultError("ARROW_BATCH") from exc
+    return charge, retained_bytes

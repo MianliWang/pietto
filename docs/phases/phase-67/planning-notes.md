@@ -113,3 +113,11 @@ Q1 scope、Q2 reached premise与Q3 final candidate均已消费。前提30项通�
 ## Slice08 midpoint Q1/Q2
 
 Q1冻结14路径/新增2，读过Arrow全owner、producer精确labels、真实fixture、report末端与typing/lifecycle/scanner。Q2见[三层S/H/L/K/Q](slice-08.md#midpoint-三层状态与最终评估)：七类finite/12physical choices在owned seam集成；S09有限完成、S10协议责任、S12metadata/completion、S13安装选择保留至准确owner。原16行无冲突、无范围缩减、无新维护授权。首次3.13产品揭示合法empty absent-buffer检查缺陷，原失败保留，3.12 corrected完整64/62通过；final同tree local/CI/raw closure仍必需。
+
+## Slice09 Q1与已批准选择
+
+用户明确批准caller-declared extent、同步pull/lifecycle及资源/工作预算后激活；未把DRAFT附件本身当授权。Q1冻结16条路径（3新增，S08 principal为shared-checker reserve），typing230/505；new records不进入neutral/emission图，无CUTOFF修改。既有required consumer足够，只扩74/72与新增origin。首轮SDK前提1.030s通过，58focused通过；首次typing8个test标注错误已保留并修正，最新typing通过；真实installed3.13首次74groups/72controls通过，实际origins164。Q2/author review及最终local/CI/raw闭环仍以同候选外部ledger为准；不重做S08 midpoint，不开始S10。
+
+## Slice09 Q2
+
+收敛范围与批准的conditional completion一致，Q2消费一次author/Ponytail finding集及单批修复；后续仅定向复核、depth-one、一次完整3.13 equivalent、普通commit/FF push与自然CI/raw/native。preserved original observations与原extent不能被receipt/counter共同改写替代；normal EOF后cleanup控制异常保留其单一身份。S10及其余owner仍未开始。

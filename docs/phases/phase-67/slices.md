@@ -1,6 +1,6 @@
 # Phase67 路线：N67=16
 
-当前只展开已授权 [Slice08](slice-08.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
+当前只展开已授权 [Slice09](slice-09.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
 
 | Slice | 目标／acceptance链接 | 依赖／类型 |
 | --- | --- | --- |
@@ -12,7 +12,7 @@
 | 06 | [Decimal128/256 precision/scale与overflow](slice-06.md)（P67-A02–A04/A06；[验收](brief.md#三层完成验收与回归)） | 04 |
 | 07 | [Timestamp/UUID与显式upstream meaning](slice-07.md)（P67-A02–A04/A06–A07；[验收](brief.md#三层完成验收与回归)） | 04 + 01 decisions |
 | 08 | [empty/all-null/duplicate-label carrier及完整finite-type integration；midpoint](slice-08.md)（P67-A02/A06/A08；[验收](brief.md#三层完成验收与回归)） | 04–07 |
-| 09 | bounded finite reader/finalization、rechunk、BAG/order（P67-A09–A10/A15；[验收](brief.md#三层完成验收与回归)） | 08 |
+| 09 | [bounded finite reader/finalization、rechunk、BAG/order](slice-09.md)（P67-A09–A10/A15；[验收](brief.md#三层完成验收与回归)） | 08 |
 | 10 | ownership/copy/borrow、CPU、C Data/C stream/PyCapsule（P67-A07/A11/A13/A15；[验收](brief.md#三层完成验收与回归)） | 09 |
 | 11 | row与Arrow-native ingress correspondence（P67-A09/A12/A15；[验收](brief.md#三层完成验收与回归)） | 09–10 |
 | 12 | bounded private IPC、truncation/completion、metadata（P67-A07/A10/A14/A15；[验收](brief.md#三层完成验收与回归)） | 09–11 |
@@ -66,3 +66,7 @@ Phase68接已验证result/binding/batch/finite-finalization合同，不重决编
 ## Slice08 midpoint 路线结论
 
 [已完成的S/H/L/K/Q评估](slice-08.md#midpoint-三层状态与最终评估)保留全部16行和原依赖；S09 finite attester/denominator与total budgets、S10 lifetime/release、S12 IPC completion、S13 packaging在各自首次接口前决定。S08发布完成后仅将Slice09置NEXT/NOT STARTED，10–16未开始；不添加S17或规划interlude。
+
+## Slice09 交付边界
+
+S08延后的extent/attester/limits三项已由用户明确批准：caller先声明，session绑定exact source/binding，完成只相对声明；同步pull与source布局保留；最多1024批/1048576行/64MiB累计费用。正常EOF、close成功与独立session receipt共同验收。S10ownership/non-mutation/protocol、S11ingress、S12IPC/独立completion envelope及后续owner未提前实现。发布闭环后Slice10 NEXT/NOT STARTED，11–16未开始。

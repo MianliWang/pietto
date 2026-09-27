@@ -38,3 +38,7 @@ Timestamp/UUID显式private meaning已由Slice07取得upstream witnesses；默�
 
 | D67.22 | 显式完整positional field-label请求只改变Arrow presentation；exact ResultField/ordinal绑定，None保留默认；每项1024及总65536 UTF-8 bytes，不改旧payload计费 | S08 dispatch；producer标签、source identity、PIE-S2305、neutral bytes保持；schema不认证同type同名值历史 |
 | D67.23 | S08 midpoint保留N67=16，owned scalar integration不宣称reader/completion/protocol/IPC/extra已完成 | 见S08三层A01–A18与S/H/L/K/Q；S09/S10/S12/S13必要决定在各自首次接口前关闭 |
+
+| D67.24 | 显式caller extent绑定exact fresh/exclusive source、binding和session；normal EOF、exact rows、successful close共同允许completion | S09三项选择已明确批准；不认证调用方/原值/DB完整性，不要求未来executor预先COUNT |
+| D67.25 | 同步checked pull保留每个batch/empty，count equality不是EOF，early close incomplete，late/read/cleanup失败终态无receipt | S09；返回supplied carrier不升级ownership；S10/S11/S12及Phase68各留原职责 |
+| D67.26 | 保留batch/codec/label上限；新增1024批/1048576行/64MiB sum(max(logical,referenced))，重复引用/empty计费，max_batches+1次source pull | S09；caller-only tightening，不能限定单次upstream分配/阻塞，无timeout或backpressure承诺 |
