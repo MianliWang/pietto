@@ -345,8 +345,9 @@ EXPECTED_STATUS = (
     ("Phase 67 Slice 12", "`COMPLETED / PUBLISHED`"),
     ("Phase 67 Slice 13", "`COMPLETED / PUBLISHED`"),
     ("Phase 67 Slice 14", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 15", "`CANDIDATE until S15 closure; then COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 16", "`NOT STARTED; NEXT after S15 closure`"),
+    ("Phase 67 Slice 15", "`COMPLETED / PUBLISHED`"),
+    ("Phase 67 Slice 16", "`ACTIVE / CANDIDATE`"),
+    ("Phase 68", "`NOT STARTED`"),
     ("Interlude V", "`COMPLETED`"),
     ("Interlude V route", "`N=3`"),
     ("Interlude V Slice 1", "`COMPLETED / PUBLISHED`"),
@@ -354,7 +355,7 @@ EXPECTED_STATUS = (
     ("Interlude V S2 performance outcome", "`MEASURED_GAIN`"),
     ("Interlude V Slice 3", "`COMPLETED / PUBLISHED`"),
     ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
-    ("Next", "`Phase67 Slice16 after S15 closure, under a separate dispatch`"),
+    ("Next", "`Phase68 planning only after S16 closure and separate acceptance`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
@@ -1482,7 +1483,7 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "tests/test_active_phase_lifecycle.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
-EXPECTED_CURRENT_OWNER_SENTENCE = "Phase67 is `ACTIVE`, N67=16; Slices01–14 are published. Slice15 stays a candidate until its complete publication closure below; only that closure advances Slice16 to NEXT."
+EXPECTED_CURRENT_OWNER_SENTENCE = "Phase67 is `ACTIVE`, N67=16; Slices01–15 are published. Slice16 is an ACTIVE / CANDIDATE completion audit; Phase68 is NOT STARTED."
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
     "tests/_pietto_differential_process_acquisition.py",
@@ -6106,34 +6107,34 @@ def test_phase66_slice16_completion_and_accepted_phase67_plan_are_conditional() 
     assert (STATUS.parent / target).is_file()
 
 
-def test_phase67_slice15_keeps_publication_conditional_and_evidence_layers_distinct() -> (
+def test_phase67_slice16_keeps_actual_history_and_candidate_transition_separate() -> (
     None
 ):
     for path in (STATUS, ROADMAP):
-        document = _read(path)
-        current = document.split("## Phase67 当前路线", 1)[1].split(
-            "## CI remaining-tail", 1
-        )[0]
-        assert (
-            "phases/phase-67/brief.md" in current
-            and "phases/phase-67/slices.md" in current
+        current = (
+            _read(path)
+            .split("## Phase67 当前路线", 1)[1]
+            .split("## CI remaining-tail", 1)[0]
         )
-        assert "N67=16" in current and "全部15jobs" in current
-        assert (
-            "Slice15 `CANDIDATE until S15 closure; then COMPLETED / PUBLISHED`"
-            in current
-            and "Slice16 `NOT STARTED; NEXT after S15 closure`" in current
-        )
-        assert "phases/phase-67/slice-12.md" in current
-        assert "当前合同的tested tree" in current
-        assert "Slice16及Phase68未开始" in current
-        assert "所有条件成立前状态均为CANDIDATE" in current
-        assert "不能由这段文字证明条件成立" in current
-        assert "phases/phase-67/slice-14.md" in current
-        assert "120groups/118damage" in current
-        assert "phases/phase-67/slice-15.md" in current
-        assert "descriptor-only ORDER" in current
-        assert "原27raw加1为28" in current
-        assert "phases/phase-67/slice-13.md" in current
-        assert "`pietto[arrow]` / `pyarrow==25.0.1`" in current
-        assert "Slice01不引入公开arrow extra" in current
+        for fact in (
+            "phases/phase-67/brief.md",
+            "phases/phase-67/slices.md",
+            "phases/phase-67/completion-audit.md",
+            "phases/phase-67/slice-16.md#唯一闭环规则",
+            "N67=16",
+            "Slices01–15 `COMPLETED / PUBLISHED`",
+            "437916ecf59d8873ef154a1e09f1e48e76884edf",
+            "36366896863/push/main/attempt1",
+            "Slice16 `ACTIVE / CANDIDATE`",
+            "ACTIVE — completion candidate pending S16 closure",
+            "Phase68 `NOT STARTED`",
+            "不能由本文或PASS文字自证",
+            "120groups/118damage",
+            "descriptor-only ORDER",
+            "五类captured-native replay",
+            "`pietto[arrow]` / `pyarrow==25.0.1`",
+            "Phase68的FULL initiation及实现均未开始",
+        ):
+            assert fact in current, fact
+        assert "Phase67 `COMPLETED`" not in current
+        assert "Slice16 `COMPLETED / PUBLISHED`" not in current

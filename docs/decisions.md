@@ -74,3 +74,10 @@ artifact、protocol facts和lifecycle；声明domain仍为声明。预先复用r
 `DERIVED_MECHANICAL`：当前120/118和helper闭包/typing/lifecycle直接读者随实际新增集合更新。
 [Slice15](phases/phase-67/slice-15.md) 区分transport顺序与typed BAG、pure equivalent文档与live bound
 authority、条件input完成与delivery成功；Phase68 readiness只交付现有API及其明确前提。
+
+## Phase67 Slice16：scope-qualified completion audit
+
+本Slice只核对已批准要求与实际证据，不扩大support或重新决策executor。
+[A01–A18三层矩阵、retrospective与handoff](phases/phase-67/completion-audit.md)保留descriptor、fixture、
+captured-native replay及future execution层。[唯一闭环规则](phases/phase-67/slice-16.md#唯一闭环规则)
+在实际证据全部满足后才激活完成；当前S16为candidate。Phase68另行FULL initiation，先消费audit与适用lessons。

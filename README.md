@@ -67,6 +67,8 @@ interpreters and Arrow versions are not covered by this evidence.
 Phase67 result APIs remain private under `pietto._project`; installing the
 extra only makes the dependency available. Public result APIs belong to
 Phase69, and the extra does not enable database execution.
+The [Phase67 audit and handoff](docs/phases/phase-67/completion-audit.md) records
+the evidence layers, supported boundaries and remaining execution obligations.
 
 ## Quick start
 

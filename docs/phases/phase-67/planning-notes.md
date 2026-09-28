@@ -184,3 +184,20 @@ CANDIDATE-until-closure条件转换，不以文档自证发布。853项focused�
 当前20changed paths/A3/M17/D0，仅使用IPC一个production reserve；其已复现空offset缺陷及
 修复边界见本合同。depth-one、完整3.13及双runtimefinal、普通publication、自然15jobs/raw/native/
 currentreplay仍是完成条件。S16/Phase68不开始。
+
+## Slice16 Q1：完成审计
+
+[执行入口](slice-16.md)冻结15路径/A≤3/D0，无production reserve；[实质审计](completion-audit.md)
+复用一个18项要求映射。原S02 normative rows与当前逐字一致；15个actual first-parent commits及
+保存的terminal CI逐项核对，实际delta均在当时批准freeze/amendment内。旧合同/续行/成本不改写，
+S12计算tree不冒作commit。各层positive/negative与真实consumer分列，S16尚待新regression及闭环。
+只允许bounded docs/tests；不增加product矩阵、SDK campaign、agents或Phase68 gate。
+
+## Slice16 Q2：收敛候选
+
+实质审计覆盖原A01–A18，未发现未解决的必需产品/consumer缺口；原scope与未来owner没有改写。
+唯一author/Ponytail finding集R1–R3已在一批docs/test修复中关闭：具体lesson links、protocol/ownership及
+历史/当前状态分层、S14补记时间覆盖限制。一次targeted follow-up为867 passed，Ruff和两类typing通过。
+当前15路径/A3/M12/D0；production、既有probes、依赖/pins和CI拓扑零改动；累计修正5/12，原失败保留。
+剩余depth-one、新full/双runtime四安装cells/SDK9/120118/22全文、ordinary publication和current28raw/native/replay/
+cleanup仍全部必需。S16保持ACTIVE/CANDIDATE，不由Q2文字宣告Phase67完成。

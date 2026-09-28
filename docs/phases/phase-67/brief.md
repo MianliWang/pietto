@@ -2,7 +2,7 @@
 
 规划层级 FULL；N67=16。描述性 Stage 目标是建立有限结果交换边界；现有资料没有数字 Stage，故不另造编号。
 这是已接受全 Phase 计划的耐久入口。Slice01 的 CI/SDK 实验范围与预算见其历史记录；当前只授权
-[Slice15](slice-15.md)，后续 Slice 仍逐次 dispatch。包/CLI 保持0.1.0。
+[Slice16](slice-16.md)，后续 Phase 仍须独立授权。包/CLI 保持0.1.0。
 
 ## 使命、当前能力与边界
 
@@ -108,3 +108,12 @@ source/delivery/IPC完成与owned/borrowed义务保持原层。22neutral全文�
 verified全文比较；原八cell五类native replay/28raw/15jobs保持。Phase68 readiness见唯一Slice15矩阵，
 完整local/publication/raw/native/current-replay闭合后Slices01–15完成，Slice16 NEXT/NOT STARTED；
 Phase67 ACTIVE/N67=16，S16审计与Phase68均未开始。
+
+## Slice16 completion candidate
+
+上方逐Slice段落保留当时的发布边界与NEXT记录，不覆盖本段当前状态。
+
+S01–15已由实际publication闭环；当前[Slice16](slice-16.md)为ACTIVE/CANDIDATE，
+Phase67仍ACTIVE/N67=16、Phase68 NOT STARTED。[唯一三层完成审计](completion-audit.md)
+集中A01–A18、实际工作/费用、六条lessons及handoff。最终状态只依[唯一闭环规则](slice-16.md#唯一闭环规则)
+由实际外部record激活；不预写future commit/CI，不开始Phase68 FULL规划或实现。

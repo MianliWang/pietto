@@ -1,6 +1,6 @@
 # Phase67 路线：N67=16
 
-当前只展开已授权 [Slice15](slice-15.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
+当前只展开已授权 [Slice16](slice-16.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
 
 | Slice | 目标／acceptance链接 | 依赖／类型 |
 | --- | --- | --- |
@@ -19,7 +19,7 @@
 | 13 | [公开可安装optional extra与wheel isolation](slice-13.md)（P67-A16；[验收](brief.md#三层完成验收与回归)） | 02–12；消费Slice01实验，不重复实验campaign |
 | 14 | [真实producer/result consumer integration，无产品executor](slice-14.md)（P67-A03/A13/A16–A17；[验收](brief.md#三层完成验收与回归)） | 13 |
 | 15 | [whole-result differential/metamorphic assurance与Phase68交接](slice-15.md)（P67-A01/A03/A05/A09/A13–A14/A17；[验收](brief.md#三层完成验收与回归)） | 14 |
-| 16 | 三层完成审计、回归、retrospective与lessons（P67-A01/A18；[验收](brief.md#三层完成验收与回归)） | 15 |
+| 16 | [三层完成审计、回归、retrospective与lessons](completion-audit.md)（P67-A01/A18；[验收](brief.md#三层完成验收与回归)） | 15 |
 
 Slice08执行 S/H/L/K/Q midpoint：复核价值、现状/health、lessons、路线/预算与Q；保留固定16行，不自动新增Slice17。
 解冻条件：新的product/trust选择、批准要求损失、不可解dependency/support前提、实证成本超预算或支持域改变；
@@ -91,3 +91,12 @@ source/delivery/IPC完成与owned/borrowed义务保持原层。22neutral全文�
 verified全文比较；原八cell五类native replay/28raw/15jobs保持。Phase68 readiness见唯一Slice15矩阵，
 完整local/publication/raw/native/current-replay闭合后Slices01–15完成，Slice16 NEXT/NOT STARTED；
 Phase67 ACTIVE/N67=16，S16审计与Phase68均未开始。
+
+## Slice16 completion candidate
+
+上方逐Slice段落保留当时的发布边界与NEXT记录，不覆盖本段当前状态。
+
+S01–15已由实际publication闭环；当前[Slice16](slice-16.md)为ACTIVE/CANDIDATE，
+Phase67仍ACTIVE/N67=16、Phase68 NOT STARTED。[唯一三层完成审计](completion-audit.md)
+集中A01–A18、实际工作/费用、六条lessons及handoff。最终状态只依[唯一闭环规则](slice-16.md#唯一闭环规则)
+由实际外部record激活；不预写future commit/CI，不开始Phase68 FULL规划或实现。

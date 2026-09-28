@@ -461,3 +461,12 @@ S14 helper加载/复制/input closure同步闭合新helper；原八native-replay
 22neutral全文须比较当前双runtime与verified S14 expected bytes；IPC bytes不作canonical承诺。
 先cheapfocused、一次完整review/repair与follow-up，再原guarded full/package/publication/current-replay。
 完整support/readiness矩阵和所有预算见唯一S15合同，S16/Phase68不自动开始。
+
+## Slice16 audit与最终回归
+
+[完成审计](phases/phase-67/completion-audit.md)使用原owner/probes，普通新principal仅offline检查
+引用、支持和边界，不以18行/PASS文字证明完成。原120/118、SDK9、22neutral全文、八replay cells、
+15jobs/28raw保持；新的pytest数只取真实collection。四个clean core/extra cells消费同candidate wheel，
+完整全文同时比较当前双runtime及verified S15 expected；历史结果不代替新执行。
+最终closure与cleanup顺序见[唯一规则](phases/phase-67/slice-16.md#唯一闭环规则)，S16外部ledger累计所有失败。
+Phase68需独立FULL gate，本次不执行该gate；不得新增skip、benchmark或性能interlude。
