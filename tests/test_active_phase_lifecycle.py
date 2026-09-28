@@ -329,7 +329,7 @@ EXPECTED_STATUS = (
     ("Phase 66 Slice 15", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 Slice 16", "`COMPLETED / PUBLISHED`"),
     ("Phase 66 route", "`N=16`"),
-    ("Phase 67", "`ACTIVE`"),
+    ("Phase 67", "`COMPLETED`"),
     ("Phase 67 planning", "`FROZEN / N67=16`"),
     ("Phase 67 Slice 01", "`COMPLETED / PUBLISHED`"),
     ("Phase 67 Slice 02", "`COMPLETED / PUBLISHED`"),
@@ -346,8 +346,11 @@ EXPECTED_STATUS = (
     ("Phase 67 Slice 13", "`COMPLETED / PUBLISHED`"),
     ("Phase 67 Slice 14", "`COMPLETED / PUBLISHED`"),
     ("Phase 67 Slice 15", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 16", "`ACTIVE / CANDIDATE`"),
-    ("Phase 68", "`NOT STARTED`"),
+    ("Phase 67 Slice 16", "`COMPLETED / PUBLISHED`"),
+    ("Phase 68", "`ACTIVE — initiation / experiments`"),
+    ("Phase 68 Slice 01", "`CANDIDATE; completed only after closure`"),
+    ("Phase 68 Slice 02", "`NEXT / NOT STARTED`"),
+    ("Phase 68 route", "`20 baseline rows; sizing PENDING S02`"),
     ("Interlude V", "`COMPLETED`"),
     ("Interlude V route", "`N=3`"),
     ("Interlude V Slice 1", "`COMPLETED / PUBLISHED`"),
@@ -355,7 +358,7 @@ EXPECTED_STATUS = (
     ("Interlude V S2 performance outcome", "`MEASURED_GAIN`"),
     ("Interlude V Slice 3", "`COMPLETED / PUBLISHED`"),
     ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
-    ("Next", "`Phase68 planning only after S16 closure and separate acceptance`"),
+    ("Next", "`S01 closure; S02 requires separate dispatch`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
@@ -1483,7 +1486,10 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "tests/test_active_phase_lifecycle.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
-EXPECTED_CURRENT_OWNER_SENTENCE = "Phase67 is `ACTIVE`, N67=16; Slices01–15 are published. Slice16 is an ACTIVE / CANDIDATE completion audit; Phase68 is NOT STARTED."
+EXPECTED_CURRENT_OWNER_SENTENCE = (
+    "Phase67 is `COMPLETED`, N67=16; Slices01–16 are published. "
+    "Its external S16 closure activated the committed rule."
+)
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
     "tests/_pietto_differential_process_acquisition.py",
@@ -6107,9 +6113,7 @@ def test_phase66_slice16_completion_and_accepted_phase67_plan_are_conditional() 
     assert (STATUS.parent / target).is_file()
 
 
-def test_phase67_slice16_keeps_actual_history_and_candidate_transition_separate() -> (
-    None
-):
+def test_phase68_initiation_keeps_completion_and_candidate_evidence_separate() -> None:
     for path in (STATUS, ROADMAP):
         current = (
             _read(path)
@@ -6117,24 +6121,21 @@ def test_phase67_slice16_keeps_actual_history_and_candidate_transition_separate(
             .split("## CI remaining-tail", 1)[0]
         )
         for fact in (
-            "phases/phase-67/brief.md",
-            "phases/phase-67/slices.md",
             "phases/phase-67/completion-audit.md",
             "phases/phase-67/slice-16.md#唯一闭环规则",
             "N67=16",
-            "Slices01–15 `COMPLETED / PUBLISHED`",
-            "437916ecf59d8873ef154a1e09f1e48e76884edf",
-            "36366896863/push/main/attempt1",
-            "Slice16 `ACTIVE / CANDIDATE`",
-            "ACTIVE — completion candidate pending S16 closure",
-            "Phase68 `NOT STARTED`",
+            "Slices01–16 `COMPLETED / PUBLISHED`",
+            "2f280ea02b974c0ab7e6e8e07017b960b55f850a",
+            "36373861089/push/main/attempt1",
             "不能由本文或PASS文字自证",
             "120groups/118damage",
             "descriptor-only ORDER",
             "五类captured-native replay",
-            "`pietto[arrow]` / `pyarrow==25.0.1`",
-            "Phase68的FULL initiation及实现均未开始",
+            "phases/phase-68/slice-01.md",
+            "S01 CANDIDATE; completed only after closure",
+            "Slice02 NEXT / NOT STARTED",
+            "PENDING S02 empirical revalidation",
+            "PRODUCT_GATE_BLOCKED",
         ):
             assert fact in current, fact
-        assert "Phase67 `COMPLETED`" not in current
-        assert "Slice16 `COMPLETED / PUBLISHED`" not in current
+        assert "Slice01 COMPLETED / PUBLISHED" not in current

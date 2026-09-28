@@ -10,8 +10,8 @@ Phase 63 and all 16 numbered Slices are `COMPLETED / PUBLISHED` by live Git and
 successful natural exact-head CI. Phase64 and its 11 numbered Slices are completed
 through their accepted publication chains. Phase65 and Slices1–16 are completed
 through the accepted Slice16 audit publication. Phase66 and Slices1–16 are completed through the Slice16 audit publication and exact-head CI described below.
-Phase67 is `ACTIVE`, N67=16; Slices01–15 are published. Slice16 is an ACTIVE / CANDIDATE completion audit; Phase68 is NOT STARTED.
-Phase67 remains a completion candidate until the Slice16 closure rule is satisfied; Phase68 planning and execution have not started.
+Phase67 is `COMPLETED`, N67=16; Slices01–16 are published. Its external S16 closure activated the committed rule.
+Phase68 is ACTIVE — initiation / experiments; only Slice01 is dispatched, with final route sizing pending Slice02.
 The Validation/Test Performance Optimization Interlude II is `COMPLETED`.
 Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -33,9 +33,9 @@ Slice 2. Successful natural exact-head CI on its ordinary commit established
 completion. It adds no numbered route row, changes no D01–D08 or E01–E12, and
 left Phase 64 Slice 2 `NEXT / NOT IMPLEMENTED`.
 
-Pietto remains compiler-only: no package or catalog registry, dependency
-solver, remote loading, database execution, runtime evaluation, installation
-discovery, or implicit project discovery is authorized. Future work must
+The current compiler core has no ambient database execution, credentials, remote
+loading, registry, dependency solving, runtime evaluation or installation discovery.
+Phase68 authorizes a separate explicit read-only execution plane; S01 is test-only. Future work must
 preserve established identity, complete collection, provenance, ordering,
 trust, and diagnostic boundaries unless a new explicit product decision
 changes them.
@@ -52,21 +52,25 @@ is historical planning evidence rather than current authority.
 ## Phase67 当前路线
 
 [Phase67 brief](phases/phase-67/brief.md)与[固定16-Slice route](phases/phase-67/slices.md)保留原A01–A18及N67=16。
-Slices01–15 `COMPLETED / PUBLISHED`：最新head `437916ecf59d8873ef154a1e09f1e48e76884edf`、
-tree `6992f1e25abddb9f4bfdddd72e9120596df2da01`、sole parent `31156eaf22341e0b16b400d496982c7ff51d610c`，
-自然CI36366896863/push/main/attempt1、全部15jobs及28raw/native/current-replay/cleanup已闭合。
-
-当前Slice16 `ACTIVE / CANDIDATE`，尚未完整发布/闭环；Phase67为
-`ACTIVE — completion candidate pending S16 closure`；Phase68 `NOT STARTED`。
-[实质完成审计](phases/phase-67/completion-audit.md)集中三层matrix、支持/限制、实际工作/成本、
-六条lessons与Phase68输入。最终转换仅由[唯一闭环规则](phases/phase-67/slice-16.md#唯一闭环规则)
-指定的外部record在全部事实观察后激活，不能由本文或PASS文字自证，不需要status-only后续提交。
-
-原120groups/118damage、SDK9、22neutral全文、八cell三route/28raw保持；S16须执行自己的新回归。
+Phase67 `COMPLETED`，Slices01–16 `COMPLETED / PUBLISHED`；Slice16 `COMPLETED / PUBLISHED`。
+正式head `2f280ea02b974c0ab7e6e8e07017b960b55f850a`、tree `82c4ee8ecb4718d5110630d8759eaad2102163e1`、
+sole parent `437916ecf59d8873ef154a1e09f1e48e76884edf`，自然CI36373861089/push/main/attempt1。
+[实质完成审计](phases/phase-67/completion-audit.md)的候选文字由[唯一闭环规则](phases/phase-67/slice-16.md#唯一闭环规则)
+指定的S16外部final-state激活；不能由本文或PASS文字自证，也不改写旧合同。
+原120groups/118damage、SDK9、22neutral全文、八cell三route/28raw保持为本轮回归义务。
 七类installed fixtures、五类captured-native replay与descriptor-only ORDER分层；
 `pietto[arrow]` / `pyarrow==25.0.1`可安装而result API仍private，package/CLI0.1.0。
-Phase66/Interlude V（恰3Slices）/R1保持COMPLETED。Phase68的FULL initiation及实现均未开始；
-只有另一次被接受的规划/dispatch才可推进，本文不创建其文件或Slice1。
+
+## Phase68 当前路线
+
+[Phase68 brief](phases/phase-68/brief.md)、[20行baseline route](phases/phase-68/slices.md)、[planning notes](phases/phase-68/planning-notes.md)及[S01唯一合同](phases/phase-68/slice-01.md)承载本轮FULL启动。
+Phase68 `ACTIVE — initiation / experiments`；S01 CANDIDATE; completed only after closure。
+当前matrix6完整57项与独立checker已通过，READY_FOR_SLICE02_EXPERIMENT仅指下一实验前提；S01仍待唯一闭环规则要求的全部回归/发布证据。
+当前只有test-only driver premise实验；core仍是compiler，产品executor/运行包/恢复均尚未实现。
+Slice02 NEXT / NOT STARTED；Slices03–20 NOT STARTED / NOT RELEASED FOR IMPLEMENTATION。
+总上限20、baseline rows20；完整路线尺寸PENDING S02 empirical revalidation。P01/P02/P03未知前提不写入生产接口或持久格式。
+S01实测负结果可完成有界实验，但保持对应PRODUCT_GATE_BLOCKED；environment inconclusive必须HOLD。
+Phase66/Interlude V（恰3Slices）/R1保持COMPLETED；Phase69及原后续owners未开始，无public release。
 
 ## CI remaining-tail maintenance R1
 

@@ -578,6 +578,7 @@ def test_slice2_validation_stays_separate_from_later_workflows() -> None:
         "scripts/ci_validation.py",
         "scripts/ci_workloads.py",
         "scripts/package_smoke.py",
+        "scripts/phase68_executor_premise.py",
         "scripts/validate.py",
     )
     assert all("check_generated.py" not in command for _, command in validate.GATES)

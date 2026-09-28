@@ -81,3 +81,8 @@ authority、条件input完成与delivery成功；Phase68 readiness只交付现�
 [A01–A18三层矩阵、retrospective与handoff](phases/phase-67/completion-audit.md)保留descriptor、fixture、
 captured-native replay及future execution层。[唯一闭环规则](phases/phase-67/slice-16.md#唯一闭环规则)
 在实际证据全部满足后才激活完成；当前S16为candidate。Phase68另行FULL initiation，先消费audit与适用lessons。
+
+## Phase68 approved optional execution decisions
+
+[Phase68 brief](phases/phase-68/brief.md) preserves the user's dual live/bundle entries, typed rebinding, three-route parity, default checks/stable view, explicit Serializable profile, exclusive owned resources, dual durable delivery, real R1/R2, cooperative sink and bounded concurrency. Core has no ambient execution.
+S01 is a test-only FULL initiation candidate; P01/P02/P03 facts gate production boundaries and S02 revalidates the20-row route. No public format, production loader, durable job schema or Phase69 release is frozen here. Unknowns remain blocking for their dependent owner; complete negative experiments never waive product goals.

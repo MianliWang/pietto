@@ -85,7 +85,7 @@ documentation does not supersede that evidence.
 | Phase 66 Slice 15 | `COMPLETED / PUBLISHED` |
 | Phase 66 Slice 16 | `COMPLETED / PUBLISHED` |
 | Phase 66 route | `N=16` |
-| Phase 67 | `ACTIVE` |
+| Phase 67 | `COMPLETED` |
 | Phase 67 planning | `FROZEN / N67=16` |
 | Phase 67 Slice 01 | `COMPLETED / PUBLISHED` |
 | Phase 67 Slice 02 | `COMPLETED / PUBLISHED` |
@@ -102,8 +102,11 @@ documentation does not supersede that evidence.
 | Phase 67 Slice 13 | `COMPLETED / PUBLISHED` |
 | Phase 67 Slice 14 | `COMPLETED / PUBLISHED` |
 | Phase 67 Slice 15 | `COMPLETED / PUBLISHED` |
-| Phase 67 Slice 16 | `ACTIVE / CANDIDATE` |
-| Phase 68 | `NOT STARTED` |
+| Phase 67 Slice 16 | `COMPLETED / PUBLISHED` |
+| Phase 68 | `ACTIVE — initiation / experiments` |
+| Phase 68 Slice 01 | `CANDIDATE; completed only after closure` |
+| Phase 68 Slice 02 | `NEXT / NOT STARTED` |
+| Phase 68 route | `20 baseline rows; sizing PENDING S02` |
 | Interlude V | `COMPLETED` |
 | Interlude V route | `N=3` |
 | Interlude V Slice 1 | `COMPLETED / PUBLISHED` |
@@ -111,26 +114,30 @@ documentation does not supersede that evidence.
 | Interlude V S2 performance outcome | `MEASURED_GAIN` |
 | Interlude V Slice 3 | `COMPLETED / PUBLISHED` |
 | CI remaining-tail maintenance R1 | `COMPLETED / PUBLISHED` |
-| Next | `Phase68 planning only after S16 closure and separate acceptance` |
+| Next | `S01 closure; S02 requires separate dispatch` |
 
 ## Phase67 当前路线
 
 [Phase67 brief](phases/phase-67/brief.md)与[固定16-Slice route](phases/phase-67/slices.md)保留原A01–A18及N67=16。
-Slices01–15 `COMPLETED / PUBLISHED`：最新head `437916ecf59d8873ef154a1e09f1e48e76884edf`、
-tree `6992f1e25abddb9f4bfdddd72e9120596df2da01`、sole parent `31156eaf22341e0b16b400d496982c7ff51d610c`，
-自然CI36366896863/push/main/attempt1、全部15jobs及28raw/native/current-replay/cleanup已闭合。
-
-当前Slice16 `ACTIVE / CANDIDATE`，尚未完整发布/闭环；Phase67为
-`ACTIVE — completion candidate pending S16 closure`；Phase68 `NOT STARTED`。
-[实质完成审计](phases/phase-67/completion-audit.md)集中三层matrix、支持/限制、实际工作/成本、
-六条lessons与Phase68输入。最终转换仅由[唯一闭环规则](phases/phase-67/slice-16.md#唯一闭环规则)
-指定的外部record在全部事实观察后激活，不能由本文或PASS文字自证，不需要status-only后续提交。
-
-原120groups/118damage、SDK9、22neutral全文、八cell三route/28raw保持；S16须执行自己的新回归。
+Phase67 `COMPLETED`，Slices01–16 `COMPLETED / PUBLISHED`；Slice16 `COMPLETED / PUBLISHED`。
+正式head `2f280ea02b974c0ab7e6e8e07017b960b55f850a`、tree `82c4ee8ecb4718d5110630d8759eaad2102163e1`、
+sole parent `437916ecf59d8873ef154a1e09f1e48e76884edf`，自然CI36373861089/push/main/attempt1。
+[实质完成审计](phases/phase-67/completion-audit.md)的候选文字由[唯一闭环规则](phases/phase-67/slice-16.md#唯一闭环规则)
+指定的S16外部final-state激活；不能由本文或PASS文字自证，也不改写旧合同。
+原120groups/118damage、SDK9、22neutral全文、八cell三route/28raw保持为本轮回归义务。
 七类installed fixtures、五类captured-native replay与descriptor-only ORDER分层；
 `pietto[arrow]` / `pyarrow==25.0.1`可安装而result API仍private，package/CLI0.1.0。
-Phase66/Interlude V（恰3Slices）/R1保持COMPLETED。Phase68的FULL initiation及实现均未开始；
-只有另一次被接受的规划/dispatch才可推进，本文不创建其文件或Slice1。
+
+## Phase68 当前路线
+
+[Phase68 brief](phases/phase-68/brief.md)、[20行baseline route](phases/phase-68/slices.md)、[planning notes](phases/phase-68/planning-notes.md)及[S01唯一合同](phases/phase-68/slice-01.md)承载本轮FULL启动。
+Phase68 `ACTIVE — initiation / experiments`；S01 CANDIDATE; completed only after closure。
+当前matrix6完整57项与独立checker已通过，READY_FOR_SLICE02_EXPERIMENT仅指下一实验前提；S01仍待唯一闭环规则要求的全部回归/发布证据。
+当前只有test-only driver premise实验；core仍是compiler，产品executor/运行包/恢复均尚未实现。
+Slice02 NEXT / NOT STARTED；Slices03–20 NOT STARTED / NOT RELEASED FOR IMPLEMENTATION。
+总上限20、baseline rows20；完整路线尺寸PENDING S02 empirical revalidation。P01/P02/P03未知前提不写入生产接口或持久格式。
+S01实测负结果可完成有界实验，但保持对应PRODUCT_GATE_BLOCKED；environment inconclusive必须HOLD。
+Phase66/Interlude V（恰3Slices）/R1保持COMPLETED；Phase69及原后续owners未开始，无public release。
 
 ## CI remaining-tail maintenance R1
 

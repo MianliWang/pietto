@@ -470,3 +470,8 @@ S14 helper加载/复制/input closure同步闭合新helper；原八native-replay
 完整全文同时比较当前双runtime及verified S15 expected；历史结果不代替新执行。
 最终closure与cleanup顺序见[唯一规则](phases/phase-67/slice-16.md#唯一闭环规则)，S16外部ledger累计所有失败。
 Phase68需独立FULL gate，本次不执行该gate；不得新增skip、benchmark或性能interlude。
+
+## Phase68 explicit local premise experiments
+
+[S01](phases/phase-68/slice-01.md) adds an intentionally invoked test-only `scripts/phase68_executor_premise.py` and an offline data-only checker. Experimental dependencies are isolated by `ci/phase68-executor-premise-requirements.txt`; they never enter core or the four clean Phase67 regression cells. Local observed facts are not newly exercised hosted-CI driver support.
+Ordinary new tests remain in independent full collection with no workload placement change. The S01 contract retains guarded3.13 final equivalence, two-runtime SDK9/120118/22documents, exact natural CI28raw/native/current replay. The one external ledger counts all failures and starts; complete unsupported and inconclusive environment have different terminals.

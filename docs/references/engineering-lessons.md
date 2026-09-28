@@ -75,3 +75,13 @@ S06旧38合同与明确扩展、S12旧/当前格式、S14 timing addendum按[完
 | P67-L04 / S08合法empty absent buffers、S10 foreign close不传播generator finally、S15 C-import empty offset损坏IPC | SDK/pin、ownership/protocol交界或异常路径变化 | 以小真实消费者验证零行/offset、copy/borrow/alias、close/控制异常；原carrier先validation/admission，再作必要已批准delivery处理 | SDK9、ownership_*、S15 W01实际失败及修复；W08 retained-before-copy | PyArrow-backed不等于独立C认证；owner retention不是nonmutation；wrapper close次数不是native callback计数 | [S08](../phases/phase-67/slice-08.md)、[S10](../phases/phase-67/slice-10.md)、[S15](../phases/phase-67/slice-15.md)及原失败；Phase68 lifecycle，Phase86/90后续桥接 | 有效 |
 | P67-L05 / S03 receipt文件准备与S12 materially changed contract需要精确证据身份 | scope/format修订、HOLD/resume、CI/raw闭环 | 保留旧candidate/失败/累计计数，区分实际Git commit与计算tree；新合同重验受影响链，current receipts先普通独立副本/完整digest/argv预检再strict | S03明确7/7与4native终态；S12旧1066.976s/current1250.209s各归原合同；当前28raw规则 | 旧PASS不迁移；纯orchestration/docs续行仅在完整input footprint未变时复用；不把观察丢失改成PASS/FAIL | [历史对账](../phases/phase-67/completion-audit.md)、`pietto-phase67-slice03-native-continuation-authority-v1.txt`、`pietto-phase67-slice12-continuation-authority.txt`；Phase68及后续publication | 有效；保留旧记录 |
 | P67-L06 / S13外层解释器缺pytest；S14时间汇总需恢复；CI可比样本不足 | 长验证、installed/acquisition、成本或健康判断 | 同时固定outer/child解释器与安装来源；先小focused/reader检查，保留一次完整finding集；从结构记录生成费用并区分parent/stages、CIwall/runner sum/transfer overlap | S13仅补缺项恢复；S14 timing-recovery；S15 full1392.291s与CI699s分列 | 不把UNKNOWN填0，不将test-count增长当生产率，不由WATCH/INSUFFICIENT_EVIDENCE启动性能interlude | [package_smoke](../../scripts/package_smoke.py)、[S13](../phases/phase-67/slice-13.md)、`pietto-phase67-slice14-timing-recovery.json`；Phase68 FULL gate消费真实health与预算 | 有效 |
+
+## Phase68 Slice01 consumption of P67 lessons
+
+S01先测真实parameterized SELECT，不以ADBC文档或API名称判支持（L01/L04）；独立literal oracle保原值/位模式/重数，schema与value correspondence分开（L02）。
+source/statement/transaction/delivery/cleanup分别记录，unknown cardinality不借COUNT或旧extent补证（L03）；本地实测与旧native replay保持不同证据层（L05）。
+outer/child固定解释器，SQLite builtin module不能假定有独立__file__；原失败计入单一累计ledger，已完成case及时保存，时间未知不填0（L05/L06）。
+当前S01仍candidate；准确支持/缺口只由最终绑定报告与唯一闭环规则确定，不因preliminary P02成功宣称三路线产品对等。
+
+S01续行实测：selector只反映kernel readiness，buffered readline可能藏住已读控制帧；单owner raw framing和真实coalesced/fragmented/EOF/ACK反例关闭该缺陷。
+MySQL helper调用不等于第二次native提交；prepared Execute、实际signal outcome与standalone SLEEP返回值须按真实接口分开记录。matrix6已重验完整57项；旧失败不抹去，不从局部成功推全域产品保证。
