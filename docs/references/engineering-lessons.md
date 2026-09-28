@@ -54,3 +54,9 @@ Arrow接受complete-message prefix不证明原有限结果完成。固定framing
 receipt replay的输入是原execution rows，预期答案只能用来核验；decoder与原值oracle不共用
 同一个转换入口。先证明populated/empty可达，再扩固定corpus。原strict receipt证明与额外
 consumer证明分开；frame/extent通过仍不能认证原值、重复行或DB未遗漏。解释器固定覆盖外层driver。
+
+## Phase67 Slice15：whole-result law 约束
+
+- 跨route只共享独立literal预期与positional观察格式；真实缺陷注入须改变实际消费者看到的值，不能仅损坏报告。
+- 同值重分批可改变referenced-buffer与sum(max(A,R))成本；分别证明值关系和admission，不用RSS解释上限。
+- handoff按fixture/native replay/descriptor/future execution分层；expected_rows与EOF不足以替Phase68提供执行authority。

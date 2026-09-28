@@ -15,7 +15,7 @@ from pietto._project.project_result_contract import ResultError
 def test_private_inert_owner_and_exact_current_manifest():
     assert ipc.__all__ == ()
     assert importlib.util.find_spec("pyarrow") is None
-    assert len(probe.CASES) == len(set(probe.CASES)) == 110
+    assert len(probe.CASES) == len(set(probe.CASES)) == 120
     assert probe.CASES[92:102] == probe.IPC_GROUPS
     assert "project_result_ipc" in probe.PRODUCTS
 

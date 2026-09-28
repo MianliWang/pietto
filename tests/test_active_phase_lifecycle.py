@@ -345,8 +345,8 @@ EXPECTED_STATUS = (
     ("Phase 67 Slice 12", "`COMPLETED / PUBLISHED`"),
     ("Phase 67 Slice 13", "`COMPLETED / PUBLISHED`"),
     ("Phase 67 Slice 14", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 15", "`NEXT / NOT STARTED`"),
-    ("Phase 67 Slice 16", "`NOT STARTED`"),
+    ("Phase 67 Slice 15", "`CANDIDATE until S15 closure; then COMPLETED / PUBLISHED`"),
+    ("Phase 67 Slice 16", "`NOT STARTED; NEXT after S15 closure`"),
     ("Interlude V", "`COMPLETED`"),
     ("Interlude V route", "`N=3`"),
     ("Interlude V Slice 1", "`COMPLETED / PUBLISHED`"),
@@ -354,7 +354,7 @@ EXPECTED_STATUS = (
     ("Interlude V S2 performance outcome", "`MEASURED_GAIN`"),
     ("Interlude V Slice 3", "`COMPLETED / PUBLISHED`"),
     ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
-    ("Next", "`Phase67 Slice15 under a separate dispatch`"),
+    ("Next", "`Phase67 Slice16 after S15 closure, under a separate dispatch`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
@@ -1482,7 +1482,7 @@ EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "tests/test_active_phase_lifecycle.py",
     "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
 )
-EXPECTED_CURRENT_OWNER_SENTENCE = "Phase67 is `ACTIVE`, N67=16; Slices01–14 connect finite Arrow interchange, optional installation and bounded real-consumer integration, conditional on the Slice14 publication closure below."
+EXPECTED_CURRENT_OWNER_SENTENCE = "Phase67 is `ACTIVE`, N67=16; Slices01–14 are published. Slice15 stays a candidate until its complete publication closure below; only that closure advances Slice16 to NEXT."
 EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
     "tests/_pietto_differential_process_acquisition.py",
@@ -6106,7 +6106,9 @@ def test_phase66_slice16_completion_and_accepted_phase67_plan_are_conditional() 
     assert (STATUS.parent / target).is_file()
 
 
-def test_phase67_slice14_keeps_publication_conditional_and_replay_distinct() -> None:
+def test_phase67_slice15_keeps_publication_conditional_and_evidence_layers_distinct() -> (
+    None
+):
     for path in (STATUS, ROADMAP):
         document = _read(path)
         current = document.split("## Phase67 当前路线", 1)[1].split(
@@ -6118,14 +6120,19 @@ def test_phase67_slice14_keeps_publication_conditional_and_replay_distinct() -> 
         )
         assert "N67=16" in current and "全部15jobs" in current
         assert (
-            "Slice15 `NEXT / NOT STARTED`" in current
-            and "Slice16 `NOT STARTED`" in current
+            "Slice15 `CANDIDATE until S15 closure; then COMPLETED / PUBLISHED`"
+            in current
+            and "Slice16 `NOT STARTED; NEXT after S15 closure`" in current
         )
         assert "phases/phase-67/slice-12.md" in current
         assert "当前合同的tested tree" in current
-        assert "Slice15及后续未开始" in current
+        assert "Slice16及Phase68未开始" in current
+        assert "所有条件成立前状态均为CANDIDATE" in current
+        assert "不能由这段文字证明条件成立" in current
         assert "phases/phase-67/slice-14.md" in current
-        assert "110groups/108damage" in current
+        assert "120groups/118damage" in current
+        assert "phases/phase-67/slice-15.md" in current
+        assert "descriptor-only ORDER" in current
         assert "原27raw加1为28" in current
         assert "phases/phase-67/slice-13.md" in current
         assert "`pietto[arrow]` / `pyarrow==25.0.1`" in current

@@ -166,3 +166,21 @@ reuse原helper、S13 wheel-extra安装、原strict native verifier；observer sc
 当前19路径/A3/M16/D0，无production/native-helper/依赖/lock变化。最终depth-one、一次完整
 coverage-equivalent、final同wheel双runtime4安装cells/SDK/product/22全文、ordinary publication、
 自然15jobs及28raw/native/current-replay闭合仍为必需。精确tree与实测归外部ledger，不启动S15。
+
+## Slice15 Q1
+
+十组law及精确27路径见[唯一合同](slice-15.md)：独立typed positional oracle、实际三route与
+十种substantive report controls；已有whole terminal/lease/authority反例由当前required product重新执行。
+生产开始不变，八owner仅具体approved-domain repair reserve。原五类八native cells和28artifact route保持；
+Phase68 readiness区分fixture、captured-native replay、descriptor与future execution责任。
+
+## Slice15 Q2：收敛候选
+
+唯一author/Ponytail finding集R1–R3已完成单批修复与一次follow-up：mixed retained bytes与managed
+delivery descriptors由独立算式核对；畸形law报告保持原ValueError边界；当前lifecycle使用明确
+CANDIDATE-until-closure条件转换，不以文档自证发布。853项focused、Ruff及两类typing通过。
+更新wheel的3.12开发product为120/118、实际167origins；后续最终两个installedruntime仍须各自
+新执行，开发报告不代替final。旧13列/七类、原110/108与S14八cell/28raw路线保持。
+当前20changed paths/A3/M17/D0，仅使用IPC一个production reserve；其已复现空offset缺陷及
+修复边界见本合同。depth-one、完整3.13及双runtimefinal、普通publication、自然15jobs/raw/native/
+currentreplay仍是完成条件。S16/Phase68不开始。

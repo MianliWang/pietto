@@ -110,7 +110,7 @@ def test_accepted_composition_preserves_primary_and_closes_once(monkeypatch, cle
 
 
 def test_current_exact_manifest_and_layout_arithmetic():
-    assert len(probe.CASES) == len(set(probe.CASES)) == 110
+    assert len(probe.CASES) == len(set(probe.CASES)) == 120
     assert probe.CASES[84:92] == probe.INGRESS_GROUPS
     assert "project_result_ingress" in probe.PRODUCTS
     assert probe.INGRESS_USAGES == {

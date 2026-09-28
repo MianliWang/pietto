@@ -66,3 +66,11 @@ D67.31：用户批准两条有限证据链：真实编译/result/SDK搭配suppli
 artifact、protocol facts和lifecycle；声明domain仍为声明。预先复用receipt行数作extent是replay
 调用方声明，不是独立DB completeness证据。原strict留core，额外Arrow环境不引入driver依赖。
 只新增一个test-only sidecar/纯数据checker，不新增公共schema、executor或native查询。
+
+## Phase67 Slice15：whole-result joint assurance
+
+`IMPLEMENTATION_FREEDOM`：沿用现有fixture、independent snapshots与required product artifact，
+一个test-only law helper连接十组finite结果关系；无新production facade/协议/cache。
+`DERIVED_MECHANICAL`：当前120/118和helper闭包/typing/lifecycle直接读者随实际新增集合更新。
+[Slice15](phases/phase-67/slice-15.md) 区分transport顺序与typed BAG、pure equivalent文档与live bound
+authority、条件input完成与delivery成功；Phase68 readiness只交付现有API及其明确前提。

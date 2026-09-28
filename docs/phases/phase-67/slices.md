@@ -1,6 +1,6 @@
 # Phase67 路线：N67=16
 
-当前只展开已授权 [Slice14](slice-14.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
+当前只展开已授权 [Slice15](slice-15.md)，[Slice01](slice-01.md) 为已发布历史。后三层acceptance见 [brief](brief.md#三层完成验收与回归)；各后续Slice在获得执行授权后才展开自己的精确验收。
 
 | Slice | 目标／acceptance链接 | 依赖／类型 |
 | --- | --- | --- |
@@ -18,7 +18,7 @@
 | 12 | [bounded private IPC、truncation/completion、metadata](slice-12.md)（P67-A07/A10/A14/A15；[验收](brief.md#三层完成验收与回归)） | 09–11 |
 | 13 | [公开可安装optional extra与wheel isolation](slice-13.md)（P67-A16；[验收](brief.md#三层完成验收与回归)） | 02–12；消费Slice01实验，不重复实验campaign |
 | 14 | [真实producer/result consumer integration，无产品executor](slice-14.md)（P67-A03/A13/A16–A17；[验收](brief.md#三层完成验收与回归)） | 13 |
-| 15 | whole-result differential/metamorphic assurance与Phase68交接（P67-A01/A03/A05/A09/A13–A14/A17；[验收](brief.md#三层完成验收与回归)） | 14 |
+| 15 | [whole-result differential/metamorphic assurance与Phase68交接](slice-15.md)（P67-A01/A03/A05/A09/A13–A14/A17；[验收](brief.md#三层完成验收与回归)） | 14 |
 | 16 | 三层完成审计、回归、retrospective与lessons（P67-A01/A18；[验收](brief.md#三层完成验收与回归)） | 15 |
 
 Slice08执行 S/H/L/K/Q midpoint：复核价值、现状/health、lessons、路线/预算与Q；保留固定16行，不自动新增Slice17。
@@ -84,3 +84,10 @@ fixture执行与已strict验证native receipt的实际rows重放分开；无新�
 原102/100扩为110/108，SDK9及22neutral全文保留；aggregate在原strict后新增required ≤2MiB
 sidecar，原27份加1为28。成功发布/自然15jobs/raw/native及当前receipts双local replay闭合后
 Slices01–14完成，Slice15 NEXT/NOT STARTED、Slice16未开始；N67=16不变。
+
+[Slice15](slice-15.md) 在原110/108上增加十组whole-result laws与十项实质damage controls，
+最终120/118；三route按类型/位置保值保NULL保重，重分批与资源成本分别核对；pure/bound authority、
+source/delivery/IPC完成与owned/borrowed义务保持原层。22neutral全文由本次双runtime生成并与S14
+verified全文比较；原八cell五类native replay/28raw/15jobs保持。Phase68 readiness见唯一Slice15矩阵，
+完整local/publication/raw/native/current-replay闭合后Slices01–15完成，Slice16 NEXT/NOT STARTED；
+Phase67 ACTIVE/N67=16，S16审计与Phase68均未开始。

@@ -42,6 +42,7 @@ HELPERS = (
     "_pietto_phase66_sql_emission_probe",
     "_pietto_target_conformance_cases",
     "_pietto_phase67_result_product_probe",
+    "_pietto_phase67_whole_result_probe",
 )
 LABELS = ("display_text", "record_id", "active", "amount", "ratio")
 TYPES = ("string", "int64", "bool", "decimal128(9, 2)", "double")

@@ -99,6 +99,11 @@ def encode_ipc(
             ),
         )
         for batch in consumer:
+            # SDK C-imported empty slices can retain an offset with zero-sized
+            # buffers, which the IPC writer mis-sizes. Admission and accounting
+            # already checked the original carrier; keep this empty batch.
+            if batch.num_rows == 0 and any(column.offset for column in batch.columns):
+                batch = batch.take(pa.array([], type=pa.int32()))
             writer.write_batch(batch, custom_metadata=None)
             batches += 1
         completion = session.input_completion

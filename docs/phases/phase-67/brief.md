@@ -2,7 +2,7 @@
 
 规划层级 FULL；N67=16。描述性 Stage 目标是建立有限结果交换边界；现有资料没有数字 Stage，故不另造编号。
 这是已接受全 Phase 计划的耐久入口。Slice01 的 CI/SDK 实验范围与预算见其历史记录；当前只授权
-[Slice14](slice-14.md)，后续 Slice 仍逐次 dispatch。包/CLI 保持0.1.0。
+[Slice15](slice-15.md)，后续 Slice 仍逐次 dispatch。包/CLI 保持0.1.0。
 
 ## 使命、当前能力与边界
 
@@ -101,3 +101,10 @@ fixture执行与已strict验证native receipt的实际rows重放分开；无新�
 原102/100扩为110/108，SDK9及22neutral全文保留；aggregate在原strict后新增required ≤2MiB
 sidecar，原27份加1为28。成功发布/自然15jobs/raw/native及当前receipts双local replay闭合后
 Slices01–14完成，Slice15 NEXT/NOT STARTED、Slice16未开始；N67=16不变。
+
+[Slice15](slice-15.md) 在原110/108上增加十组whole-result laws与十项实质damage controls，
+最终120/118；三route按类型/位置保值保NULL保重，重分批与资源成本分别核对；pure/bound authority、
+source/delivery/IPC完成与owned/borrowed义务保持原层。22neutral全文由本次双runtime生成并与S14
+verified全文比较；原八cell五类native replay/28raw/15jobs保持。Phase68 readiness见唯一Slice15矩阵，
+完整local/publication/raw/native/current-replay闭合后Slices01–15完成，Slice16 NEXT/NOT STARTED；
+Phase67 ACTIVE/N67=16，S16审计与Phase68均未开始。

@@ -19,8 +19,7 @@ from tempfile import TemporaryDirectory
 from typing import Any, cast
 
 
-def _integration():
-    name = "_pietto_phase67_real_consumer_probe"
+def _helper(name):
     path = Path(__file__).with_name(name + ".py").resolve()
     if name not in sys.modules:
         spec = importlib.util.spec_from_file_location(name, path)
@@ -32,6 +31,14 @@ def _integration():
     if filename is None or Path(filename).resolve() != path:
         raise ValueError("foreign integration helper")
     return cast(Any, sys.modules[name])
+
+
+def _integration():
+    return _helper("_pietto_phase67_real_consumer_probe")
+
+
+def _whole():
+    return _helper("_pietto_phase67_whole_result_probe")
 
 
 FORMAT = "pietto.result-product.v1"
@@ -156,7 +163,7 @@ CASES = (
     "ipc_correspondence",
 )
 
-CASES += _integration().GROUPS
+CASES += _integration().GROUPS + _whole().GROUPS
 
 
 def source(target):
@@ -517,6 +524,7 @@ def run_cases(root):
     results.update(run_ingress_cases(root))
     results.update(run_ipc_cases(root))
     results.update(_integration().fixture_groups(root / "integration"))
+    results.update(_whole().run(sys.modules[__name__], root / "whole", results))
     assert set(results) == set(CASES)
     return results
 
@@ -11104,6 +11112,7 @@ def verify_report(value, context, inputs):
     verify_ingress_report(cases)
     verify_ipc_report(cases)
     _integration().verify_fixture_groups(cases, inputs)
+    _whole().verify(cases, sys.modules[__name__])
     origins = value["origins"]
     prefix = Path(value["prefix"])
     required = {"pietto._project." + name for name in PRODUCTS} | {
@@ -11506,7 +11515,7 @@ def reject_report_damage(value, context, inputs):
             path="/checkout/pyarrow/__init__.py"
         ),
     )
-    mutations += _integration().product_damage()
+    mutations += _integration().product_damage() + _whole().damage()
     for mutate in mutations:
         bad = json.loads(json.dumps(value))
         mutate(bad)
@@ -11595,8 +11604,8 @@ def main():
     }
     verify_report(value, context, input_closure(repository))
     rejected = reject_report_damage(value, context, input_closure(repository))
-    assert len(cases) == 110
-    assert rejected == 108
+    assert len(cases) == 120
+    assert rejected == 118
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with args.report.open("x") as stream:
         json.dump(value, stream, sort_keys=True, allow_nan=False)

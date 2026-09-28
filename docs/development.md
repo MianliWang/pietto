@@ -452,3 +452,12 @@ origins；raw/native闭合分别证明CI产物与既有native设施，不宣称�
 receipt schema/fixtures/queries及15-job图不变。自然CI后同一helper在保留的两个final local
 extra环境重放当前receipt，比较semantic observations及typed BAG，不比较路径/偶然fetch顺序。
 只有该closure后才清理owned环境。外层driver与child都固定已核验解释器，所有失败累计记录。
+
+## Slice15 whole-result laws
+
+[S15](phases/phase-67/slice-15.md) 将当前required product扩至120groups/118damage；
+core-only checker保持Arrow-free，两个installedruntime运行真实七类whole-result routes和独立值oracle。
+S14 helper加载/复制/input closure同步闭合新helper；原八native-replay cells、sidecar和28raw总数保持。
+22neutral全文须比较当前双runtime与verified S14 expected bytes；IPC bytes不作canonical承诺。
+先cheapfocused、一次完整review/repair与follow-up，再原guarded full/package/publication/current-replay。
+完整support/readiness矩阵和所有预算见唯一S15合同，S16/Phase68不自动开始。
