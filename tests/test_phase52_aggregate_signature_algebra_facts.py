@@ -1074,24 +1074,20 @@ def test_no_existing_consumer_public_export_registry_io_or_callback_exists() -> 
             or "generated" in path.parts
         ):
             continue
-        source = REPOSITORY_FACTS.python(path).text
+        source = REPOSITORY_FACTS.text(path)
         assert "semantic.capability_aggregates" not in source
         assert "aggregate_lookup_inputs" not in source
-    preservation_source = REPOSITORY_FACTS.python(preservation_path).text
+    preservation_source = REPOSITORY_FACTS.text(preservation_path)
     assert "semantic.capability_aggregates" in preservation_source
     assert "aggregate_lookup_inputs" not in preservation_source
-    provider_source = REPOSITORY_FACTS.python(provider_path).text
+    provider_source = REPOSITORY_FACTS.text(provider_path)
     assert "semantic.capability_aggregates" in provider_source
     assert "aggregate_lookup_inputs" in provider_source
-    assert (
-        "capability_aggregates"
-        not in REPOSITORY_FACTS.python(
-            REPO_ROOT / "src/pietto/semantic/__init__.py"
-        ).text
+    assert "capability_aggregates" not in REPOSITORY_FACTS.text(
+        REPO_ROOT / "src/pietto/semantic/__init__.py"
     )
-    assert (
-        "capability_aggregates"
-        not in REPOSITORY_FACTS.python(REPO_ROOT / "src/pietto/__init__.py").text
+    assert "capability_aggregates" not in REPOSITORY_FACTS.text(
+        REPO_ROOT / "src/pietto/__init__.py"
     )
     assigned_names = REPOSITORY_FACTS.python(SOURCE_PATH).top_level_assigned_names
     assert not any(

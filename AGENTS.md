@@ -35,6 +35,9 @@ commands, diagnostics, and commit messages in English.
 - Keep production behavior, parser/AST, semantics, IR, SQL, diagnostics, CLI,
   JSON, package behavior, and generated reproducibility covered by current
   behavior tests. Do not retain historical repository-shape snapshots.
+- Reuse compatible test acquisition through existing owners. Complete the
+  [phase-end acquisition review](docs/development.md#phase-end-acquisition-consolidation)
+  before the final audit-only boundary; retain justified fresh witnesses.
 - Do not edit generated parser files by hand. Change the grammar and run the
   documented generation and reproducibility checks.
 - Use focused tests and Ruff while implementing. Before a normal Gate 2 seal,
@@ -66,9 +69,9 @@ abstraction needs a current caller or invariant.
 - Gate 2: implement the minimum change, run focused checks, review the complete
   finding set, consolidate repairs by root cause, run appropriate final
   validation, and seal the Git tree. Slice dispatches own cumulative repair
-  budgets; active S03 uses its dispatch Section 9. Closed S02 counts stay closed.
-  S03 qualification enables implementation only after its internal predicate;
-  diagnosed in-scope repairs and ordinary publication follow that dispatch.
+  budgets; active C01 uses its dispatch Section 10. Closed S01–S03 counts stay
+  closed. Diagnosed in-scope repairs and qualified mechanical reader-reserve
+  updates proceed under the active dispatch.
 - Gate 3: rebind the baseline, stage exactly the sealed tree, make one ordinary
   commit, fast-forward push, and require natural exact-head CI. A failed head
   is preserved; repair a new child and push it normally. Do not rerun it.
@@ -126,4 +129,6 @@ paths, formatting, and ordinary hashes do not require new authority.
   for new-test requirements, bounded evidence and reviewed placement changes.
 - Phase starts consume applicable [engineering lessons](docs/references/engineering-lessons.md)
   and eligible health; use the macro process and technical checks in the phase-initiation gate.
-  No alert means no new CI maintenance. Expand only the authorized next Slice.
+  Routine phase-end acquisition consolidation does not require a health alert.
+  Scheduler/topology/resource-policy maintenance still requires its existing
+  evidence and separate authority. Expand only the authorized next Slice.

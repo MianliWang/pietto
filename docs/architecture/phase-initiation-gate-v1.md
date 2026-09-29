@@ -27,7 +27,11 @@ It does not reuse that phase's answers as defaults for later phases.
 每Slice只在展开时绑定精确输入、写集、commands、接受与成本。中点使用 `S/H/L/K/Q`；
 closeout同时检查三层结果、回归、retrospective与下一phase消费的lessons。phase start、midpoint、
 closeout查看 [CI health](ci-workload-governance-v1.md) 的适用样本与alerts；不足历史不是green证明，
-没有alert不新建CI维护。该流程不替代下面30项语义/身份/authority技术义务。
+scheduler/topology/resource-policy维护仍需既有证据与另行授权。常规phase-end acquisition整合
+无需health alert，按[开发程序](../development.md#phase-end-acquisition-consolidation)在start/midpoint预留，
+在最终audit-only边界及seal之前完成。相对实际Phase baseline审查新/改测试与受影响既有消费者；
+handoff记录共享/保留fresh的理由、覆盖等价、成本和剩余债务。复用现有证据，不强制重复profile/DB/full矩阵。
+该流程不替代下面30项语义/身份/authority技术义务。
 
 ## Mandatory review fields
 

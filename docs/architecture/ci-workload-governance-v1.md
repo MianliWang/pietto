@@ -67,4 +67,9 @@ job elapsed、test elapsed、依赖关键路径、queue与job sum分开；当前
 不输出credentials或任意environment values。维护只能通过普通reviewed commit，health不改U、不调worker、不retry。
 
 新测试清单：ordinary或special；family/profile/group；估算成本/资源影响；扩展的既有assurance；可执行正反例。
-不要求精确时间目标。phase start消费eligible health与适用lesson，midpoint/closeout评价alerts；没有alert就不新增CI维护。
+不要求精确时间目标。phase start消费eligible health与适用lesson，midpoint/closeout评价alerts。
+常规[phase-end acquisition整合](../development.md#phase-end-acquisition-consolidation)不要求health alert；
+按实际Phase baseline分类new/changed acquisition与必要旧消费者，在audit-only closeout前安排实质工作。
+保留独立断言、fresh identity/变异/进程隔离与source/wheel见证；共享说明不是collection allowlist。
+复用当前timing/operation证据，只补必要的有界比较；handoff分别报告结构收益、wall-time与有据例外。
+scheduler/topology/resource-policy的变动仍受本治理的证据要求和单独授权约束，不能从常规review推导授权。

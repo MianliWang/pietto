@@ -93,7 +93,7 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
     # Phase67 Slice03 adds three private codec owners and one ordinary principal.
     assert len(production_files) == 237
     # Phase68 S02 adds two inert experiment helpers and one offline principal.
-    assert len(test_files) == 523
+    assert len(test_files) == 524
     assert set(production_files).isdisjoint(test_files)
 
 

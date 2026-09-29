@@ -63,8 +63,10 @@ Use the layered policy in
 keep dirty-stage checks focused, run one complete review, then run the
 authoritative Python 3.13 validator exactly once. Run generated, golden, and
 package-smoke audits locally only when their owned risk surfaces change.
-Natural CI remains the final independent Python 3.12 and 3.13 full-validation
-owner, and keeps its existing monolithic per-interpreter validation step.
+Natural CI remains the final independent Python 3.12 and 3.13 coverage owner.
+The current four partitions and completion consumers are specified by
+[CI governance](architecture/ci-workload-governance-v1.md); older monolithic
+and no-gain records below retain their historical applicability.
 
 Do not propose horizontal CI pytest sharding, extra shards, extra pytest workers,
 a different xdist scheduler, or arbitrary heavy-file splitting as a performance
@@ -74,6 +76,42 @@ shared acquisition floor of roughly 470.64s, which is already above the 55%
 adoption ceiling, so sharding multiplies that floor rather than dividing it. That
 record also states the measured reopening boundary.
 
+
+## Phase-end acquisition consolidation
+
+Reuse observations and compatible preparation under explicit input/lifetime
+boundaries; rerun independent assertions. Existing owners come first:
+`tests/_pietto_repository_facts.py` for process-local immutable source observations,
+and the existing differential acquisition owner for compatible run-owned process
+cells. Session scope is per worker; it does not establish cross-worker sharing.
+
+1. During a Slice, reuse an existing owner when it fits. Briefly record each new
+   exceptional acquisition's actual input, assurance purpose, freshness/isolation,
+   resource need and owner. Do not force a broad refactor on every Slice.
+2. At Phase start/midpoint reserve consolidation effort in the existing route.
+   Before the final audit-only boundary and authoritative seal, inspect new or
+   changed tests/helpers relative to the actual Phase baseline, including direct
+   existing consumers of changed shared owners.
+3. Classify repeated acquisition, fixtures/preparation, copying/serialization and
+   resource affinity. Consolidate significant compatible work; preserve fresh
+   identity, mutation, process-portability and independent source/wheel witnesses.
+   Keep evidence-based low-value exceptions with a reason and owner.
+4. Reuse current timings and operation counts. Measure bounded before/after only
+   for unanswered questions; integrate the ordinary final validation and evidence
+   selection, without another mandatory full profile or database matrix.
+5. Review exact equivalence/coverage, changed/add/remove/overlay detection,
+   duplicate-work reduction, memory and measured total/critical-path cost. Report
+   structural improvement, wall-time improvement and no-gain separately.
+6. The Phase handoff summarizes migrated/shared/fresh readers, exceptions and
+   remaining debt. A material new duplication burden cannot remain unexamined;
+   low-value repetition does not justify a new framework. Formal end-to-end
+   dispatches include implementation scope/budget before an audit-only closeout.
+
+This routine review does not require a CI health alert. `ci_workload` and
+`ci/workloads.toml` remain the execution-requirement/placement owners; sharing
+notes never select tests. Scheduler/topology/resource-policy changes still need
+existing evidence and separate authority. [C01](spec/validation-consolidation-c01-v1.md)
+bootstraps this procedure without rewriting closed Phase67/S03 history.
 
 ## Explicit target conformance
 
@@ -501,7 +539,7 @@ S02 explicit experiment entry is the isolated pinned interpreter followed by
 uses stdlib temporary storage/processes and data-only checks; no source DB or
 optional-driver discovery. Source/store/sink results remain local evidence.
 
-## Phase68 S03 current execution and validation
+## Phase68 S03 execution and validation record
 
 [S03](phases/phase-68/slice-03.md) uses its single dispatch Section 9 and external
 cumulative ledger. P1/P2 qualification and the route predicate enabled its private
@@ -524,3 +562,12 @@ captured replay. Local native experiments are separately required; hosted old
 native families do not certify S03. Generated/golden inputs are unchanged except
 the explicit script inventories, checked locally and again by CI. No duplicate
 local full partition run or untriggered CI-maintenance work is added.
+
+## Validation Consolidation C01 current closure
+
+C01 is separate test/development maintenance after published Phase68 S03; S04
+remains unimplemented. Its dispatch Section 10 and single external ledger own
+all cumulative budgets. The measured cohort keeps original nodes/assertions and
+injection seams. The current unfiltered guarded Python3.13 validator remains
+required, followed by natural exact-head CI and its actual consumers. Native
+S01–S03 campaigns and production inputs are not changed or rerun here.

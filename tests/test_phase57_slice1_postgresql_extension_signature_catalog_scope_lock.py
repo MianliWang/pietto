@@ -9,6 +9,8 @@ import sys
 
 import pytest
 
+from _pietto_repository_facts import REPOSITORY_FACTS
+
 import _pietto_capability_differential_vectors as vectors
 import pietto
 import pietto._project as project_package
@@ -97,7 +99,7 @@ EXPECTED_ROUTE = (
 
 
 def _read(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
+    return REPOSITORY_FACTS.text(path)
 
 
 def _section(document: str, heading: str) -> str:
@@ -301,10 +303,13 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
         provider_path,
         selector_path,
     }
+    # Namespace is immutable during this invocation; every later assertion
+    # enumerates again, including its actual injected path view.
+    python_paths = tuple(sorted(source_root.rglob("*.py")))
     extension_catalog_modules = tuple(
         sorted(
             path.relative_to(REPO_ROOT).as_posix()
-            for path in source_root.rglob("*.py")
+            for path in python_paths
             if "extension" in path.stem
             and ("catalog" in path.stem or "signature" in path.stem)
         )
@@ -337,9 +342,9 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
         source_root / "_project/project_sql_plan_portable.py",
         source_root / "_project/project_sql_plan_portable_schema.py",
     }
-    production_source = "\n".join(
-        _read(path)
-        for path in sorted(source_root.rglob("*.py"))
+    production_source = tuple(
+        (path, REPOSITORY_FACTS.lowercase(_read(path)))
+        for path in python_paths
         if path not in catalog_paths
     )
     for forbidden in (
@@ -354,25 +359,24 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
         "postgis",
         "timescaledb",
     ):
-        inspected_source = production_source
+        excluded_paths = set()
         if forbidden == "extension_catalog":
-            inspected_source = "\n".join(
-                _read(path)
-                for path in sorted(source_root.rglob("*.py"))
-                if path not in catalog_paths | portable_observation_paths
-            )
+            excluded_paths = portable_observation_paths
         if forbidden in {"psycopg", "server_version"}:
-            # S03 explicitly owns PG execution; compiler/catalog/portable owners
-            # keep the original ban. No other token gains an exception here.
+            # S03 explicitly owns PG execution, with no other exception.
             execution_path = (
                 REPO_ROOT / "src/pietto/_project/project_execution_postgres.py"
             )
-            inspected_source = "\n".join(
-                _read(path)
-                for path in sorted(source_root.rglob("*.py"))
-                if path not in catalog_paths | {execution_path}
-            )
-        assert forbidden not in inspected_source.lower()
+            excluded_paths = {execution_path}
+        # Joining files with '\n' cannot create these newline-free needles
+        # across a boundary. Keep substring/lower/comment semantics.
+        assert "\n" not in forbidden
+        violations = tuple(
+            path
+            for path, text in production_source
+            if path not in excluded_paths and forbidden in text
+        )
+        assert not violations, (forbidden, violations)
     for path in portable_observation_paths:
         identifiers = set()
         for node in ast.walk(ast.parse(_read(path))):

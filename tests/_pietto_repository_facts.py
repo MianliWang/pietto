@@ -1,4 +1,8 @@
-"""Immutable Python source facts shared by repository policy tests."""
+"""Process-local observations for explicitly immutable test corpora.
+
+First reads are lazy, not an atomic repository snapshot. Owners select paths;
+changed/copied corpora require a fresh index. No threaded access is provided.
+"""
 
 from __future__ import annotations
 
@@ -26,9 +30,39 @@ class RepositoryFactIndex:
         compare=False,
     )
 
+    _text_by_path: dict[Path, str] = field(
+        default_factory=dict, repr=False, compare=False
+    )
+    _lower_by_text: dict[str, str] = field(
+        default_factory=dict, repr=False, compare=False
+    )
+
     @classmethod
     def snapshot(cls, root: Path) -> RepositoryFactIndex:
         return cls(root=root.resolve())
+
+    def text(self, path: Path) -> str:
+        """Read an owner-selected lexical entry, preserving read_text symlinks.
+
+        Unlike python(), this does not require valid Python or collapse logical
+        paths to resolved aliases. Namespace discovery remains with the owner.
+        """
+        absolute = path.absolute()
+        if ".." in absolute.parts or not absolute.is_relative_to(self.root):
+            raise ValueError(f"Text path is outside repository root: {path}")
+        try:
+            return self._text_by_path[absolute]
+        except KeyError:
+            text = path.read_text(encoding="utf-8")
+            return self._text_by_path.setdefault(absolute, text)
+
+    def lowercase(self, text: str) -> str:
+        """Derive from the supplied text, including each caller's injected text."""
+        try:
+            return self._lower_by_text[text]
+        except KeyError:
+            lowered = text.lower()
+            return self._lower_by_text.setdefault(text, lowered)
 
     def python(self, path: Path) -> PythonSourceFacts:
         resolved = path.resolve()
@@ -39,12 +73,17 @@ class RepositoryFactIndex:
         try:
             return self._python_by_path[resolved]
         except KeyError:
-            fact = _python_source_facts(resolved)
+            text = self._text_by_path.get(resolved)
+            if text is None:
+                text = resolved.read_text(encoding="utf-8")
+            fact = _python_source_facts(resolved, text)
+            # A failed parse publishes no new capture, preserving python-only
+            # acquisition's retry behavior after failure.
+            self._text_by_path.setdefault(resolved, text)
             return self._python_by_path.setdefault(resolved, fact)
 
 
-def _python_source_facts(path: Path) -> PythonSourceFacts:
-    text = path.read_text(encoding="utf-8")
+def _python_source_facts(path: Path, text: str) -> PythonSourceFacts:
     tree = ast.parse(text, filename=str(path))
     imported_modules = {
         alias.name

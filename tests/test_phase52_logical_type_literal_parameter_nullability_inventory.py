@@ -676,22 +676,18 @@ def test_private_inventory_has_no_compiler_public_or_serializer_consumer() -> No
             or "generated" in path.parts
         ):
             continue
-        source = REPOSITORY_FACTS.python(path).text
+        source = REPOSITORY_FACTS.text(path)
         assert "semantic.capability_inventory" not in source
         assert "inventory_lookup_inputs" not in source
-    preservation_source = REPOSITORY_FACTS.python(preservation_path).text
+    preservation_source = REPOSITORY_FACTS.text(preservation_path)
     assert "semantic.capability_inventory" in preservation_source
     assert "inventory_lookup_inputs" not in preservation_source
-    provider_source = REPOSITORY_FACTS.python(provider_path).text
+    provider_source = REPOSITORY_FACTS.text(provider_path)
     assert "semantic.capability_inventory" in provider_source
     assert "inventory_lookup_inputs" in provider_source
-    assert (
-        "capability_inventory"
-        not in REPOSITORY_FACTS.python(
-            REPO_ROOT / "src/pietto/semantic/__init__.py"
-        ).text
+    assert "capability_inventory" not in REPOSITORY_FACTS.text(
+        REPO_ROOT / "src/pietto/semantic/__init__.py"
     )
-    assert (
-        "capability_inventory"
-        not in REPOSITORY_FACTS.python(REPO_ROOT / "src/pietto/__init__.py").text
+    assert "capability_inventory" not in REPOSITORY_FACTS.text(
+        REPO_ROOT / "src/pietto/__init__.py"
     )

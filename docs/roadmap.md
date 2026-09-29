@@ -11,7 +11,7 @@ successful natural exact-head CI. Phase64 and its 11 numbered Slices are complet
 through their accepted publication chains. Phase65 and Slices1–16 are completed
 through the accepted Slice16 audit publication. Phase66 and Slices1–16 are completed through the Slice16 audit publication and exact-head CI described below.
 Phase67 is `COMPLETED`, N67=16; Slices01–16 are published. Its external S16 closure activated the committed rule.
-Phase68 is ACTIVE; S03 is dispatched with QUALIFIED_UNDER_THIS_DISPATCH; the remaining twenty-position route is JUSTIFIED_CANDIDATE.
+Phase68 is ACTIVE; S01–S03 are published. C01 validation maintenance is dispatched before S04; the twenty-position product route remains JUSTIFIED_CANDIDATE.
 The Validation/Test Performance Optimization Interlude II is `COMPLETED`.
 Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -66,9 +66,9 @@ sole parent `437916ecf59d8873ef154a1e09f1e48e76884edf`，自然CI36373861089/pus
 [Phase68 brief](phases/phase-68/brief.md)、[20行route](phases/phase-68/slices.md)和[S03合同](phases/phase-68/slice-03.md)承载当前 owner。
 Phase68 `ACTIVE`；[S01原合同](phases/phase-68/slice-01.md)；Slice01 COMPLETED / PUBLISHED，依据 head `5d9645e796a3408e60a4a93ba0b263b8a40b1ef4` 与自然 CI36499401981/push/main/attempt1。
 Slice02 COMPLETED / PUBLISHED，依据 head `86ed839878b877f9ea363c146b939cacf23c43ff`、tree `bda78b078699b8c1978cd65a2f5b65b32f8e56ff` 与自然 CI36508766895/push/main/attempt1；[S02原合同](phases/phase-68/slice-02.md)的 PRODUCT_GATE_BLOCKED_REPLAN 保留为历史。
-S03 CANDIDATE; completed only after closure。内部 gate QUALIFIED_UNDER_THIS_DISPATCH；P1/P2 有限 source/native 资格与 private PG 最小产品纵向各自验收。
+Slice03 COMPLETED / PUBLISHED：head `069a5bab80bf8fda1ca04f5a08446fb0f2940881`、tree `dcec7f5e0829b32ac0153e8581a0550bca5889aa`，自然 CI36532317073/push/main/attempt1；内部 gate QUALIFIED_UNDER_THIS_DISPATCH，P1/P2 与 private PG 最小纵向按各自边界闭合。
 Remaining route JUSTIFIED_CANDIDATE within twenty positions；全部 A01–A22 与目标 exclusions 保留。S05 original-output/PB、S06 compositional R2、S10 source-free bundle/loader 与 midpoint。
-S03 完成仅由实际 head 自然 CI 和外部 final-state 激活；文档不预填未来 head/run。Slice04 NEXT / NOT IMPLEMENTED / separate dispatch required；S04–S20 未实现。
+[Validation Consolidation C01](spec/validation-consolidation-c01-v1.md) CANDIDATE; completed only after closure，独立于20个产品位置。当前owner为repository acquisition整合与phase-end程序；完成只由新head自然CI及C01外部final-state激活，保留原S03 HOLD/失败历史。Slice04 NEXT / NOT IMPLEMENTED / separate dispatch required；S04–S20 未实现。
 Phase66/Interlude V/R1 保持 COMPLETED；Phase69 未开始，package/CLI0.1.0，无 public release。
 
 ## CI remaining-tail maintenance R1
