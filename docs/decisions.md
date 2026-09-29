@@ -86,3 +86,5 @@ captured-native replay及future execution层。[唯一闭环规则](phases/phase
 
 [Phase68 brief](phases/phase-68/brief.md) preserves the user's dual live/bundle entries, typed rebinding, three-route parity, default checks/stable view, explicit Serializable profile, exclusive owned resources, dual durable delivery, real R1/R2, cooperative sink and bounded concurrency. Core has no ambient execution.
 S01 is a test-only FULL initiation candidate; P01/P02/P03 facts gate production boundaries and S02 revalidates the20-row route. No public format, production loader, durable job schema or Phase69 release is frozen here. Unknowns remain blocking for their dependent owner; complete negative experiments never waive product goals.
+
+S02调查保留上述目标，实证边界与剩余route见[S02](phases/phase-68/slice-02.md)。`ARCHITECTURE_DECISION / USER_DECISION_REQUIRED`：先解决全查询重复求值稳定性及输出occurrence恢复，再冻结S03/S11接口；现有scan witness不能授权全族R2。当前PRODUCT_GATE_BLOCKED_REPLAN，未决定新source服务或削减功能。

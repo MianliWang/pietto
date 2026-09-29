@@ -348,9 +348,12 @@ EXPECTED_STATUS = (
     ("Phase 67 Slice 15", "`COMPLETED / PUBLISHED`"),
     ("Phase 67 Slice 16", "`COMPLETED / PUBLISHED`"),
     ("Phase 68", "`ACTIVE — initiation / experiments`"),
-    ("Phase 68 Slice 01", "`CANDIDATE; completed only after closure`"),
-    ("Phase 68 Slice 02", "`NEXT / NOT STARTED`"),
-    ("Phase 68 route", "`20 baseline rows; sizing PENDING S02`"),
+    ("Phase 68 Slice 01", "`COMPLETED / PUBLISHED`"),
+    ("Phase 68 Slice 02", "`CANDIDATE; completed only after closure`"),
+    (
+        "Phase 68 route",
+        "`20 baseline rows; PRODUCT_GATE_BLOCKED_REPLAN; sizing NOT_VALIDATED`",
+    ),
     ("Interlude V", "`COMPLETED`"),
     ("Interlude V route", "`N=3`"),
     ("Interlude V Slice 1", "`COMPLETED / PUBLISHED`"),
@@ -358,7 +361,7 @@ EXPECTED_STATUS = (
     ("Interlude V S2 performance outcome", "`MEASURED_GAIN`"),
     ("Interlude V Slice 3", "`COMPLETED / PUBLISHED`"),
     ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
-    ("Next", "`S01 closure; S02 requires separate dispatch`"),
+    ("Next", "`S02 closure; S03 blocked and requires separate dispatch`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
@@ -6132,10 +6135,13 @@ def test_phase68_initiation_keeps_completion_and_candidate_evidence_separate() -
             "descriptor-only ORDER",
             "五类captured-native replay",
             "phases/phase-68/slice-01.md",
-            "S01 CANDIDATE; completed only after closure",
-            "Slice02 NEXT / NOT STARTED",
-            "PENDING S02 empirical revalidation",
+            "S02 CANDIDATE; completed only after closure",
+            "Slice01 COMPLETED / PUBLISHED",
+            "Slice03 NOT STARTED",
+            "sizing NOT_VALIDATED",
+            "phases/phase-68/slice-02.md",
+            "PRODUCT_GATE_BLOCKED_REPLAN",
             "PRODUCT_GATE_BLOCKED",
         ):
             assert fact in current, fact
-        assert "Slice01 COMPLETED / PUBLISHED" not in current
+        assert "Slice02 COMPLETED / PUBLISHED" not in current

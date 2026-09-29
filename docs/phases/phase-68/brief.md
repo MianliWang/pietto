@@ -1,8 +1,8 @@
 # Phase68：显式受控只读执行、运行包与恢复
 
 Phase67 COMPLETED，终态基线 `2f280ea02b974c0ab7e6e8e07017b960b55f850a`；其原合同和失败历史保留。
-本期 ACTIVE — initiation / experiments；S01 CANDIDATE; completed only after closure。
-用户2026-09-28的独立 ACTIVE/EXECUTE 请求仅派发 [S01](slice-01.md)；[20行路线](slices.md)不等于尺寸已实证。
+本期 ACTIVE — initiation / experiments；S01 COMPLETED / PUBLISHED；S02 CANDIDATE; completed only after closure。
+当前 ACTIVE/EXECUTE 请求派发 [S02](slice-02.md)；[20行路线](slices.md)仍因全局查询R2机制/尺寸待决而PRODUCT_GATE_BLOCKED_REPLAN。
 
 ## R/A/C 与使命
 
@@ -28,7 +28,7 @@ Phase67 COMPLETED，终态基线 `2f280ea02b974c0ab7e6e8e07017b960b55f850a`；�
 
 明确不做任意SQL/DML/DDL产品、业务源写入、hidden COUNT、silent fallback/换driver、整job自动重试、XA/共识/自写WAL、任意callback全局事务、
 永久磁盘丢失/远程复制/多机接管、自动跨版迁移、OS scheduler、公共release或Phase69实现。时间有余才增加非必要性能取点/可视化。
-不能用全部拒绝替代必需正例，不能将三路线缩到最弱交集。限20个编号Slices，每片默认累计12组causal corrections。
+不能用全部拒绝替代必需正例，不能将三路线缩到最弱交集。限20个编号Slices；当前累计repair/focused预算由S02 dispatch Section 8唯一规定，历史S01计数保留。
 
 ## 三层验收
 
@@ -69,3 +69,5 @@ Phase69消费真实执行矩阵与入口/error要求；public format/API归Phase
 
 当前S01前提调查：matrix6取得完整57项并通过独立checker，READY_FOR_SLICE02_EXPERIMENT仅是下一实验的前提评估。
 实际driver/representation/取消边界见[planning notes](planning-notes.md#matrix6当前前提调查闭合s01仍待完整发布闭环)；S01完成仍以全部回归/发布/证据条件为准。
+
+S02有限三路线同版本未捕获suffix、SQLite/WAL+FULL进程恢复与合作sink已观察；完整产品与路线尺寸仍未获证，详见[S02](slice-02.md)。

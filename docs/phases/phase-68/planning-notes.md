@@ -1,5 +1,7 @@
 # Phase68 initiation notes
 
+当前owner为[S02](slice-02.md)：有限source/store/sink调查完成，PRODUCT_GATE_BLOCKED_REPLAN；S01已由外部终态发布。下列S01候选/失败文字保留历史。
+
 宏观选择已批准。比较三种顺序：格式/抽象先行会固定未知前提；单driver到底再复制易继承偶然实现；采用两片风险实验→PG最薄纵向→共同内核三路线→持久恢复→并发联合验收。
 UNKNOWN阻止依赖它的生产冻结，不阻止本轮旨在解决前提的实验。
 
@@ -98,3 +100,7 @@ PG rows记录QueryCanceled/57014；PG ADBC记录取消请求导致的libpq OSErr
 三路线P02实际参数/结果已重验，ADBC原use_copy=True/False均成立；P03保留真实metadata和NUMERIC文本/UUID carriers适配义务。P04仅有限稳定view/Serializable正常只读历史。
 P05保留错误发生的实际阶段，不把execute-time error写成首批交付后late error，不由fetchmany推server streaming。P07真实直接output正例与复杂族桥接owner分开。
 C12–C15修正未改生产、pins、profiles、SQL/fixture目标或Phase67协议。matrix6两target均cleanup成功；完整full/四安装cells/SDK9/120118/22全文、publication/natural CI/28raw/native/current replay仍是S01完成的硬条件。
+
+## S02 observations and remaining decision
+
+真实前缀2行→原进程终止/session消失→新进程原版本3/1/0行；三driver分别闭合独立sink lost-ACK。SQLite固定build/实际ext4/WAL FULL和五切点见S02及raw，不扩为物理断电证明。全局查询不能按chunks拼接；immutable输入仍不足以保证tie-sensitive window/ORDER/LIMIT重复执行稳定性。全部22项保留；阻断依赖生产/格式冻结，待明确恢复算法及20片尺寸分配。

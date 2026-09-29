@@ -281,6 +281,7 @@ def test_slice3_guard_stays_independent_from_later_workflows() -> None:
         "scripts/ci_workloads.py",
         "scripts/package_smoke.py",
         "scripts/phase68_executor_premise.py",
+        "scripts/phase68_recovery_premise.py",
         "scripts/validate.py",
     )
     assert validate.GATES == VALIDATION_GATES

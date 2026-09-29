@@ -1,6 +1,6 @@
 # Phase68 baseline route — 20 rows
 
-Phase68 ACTIVE — initiation / experiments。S01 CANDIDATE; completed only after closure；S02 NEXT / NOT STARTED；S03–S20 NOT STARTED / NOT RELEASED FOR IMPLEMENTATION。
+Phase68 ACTIVE — initiation / experiments。S01 COMPLETED / PUBLISHED；S02 CANDIDATE; completed only after closure；S03–S20 NOT STARTED / NOT RELEASED FOR IMPLEMENTATION。
 上限20；下表是覆盖与依赖基准，不是20片总尺寸或工期已经实验确认。coding单写入者、严格按派发范围串行。
 
 | Slice | Outcome | Dependencies | Acceptance |
@@ -31,4 +31,8 @@ P02 source/store/sink在S02实测：新进程读取同版本尚未捕获数据�
 P03共同SQL族/类型表示/入口/交付/恢复/隔离矩阵和片段尺寸在S02结束重新冻结；这之前不固化未知事实为生产接口/持久格式。
 S02仅是可逆test-only最细实验；SQLite实际build修复来源/FS耐久前提需合格。S04/S05/S06/S07/S14为尺寸watchpoints。
 S10为正式midpoint，重查S/H/L/K/Q和同保证终态/取消。事实、权限、目标或容量冲突只重开受影响决定；Q通常两次、最多三次。
-负实验可完整发布，但不得将实验PASS当产品gate开放；环境未结论必须HOLD。S01终态后停止，不自动派发S02。
+负实验可完整发布，但不得将实验PASS当产品gate开放；环境未结论必须HOLD。S02终态后停止，不自动派发S03。
+
+## S02 route revalidation
+
+16个命名实验已闭合有限机制，但全局/tie-sensitive R2和S14所需工作尺寸未解决。结论PRODUCT_GATE_BLOCKED_REPLAN；总尺寸NOT_VALIDATED。保留上述20行和全部22项要求；[S02逐项机制/依赖/证据表](slice-02.md#remaining-route-preserve-all-goals-block-the-unresolved-decision)是当前路线判断。S03和S11/S12格式冻结阻断，S04/S05/S06/S07/S14仍为独立watchpoints；不以行数替代可交付性。

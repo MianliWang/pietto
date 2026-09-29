@@ -11,7 +11,7 @@ successful natural exact-head CI. Phase64 and its 11 numbered Slices are complet
 through their accepted publication chains. Phase65 and Slices1–16 are completed
 through the accepted Slice16 audit publication. Phase66 and Slices1–16 are completed through the Slice16 audit publication and exact-head CI described below.
 Phase67 is `COMPLETED`, N67=16; Slices01–16 are published. Its external S16 closure activated the committed rule.
-Phase68 is ACTIVE — initiation / experiments; only Slice01 is dispatched, with final route sizing pending Slice02.
+Phase68 is ACTIVE — initiation / experiments; Slice02 is dispatched; full-family R2 and route sizing remain PRODUCT_GATE_BLOCKED_REPLAN.
 The Validation/Test Performance Optimization Interlude II is `COMPLETED`.
 Interlude II Slice 1, post-Phase-63 baseline profiling, cost
 attribution, and route lock, is `COMPLETED / PUBLISHED` and added no production
@@ -35,7 +35,7 @@ left Phase 64 Slice 2 `NEXT / NOT IMPLEMENTED`.
 
 The current compiler core has no ambient database execution, credentials, remote
 loading, registry, dependency solving, runtime evaluation or installation discovery.
-Phase68 authorizes a separate explicit read-only execution plane; S01 is test-only. Future work must
+Phase68 authorizes a separate explicit read-only execution plane; S01–S02 are test-only. Future work must
 preserve established identity, complete collection, provenance, ordering,
 trust, and diagnostic boundaries unless a new explicit product decision
 changes them.
@@ -63,14 +63,12 @@ sole parent `437916ecf59d8873ef154a1e09f1e48e76884edf`，自然CI36373861089/pus
 
 ## Phase68 当前路线
 
-[Phase68 brief](phases/phase-68/brief.md)、[20行baseline route](phases/phase-68/slices.md)、[planning notes](phases/phase-68/planning-notes.md)及[S01唯一合同](phases/phase-68/slice-01.md)承载本轮FULL启动。
-Phase68 `ACTIVE — initiation / experiments`；S01 CANDIDATE; completed only after closure。
-当前matrix6完整57项与独立checker已通过，READY_FOR_SLICE02_EXPERIMENT仅指下一实验前提；S01仍待唯一闭环规则要求的全部回归/发布证据。
-当前只有test-only driver premise实验；core仍是compiler，产品executor/运行包/恢复均尚未实现。
-Slice02 NEXT / NOT STARTED；Slices03–20 NOT STARTED / NOT RELEASED FOR IMPLEMENTATION。
-总上限20、baseline rows20；完整路线尺寸PENDING S02 empirical revalidation。P01/P02/P03未知前提不写入生产接口或持久格式。
-S01实测负结果可完成有界实验，但保持对应PRODUCT_GATE_BLOCKED；environment inconclusive必须HOLD。
-Phase66/Interlude V（恰3Slices）/R1保持COMPLETED；Phase69及原后续owners未开始，无public release。
+[Phase68 brief](phases/phase-68/brief.md)、[20行baseline route](phases/phase-68/slices.md)和[S02合同/报告](phases/phase-68/slice-02.md)承载当前source/store/sink调查。
+Phase68 `ACTIVE — initiation / experiments`；Slice01 COMPLETED / PUBLISHED，依据head `5d9645e796a3408e60a4a93ba0b263b8a40b1ef4`及自然CI36499401981/push/main/attempt1外部闭环；[S01原合同](phases/phase-68/slice-01.md)候选文字保留历史。
+S02 CANDIDATE; completed only after closure。当前有限三路线R2、磁盘切点和合作sink观察已闭合；experiment investigation COMPLETE；next-stage gate PRODUCT_GATE_BLOCKED_REPLAN。
+产品executor/无源运行包/恢复尚未实现；Slice03 NOT STARTED，Slices03–20 NOT STARTED / NOT RELEASED FOR IMPLEMENTATION。
+总上限20（含S01/S02）；remaining route sizing NOT_VALIDATED：全局/tie-sensitive查询的R2 repeatability与occurrence机制尚待决定，不缩减原22项承诺，不添加必需source service。
+S02完成只由新head自然CI和外部final-state激活；missing观察为HOLD。Phase66/Interlude V/R1保持COMPLETED；Phase69未开始，package/CLI0.1.0，无public release。
 
 ## CI remaining-tail maintenance R1
 

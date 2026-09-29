@@ -30,8 +30,9 @@ public compatibility, or high-risk trust/algorithm decisions. Do not make a
 decision record for mechanical implementation detail.
 
 **Gate 2 — build.** Implement the minimum solution, run focused checks, review
-the complete candidate, group real findings by root cause, make one repair
-batch when needed, run proportionate final validation, and seal the candidate
+the complete candidate, group real findings by root cause, consolidate the
+repair batch, follow the active dispatch cumulative budget, run proportionate
+final validation, and seal the candidate
 by its Git tree OID. Stop for unresolved material findings, trust/data-loss or
 security regressions, unreproducible candidate content, validation failure, or
 out-of-scope behavior.
@@ -475,3 +476,27 @@ Phase68需独立FULL gate，本次不执行该gate；不得新增skip、benchmar
 
 [S01](phases/phase-68/slice-01.md) adds an intentionally invoked test-only `scripts/phase68_executor_premise.py` and an offline data-only checker. Experimental dependencies are isolated by `ci/phase68-executor-premise-requirements.txt`; they never enter core or the four clean Phase67 regression cells. Local observed facts are not newly exercised hosted-CI driver support.
 Ordinary new tests remain in independent full collection with no workload placement change. The S01 contract retains guarded3.13 final equivalence, two-runtime SDK9/120118/22documents, exact natural CI28raw/native/current replay. The one external ledger counts all failures and starts; complete unsupported and inconclusive environment have different terminals.
+
+## Phase68 S02 current validation and repair policy
+
+[S02](phases/phase-68/slice-02.md) uses the active dispatch Section 8 as its sole
+execution-budget authority: causal corrections/focused starts have approved
+24/24 headroom. Historical S01 counts and unconditional local install matrix
+remain historical. A consolidated review finding set permits later diagnosed
+in-scope repairs within that cumulative authority; no unchanged luck retries.
+
+Select auxiliary local gates by their registered input closure and actual CI
+consumer, not merely by absence of production edits. Record NOT_REQUIRED_LOCAL,
+CURRENT_CI or REUSED_UNCHANGED with origin; never a fabricated local PASS.
+Focused behavior/direct readers, appropriate Ruff/Pyright, one authoritative
+Python3.13 full regression and exact-head natural CI remain current. The normal
+`scripts/validate.py --timings --oom-guard on --pytest-maxprocesses 4` path runs its six
+gates once; selecting it does not additionally run an equivalent partition suite.
+Natural CI retains independent collection, four partitions, managed acquisition,
+all package/native/replay consumers and existing worker limits unchanged.
+
+S02 explicit experiment entry is the isolated pinned interpreter followed by
+`scripts/phase68_recovery_premise.py run --directory <new-owned-root> --ledger
+<single-S02-ledger> --tree <actual-tree> --family all`. Ordinary pytest only
+uses stdlib temporary storage/processes and data-only checks; no source DB or
+optional-driver discovery. Source/store/sink results remain local evidence.

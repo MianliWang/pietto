@@ -85,3 +85,9 @@ outer/child固定解释器，SQLite builtin module不能假定有独立__file__�
 
 S01续行实测：selector只反映kernel readiness，buffered readline可能藏住已读控制帧；单owner raw framing和真实coalesced/fragmented/EOF/ACK反例关闭该缺陷。
 MySQL helper调用不等于第二次native提交；prepared Execute、实际signal outcome与standalone SLEEP返回值须按真实接口分开记录。matrix6已重验完整57项；旧失败不抹去，不从局部成功推全域产品保证。
+
+## Phase68 S02 bounded lessons
+
+- 同版本标识需与源的实际不可变/保留契约相连；原提取者死亡后新session取得未捕获suffix才是R2，scan正例不迁移到全局算子。
+- 文件namespace durability、metadata commit与job ACK分别观测；进程崩溃不是断电，WAL maintenance不是应用checkpoint。
+- sink commit与本地ACK分离；稳定effect身份、payload/epoch/retention检查和可查询历史共同支持有限重试。

@@ -39,7 +39,8 @@ commands, diagnostics, and commit messages in English.
   documented generation and reproducibility checks.
 - Use focused tests and Ruff while implementing. Before a normal Gate 2 seal,
   run the authoritative Python 3.13 validation. Run generated, golden, and
-  package checks when their paths change. Publication/Git infrastructure needs
+  package checks when their actual input closure changes; current CI may own
+  independent auxiliary checks as specified by the active dispatch. Publication/Git infrastructure needs
   a depth-one validation. Natural CI owns final Python 3.12 and 3.13 coverage.
 
 ## Decisions and authority
@@ -63,8 +64,9 @@ abstraction needs a current caller or invariant.
   operation, then freeze the baseline.
 - Gate 1: record only substantive decisions; no historical authority dump.
 - Gate 2: implement the minimum change, run focused checks, review the complete
-  finding set, make at most one root-cause repair batch, run appropriate final
-  validation, and seal the Git tree.
+  finding set, consolidate repairs by root cause, run appropriate final
+  validation, and seal the Git tree. Slice dispatches own cumulative repair
+  budgets; S02 uses its Section 8 authority.
 - Gate 3: rebind the baseline, stage exactly the sealed tree, make one ordinary
   commit, fast-forward push, and require natural exact-head CI. A failed head
   is preserved; repair a new child and push it normally. Do not rerun it.
