@@ -16,7 +16,7 @@ PG_INTS = {20: "pg_int8", 21: "pg_int2", 23: "pg_int4"}
 def bind_native_projection(request, description):
     from pietto._project.project_result_binding import _columns
 
-    columns = _columns(request.contract, request.artifact)
+    columns = _columns(request.contract, request.artifact, request.projection)
     if description is None or len(description) != len(columns):
         raise ResultError("EXECUTION_METADATA")
     observations = []
@@ -41,7 +41,12 @@ def bind_native_projection(request, description):
                 protocol_nullable=meta.null_ok,
             )
         )
-    return bind_producer(request.contract, request.artifact, tuple(observations))
+    return bind_producer(
+        request.contract,
+        request.artifact,
+        tuple(observations),
+        projection=request.projection,
+    )
 
 
 class ExecutionPayloads:

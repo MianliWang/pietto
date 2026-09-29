@@ -65,9 +65,10 @@ class ProducerResultBinding:
     contract: PiettoResultContract = dc_field(repr=False)
     artifact: Any = dc_field(repr=False)
     fields: tuple[ProducerFieldBinding, ...] = dc_field(repr=False)
+    projection: Any = dc_field(default=None, repr=False)
 
 
-def _columns(contract, artifact):
+def _columns(contract, artifact, projection=None):
     try:
         view = inspect_project_sql_emission(artifact, artifact.request)
     except (ValueError, TypeError, AttributeError) as exc:
@@ -75,6 +76,10 @@ def _columns(contract, artifact):
     verify_result_contract(contract, view.request.verification)
     if contract.scalar_meaning is not view.request.scalar_meaning:
         raise ResultError("PRODUCER_ROOT")
+    if projection is not None:
+        from pietto._project.project_execution_projection import verify_projection
+
+        return verify_projection(projection, artifact)
     if type(artifact.ast) is not SQLSelect or any(
         type(c) is not SQLColumn for c in view.columns
     ):
@@ -82,8 +87,10 @@ def _columns(contract, artifact):
     return view.columns
 
 
-def bind_producer(contract, artifact, observations) -> ProducerResultBinding:
-    columns = _columns(contract, artifact)
+def bind_producer(
+    contract, artifact, observations, *, projection=None
+) -> ProducerResultBinding:
+    columns = _columns(contract, artifact, projection)
     if type(observations) is not tuple or len(observations) != len(columns):
         raise ResultError("PRODUCER_FIELDS")
     fields = tuple(
@@ -92,14 +99,16 @@ def bind_producer(contract, artifact, observations) -> ProducerResultBinding:
         )
         for f, c, o in zip(contract.shape.fields, columns, observations, strict=True)
     )
-    binding = ProducerResultBinding(contract, artifact, fields)
+    binding = ProducerResultBinding(contract, artifact, fields, projection)
     verify_producer_binding(binding, contract, artifact)
     return binding
 
 
 def verify_producer_binding(binding, contract, artifact) -> None:
     """Recheck upstream first, including a coordinated binding/Arrow corruption."""
-    columns = _columns(contract, artifact)
+    if type(binding) is not ProducerResultBinding:
+        raise ResultError("PRODUCER_ROOT")
+    columns = _columns(contract, artifact, binding.projection)
     if (
         type(binding) is not ProducerResultBinding
         or binding.contract is not contract

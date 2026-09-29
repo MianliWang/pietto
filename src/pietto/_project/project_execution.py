@@ -57,6 +57,8 @@ class ExecutionRequest:
     source_requirement: RetainedSourceRequirement | None = field(
         default=None, repr=False
     )
+    binding: Any = field(default=None, repr=False)
+    projection: Any = field(default=None, repr=False)
 
 
 def verify_execution_request(request) -> None:
@@ -78,11 +80,23 @@ def verify_execution_request(request) -> None:
         for item in view.request.plan.single_matches
     ):
         raise ExecutionError("UNFULFILLED_RUNTIME_OBLIGATION")
-    columns = _columns(request.contract, request.artifact)
+    if request.binding is not None:
+        from pietto._project.project_execution_binding_verification import (
+            verify_binding,
+        )
+
+        verify_binding(request.binding)
+        if request.binding.artifact is not request.artifact:
+            raise ExecutionError("EXECUTION_BINDING_ROOT")
+    elif request.projection is not None:
+        raise ExecutionError("EXECUTION_BINDING_ROOT")
+    columns = _columns(request.contract, request.artifact, request.projection)
     realizations = tuple(field_realization(c.source_field) for c in columns)
     if any(value is None or value.tag != "Int" for value in realizations):
         raise ExecutionError("EXECUTION_REALIZATION_NOT_DELIVERED")
-    if request.artifact.parameter_uses or request.artifact.fixed_values:
+    if request.binding is None and (
+        request.artifact.parameter_uses or request.artifact.fixed_values
+    ):
         # The existing lawful producer path is field-only. Nonempty native
         # literal uses currently require an unsupported producer shape, not SQL
         # interpolation or a speculative S04 rebinding implementation.
@@ -132,23 +146,55 @@ def prepare_execution(
     limits=ExecutionLimits(),
     isolation="stable",
     source_requirement=None,
+    binding=None,
 ):
     if type(artifact) is not EmissionArtifact:
         raise ExecutionError("EXECUTION_ARTIFACT")
     contract = build_result_contract(
         artifact.request.verification, scalar_meaning=artifact.request.scalar_meaning
     )
+    projection = None
+    if binding is not None:
+        from pietto._project.project_sql_emission_ast import SQLRowQuery
+        from pietto._project.project_execution_projection import prepare_projection
+
+        if type(artifact.ast) is SQLRowQuery:
+            projection = prepare_projection(artifact)
     request = ExecutionRequest(
-        artifact, contract, access, limits, isolation, source_requirement
+        artifact,
+        contract,
+        access,
+        limits,
+        isolation,
+        source_requirement,
+        binding,
+        projection,
     )
     verify_execution_request(request)
     return request
 
 
+def prepare_bound_execution(binding, access, **options):
+    from pietto._project.project_execution_binding_verification import verify_binding
+
+    verify_binding(binding)
+    return prepare_execution(binding.artifact, access, binding=binding, **options)
+
+
+def execution_arguments(request):
+    verify_execution_request(request)
+    return () if request.binding is None else request.binding.arguments
+
+
 def request_state(request):
+    from pietto._project.project_execution_binding_verification import binding_state
+
     a = request.access
     limits = request.limits
     return (
+        request.binding,
+        None if request.binding is None else binding_state(request.binding),
+        request.projection,
         request.artifact,
         request.artifact.request,
         request.artifact.rendered.sql,

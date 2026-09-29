@@ -82,18 +82,10 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
         if "generated" not in path.parts
     )
     test_files = tuple(sorted((REPO_ROOT / "tests").rglob("*.py")))
-    # Phase66 Slice14 adds the private emission observation schema, pure boundary
-    # and runtime modules, one process probe and its owned test file; Slice15 and
-    # the unnumbered pre-Slice16 corrective closure each add only their owned test
-    # file. Interlude V Slice1 adds its runtime-guard test; the two-stage
-    # typing scan and production inventory are unchanged. Slice16 adds its
-    # bounded static completion-audit principal. Interlude V Slice2 adds one
-    # cell-coordination behavior principal without changing typing authority.
-    # Phase67 Slice01 adds one inert Arrow probe and one governance/readiness principal.
-    # Phase67 Slice03 adds three private codec owners and one ordinary principal.
-    assert len(production_files) == 237
-    # Phase68 S02 adds two inert experiment helpers and one offline principal.
-    assert len(test_files) == 524
+    # Current complete inputs include S04's three private execution owners,
+    # two behavior principals and one inert probe. Both typing roots stay exact.
+    assert len(production_files) == 240
+    assert len(test_files) == 527
     assert set(production_files).isdisjoint(test_files)
 
 

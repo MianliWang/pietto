@@ -351,7 +351,8 @@ EXPECTED_STATUS = (
     ("Phase 68 Slice 01", "`COMPLETED / PUBLISHED`"),
     ("Phase 68 Slice 02", "`COMPLETED / PUBLISHED`"),
     ("Phase 68 Slice 03", "`COMPLETED / PUBLISHED`"),
-    ("Validation Consolidation C01", "`CANDIDATE; completed only after closure`"),
+    ("Validation Consolidation C01", "`COMPLETED / PUBLISHED`"),
+    ("Phase 68 Slice 04", "`CANDIDATE; completed only after closure`"),
     (
         "Phase 68 route",
         "`20 positions; JUSTIFIED_CANDIDATE; later acceptance required`",
@@ -363,7 +364,7 @@ EXPECTED_STATUS = (
     ("Interlude V S2 performance outcome", "`MEASURED_GAIN`"),
     ("Interlude V Slice 3", "`COMPLETED / PUBLISHED`"),
     ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
-    ("Next", "`C01 closure; S04 requires separate dispatch`"),
+    ("Next", "`S04 closure; S05 requires separate dispatch`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
@@ -6141,18 +6142,21 @@ def test_phase68_initiation_keeps_completion_and_candidate_evidence_separate() -
             "069a5bab80bf8fda1ca04f5a08446fb0f2940881",
             "CI36532317073/push/main/attempt1",
             "spec/validation-consolidation-c01-v1.md",
-            "C01](spec/validation-consolidation-c01-v1.md) CANDIDATE; completed only after closure",
+            "C01 COMPLETED / PUBLISHED",
+            "6d32ece0328d4760645faf2423d38dd2a2ef0c96",
+            "CI36544619465/push/main/attempt1",
+            "phases/phase-68/slice-04.md) CANDIDATE; completed only after closure",
             "Slice02 COMPLETED / PUBLISHED",
             "86ed839878b877f9ea363c146b939cacf23c43ff",
             "CI36508766895/push/main/attempt1",
             "phases/phase-68/slice-03.md",
             "QUALIFIED_UNDER_THIS_DISPATCH",
             "Slice01 COMPLETED / PUBLISHED",
-            "Slice04 NEXT / NOT IMPLEMENTED / separate dispatch required",
+            "Slice05 NEXT / NOT IMPLEMENTED / separate dispatch required",
             "Remaining route JUSTIFIED_CANDIDATE within twenty positions",
             "phases/phase-68/slice-02.md",
             "PRODUCT_GATE_BLOCKED_REPLAN",
             "PRODUCT_GATE_BLOCKED",
         ):
             assert fact in current, fact
-        assert "C01 COMPLETED / PUBLISHED" not in current
+        assert "Slice04 COMPLETED / PUBLISHED" not in current

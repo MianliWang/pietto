@@ -15,6 +15,7 @@ from pietto._project.project_execution import (
     ExecutionFailure,
     ExecutionOutcome,
     request_state,
+    execution_arguments,
     verify_execution_request,
 )
 from pietto._project.project_execution_reader import ExecutionPayloads
@@ -186,6 +187,9 @@ class PostgresExecution:
         phase = "execute" if not self._submitted else "read"
         try:
             self._verify()
+            # Binding checks can take time; apply the existing control checkpoint
+            # after them and before submitting the immutable accepted tuple.
+            arguments = execution_arguments(self.request) if not self._submitted else ()
             if self._cancel.is_set():
                 raise ExecutionError("EXECUTION_CANCELED")
             remaining = self._remaining()
@@ -202,10 +206,10 @@ class PostgresExecution:
                 self._cursor = connection.cursor()
                 self._owned_cursor = self._cursor
                 self._source = "EXECUTING"
-                # Exact compiler bytes and existing native-use transport. S03's
-                # lawful producer shape has zero fixed-value/native arguments.
                 self._cursor.execute(
-                    self.request.artifact.rendered.sql.decode("utf-8"), (), prepare=True
+                    self.request.artifact.rendered.sql.decode("utf-8"),
+                    arguments,
+                    prepare=True,
                 )
                 self._submitted = True
                 self._source = "READING"

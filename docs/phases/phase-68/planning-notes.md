@@ -1,6 +1,8 @@
 # Phase68 initiation notes
 
-当前 owner 为 [S03](slice-03.md)：P1/P2 合格，private PG 产品纵向为候选，内部 gate QUALIFIED_UNDER_THIS_DISPATCH；20位置 JUSTIFIED_CANDIDATE。S01/S02 已发布；下列历史调查与失败文字不代表当前 gate。
+当前 owner 为 [S04](slice-04.md)：类型化复用模板、不可变绑定和值敏感验证及窄 PG 执行候选；S01–S03/C01 已发布。S03 P1/P2 与 private PG 资格闭合；内部 gate QUALIFIED_UNDER_THIS_DISPATCH，20位置 JUSTIFIED_CANDIDATE。下列历史调查与失败文字不代表当前 gate。
+
+S04 使用原 compiler fixture 与 S01 resource/pump；新身份/篡改测试独立重建必要 roots，native source/wheel 保持独立。没有新 repository observation cache、CI placement 或 profiling。S10 检视复用机会，S19 完成必要 acquisition consolidation，S20 只审计。
 
 宏观选择已批准。比较三种顺序：格式/抽象先行会固定未知前提；单driver到底再复制易继承偶然实现；采用两片风险实验→PG最薄纵向→共同内核三路线→持久恢复→并发联合验收。
 UNKNOWN阻止依赖它的生产冻结，不阻止本轮旨在解决前提的实验。
