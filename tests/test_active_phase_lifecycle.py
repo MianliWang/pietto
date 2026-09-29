@@ -347,12 +347,13 @@ EXPECTED_STATUS = (
     ("Phase 67 Slice 14", "`COMPLETED / PUBLISHED`"),
     ("Phase 67 Slice 15", "`COMPLETED / PUBLISHED`"),
     ("Phase 67 Slice 16", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68", "`ACTIVE — initiation / experiments`"),
+    ("Phase 68", "`ACTIVE`"),
     ("Phase 68 Slice 01", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 02", "`CANDIDATE; completed only after closure`"),
+    ("Phase 68 Slice 02", "`COMPLETED / PUBLISHED`"),
+    ("Phase 68 Slice 03", "`CANDIDATE; completed only after closure`"),
     (
         "Phase 68 route",
-        "`20 baseline rows; PRODUCT_GATE_BLOCKED_REPLAN; sizing NOT_VALIDATED`",
+        "`20 positions; JUSTIFIED_CANDIDATE; later acceptance required`",
     ),
     ("Interlude V", "`COMPLETED`"),
     ("Interlude V route", "`N=3`"),
@@ -361,7 +362,7 @@ EXPECTED_STATUS = (
     ("Interlude V S2 performance outcome", "`MEASURED_GAIN`"),
     ("Interlude V Slice 3", "`COMPLETED / PUBLISHED`"),
     ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
-    ("Next", "`S02 closure; S03 blocked and requires separate dispatch`"),
+    ("Next", "`S03 closure; S04 requires separate dispatch`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
@@ -6135,13 +6136,18 @@ def test_phase68_initiation_keeps_completion_and_candidate_evidence_separate() -
             "descriptor-only ORDER",
             "五类captured-native replay",
             "phases/phase-68/slice-01.md",
-            "S02 CANDIDATE; completed only after closure",
+            "S03 CANDIDATE; completed only after closure",
+            "Slice02 COMPLETED / PUBLISHED",
+            "86ed839878b877f9ea363c146b939cacf23c43ff",
+            "CI36508766895/push/main/attempt1",
+            "phases/phase-68/slice-03.md",
+            "QUALIFIED_UNDER_THIS_DISPATCH",
             "Slice01 COMPLETED / PUBLISHED",
-            "Slice03 NOT STARTED",
-            "sizing NOT_VALIDATED",
+            "Slice04 NEXT / NOT IMPLEMENTED / separate dispatch required",
+            "Remaining route JUSTIFIED_CANDIDATE within twenty positions",
             "phases/phase-68/slice-02.md",
             "PRODUCT_GATE_BLOCKED_REPLAN",
             "PRODUCT_GATE_BLOCKED",
         ):
             assert fact in current, fact
-        assert "Slice02 COMPLETED / PUBLISHED" not in current
+        assert "Slice03 COMPLETED / PUBLISHED" not in current

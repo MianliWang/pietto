@@ -91,3 +91,9 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 - 同版本标识需与源的实际不可变/保留契约相连；原提取者死亡后新session取得未捕获suffix才是R2，scan正例不迁移到全局算子。
 - 文件namespace durability、metadata commit与job ACK分别观测；进程崩溃不是断电，WAL maintenance不是应用checkpoint。
 - sink commit与本地ACK分离；稳定effect身份、payload/epoch/retention检查和可查询历史共同支持有限重试。
+
+## Phase68 S03
+
+- Provider definition evidence 必须与执行端使用同一 role/schema/deparse context；`pg_get_viewdef` 在不同 search_path 下文本不同。S03 在明确 pg_catalog context 捕获并验收，避免把表示差别误判成 domain 改变。
+- 持锁事务观察 blocked query 时显式清除自己的统计 snapshot，再检查实际 session、SQL、active/Lock；缓存 activity 不能当成新控制观察。参见 [S03 合同](../phases/phase-68/slice-03.md)。
+- Oracle 的物理宽度须从既有表示规则独立推导：MySQL UNION 常量 part 是 BIGINT，Arrow 有界 SMALLINT 是 int16。保留失败 raw，修正 checker 后只重读语义未变的记录。

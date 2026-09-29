@@ -1,6 +1,6 @@
 # Phase68 initiation notes
 
-当前owner为[S02](slice-02.md)：有限source/store/sink调查完成，PRODUCT_GATE_BLOCKED_REPLAN；S01已由外部终态发布。下列S01候选/失败文字保留历史。
+当前 owner 为 [S03](slice-03.md)：P1/P2 合格，private PG 产品纵向为候选，内部 gate QUALIFIED_UNDER_THIS_DISPATCH；20位置 JUSTIFIED_CANDIDATE。S01/S02 已发布；下列历史调查与失败文字不代表当前 gate。
 
 宏观选择已批准。比较三种顺序：格式/抽象先行会固定未知前提；单driver到底再复制易继承偶然实现；采用两片风险实验→PG最薄纵向→共同内核三路线→持久恢复→并发联合验收。
 UNKNOWN阻止依赖它的生产冻结，不阻止本轮旨在解决前提的实验。
@@ -104,3 +104,10 @@ C12–C15修正未改生产、pins、profiles、SQL/fixture目标或Phase67协�
 ## S02 observations and remaining decision
 
 真实前缀2行→原进程终止/session消失→新进程原版本3/1/0行；三driver分别闭合独立sink lost-ACK。SQLite固定build/实际ext4/WAL FULL和五切点见S02及raw，不扩为物理断电证明。全局查询不能按chunks拼接；immutable输入仍不足以保证tie-sensitive window/ORDER/LIMIT重复执行稳定性。全部22项保留；阻断依赖生产/格式冻结，待明确恢复算法及20片尺寸分配。
+
+## S03 当前资格与后续责任
+
+P1 的 component view 以 `(part,lid)` 覆盖完整实际域；仅 `lid` 的反例跨组件冲突。不同 fresh session/明确访问顺序保持 token→payload，对 expiry/replacement/visibility/role/token 损坏拒绝。
+P2 的 choice order 与 original peer order 分离，frame membership 按原 frame 决定，再用 native FIRST/LAST/NTH 提取。PG GROUPS/exclusion 与 MySQL 已排除族保持分开；三路线均观察原生宽度、NULL、Float bits、empty/nonempty outer pages。
+这些是有限 native/source 证据。构造性容量说明、全部未来 owners 与 proof 成本见 S03；不宣称实验 SQL 已成为 S06 lowering，也不把 composite integer 试验变成所有 provider token 的唯一类型。
+S05 接通原 outputs 到 PB；S06 证明组合、peers/frames、完整 producer uses 和 occurrence 覆盖；S07 执行 guards；S10 source-free loader 独立重建 authority；S14 将这些事实接入真实 R2。没有第二个通用 frame evaluator。

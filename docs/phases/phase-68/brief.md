@@ -1,8 +1,8 @@
 # Phase68：显式受控只读执行、运行包与恢复
 
 Phase67 COMPLETED，终态基线 `2f280ea02b974c0ab7e6e8e07017b960b55f850a`；其原合同和失败历史保留。
-本期 ACTIVE — initiation / experiments；S01 COMPLETED / PUBLISHED；S02 CANDIDATE; completed only after closure。
-当前 ACTIVE/EXECUTE 请求派发 [S02](slice-02.md)；[20行路线](slices.md)仍因全局查询R2机制/尺寸待决而PRODUCT_GATE_BLOCKED_REPLAN。
+本期 ACTIVE；S01–S02 COMPLETED / PUBLISHED；[S03](slice-03.md) CANDIDATE; completed only after closure。
+S03 内部资格 gate 为 QUALIFIED_UNDER_THIS_DISPATCH；[20行路线](slices.md)为 JUSTIFIED_CANDIDATE，后续产品验收仍待完成。
 
 ## R/A/C 与使命
 
@@ -14,7 +14,7 @@ Phase67 COMPLETED，终态基线 `2f280ea02b974c0ab7e6e8e07017b960b55f850a`；�
 
 调用者通过live编译入口或无源码运行包，反复绑定参数，在PG rows、MySQL rows、PG ADBC上取得同一承诺矩阵的显式只读执行。
 结果支持持久增量消费与完整成功后发布；在明确同版本source、合作sink、保留期和本地磁盘完好前提下恢复长任务，并允许有界多job并发。
-当前core仍是compiler；S01只增加显式测试入口，不提供产品executor。
+默认 core 仍是 compiler；S03 增加显式调用的 private PostgreSQL 最小执行纵向，其他 adapter 与通用查询仍由后续 owners 交付。
 
 ## 已批准选择和范围
 
@@ -28,7 +28,13 @@ Phase67 COMPLETED，终态基线 `2f280ea02b974c0ab7e6e8e07017b960b55f850a`；�
 
 明确不做任意SQL/DML/DDL产品、业务源写入、hidden COUNT、silent fallback/换driver、整job自动重试、XA/共识/自写WAL、任意callback全局事务、
 永久磁盘丢失/远程复制/多机接管、自动跨版迁移、OS scheduler、公共release或Phase69实现。时间有余才增加非必要性能取点/可视化。
-不能用全部拒绝替代必需正例，不能将三路线缩到最弱交集。限20个编号Slices；当前累计repair/focused预算由S02 dispatch Section 8唯一规定，历史S01计数保留。
+不能用全部拒绝替代必需正例，不能将三路线缩到最弱交集。限20个编号Slices；当前累计执行预算由 S03 dispatch Section 9 唯一规定，历史 S01/S02 计数保留。
+
+R2 首次 attempt 前显式选择 tie refinement；不得改变既定 ordering、peers、frames、值、NULL、类型、重数与 guards。
+R2 要求合格 K-provider 的完整实际 source domain、可重开 retained version、非空单射且 reopen-stable tokens；既有 composite key 可合格。
+不要求为任意无身份源合成 identity，不要求 exchangeability fallback，不新建业务列、源服务、结果表或 snapshot keeper。
+provider 的持续不变性/保留责任须显式给出；普通 fresh transaction、版本标签或样本均不足以替代。
+S05 接 original-output/PB，S06 接 compositional R2/refinement/peer-preserving lowering，S10 接 source-free bundle/loader 与 midpoint；每 adapter 自带 controls。
 
 ## 三层验收
 

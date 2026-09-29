@@ -477,9 +477,9 @@ Phase68需独立FULL gate，本次不执行该gate；不得新增skip、benchmar
 [S01](phases/phase-68/slice-01.md) adds an intentionally invoked test-only `scripts/phase68_executor_premise.py` and an offline data-only checker. Experimental dependencies are isolated by `ci/phase68-executor-premise-requirements.txt`; they never enter core or the four clean Phase67 regression cells. Local observed facts are not newly exercised hosted-CI driver support.
 Ordinary new tests remain in independent full collection with no workload placement change. The S01 contract retains guarded3.13 final equivalence, two-runtime SDK9/120118/22documents, exact natural CI28raw/native/current replay. The one external ledger counts all failures and starts; complete unsupported and inconclusive environment have different terminals.
 
-## Phase68 S02 current validation and repair policy
+## Phase68 S02 historical validation and repair policy
 
-[S02](phases/phase-68/slice-02.md) uses the active dispatch Section 8 as its sole
+[S02](phases/phase-68/slice-02.md) used its closed dispatch Section 8 as its sole
 execution-budget authority: causal corrections/focused starts have approved
 24/24 headroom. Historical S01 counts and unconditional local install matrix
 remain historical. A consolidated review finding set permits later diagnosed
@@ -500,3 +500,27 @@ S02 explicit experiment entry is the isolated pinned interpreter followed by
 <single-S02-ledger> --tree <actual-tree> --family all`. Ordinary pytest only
 uses stdlib temporary storage/processes and data-only checks; no source DB or
 optional-driver discovery. Source/store/sink results remain local evidence.
+
+## Phase68 S03 current execution and validation
+
+[S03](phases/phase-68/slice-03.md) uses its single dispatch Section 9 and external
+cumulative ledger. P1/P2 qualification and the route predicate enabled its private
+PostgreSQL implementation in the same dispatch. Diagnosed in-envelope corrections,
+delta checks and the authorized ordinary publication proceed under that authority;
+closed S02 budgets and evidence remain unchanged.
+
+Invoke `scripts/phase68_slice3_probe.py all --directory <new-owned-root> --ledger
+<single-S03-ledger> --tree <actual-tree>` with the recorded isolated Python and
+pinned dependencies, after installing the current ordinary wheel there. The
+worker exercises source and installed production origins; the independent data
+checker consumes the report. Ordinary pytest neither discovers credentials nor
+starts a DB. New execution modules remain private and driver/Arrow imports lazy.
+
+Current focused checks, direct inventories, Ruff/Pyright and the guarded unfiltered
+Python3.13 validator are local obligations. New `src` members change wheel/sdist
+and native package fingerprints: exact-head natural CI owns both clean core/Arrow
+cells, SDK/product complete-document comparisons, fresh native receipts and their
+captured replay. Local native experiments are separately required; hosted old
+native families do not certify S03. Generated/golden inputs are unchanged except
+the explicit script inventories, checked locally and again by CI. No duplicate
+local full partition run or untriggered CI-maintenance work is added.

@@ -103,10 +103,11 @@ documentation does not supersede that evidence.
 | Phase 67 Slice 14 | `COMPLETED / PUBLISHED` |
 | Phase 67 Slice 15 | `COMPLETED / PUBLISHED` |
 | Phase 67 Slice 16 | `COMPLETED / PUBLISHED` |
-| Phase 68 | `ACTIVE — initiation / experiments` |
+| Phase 68 | `ACTIVE` |
 | Phase 68 Slice 01 | `COMPLETED / PUBLISHED` |
-| Phase 68 Slice 02 | `CANDIDATE; completed only after closure` |
-| Phase 68 route | `20 baseline rows; PRODUCT_GATE_BLOCKED_REPLAN; sizing NOT_VALIDATED` |
+| Phase 68 Slice 02 | `COMPLETED / PUBLISHED` |
+| Phase 68 Slice 03 | `CANDIDATE; completed only after closure` |
+| Phase 68 route | `20 positions; JUSTIFIED_CANDIDATE; later acceptance required` |
 | Interlude V | `COMPLETED` |
 | Interlude V route | `N=3` |
 | Interlude V Slice 1 | `COMPLETED / PUBLISHED` |
@@ -114,7 +115,7 @@ documentation does not supersede that evidence.
 | Interlude V S2 performance outcome | `MEASURED_GAIN` |
 | Interlude V Slice 3 | `COMPLETED / PUBLISHED` |
 | CI remaining-tail maintenance R1 | `COMPLETED / PUBLISHED` |
-| Next | `S02 closure; S03 blocked and requires separate dispatch` |
+| Next | `S03 closure; S04 requires separate dispatch` |
 
 ## Phase67 当前路线
 
@@ -130,12 +131,13 @@ sole parent `437916ecf59d8873ef154a1e09f1e48e76884edf`，自然CI36373861089/pus
 
 ## Phase68 当前路线
 
-[Phase68 brief](phases/phase-68/brief.md)、[20行baseline route](phases/phase-68/slices.md)和[S02合同/报告](phases/phase-68/slice-02.md)承载当前source/store/sink调查。
-Phase68 `ACTIVE — initiation / experiments`；Slice01 COMPLETED / PUBLISHED，依据head `5d9645e796a3408e60a4a93ba0b263b8a40b1ef4`及自然CI36499401981/push/main/attempt1外部闭环；[S01原合同](phases/phase-68/slice-01.md)候选文字保留历史。
-S02 CANDIDATE; completed only after closure。当前有限三路线R2、磁盘切点和合作sink观察已闭合；experiment investigation COMPLETE；next-stage gate PRODUCT_GATE_BLOCKED_REPLAN。
-产品executor/无源运行包/恢复尚未实现；Slice03 NOT STARTED，Slices03–20 NOT STARTED / NOT RELEASED FOR IMPLEMENTATION。
-总上限20（含S01/S02）；remaining route sizing NOT_VALIDATED：全局/tie-sensitive查询的R2 repeatability与occurrence机制尚待决定，不缩减原22项承诺，不添加必需source service。
-S02完成只由新head自然CI和外部final-state激活；missing观察为HOLD。Phase66/Interlude V/R1保持COMPLETED；Phase69未开始，package/CLI0.1.0，无public release。
+[Phase68 brief](phases/phase-68/brief.md)、[20行route](phases/phase-68/slices.md)和[S03合同](phases/phase-68/slice-03.md)承载当前 owner。
+Phase68 `ACTIVE`；[S01原合同](phases/phase-68/slice-01.md)；Slice01 COMPLETED / PUBLISHED，依据 head `5d9645e796a3408e60a4a93ba0b263b8a40b1ef4` 与自然 CI36499401981/push/main/attempt1。
+Slice02 COMPLETED / PUBLISHED，依据 head `86ed839878b877f9ea363c146b939cacf23c43ff`、tree `bda78b078699b8c1978cd65a2f5b65b32f8e56ff` 与自然 CI36508766895/push/main/attempt1；[S02原合同](phases/phase-68/slice-02.md)的 PRODUCT_GATE_BLOCKED_REPLAN 保留为历史。
+S03 CANDIDATE; completed only after closure。内部 gate QUALIFIED_UNDER_THIS_DISPATCH；P1/P2 有限 source/native 资格与 private PG 最小产品纵向各自验收。
+Remaining route JUSTIFIED_CANDIDATE within twenty positions；全部 A01–A22 与目标 exclusions 保留。S05 original-output/PB、S06 compositional R2、S10 source-free bundle/loader 与 midpoint。
+S03 完成仅由实际 head 自然 CI 和外部 final-state 激活；文档不预填未来 head/run。Slice04 NEXT / NOT IMPLEMENTED / separate dispatch required；S04–S20 未实现。
+Phase66/Interlude V/R1 保持 COMPLETED；Phase69 未开始，package/CLI0.1.0，无 public release。
 
 ## CI remaining-tail maintenance R1
 

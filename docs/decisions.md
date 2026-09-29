@@ -88,3 +88,9 @@ captured-native replay及future execution层。[唯一闭环规则](phases/phase
 S01 is a test-only FULL initiation candidate; P01/P02/P03 facts gate production boundaries and S02 revalidates the20-row route. No public format, production loader, durable job schema or Phase69 release is frozen here. Unknowns remain blocking for their dependent owner; complete negative experiments never waive product goals.
 
 S02调查保留上述目标，实证边界与剩余route见[S02](phases/phase-68/slice-02.md)。`ARCHITECTURE_DECISION / USER_DECISION_REQUIRED`：先解决全查询重复求值稳定性及输出occurrence恢复，再冻结S03/S11接口；现有scan witness不能授权全族R2。当前PRODUCT_GATE_BLOCKED_REPLAN，未决定新source服务或削减功能。
+
+## Phase68 S03 — approved source and tie decisions
+
+R2 的 caller 在首次 attempt 前显式固定未指定 ties；不能重写原 ordering/peers/frames/exclusions、类型、NULL、重数、producer uses 或 guards。恢复不能看过 prefix 后另选 policy。普通 non-R2 emission 不变。
+R2 要求 external provider 对完整实际 source domain 给出可重开 retained version 与稳定非空单射 tokens；既有 composite keys 可合格。无需为任意 identity-free sources 合成身份，不强制 exchangeability fallback，不创建业务列或 source infrastructure。
+S03 的 component-view/native peer-frame 资格支持 JUSTIFIED_CANDIDATE，不是全族产品认证。S05 负责 original-output/PB；S06 负责组合 R2 facts/refinement/lowering/独立 correspondence；S10 负责无源码 bundle/loader 与 midpoint；S03/S08/S09 各自带 controls。S19 联合验收、20位置与 A01–A22 不变。细节及 conditional gate 见 [S03](phases/phase-68/slice-03.md)。

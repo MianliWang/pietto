@@ -361,6 +361,17 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
                 for path in sorted(source_root.rglob("*.py"))
                 if path not in catalog_paths | portable_observation_paths
             )
+        if forbidden in {"psycopg", "server_version"}:
+            # S03 explicitly owns PG execution; compiler/catalog/portable owners
+            # keep the original ban. No other token gains an exception here.
+            execution_path = (
+                REPO_ROOT / "src/pietto/_project/project_execution_postgres.py"
+            )
+            inspected_source = "\n".join(
+                _read(path)
+                for path in sorted(source_root.rglob("*.py"))
+                if path not in catalog_paths | {execution_path}
+            )
         assert forbidden not in inspected_source.lower()
     for path in portable_observation_paths:
         identifiers = set()
@@ -479,6 +490,77 @@ def test_catalog_metadata_permission_rejects_operational_references(
     monkeypatch.setattr(sys.modules[__name__], "_read", injected_read)
     with pytest.raises(AssertionError):
         test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+
+
+@pytest.mark.parametrize(
+    "owner,forbidden",
+    (
+        ("project_execution_postgres.py", "create extension"),
+        ("project_execution_postgres.py", "pg_extension"),
+        ("project_execution_postgres.py", "asyncpg"),
+        ("project_execution_postgres.py", "extension_catalog"),
+        ("project_execution_postgres.py", "pgvector"),
+        ("project_execution_postgres.py", "pg_trgm"),
+        ("project_execution_postgres.py", "postgis"),
+        ("project_execution_postgres.py", "timescaledb"),
+        ("project_execution.py", "psycopg"),
+        ("project_execution.py", "server_version"),
+        ("project_execution_source.py", "psycopg"),
+        ("project_execution_source.py", "server_version"),
+    ),
+)
+def test_execution_permission_is_path_and_purpose_limited(
+    monkeypatch, owner: str, forbidden: str
+) -> None:
+    test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+    path = REPO_ROOT / "src/pietto/_project" / owner
+    original_read = _read
+
+    def injected_read(candidate: Path) -> str:
+        source = original_read(candidate)
+        return source + "\n" + forbidden if candidate == path else source
+
+    monkeypatch.setattr(sys.modules[__name__], "_read", injected_read)
+    with pytest.raises(AssertionError):
+        test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+
+
+@pytest.mark.parametrize("forbidden", ("psycopg", "server_version"))
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "src/pietto/semantic/project_execution_postgres.py",
+        "src/pietto/_project/project_execution_postgres_shadow.py",
+    ),
+)
+def test_execution_permission_does_not_follow_similar_paths(
+    monkeypatch, relative_path: str, forbidden: str
+) -> None:
+    test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+    source_root = REPO_ROOT / "src/pietto"
+    shadow = REPO_ROOT / relative_path
+    assert not shadow.exists()
+    original_rglob = Path.rglob
+    original_read = _read
+    observed = []
+
+    def injected_paths(directory: Path, pattern: str):
+        yield from original_rglob(directory, pattern)
+        if directory == source_root and pattern == "*.py":
+            yield shadow
+
+    def injected_read(candidate: Path) -> str:
+        if candidate == shadow:
+            observed.append(candidate)
+            return forbidden
+        return original_read(candidate)
+
+    monkeypatch.setattr(Path, "rglob", injected_paths)
+    monkeypatch.setattr(sys.modules[__name__], "_read", injected_read)
+    with pytest.raises(AssertionError):
+        test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+    assert observed
+    assert not shadow.exists()
 
 
 def test_exact_target_release_dimensions_and_authority_boundaries_are_locked() -> None:

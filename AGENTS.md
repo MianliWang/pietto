@@ -66,7 +66,9 @@ abstraction needs a current caller or invariant.
 - Gate 2: implement the minimum change, run focused checks, review the complete
   finding set, consolidate repairs by root cause, run appropriate final
   validation, and seal the Git tree. Slice dispatches own cumulative repair
-  budgets; S02 uses its Section 8 authority.
+  budgets; active S03 uses its dispatch Section 9. Closed S02 counts stay closed.
+  S03 qualification enables implementation only after its internal predicate;
+  diagnosed in-scope repairs and ordinary publication follow that dispatch.
 - Gate 3: rebind the baseline, stage exactly the sealed tree, make one ordinary
   commit, fast-forward push, and require natural exact-head CI. A failed head
   is preserved; repair a new child and push it normally. Do not rerun it.
