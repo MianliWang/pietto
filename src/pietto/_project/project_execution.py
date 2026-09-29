@@ -59,6 +59,7 @@ class ExecutionRequest:
     )
     binding: Any = field(default=None, repr=False)
     projection: Any = field(default=None, repr=False)
+    output: Any = field(default=None, repr=False)
 
 
 def verify_execution_request(request) -> None:
@@ -90,12 +91,21 @@ def verify_execution_request(request) -> None:
             raise ExecutionError("EXECUTION_BINDING_ROOT")
     elif request.projection is not None:
         raise ExecutionError("EXECUTION_BINDING_ROOT")
-    columns = _columns(request.contract, request.artifact, request.projection)
-    realizations = tuple(field_realization(c.source_field) for c in columns)
-    if any(value is None or value.tag != "Int" for value in realizations):
-        raise ExecutionError("EXECUTION_REALIZATION_NOT_DELIVERED")
-    if request.binding is None and (
-        request.artifact.parameter_uses or request.artifact.fixed_values
+    columns = _columns(
+        request.contract, request.artifact, request.projection, request.output
+    )
+    if request.output is not None:
+        # _columns already verified the complete output and its exact roots.
+        if request.output.binding is not request.binding:
+            raise ExecutionError("EXECUTION_BINDING_ROOT")
+    else:
+        realizations = tuple(field_realization(c.source_field) for c in columns)
+        if any(value is None or value.tag != "Int" for value in realizations):
+            raise ExecutionError("EXECUTION_REALIZATION_NOT_DELIVERED")
+    if (
+        request.output is None
+        and request.binding is None
+        and (request.artifact.parameter_uses or request.artifact.fixed_values)
     ):
         # The existing lawful producer path is field-only. Nonempty native
         # literal uses currently require an unsupported producer shape, not SQL
@@ -147,14 +157,20 @@ def prepare_execution(
     isolation="stable",
     source_requirement=None,
     binding=None,
+    output=None,
 ):
     if type(artifact) is not EmissionArtifact:
         raise ExecutionError("EXECUTION_ARTIFACT")
-    contract = build_result_contract(
-        artifact.request.verification, scalar_meaning=artifact.request.scalar_meaning
+    contract = (
+        output.contract
+        if output is not None
+        else build_result_contract(
+            artifact.request.verification,
+            scalar_meaning=artifact.request.scalar_meaning,
+        )
     )
     projection = None
-    if binding is not None:
+    if binding is not None and output is None:
         from pietto._project.project_sql_emission_ast import SQLRowQuery
         from pietto._project.project_execution_projection import prepare_projection
 
@@ -169,6 +185,7 @@ def prepare_execution(
         source_requirement,
         binding,
         projection,
+        output,
     )
     verify_execution_request(request)
     return request
@@ -183,7 +200,21 @@ def prepare_bound_execution(binding, access, **options):
 
 def execution_arguments(request):
     verify_execution_request(request)
-    return () if request.binding is None else request.binding.arguments
+    if request.binding is not None:
+        return request.binding.arguments
+    if request.output is not None:
+        from pietto._project.project_execution_binding_verification import (
+            native_arguments,
+        )
+
+        return native_arguments(
+            request.artifact,
+            tuple(
+                s.site.position.literal.value
+                for s in request.artifact.request.plan.literal_slots
+            ),
+        )
+    return ()
 
 
 def request_state(request):
@@ -195,6 +226,7 @@ def request_state(request):
         request.binding,
         None if request.binding is None else binding_state(request.binding),
         request.projection,
+        request.output,
         request.artifact,
         request.artifact.request,
         request.artifact.rendered.sql,

@@ -571,3 +571,18 @@ all cumulative budgets. The measured cohort keeps original nodes/assertions and
 injection seams. The current unfiltered guarded Python3.13 validator remains
 required, followed by natural exact-head CI and its actual consumers. Native
 S01–S03 campaigns and production inputs are not changed or rerun here.
+
+## Phase68 S05 output bridge validation
+
+[S05](phases/phase-68/slice-05.md) uses its one external ledger and dispatch Section9.
+Its explicit `scripts/phase68_slice5_probe.py campaign` consumes the selected pinned
+isolated Python, current ordinary wheel and registered disposable fixtures. General
+output correspondence, metadata and lossless carrier checks feed the existing scalar,
+batch and Arrow consumers; source/installed PG and test-only MySQL/ADBC claims stay
+separate. The finite named query/type manifest preserves original target exclusions.
+Shared binder/decoder changes require current dependent native acceptance. Ordinary
+pytest remains offline; focused/direct readers, full typing/Ruff, required package
+smoke and the complete guarded unfiltered Python3.13 validator remain local gates.
+Exact-head natural CI owns both runtimes and its unchanged mandatory package, native
+and captured-replay consumers. Acquisition handoff remains S10 review, S19 integration,
+S20 audit-only; this adds no scheduler or performance-maintenance authority.

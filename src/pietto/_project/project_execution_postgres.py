@@ -86,6 +86,7 @@ class PostgresExecution:
         self._owned_admission = None
         self.native_buffered_rows = None
         self.actual_metadata = None
+        self.actual_metadata_details = None
 
     def _verify(self):
         verify_execution_request(self.request)
@@ -219,9 +220,24 @@ class PostgresExecution:
                 self.actual_metadata = tuple(
                     (c.name, c.type_code, c.null_ok) for c in self._cursor.description
                 )
+                self.actual_metadata_details = tuple(
+                    (
+                        c.name,
+                        c.type_code,
+                        getattr(c, "display_size", None),
+                        getattr(c, "internal_size", None),
+                        getattr(c, "precision", None),
+                        getattr(c, "scale", None),
+                        c.null_ok,
+                    )
+                    for c in self._cursor.description
+                )
                 self._payloads = ExecutionPayloads(
                     self.request, self._cursor.description
                 )
+            self._remaining()
+            if self._cancel.is_set():
+                raise ExecutionError("EXECUTION_CANCELED")
             phase = "read"
             rows = self._cursor.fetchmany(self.request.limits.batch_rows)
             self._remaining()
@@ -238,7 +254,20 @@ class PostgresExecution:
             phase = "check"
             if self._payloads is None:
                 raise ExecutionError("EXECUTION_METADATA")
-            return self._payloads.accept(rows)
+            batch = self._payloads.accept(rows)
+            try:
+                self._remaining()
+                if self._cancel.is_set():
+                    raise ExecutionError("EXECUTION_CANCELED")
+            except BaseException:
+                close = getattr(batch, "close", None)
+                if close is not None:
+                    try:
+                        close()
+                    except BaseException as cleanup:
+                        self._cleanup_errors.append(failure(cleanup, "batch_close"))
+                raise
+            return batch
         except StopIteration:
             raise
         except BaseException as error:

@@ -66,9 +66,10 @@ class ProducerResultBinding:
     artifact: Any = dc_field(repr=False)
     fields: tuple[ProducerFieldBinding, ...] = dc_field(repr=False)
     projection: Any = dc_field(default=None, repr=False)
+    output: Any = dc_field(default=None, repr=False)
 
 
-def _columns(contract, artifact, projection=None):
+def _columns(contract, artifact, projection=None, output=None) -> tuple[Any, ...]:
     try:
         view = inspect_project_sql_emission(artifact, artifact.request)
     except (ValueError, TypeError, AttributeError) as exc:
@@ -76,6 +77,12 @@ def _columns(contract, artifact, projection=None):
     verify_result_contract(contract, view.request.verification)
     if contract.scalar_meaning is not view.request.scalar_meaning:
         raise ResultError("PRODUCER_ROOT")
+    if output is not None:
+        from pietto._project.project_result_output import verify_output
+
+        if projection is not None:
+            raise ResultError("PRODUCER_ROOT")
+        return verify_output(output, artifact, contract, binding=output.binding)
     if projection is not None:
         from pietto._project.project_execution_projection import verify_projection
 
@@ -88,18 +95,23 @@ def _columns(contract, artifact, projection=None):
 
 
 def bind_producer(
-    contract, artifact, observations, *, projection=None
+    contract, artifact, observations, *, projection=None, output=None
 ) -> ProducerResultBinding:
-    columns = _columns(contract, artifact, projection)
+    columns = _columns(contract, artifact, projection, output)
     if type(observations) is not tuple or len(observations) != len(columns):
         raise ResultError("PRODUCER_FIELDS")
     fields = tuple(
         ProducerFieldBinding(
-            f, c, o, f.nullability is ProjectRowFieldNullability.NULLABLE
+            f,
+            c,
+            o,
+            f.nullability is not ProjectRowFieldNullability.NON_NULL
+            if output is not None
+            else f.nullability is ProjectRowFieldNullability.NULLABLE,
         )
         for f, c, o in zip(contract.shape.fields, columns, observations, strict=True)
     )
-    binding = ProducerResultBinding(contract, artifact, fields, projection)
+    binding = ProducerResultBinding(contract, artifact, fields, projection, output)
     verify_producer_binding(binding, contract, artifact)
     return binding
 
@@ -108,7 +120,7 @@ def verify_producer_binding(binding, contract, artifact) -> None:
     """Recheck upstream first, including a coordinated binding/Arrow corruption."""
     if type(binding) is not ProducerResultBinding:
         raise ResultError("PRODUCER_ROOT")
-    columns = _columns(contract, artifact, binding.projection)
+    columns = _columns(contract, artifact, binding.projection, binding.output)
     if (
         type(binding) is not ProducerResultBinding
         or binding.contract is not contract
@@ -138,6 +150,14 @@ def verify_producer_binding(binding, contract, artifact) -> None:
             "UUID": ("my_uuid_bytes",),
         },
     }.get(family, {})
+    general = binding.output is not None
+    if general and family == "mysql":
+        storages = {
+            **storages,
+            "Int": (*storages["Int"], "my_signed_int"),
+            "Bool": (*storages["Bool"], "my_signed_bool"),
+            "Text": (*storages["Text"], "my_utf8mb4_text"),
+        }
     for ordinal, (bound, leaf, column) in enumerate(
         zip(binding.fields, contract.shape.fields, columns, strict=True)
     ):
@@ -150,7 +170,9 @@ def verify_producer_binding(binding, contract, artifact) -> None:
             or column.label != leaf.label
         ):
             raise ResultError("PRODUCER_FIELDS")
-        realized = field_realization(column.source_field)
+        realized = (
+            column.realization if general else field_realization(column.source_field)
+        )
         if (
             realized is None
             or realized.tag not in storages
@@ -164,18 +186,27 @@ def verify_producer_binding(binding, contract, artifact) -> None:
                 else {"kind", "precision", "scale"}
                 if realized.tag == "Decimal"
                 else {"kind", "length"}
-                if realized.tag == "Text" and family == "mysql"
+                if realized.tag == "Text"
+                and realized.storage.get("kind") == "my_varchar"
                 else {"kind"}
             )
-            or type(realized.nullable) is not bool
+            or (
+                type(realized.nullable) is not bool
+                and not (general and realized.nullable == "unknown")
+            )
             or leaf.nullability
             not in (
                 ProjectRowFieldNullability.NULLABLE,
                 ProjectRowFieldNullability.NON_NULL,
+                *((ProjectRowFieldNullability.UNKNOWN,) if general else ()),
             )
         ):
             raise ResultError("PRODUCER_UNSUPPORTED")
-        nullable = leaf.nullability is ProjectRowFieldNullability.NULLABLE
+        nullable = (
+            leaf.nullability is not ProjectRowFieldNullability.NON_NULL
+            if general
+            else leaf.nullability is ProjectRowFieldNullability.NULLABLE
+        )
         storage = realized.storage["kind"]
         lower = upper = None
         text = None
@@ -216,7 +247,7 @@ def verify_producer_binding(binding, contract, artifact) -> None:
                 )
                 != expected
                 or (
-                    family == "mysql"
+                    storage == "my_varchar"
                     and (type(length) is not int or not maximum <= length <= 16383)
                 )
             ):
@@ -224,30 +255,39 @@ def verify_producer_binding(binding, contract, artifact) -> None:
             text = TextObservation(maximum, *expected, length)
             domain, carrier = "text", "str"
         elif realized.tag == "Decimal":
-            fact = column.source_field.decimal
+            if general:
+                precision = realized.domain.get("precision")
+                scale = realized.domain.get("scale")
+            else:
+                fact = column.source_field.decimal
+                precision = None if fact is None else fact.precision
+                scale = None if fact is None else fact.scale
             if (
-                fact is None
-                or type(fact.precision) is not int
-                or type(fact.scale) is not int
-                or not 1 <= fact.precision <= 65
-                or not 0 <= fact.scale <= min(fact.precision, 30)
+                type(precision) is not int
+                or type(scale) is not int
+                or not 1 <= precision <= 65
+                or not 0 <= scale <= min(precision, 30)
                 or realized.domain
-                != {"kind": "decimal", "precision": fact.precision, "scale": fact.scale}
+                != {"kind": "decimal", "precision": precision, "scale": scale}
                 or any(
                     type(v[k]) is not int
                     for v in (realized.storage, realized.domain)
                     for k in ("precision", "scale")
                 )
                 or (realized.storage["precision"], realized.storage["scale"])
-                != (fact.precision, fact.scale)
+                != (precision, scale)
             ):
                 raise ResultError("PRODUCER_DOMAIN")
-            decimal = DecimalObservation(fact.precision, fact.scale)
+            decimal = DecimalObservation(precision, scale)
             domain, carrier = "decimal", "decimal"
         elif realized.tag in ("Timestamp", "UUID"):
             from pietto._project.project_scalar_meaning import _source_entry
 
-            entry = _source_entry(contract.scalar_meaning, column.source_field.field)
+            entry = (
+                leaf.meaning
+                if general
+                else _source_entry(contract.scalar_meaning, column.source_field.field)
+            )
             if entry is None or leaf.meaning is not entry:
                 raise ResultError("PRODUCER_DOMAIN")
             meaning = entry.law
@@ -264,10 +304,15 @@ def verify_producer_binding(binding, contract, artifact) -> None:
                     raise ResultError("PRODUCER_DOMAIN")
                 domain, carrier = "uuid", "uuid" if family == "postgres" else "bytes16"
         else:
-            if realized.domain != {"kind": "finite_float", "format": "binary64"}:
+            if realized.domain != {
+                "kind": "finite_float",
+                "format": "binary64",
+            } and not (general and realized.domain == {"kind": "float64"}):
                 raise ResultError("PRODUCER_DOMAIN")
             domain, carrier = "finite_float", "float"
-        if realized.nullable is not nullable:
+        if realized.nullable is not nullable and not (
+            general and leaf.nullability is ProjectRowFieldNullability.UNKNOWN
+        ):
             raise ResultError("PRODUCER_DOMAIN")
         obs = bound.observation
         if (
