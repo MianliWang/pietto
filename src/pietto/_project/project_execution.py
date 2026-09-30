@@ -127,7 +127,13 @@ def verify_execution_request(request) -> None:
         raise ExecutionError("EXECUTION_ACCESS_PROFILE")
     if request.isolation not in ("stable", "serializable"):
         raise ExecutionError("EXECUTION_ISOLATION")
-    limits = request.limits
+    verify_execution_limits(request.limits)
+    verify_requirement(request.source_requirement, view.request.sources)
+
+
+def verify_execution_limits(limits):
+    if type(limits) is not ExecutionLimits:
+        raise ExecutionError("EXECUTION_LIMITS")
     if (
         any(
             type(v) is not int or v <= 0
@@ -146,7 +152,6 @@ def verify_execution_request(request) -> None:
         or limits.seconds > threading.TIMEOUT_MAX
     ):
         raise ExecutionError("EXECUTION_LIMITS")
-    verify_requirement(request.source_requirement, view.request.sources)
 
 
 def prepare_execution(

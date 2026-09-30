@@ -199,3 +199,112 @@ def verify_output(output, artifact, contract, *, binding=None):
         ):
             raise ResultError("OUTPUT_REALIZATION")
     return output.columns
+
+
+def source_read_columns(output):
+    """Physical columns actually read by the verified original statement.
+
+    This is an observation of original typed references, not a resolver. A
+    refinement must not acquire unused source-column privileges by projecting
+    every declared field into its private source relation.
+    """
+    from pietto._project.project_sql_emission_ast import SQLScan, RowScan, RowBody
+    from pietto._project.project_sql_emission_aggregation import (
+        AggregateValueColumn,
+        AggregateKeyColumn,
+    )
+    from pietto._project.project_sql_emission_windows import WindowColumn
+    from pietto._project.project_sql_emission_joins import JoinBody
+    from pietto._project.project_sql_emission_sets import SetBody
+    from pietto._project.project_sql_emission_rows import (
+        SQLStageReference,
+        SQLOperation,
+    )
+
+    verify_output(output, output.artifact, output.contract, binding=output.binding)
+    sources = output.artifact.request.sources
+    needed = {source: set() for source in sources}
+    for unit in output.units:
+        scopes = {}
+        if type(unit) is JoinBody:
+            for item in unit.inputs:
+                if any(item.producer is source for source in sources):
+                    scopes[item.symbol.name] = item.producer
+        elif type(unit) is SetBody:
+            for item in unit.operands:
+                if any(item.producer is source for source in sources):
+                    needed[item.producer].update(c.name for c in item.columns)
+            continue
+        elif type(unit.scan) in (SQLScan, RowScan):
+            scopes[unit.scan.symbol.name] = unit.scan.realization
+        if not scopes:
+            continue
+
+        def read(scope, name):
+            if scope in scopes:
+                needed[scopes[scope]].add(name)
+
+        def expression(value, alias):
+            if type(value) is SQLStageReference:
+                read(
+                    alias if value.scope is None else value.scope.name,
+                    value.column.name,
+                )
+            elif type(value) is SQLOperation:
+                for operand in value.operands:
+                    expression(operand, alias)
+
+        if type(unit) is JoinBody:
+            for column in unit.columns:
+                read(column.scope.name, column.read.name)
+            for equal in unit.equalities:
+                read(equal.left_scope.name, equal.left.name)
+                read(equal.right_scope.name, equal.right.name)
+            if unit.predicate is not None:
+                expression(unit.predicate, "")
+            continue
+        if type(unit) is SQLSelect:
+            for column in unit.columns:
+                if type(column) is SQLColumn:
+                    read(unit.scan.symbol.name, column.symbol.name)
+            continue
+        if type(unit) is not RowBody:
+            raise ResultError("OUTPUT_SOURCE_READ_UNIT")
+        alias = unit.scan.symbol.name
+        for column in unit.columns:
+            if type(column) in (
+                RowCarryColumn,
+                AggregateKeyColumn,
+                AggregateProjectionColumn,
+                WindowProjectionColumn,
+            ):
+                read(alias, column.read.name)
+            elif type(column) is RowValueColumn:
+                expression(column.value, alias)
+            elif type(column) is AggregateValueColumn:
+                if column.argument is not None:
+                    expression(column.argument, alias)
+            elif type(column) is WindowColumn:
+                for argument in column.arguments:
+                    if argument.read is not None:
+                        read(alias, argument.read.name)
+                for _, part in column.specification.partitions:
+                    read(alias, part.name)
+                for order in column.specification.orders:
+                    read(alias, order.read.name)
+            else:
+                raise ResultError("OUTPUT_SOURCE_READ_COLUMN")
+        if unit.predicate is not None:
+            expression(unit.predicate.value, alias)
+        if unit.aggregation is not None:
+            for key in unit.aggregation.keys:
+                read(alias, key.read.name)
+    result = []
+    for source in sources:
+        columns = tuple(
+            dict.fromkeys(f.column for f in source.fields if f.column in needed[source])
+        )
+        if set(columns) != needed[source]:
+            raise ResultError("OUTPUT_SOURCE_READ_INVENTORY")
+        result.append(columns)
+    return tuple(result)

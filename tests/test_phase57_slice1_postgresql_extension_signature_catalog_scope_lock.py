@@ -368,6 +368,29 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
                 REPO_ROOT / "src/pietto/_project/project_execution_postgres.py"
             )
             excluded_paths = {execution_path}
+        if forbidden == "server_version":
+            # S06 source admission reads the selected version in this exact
+            # read-only context query. A second/comment/injected occurrence is
+            # still forbidden, including the retained source-owner negative.
+            admission_path = source_root / "_project/project_execution_source.py"
+            admission_text = _read(admission_path)
+            assert admission_text.count("server_version") == 1
+            context_query = "SELECT current_setting('server_version_num'),current_setting('transaction_isolation'),current_setting('transaction_read_only'),current_setting('client_encoding')"
+            admitted = [
+                node
+                for node in ast.walk(ast.parse(admission_text))
+                if isinstance(node, ast.FunctionDef)
+                and node.name == "admit_postgres_sources"
+            ]
+            assert len(admitted) == 1
+            assert (
+                sum(
+                    isinstance(node, ast.Constant) and node.value == context_query
+                    for node in ast.walk(admitted[0])
+                )
+                == 1
+            )
+            excluded_paths.add(admission_path)
         # Joining files with '\n' cannot create these newline-free needles
         # across a boundary. Keep substring/lower/comment semantics.
         assert "\n" not in forbidden

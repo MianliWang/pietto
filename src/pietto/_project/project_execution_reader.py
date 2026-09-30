@@ -60,25 +60,10 @@ def bind_postgres_output(output, description):
     return bind_native_output(output, "postgres_rows", description)
 
 
-def bind_native_output(output, route, metadata):
-    """Check actual protocol types separately from configured scalar requirements.
-
-    Domain bounds, Decimal precision/scale and explicit meanings below come from
-    verified original requirements. Missing protocol nullability/typmods stay
-    missing in the adapter's raw evidence, including empty native results.
-    """
-    from pietto._project.project_result_output import verify_output
-
-    columns = verify_output(
-        output, output.artifact, output.contract, binding=output.binding
-    )
-    family = output.artifact.request.family
-    if route not in ("postgres_rows", "postgres_adbc", "mysql_rows") or family != (
-        "mysql" if route == "mysql_rows" else "postgres"
-    ):
+def check_native_column(real, route, meta, *, label, ordinal, source_field):
+    """Physical ABI observations only; configured value bounds remain requirements."""
+    if route not in ("postgres_rows", "postgres_adbc", "mysql_rows"):
         raise ResultError("EXECUTION_METADATA_ROUTE")
-    if metadata is None or len(metadata) != len(columns):
-        raise ResultError("EXECUTION_METADATA")
     codes = {
         "pg_int2": 21,
         "pg_int4": 23,
@@ -113,73 +98,106 @@ def bind_native_output(output, route, metadata):
         "pg_timestamp": "timestamp[us]",
         "pg_uuid": "extension<arrow.opaque[storage_type=binary, type_name=uuid, vendor_name=PostgreSQL]>",
     }
+    storage = real.storage["kind"]
+    if route == "postgres_rows":
+        if (
+            type(meta.name) is not str
+            or type(meta.type_code) is not int
+            or meta.name != label
+            or meta.type_code != codes.get(storage)
+        ):
+            raise ResultError("EXECUTION_METADATA")
+        nullable = meta.null_ok
+    elif route == "mysql_rows":
+        if (
+            type(meta) not in (tuple, list)
+            or len(meta) != 9
+            or type(meta[0]) is not str
+            or type(meta[1]) is not int
+            or meta[0] != label
+            or meta[1] != codes.get(storage)
+            or type(meta[7]) is not int
+            or not 0 <= meta[7] <= 65535
+        ):
+            raise ResultError("EXECUTION_METADATA")
+        if real.tag == "Int" and meta[7] & 32:
+            # MySQL ranks expose UNSIGNED BIGINT. A computed result whose
+            # independently verified domain is within signed64's nonnegative
+            # half is losslessly consumed as Int64. Source storage contracts
+            # remain exact; this never widens the semantic value domain.
+            if (
+                source_field is not None
+                or storage not in ("my_bigint", "my_signed_int")
+                or not 0 <= int(real.domain["min"]) <= int(real.domain["max"]) < 2**63
+            ):
+                raise ResultError("EXECUTION_METADATA")
+        if real.tag == "Text" and meta[8] != 309:
+            raise ResultError("EXECUTION_METADATA")
+        if real.tag == "UUID" and meta[8] != 63:
+            raise ResultError("EXECUTION_METADATA")
+        if meta[6] is not None and (type(meta[6]) is not int or meta[6] not in (0, 1)):
+            raise ResultError("EXECUTION_METADATA")
+        nullable = None if meta[6] is None else meta[6] == 1
+    else:
+        if (
+            type(meta) is not dict
+            or type(meta["ordinal"]) is not int
+            or type(meta["name"]) is not str
+            or type(meta["type"]) is not str
+            or meta["ordinal"] != ordinal
+            or meta["name"] != label
+            or meta["type"] != arrow_types.get(storage)
+        ):
+            raise ResultError("EXECUTION_METADATA")
+        if real.tag in ("Decimal", "UUID"):
+            typename = "numeric" if real.tag == "Decimal" else "uuid"
+            if (
+                meta["metadata"].get(b"ADBC:postgresql:typname".hex())
+                != typename.encode().hex()
+            ):
+                raise ResultError("EXECUTION_METADATA")
+        nullable = meta["nullable"]
+    if route == "postgres_rows" and real.tag == "Decimal":
+        for name in ("precision", "scale"):
+            observed = getattr(meta, name, None)
+            if observed is not None and (
+                type(observed) is not int or observed != real.domain[name]
+            ):
+                raise ResultError("EXECUTION_METADATA")
+    return nullable
+
+
+def bind_native_output(output, route, metadata):
+    """Check actual protocol types separately from configured scalar requirements.
+
+    Domain bounds, Decimal precision/scale and explicit meanings below come from
+    verified original requirements. Missing protocol nullability/typmods stay
+    missing in the adapter's raw evidence, including empty native results.
+    """
+    from pietto._project.project_result_output import verify_output
+
+    columns = verify_output(
+        output, output.artifact, output.contract, binding=output.binding
+    )
+    family = output.artifact.request.family
+    if route not in ("postgres_rows", "postgres_adbc", "mysql_rows") or family != (
+        "mysql" if route == "mysql_rows" else "postgres"
+    ):
+        raise ResultError("EXECUTION_METADATA_ROUTE")
+    if metadata is None or len(metadata) != len(columns):
+        raise ResultError("EXECUTION_METADATA")
     observations = []
     for column, meta in zip(columns, metadata, strict=True):
         real = column.realization
         storage = real.storage["kind"]
-        if route == "postgres_rows":
-            if (
-                type(meta.name) is not str
-                or type(meta.type_code) is not int
-                or meta.name != column.label
-                or meta.type_code != codes.get(storage)
-            ):
-                raise ResultError("EXECUTION_METADATA")
-            nullable = meta.null_ok
-        elif route == "mysql_rows":
-            if (
-                type(meta) not in (tuple, list)
-                or len(meta) != 9
-                or type(meta[0]) is not str
-                or type(meta[1]) is not int
-                or meta[0] != column.label
-                or meta[1] != codes.get(storage)
-                or type(meta[7]) is not int
-                or not 0 <= meta[7] <= 65535
-            ):
-                raise ResultError("EXECUTION_METADATA")
-            if real.tag == "Int" and meta[7] & 32:
-                # MySQL ranks expose UNSIGNED BIGINT. A computed result whose
-                # independently verified domain is within signed64's nonnegative
-                # half is losslessly consumed as Int64. Source storage contracts
-                # remain exact; this never widens the semantic value domain.
-                if (
-                    column.source_field is not None
-                    or storage not in ("my_bigint", "my_signed_int")
-                    or not 0
-                    <= int(real.domain["min"])
-                    <= int(real.domain["max"])
-                    < 2**63
-                ):
-                    raise ResultError("EXECUTION_METADATA")
-            if real.tag == "Text" and meta[8] != 309:
-                raise ResultError("EXECUTION_METADATA")
-            if real.tag == "UUID" and meta[8] != 63:
-                raise ResultError("EXECUTION_METADATA")
-            if meta[6] is not None and (
-                type(meta[6]) is not int or meta[6] not in (0, 1)
-            ):
-                raise ResultError("EXECUTION_METADATA")
-            nullable = None if meta[6] is None else meta[6] == 1
-        else:
-            if (
-                type(meta) is not dict
-                or type(meta["ordinal"]) is not int
-                or type(meta["name"]) is not str
-                or type(meta["type"]) is not str
-                or meta["ordinal"] != column.ordinal
-                or meta["name"] != column.label
-                or meta["type"] != arrow_types.get(storage)
-            ):
-                raise ResultError("EXECUTION_METADATA")
-            if real.tag in ("Decimal", "UUID"):
-                typename = "numeric" if real.tag == "Decimal" else "uuid"
-                if (
-                    meta["metadata"].get(b"ADBC:postgresql:typname".hex())
-                    != typename.encode().hex()
-                ):
-                    raise ResultError("EXECUTION_METADATA")
-            nullable = meta["nullable"]
+        nullable = check_native_column(
+            real,
+            route,
+            meta,
+            label=column.label,
+            ordinal=column.ordinal,
+            source_field=column.source_field,
+        )
         options = {}
         domain, carrier = (
             real.domain["kind"],
@@ -283,9 +301,17 @@ def decode_native_rows(output, route, metadata, rows):
 class ExecutionPayloads:
     """Each returned batch is owned/checked; EOF must come from the adapter."""
 
-    def __init__(self, request, description):
+    def __init__(self, request, description, *, producer=None):
         self.request = request
-        self.producer = bind_native_projection(request, description)
+        if producer is None:
+            self.producer = bind_native_projection(request, description)
+        else:
+            from pietto._project.project_result_binding import verify_producer_binding
+
+            verify_producer_binding(producer, request.contract, request.artifact)
+            if producer.output is not request.output:
+                raise ResultError("EXECUTION_OUTPUT_ROOT")
+            self.producer = producer
         self.binding = arrow.bind_arrow(self.producer)
         self.rows = self.batches = self.bytes = 0
 

@@ -1103,9 +1103,48 @@ class _Check:
         # interval its documented carrier and default literal imply.
         for ref in doc.all("window_column"):
             column = doc[ref]
+            arguments = [doc[item] for item in column["arguments"]]
+            if self.family == "postgres":
+                function = column["function"]
+                roles = tuple(argument["role"] for argument in arguments)
+                native_position = None
+                if function == "ntile":
+                    _require(
+                        roles == ("bucket",),
+                        "postgres window structural argument roles",
+                    )
+                    native_position = 0
+                elif function == "nth_value":
+                    _require(
+                        roles == ("value", "position"),
+                        "postgres window structural argument roles",
+                    )
+                    native_position = 1
+                elif function in {"lag", "lead"}:
+                    _require(
+                        roles
+                        in (
+                            ("value",),
+                            ("value", "offset"),
+                            ("value", "offset", "default"),
+                        ),
+                        "postgres window structural argument roles",
+                    )
+                    if len(arguments) > 1:
+                        native_position = 1
+                if native_position is not None:
+                    argument = arguments[native_position]
+                    literal = argument["literal"]
+                    _require(
+                        type(literal) is str
+                        and re.fullmatch(r"0|[1-9][0-9]*", literal) is not None
+                        and (0 if function in {"lag", "lead"} else 1)
+                        <= int(literal)
+                        <= 2147483647,
+                        "postgres window structural argument range",
+                    )
             if column["function"] not in _VALUE_WINDOWS:
                 continue
-            arguments = [doc[item] for item in column["arguments"]]
             reads = [
                 doc[item["read"]] for item in arguments if item["read"] is not None
             ]

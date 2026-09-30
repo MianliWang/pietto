@@ -586,3 +586,21 @@ smoke and the complete guarded unfiltered Python3.13 validator remain local gate
 Exact-head natural CI owns both runtimes and its unchanged mandatory package, native
 and captured-replay consumers. Acquisition handoff remains S10 review, S19 integration,
 S20 audit-only; this adds no scheduler or performance-maintenance authority.
+
+
+## Phase68 S06 refinement validation
+
+[S06](phases/phase-68/slice-06.md) keeps the original dispatch Section10 ledger and its
+explicit four-path PostgreSQL structural-argument amendment. The original HOLD and
+native 42883 observations remain immutable. Complete source/installed, three-route,
+fresh-process and independent-checker evidence precedes publication; a range fix or
+unverified render is not S06 completion. Internal native fields/work consume the
+existing request limits, and no page bound is a source extent oracle.
+
+Protect the accepted core before every core-targeted uv/validator invocation with
+command-scoped `UV_PYTHON=3.13.13 UV_NO_SYNC=1 UV_LOCKED=1`; retain separate lock
+checking and the unfiltered guarded validator. Explicit isolated installs retain
+their own scope. Shared admission/verifier/reader changes require current dependent
+acceptance; exact-head CI still owns all existing runtime/partition/native/package
+consumers. Compatible fixtures and passive observations are reused; source/wheel,
+mutation and fresh-process identities are not merged or replaced by a PASS cache.

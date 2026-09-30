@@ -8,10 +8,11 @@ import os
 import threading
 import time
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from pietto._project.project_execution import (
     ExecutionError,
+    ExecutionRequest,
     ExecutionFailure,
     ExecutionOutcome,
     request_state,
@@ -19,7 +20,17 @@ from pietto._project.project_execution import (
     verify_execution_request,
 )
 from pietto._project.project_execution_reader import ExecutionPayloads
-from pietto._project.project_execution_source import admit_postgres_source
+from pietto._project.project_execution_source import (
+    admit_postgres_source,
+    admit_postgres_sources,
+)
+from pietto._project.project_refinement_enumeration import (
+    RefinedExecutionRequest,
+    Enumeration,
+    refinement_state,
+    verify_refined_execution,
+)
+from pietto._project.project_result_output import source_read_columns
 
 __all__: tuple[str, ...] = ()
 
@@ -56,8 +67,18 @@ def failure(error, phase):
 
 class PostgresExecution:
     def __init__(self, request):
+        self.refined_request = (
+            request if type(request) is RefinedExecutionRequest else None
+        )
+        self._owned_refined_request = self.refined_request
+        if self.refined_request is not None:
+            verify_refined_execution(self.refined_request)
+            self._refined_state = refinement_state(self.refined_request.refinement)
+            request = request.execution
+        else:
+            self._refined_state = None
         verify_execution_request(request)
-        self.request = request
+        self.request = cast(ExecutionRequest, request)
         self._captured = request_state(request)
         self.attempt = uuid.uuid4().hex
         self._connection: Any = None
@@ -87,6 +108,11 @@ class PostgresExecution:
         self.native_buffered_rows = None
         self.actual_metadata = None
         self.actual_metadata_details = None
+        self.source_admissions = None
+        self._owned_admissions = None
+        self.enumeration = None
+        self._owned_enumeration = None
+        self.last_page = None
 
     def _verify(self):
         verify_execution_request(self.request)
@@ -102,6 +128,27 @@ class PostgresExecution:
             self.source_admission.verify(
                 self._connection, self.request.source_requirement
             )
+
+        if (
+            self.refined_request is not self._owned_refined_request
+            or self.source_admissions is not self._owned_admissions
+            or self.enumeration is not self._owned_enumeration
+        ):
+            raise ExecutionError("REFINEMENT_RESOURCE_IDENTITY")
+        if self.refined_request is not None:
+            verify_refined_execution(self.refined_request)
+            if (
+                self.refined_request.execution is not self.request
+                or refinement_state(self.refined_request.refinement)
+                != self._refined_state
+            ):
+                raise ExecutionError("REFINEMENT_REQUEST_CHANGED")
+            if self.source_admissions is not None:
+                self.source_admissions.verify(
+                    self._connection,
+                    self.refined_request.refinement.sources,
+                    source_read_columns(self.refined_request.refinement.output),
+                )
 
     def _remaining(self):
         if self._started is None:
@@ -164,6 +211,20 @@ class PostgresExecution:
                     session_id=self.session_id,
                 )
                 self._owned_admission = self.source_admission
+            if self.refined_request is not None:
+                refined = self.refined_request.refinement
+                self.source_admissions = admit_postgres_sources(
+                    connection,
+                    refined.sources,
+                    source_read_columns(refined.output),
+                    role=row[0],
+                    session_id=self.session_id,
+                )
+                self._owned_admissions = self.source_admissions
+                self.enumeration = Enumeration(
+                    refined, self.source_admissions, limits=self.request.limits
+                )
+                self._owned_enumeration = self.enumeration
             self._remaining()
             self._delivery = "OPEN"
             return self
@@ -185,6 +246,8 @@ class PostgresExecution:
             raise StopIteration
         if self._connection is None:
             self.open()
+        if self.refined_request is not None:
+            return self._next_refined_page()
         phase = "execute" if not self._submitted else "read"
         try:
             self._verify()
@@ -285,6 +348,130 @@ class PostgresExecution:
             self._finish(False)
             raise
 
+    def _next_refined_page(self):
+        phase = "execute"
+        batch = None
+        try:
+            self._verify()
+            if self._cancel.is_set():
+                raise ExecutionError("EXECUTION_CANCELED")
+            self._remaining()
+            if self.enumeration is None:
+                raise ExecutionError("REFINEMENT_ENUMERATION")
+            while True:
+                if self.enumeration.progress[2]:
+                    self._source = "EOF"
+                    self._delivery = "COMPLETE"
+                    self._finish(True)
+                    if self._primary is not None or self._cleanup_errors:
+                        phase = "finalization"
+                        raise ExecutionError("EXECUTION_FINALIZATION")
+                    raise StopIteration
+                page = self.enumeration.request_page()
+                self.last_page = page
+                # All reconstruction and verification precede this existing
+                # cancellation/deadline checkpoint and native submission.
+                remaining = self._remaining()
+                if self._cancel.is_set():
+                    raise ExecutionError("EXECUTION_CANCELED")
+                with self._connection.cursor() as control:
+                    control.execute(
+                        "SELECT pg_catalog.set_config('statement_timeout',$1,true)",
+                        (str(max(1, min(10000, math.ceil(remaining * 1000)))),),
+                    )
+                self._cursor = self._connection.cursor()
+                self._owned_cursor = self._cursor
+                self._source = "EXECUTING"
+                self._cursor.execute(
+                    page.native.sql.decode("utf-8"), page.native.arguments, prepare=True
+                )
+                self._submitted = True
+                self._source = "READING"
+                self.native_buffered_rows = getattr(
+                    getattr(self._cursor, "pgresult", None), "ntuples", None
+                )
+                description = tuple(self._cursor.description)
+                self.actual_metadata = tuple(
+                    (c.name, c.type_code, c.null_ok) for c in description
+                )
+                self.actual_metadata_details = tuple(
+                    (
+                        c.name,
+                        c.type_code,
+                        getattr(c, "display_size", None),
+                        getattr(c, "internal_size", None),
+                        getattr(c, "precision", None),
+                        getattr(c, "scale", None),
+                        c.null_ok,
+                    )
+                    for c in description
+                )
+                phase = "read"
+                rows = tuple(tuple(row) for row in self._cursor.fetchall())
+                if (
+                    type(self.native_buffered_rows) is not int
+                    or len(rows) != self.native_buffered_rows
+                ):
+                    raise ExecutionError("REFINEMENT_PAGE_NATIVE_COVERAGE")
+                self._remaining()
+                if self._cancel.is_set():
+                    raise ExecutionError("EXECUTION_CANCELED")
+                phase = "check"
+                checked = self.enumeration.check_page(
+                    page, description, rows, terminal="NORMAL"
+                )
+                if self._payloads is None:
+                    self._payloads = ExecutionPayloads(
+                        self.request, (), producer=checked.producer
+                    )
+                if checked.rows:
+                    batch = self._payloads.accept(checked.rows)
+                self._remaining()
+                if self._cancel.is_set():
+                    raise ExecutionError("EXECUTION_CANCELED")
+                phase = "statement_close"
+                self._cursor.close()
+                self._cursor = self._owned_cursor = None
+                self._remaining()
+                if self._cancel.is_set():
+                    raise ExecutionError("EXECUTION_CANCELED")
+                if self._started is None:
+                    raise ExecutionError("EXECUTION_DEADLINE")
+                self.enumeration.commit_page(
+                    checked,
+                    cancel_event=self._cancel,
+                    deadline=self._started + self.request.limits.seconds,
+                )
+                if batch is not None:
+                    return batch
+                # An empty normally terminated page proves completion through
+                # the same enumeration law; it is not an empty Arrow batch.
+        except StopIteration:
+            raise
+        except BaseException as error:
+            if self.enumeration is not None:
+                self.enumeration.fail()
+            if batch is not None:
+                try:
+                    batch.close()
+                except BaseException as cleanup:
+                    self._cleanup_errors.append(failure(cleanup, "batch_close"))
+            if self._primary is None:
+                self._primary = failure(error, phase)
+            self._cancel_observed = (
+                getattr(error, "sqlstate", None) == "57014"
+                and self._cancel.is_set()
+                and "due to user request"
+                in str(getattr(getattr(error, "diag", None), "message_primary", ""))
+            )
+            if self._source != "EOF":
+                self._source = (
+                    "INCOMPLETE" if phase in ("check", "statement_close") else "FAILED"
+                )
+            self._delivery = "FAILED"
+            self._finish(False)
+            raise
+
     def _deadline(self):
         self.deadline_expired = True
         self.cancel()
@@ -320,6 +507,8 @@ class PostgresExecution:
     def _finish(self, commit):
         if self._closed:
             return
+        if not commit and self.enumeration is not None:
+            self.enumeration.fail()
         if self._owned_cursor is not None:
             try:
                 self._owned_cursor.close()

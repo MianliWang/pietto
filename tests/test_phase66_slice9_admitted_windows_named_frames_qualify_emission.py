@@ -390,3 +390,193 @@ def test_generated_requirements_cover_every_window_structure(target):
     assert rules["window_specification"] == "R15"
     assert rules["window_partition_comparison"] == "R14"
     assert rules["window_order_comparison"] == "R14"
+
+
+# Current S06 correction: the PG function signature, not Int/frame/result width.
+STRUCTURAL_FUNCTIONS = ("ntile", "nth_value", "lag", "lead")
+
+
+def structural_call(function, value):
+    return f"ntile({value})" if function == "ntile" else f"{function}(id, {value})"
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("function", STRUCTURAL_FUNCTIONS)
+@pytest.mark.parametrize("value", (0, 1, 2147483647, 2147483648, 9223372036854775807))
+def test_structural_window_argument_target_boundary(target, function, value):
+    outcome = emit(target, select_body(structural_call(function, value)))
+    if value == 0 and function in ("ntile", "nth_value"):
+        assert blockers(outcome) == [
+            "semantic_result_unsuccessful",
+            "active_output_unavailable",
+        ]
+    elif target == "postgres" and value > 2147483647:
+        assert blockers(outcome) == [
+            "postgres_window_structural_argument_out_of_int32_range"
+        ]
+        assert outcome.blockers[0].code == "PIE-B1002"
+    else:
+        assert outcome.status == "VERIFIED", blockers(outcome)
+        assert str(value) in sql_of(outcome)
+        return
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("function", STRUCTURAL_FUNCTIONS)
+@pytest.mark.parametrize("value", ("-1", "true", "1.5"))
+def test_structural_window_existing_invalid_values_stay_semantic_rejections(
+    target, function, value
+):
+    outcome = emit(target, select_body(structural_call(function, value)))
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert blockers(outcome) == [
+        "semantic_result_unsuccessful",
+        "active_output_unavailable",
+    ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("function", ("lag", "lead"))
+def test_navigation_omission_and_wide_value_default_are_not_structure_bounds(
+    target, function
+):
+    for call in (f"{function}(id)", f"{function}(id, 1, 9007199254740993)"):
+        outcome = emit(target, select_body(call))
+        assert outcome.status == "VERIFIED", blockers(outcome)
+        if "9007199254740993" in call:
+            assert "9007199254740993" in sql_of(outcome)
+        else:
+            from pietto._project.project_sql_emission_ast import SQLRowQuery
+
+            assert outcome.artifact is not None
+            assert type(outcome.artifact.ast) is SQLRowQuery
+            column = next(
+                c
+                for b in outcome.artifact.ast.bodies
+                for c in b.columns
+                if type(c).__name__ == "WindowColumn"
+            )
+            assert tuple(a.role for a in column.arguments) == ("value",)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("unit", ("rows", "range", "groups"))
+def test_frame_offsets_above_int32_remain_the_existing_separate_domain(target, unit):
+    outcome = emit(
+        target,
+        select_body(
+            "first_value(id)",
+            frame=f"{unit} between 2147483648 preceding and current row",
+        ),
+    )
+    if target == "mysql" and unit == "groups":
+        assert blockers(outcome) == [
+            "window_frame_groups_approved_non_support_on_mysql"
+        ]
+    else:
+        assert outcome.status == "VERIFIED", blockers(outcome)
+        assert "2147483648 PRECEDING" in sql_of(outcome)
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        QUALIFY_HIDDEN.replace("row_number()", "lead(id, 2147483648)"),
+        NAMED_BODY.replace("rank() window named", "ntile(2147483648) window named", 1),
+        """table producer:
+    from rows
+    select:
+        id
+        w = nth_value(id, 2147483648) window:
+            order by:
+                id
+table result:
+    from producer
+    select:
+        id
+""",
+    ),
+)
+def test_hidden_named_and_carried_arguments_cannot_escape_target_check(body):
+    outcome = emit("postgres", body)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert blockers(outcome) == [
+        "postgres_window_structural_argument_out_of_int32_range"
+    ]
+
+
+@pytest.mark.parametrize("function", STRUCTURAL_FUNCTIONS)
+@pytest.mark.parametrize("value", (2147483648, 9223372036854775807))
+def test_independent_verifiers_reject_coherent_faulty_builder_arguments(
+    tmp_path, monkeypatch, function, value
+):
+    from pietto._project import project_sql_emission as emission
+    from pietto._project import project_sql_emission_windows as windowing
+    from pietto._project import project_sql_emission_verification as verification
+    from pietto._project import project_sql_emission_portable as portable
+    from pietto._project import project_sql_emission_pure_boundary as pure
+    from pietto._project.project_sql_emission_contract import (
+        prepare_project_sql_emission,
+    )
+    from pietto._project.project_result_output import prepare_output
+
+    base = probe.fixture("postgres")
+    header = base["source"].split("table result:", 1)[0]
+    contract = json.loads(base["contract"])
+    contract["environment"].append(
+        {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}
+    )
+    encoded = probe.encoded(contract)
+    checked, refused = probe.build_case(
+        tmp_path, header + select_body(structural_call(function, value)), encoded
+    )
+    assert checked.verified and refused.artifact is None
+    request = prepare_project_sql_emission(checked, encoded)
+    assert verification.prepared_current(request)
+    # Simulate one coherently faulty constructor, without granting its output
+    # verification authority. Native SQL, event ranges and argument facts are
+    # rebuilt together, so a token-length/reference mismatch is not the oracle.
+    with monkeypatch.context() as patch:
+        patch.setattr(windowing, "I32_MAX", value)
+        realization = emission.realize_rows(request)
+        query = realization.query
+        assert type(query) is emission.SQLRowQuery
+        rendered = emission.render_row_sql(query)
+        original, generated = emission.build_row_requirements(request, query)
+        artifact = emission.EmissionArtifact(
+            request,
+            query,
+            rendered,
+            original,
+            generated,
+            request.plan.fixed_envelope.values,
+            tuple(p.use for p in emission.row_parameter_leaves(query)),
+        )
+        assert not verification.verify_project_sql_emission(artifact, request).verified
+    with pytest.raises(ValueError):
+        prepare_output(artifact)
+    assert (
+        portable.export_emission_observation(artifact, request).status
+        is portable.ObservationStatus.UNVERIFIED
+    )
+    # Test data export deliberately bypasses the public exporter refusal. The
+    # pure consumer receives only bytes, and independently names the range defect.
+    data = portable._Export(artifact, request).run()
+    result = pure.parse_emission_observation(data)
+    assert result.status is pure.Status.INVALID_RELATION
+    assert result.detail == "postgres window structural argument range"
+    document = json.loads(data)
+    role = (
+        "bucket"
+        if function == "ntile"
+        else "position"
+        if function == "nth_value"
+        else "offset"
+    )
+    for record in document["records"]:
+        if record["ref"][0] == "window_argument" and record["fields"]["role"] == role:
+            record["fields"]["role"] = "default"
+    result = pure.parse_emission_observation(json.dumps(document))
+    assert result.status is pure.Status.INVALID_RELATION
+    assert result.detail == "postgres window structural argument roles"

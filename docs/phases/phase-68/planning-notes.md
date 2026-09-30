@@ -113,3 +113,15 @@ P1 的 component view 以 `(part,lid)` 覆盖完整实际域；仅 `lid` 的反�
 P2 的 choice order 与 original peer order 分离，frame membership 按原 frame 决定，再用 native FIRST/LAST/NTH 提取。PG GROUPS/exclusion 与 MySQL 已排除族保持分开；三路线均观察原生宽度、NULL、Float bits、empty/nonempty outer pages。
 这些是有限 native/source 证据。构造性容量说明、全部未来 owners 与 proof 成本见 S03；不宣称实验 SQL 已成为 S06 lowering，也不把 composite integer 试验变成所有 provider token 的唯一类型。
 S05 接通原 outputs 到 PB；S06 证明组合、peers/frames、完整 producer uses 和 occurrence 覆盖；S07 执行 guards；S10 source-free loader 独立重建 authority；S14 将这些事实接入真实 R2。没有第二个通用 frame evaluator。
+
+
+## S06 current candidate and target-domain correction
+
+[S06](slice-06.md) implements the explicit private refinement route and bounded
+complete-query pages; current acceptance/publication remains its closure condition.
+The approved PG int4 function-argument correction is separate from Int64 values,
+defaults/results and R15 frames. Old VERIFIED/native-failure observations remain
+historical; current excessive-argument documents are rejected. S06 supplies exact
+source/use, choice/peer/frame, erasure and progress laws; S07/S08/S09/S10/S14 retain
+their original ownership. Native observations remain finite and provider guarantees
+remain explicit; none imply source-free loading or durable recovery completion.

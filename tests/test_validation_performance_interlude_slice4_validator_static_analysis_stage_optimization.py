@@ -84,8 +84,8 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
     test_files = tuple(sorted((REPO_ROOT / "tests").rglob("*.py")))
     # Current complete inputs include S05's general output owner, two behavior
     # principals and two inert native helpers. Both typing roots stay exact.
-    assert len(production_files) == 241
-    assert len(test_files) == 531
+    assert len(production_files) == 248
+    assert len(test_files) == 538
     assert set(production_files).isdisjoint(test_files)
 
 

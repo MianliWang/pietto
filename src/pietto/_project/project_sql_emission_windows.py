@@ -782,6 +782,33 @@ def build_stage(
         if realized is None:
             assert problem is not None
             return None, None, (*problem, window.ref, location)
+        # PostgreSQL's structural function parameters are int4. This is not
+        # the value/default/result domain or R15's signed64 frame-offset law.
+        role = {
+            "ntile": "bucket",
+            "nth_value": "position",
+            "lag": "offset",
+            "lead": "offset",
+        }.get(function)
+        if target == "postgres" and any(item.role == role for item in realized):
+            number = (
+                policy.bucket_count
+                if role == "bucket"
+                else policy.frame_value.position_fact.effective_value
+                if role == "position"
+                else policy.navigation.offset_fact.effective_value
+            )
+            if number > I32_MAX:
+                return (
+                    None,
+                    None,
+                    (
+                        "PIE-B1002",
+                        "postgres_window_structural_argument_out_of_int32_range",
+                        window.ref,
+                        location,
+                    ),
+                )
         position = position_base + offset
         label = f"c{position}"
         anchor = specification.orders[0].read if specification.orders else None

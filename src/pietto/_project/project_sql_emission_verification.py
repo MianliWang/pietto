@@ -1649,6 +1649,24 @@ def _verify_window_column(request, column, window, export, columns, definitions,
         or len(column.arguments) != len(items)
     ):
         return False
+    # Independently recheck the selected native signature from retained
+    # structural facts, before consuming any builder argument reconstruction.
+    if request.family == "postgres":
+        native_value = None
+        minimum = 1
+        if function == "ntile":
+            native_value = policy.bucket_count
+        elif function == "nth_value":
+            native_value = policy.frame_value.position_fact.effective_value
+        elif function in {"lag", "lead"} and any(
+            item.role.value == "offset" for item in items
+        ):
+            native_value = policy.navigation.offset_fact.effective_value
+            minimum = 0
+        if native_value is not None and (
+            type(native_value) is not int or not minimum <= native_value <= 2147483647
+        ):
+            return False
     expected, problem = windowing.independent_arguments(
         policy, items, uses.get(window.ref, ()), columns
     )
