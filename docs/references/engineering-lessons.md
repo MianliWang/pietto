@@ -97,3 +97,10 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 - Provider definition evidence 必须与执行端使用同一 role/schema/deparse context；`pg_get_viewdef` 在不同 search_path 下文本不同。S03 在明确 pg_catalog context 捕获并验收，避免把表示差别误判成 domain 改变。
 - 持锁事务观察 blocked query 时显式清除自己的统计 snapshot，再检查实际 session、SQL、active/Lock；缓存 activity 不能当成新控制观察。参见 [S03 合同](../phases/phase-68/slice-03.md)。
 - Oracle 的物理宽度须从既有表示规则独立推导：MySQL UNION 常量 part 是 BIGINT，Arrow 有界 SMALLINT 是 int16。保留失败 raw，修正 checker 后只重读语义未变的记录。
+
+
+## Phase68 S07
+
+- 多跳准入修正限定在获准的 private route；同时保留 no-request 旧入口的精确拒绝控制，避免把新 consumer 权限扩散到原 emitter。见 [S07](../phases/phase-68/slice-07.md)。
+- shared snapshot 不保证 tied intermediate choice 相同；guard/data 必须共享实际 producer evaluation，或使用明确且已验证的 refinement。runtime receipt 只属于原 live attempt。
+- 预检覆盖所有新增协议和辅助 session；requested profile 与 native observed 字符串分开，真实 native fault 不伪装成注入，close 返回后核实实际 session 消失。完整 campaign 不承担这些诊断。

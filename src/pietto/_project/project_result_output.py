@@ -55,10 +55,24 @@ class GeneralOutput:
     binding: Any = dc_field(repr=False)
     units: tuple[Any, ...] = dc_field(repr=False)
     columns: tuple[OutputColumn, ...] = dc_field(repr=False)
+    guarded: Any = dc_field(default=None, repr=False)
 
 
 def prepare_output(artifact, *, binding=None):
-    view = inspect_project_sql_emission(artifact, artifact.request)
+    return _prepare_output(artifact, binding=binding)
+
+
+def _inspect_output(artifact, guarded):
+    if guarded is None:
+        return inspect_project_sql_emission(artifact, artifact.request)
+    from pietto._project.project_guard_preparation import inspect_pending
+
+    return inspect_pending(guarded, artifact)
+
+
+def _prepare_output(artifact, *, binding=None, guarded=None):
+    # A pending output is structural correspondence, never SQL execution permission.
+    view = _inspect_output(artifact, guarded)
     contract = build_result_contract(
         view.request.verification, scalar_meaning=view.request.scalar_meaning
     )
@@ -100,7 +114,7 @@ def prepare_output(artifact, *, binding=None):
                 source,
             )
         )
-    output = GeneralOutput(artifact, contract, binding, units, tuple(columns))
+    output = GeneralOutput(artifact, contract, binding, units, tuple(columns), guarded)
     verify_output(output, artifact, contract, binding=binding)
     return output
 
@@ -119,11 +133,11 @@ def verify_output(output, artifact, contract, *, binding=None):
         )
 
         verify_binding(binding)
-        if binding.artifact is not artifact:
+        if binding.artifact is not artifact or binding.guarded is not output.guarded:
             raise ResultError("OUTPUT_BINDING")
     # This upstream verifier independently re-derives all concrete realizations,
     # including hidden computations and both complete SEMI/ANTI input terminals.
-    view = inspect_project_sql_emission(artifact, artifact.request)
+    view = _inspect_output(artifact, output.guarded)
     verify_result_contract(contract, view.request.verification)
     if contract.scalar_meaning is not view.request.scalar_meaning:
         raise ResultError("OUTPUT_MEANING")

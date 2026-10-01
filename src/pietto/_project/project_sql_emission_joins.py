@@ -124,7 +124,7 @@ def joined_definitions(plan) -> dict[Any, tuple[Any, ...]]:
     return result
 
 
-def admitted_join_shape(plan) -> bool:
+def admitted_join_shape(plan, *, _guarded=None) -> bool:
     """Ordered JOIN chains over admitted inputs with the existing row tail."""
     if not plan.joins or not resulting.boundaries_admitted(plan):
         return False
@@ -194,7 +194,9 @@ def admitted_join_shape(plan) -> bool:
             for item in (left, right):
                 if (item.producer is None) == (item.predecessor is None):
                     return False
-                if (item.binding_use is None) != (item.producer is None):
+                if (item.binding_use is None) != (
+                    item.producer is None
+                ) and not guarded_path_input(_guarded, plan, item):
                     return False
                 if len(item.ports) != len(item.source.source_properties.fields):
                     return False
@@ -355,3 +357,48 @@ def demand_rule(plan, entry) -> str | None:
     if family in {"single_match", "proof_context"}:
         return "R07"
     return None
+
+
+def guarded_path_input(scope, plan, item):
+    """An unbound path occurrence stays unbound; its verified exports own reads."""
+    from pietto._project.project_guard_preparation import PendingGuardScope
+
+    if (
+        type(scope) is not PendingGuardScope
+        or scope.request.plan is not plan
+        or not scope.obligations
+    ):
+        return False
+    if (
+        item.binding_use is not None
+        or item.producer is None
+        or item.predecessor is not None
+    ):
+        return False
+    joins = tuple(j for j in plan.joins if j.ref is item.join)
+    definitions = tuple(d for d in plan.bindings.definitions if d.ref is item.producer)
+    if len(joins) != 1 or len(definitions) != 1:
+        return False
+    join, definition = joins[0], definitions[0]
+    path = join.source.condition.effective_use.path
+    if (
+        path is None
+        or len(path.steps) < 2
+        or join.source.inputs[item.ordinal] is not item.source
+    ):
+        return False
+    if (
+        definition.entry.owner is not item.source.producer
+        or item.source.use.output is not definition.entry.active_output.occurrence
+    ):
+        return False
+    ports = {p.ref: p for p in plan.join_ports}
+    return len(item.ports) == len(definition.exports) and all(
+        ports[ref].input is item.ref
+        and ports[ref].position == i
+        and ports[ref].source is export.ref
+        and ports[ref].field is export.field
+        for i, (ref, export) in enumerate(
+            zip(item.ports, definition.exports, strict=True)
+        )
+    )

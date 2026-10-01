@@ -604,3 +604,21 @@ their own scope. Shared admission/verifier/reader changes require current depend
 acceptance; exact-head CI still owns all existing runtime/partition/native/package
 consumers. Compatible fixtures and passive observations are reused; source/wheel,
 mutation and fresh-process identities are not merged or replaced by a PASS cache.
+
+
+## Phase68 S07 guarded execution validation
+
+[S07](phases/phase-68/slice-07.md) uses one cumulative ledger across its original dispatch,
+multi-hop amendment and explicit budget corrections. Preserve earlier HOLDs and failed raw.
+Before the complete three-route/source-installed campaign, freeze current producing inputs
+and obtain `GREEN_FOR_CURRENT_INPUTS` from bounded fixture/native/control/reader preflight.
+A changed producer or checker meaning invalidates affected readiness; a full campaign or
+full validator is not a diagnostic. Reuse unchanged observations only with exact input reasons.
+
+The explicit S07 launcher owns sequential disposable databases and fresh origin workers.
+Independent checks include complete main and auxiliary sessions, statements, nested writer
+attempts, native terminals and actual-record damage. Driver close returning is followed by
+the existing bounded server-session absence observation; timeout remains failure. Ordinary
+pytest stays offline. Required focused/Ruff/typing and the unfiltered guarded Python3.13 full
+validator remain local; exact-head CI retains all existing runtime/package/native/replay
+consumers. Core no-sync protection and the S19/S20 acquisition boundary remain unchanged.

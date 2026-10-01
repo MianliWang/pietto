@@ -125,3 +125,14 @@ historical; current excessive-argument documents are rejected. S06 supplies exac
 source/use, choice/peer/frame, erasure and progress laws; S07/S08/S09/S10/S14 retain
 their original ownership. Native observations remain finite and provider guarantees
 remain explicit; none imply source-free loading or durable recovery completion.
+
+
+## S07 private guarded route
+
+[S07](slice-07.md) preserves the original request unit and complete direct/hop/path inventory.
+The explicit multi-hop amendment opens only the private guarded shape gate; old no-request
+PIE-B1003 controls and all other original exclusions remain. Ordinary execution shares actual
+producer evaluation between guard and data without requiring R2; explicit refinement uses
+the existing source vector and tie policy. Pending structure and live fulfillment have separate
+owners. Current source/installed acceptance, exact-input readiness and complete auxiliary
+session accounting precede publication. S08 remains separately dispatched.

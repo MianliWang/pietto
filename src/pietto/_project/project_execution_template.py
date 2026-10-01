@@ -44,6 +44,7 @@ class ExecutionTemplate:
     artifact: EmissionArtifact = field(repr=False)
     slots: tuple[ExecutionSlot, ...]
     _state: tuple = field(repr=False)
+    guarded: Any = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -53,6 +54,7 @@ class ExecutionBinding:
     artifact: EmissionArtifact = field(repr=False)
     arguments: tuple = field(repr=False)
     _state: tuple = field(repr=False)
+    guarded: Any = field(default=None, repr=False)
 
 
 def prepare_template(artifact):
@@ -213,6 +215,15 @@ def _specialize(template, values):
         if original.scalar_meaning is not None
         else None
     )
+    if template.guarded is not None:
+        from pietto._project.project_guard_preparation import prepare_guarded
+
+        return prepare_guarded(
+            verified,
+            original.accepted_bytes,
+            target_request=original.target_request,
+            scalar_meaning=meaning,
+        )
     outcome = emit_project_sql(
         verified,
         original.accepted_bytes,
@@ -240,9 +251,24 @@ def bind_values(template, supplied):
         values.append(pair[1])
     captured = tuple(values)
     try:
-        artifact = _specialize(template, captured) if captured else template.artifact
+        specialized = _specialize(template, captured) if captured else None
+        guarded = (
+            (specialized if captured else template.guarded)
+            if template.guarded is not None
+            else None
+        )
+        if guarded is not None:
+            from pietto._project.project_guard_preparation import GuardedPreparation
+
+            if type(guarded) is not GuardedPreparation:
+                raise BindingError("BINDING_INVALID")
+            artifact = guarded.artifact
+        else:
+            artifact = specialized if captured else template.artifact
+            if type(artifact) is not EmissionArtifact:
+                raise BindingError("BINDING_INVALID")
         arguments = check.native_arguments(artifact, captured)
-        result = ExecutionBinding(template, captured, artifact, arguments, ())
+        result = ExecutionBinding(template, captured, artifact, arguments, (), guarded)
         result = replace(result, _state=check.binding_state(result))
         check.verify_binding(result)
         return result

@@ -62,10 +62,20 @@ def prepare_refined_execution(
     return request
 
 
-def verify_refined_execution(request):
+def verify_refined_execution(request, *, _guarded=None):
     if type(request) is not RefinedExecutionRequest:
         raise ValueError("REFINEMENT_EXECUTION_ROOT")
-    verify_execution_request(request.execution)
+    if _guarded is None:
+        verify_execution_request(request.execution)
+    else:
+        from pietto._project.project_guard_runtime import verify_guarded_execution
+
+        verify_guarded_execution(_guarded)
+        if (
+            _guarded.execution is not request.execution
+            or _guarded.program.refinement is not request.refinement
+        ):
+            raise ValueError("GUARD_REFINEMENT_EXECUTION_ROOT")
     verify_refinement(request.refinement)
     e, q = request.execution, request.refinement
     if (
@@ -162,7 +172,7 @@ class CheckedPage:
 
 
 class Enumeration:
-    def __init__(self, query, admissions, *, limits=ExecutionLimits()):
+    def __init__(self, query, admissions, *, limits=ExecutionLimits(), _guards=None):
         verify_refinement(query)
         verify_execution_limits(limits)
         if type(admissions) is not SourceAdmissions:
@@ -189,11 +199,18 @@ class Enumeration:
             or not environment[5]
         ):
             raise ValueError("REFINEMENT_NATIVE_SELECTION_CAPACITY")
-        if any(
+        if _guards is None and any(
             x.downstream_enforcement_required
             for x in query.original.request.plan.single_matches
         ):
             raise ValueError("UNFULFILLED_RUNTIME_OBLIGATION")
+        self.guards = self._owned_guards = _guards
+        if _guards is not None:
+            from pietto._project.project_guard_runtime import GuardRun
+
+            if type(_guards) is not GuardRun:
+                raise ValueError("GUARD_REFINEMENT_OWNER")
+            _guards.require_fulfilled(_guards.context.owner, refinement=query)
         self.query, self.admissions, self.limits = query, admissions, limits
         self._roots = (query, admissions, limits)
         self._captured = (refinement_state(query), limits_state(limits))
@@ -223,6 +240,12 @@ class Enumeration:
         )
 
     def verify(self):
+        if self.guards is not self._owned_guards:
+            raise ValueError("GUARD_REFINEMENT_OWNER")
+        if self.guards is not None:
+            self.guards.require_fulfilled(
+                self.guards.context.owner, refinement=self.query
+            )
         if self._progress_snapshot() != self._progress_state:
             raise ValueError("REFINEMENT_PROGRESS_CHANGED")
         if self._roots != (

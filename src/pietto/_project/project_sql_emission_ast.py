@@ -347,7 +347,11 @@ def representation_problem(field: BoundField, family: str):
     return None if valid else ("PIE-B1002", "physical_storage_or_domain_mismatch")
 
 
-def emission_blockers(request: PreparedEmission):
+def emission_blockers(request: PreparedEmission, *, _guarded=None):
+    if _guarded is not None:
+        from pietto._project.project_guard_preparation import verify_scope
+
+        verify_scope(_guarded, request)
     plan = request.plan
     result = list(request.input_blockers)
     try:
@@ -377,8 +381,10 @@ def emission_blockers(request: PreparedEmission):
         add("PIE-B1003", "target_release_not_reviewed")
     admitted = projection_chain_shape(plan)
     realization = None
-    if not admitted and (admitted_row_shape(plan) or joining.admitted_join_shape(plan)):
-        realization = realize_rows(request)
+    if not admitted and (
+        admitted_row_shape(plan) or joining.admitted_join_shape(plan, _guarded=_guarded)
+    ):
+        realization = realize_rows(request, _guarded=_guarded)
         result.extend(realization.problems)
     elif not admitted:
         shape_start = len(result)
@@ -1101,6 +1107,8 @@ def _join_input(
     by_join,
     join_inputs,
     join_ports,
+    *,
+    _guarded=None,
 ):
     """One JOIN input relation and the exact pre-match column it publishes."""
     original = join_inputs[reference]
@@ -1176,6 +1184,78 @@ def _join_input(
                 reads.append(
                     replace(column, position=position, name=f"c{position}", scope=alias)
                 )
+    elif joining.guarded_path_input(_guarded, request.plan, original):
+        (definition,) = tuple(
+            d for d in request.plan.bindings.definitions if d.ref is original.producer
+        )
+        if original.producer in source_refs:
+            source = source_refs[original.producer]
+            matches = tuple(
+                s for s in request.sources if s.owner is source.source.owner
+            )
+            if len(matches) != 1:
+                return None, ("PIE-B1001", "source_mapping_missing", source.ref, None)
+            producer, source_ref = matches[0], source.ref
+            for position, export in enumerate(definition.exports):
+                fields = tuple(f for f in producer.fields if f.field is export.field)
+                if len(fields) != 1:
+                    return None, (
+                        "PIE-B1001",
+                        "guarded_path_source_field",
+                        original.ref,
+                        None,
+                    )
+                realization = rows.field_realization(fields[0])
+                if realization is None:
+                    return None, (
+                        "PIE-B1004",
+                        "join_input_field_representation_missing",
+                        original.ref,
+                        None,
+                    )
+                reads.append(
+                    rows.StageColumn(
+                        position,
+                        fields[0].column,
+                        export.ref,
+                        realization,
+                        field=fields[0],
+                        source_port=export.ref,
+                        scope=alias,
+                    )
+                )
+        else:
+            producer = by_definition.get(original.producer)
+            if producer is None:
+                return None, (
+                    "PIE-B1001",
+                    "named_producer_not_realized",
+                    original.ref,
+                    None,
+                )
+            (layout,) = tuple(
+                d for d in request.layout.definitions if d.original is definition
+            )
+            if len(layout.terminals) != len(producer.columns):
+                return None, ("PIE-B1001", "guarded_path_terminal", original.ref, None)
+            for position, (column, terminal) in enumerate(
+                zip(producer.columns, layout.terminals, strict=True)
+            ):
+                if column.column.terminal is not terminal.ref:
+                    return None, (
+                        "PIE-B1001",
+                        "guarded_path_terminal",
+                        original.ref,
+                        None,
+                    )
+                reads.append(
+                    replace(
+                        column.column,
+                        position=position,
+                        name="c" + str(position),
+                        scope=alias,
+                    )
+                )
     else:
         producer = by_join.get(original.predecessor)
         if producer is None:
@@ -1236,6 +1316,8 @@ def _join_body(
     join_ports,
     equalities,
     uses,
+    *,
+    _guarded=None,
 ):
     """Realize one JOIN occurrence as its own closed generated SELECT."""
     inputs = []
@@ -1250,6 +1332,7 @@ def _join_body(
             by_join,
             join_inputs,
             join_ports,
+            _guarded=_guarded,
         )
         if value is None:
             return None, problem
@@ -1393,7 +1476,7 @@ def _join_node_count(unit) -> int:
     return total
 
 
-def realize_rows(request):
+def realize_rows(request, *, _guarded=None):
     """Realize every stage body once; construction and checking share this walk."""
     plan = request.plan
     family = request.family
@@ -1523,6 +1606,7 @@ def realize_rows(request):
                 join_ports,
                 equalities,
                 uses,
+                _guarded=_guarded,
             )
             if unit is None:
                 assert problem is not None

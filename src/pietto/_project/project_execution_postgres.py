@@ -31,6 +31,15 @@ from pietto._project.project_refinement_enumeration import (
     verify_refined_execution,
 )
 from pietto._project.project_result_output import source_read_columns
+from pietto._project.project_guard_runtime import (
+    GuardedExecutionRequest,
+    GuardRun,
+    verify_guarded_execution,
+)
+from pietto._project.project_guard_context import (
+    admit_postgres_guard_context,
+    refresh_postgres_guard_context,
+)
 
 __all__: tuple[str, ...] = ()
 
@@ -67,17 +76,34 @@ def failure(error, phase):
 
 class PostgresExecution:
     def __init__(self, request):
+        self.guarded_request = (
+            request if type(request) is GuardedExecutionRequest else None
+        )
+        self._owned_guarded_request = self.guarded_request
+        if self.guarded_request is not None:
+            verify_guarded_execution(self.guarded_request)
+            request = self.guarded_request.execution
         self.refined_request = (
             request if type(request) is RefinedExecutionRequest else None
         )
+        if (
+            self.guarded_request is not None
+            and self.guarded_request.program.refinement is not None
+        ):
+            self.refined_request = RefinedExecutionRequest(
+                self.guarded_request.execution, self.guarded_request.program.refinement
+            )
         self._owned_refined_request = self.refined_request
         if self.refined_request is not None:
-            verify_refined_execution(self.refined_request)
+            verify_refined_execution(
+                self.refined_request, _guarded=self.guarded_request
+            )
             self._refined_state = refinement_state(self.refined_request.refinement)
-            request = request.execution
+            request = self.refined_request.execution
         else:
             self._refined_state = None
-        verify_execution_request(request)
+        if self.guarded_request is None:
+            verify_execution_request(request)
         self.request = cast(ExecutionRequest, request)
         self._captured = request_state(request)
         self.attempt = uuid.uuid4().hex
@@ -113,9 +139,26 @@ class PostgresExecution:
         self.enumeration = None
         self._owned_enumeration = None
         self.last_page = None
+        self.guards = self._owned_guards = None
+        self._guard_context: Any = None
+        self._guard_transaction: object | None = None
+        self.guard_events = []
+        self._guard_control: Any = None
+        self._guard_bytes = 0
 
     def _verify(self):
-        verify_execution_request(self.request)
+        if self.guarded_request is None:
+            verify_execution_request(self.request)
+        else:
+            if (
+                self.guarded_request is not self._owned_guarded_request
+                or self.guarded_request.execution is not self.request
+                or self.guards is not self._owned_guards
+            ):
+                raise ExecutionError("GUARD_RESOURCE_IDENTITY")
+            verify_guarded_execution(self.guarded_request)
+            if self.guards is not None:
+                self.guards.verify(self)
         if (
             self._connection is not self._owned_connection
             or self._cursor is not self._owned_cursor
@@ -136,7 +179,9 @@ class PostgresExecution:
         ):
             raise ExecutionError("REFINEMENT_RESOURCE_IDENTITY")
         if self.refined_request is not None:
-            verify_refined_execution(self.refined_request)
+            verify_refined_execution(
+                self.refined_request, _guarded=self.guarded_request
+            )
             if (
                 self.refined_request.execution is not self.request
                 or refinement_state(self.refined_request.refinement)
@@ -149,6 +194,8 @@ class PostgresExecution:
                     self.refined_request.refinement.sources,
                     source_read_columns(self.refined_request.refinement.output),
                 )
+        if self.guards is not None:
+            refresh_postgres_guard_context(self)
 
     def _remaining(self):
         if self._started is None:
@@ -221,15 +268,28 @@ class PostgresExecution:
                     session_id=self.session_id,
                 )
                 self._owned_admissions = self.source_admissions
+            if self.guarded_request is not None:
+                context = admit_postgres_guard_context(
+                    self, self.guarded_request.program
+                )
+                self.guards = GuardRun(self.guarded_request, context)
+                self._owned_guards = self.guards
+                if context.separate_allowed:
+                    self._fulfill_separate_guards()
+            if self.refined_request is not None:
                 self.enumeration = Enumeration(
-                    refined, self.source_admissions, limits=self.request.limits
+                    self.refined_request.refinement,
+                    self.source_admissions,
+                    limits=self.request.limits,
+                    _guards=self.guards,
                 )
                 self._owned_enumeration = self.enumeration
             self._remaining()
             self._delivery = "OPEN"
             return self
         except BaseException as error:
-            self._primary = failure(error, "admission")
+            if self._primary is None:
+                self._primary = failure(error, "admission")
             self._source = "FAILED"
             self._delivery = "FAILED"
             self._finish(False)
@@ -253,7 +313,14 @@ class PostgresExecution:
             self._verify()
             # Binding checks can take time; apply the existing control checkpoint
             # after them and before submitting the immutable accepted tuple.
-            arguments = execution_arguments(self.request) if not self._submitted else ()
+            guarded_native = None
+            if not self._submitted and self.guards is not None:
+                guarded_native = self.guards.prepare_submission(self)
+                arguments = guarded_native.arguments
+            else:
+                arguments = (
+                    execution_arguments(self.request) if not self._submitted else ()
+                )
             if self._cancel.is_set():
                 raise ExecutionError("EXECUTION_CANCELED")
             remaining = self._remaining()
@@ -270,8 +337,15 @@ class PostgresExecution:
                 self._cursor = connection.cursor()
                 self._owned_cursor = self._cursor
                 self._source = "EXECUTING"
+                self._remaining()
+                if self._cancel.is_set():
+                    raise ExecutionError("EXECUTION_CANCELED")
                 self._cursor.execute(
-                    self.request.artifact.rendered.sql.decode("utf-8"),
+                    (
+                        guarded_native.sql
+                        if guarded_native is not None
+                        else self.request.artifact.rendered.sql
+                    ).decode("utf-8"),
                     arguments,
                     prepare=True,
                 )
@@ -295,14 +369,32 @@ class PostgresExecution:
                     )
                     for c in self._cursor.description
                 )
-                self._payloads = ExecutionPayloads(
-                    self.request, self._cursor.description
-                )
+                description = self._cursor.description
+                if self.guards is not None:
+                    if self.guards.native is None:
+                        raise ExecutionError("GUARD_SUBMISSION_MISSING")
+                    phase = "guard"
+                    self._remaining()
+                    if self._cancel.is_set():
+                        raise ExecutionError("EXECUTION_CANCELED")
+                    header = (
+                        self._cursor.fetchone()
+                        if self.guards.native.statement.kind == "combined"
+                        else None
+                    )
+                    refresh_postgres_guard_context(self)
+                    description = self.guards.accept_header(
+                        self, tuple(description), header
+                    )
+                    self.guard_events.append(("status_consumed", self.guards.states))
+                self._payloads = ExecutionPayloads(self.request, description)
             self._remaining()
             if self._cancel.is_set():
                 raise ExecutionError("EXECUTION_CANCELED")
             phase = "read"
             rows = self._cursor.fetchmany(self.request.limits.batch_rows)
+            if self.guards is not None:
+                rows = self.guards.public_rows(self, rows)
             self._remaining()
             if self._cancel.is_set():
                 raise ExecutionError("EXECUTION_CANCELED")
@@ -319,6 +411,13 @@ class PostgresExecution:
                 raise ExecutionError("EXECUTION_METADATA")
             batch = self._payloads.accept(rows)
             try:
+                if (
+                    self._payloads.bytes + self._guard_bytes
+                    > self.request.limits.max_bytes
+                ):
+                    raise ExecutionError("GUARD_RESOURCE_LIMIT")
+                if self.guards is not None:
+                    refresh_postgres_guard_context(self)
                 self._remaining()
                 if self._cancel.is_set():
                     raise ExecutionError("EXECUTION_CANCELED")
@@ -347,6 +446,42 @@ class PostgresExecution:
             self._delivery = "FAILED"
             self._finish(False)
             raise
+
+    def _fulfill_separate_guards(self):
+        if self.guards is None or not self.guards.context.separate_allowed:
+            raise ExecutionError("GUARD_SEPARATE_CONTEXT")
+        if all(s == "STATIC" for s in self.guards.states):
+            self.guards.require_fulfilled(self)
+            return
+        native = self.guards.prepare_submission(self)
+        self._remaining()
+        if self._cancel.is_set():
+            raise ExecutionError("EXECUTION_CANCELED")
+        self._cursor = self._owned_cursor = self._connection.cursor()
+        self.guard_events.append(("guard_statement_open", self.attempt))
+        try:
+            self._remaining()
+            if self._cancel.is_set():
+                raise ExecutionError("EXECUTION_CANCELED")
+            self._cursor.execute(
+                native.sql.decode("utf-8"), native.arguments, prepare=True
+            )
+            metadata = tuple(self._cursor.description)
+            rows = tuple(tuple(row) for row in self._cursor.fetchmany(2))
+            if len(rows) != 1 or self._cursor.fetchone() is not None:
+                raise ExecutionError("GUARD_NATIVE_TERMINAL")
+            refresh_postgres_guard_context(self)
+            self.guards.accept_guard_result(self, metadata, rows, terminal="NORMAL")
+            self.guard_events.append(("guard_terminal", self.guards.states))
+            self._cursor.close()
+            self._cursor = self._owned_cursor = None
+        except BaseException as error:
+            if self._primary is None:
+                self._primary = failure(error, "guard")
+            raise
+        self._remaining()
+        if self._cancel.is_set():
+            raise ExecutionError("EXECUTION_CANCELED")
 
     def _next_refined_page(self):
         phase = "execute"
@@ -382,6 +517,9 @@ class PostgresExecution:
                 self._cursor = self._connection.cursor()
                 self._owned_cursor = self._cursor
                 self._source = "EXECUTING"
+                self._remaining()
+                if self._cancel.is_set():
+                    raise ExecutionError("EXECUTION_CANCELED")
                 self._cursor.execute(
                     page.native.sql.decode("utf-8"), page.native.arguments, prepare=True
                 )
@@ -429,6 +567,13 @@ class PostgresExecution:
                 self._remaining()
                 if self._cancel.is_set():
                     raise ExecutionError("EXECUTION_CANCELED")
+                if self.guards is not None:
+                    refresh_postgres_guard_context(self)
+                    if (
+                        self._guard_bytes + checked.raw_bytes + self.enumeration._bytes
+                        > self.request.limits.max_bytes
+                    ):
+                        raise ExecutionError("GUARD_RESOURCE_LIMIT")
                 phase = "statement_close"
                 self._cursor.close()
                 self._cursor = self._owned_cursor = None
@@ -507,6 +652,14 @@ class PostgresExecution:
     def _finish(self, commit):
         if self._closed:
             return
+        if self._guard_control is not None:
+            try:
+                self._guard_control.close()
+            except BaseException as error:
+                self._cleanup_errors.append(failure(error, "guard_control_close"))
+            self._guard_control = None
+        if self.guards is not None:
+            self.guards.close()
         if not commit and self.enumeration is not None:
             self.enumeration.fail()
         if self._owned_cursor is not None:

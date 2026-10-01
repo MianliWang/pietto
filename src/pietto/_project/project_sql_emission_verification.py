@@ -207,7 +207,15 @@ def prepared_current(request):
     return True
 
 
-def verify_sql_ast(request, ast):
+def _structural_blockers(request, guarded):
+    if guarded is None:
+        return emission_blockers(request)
+    from pietto._project.project_guard_preparation import structural_blockers
+
+    return structural_blockers(guarded, request)
+
+
+def verify_sql_ast(request, ast, *, _guarded=None):
     try:
         if (
             not prepared_current(request)
@@ -216,7 +224,7 @@ def verify_sql_ast(request, ast):
         ):
             return False
         plan = request.plan
-        if not projection_chain_shape(plan) or emission_blockers(request):
+        if not projection_chain_shape(plan) or _structural_blockers(request, _guarded):
             return False
         sources = {s.ref: s for s in plan.sources}
         definitions = tuple(
@@ -1001,20 +1009,30 @@ class EmissionVerification:
 
 
 def verify_project_sql_emission(artifact, request):
+    # This legacy result never turns pending guard work into VERIFIED authority.
+    return EmissionVerification(_verify_emission_structure(artifact, request))
+
+
+def _verify_emission_structure(artifact, request, *, guarded=None):
     from pietto._project.project_sql_emission import EmissionArtifact
 
+    from pietto._project.project_guard_preparation import GuardedArtifact
+
+    accepted = type(artifact) is EmissionArtifact or (
+        type(artifact) is GuardedArtifact
+        and guarded is artifact.guard_scope
+        and guarded is not None
+    )
     issues = []
     try:
-        rows_query = type(artifact) is EmissionArtifact and (
-            type(artifact.ast) in {SQLRowQuery, SQLJoinQuery}
-        )
+        rows_query = accepted and (type(artifact.ast) in {SQLRowQuery, SQLJoinQuery})
         if (
-            type(artifact) is not EmissionArtifact
+            not accepted
             or artifact.request is not request
             or not (
-                verify_row_query(request, artifact.ast)
+                verify_row_query(request, artifact.ast, _guarded=guarded)
                 if rows_query
-                else verify_sql_ast(request, artifact.ast)
+                else verify_sql_ast(request, artifact.ast, _guarded=guarded)
             )
         ):
             issues.append("plan_ast_correspondence")
@@ -1053,7 +1071,7 @@ def verify_project_sql_emission(artifact, request):
             issues.append("target_input_binding")
     except (AttributeError, TypeError, ValueError, IndexError, KeyError):
         issues.append("artifact_structure")
-    return EmissionVerification(tuple(issues))
+    return tuple(issues)
 
 
 def verify_parameters(artifact):
@@ -1961,7 +1979,17 @@ def _verify_row_value(
     return value.realization
 
 
-def _join_reads(request, original, uses_by_ref, source_refs, produced, by_join, ports):
+def _join_reads(
+    request,
+    original,
+    uses_by_ref,
+    source_refs,
+    produced,
+    by_join,
+    ports,
+    *,
+    guarded=None,
+):
     """Independently rebuild one JOIN input's pre-match columns and alias."""
     alias = ast.SQLSymbol(0, original.ref, f"m{original.ref.position}")
     reads = []
@@ -2015,6 +2043,93 @@ def _join_reads(request, original, uses_by_ref, source_refs, produced, by_join, 
                 reads.append(
                     replace(column, position=position, name=f"c{position}", scope=alias)
                 )
+    elif original.producer is not None and guarded is not None:
+        from pietto._project.project_guard_preparation import PendingGuardScope
+
+        if (
+            type(guarded) is not PendingGuardScope
+            or guarded.request is not request
+            or not guarded.obligations
+        ):
+            raise ValueError("guarded path scope")
+        joins = tuple(j for j in request.plan.joins if j.ref is original.join)
+        definitions = tuple(
+            d for d in request.plan.bindings.definitions if d.ref is original.producer
+        )
+        if len(joins) != 1 or len(definitions) != 1 or original.predecessor is not None:
+            raise ValueError("guarded path input roots")
+        image, definition = joins[0].source, definitions[0]
+        path = image.condition.effective_use.path
+        if (
+            path is None
+            or len(path.steps) < 2
+            or image.inputs[original.ordinal] is not original.source
+            or definition.entry.owner is not original.source.producer
+            or original.source.use.output
+            is not definition.entry.active_output.occurrence
+        ):
+            raise ValueError("guarded path occurrence")
+        if len(original.ports) != len(definition.exports):
+            raise ValueError("guarded path input width")
+        for position, (reference, export) in enumerate(
+            zip(original.ports, definition.exports, strict=True)
+        ):
+            port = ports[reference]
+            if (
+                port.input is not original.ref
+                or port.position != position
+                or port.source is not export.ref
+                or port.field is not export.field
+            ):
+                raise ValueError("guarded path original exports")
+        if original.producer in source_refs:
+            source = source_refs[original.producer]
+            bounds = tuple(b for b in request.sources if b.owner is source.source.owner)
+            if len(bounds) != 1:
+                raise ValueError("guarded path physical source")
+            producer, source_ref = bounds[0], source.ref
+            for position, export in enumerate(definition.exports):
+                fields = tuple(f for f in producer.fields if f.field is export.field)
+                if len(fields) != 1:
+                    raise ValueError("guarded path source field")
+                realization = rows.field_realization(fields[0])
+                if realization is None:
+                    raise ValueError("guarded path source realization")
+                reads.append(
+                    rows.StageColumn(
+                        position,
+                        fields[0].column,
+                        export.ref,
+                        realization,
+                        field=fields[0],
+                        source_port=export.ref,
+                        scope=alias,
+                    )
+                )
+        else:
+            producer = produced.get(original.producer)
+            layouts = tuple(
+                d for d in request.layout.definitions if d.original is definition
+            )
+            if (
+                producer is None
+                or len(layouts) != 1
+                or len(layouts[0].terminals) != len(producer.columns)
+            ):
+                raise ValueError("guarded path named producer")
+            for position, (column, terminal) in enumerate(
+                zip(producer.columns, layouts[0].terminals, strict=True)
+            ):
+                if column.column.terminal is not terminal.ref:
+                    raise ValueError("guarded path named terminal")
+                reads.append(
+                    replace(
+                        column.column,
+                        position=position,
+                        name="c" + str(position),
+                        scope=alias,
+                    )
+                )
     else:
         producer = by_join.get(original.predecessor)
         if producer is None:
@@ -2039,7 +2154,7 @@ def _join_reads(request, original, uses_by_ref, source_refs, produced, by_join, 
     return alias, producer, use, tuple(columns), source_ref
 
 
-def _verify_join_unit(request, unit, join, index, context, state):
+def _verify_join_unit(request, unit, join, index, context, state, *, guarded=None):
     """Independent JOIN inventory, scopes, condition and published ports."""
     plan = request.plan
     if (
@@ -2075,7 +2190,10 @@ def _verify_join_unit(request, unit, join, index, context, state):
             or original.ordinal != ordinal
             or item.ports != tuple(original.ports)
             or (original.producer is None) == (original.predecessor is None)
-            or (original.binding_use is None) != (original.producer is None)
+            or (
+                guarded is None
+                and (original.binding_use is None) != (original.producer is None)
+            )
         ):
             raise ValueError("join input identity")
         alias, producer, use, columns, source_ref = _join_reads(
@@ -2086,6 +2204,7 @@ def _verify_join_unit(request, unit, join, index, context, state):
             context["produced"],
             context["by_join"],
             ports,
+            guarded=guarded,
         )
         if (
             item.symbol.name != alias.name
@@ -2810,7 +2929,7 @@ def _verify_set_unit(request, unit, definition, body, position, produced, last, 
     state["nodes"] += setting.node_count(unit)
 
 
-def verify_row_query(request, query):
+def verify_row_query(request, query, *, _guarded=None):
     """Independent stage schedule, scope, column and expression correspondence."""
     try:
         plan = request.plan
@@ -2821,14 +2940,14 @@ def verify_row_query(request, query):
             or query.request is not request
             or (type(query) is SQLJoinQuery) != bool(plan.joins or plan.set_bodies)
             or (
-                joining.admitted_join_shape(plan)
+                joining.admitted_join_shape(plan, _guarded=_guarded)
                 if joined
                 else admitted_row_shape(plan)
             )
             is False
             or (joined and admitted_row_shape(plan))
             or projection_chain_shape(plan)
-            or emission_blockers(request)
+            or _structural_blockers(request, _guarded)
         ):
             return False
         children = _operand_children(plan)
@@ -2897,7 +3016,15 @@ def verify_row_query(request, query):
             zip(expected, units, strict=True)
         ):
             if index is None:
-                _verify_join_unit(request, body, block, position, join_context, state)
+                _verify_join_unit(
+                    request,
+                    body,
+                    block,
+                    position,
+                    join_context,
+                    state,
+                    guarded=_guarded,
+                )
                 by_join[block.ref] = body
                 continue
             if index == "set":

@@ -70,6 +70,12 @@ class ProducerResultBinding:
 
 
 def _columns(contract, artifact, projection=None, output=None) -> tuple[Any, ...]:
+    if output is not None and getattr(output, "guarded", None) is not None:
+        from pietto._project.project_result_output import verify_output
+
+        if projection is not None:
+            raise ResultError("PRODUCER_ROOT")
+        return verify_output(output, artifact, contract, binding=output.binding)
     try:
         view = inspect_project_sql_emission(artifact, artifact.request)
     except (ValueError, TypeError, AttributeError) as exc:

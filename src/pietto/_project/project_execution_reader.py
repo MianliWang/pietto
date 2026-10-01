@@ -60,7 +60,9 @@ def bind_postgres_output(output, description):
     return bind_native_output(output, "postgres_rows", description)
 
 
-def check_native_column(real, route, meta, *, label, ordinal, source_field):
+def check_native_column(
+    real, route, meta, *, label, ordinal, source_field, _guarded_output=None
+):
     """Physical ABI observations only; configured value bounds remain requirements."""
     if route not in ("postgres_rows", "postgres_adbc", "mysql_rows"):
         raise ResultError("EXECUTION_METADATA_ROUTE")
@@ -109,13 +111,55 @@ def check_native_column(real, route, meta, *, label, ordinal, source_field):
             raise ResultError("EXECUTION_METADATA")
         nullable = meta.null_ok
     elif route == "mysql_rows":
+        expected_code = codes.get(storage)
+        if (
+            _guarded_output is not None
+            and real.tag == "Text"
+            and storage in ("my_varchar", "my_utf8mb4_text")
+            and type(meta) in (tuple, list)
+            and len(meta) == 9
+            and type(meta[1]) is int
+            and meta[1] == 252
+        ):
+            from pietto._project.project_result_output import (
+                GeneralOutput,
+                verify_output,
+            )
+
+            if (
+                type(_guarded_output) is not GeneralOutput
+                or _guarded_output.guarded is None
+            ):
+                raise ResultError("EXECUTION_METADATA")
+            columns = verify_output(
+                _guarded_output,
+                _guarded_output.artifact,
+                _guarded_output.contract,
+                binding=_guarded_output.binding,
+            )
+            if (
+                not any(
+                    c.realization is real
+                    and c.ordinal == ordinal
+                    and c.label == label
+                    and c.source_field is source_field
+                    for c in columns
+                )
+                or type(meta[7]) is not int
+                or not meta[7] & 16
+            ):
+                raise ResultError("EXECUTION_METADATA")
+            # Shared MySQL materialization can report projected UTF8 text as BLOB.
+            # Preserve the real metadata; collation and every scalar requirement
+            # below still apply. Source and unguarded ABI contracts stay exact.
+            expected_code = 252
         if (
             type(meta) not in (tuple, list)
             or len(meta) != 9
             or type(meta[0]) is not str
             or type(meta[1]) is not int
             or meta[0] != label
-            or meta[1] != codes.get(storage)
+            or meta[1] != expected_code
             or type(meta[7]) is not int
             or not 0 <= meta[7] <= 65535
         ):
@@ -197,6 +241,7 @@ def bind_native_output(output, route, metadata):
             label=column.label,
             ordinal=column.ordinal,
             source_field=column.source_field,
+            _guarded_output=output if output.guarded is not None else None,
         )
         options = {}
         domain, carrier = (

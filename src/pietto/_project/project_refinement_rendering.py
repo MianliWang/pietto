@@ -49,7 +49,7 @@ class Select:
     groups: tuple[Expr, ...] = ()
     orders: tuple[Order, ...] = ()
     limit: int | Expr | None = None
-    offset: int = 0
+    offset: int | Expr = 0
     distinct: bool = False
 
 
@@ -150,7 +150,7 @@ def _parameters(value):
     )
 
 
-def render(statement, artifact, page_values=()):
+def render(statement, artifact, page_values=(), *, _guards=None):
     """Render checked syntax with distinct original-slot and page-use domains."""
     request = artifact.request
     family = request.family
@@ -288,6 +288,20 @@ def render(statement, artifact, page_values=()):
             if whole_frame:
                 emit(" ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING")
             emit(")")
+        elif k == "guard_control":
+            from pietto._project.project_guard_program import GuardStatement
+
+            if type(_guards) is not GuardStatement or len(a) != 1:
+                raise ValueError("GUARD_CONTROL_CONTEXT")
+            control = a[0]
+            positions = tuple(i for i, c in enumerate(_guards.controls) if c is control)
+            if len(positions) != 1:
+                raise ValueError("GUARD_CONTROL_IDENTITY")
+            index = (
+                page_base + positions[0] + 1 if family == "postgres" else len(uses) + 1
+            )
+            emit("CAST($" + str(index) + " AS BIGINT)" if family == "postgres" else "?")
+            uses.append(ParameterUse("guard", control, index, control.value))
         elif k in ("page", "page_limit"):
             index, tag, precision, scale = a
             raw = page_values[index]
@@ -381,8 +395,9 @@ def render(statement, artifact, page_values=()):
             raise ValueError("REFINEMENT_SELECT")
         emit("SELECT DISTINCT " if value.distinct else "SELECT ")
         separated(value.columns, column)
-        emit(" FROM ")
-        source(value.source)
+        if value.source is not None or _guards is None:
+            emit(" FROM ")
+            source(value.source)
         if value.where is not None:
             emit(" WHERE ")
             expression(value.where)
@@ -399,7 +414,11 @@ def render(statement, artifact, page_values=()):
             )
         if value.offset:
             emit(" OFFSET ")
-            expression(integer(value.offset))
+            expression(
+                value.offset
+                if type(value.offset) is Expr and _guards is not None
+                else integer(value.offset)
+            )
 
     if statement.ctes:
         emit("WITH RECURSIVE " if statement.recursive else "WITH ")

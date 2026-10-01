@@ -20,10 +20,14 @@ def atom(value):
     return (type(value), value.hex() if type(value) is float else value)
 
 
-def inspect(artifact):
-    if type(artifact) is not EmissionArtifact:
+def inspect(artifact, guarded=None):
+    if guarded is None and type(artifact) is not EmissionArtifact:
         raise BindingError("BINDING_ARTIFACT")
     try:
+        if guarded is not None:
+            from pietto._project.project_guard_preparation import inspect_pending
+
+            return inspect_pending(guarded, artifact)
         return inspect_project_sql_emission(artifact, artifact.request)
     except (ValueError, TypeError, AttributeError, KeyError, IndexError):
         raise BindingError("BINDING_ARTIFACT") from None
@@ -45,7 +49,7 @@ def syntax_state(node):
     return atom(node)
 
 
-def template_state(artifact, slots):
+def template_state(artifact, slots, guarded=None):
     request = artifact.request
     parsed = parse_root(artifact)
     return (
@@ -68,13 +72,14 @@ def template_state(artifact, slots):
         tuple(syntax_state(p.script) for p in parsed.parsed_inputs),
         tuple((s, s.ordinal, s.tag, s.original, s.original.site) for s in slots),
         tuple(request.verification.completed.single_match_requests),
+        guarded,
     )
 
 
 def verify_template(template):
     if type(template) is not ExecutionTemplate or type(template.slots) is not tuple:
         raise BindingError("BINDING_TEMPLATE")
-    inspect(template.artifact)
+    inspect(template.artifact, template.guarded)
     slots = template.artifact.request.plan.literal_slots
     if len(slots) != len(template.slots) or any(
         type(s) is not ExecutionSlot
@@ -85,7 +90,10 @@ def verify_template(template):
         for i, (s, original) in enumerate(zip(template.slots, slots, strict=True))
     ):
         raise BindingError("BINDING_INVENTORY")
-    if template_state(template.artifact, template.slots) != template._state:
+    if (
+        template_state(template.artifact, template.slots, template.guarded)
+        != template._state
+    ):
         raise BindingError("BINDING_TEMPLATE_STATE")
 
 
@@ -119,6 +127,7 @@ def native_arguments(artifact, values):
 
 def binding_state(binding):
     return (
+        binding.guarded,
         binding.template,
         binding.artifact,
         binding.artifact.request,
@@ -260,7 +269,9 @@ def verify_binding(binding):
         raise BindingError("BINDING_AUTHORITY")
     verify_template(binding.template)
     template, artifact, values = binding.template, binding.artifact, binding.values
-    inspect(artifact)
+    if (template.guarded is None) != (binding.guarded is None):
+        raise BindingError("BINDING_GUARDED_CONTEXT")
+    inspect(artifact, binding.guarded)
     if type(values) is not tuple or len(values) != len(template.slots):
         raise BindingError("BINDING_VALUES")
     for s, v in zip(template.slots, values, strict=True):

@@ -63,20 +63,39 @@ class ExecutionRequest:
 
 
 def verify_execution_request(request) -> None:
+    _verify_execution_structure(request)
+
+
+def _verify_execution_structure(request, *, guarded=None) -> None:
+    from pietto._project.project_guard_preparation import GuardedArtifact
+
+    artifact = request.artifact if type(request) is ExecutionRequest else None
+    allowed_artifact = type(artifact) is EmissionArtifact or (
+        guarded is not None
+        and type(artifact) is GuardedArtifact
+        and artifact.guard_scope is guarded.scope
+    )
     if (
         type(request) is not ExecutionRequest
-        or type(request.artifact) is not EmissionArtifact
+        or not allowed_artifact
         or type(request.access) is not PostgresAccess
         or type(request.limits) is not ExecutionLimits
     ):
         raise ExecutionError("EXECUTION_REQUEST")
-    view = inspect_project_sql_emission(request.artifact, request.artifact.request)
+    if guarded is None:
+        view = inspect_project_sql_emission(request.artifact, request.artifact.request)
+    else:
+        from pietto._project.project_guard_preparation import inspect_pending
+
+        view = inspect_pending(guarded, request.artifact)
+        if request.output is None or request.output.guarded is not guarded:
+            raise ExecutionError("GUARD_EXECUTION_OUTPUT")
     if view.request.family != "postgres":
         raise ExecutionError("EXECUTION_TARGET")
     verify_result_contract(request.contract, view.request.verification)
     # Inspect the entire verified inventory before restricting the S03 producer
     # shape. No winning obligation or hidden/filter-based exemption is allowed.
-    if any(
+    if guarded is None and any(
         item.downstream_enforcement_required
         for item in view.request.plan.single_matches
     ):

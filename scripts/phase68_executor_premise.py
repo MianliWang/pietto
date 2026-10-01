@@ -299,11 +299,14 @@ class Driver:
 
     def connect(self):
         c = self.config
+        user = c.get("user", "pietto_query")
+        if type(user) is not str or user not in ("pietto_query", "pietto_subset"):
+            raise ValueError("closed experimental query role")
         if self.route == "postgres_adbc":
             import adbc_driver_postgresql.dbapi as api
 
             uri = (
-                f"postgresql://pietto_query:{c['password']}@127.0.0.1:{c['port']}/phase66"
+                f"postgresql://{user}:{c['password']}@127.0.0.1:{c['port']}/phase66"
                 "?sslmode=disable&gssencmode=disable&passfile=/dev/null&connect_timeout=10"
                 "&options=-c%20statement_timeout%3D10000%20-c%20client_encoding%3DUTF8"
                 "%20-c%20search_path%3Dpublic%20-c%20timezone%3DUTC"
@@ -316,7 +319,7 @@ class Driver:
                 host="127.0.0.1",
                 port=c["port"],
                 dbname="phase66",
-                user="pietto_query",
+                user=user,
                 password=c["password"],
                 autocommit=True,
                 connect_timeout=10,
@@ -333,7 +336,7 @@ class Driver:
                 host="127.0.0.1",
                 port=c["port"],
                 database="phase66",
-                user="pietto_query",
+                user=user,
                 password=c["password"],
                 connection_timeout=10,
                 read_timeout=20,
