@@ -287,6 +287,7 @@ def test_slice3_guard_stays_independent_from_later_workflows() -> None:
         "scripts/phase68_slice5_probe.py",
         "scripts/phase68_slice6_probe.py",
         "scripts/phase68_slice7_probe.py",
+        "scripts/phase68_slice8_probe.py",
         "scripts/validate.py",
     )
     assert validate.GATES == VALIDATION_GATES

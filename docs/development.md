@@ -622,3 +622,21 @@ the existing bounded server-session absence observation; timeout remains failure
 pytest stays offline. Required focused/Ruff/typing and the unfiltered guarded Python3.13 full
 validator remain local; exact-head CI retains all existing runtime/package/native/replay
 consumers. Core no-sync protection and the S19/S20 acquisition boundary remain unchanged.
+
+
+## Phase68 S08 private MySQL acquisition
+
+[S08](phases/phase-68/slice-08.md) requires an explicit scoped
+`MySQLDeploymentPremise` before source discovery. Every owned attempt requalifies
+actual definitions, complete supported dependencies and the current native context.
+The premise supplies definition/security stability only; native lifetime exclusion
+is `NOT_DEMONSTRATED` and compliance is `NOT_INDEPENDENTLY_VERIFIED`.
+
+`scripts/phase68_slice8_probe.py` owns serial source/installed workers and disposable
+MySQL fixtures. Native records retain prepare/execute/binary EOF, commit/delivery,
+control and cleanup separately. Its independent checker must reconcile actual
+native context replies as well as copied observations before complete acceptance.
+The resumed instance retains full 50/52/54 per-origin acceptance,
+authoritative unfiltered Python3.13 validation and natural exact-head CI as closure obligations.
+Ordinary pytest opens no database. Core/profile and cumulative-budget restrictions
+continue across resumptions; no new execution profile is implied.

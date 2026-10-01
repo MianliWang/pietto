@@ -64,6 +64,7 @@ def prepare_guarded_execution(
     binding=None,
     refinement=None,
     allow_guard_sql=True,
+    mysql_deployment=None,
 ):
     program = prepare_program(preparation, binding=binding, refinement=refinement)
     output = program.output
@@ -75,6 +76,7 @@ def prepare_guarded_execution(
         isolation,
         binding=binding,
         output=output,
+        mysql_deployment=mysql_deployment,
     )
     request = GuardedExecutionRequest(base, program, allow_guard_sql)
     verify_guarded_execution(request)
@@ -118,11 +120,18 @@ class GuardRun:
         )
 
         verify_guarded_execution(request)
-        expected = (
-            GuardContext
-            if type(request) is GuardedExecutionRequest
-            else ObservedGuardContext
-        )
+        expected = ObservedGuardContext
+        if type(request) is GuardedExecutionRequest:
+            from pietto._project.project_execution import MySQLAccess
+            from pietto._project.project_execution_mysql_context import (
+                MySQLGuardContext,
+            )
+
+            expected = (
+                MySQLGuardContext
+                if type(request.execution.access) is MySQLAccess
+                else GuardContext
+            )
         if type(context) is not expected:
             raise ValueError("GUARD_CONTEXT_OWNER")
         context.verify_owned(context.owner)

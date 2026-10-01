@@ -69,8 +69,9 @@ abstraction needs a current caller or invariant.
 - Gate 2: implement the minimum change, run focused checks, review the complete
   finding set, consolidate repairs by root cause, run appropriate final
   validation, and seal the Git tree. Slice dispatches own cumulative repair
-  budgets; active S07 uses its original dispatch Section 10, private multi-hop amendment
-  and explicit budget corrections. Closed S01–S06 and C01
+  budgets; active S08 uses its original v2 dispatch Section 8, native view-source
+  amendment, explicit managed-deployment decision and authorized budget corrections.
+  Closed S01–S07 and C01
   counts stay closed. Diagnosed in-scope repairs and qualified mechanical reader-reserve
   updates proceed under the active dispatch.
 - Gate 3: rebind the baseline, stage exactly the sealed tree, make one ordinary

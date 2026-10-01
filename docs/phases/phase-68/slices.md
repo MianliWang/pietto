@@ -1,6 +1,6 @@
 # Phase68 baseline route — 20 rows
 
-Phase68 ACTIVE；S01–S06 与 C01 COMPLETED / PUBLISHED；[S07](slice-07.md) CANDIDATE; completed only after closure；S08–S20 NOT STARTED。
+Phase68 ACTIVE；S01–S07 与 C01 COMPLETED / PUBLISHED；[S08](slice-08.md) CANDIDATE; completed only after closure；S09–S20 NOT STARTED。
 S03 内部 gate QUALIFIED_UNDER_THIS_DISPATCH；路线 JUSTIFIED_CANDIDATE，后续验收不由本表自证。
 上限20；下表是覆盖与依赖基准，不是20片总尺寸或工期已经实验确认。coding单写入者、严格按派发范围串行。
 
@@ -29,6 +29,6 @@ S03 内部 gate QUALIFIED_UNDER_THIS_DISPATCH；路线 JUSTIFIED_CANDIDATE，后
 
 P1/P2 当前资格、20位置完整机制与成本评估见 [S03](slice-03.md)。S02 的 PRODUCT_GATE_BLOCKED_REPLAN / sizing NOT_VALIDATED 是闭合历史；S03 新批准的 source/tie 决定与实测解开其特定前提。
 S04/S05/S06/S07/S10/S14 仍为尺寸 watchpoints。S10 重查共同合同与 S/H/L/K/Q，S19 保留联合故障验收。
-保留 A01–A22、全部已承诺查询族与目标特定 exclusions；不增加 S21，也不把未交付功能隐移 Phase69。S04 已完成类型化绑定；S05 已接通原 outputs、general producer binding 与七 scalar native results；S06 已接通 compositional refinement / independent verification / bounded pages；S07 当前派发接 pending guards / same-context fulfillment；S08 必须另行派发。
+保留 A01–A22、全部已承诺查询族与目标特定 exclusions；不增加 S21，也不把未交付功能隐移 Phase69。S04 已完成类型化绑定；S05 已接通原 outputs、general producer binding 与七 scalar native results；S06 已接通 compositional refinement / independent verification / bounded pages；S07 已闭合 pending guards / same-context fulfillment；S08 当前实现显式 managed-deployment 前提下的 private MySQL execution，source/installed 原生证据已闭合，仍待最终验证与发布条件；S09 必须另行派发。
 
 S04 acquisition handoff：复用现有 source/compiler fixture、S01 resource/pump 和 C01 text observation；保留 fresh AST identity、source/installed native witnesses。S10 midpoint 检查累积准备成本，S19 在联合验收前完成必要整合实现，S20 保持 audit-only；不删除产品位置或 A01–A22。

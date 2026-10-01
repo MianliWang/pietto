@@ -206,6 +206,7 @@ def test_slice4_keeps_prior_commands_independent_and_later_slices_absent() -> No
         "scripts/phase68_slice5_probe.py",
         "scripts/phase68_slice6_probe.py",
         "scripts/phase68_slice7_probe.py",
+        "scripts/phase68_slice8_probe.py",
         "scripts/validate.py",
     )
     assert validate.GATES == VALIDATION_GATES

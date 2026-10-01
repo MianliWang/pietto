@@ -46,7 +46,12 @@ class RefinedExecutionRequest:
 
 
 def prepare_refined_execution(
-    refinement, access, *, limits=ExecutionLimits(), isolation="stable"
+    refinement,
+    access,
+    *,
+    limits=ExecutionLimits(),
+    isolation="stable",
+    mysql_deployment=None,
 ):
     verify_refinement(refinement)
     execution = prepare_execution(
@@ -56,6 +61,7 @@ def prepare_refined_execution(
         isolation=isolation,
         binding=refinement.output.binding,
         output=refinement.output,
+        mysql_deployment=mysql_deployment,
     )
     request = RefinedExecutionRequest(execution, refinement)
     verify_refined_execution(request)

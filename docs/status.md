@@ -111,7 +111,8 @@ documentation does not supersede that evidence.
 | Phase 68 Slice 04 | `COMPLETED / PUBLISHED` |
 | Phase 68 Slice 05 | `COMPLETED / PUBLISHED` |
 | Phase 68 Slice 06 | `COMPLETED / PUBLISHED` |
-| Phase 68 Slice 07 | `CANDIDATE; completed only after closure` |
+| Phase 68 Slice 07 | `COMPLETED / PUBLISHED` |
+| Phase 68 Slice 08 | `CANDIDATE; completed only after closure` |
 | Phase 68 route | `20 positions; JUSTIFIED_CANDIDATE; later acceptance required` |
 | Interlude V | `COMPLETED` |
 | Interlude V route | `N=3` |
@@ -120,7 +121,7 @@ documentation does not supersede that evidence.
 | Interlude V S2 performance outcome | `MEASURED_GAIN` |
 | Interlude V Slice 3 | `COMPLETED / PUBLISHED` |
 | CI remaining-tail maintenance R1 | `COMPLETED / PUBLISHED` |
-| Next | `S07 closure; S08 requires separate dispatch` |
+| Next | `S08 closure; S09 requires separate dispatch` |
 
 ## Phase67 当前路线
 
@@ -136,14 +137,14 @@ sole parent `437916ecf59d8873ef154a1e09f1e48e76884edf`，自然CI36373861089/pus
 
 ## Phase68 当前路线
 
-[Phase68 brief](phases/phase-68/brief.md)、[20行route](phases/phase-68/slices.md)和[S07合同](phases/phase-68/slice-07.md)承载当前 owner；[S03合同](phases/phase-68/slice-03.md)保留历史。
+[Phase68 brief](phases/phase-68/brief.md)、[20行route](phases/phase-68/slices.md)和[S08合同](phases/phase-68/slice-08.md)承载当前 owner；[S03合同](phases/phase-68/slice-03.md)保留历史。
 Phase68 `ACTIVE`；[S01原合同](phases/phase-68/slice-01.md)；Slice01 COMPLETED / PUBLISHED，依据 head `5d9645e796a3408e60a4a93ba0b263b8a40b1ef4` 与自然 CI36499401981/push/main/attempt1。
 Slice02 COMPLETED / PUBLISHED，依据 head `86ed839878b877f9ea363c146b939cacf23c43ff`、tree `bda78b078699b8c1978cd65a2f5b65b32f8e56ff` 与自然 CI36508766895/push/main/attempt1；[S02原合同](phases/phase-68/slice-02.md)的 PRODUCT_GATE_BLOCKED_REPLAN 保留为历史。
 Slice03 COMPLETED / PUBLISHED：head `069a5bab80bf8fda1ca04f5a08446fb0f2940881`、tree `dcec7f5e0829b32ac0153e8581a0550bca5889aa`，自然 CI36532317073/push/main/attempt1；内部 gate QUALIFIED_UNDER_THIS_DISPATCH，P1/P2 与 private PG 最小纵向按各自边界闭合。
 Remaining route JUSTIFIED_CANDIDATE within twenty positions；全部 A01–A22 与目标 exclusions 保留。S05 original-output/PB、S06 compositional R2、S10 source-free bundle/loader 与 midpoint。
 [Validation Consolidation C01](spec/validation-consolidation-c01-v1.md)：C01 COMPLETED / PUBLISHED，head `6d32ece0328d4760645faf2423d38dd2a2ef0c96`，CI36544619465/push/main/attempt1；独立于20个产品位置，原S03 HOLD/失败及闭合记录保持。
 Slice04 COMPLETED / PUBLISHED，head `15c64d5ad8d5680abd1d08a5ff4d43e94d0a8aab`，CI36613787353/push/main/attempt1；[S04原合同](phases/phase-68/slice-04.md)与失败记录保留。
-Slice05 COMPLETED / PUBLISHED，见[Slice05](phases/phase-68/slice-05.md)与外部完成记录；head `01e509bf2cb2b83f1e699e089f3b1e5f7b3ea0b1`，CI36641150728/push/main/attempt1。[Slice06](phases/phase-68/slice-06.md) COMPLETED / PUBLISHED，head `196c3108b887dc2b6ab2417d9ad478ae76b8e818`，CI36677611835/push/main/attempt1；原 PG structural-window int32 argument correction 和失败历史保留。[Slice07](phases/phase-68/slice-07.md) CANDIDATE; completed only after closure：private pending guards、exact single-match subjects 与 same-context checked execution。Slice08 NEXT / NOT IMPLEMENTED / separate dispatch required；S08–S20 未实现。S19 内完成必要 acquisition consolidation，S20 仅审计。
+Slice05 COMPLETED / PUBLISHED，见[Slice05](phases/phase-68/slice-05.md)与外部完成记录；head `01e509bf2cb2b83f1e699e089f3b1e5f7b3ea0b1`，CI36641150728/push/main/attempt1。[Slice06](phases/phase-68/slice-06.md) COMPLETED / PUBLISHED，head `196c3108b887dc2b6ab2417d9ad478ae76b8e818`，CI36677611835/push/main/attempt1；原 PG structural-window int32 argument correction 和失败历史保留。[Slice07](phases/phase-68/slice-07.md) COMPLETED / PUBLISHED，head `58b93255d66dca7b9b8b3a750be3e3d6abd03492`，CI36820279356/push/main/attempt1。[Slice08](phases/phase-68/slice-08.md) CANDIDATE; completed only after closure：显式 managed-deployment premise 已接通，source/installed 原生50/52/54各组与独立控制审计已闭合；完成状态仍须本提交的全量验证、exact-head自然CI和owned cleanup共同激活。Slice09 NEXT / NOT STARTED / separate dispatch required；S09–S20 未实现。S19 内完成必要 acquisition consolidation，S20 仅审计。
 Phase66/Interlude V/R1 保持 COMPLETED；Phase69 未开始，package/CLI0.1.0，无 public release。
 
 ## CI remaining-tail maintenance R1

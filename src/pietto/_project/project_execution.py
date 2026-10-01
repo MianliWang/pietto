@@ -39,6 +39,73 @@ class PostgresAccess:
 
 
 @dataclass(frozen=True, slots=True)
+class MySQLAccess:
+    host: str
+    port: int
+    database: str
+    user: str
+    password: str = field(repr=False)
+    ca_file: str
+    account: str
+    roles: str = "NONE"
+    verify_identity: bool = True
+    loopback_tls_exception: bool = False
+    transaction_observation: str = "performance_schema_own_transaction"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class MySQLDeploymentPremise:
+    """Operator commitment from BEFORE acquisition through last remote source use.
+
+    All administrative paths must keep definitions/security stable in these
+    schemas. Row data may change. This is an assumption, not proof of compliance.
+    Sources/access are exact in-process roots; each attempt still qualifies anew.
+    """
+
+    access: MySQLAccess = field(repr=False)
+    sources: tuple = field(repr=False)
+    schemas: tuple[str, ...]
+    basis: str = "EXPLICIT_MANAGED_DEPLOYMENT_PREMISE"
+
+
+def deployment_state(premise):
+    if premise is None:
+        return None
+    if type(premise) is not MySQLDeploymentPremise:
+        raise ExecutionError("MYSQL_DEPLOYMENT_PREMISE_INVALID")
+    return (premise, premise.access, premise.sources, premise.schemas, premise.basis)
+
+
+def verify_deployment(request, *, required=False):
+    premise = request.mysql_deployment
+    deployment_state(premise)
+    if premise is None:
+        if required:
+            raise ExecutionError("MYSQL_DEPLOYMENT_PREMISE_REQUIRED")
+        return
+    sources = request.artifact.request.sources
+    if (
+        type(request.access) is not MySQLAccess
+        or premise.access is not request.access
+        or type(premise.sources) is not tuple
+        or len(premise.sources) != len(sources)
+        or any(a is not b for a, b in zip(premise.sources, sources, strict=True))
+        or type(premise.basis) is not str
+        or premise.basis != "EXPLICIT_MANAGED_DEPLOYMENT_PREMISE"
+        or type(premise.schemas) is not tuple
+        or not 0 < len(premise.schemas) <= 128
+        or any(type(s) is not str or not s or "\0" in s for s in premise.schemas)
+        or len(set(premise.schemas)) != len(premise.schemas)
+        or any(s.namespace not in premise.schemas for s in sources)
+        or any(
+            s in ("mysql", "sys", "information_schema", "performance_schema")
+            for s in premise.schemas
+        )
+    ):
+        raise ExecutionError("MYSQL_DEPLOYMENT_PREMISE_SCOPE")
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionLimits:
     batch_rows: int = 256
     batch_bytes: int = 1024 * 1024
@@ -51,7 +118,7 @@ class ExecutionLimits:
 class ExecutionRequest:
     artifact: EmissionArtifact = field(repr=False)
     contract: Any = field(repr=False)
-    access: PostgresAccess = field(repr=False)
+    access: PostgresAccess | MySQLAccess = field(repr=False)
     limits: ExecutionLimits
     isolation: str
     source_requirement: RetainedSourceRequirement | None = field(
@@ -60,6 +127,7 @@ class ExecutionRequest:
     binding: Any = field(default=None, repr=False)
     projection: Any = field(default=None, repr=False)
     output: Any = field(default=None, repr=False)
+    mysql_deployment: MySQLDeploymentPremise | None = field(default=None, repr=False)
 
 
 def verify_execution_request(request) -> None:
@@ -78,7 +146,7 @@ def _verify_execution_structure(request, *, guarded=None) -> None:
     if (
         type(request) is not ExecutionRequest
         or not allowed_artifact
-        or type(request.access) is not PostgresAccess
+        or type(request.access) not in (PostgresAccess, MySQLAccess)
         or type(request.limits) is not ExecutionLimits
     ):
         raise ExecutionError("EXECUTION_REQUEST")
@@ -90,7 +158,8 @@ def _verify_execution_structure(request, *, guarded=None) -> None:
         view = inspect_pending(guarded, request.artifact)
         if request.output is None or request.output.guarded is not guarded:
             raise ExecutionError("GUARD_EXECUTION_OUTPUT")
-    if view.request.family != "postgres":
+    family = "mysql" if type(request.access) is MySQLAccess else "postgres"
+    if view.request.family != family:
         raise ExecutionError("EXECUTION_TARGET")
     verify_result_contract(request.contract, view.request.verification)
     # Inspect the entire verified inventory before restricting the S03 producer
@@ -140,14 +209,29 @@ def _verify_execution_structure(request, *, guarded=None) -> None:
         or not 1 <= a.port <= 65535
     ):
         raise ExecutionError("EXECUTION_ACCESS")
-    if a.sslmode not in ("require", "disable") or (
-        a.sslmode == "disable" and a.host not in ("127.0.0.1", "::1")
-    ):
-        raise ExecutionError("EXECUTION_ACCESS_PROFILE")
+    if type(a) is PostgresAccess:
+        if a.sslmode not in ("require", "disable") or (
+            a.sslmode == "disable" and a.host not in ("127.0.0.1", "::1")
+        ):
+            raise ExecutionError("EXECUTION_ACCESS_PROFILE")
+    elif type(a) is MySQLAccess:
+        if (
+            any(
+                type(v) is not str or not v or "\0" in v
+                for v in (a.ca_file, a.account, a.roles)
+            )
+            or type(a.verify_identity) is not bool
+            or type(a.loopback_tls_exception) is not bool
+            or not a.verify_identity
+            and not (a.loopback_tls_exception and a.host in ("127.0.0.1", "::1"))
+            or a.transaction_observation != "performance_schema_own_transaction"
+        ):
+            raise ExecutionError("EXECUTION_ACCESS_PROFILE")
     if request.isolation not in ("stable", "serializable"):
         raise ExecutionError("EXECUTION_ISOLATION")
+    verify_deployment(request)
     verify_execution_limits(request.limits)
-    verify_requirement(request.source_requirement, view.request.sources)
+    verify_requirement(request.source_requirement, view.request.sources, family=family)
 
 
 def verify_execution_limits(limits):
@@ -182,9 +266,14 @@ def prepare_execution(
     source_requirement=None,
     binding=None,
     output=None,
+    mysql_deployment=None,
 ):
     if type(artifact) is not EmissionArtifact:
         raise ExecutionError("EXECUTION_ARTIFACT")
+    if type(access) is MySQLAccess and output is None:
+        from pietto._project.project_result_output import prepare_output
+
+        output = prepare_output(artifact, binding=binding)
     contract = (
         output.contract
         if output is not None
@@ -210,6 +299,7 @@ def prepare_execution(
         binding,
         projection,
         output,
+        mysql_deployment,
     )
     verify_execution_request(request)
     return request
@@ -257,7 +347,19 @@ def request_state(request):
         request.contract,
         request.contract.shape,
         a,
-        (a.host, a.port, a.database, a.user, a.password, a.sslmode),
+        (a.host, a.port, a.database, a.user, a.password)
+        + (
+            (a.sslmode,)
+            if type(a) is PostgresAccess
+            else (
+                a.ca_file,
+                a.account,
+                a.roles,
+                a.verify_identity,
+                a.loopback_tls_exception,
+                a.transaction_observation,
+            )
+        ),
         limits,
         (
             limits.batch_rows,
@@ -267,6 +369,7 @@ def request_state(request):
             limits.seconds,
         ),
         request.isolation,
+        deployment_state(request.mysql_deployment),
         request.source_requirement,
         requirement_state(request.source_requirement),
     )

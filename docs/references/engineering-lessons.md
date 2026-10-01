@@ -104,3 +104,16 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 - 多跳准入修正限定在获准的 private route；同时保留 no-request 旧入口的精确拒绝控制，避免把新 consumer 权限扩散到原 emitter。见 [S07](../phases/phase-68/slice-07.md)。
 - shared snapshot 不保证 tied intermediate choice 相同；guard/data 必须共享实际 producer evaluation，或使用明确且已验证的 refinement。runtime receipt 只属于原 live attempt。
 - 预检覆盖所有新增协议和辅助 session；requested profile 与 native observed 字符串分开，真实 native fault 不伪装成注入，close 返回后核实实际 session 消失。完整 campaign 不承担这些诊断。
+
+
+## Phase68 S08 source assurance boundary
+
+- 完整 definition/dependency closure、definition lifetime 和 data snapshot 是三项独立责任。
+  [S08 失败与 disposition](../phases/phase-68/slice-08.md#保留的失败及当前-disposition)
+  保留两次 hidden-routine/MyISAM 1→2 反例与10-case metadata-lock失败；catalog可见性、
+  transaction标签和声明不能互相替代。MySQL managed mode 的 lifetime 来自显式外部前提，
+  compliance 未独立验证，native exclusion 未证明。
+- [保留的独立审查反例](../phases/phase-68/slice-08.md#已保留的证据预算-hold-与续行)
+  表明协调修改 context 副本仍可自洽；读者须核对实际 native 回复，不能只比对副本。
+- PG/ADBC 的类似 source 风险仍未评估，当前 fixtures 未出现反例不证明一般安全。
+  S09/S10 及后续 owners 应另行评估；本 Slice 不执行跨 dialect 审计。

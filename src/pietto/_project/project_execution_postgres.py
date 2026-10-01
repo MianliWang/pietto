@@ -15,6 +15,7 @@ from pietto._project.project_execution import (
     ExecutionRequest,
     ExecutionFailure,
     ExecutionOutcome,
+    PostgresAccess,
     request_state,
     execution_arguments,
     verify_execution_request,
@@ -105,6 +106,8 @@ class PostgresExecution:
         if self.guarded_request is None:
             verify_execution_request(request)
         self.request = cast(ExecutionRequest, request)
+        if type(self.request.access) is not PostgresAccess:
+            raise ExecutionError("EXECUTION_TARGET")
         self._captured = request_state(request)
         self.attempt = uuid.uuid4().hex
         self._connection: Any = None
