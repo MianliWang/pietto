@@ -68,6 +68,67 @@ class MySQLDeploymentPremise:
     basis: str = "EXPLICIT_MANAGED_DEPLOYMENT_PREMISE"
 
 
+@dataclass(frozen=True, slots=True, eq=False)
+class PostgresADBCDeploymentPremise:
+    """Operator protection from before discovery through last remote source use.
+
+    Local close/cancel does not end unresolved remote use. Compliance is not
+    independently verified; native all-definition exclusion is not claimed.
+    """
+
+    access: PostgresAccess = field(repr=False)
+    sources: tuple = field(repr=False)
+    schemas: tuple[str, ...]
+    route: str = "postgres_adbc"
+    basis: str = "EXPLICIT_MANAGED_DEPLOYMENT_PREMISE"
+
+
+def postgres_adbc_deployment_state(premise):
+    if premise is None:
+        return None
+    if type(premise) is not PostgresADBCDeploymentPremise:
+        raise ExecutionError("POSTGRES_ADBC_DEPLOYMENT_PREMISE_INVALID")
+    return (
+        premise,
+        premise.access,
+        premise.sources,
+        premise.schemas,
+        premise.route,
+        premise.basis,
+    )
+
+
+def verify_postgres_adbc_deployment(request):
+    premise = request.postgres_adbc_deployment
+    postgres_adbc_deployment_state(premise)
+    if request.route != "postgres_adbc":
+        if premise is not None:
+            raise ExecutionError("POSTGRES_ADBC_DEPLOYMENT_PREMISE_SCOPE")
+        return
+    if premise is None:
+        raise ExecutionError("POSTGRES_ADBC_DEPLOYMENT_PREMISE_REQUIRED")
+    sources = request.artifact.request.sources
+    if (
+        type(request.access) is not PostgresAccess
+        or premise.access is not request.access
+        or type(premise.sources) is not tuple
+        or len(premise.sources) != len(sources)
+        or any(a is not b for a, b in zip(premise.sources, sources, strict=True))
+        or premise.route != "postgres_adbc"
+        or premise.basis != "EXPLICIT_MANAGED_DEPLOYMENT_PREMISE"
+        or type(premise.schemas) is not tuple
+        or not 0 < len(premise.schemas) <= 128
+        or any(type(s) is not str or not s or "\0" in s for s in premise.schemas)
+        or len(set(premise.schemas)) != len(premise.schemas)
+        or any(s.namespace not in premise.schemas for s in sources)
+        or any(
+            (s.startswith("pg_") and s != "pg_catalog") or s == "information_schema"
+            for s in premise.schemas
+        )
+    ):
+        raise ExecutionError("POSTGRES_ADBC_DEPLOYMENT_PREMISE_SCOPE")
+
+
 def deployment_state(premise):
     if premise is None:
         return None
@@ -128,6 +189,10 @@ class ExecutionRequest:
     projection: Any = field(default=None, repr=False)
     output: Any = field(default=None, repr=False)
     mysql_deployment: MySQLDeploymentPremise | None = field(default=None, repr=False)
+    route: str = field(default="", kw_only=True)
+    postgres_adbc_deployment: PostgresADBCDeploymentPremise | None = field(
+        default=None, repr=False, kw_only=True
+    )
 
 
 def verify_execution_request(request) -> None:
@@ -159,6 +224,11 @@ def _verify_execution_structure(request, *, guarded=None) -> None:
         if request.output is None or request.output.guarded is not guarded:
             raise ExecutionError("GUARD_EXECUTION_OUTPUT")
     family = "mysql" if type(request.access) is MySQLAccess else "postgres"
+    if request.route not in ("", "postgres_adbc") or (
+        request.route == "postgres_adbc" and family != "postgres"
+    ):
+        raise ExecutionError("EXECUTION_TARGET")
+    verify_postgres_adbc_deployment(request)
     if view.request.family != family:
         raise ExecutionError("EXECUTION_TARGET")
     verify_result_contract(request.contract, view.request.verification)
@@ -267,10 +337,12 @@ def prepare_execution(
     binding=None,
     output=None,
     mysql_deployment=None,
+    route="",
+    postgres_adbc_deployment=None,
 ):
     if type(artifact) is not EmissionArtifact:
         raise ExecutionError("EXECUTION_ARTIFACT")
-    if type(access) is MySQLAccess and output is None:
+    if (type(access) is MySQLAccess or route == "postgres_adbc") and output is None:
         from pietto._project.project_result_output import prepare_output
 
         output = prepare_output(artifact, binding=binding)
@@ -300,6 +372,8 @@ def prepare_execution(
         projection,
         output,
         mysql_deployment,
+        route=route,
+        postgres_adbc_deployment=postgres_adbc_deployment,
     )
     verify_execution_request(request)
     return request
@@ -370,6 +444,8 @@ def request_state(request):
         ),
         request.isolation,
         deployment_state(request.mysql_deployment),
+        request.route,
+        postgres_adbc_deployment_state(request.postgres_adbc_deployment),
         request.source_requirement,
         requirement_state(request.source_requirement),
     )

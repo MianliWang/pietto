@@ -52,6 +52,8 @@ def prepare_refined_execution(
     limits=ExecutionLimits(),
     isolation="stable",
     mysql_deployment=None,
+    route="",
+    postgres_adbc_deployment=None,
 ):
     verify_refinement(refinement)
     execution = prepare_execution(
@@ -62,6 +64,8 @@ def prepare_refined_execution(
         binding=refinement.output.binding,
         output=refinement.output,
         mysql_deployment=mysql_deployment,
+        route=route,
+        postgres_adbc_deployment=postgres_adbc_deployment,
     )
     request = RefinedExecutionRequest(execution, refinement)
     verify_refined_execution(request)

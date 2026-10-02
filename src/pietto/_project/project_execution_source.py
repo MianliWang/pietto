@@ -359,9 +359,11 @@ class SourceAdmissions:
         if connection is not None:
             if getattr(connection, "closed", False):
                 raise SourceAdmissionError("SOURCE_VECTOR_CLOSED")
-            if self.route not in ("postgres_rows", "mysql_rows") or len(
-                self._admissions
-            ) != len(requirements):
+            if self.route not in (
+                "postgres_rows",
+                "mysql_rows",
+                "postgres_adbc",
+            ) or len(self._admissions) != len(requirements):
                 raise SourceAdmissionError("SOURCE_VECTOR_CONNECTION")
             admission_type = SourceAdmission
             if self.route == "mysql_rows":
@@ -370,6 +372,12 @@ class SourceAdmissions:
                 )
 
                 admission_type = MySQLSourceAdmission
+            if self.route == "postgres_adbc":
+                from pietto._project.project_execution_postgres_adbc_context import (
+                    ADBCSourceAdmission,
+                )
+
+                admission_type = ADBCSourceAdmission
             for admission, requirement in zip(
                 self._admissions, requirements, strict=True
             ):

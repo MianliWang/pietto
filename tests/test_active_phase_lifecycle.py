@@ -356,7 +356,8 @@ EXPECTED_STATUS = (
     ("Phase 68 Slice 05", "`COMPLETED / PUBLISHED`"),
     ("Phase 68 Slice 06", "`COMPLETED / PUBLISHED`"),
     ("Phase 68 Slice 07", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 08", "`CANDIDATE; completed only after closure`"),
+    ("Phase 68 Slice 08", "`COMPLETED / PUBLISHED`"),
+    ("Phase 68 Slice 09", "`CANDIDATE; completed only after closure`"),
     (
         "Phase 68 route",
         "`20 positions; JUSTIFIED_CANDIDATE; later acceptance required`",
@@ -368,7 +369,7 @@ EXPECTED_STATUS = (
     ("Interlude V S2 performance outcome", "`MEASURED_GAIN`"),
     ("Interlude V Slice 3", "`COMPLETED / PUBLISHED`"),
     ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
-    ("Next", "`S08 closure; S09 requires separate dispatch`"),
+    ("Next", "`S09 closure; S10 requires separate dispatch`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
@@ -6158,7 +6159,13 @@ def test_phase68_initiation_keeps_completion_and_candidate_evidence_separate() -
             "phases/phase-68/slice-07.md) COMPLETED / PUBLISHED",
             "58b93255d66dca7b9b8b3a750be3e3d6abd03492",
             "CI36820279356/push/main/attempt1",
-            "phases/phase-68/slice-08.md) CANDIDATE; completed only after closure",
+            "phases/phase-68/slice-08.md) COMPLETED / PUBLISHED",
+            "e6719209bd935f0f4063959ffa64b47d548dcdfd",
+            "CI36926813328/push/main/attempt1",
+            "phases/phase-68/slice-09.md) CANDIDATE; completed only after closure",
+            "operator compliance NOT_INDEPENDENTLY_VERIFIED",
+            "native lifetime exclusion NOT_DEMONSTRATED",
+            "PG rows/MySQL 保留各自原合同",
             "Slice05 COMPLETED / PUBLISHED",
             "01e509bf2cb2b83f1e699e089f3b1e5f7b3ea0b1",
             "CI36641150728/push/main/attempt1",
@@ -6168,7 +6175,8 @@ def test_phase68_initiation_keeps_completion_and_candidate_evidence_separate() -
             "phases/phase-68/slice-03.md",
             "QUALIFIED_UNDER_THIS_DISPATCH",
             "Slice01 COMPLETED / PUBLISHED",
-            "Slice09 NEXT / NOT STARTED / separate dispatch required",
+            "Slice10 NEXT / NOT STARTED / separate dispatch required",
+            "S10 要求 fresh acceptance/qualification",
             "Remaining route JUSTIFIED_CANDIDATE within twenty positions",
             "phases/phase-68/slice-02.md",
             "PRODUCT_GATE_BLOCKED_REPLAN",

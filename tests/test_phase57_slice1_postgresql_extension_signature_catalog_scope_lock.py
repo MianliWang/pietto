@@ -391,6 +391,30 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
                 == 1
             )
             excluded_paths.add(admission_path)
+        if forbidden == "server_version":
+            # S09's exact ADBC native context query; no namespace-wide escape.
+            adbc_path = (
+                source_root / "_project/project_execution_postgres_adbc_native.py"
+            )
+            adbc_text = _read(adbc_path)
+            assert adbc_text.count("server_version") == 1
+            assignments = [
+                node
+                for node in ast.walk(ast.parse(adbc_text))
+                if isinstance(node, ast.Assign)
+                and any(
+                    isinstance(t, ast.Name) and t.id == "CONTEXT_SQL"
+                    for t in node.targets
+                )
+            ]
+            assert len(assignments) == 1
+            assert isinstance(assignments[0].value, ast.Constant)
+            assert isinstance(assignments[0].value.value, str)
+            assert (
+                "current_setting('server_version_num')::integer"
+                in assignments[0].value.value
+            )
+            excluded_paths.add(adbc_path)
         # Joining files with '\n' cannot create these newline-free needles
         # across a boundary. Keep substring/lower/comment semantics.
         assert "\n" not in forbidden

@@ -1,0 +1,2445 @@
+{
+  "origin": "PG18.6 current S09 catalog-only source-layout-02; not live authority",
+  "views": [
+    [
+      16774,
+      "public",
+      "phase66 part",
+      10,
+      null,
+      "({QUERY :commandType 1 :querySource 0 :canSetTag true :utilityStmt <> :resultRelation 0 :hasAggs false :hasWindowFuncs false :hasTargetSRFs false :hasSubLinks false :hasDistinctOn false :hasRecursive false :hasModifyingCTE false :hasForUpdate false :hasRowSecurity false :hasGroupRTE false :isReturn false :cteList <> :rtable ({RANGETBLENTRY :alias {ALIAS :aliasname b :colnames <>} :eref {ALIAS :aliasname b :colnames (\"id\" \"p68_raw_id\")} :rtekind 0 :relid 16528 :inh true :relkind p :rellockmode 1 :perminfoindex 1 :tablesample <> :lateral false :inFromCl true :securityQuals <>}) :rteperminfos ({RTEPERMISSIONINFO :relid 16528 :inh true :requiredPerms 2 :checkAsUser 0 :selectedCols (b 8 9) :insertedCols (b) :updatedCols (b)}) :jointree {FROMEXPR :fromlist ({RANGETBLREF :rtindex 1}) :quals <>} :mergeActionList <> :mergeTargetRelation 0 :mergeJoinCondition <> :targetList ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 21 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 16528 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname p68_raw_id :ressortgroupref 0 :resorigtbl 16528 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {FUNCEXPR :funcid 754 :funcresulttype 20 :funcretset false :funcvariadic false :funcformat 1 :funccollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 1 :vartype 21 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1}) :location -1} :resno 3 :resname p68_part :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 4 :resname p68_lid :ressortgroupref 0 :resorigtbl 16528 :resorigcol 2 :resjunk false}) :override 0 :onConflict <> :returningOldAlias <> :returningNewAlias <> :returningList <> :groupClause <> :groupDistinct false :groupingSets <> :havingQual <> :windowClause <> :distinctClause <> :sortClause <> :limitOffset <> :limitCount <> :limitOption 0 :rowMarks <> :setOperations <> :constraintDeps <> :withCheckOptions <> :stmt_location -1 :stmt_len -1})",
+      "<>",
+      "1",
+      true
+    ],
+    [
+      16821,
+      "public",
+      "phase66 source é",
+      10,
+      null,
+      "({QUERY :commandType 1 :querySource 0 :canSetTag true :utilityStmt <> :resultRelation 0 :hasAggs false :hasWindowFuncs false :hasTargetSRFs false :hasSubLinks false :hasDistinctOn false :hasRecursive false :hasModifyingCTE false :hasForUpdate false :hasRowSecurity false :hasGroupRTE false :isReturn false :cteList <> :rtable ({RANGETBLENTRY :alias {ALIAS :aliasname b :colnames <>} :eref {ALIAS :aliasname b :colnames (\"order.id\" \"flag\\ value\" \"text\\ `\"é\" \"amount\\ value\" \"ratio\\ value\" \"p68_raw_id\")} :rtekind 0 :relid 16385 :inh true :relkind r :rellockmode 1 :perminfoindex 1 :tablesample <> :lateral false :inFromCl true :securityQuals <>}) :rteperminfos ({RTEPERMISSIONINFO :relid 16385 :inh true :requiredPerms 2 :checkAsUser 0 :selectedCols (b 8 9 10 11 12 13) :insertedCols (b) :updatedCols (b)}) :jointree {FROMEXPR :fromlist ({RANGETBLREF :rtindex 1}) :quals <>} :mergeActionList <> :mergeTargetRelation 0 :mergeJoinCondition <> :targetList ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname order.id :ressortgroupref 0 :resorigtbl 16385 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname flag\\ value :ressortgroupref 0 :resorigtbl 16385 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 950 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 3 :resname text\\ `\"é :ressortgroupref 0 :resorigtbl 16385 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 589830 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} :resno 4 :resname amount\\ value :ressortgroupref 0 :resorigtbl 16385 :resorigcol 4 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} :resno 5 :resname ratio\\ value :ressortgroupref 0 :resorigtbl 16385 :resorigcol 5 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 6 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 6 :location -1} :resno 6 :resname p68_raw_id :ressortgroupref 0 :resorigtbl 16385 :resorigcol 6 :resjunk false} {TARGETENTRY :expr {OPEXPR :opno 439 :opfuncid 945 :opresulttype 20 :opretset false :opcollid 0 :inputcollid 0 :args ({OPEXPR :opno 689 :opfuncid 1275 :opresulttype 20 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 6 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 6 :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 1 0 0 0 0 0 0 0 ]}) :location -1} {FUNCEXPR :funcid 481 :funcresulttype 20 :funcretset false :funcvariadic false :funcformat 2 :funccollid 0 :inputcollid 0 :args ({CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 2 0 0 0 0 0 0 0 ]}) :location -1}) :location -1} :resno 7 :resname p68_part :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {OPEXPR :opno 691 :opfuncid 1277 :opresulttype 20 :opretset false :opcollid 0 :inputcollid 0 :args ({OPEXPR :opno 689 :opfuncid 1275 :opresulttype 20 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 6 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 6 :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 1 0 0 0 0 0 0 0 ]}) :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 2 0 0 0 0 0 0 0 ]}) :location -1} :resno 8 :resname p68_lid :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false}) :override 0 :onConflict <> :returningOldAlias <> :returningNewAlias <> :returningList <> :groupClause <> :groupDistinct false :groupingSets <> :havingQual <> :windowClause <> :distinctClause <> :sortClause <> :limitOffset <> :limitCount <> :limitOption 0 :rowMarks <> :setOperations <> :constraintDeps <> :withCheckOptions <> :stmt_location -1 :stmt_len -1})",
+      "<>",
+      "1",
+      true
+    ],
+    [
+      16840,
+      "public",
+      "p68s9_invoker",
+      10,
+      "{security_invoker=true}",
+      "({QUERY :commandType 1 :querySource 0 :canSetTag true :utilityStmt <> :resultRelation 0 :hasAggs false :hasWindowFuncs false :hasTargetSRFs false :hasSubLinks true :hasDistinctOn false :hasRecursive false :hasModifyingCTE false :hasForUpdate false :hasRowSecurity false :hasGroupRTE false :isReturn false :cteList <> :rtable ({RANGETBLENTRY :alias {ALIAS :aliasname b :colnames <>} :eref {ALIAS :aliasname b :colnames (\"id\" \"source_version\")} :rtekind 0 :relid 16830 :inh true :relkind r :rellockmode 1 :perminfoindex 1 :tablesample <> :lateral false :inFromCl true :securityQuals <>}) :rteperminfos ({RTEPERMISSIONINFO :relid 16830 :inh true :requiredPerms 2 :checkAsUser 0 :selectedCols (b 8 9) :insertedCols (b) :updatedCols (b)}) :jointree {FROMEXPR :fromlist ({RANGETBLREF :rtindex 1}) :quals {BOOLEXPR :boolop and :args ({OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} {SUBLINK :subLinkType 4 :subLinkId 0 :testexpr <> :operName <> :subselect {QUERY :commandType 1 :querySource 0 :canSetTag true :utilityStmt <> :resultRelation 0 :hasAggs false :hasWindowFuncs false :hasTargetSRFs false :hasSubLinks false :hasDistinctOn false :hasRecursive false :hasModifyingCTE false :hasForUpdate false :hasRowSecurity false :hasGroupRTE false :isReturn false :cteList <> :rtable ({RANGETBLENTRY :alias <> :eref {ALIAS :aliasname p68s9_nested_registry :colnames (\"version_tag\")} :rtekind 0 :relid 16835 :inh true :relkind r :rellockmode 1 :perminfoindex 1 :tablesample <> :lateral false :inFromCl true :securityQuals <>}) :rteperminfos ({RTEPERMISSIONINFO :relid 16835 :inh true :requiredPerms 2 :checkAsUser 0 :selectedCols (b 8) :insertedCols (b) :updatedCols (b)}) :jointree {FROMEXPR :fromlist ({RANGETBLREF :rtindex 1}) :quals <>} :mergeActionList <> :mergeTargetRelation 0 :mergeJoinCondition <> :targetList ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname version_tag :ressortgroupref 0 :resorigtbl 16835 :resorigcol 1 :resjunk false}) :override 0 :onConflict <> :returningOldAlias <> :returningNewAlias <> :returningList <> :groupClause <> :groupDistinct false :groupingSets <> :havingQual <> :windowClause <> :distinctClause <> :sortClause <> :limitOffset <> :limitCount <> :limitOption 0 :rowMarks <> :setOperations <> :constraintDeps <> :withCheckOptions <> :stmt_location -1 :stmt_len -1} :location -1}) :location -1} {BOOLEXPR :boolop or :args ({OPEXPR :opno 643 :opfuncid 659 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 950 :args ({SQLVALUEFUNCTION :op 10 :type 19 :typmod -1 :location -1} {CONST :consttype 19 :consttypmod -1 :constcollid 950 :constlen 64 :constbyval false :constisnull false :location -1 :constvalue 64 [ 112 105 101 116 116 111 95 115 117 98 115 101 116 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ]}) :location -1} {OPEXPR :opno 417 :opfuncid 475 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 1 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 1 0 0 0 0 0 0 0 ]}) :location -1}) :location -1}) :location -1}} :mergeActionList <> :mergeTargetRelation 0 :mergeJoinCondition <> :targetList ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 16830 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname source_version :ressortgroupref 0 :resorigtbl 16830 :resorigcol 2 :resjunk false}) :override 0 :onConflict <> :returningOldAlias <> :returningNewAlias <> :returningList <> :groupClause <> :groupDistinct false :groupingSets <> :havingQual <> :windowClause <> :distinctClause <> :sortClause <> :limitOffset <> :limitCount <> :limitOption 0 :rowMarks <> :setOperations <> :constraintDeps <> :withCheckOptions <> :stmt_location -1 :stmt_len -1})",
+      "<>",
+      "1",
+      true
+    ],
+    [
+      16844,
+      "public",
+      "p68s9_definer",
+      10,
+      null,
+      "({QUERY :commandType 1 :querySource 0 :canSetTag true :utilityStmt <> :resultRelation 0 :hasAggs false :hasWindowFuncs false :hasTargetSRFs false :hasSubLinks false :hasDistinctOn false :hasRecursive false :hasModifyingCTE false :hasForUpdate false :hasRowSecurity false :hasGroupRTE false :isReturn false :cteList <> :rtable ({RANGETBLENTRY :alias {ALIAS :aliasname *SELECT*\\ 1 :colnames <>} :eref {ALIAS :aliasname *SELECT*\\ 1 :colnames (\"id\" \"source_version\")} :rtekind 1 :subquery {QUERY :commandType 1 :querySource 0 :canSetTag true :utilityStmt <> :resultRelation 0 :hasAggs false :hasWindowFuncs false :hasTargetSRFs false :hasSubLinks false :hasDistinctOn false :hasRecursive false :hasModifyingCTE false :hasForUpdate false :hasRowSecurity false :hasGroupRTE false :isReturn false :cteList <> :rtable ({RANGETBLENTRY :alias <> :eref {ALIAS :aliasname p68s9_invoker :colnames (\"id\" \"source_version\")} :rtekind 0 :relid 16840 :inh true :relkind v :rellockmode 1 :perminfoindex 1 :tablesample <> :lateral false :inFromCl true :securityQuals <>}) :rteperminfos ({RTEPERMISSIONINFO :relid 16840 :inh true :requiredPerms 2 :checkAsUser 0 :selectedCols (b 8 9) :insertedCols (b) :updatedCols (b)}) :jointree {FROMEXPR :fromlist ({RANGETBLREF :rtindex 1}) :quals <>} :mergeActionList <> :mergeTargetRelation 0 :mergeJoinCondition <> :targetList ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 16840 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname source_version :ressortgroupref 0 :resorigtbl 16840 :resorigcol 2 :resjunk false}) :override 0 :onConflict <> :returningOldAlias <> :returningNewAlias <> :returningList <> :groupClause <> :groupDistinct false :groupingSets <> :havingQual <> :windowClause <> :distinctClause <> :sortClause <> :limitOffset <> :limitCount <> :limitOption 0 :rowMarks <> :setOperations <> :constraintDeps <> :withCheckOptions <> :stmt_location -1 :stmt_len -1} :security_barrier false :relid 0 :inh false :relkind <> :rellockmode 0 :perminfoindex 0 :lateral false :inFromCl false :securityQuals <>} {RANGETBLENTRY :alias {ALIAS :aliasname *SELECT*\\ 2 :colnames <>} :eref {ALIAS :aliasname *SELECT*\\ 2 :colnames (\"id\" \"source_version\")} :rtekind 1 :subquery {QUERY :commandType 1 :querySource 0 :canSetTag true :utilityStmt <> :resultRelation 0 :hasAggs false :hasWindowFuncs false :hasTargetSRFs false :hasSubLinks false :hasDistinctOn false :hasRecursive false :hasModifyingCTE false :hasForUpdate false :hasRowSecurity false :hasGroupRTE false :isReturn false :cteList <> :rtable ({RANGETBLENTRY :alias <> :eref {ALIAS :aliasname p68s9_invoker :colnames (\"id\" \"source_version\")} :rtekind 0 :relid 16840 :inh true :relkind v :rellockmode 1 :perminfoindex 1 :tablesample <> :lateral false :inFromCl true :securityQuals <>}) :rteperminfos ({RTEPERMISSIONINFO :relid 16840 :inh true :requiredPerms 2 :checkAsUser 0 :selectedCols (b 8 9) :insertedCols (b) :updatedCols (b)}) :jointree {FROMEXPR :fromlist ({RANGETBLREF :rtindex 1}) :quals <>} :mergeActionList <> :mergeTargetRelation 0 :mergeJoinCondition <> :targetList ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 16840 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname source_version :ressortgroupref 0 :resorigtbl 16840 :resorigcol 2 :resjunk false}) :override 0 :onConflict <> :returningOldAlias <> :returningNewAlias <> :returningList <> :groupClause <> :groupDistinct false :groupingSets <> :havingQual <> :windowClause <> :distinctClause <> :sortClause <> :limitOffset <> :limitCount <> :limitOption 0 :rowMarks <> :setOperations <> :constraintDeps <> :withCheckOptions <> :stmt_location -1 :stmt_len -1} :security_barrier false :relid 0 :inh false :relkind <> :rellockmode 0 :perminfoindex 0 :lateral false :inFromCl false :securityQuals <>}) :rteperminfos <> :jointree {FROMEXPR :fromlist <> :quals <>} :mergeActionList <> :mergeTargetRelation 0 :mergeJoinCondition <> :targetList ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname id :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname source_version :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false}) :override 0 :onConflict <> :returningOldAlias <> :returningNewAlias <> :returningList <> :groupClause <> :groupDistinct false :groupingSets <> :havingQual <> :windowClause <> :distinctClause <> :sortClause <> :limitOffset <> :limitCount <> :limitOption 0 :rowMarks <> :setOperations {SETOPERATIONSTMT :op 1 :all true :larg {RANGETBLREF :rtindex 1} :rarg {RANGETBLREF :rtindex 2} :colTypes (o 20 25) :colTypmods (i -1 -1) :colCollations (o 0 100) :groupClauses <>} :constraintDeps <> :withCheckOptions <> :stmt_location -1 :stmt_len -1})",
+      "<>",
+      "1",
+      true
+    ]
+  ],
+  "type_records": [
+    [
+      16,
+      "bool",
+      "b",
+      "B",
+      1242,
+      1243,
+      2436,
+      2437,
+      0,
+      0
+    ],
+    [
+      19,
+      "name",
+      "b",
+      "S",
+      34,
+      35,
+      2422,
+      2423,
+      950,
+      0
+    ],
+    [
+      20,
+      "int8",
+      "b",
+      "N",
+      460,
+      461,
+      2408,
+      2409,
+      0,
+      0
+    ],
+    [
+      21,
+      "int2",
+      "b",
+      "N",
+      38,
+      39,
+      2404,
+      2405,
+      0,
+      0
+    ],
+    [
+      23,
+      "int4",
+      "b",
+      "N",
+      42,
+      43,
+      2406,
+      2407,
+      0,
+      0
+    ],
+    [
+      25,
+      "text",
+      "b",
+      "S",
+      46,
+      47,
+      2414,
+      2415,
+      100,
+      0
+    ],
+    [
+      26,
+      "oid",
+      "b",
+      "N",
+      1798,
+      1799,
+      2418,
+      2419,
+      0,
+      0
+    ],
+    [
+      700,
+      "float4",
+      "b",
+      "N",
+      200,
+      201,
+      2424,
+      2425,
+      0,
+      0
+    ],
+    [
+      701,
+      "float8",
+      "b",
+      "N",
+      214,
+      215,
+      2426,
+      2427,
+      0,
+      0
+    ],
+    [
+      1042,
+      "bpchar",
+      "b",
+      "S",
+      1044,
+      1045,
+      2430,
+      2431,
+      100,
+      0
+    ],
+    [
+      1043,
+      "varchar",
+      "b",
+      "S",
+      1046,
+      1047,
+      2432,
+      2433,
+      100,
+      0
+    ],
+    [
+      1114,
+      "timestamp",
+      "b",
+      "D",
+      1312,
+      1313,
+      2474,
+      2475,
+      0,
+      0
+    ],
+    [
+      1184,
+      "timestamptz",
+      "b",
+      "D",
+      1150,
+      1151,
+      2476,
+      2477,
+      0,
+      0
+    ],
+    [
+      1700,
+      "numeric",
+      "b",
+      "N",
+      1701,
+      1702,
+      2460,
+      2461,
+      0,
+      0
+    ],
+    [
+      2950,
+      "uuid",
+      "b",
+      "U",
+      2952,
+      2953,
+      2961,
+      2962,
+      0,
+      0
+    ]
+  ],
+  "nested_security": {
+    "qualification": {
+      "roots": [
+        [
+          "public",
+          "phase66 source é"
+        ]
+      ],
+      "paths": [
+        [
+          [
+            "root",
+            0
+          ],
+          16581,
+          true,
+          16570,
+          10,
+          16570
+        ],
+        [
+          [
+            "root",
+            0,
+            "view",
+            0,
+            "rtable",
+            0,
+            "subquery",
+            "rtable",
+            0
+          ],
+          16577,
+          true,
+          10,
+          10,
+          16570
+        ],
+        [
+          [
+            "root",
+            0,
+            "view",
+            0,
+            "rtable",
+            0,
+            "subquery",
+            "rtable",
+            0,
+            "view",
+            0,
+            "rtable",
+            0
+          ],
+          16385,
+          true,
+          10,
+          10,
+          16570
+        ],
+        [
+          [
+            "root",
+            0,
+            "view",
+            0,
+            "rtable",
+            1,
+            "subquery",
+            "rtable",
+            0
+          ],
+          16577,
+          true,
+          10,
+          10,
+          16570
+        ],
+        [
+          [
+            "root",
+            0,
+            "view",
+            0,
+            "rtable",
+            1,
+            "subquery",
+            "rtable",
+            0,
+            "view",
+            0,
+            "rtable",
+            0
+          ],
+          16385,
+          true,
+          10,
+          10,
+          16570
+        ]
+      ],
+      "context": [
+        180006,
+        "phase66",
+        "pietto_query",
+        "pietto_query",
+        16570,
+        16384,
+        121,
+        "899",
+        "repeatable read",
+        "on",
+        "UTF8",
+        "pg_catalog",
+        "UTC",
+        "on",
+        "172.17.0.2/32",
+        5432,
+        "2026-10-02 01:12:46.450501+00"
+      ],
+      "replies": [
+        {
+          "kind": "role",
+          "arguments": [
+            16570
+          ],
+          "rows": [
+            [
+              16570,
+              "pietto_query",
+              false,
+              true,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT oid::bigint,rolname::text,rolsuper,rolinherit,rolbypassrls FROM pg_catalog.pg_roles WHERE oid=$1::oid",
+            "arguments": [
+              16570
+            ],
+            "rows": [
+              [
+                16570,
+                "pietto_query",
+                false,
+                true,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "members",
+          "arguments": [
+            16570
+          ],
+          "rows": [
+            [
+              16571,
+              16570,
+              10,
+              false,
+              true,
+              true
+            ]
+          ],
+          "native": {
+            "sql": "SELECT roleid::bigint,member::bigint,grantor::bigint,admin_option,inherit_option,set_option FROM pg_catalog.pg_auth_members WHERE member=$1::oid ORDER BY roleid,grantor",
+            "arguments": [
+              16570
+            ],
+            "rows": [
+              [
+                16571,
+                16570,
+                10,
+                false,
+                true,
+                true
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "role",
+          "arguments": [
+            16571
+          ],
+          "rows": [
+            [
+              16571,
+              "pietto_subset",
+              false,
+              true,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT oid::bigint,rolname::text,rolsuper,rolinherit,rolbypassrls FROM pg_catalog.pg_roles WHERE oid=$1::oid",
+            "arguments": [
+              16571
+            ],
+            "rows": [
+              [
+                16571,
+                "pietto_subset",
+                false,
+                true,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "members",
+          "arguments": [
+            16571
+          ],
+          "rows": [],
+          "native": {
+            "sql": "SELECT roleid::bigint,member::bigint,grantor::bigint,admin_option,inherit_option,set_option FROM pg_catalog.pg_auth_members WHERE member=$1::oid ORDER BY roleid,grantor",
+            "arguments": [
+              16571
+            ],
+            "rows": [],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "resolve",
+          "arguments": [
+            "public",
+            "phase66 source é"
+          ],
+          "rows": [
+            [
+              16581
+            ]
+          ],
+          "native": {
+            "sql": "SELECT c.oid::bigint FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=$1 AND c.relname=$2",
+            "arguments": [
+              "public",
+              "phase66 source é"
+            ],
+            "rows": [
+              [
+                16581
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "relation",
+          "arguments": [
+            16581
+          ],
+          "rows": [
+            [
+              16581,
+              "public",
+              "phase66 source é",
+              "v",
+              "p",
+              10,
+              false,
+              false,
+              null,
+              0,
+              null,
+              null,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT c.oid::bigint,n.nspname::text,c.relname::text,c.relkind::text,c.relpersistence::text,c.relowner::bigint,c.relrowsecurity,c.relforcerowsecurity,c.reloptions::text,c.relam::bigint,a.amname::text,a.amhandler::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_class'::regclass AND d.objid=c.oid AND d.deptype='e') FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_catalog.pg_am a ON a.oid=c.relam WHERE c.oid=$1::oid",
+            "arguments": [
+              16581
+            ],
+            "rows": [
+              [
+                16581,
+                "public",
+                "phase66 source é",
+                "v",
+                "p",
+                10,
+                false,
+                false,
+                null,
+                0,
+                null,
+                null,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "role",
+          "arguments": [
+            10
+          ],
+          "rows": [
+            [
+              10,
+              "pietto_manager",
+              true,
+              true,
+              true
+            ]
+          ],
+          "native": {
+            "sql": "SELECT oid::bigint,rolname::text,rolsuper,rolinherit,rolbypassrls FROM pg_catalog.pg_roles WHERE oid=$1::oid",
+            "arguments": [
+              10
+            ],
+            "rows": [
+              [
+                10,
+                "pietto_manager",
+                true,
+                true,
+                true
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "members",
+          "arguments": [
+            10
+          ],
+          "rows": [],
+          "native": {
+            "sql": "SELECT roleid::bigint,member::bigint,grantor::bigint,admin_option,inherit_option,set_option FROM pg_catalog.pg_auth_members WHERE member=$1::oid ORDER BY roleid,grantor",
+            "arguments": [
+              10
+            ],
+            "rows": [],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "attributes",
+          "arguments": [
+            16581
+          ],
+          "rows": [
+            [
+              1,
+              "order.id",
+              20,
+              0,
+              "",
+              null
+            ],
+            [
+              2,
+              "flag value",
+              16,
+              0,
+              "",
+              null
+            ],
+            [
+              3,
+              "text `\"é",
+              25,
+              950,
+              "",
+              null
+            ],
+            [
+              4,
+              "amount value",
+              1700,
+              0,
+              "",
+              null
+            ],
+            [
+              5,
+              "ratio value",
+              701,
+              0,
+              "",
+              null
+            ]
+          ],
+          "native": {
+            "sql": "SELECT a.attnum::integer,a.attname::text,a.atttypid::bigint,a.attcollation::bigint,a.attgenerated::text,CASE WHEN a.attgenerated='v' THEN d.adbin::text ELSE NULL END FROM pg_catalog.pg_attribute a LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum WHERE a.attrelid=$1::oid AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum",
+            "arguments": [
+              16581
+            ],
+            "rows": [
+              [
+                1,
+                "order.id",
+                20,
+                0,
+                "",
+                null
+              ],
+              [
+                2,
+                "flag value",
+                16,
+                0,
+                "",
+                null
+              ],
+              [
+                3,
+                "text `\"é",
+                25,
+                950,
+                "",
+                null
+              ],
+              [
+                4,
+                "amount value",
+                1700,
+                0,
+                "",
+                null
+              ],
+              [
+                5,
+                "ratio value",
+                701,
+                0,
+                "",
+                null
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "type",
+          "arguments": [
+            20
+          ],
+          "rows": [
+            [
+              20,
+              "pg_catalog",
+              "int8",
+              "b",
+              0,
+              0,
+              460,
+              461,
+              2408,
+              2409,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT t.oid::bigint,n.nspname::text,t.typname::text,t.typtype::text,t.typbasetype::bigint,t.typelem::bigint,t.typinput::bigint,t.typoutput::bigint,t.typreceive::bigint,t.typsend::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_type'::regclass AND d.objid=t.oid AND d.deptype='e') FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid=t.typnamespace WHERE t.oid=$1::oid",
+            "arguments": [
+              20
+            ],
+            "rows": [
+              [
+                20,
+                "pg_catalog",
+                "int8",
+                "b",
+                0,
+                0,
+                460,
+                461,
+                2408,
+                2409,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            460
+          ],
+          "rows": [
+            [
+              460,
+              "pg_catalog",
+              "int8in",
+              "internal",
+              "int8in",
+              null,
+              "2275",
+              20,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              460
+            ],
+            "rows": [
+              [
+                460,
+                "pg_catalog",
+                "int8in",
+                "internal",
+                "int8in",
+                null,
+                "2275",
+                20,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            461
+          ],
+          "rows": [
+            [
+              461,
+              "pg_catalog",
+              "int8out",
+              "internal",
+              "int8out",
+              null,
+              "20",
+              2275,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              461
+            ],
+            "rows": [
+              [
+                461,
+                "pg_catalog",
+                "int8out",
+                "internal",
+                "int8out",
+                null,
+                "20",
+                2275,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            2408
+          ],
+          "rows": [
+            [
+              2408,
+              "pg_catalog",
+              "int8recv",
+              "internal",
+              "int8recv",
+              null,
+              "2281",
+              20,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              2408
+            ],
+            "rows": [
+              [
+                2408,
+                "pg_catalog",
+                "int8recv",
+                "internal",
+                "int8recv",
+                null,
+                "2281",
+                20,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            2409
+          ],
+          "rows": [
+            [
+              2409,
+              "pg_catalog",
+              "int8send",
+              "internal",
+              "int8send",
+              null,
+              "20",
+              17,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              2409
+            ],
+            "rows": [
+              [
+                2409,
+                "pg_catalog",
+                "int8send",
+                "internal",
+                "int8send",
+                null,
+                "20",
+                17,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "type",
+          "arguments": [
+            16
+          ],
+          "rows": [
+            [
+              16,
+              "pg_catalog",
+              "bool",
+              "b",
+              0,
+              0,
+              1242,
+              1243,
+              2436,
+              2437,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT t.oid::bigint,n.nspname::text,t.typname::text,t.typtype::text,t.typbasetype::bigint,t.typelem::bigint,t.typinput::bigint,t.typoutput::bigint,t.typreceive::bigint,t.typsend::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_type'::regclass AND d.objid=t.oid AND d.deptype='e') FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid=t.typnamespace WHERE t.oid=$1::oid",
+            "arguments": [
+              16
+            ],
+            "rows": [
+              [
+                16,
+                "pg_catalog",
+                "bool",
+                "b",
+                0,
+                0,
+                1242,
+                1243,
+                2436,
+                2437,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            1242
+          ],
+          "rows": [
+            [
+              1242,
+              "pg_catalog",
+              "boolin",
+              "internal",
+              "boolin",
+              null,
+              "2275",
+              16,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              1242
+            ],
+            "rows": [
+              [
+                1242,
+                "pg_catalog",
+                "boolin",
+                "internal",
+                "boolin",
+                null,
+                "2275",
+                16,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            1243
+          ],
+          "rows": [
+            [
+              1243,
+              "pg_catalog",
+              "boolout",
+              "internal",
+              "boolout",
+              null,
+              "16",
+              2275,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              1243
+            ],
+            "rows": [
+              [
+                1243,
+                "pg_catalog",
+                "boolout",
+                "internal",
+                "boolout",
+                null,
+                "16",
+                2275,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            2436
+          ],
+          "rows": [
+            [
+              2436,
+              "pg_catalog",
+              "boolrecv",
+              "internal",
+              "boolrecv",
+              null,
+              "2281",
+              16,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              2436
+            ],
+            "rows": [
+              [
+                2436,
+                "pg_catalog",
+                "boolrecv",
+                "internal",
+                "boolrecv",
+                null,
+                "2281",
+                16,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            2437
+          ],
+          "rows": [
+            [
+              2437,
+              "pg_catalog",
+              "boolsend",
+              "internal",
+              "boolsend",
+              null,
+              "16",
+              17,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              2437
+            ],
+            "rows": [
+              [
+                2437,
+                "pg_catalog",
+                "boolsend",
+                "internal",
+                "boolsend",
+                null,
+                "16",
+                17,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "type",
+          "arguments": [
+            25
+          ],
+          "rows": [
+            [
+              25,
+              "pg_catalog",
+              "text",
+              "b",
+              0,
+              0,
+              46,
+              47,
+              2414,
+              2415,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT t.oid::bigint,n.nspname::text,t.typname::text,t.typtype::text,t.typbasetype::bigint,t.typelem::bigint,t.typinput::bigint,t.typoutput::bigint,t.typreceive::bigint,t.typsend::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_type'::regclass AND d.objid=t.oid AND d.deptype='e') FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid=t.typnamespace WHERE t.oid=$1::oid",
+            "arguments": [
+              25
+            ],
+            "rows": [
+              [
+                25,
+                "pg_catalog",
+                "text",
+                "b",
+                0,
+                0,
+                46,
+                47,
+                2414,
+                2415,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            46
+          ],
+          "rows": [
+            [
+              46,
+              "pg_catalog",
+              "textin",
+              "internal",
+              "textin",
+              null,
+              "2275",
+              25,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              46
+            ],
+            "rows": [
+              [
+                46,
+                "pg_catalog",
+                "textin",
+                "internal",
+                "textin",
+                null,
+                "2275",
+                25,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            47
+          ],
+          "rows": [
+            [
+              47,
+              "pg_catalog",
+              "textout",
+              "internal",
+              "textout",
+              null,
+              "25",
+              2275,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              47
+            ],
+            "rows": [
+              [
+                47,
+                "pg_catalog",
+                "textout",
+                "internal",
+                "textout",
+                null,
+                "25",
+                2275,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            2414
+          ],
+          "rows": [
+            [
+              2414,
+              "pg_catalog",
+              "textrecv",
+              "internal",
+              "textrecv",
+              null,
+              "2281",
+              25,
+              "s",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              2414
+            ],
+            "rows": [
+              [
+                2414,
+                "pg_catalog",
+                "textrecv",
+                "internal",
+                "textrecv",
+                null,
+                "2281",
+                25,
+                "s",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            2415
+          ],
+          "rows": [
+            [
+              2415,
+              "pg_catalog",
+              "textsend",
+              "internal",
+              "textsend",
+              null,
+              "25",
+              17,
+              "s",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              2415
+            ],
+            "rows": [
+              [
+                2415,
+                "pg_catalog",
+                "textsend",
+                "internal",
+                "textsend",
+                null,
+                "25",
+                17,
+                "s",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "collation",
+          "arguments": [
+            950
+          ],
+          "rows": [
+            [
+              950,
+              "pg_catalog",
+              "C",
+              "c",
+              true,
+              -1,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT c.oid::bigint,n.nspname::text,c.collname::text,c.collprovider::text,c.collisdeterministic,c.collencoding,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_collation'::regclass AND d.objid=c.oid AND d.deptype='e') FROM pg_catalog.pg_collation c JOIN pg_catalog.pg_namespace n ON n.oid=c.collnamespace WHERE c.oid=$1::oid",
+            "arguments": [
+              950
+            ],
+            "rows": [
+              [
+                950,
+                "pg_catalog",
+                "C",
+                "c",
+                true,
+                -1,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "type",
+          "arguments": [
+            1700
+          ],
+          "rows": [
+            [
+              1700,
+              "pg_catalog",
+              "numeric",
+              "b",
+              0,
+              0,
+              1701,
+              1702,
+              2460,
+              2461,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT t.oid::bigint,n.nspname::text,t.typname::text,t.typtype::text,t.typbasetype::bigint,t.typelem::bigint,t.typinput::bigint,t.typoutput::bigint,t.typreceive::bigint,t.typsend::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_type'::regclass AND d.objid=t.oid AND d.deptype='e') FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid=t.typnamespace WHERE t.oid=$1::oid",
+            "arguments": [
+              1700
+            ],
+            "rows": [
+              [
+                1700,
+                "pg_catalog",
+                "numeric",
+                "b",
+                0,
+                0,
+                1701,
+                1702,
+                2460,
+                2461,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            1701
+          ],
+          "rows": [
+            [
+              1701,
+              "pg_catalog",
+              "numeric_in",
+              "internal",
+              "numeric_in",
+              null,
+              "2275 26 23",
+              1700,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              1701
+            ],
+            "rows": [
+              [
+                1701,
+                "pg_catalog",
+                "numeric_in",
+                "internal",
+                "numeric_in",
+                null,
+                "2275 26 23",
+                1700,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            1702
+          ],
+          "rows": [
+            [
+              1702,
+              "pg_catalog",
+              "numeric_out",
+              "internal",
+              "numeric_out",
+              null,
+              "1700",
+              2275,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              1702
+            ],
+            "rows": [
+              [
+                1702,
+                "pg_catalog",
+                "numeric_out",
+                "internal",
+                "numeric_out",
+                null,
+                "1700",
+                2275,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            2460
+          ],
+          "rows": [
+            [
+              2460,
+              "pg_catalog",
+              "numeric_recv",
+              "internal",
+              "numeric_recv",
+              null,
+              "2281 26 23",
+              1700,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              2460
+            ],
+            "rows": [
+              [
+                2460,
+                "pg_catalog",
+                "numeric_recv",
+                "internal",
+                "numeric_recv",
+                null,
+                "2281 26 23",
+                1700,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            2461
+          ],
+          "rows": [
+            [
+              2461,
+              "pg_catalog",
+              "numeric_send",
+              "internal",
+              "numeric_send",
+              null,
+              "1700",
+              17,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              2461
+            ],
+            "rows": [
+              [
+                2461,
+                "pg_catalog",
+                "numeric_send",
+                "internal",
+                "numeric_send",
+                null,
+                "1700",
+                17,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "type",
+          "arguments": [
+            701
+          ],
+          "rows": [
+            [
+              701,
+              "pg_catalog",
+              "float8",
+              "b",
+              0,
+              0,
+              214,
+              215,
+              2426,
+              2427,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT t.oid::bigint,n.nspname::text,t.typname::text,t.typtype::text,t.typbasetype::bigint,t.typelem::bigint,t.typinput::bigint,t.typoutput::bigint,t.typreceive::bigint,t.typsend::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_type'::regclass AND d.objid=t.oid AND d.deptype='e') FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid=t.typnamespace WHERE t.oid=$1::oid",
+            "arguments": [
+              701
+            ],
+            "rows": [
+              [
+                701,
+                "pg_catalog",
+                "float8",
+                "b",
+                0,
+                0,
+                214,
+                215,
+                2426,
+                2427,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            214
+          ],
+          "rows": [
+            [
+              214,
+              "pg_catalog",
+              "float8in",
+              "internal",
+              "float8in",
+              null,
+              "2275",
+              701,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              214
+            ],
+            "rows": [
+              [
+                214,
+                "pg_catalog",
+                "float8in",
+                "internal",
+                "float8in",
+                null,
+                "2275",
+                701,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            215
+          ],
+          "rows": [
+            [
+              215,
+              "pg_catalog",
+              "float8out",
+              "internal",
+              "float8out",
+              null,
+              "701",
+              2275,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              215
+            ],
+            "rows": [
+              [
+                215,
+                "pg_catalog",
+                "float8out",
+                "internal",
+                "float8out",
+                null,
+                "701",
+                2275,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            2426
+          ],
+          "rows": [
+            [
+              2426,
+              "pg_catalog",
+              "float8recv",
+              "internal",
+              "float8recv",
+              null,
+              "2281",
+              701,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              2426
+            ],
+            "rows": [
+              [
+                2426,
+                "pg_catalog",
+                "float8recv",
+                "internal",
+                "float8recv",
+                null,
+                "2281",
+                701,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            2427
+          ],
+          "rows": [
+            [
+              2427,
+              "pg_catalog",
+              "float8send",
+              "internal",
+              "float8send",
+              null,
+              "701",
+              17,
+              "i",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              2427
+            ],
+            "rows": [
+              [
+                2427,
+                "pg_catalog",
+                "float8send",
+                "internal",
+                "float8send",
+                null,
+                "701",
+                17,
+                "i",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "children",
+          "arguments": [
+            16581
+          ],
+          "rows": [],
+          "native": {
+            "sql": "SELECT inhrelid::bigint,inhseqno::integer,inhdetachpending FROM pg_catalog.pg_inherits WHERE inhparent=$1::oid ORDER BY inhseqno,inhrelid",
+            "arguments": [
+              16581
+            ],
+            "rows": [],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "rewrite",
+          "arguments": [
+            16581
+          ],
+          "rows": [
+            [
+              16584,
+              "_RETURN",
+              "1",
+              true,
+              "<>",
+              "({QUERY :commandType 1 :querySource 0 :canSetTag true :utilityStmt <> :resultRelation 0 :hasAggs false :hasWindowFuncs false :hasTargetSRFs false :hasSubLinks false :hasDistinctOn false :hasRecursive false :hasModifyingCTE false :hasForUpdate false :hasRowSecurity false :hasGroupRTE false :isReturn false :cteList <> :rtable ({RANGETBLENTRY :alias {ALIAS :aliasname *SELECT*\\ 1 :colnames <>} :eref {ALIAS :aliasname *SELECT*\\ 1 :colnames (\"order.id\" \"flag\\ value\" \"text\\ `\"é\" \"amount\\ value\" \"ratio\\ value\")} :rtekind 1 :subquery {QUERY :commandType 1 :querySource 0 :canSetTag true :utilityStmt <> :resultRelation 0 :hasAggs false :hasWindowFuncs false :hasTargetSRFs false :hasSubLinks false :hasDistinctOn false :hasRecursive false :hasModifyingCTE false :hasForUpdate false :hasRowSecurity false :hasGroupRTE false :isReturn false :cteList <> :rtable ({RANGETBLENTRY :alias <> :eref {ALIAS :aliasname p68s9_invoker :colnames (\"order.id\" \"flag\\ value\" \"text\\ `\"é\" \"amount\\ value\" \"ratio\\ value\")} :rtekind 0 :relid 16577 :inh true :relkind v :rellockmode 1 :perminfoindex 1 :tablesample <> :lateral false :inFromCl true :securityQuals <>}) :rteperminfos ({RTEPERMISSIONINFO :relid 16577 :inh true :requiredPerms 2 :checkAsUser 0 :selectedCols (b 8 9 10 11 12) :insertedCols (b) :updatedCols (b)}) :jointree {FROMEXPR :fromlist ({RANGETBLREF :rtindex 1}) :quals <>} :mergeActionList <> :mergeTargetRelation 0 :mergeJoinCondition <> :targetList ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname order.id :ressortgroupref 0 :resorigtbl 16577 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname flag\\ value :ressortgroupref 0 :resorigtbl 16577 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 950 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 3 :resname text\\ `\"é :ressortgroupref 0 :resorigtbl 16577 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 589830 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} :resno 4 :resname amount\\ value :ressortgroupref 0 :resorigtbl 16577 :resorigcol 4 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} :resno 5 :resname ratio\\ value :ressortgroupref 0 :resorigtbl 16577 :resorigcol 5 :resjunk false}) :override 0 :onConflict <> :returningOldAlias <> :returningNewAlias <> :returningList <> :groupClause <> :groupDistinct false :groupingSets <> :havingQual <> :windowClause <> :distinctClause <> :sortClause <> :limitOffset <> :limitCount <> :limitOption 0 :rowMarks <> :setOperations <> :constraintDeps <> :withCheckOptions <> :stmt_location -1 :stmt_len -1} :security_barrier false :relid 0 :inh false :relkind <> :rellockmode 0 :perminfoindex 0 :lateral false :inFromCl false :securityQuals <>} {RANGETBLENTRY :alias {ALIAS :aliasname *SELECT*\\ 2 :colnames <>} :eref {ALIAS :aliasname *SELECT*\\ 2 :colnames (\"order.id\" \"flag\\ value\" \"text\\ `\"é\" \"amount\\ value\" \"ratio\\ value\")} :rtekind 1 :subquery {QUERY :commandType 1 :querySource 0 :canSetTag true :utilityStmt <> :resultRelation 0 :hasAggs false :hasWindowFuncs false :hasTargetSRFs false :hasSubLinks false :hasDistinctOn false :hasRecursive false :hasModifyingCTE false :hasForUpdate false :hasRowSecurity false :hasGroupRTE false :isReturn false :cteList <> :rtable ({RANGETBLENTRY :alias <> :eref {ALIAS :aliasname p68s9_invoker :colnames (\"order.id\" \"flag\\ value\" \"text\\ `\"é\" \"amount\\ value\" \"ratio\\ value\")} :rtekind 0 :relid 16577 :inh true :relkind v :rellockmode 1 :perminfoindex 1 :tablesample <> :lateral false :inFromCl true :securityQuals <>}) :rteperminfos ({RTEPERMISSIONINFO :relid 16577 :inh true :requiredPerms 2 :checkAsUser 0 :selectedCols (b 8 9 10 11 12) :insertedCols (b) :updatedCols (b)}) :jointree {FROMEXPR :fromlist ({RANGETBLREF :rtindex 1}) :quals <>} :mergeActionList <> :mergeTargetRelation 0 :mergeJoinCondition <> :targetList ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname order.id :ressortgroupref 0 :resorigtbl 16577 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname flag\\ value :ressortgroupref 0 :resorigtbl 16577 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 950 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 3 :resname text\\ `\"é :ressortgroupref 0 :resorigtbl 16577 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 589830 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} :resno 4 :resname amount\\ value :ressortgroupref 0 :resorigtbl 16577 :resorigcol 4 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} :resno 5 :resname ratio\\ value :ressortgroupref 0 :resorigtbl 16577 :resorigcol 5 :resjunk false}) :override 0 :onConflict <> :returningOldAlias <> :returningNewAlias <> :returningList <> :groupClause <> :groupDistinct false :groupingSets <> :havingQual <> :windowClause <> :distinctClause <> :sortClause <> :limitOffset <> :limitCount <> :limitOption 0 :rowMarks <> :setOperations <> :constraintDeps <> :withCheckOptions <> :stmt_location -1 :stmt_len -1} :security_barrier false :relid 0 :inh false :relkind <> :rellockmode 0 :perminfoindex 0 :lateral false :inFromCl false :securityQuals <>}) :rteperminfos <> :jointree {FROMEXPR :fromlist <> :quals <>} :mergeActionList <> :mergeTargetRelation 0 :mergeJoinCondition <> :targetList ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname order.id :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname flag\\ value :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 950 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 3 :resname text\\ `\"é :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 589830 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} :resno 4 :resname amount\\ value :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} :resno 5 :resname ratio\\ value :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false}) :override 0 :onConflict <> :returningOldAlias <> :returningNewAlias <> :returningList <> :groupClause <> :groupDistinct false :groupingSets <> :havingQual <> :windowClause <> :distinctClause <> :sortClause <> :limitOffset <> :limitCount <> :limitOption 0 :rowMarks <> :setOperations {SETOPERATIONSTMT :op 1 :all true :larg {RANGETBLREF :rtindex 1} :rarg {RANGETBLREF :rtindex 2} :colTypes (o 20 16 25 1700 701) :colTypmods (i -1 -1 -1 589830 -1) :colCollations (o 0 0 950 0 0) :groupClauses <>} :constraintDeps <> :withCheckOptions <> :stmt_location -1 :stmt_len -1})"
+            ]
+          ],
+          "native": {
+            "sql": "SELECT oid::bigint,rulename::text,ev_type::text,is_instead,ev_qual::text,ev_action::text FROM pg_catalog.pg_rewrite WHERE ev_class=$1::oid AND ev_type='1' ORDER BY oid",
+            "arguments": [
+              16581
+            ],
+            "rows": [
+              [
+                16584,
+                "_RETURN",
+                "1",
+                true,
+                "<>",
+                "({QUERY :commandType 1 :querySource 0 :canSetTag true :utilityStmt <> :resultRelation 0 :hasAggs false :hasWindowFuncs false :hasTargetSRFs false :hasSubLinks false :hasDistinctOn false :hasRecursive false :hasModifyingCTE false :hasForUpdate false :hasRowSecurity false :hasGroupRTE false :isReturn false :cteList <> :rtable ({RANGETBLENTRY :alias {ALIAS :aliasname *SELECT*\\ 1 :colnames <>} :eref {ALIAS :aliasname *SELECT*\\ 1 :colnames (\"order.id\" \"flag\\ value\" \"text\\ `\"é\" \"amount\\ value\" \"ratio\\ value\")} :rtekind 1 :subquery {QUERY :commandType 1 :querySource 0 :canSetTag true :utilityStmt <> :resultRelation 0 :hasAggs false :hasWindowFuncs false :hasTargetSRFs false :hasSubLinks false :hasDistinctOn false :hasRecursive false :hasModifyingCTE false :hasForUpdate false :hasRowSecurity false :hasGroupRTE false :isReturn false :cteList <> :rtable ({RANGETBLENTRY :alias <> :eref {ALIAS :aliasname p68s9_invoker :colnames (\"order.id\" \"flag\\ value\" \"text\\ `\"é\" \"amount\\ value\" \"ratio\\ value\")} :rtekind 0 :relid 16577 :inh true :relkind v :rellockmode 1 :perminfoindex 1 :tablesample <> :lateral false :inFromCl true :securityQuals <>}) :rteperminfos ({RTEPERMISSIONINFO :relid 16577 :inh true :requiredPerms 2 :checkAsUser 0 :selectedCols (b 8 9 10 11 12) :insertedCols (b) :updatedCols (b)}) :jointree {FROMEXPR :fromlist ({RANGETBLREF :rtindex 1}) :quals <>} :mergeActionList <> :mergeTargetRelation 0 :mergeJoinCondition <> :targetList ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname order.id :ressortgroupref 0 :resorigtbl 16577 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname flag\\ value :ressortgroupref 0 :resorigtbl 16577 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 950 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 3 :resname text\\ `\"é :ressortgroupref 0 :resorigtbl 16577 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 589830 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} :resno 4 :resname amount\\ value :ressortgroupref 0 :resorigtbl 16577 :resorigcol 4 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} :resno 5 :resname ratio\\ value :ressortgroupref 0 :resorigtbl 16577 :resorigcol 5 :resjunk false}) :override 0 :onConflict <> :returningOldAlias <> :returningNewAlias <> :returningList <> :groupClause <> :groupDistinct false :groupingSets <> :havingQual <> :windowClause <> :distinctClause <> :sortClause <> :limitOffset <> :limitCount <> :limitOption 0 :rowMarks <> :setOperations <> :constraintDeps <> :withCheckOptions <> :stmt_location -1 :stmt_len -1} :security_barrier false :relid 0 :inh false :relkind <> :rellockmode 0 :perminfoindex 0 :lateral false :inFromCl false :securityQuals <>} {RANGETBLENTRY :alias {ALIAS :aliasname *SELECT*\\ 2 :colnames <>} :eref {ALIAS :aliasname *SELECT*\\ 2 :colnames (\"order.id\" \"flag\\ value\" \"text\\ `\"é\" \"amount\\ value\" \"ratio\\ value\")} :rtekind 1 :subquery {QUERY :commandType 1 :querySource 0 :canSetTag true :utilityStmt <> :resultRelation 0 :hasAggs false :hasWindowFuncs false :hasTargetSRFs false :hasSubLinks false :hasDistinctOn false :hasRecursive false :hasModifyingCTE false :hasForUpdate false :hasRowSecurity false :hasGroupRTE false :isReturn false :cteList <> :rtable ({RANGETBLENTRY :alias <> :eref {ALIAS :aliasname p68s9_invoker :colnames (\"order.id\" \"flag\\ value\" \"text\\ `\"é\" \"amount\\ value\" \"ratio\\ value\")} :rtekind 0 :relid 16577 :inh true :relkind v :rellockmode 1 :perminfoindex 1 :tablesample <> :lateral false :inFromCl true :securityQuals <>}) :rteperminfos ({RTEPERMISSIONINFO :relid 16577 :inh true :requiredPerms 2 :checkAsUser 0 :selectedCols (b 8 9 10 11 12) :insertedCols (b) :updatedCols (b)}) :jointree {FROMEXPR :fromlist ({RANGETBLREF :rtindex 1}) :quals <>} :mergeActionList <> :mergeTargetRelation 0 :mergeJoinCondition <> :targetList ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname order.id :ressortgroupref 0 :resorigtbl 16577 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname flag\\ value :ressortgroupref 0 :resorigtbl 16577 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 950 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 3 :resname text\\ `\"é :ressortgroupref 0 :resorigtbl 16577 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 589830 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} :resno 4 :resname amount\\ value :ressortgroupref 0 :resorigtbl 16577 :resorigcol 4 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} :resno 5 :resname ratio\\ value :ressortgroupref 0 :resorigtbl 16577 :resorigcol 5 :resjunk false}) :override 0 :onConflict <> :returningOldAlias <> :returningNewAlias <> :returningList <> :groupClause <> :groupDistinct false :groupingSets <> :havingQual <> :windowClause <> :distinctClause <> :sortClause <> :limitOffset <> :limitCount <> :limitOption 0 :rowMarks <> :setOperations <> :constraintDeps <> :withCheckOptions <> :stmt_location -1 :stmt_len -1} :security_barrier false :relid 0 :inh false :relkind <> :rellockmode 0 :perminfoindex 0 :lateral false :inFromCl false :securityQuals <>}) :rteperminfos <> :jointree {FROMEXPR :fromlist <> :quals <>} :mergeActionList <> :mergeTargetRelation 0 :mergeJoinCondition <> :targetList ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname order.id :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname flag\\ value :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 950 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 3 :resname text\\ `\"é :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 589830 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} :resno 4 :resname amount\\ value :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} :resno 5 :resname ratio\\ value :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false}) :override 0 :onConflict <> :returningOldAlias <> :returningNewAlias <> :returningList <> :groupClause <> :groupDistinct false :groupingSets <> :havingQual <> :windowClause <> :distinctClause <> :sortClause <> :limitOffset <> :limitCount <> :limitOption 0 :rowMarks <> :setOperations {SETOPERATIONSTMT :op 1 :all true :larg {RANGETBLREF :rtindex 1} :rarg {RANGETBLREF :rtindex 2} :colTypes (o 20 16 25 1700 701) :colTypmods (i -1 -1 -1 589830 -1) :colCollations (o 0 0 950 0 0) :groupClauses <>} :constraintDeps <> :withCheckOptions <> :stmt_location -1 :stmt_len -1})"
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "relation",
+          "arguments": [
+            16577
+          ],
+          "rows": [
+            [
+              16577,
+              "public",
+              "p68s9_invoker",
+              "v",
+              "p",
+              10,
+              false,
+              false,
+              "{security_invoker=true}",
+              0,
+              null,
+              null,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT c.oid::bigint,n.nspname::text,c.relname::text,c.relkind::text,c.relpersistence::text,c.relowner::bigint,c.relrowsecurity,c.relforcerowsecurity,c.reloptions::text,c.relam::bigint,a.amname::text,a.amhandler::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_class'::regclass AND d.objid=c.oid AND d.deptype='e') FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_catalog.pg_am a ON a.oid=c.relam WHERE c.oid=$1::oid",
+            "arguments": [
+              16577
+            ],
+            "rows": [
+              [
+                16577,
+                "public",
+                "p68s9_invoker",
+                "v",
+                "p",
+                10,
+                false,
+                false,
+                "{security_invoker=true}",
+                0,
+                null,
+                null,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "attributes",
+          "arguments": [
+            16577
+          ],
+          "rows": [
+            [
+              1,
+              "order.id",
+              20,
+              0,
+              "",
+              null
+            ],
+            [
+              2,
+              "flag value",
+              16,
+              0,
+              "",
+              null
+            ],
+            [
+              3,
+              "text `\"é",
+              25,
+              950,
+              "",
+              null
+            ],
+            [
+              4,
+              "amount value",
+              1700,
+              0,
+              "",
+              null
+            ],
+            [
+              5,
+              "ratio value",
+              701,
+              0,
+              "",
+              null
+            ]
+          ],
+          "native": {
+            "sql": "SELECT a.attnum::integer,a.attname::text,a.atttypid::bigint,a.attcollation::bigint,a.attgenerated::text,CASE WHEN a.attgenerated='v' THEN d.adbin::text ELSE NULL END FROM pg_catalog.pg_attribute a LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum WHERE a.attrelid=$1::oid AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum",
+            "arguments": [
+              16577
+            ],
+            "rows": [
+              [
+                1,
+                "order.id",
+                20,
+                0,
+                "",
+                null
+              ],
+              [
+                2,
+                "flag value",
+                16,
+                0,
+                "",
+                null
+              ],
+              [
+                3,
+                "text `\"é",
+                25,
+                950,
+                "",
+                null
+              ],
+              [
+                4,
+                "amount value",
+                1700,
+                0,
+                "",
+                null
+              ],
+              [
+                5,
+                "ratio value",
+                701,
+                0,
+                "",
+                null
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "children",
+          "arguments": [
+            16577
+          ],
+          "rows": [],
+          "native": {
+            "sql": "SELECT inhrelid::bigint,inhseqno::integer,inhdetachpending FROM pg_catalog.pg_inherits WHERE inhparent=$1::oid ORDER BY inhseqno,inhrelid",
+            "arguments": [
+              16577
+            ],
+            "rows": [],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "rewrite",
+          "arguments": [
+            16577
+          ],
+          "rows": [
+            [
+              16580,
+              "_RETURN",
+              "1",
+              true,
+              "<>",
+              "({QUERY :commandType 1 :querySource 0 :canSetTag true :utilityStmt <> :resultRelation 0 :hasAggs false :hasWindowFuncs false :hasTargetSRFs false :hasSubLinks false :hasDistinctOn false :hasRecursive false :hasModifyingCTE false :hasForUpdate false :hasRowSecurity false :hasGroupRTE false :isReturn false :cteList <> :rtable ({RANGETBLENTRY :alias <> :eref {ALIAS :aliasname p68s9_original :colnames (\"order.id\" \"flag\\ value\" \"text\\ `\"é\" \"amount\\ value\" \"ratio\\ value\")} :rtekind 0 :relid 16385 :inh true :relkind r :rellockmode 1 :perminfoindex 1 :tablesample <> :lateral false :inFromCl true :securityQuals <>}) :rteperminfos ({RTEPERMISSIONINFO :relid 16385 :inh true :requiredPerms 2 :checkAsUser 0 :selectedCols (b 8 9 10 11 12) :insertedCols (b) :updatedCols (b)}) :jointree {FROMEXPR :fromlist ({RANGETBLREF :rtindex 1}) :quals <>} :mergeActionList <> :mergeTargetRelation 0 :mergeJoinCondition <> :targetList ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname order.id :ressortgroupref 0 :resorigtbl 16385 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname flag\\ value :ressortgroupref 0 :resorigtbl 16385 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 950 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 3 :resname text\\ `\"é :ressortgroupref 0 :resorigtbl 16385 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 589830 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} :resno 4 :resname amount\\ value :ressortgroupref 0 :resorigtbl 16385 :resorigcol 4 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} :resno 5 :resname ratio\\ value :ressortgroupref 0 :resorigtbl 16385 :resorigcol 5 :resjunk false}) :override 0 :onConflict <> :returningOldAlias <> :returningNewAlias <> :returningList <> :groupClause <> :groupDistinct false :groupingSets <> :havingQual <> :windowClause <> :distinctClause <> :sortClause <> :limitOffset <> :limitCount <> :limitOption 0 :rowMarks <> :setOperations <> :constraintDeps <> :withCheckOptions <> :stmt_location -1 :stmt_len -1})"
+            ]
+          ],
+          "native": {
+            "sql": "SELECT oid::bigint,rulename::text,ev_type::text,is_instead,ev_qual::text,ev_action::text FROM pg_catalog.pg_rewrite WHERE ev_class=$1::oid AND ev_type='1' ORDER BY oid",
+            "arguments": [
+              16577
+            ],
+            "rows": [
+              [
+                16580,
+                "_RETURN",
+                "1",
+                true,
+                "<>",
+                "({QUERY :commandType 1 :querySource 0 :canSetTag true :utilityStmt <> :resultRelation 0 :hasAggs false :hasWindowFuncs false :hasTargetSRFs false :hasSubLinks false :hasDistinctOn false :hasRecursive false :hasModifyingCTE false :hasForUpdate false :hasRowSecurity false :hasGroupRTE false :isReturn false :cteList <> :rtable ({RANGETBLENTRY :alias <> :eref {ALIAS :aliasname p68s9_original :colnames (\"order.id\" \"flag\\ value\" \"text\\ `\"é\" \"amount\\ value\" \"ratio\\ value\")} :rtekind 0 :relid 16385 :inh true :relkind r :rellockmode 1 :perminfoindex 1 :tablesample <> :lateral false :inFromCl true :securityQuals <>}) :rteperminfos ({RTEPERMISSIONINFO :relid 16385 :inh true :requiredPerms 2 :checkAsUser 0 :selectedCols (b 8 9 10 11 12) :insertedCols (b) :updatedCols (b)}) :jointree {FROMEXPR :fromlist ({RANGETBLREF :rtindex 1}) :quals <>} :mergeActionList <> :mergeTargetRelation 0 :mergeJoinCondition <> :targetList ({TARGETENTRY :expr {VAR :varno 1 :varattno 1 :vartype 20 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} :resno 1 :resname order.id :ressortgroupref 0 :resorigtbl 16385 :resorigcol 1 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 2 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} :resno 2 :resname flag\\ value :ressortgroupref 0 :resorigtbl 16385 :resorigcol 2 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 950 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 3 :location -1} :resno 3 :resname text\\ `\"é :ressortgroupref 0 :resorigtbl 16385 :resorigcol 3 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 589830 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} :resno 4 :resname amount\\ value :ressortgroupref 0 :resorigtbl 16385 :resorigcol 4 :resjunk false} {TARGETENTRY :expr {VAR :varno 1 :varattno 5 :vartype 701 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} :resno 5 :resname ratio\\ value :ressortgroupref 0 :resorigtbl 16385 :resorigcol 5 :resjunk false}) :override 0 :onConflict <> :returningOldAlias <> :returningNewAlias <> :returningList <> :groupClause <> :groupDistinct false :groupingSets <> :havingQual <> :windowClause <> :distinctClause <> :sortClause <> :limitOffset <> :limitCount <> :limitOption 0 :rowMarks <> :setOperations <> :constraintDeps <> :withCheckOptions <> :stmt_location -1 :stmt_len -1})"
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "relation",
+          "arguments": [
+            16385
+          ],
+          "rows": [
+            [
+              16385,
+              "public",
+              "p68s9_original",
+              "r",
+              "p",
+              10,
+              false,
+              false,
+              null,
+              2,
+              "heap",
+              3,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT c.oid::bigint,n.nspname::text,c.relname::text,c.relkind::text,c.relpersistence::text,c.relowner::bigint,c.relrowsecurity,c.relforcerowsecurity,c.reloptions::text,c.relam::bigint,a.amname::text,a.amhandler::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_class'::regclass AND d.objid=c.oid AND d.deptype='e') FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_catalog.pg_am a ON a.oid=c.relam WHERE c.oid=$1::oid",
+            "arguments": [
+              16385
+            ],
+            "rows": [
+              [
+                16385,
+                "public",
+                "p68s9_original",
+                "r",
+                "p",
+                10,
+                false,
+                false,
+                null,
+                2,
+                "heap",
+                3,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "function",
+          "arguments": [
+            3
+          ],
+          "rows": [
+            [
+              3,
+              "pg_catalog",
+              "heap_tableam_handler",
+              "internal",
+              "heap_tableam_handler",
+              null,
+              "2281",
+              269,
+              "v",
+              false,
+              "f",
+              false,
+              null,
+              0,
+              false
+            ]
+          ],
+          "native": {
+            "sql": "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid",
+            "arguments": [
+              3
+            ],
+            "rows": [
+              [
+                3,
+                "pg_catalog",
+                "heap_tableam_handler",
+                "internal",
+                "heap_tableam_handler",
+                null,
+                "2281",
+                269,
+                "v",
+                false,
+                "f",
+                false,
+                null,
+                0,
+                false
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "attributes",
+          "arguments": [
+            16385
+          ],
+          "rows": [
+            [
+              1,
+              "order.id",
+              20,
+              0,
+              "",
+              null
+            ],
+            [
+              2,
+              "flag value",
+              16,
+              0,
+              "",
+              null
+            ],
+            [
+              3,
+              "text `\"é",
+              25,
+              950,
+              "",
+              null
+            ],
+            [
+              4,
+              "amount value",
+              1700,
+              0,
+              "",
+              null
+            ],
+            [
+              5,
+              "ratio value",
+              701,
+              0,
+              "",
+              null
+            ]
+          ],
+          "native": {
+            "sql": "SELECT a.attnum::integer,a.attname::text,a.atttypid::bigint,a.attcollation::bigint,a.attgenerated::text,CASE WHEN a.attgenerated='v' THEN d.adbin::text ELSE NULL END FROM pg_catalog.pg_attribute a LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum WHERE a.attrelid=$1::oid AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum",
+            "arguments": [
+              16385
+            ],
+            "rows": [
+              [
+                1,
+                "order.id",
+                20,
+                0,
+                "",
+                null
+              ],
+              [
+                2,
+                "flag value",
+                16,
+                0,
+                "",
+                null
+              ],
+              [
+                3,
+                "text `\"é",
+                25,
+                950,
+                "",
+                null
+              ],
+              [
+                4,
+                "amount value",
+                1700,
+                0,
+                "",
+                null
+              ],
+              [
+                5,
+                "ratio value",
+                701,
+                0,
+                "",
+                null
+              ]
+            ],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "children",
+          "arguments": [
+            16385
+          ],
+          "rows": [],
+          "native": {
+            "sql": "SELECT inhrelid::bigint,inhseqno::integer,inhdetachpending FROM pg_catalog.pg_inherits WHERE inhparent=$1::oid ORDER BY inhseqno,inhrelid",
+            "arguments": [
+              16385
+            ],
+            "rows": [],
+            "terminal": "NORMAL"
+          }
+        },
+        {
+          "kind": "rewrite",
+          "arguments": [
+            16385
+          ],
+          "rows": [],
+          "native": {
+            "sql": "SELECT oid::bigint,rulename::text,ev_type::text,is_instead,ev_qual::text,ev_action::text FROM pg_catalog.pg_rewrite WHERE ev_class=$1::oid AND ev_type='1' ORDER BY oid",
+            "arguments": [
+              16385
+            ],
+            "rows": [],
+            "terminal": "NORMAL"
+          }
+        }
+      ],
+      "basis": "EXPLICIT_MANAGED_DEPLOYMENT_PREMISE",
+      "compliance": "NOT_INDEPENDENTLY_VERIFIED",
+      "native_lifetime": "NOT_DEMONSTRATED"
+    },
+    "native_context": {
+      "sql": "SELECT current_setting('server_version_num')::integer,current_database()::text,current_user::text,session_user::text,(SELECT oid::bigint FROM pg_catalog.pg_roles WHERE rolname=current_user),(SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=current_database()),pg_backend_pid(),pg_current_xact_id()::text,current_setting('transaction_isolation'),current_setting('transaction_read_only'),current_setting('client_encoding'),current_setting('search_path'),current_setting('TimeZone'),current_setting('standard_conforming_strings'),inet_server_addr()::text,inet_server_port(),pg_postmaster_start_time()::text",
+      "arguments": [],
+      "rows": [
+        [
+          180006,
+          "phase66",
+          "pietto_query",
+          "pietto_query",
+          16570,
+          16384,
+          121,
+          "899",
+          "repeatable read",
+          "on",
+          "UTF8",
+          "pg_catalog",
+          "UTC",
+          "on",
+          "172.17.0.2/32",
+          5432,
+          "2026-10-02 01:12:46.450501+00"
+        ]
+      ],
+      "terminal": "NORMAL"
+    },
+    "origin": "current PG18.6 controls01; original native42501 retained; catalog only, no live authority"
+  }
+}

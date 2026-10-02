@@ -65,6 +65,8 @@ def prepare_guarded_execution(
     refinement=None,
     allow_guard_sql=True,
     mysql_deployment=None,
+    route="",
+    postgres_adbc_deployment=None,
 ):
     program = prepare_program(preparation, binding=binding, refinement=refinement)
     output = program.output
@@ -77,6 +79,8 @@ def prepare_guarded_execution(
         binding=binding,
         output=output,
         mysql_deployment=mysql_deployment,
+        route=route,
+        postgres_adbc_deployment=postgres_adbc_deployment,
     )
     request = GuardedExecutionRequest(base, program, allow_guard_sql)
     verify_guarded_execution(request)
@@ -132,6 +136,15 @@ class GuardRun:
                 if type(request.execution.access) is MySQLAccess
                 else GuardContext
             )
+        if (
+            type(request) is GuardedExecutionRequest
+            and request.execution.route == "postgres_adbc"
+        ):
+            from pietto._project.project_execution_postgres_adbc_context import (
+                ADBCGuardContext,
+            )
+
+            expected = ADBCGuardContext
         if type(context) is not expected:
             raise ValueError("GUARD_CONTEXT_OWNER")
         context.verify_owned(context.owner)

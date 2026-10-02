@@ -94,3 +94,12 @@ S02调查保留上述目标，实证边界与剩余route见[S02](phases/phase-68
 R2 的 caller 在首次 attempt 前显式固定未指定 ties；不能重写原 ordering/peers/frames/exclusions、类型、NULL、重数、producer uses 或 guards。恢复不能看过 prefix 后另选 policy。普通 non-R2 emission 不变。
 R2 要求 external provider 对完整实际 source domain 给出可重开 retained version 与稳定非空单射 tokens；既有 composite keys 可合格。无需为任意 identity-free sources 合成身份，不强制 exchangeability fallback，不创建业务列或 source infrastructure。
 S03 的 component-view/native peer-frame 资格支持 JUSTIFIED_CANDIDATE，不是全族产品认证。S05 负责 original-output/PB；S06 负责组合 R2 facts/refinement/lowering/独立 correspondence；S10 负责无源码 bundle/loader 与 midpoint；S03/S08/S09 各自带 controls。S19 联合验收、20位置与 A01–A22 不变。细节及 conditional gate 见 [S03](phases/phase-68/slice-03.md)。
+
+## Phase68 S09 — approved PostgreSQL ADBC source assurance
+
+用户明确批准 S09 private `postgres_adbc` 的闭合 native source-admission domain，及独立、显式的
+PG managed-deployment definition/security-lifetime premise。它绑定原 access/source roots 和
+有界行政 scope；operator 从发现前直到最后远端 source use 保持相关定义/权限稳定，正常行更新
+仍允许。compliance 未独立验证，native all-definition exclusion 未证明；source structure、
+data snapshot、retained provider 与 guards/outputs 分别核查。旧 PG rows/MySQL 和旧声明含义不变。
+具体域、实际原始反例与 S10 fresh acceptance 边界见 [S09](phases/phase-68/slice-09.md)。

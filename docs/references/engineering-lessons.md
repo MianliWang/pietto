@@ -117,3 +117,18 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
   表明协调修改 context 副本仍可自洽；读者须核对实际 native 回复，不能只比对副本。
 - PG/ADBC 的类似 source 风险仍未评估，当前 fixtures 未出现反例不证明一般安全。
   S09/S10 及后续 owners 应另行评估；本 Slice 不执行跨 dialect 审计。
+
+## Phase68 S09 PostgreSQL source and driver boundary
+
+- applicability：把原 test transport 提升为 private product owner 时，先区分 source dependency、
+  definition/security lifetime、snapshot 和 provider retention。S09 的 PG18.6 原始 catalog 见证
+  （外部 `phase68-slice09-20261001T220643Z`）只证明 hidden string-body dependency 与根 view
+  definition 的盲区；没有执行可疑函数，没有 PG 1→2/MVCC 反例。回归 owner 是
+  `tests/test_phase68_slice9_postgres_source_assurance.py`；新 disposition 见 [S09](../phases/phase-68/slice-09.md)。
+- 实际 native reply 是 context/closure 检查的基准；修改所有派生副本仍不能改变实际 SQL 回复。
+  raw Arrow carrier 与逻辑 scalar 分开，EOF/transaction/delivery/cleanup/cancel 分开。
+  COPY 的 Arrow terminal 与 libpq ReadyForQuery 状态须按固定 driver 的实际协议核对，不能为
+  通过检查而切换模式；当前实际见证及失败由 S09 probe/checker 保留。
+- S10 重新取得每个 route 的明确前提与资格，不序列化 live receipt 或 compliance proof。
+  新 PG ADBC 的闭合准入和 managed 条件不自动认证旧 PG rows，也不改写 MySQL 历史。
+  S19 消费这些回归与 acquisition 成本后整合；S20 不再承担未完成的适配器实现。

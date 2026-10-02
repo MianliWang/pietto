@@ -640,3 +640,22 @@ The resumed instance retains full 50/52/54 per-origin acceptance,
 authoritative unfiltered Python3.13 validation and natural exact-head CI as closure obligations.
 Ordinary pytest opens no database. Core/profile and cumulative-budget restrictions
 continue across resumptions; no new execution profile is implied.
+
+
+## Phase68 S09 private PostgreSQL ADBC acquisition
+
+[S09](phases/phase-68/slice-09.md) adds a separate explicit PG deployment premise
+and bounded source/registry qualification before evaluating reads. The retained
+raw catalog replies and actual data-session context are checked independently;
+operator compliance and native definition lifetime exclusion remain unproved.
+`scripts/phase68_slice9_probe.py` uses the existing serial owned-worker/resource
+protocol. It captures producing bytes, loaded origins and pinned runtime identity,
+requires matching readiness for the complete source/installed campaign, and keeps
+native EOF, transaction ACK/UNKNOWN, delivery and cleanup distinct. Checked Arrow
+batches are owned independently of the closed source handles. TLS `require` retains
+its encryption-only policy and cannot inherit user CA/CRL/client-key defaults.
+The full denominator is derived from current S05/S06/S07 PostgreSQL owners;
+small preflight, controls and same-version fresh-process refinement retain separate
+histories. Core full validation stays unfiltered; natural CI owns its unchanged
+auxiliary partitions. S10 must freshly accept the route-specific premise and
+qualify native sources; S19 consolidation and S20 audit-only remain unchanged.
