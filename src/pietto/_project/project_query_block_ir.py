@@ -2,6 +2,18 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from pietto._project.project_compiled_schema import Address, Record
+    from pietto._project.module_attribution import CompiledDeclarationOccurrence
+    from pietto._project.project_completed_semantics import (
+        CompiledCompletedSemanticResult,
+        CompiledScalarFact,
+    )
+
+
 from pietto._project.project_current_joins import ProjectCurrentJoinRegion
 from pietto._project.project_set_operations import ProjectSetOperandUse
 from pietto._project.project_single_match import (
@@ -3466,13 +3478,47 @@ def _grouped_relational_properties(
     origins: ProjectIRQueryBlockGrainOriginExtension,
     join_prefix: ProjectIRComposedJoinPrefix | None = None,
 ) -> ProjectIROutputRelationalProperties:
+    origin = _origin_for_context(origins, context)
+    if (
+        context.mode is ProjectJoinedAggregationMode.GROUPED
+        and type(origin.factor) is not ProjectGroupedGrainFactorIdentity
+    ):
+        raise ValueError("GROUPED output requires one exact factor.")
+    return resolved_grouped_relational_properties(
+        incoming=incoming,
+        output=output,
+        mode=context.mode,
+        factor=origin.factor,
+        input_group_classes=_group_input_classes(context, incoming, join_prefix)
+        if context.mode is ProjectJoinedAggregationMode.GROUPED
+        else (),
+        key_positions=_group_output_positions(output, context)
+        if context.mode is ProjectJoinedAggregationMode.GROUPED
+        else (),
+        witness=context,
+        origin=origin,
+        origins=origins,
+    )
+
+
+def resolved_grouped_relational_properties(
+    *,
+    incoming,
+    output,
+    mode,
+    factor,
+    input_group_classes,
+    key_positions,
+    witness,
+    origin,
+    origins,
+) -> ProjectIROutputRelationalProperties:
+    """Original grouped/global property kernel after resolved input admission."""
     fields = _field_occurrences(output)
     classes = _singleton_classes(output, fields)
-    origin = _origin_for_context(origins, context)
     dependencies = list(incoming.grain.dependencies)
-    if context.mode is ProjectJoinedAggregationMode.GROUPED:
-        factor = origin.factor
-        if type(factor) is not ProjectGroupedGrainFactorIdentity:
+    if mode is ProjectJoinedAggregationMode.GROUPED:
+        if factor is None:
             raise ValueError("GROUPED output requires one exact factor.")
         active: tuple[ProjectGrainFactorIdentity, ...] = (factor,)
         factors = (*incoming.grain.factors, ProjectGrainDomainFactor(identity=factor))
@@ -3483,7 +3529,6 @@ def _grouped_relational_properties(
                     dependents=active,
                 )
             )
-        input_group_classes = _group_input_classes(context, incoming, join_prefix)
         if incoming.grain.active and any(
             key.strength is ProjectRowUniquenessStrength.STRICT
             and set(key.determinants) <= set(input_group_classes)
@@ -3495,16 +3540,14 @@ def _grouped_relational_properties(
                     dependents=incoming.grain.active,
                 )
             )
-        key_classes = tuple(
-            classes[position] for position in _group_output_positions(output, context)
-        )
+        key_classes = tuple(classes[position] for position in key_positions)
         keys = (
             (
                 ProjectIROutputCandidateKey(
                     output=output,
                     determinants=key_classes,
                     strength=ProjectRowUniquenessStrength.STRICT,
-                    supports=(context, origin),
+                    supports=(witness, origin),
                 ),
             )
             if key_classes
@@ -3524,7 +3567,7 @@ def _grouped_relational_properties(
         active=active,
         dependencies=tuple(dependencies),
         origin_set=origins,
-        witness=(incoming.grain, context, origin),
+        witness=(incoming.grain, witness, origin),
     )
     return ProjectIROutputRelationalProperties(
         output=output,
@@ -3547,6 +3590,28 @@ def _imaged_relational_properties(
     operator: ProjectIRQueryBlockAggregateOperator,
     origins: ProjectIRQueryBlockGrainOriginExtension,
 ) -> ProjectIROutputRelationalProperties:
+    return resolved_imaged_relational_properties(
+        incoming=incoming,
+        output=output,
+        fields=fields,
+        classes=classes,
+        images=images,
+        operator=operator,
+        origins=origins,
+    )
+
+
+def resolved_imaged_relational_properties(
+    *,
+    incoming,
+    output,
+    fields,
+    classes,
+    images,
+    operator,
+    origins,
+) -> ProjectIROutputRelationalProperties:
+    """Original image-transfer kernel for actual source or compiled outputs."""
     keys, fds = _image_keys_and_fds(
         incoming,
         output,
@@ -4519,3 +4584,392 @@ def _retain_historical_matches(
                 )
             )
     return tuple(values)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledIRReference:
+    scope: object = field(repr=False)
+    kind: str
+    position: int
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledIRField:
+    ref: CompiledIRReference
+    owner: CompiledIRReference
+    field_position: int
+    evidence: ProjectRowField
+    fact: CompiledScalarFact = field(repr=False)
+
+    @property
+    def effective_nullability(self):
+        return self.evidence.nullability
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledIRRowOutput(ProjectIRRelationalRowOutputExtension):
+    node: CompiledIRReference = field(repr=False)
+    ref: CompiledIRReference = field(repr=False)
+    fields: tuple[CompiledIRField, ...] = field(repr=False)
+
+    @property
+    def occurrence(self):
+        return self
+
+    @property
+    def row_shape(self):
+        return self
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledIRProperty:
+    owner: CompiledIRReference = field(repr=False)
+    kind: str
+    value: tuple
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledIRProperties:
+    multiplicity: CompiledIRProperty
+    ordering: CompiledIRProperty
+    relational: ProjectIROutputRelationalProperties
+    cardinality: CompiledIRProperty | None = None
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledIROperator:
+    ref: CompiledIRReference
+    owner: CompiledDeclarationOccurrence = field(repr=False)
+    kind: str
+    inputs: tuple[CompiledIRReference, ...]
+    fields: tuple[CompiledIRField, ...]
+    record: Record = field(repr=False)
+
+    properties: CompiledIRProperties
+    output: CompiledIRRowOutput
+
+    @property
+    def active_output(self):
+        return self.output
+
+    @property
+    def active_properties(self):
+        return self.properties
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledQueryBlockIR:
+    completed: CompiledCompletedSemanticResult = field(repr=False)
+    scope: object = field(repr=False)
+    references: Mapping[Address, CompiledIRReference] = field(repr=False)
+    operators: tuple[CompiledIROperator, ...]
+    selected: CompiledIROperator = field(repr=False)
+    grain_origin: object = field(repr=False)
+
+
+def build_compiled_query_block_ir(completed):
+    """Construct the explicit resolved-input branch, with fresh scoped references."""
+    from types import MappingProxyType
+    from pietto._project.project_completed_semantics import (
+        CompiledCompletedSemanticResult,
+    )
+    from pietto._project.project_compiled_schema import CompiledError
+    from pietto._project.project_compiled_verification import RELATIONS
+    from pietto._project.model import ProjectResolvedType, ProjectResolvedTypeKind
+
+    if type(completed) is not CompiledCompletedSemanticResult:
+        raise CompiledError("COMPILED_IR_ROOT")
+    completed.root.verify()
+    scope = object()
+    records = completed.root.records
+    references = {a: CompiledIRReference(scope, a.kind, a.position) for a in records}
+    declarations = {d.address: d for d in completed.declarations}
+    facts = {f.address: f for f in completed.facts}
+    from pietto._project.project_grain import CompiledGrainOrigin
+
+    grain_origin = CompiledGrainOrigin(
+        root=completed.root, scope=scope, references=references
+    )
+    operators, by_address = [], {}
+    for address, record in records.items():
+        if address.kind not in RELATIONS:
+            continue
+        owner_address = (
+            record.get("declaration")
+            if address.kind == "source"
+            else record.get("owner")
+        )
+        inputs = tuple(
+            references[r.get("producer")]
+            for r in records.values()
+            if r.address.kind == "use" and r.get("consumer") == address
+        )
+        ports = tuple(
+            r
+            for r in records.values()
+            if r.address.kind == "port" and r.get("owner") == address
+        )
+        if tuple(p.get("ordinal") for p in ports) != tuple(range(len(ports))):
+            raise CompiledError("COMPILED_IR_PORT_ORDER")
+        fields = []
+        for position, port in enumerate(ports):
+            fact = facts[port.address]
+            typed = fact.value_type
+            fields.append(
+                CompiledIRField(
+                    references[port.address],
+                    references[address],
+                    position,
+                    ProjectRowField(
+                        port.get("label"),
+                        ProjectResolvedType(
+                            typed.resolved_type.name, ProjectResolvedTypeKind.BUILTIN
+                        ),
+                        ProjectRowFieldNullability(typed.nullability.value),
+                    ),
+                    fact,
+                )
+            )
+        field_tuple = tuple(fields)
+        output = CompiledIRRowOutput(
+            references[address],
+            CompiledIRReference(scope, "relation_output", len(operators)),
+            field_tuple,
+        )
+        from pietto._project.project_compiled_schema import MAX_EDGES, MAX_RECORDS
+
+        parents = tuple(
+            by_address[r.get("producer")].properties.relational
+            for r in records.values()
+            if r.address.kind == "use" and r.get("consumer") == address
+        )
+        key_count = sum(len(parent.keys) for parent in parents)
+        if address.kind == "join" and len(parents) == 2:
+            key_count += len(parents[0].keys) * len(parents[1].keys)
+        if address.kind == "source":
+            key_count = sum(
+                r.address.kind == "source_unique" and r.get("source") == address
+                for r in records.values()
+            )
+        fd_edges = sum(
+            len(fd.determinants) + len(fd.dependents)
+            for parent in parents
+            for fd in parent.fds
+        )
+        estimate = (
+            key_count * max(1, len(field_tuple)) + fd_edges + len(field_tuple) ** 2
+        )
+        if estimate > MAX_EDGES or len(operators) + len(field_tuple) > MAX_RECORDS:
+            raise CompiledError("COMPILED_PROPERTY_EXPANSION")
+        relational = compiled_relational_properties(
+            completed, record, output, by_address, grain_origin, references
+        )
+        operator = CompiledIROperator(
+            references[address],
+            declarations[owner_address],
+            address.kind,
+            inputs,
+            field_tuple,
+            record,
+            CompiledIRProperties(
+                CompiledIRProperty(references[address], "bag_multiplicity", ("bag",)),
+                CompiledIRProperty(
+                    references[address],
+                    "ordering",
+                    record.get("ordering") if address.kind == "result" else (),
+                ),
+                relational,
+                CompiledIRProperty(
+                    references[address], "cardinality", (record.get("limit"),)
+                )
+                if address.kind == "result" and record.get("limit") is not None
+                else None,
+            ),
+            output,
+        )
+        operators.append(operator)
+        by_address[address] = operator
+    entry = records[completed.root.description.query]
+    return CompiledQueryBlockIR(
+        completed,
+        scope,
+        MappingProxyType(references),
+        tuple(operators),
+        by_address[entry.get("terminal")],
+        grain_origin,
+    )
+
+
+def compiled_relational_properties(
+    completed, record, output, built, origin, references
+):
+    """Feed validated resolved inputs into the existing property kernels."""
+    from pietto._project.project_compiled_schema import CompiledError
+    from pietto._project.project_grain import (
+        CompiledGrainFactorIdentity,
+        ProjectGrainFactorKind,
+        ProjectGrainBasisState,
+        ProjectGrainDomainFactor,
+    )
+    from pietto._project.project_row_keys import resolved_uniqueness_strength
+    from pietto._project.project_ir_relational_properties import (
+        _frontier,
+        transfer_resolved_set_properties,
+    )
+    from pietto.ast_nodes import SetOperationKind
+
+    records = completed.root.records
+    fields = _field_occurrences(output)
+    kind = record.address.kind
+
+    def base_factor(factor_kind):
+        return CompiledGrainFactorIdentity(
+            origin=origin, ref=references[record.address], kind=factor_kind
+        )
+
+    def properties(classes, keys, fds, grain):
+        return ProjectIROutputRelationalProperties(
+            output=output,
+            fields=fields,
+            value_classes=classes,
+            keys=keys,
+            fds=fds,
+            fd_index=_compile_output_fd_index(output, classes, fds),
+            grain=grain,
+        )
+
+    if kind == "source":
+        classes = _singleton_classes(output, fields)
+        keys = []
+        for unique in records.values():
+            if (
+                unique.address.kind != "source_unique"
+                or unique.get("source") != record.address
+            ):
+                continue
+            selected = tuple(
+                c
+                for c in classes
+                if any(
+                    records[a].get("ordinal") == c.members[0].field_position
+                    for a in unique.get("fields")
+                )
+            )
+            strength = resolved_uniqueness_strength(
+                tuple(c.members[0].effective_nullability for c in selected)
+            )
+            keys.append(
+                ProjectIROutputCandidateKey(
+                    output=output,
+                    determinants=selected,
+                    strength=strength,
+                    supports=(unique,),
+                )
+            )
+        retained = _frontier(tuple(keys))
+        factor = base_factor(ProjectGrainFactorKind.SOURCE_DOMAIN)
+        grain = ProjectIRProvidedIntrinsicGrain(
+            output=output,
+            state=ProjectGrainBasisState.FACTORIZED,
+            factors=(ProjectGrainDomainFactor(identity=factor),),
+            active=(factor,),
+            dependencies=(),
+            origin_set=origin,
+            witness=record,
+        )
+        return properties(classes, retained, _key_fds(output, classes, retained), grain)
+    if kind == "join":
+        from pietto._project.project_current_joins import compiled_join_properties
+
+        return compiled_join_properties(
+            completed, record, output, built, origin, references
+        )
+    if kind == "set":
+        from pietto._project.project_grain import CompiledGrainChange
+
+        inputs = tuple(
+            built[records[a].get("producer")].properties.relational
+            for a in record.get("operands")
+        )
+        factor = (
+            base_factor(ProjectGrainFactorKind.SET_DOMAIN)
+            if record.get("quantifier") == "distinct" or record.get("kind") == "union"
+            else None
+        )
+        change = CompiledGrainChange(origin=origin, witness=record, factor=factor)
+        result = transfer_resolved_set_properties(
+            output,
+            inputs,
+            origin=change,
+            kind=SetOperationKind(record.get("kind")),
+            operation=record,
+            uses=tuple(references[a] for a in record.get("operands")),
+            fields=fields,
+        )
+        return replace(result, grain=replace(result.grain, origin_set=origin))
+    incoming = built[record.get("input")].properties.relational
+    incoming_ports = tuple(
+        r
+        for r in records.values()
+        if r.address.kind == "port" and r.get("owner") == record.get("input")
+    )
+    class_by_port = {}
+    for port in incoming_ports:
+        matches = tuple(
+            c
+            for c in incoming.value_classes
+            if any(m.field_position == port.get("ordinal") for m in c.members)
+        )
+        if len(matches) != 1:
+            raise CompiledError("COMPILED_VALUE_CLASS")
+        class_by_port[port.address] = matches[0]
+    if kind == "aggregate":
+        mode = ProjectJoinedAggregationMode(record.get("mode"))
+        factor = (
+            base_factor(ProjectGrainFactorKind.GROUP_DOMAIN)
+            if mode is ProjectJoinedAggregationMode.GROUPED
+            else None
+        )
+        return resolved_grouped_relational_properties(
+            incoming=incoming,
+            output=output,
+            mode=mode,
+            factor=factor,
+            input_group_classes=tuple(
+                class_by_port[records[a].get("port")] for a in record.get("keys")
+            ),
+            key_positions=tuple(range(len(record.get("keys")))),
+            witness=record,
+            origin=record,
+            origins=origin,
+        )
+    source_classes = []
+    for address in record.get("outputs"):
+        source = records[records[address].get("source")]
+        source_classes.append(
+            class_by_port[source.get("port")] if source.address.kind == "read" else None
+        )
+    classes, images = _projection_classes_from_sources(
+        incoming, output, fields, tuple(source_classes)
+    )
+    result = resolved_imaged_relational_properties(
+        incoming=incoming,
+        output=output,
+        fields=fields,
+        classes=classes,
+        images=images,
+        operator=record,
+        origins=origin,
+    )
+    if kind == "result" and record.get("distinct"):
+        from pietto._project.project_grain import CompiledGrainChange
+
+        factor = (
+            None
+            if incoming.grain.state is ProjectGrainBasisState.GLOBAL
+            else base_factor(ProjectGrainFactorKind.DISTINCT_DOMAIN)
+        )
+        change = CompiledGrainChange(origin=origin, witness=record, factor=factor)
+        grain = distinct_output_grain(output, change, witness=record)
+        result = replace(result, grain=replace(grain, origin_set=origin))
+    return result

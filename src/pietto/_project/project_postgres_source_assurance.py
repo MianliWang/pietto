@@ -13,6 +13,7 @@ from typing import Any
 from pietto._project.project_execution import (
     ExecutionError,
     verify_postgres_adbc_deployment,
+    postgres_source_premise,
 )
 
 __all__: tuple[str, ...] = ()
@@ -152,6 +153,20 @@ class CatalogReply:
     native: Any = field(repr=False, compare=False)
 
 
+def qualification_context(owner) -> tuple:
+    from pietto._project.project_execution_postgres import PostgresExecution
+
+    if type(owner) is PostgresExecution:
+        if owner.request.route != "postgres_rows":
+            raise ExecutionError("POSTGRES_SOURCE_PROFILE_REQUIRED")
+        context = owner._profile_context
+    else:
+        context = owner.context
+    if type(context) is not tuple:
+        raise ExecutionError("POSTGRES_SOURCE_CONTEXT_REQUIRED")
+    return context
+
+
 @dataclass(frozen=True, slots=True, eq=False)
 class SourceQualification:
     owner: Any = field(repr=False)
@@ -170,15 +185,17 @@ class SourceQualification:
             PostgresADBCExecution,
         )
 
+        from pietto._project.project_execution_postgres import PostgresExecution
+
         if (
-            type(owner) is not PostgresADBCExecution
+            type(owner) not in (PostgresADBCExecution, PostgresExecution)
             or self.owner is not owner
             or self.request is not owner.request
             or owner._qualification is not self
             or owner._owned_qualification is not self
             or owner._closed
             or owner._transaction != "OPEN"
-            or self.context != owner.context
+            or self.context != qualification_context(owner)
             or self.state != (self.roots, reply_state(self.replies), self.paths)
             or self.definition_stability != "EXPLICIT_MANAGED_DEPLOYMENT_PREMISE"
             or self.premise_compliance != "NOT_INDEPENDENTLY_VERIFIED"
@@ -188,6 +205,19 @@ class SourceQualification:
         owner._checkpoint()
         owner._check_connection()
         verify_postgres_adbc_deployment(owner.request)
+        if type(owner) is PostgresExecution:
+            from pietto._project.project_execution_postgres import PostgresCatalogReply
+
+            if any(
+                type(r.native) is not PostgresCatalogReply
+                or r.native.owner is not owner
+                or r.native.connection is not owner._owned_connection
+                for r in self.replies
+            ):
+                raise ExecutionError("POSTGRES_SOURCE_NATIVE_OWNER")
+        from pietto._project.project_execution import verify_compiled_owner
+
+        verify_compiled_owner(owner)
 
 
 def qualify_sources(owner):
@@ -196,7 +226,15 @@ def qualify_sources(owner):
         verify_catalog,
     )
 
+    from pietto._project.project_execution import (
+        ExecutionRequest,
+        verify_compiled_owner,
+    )
+
+    if type(owner.request) is ExecutionRequest:
+        verify_compiled_owner(owner)
     verify_postgres_adbc_deployment(owner.request)
+    context = qualification_context(owner)
     requirements = owner.requirements
     roots = tuple((s.namespace, s.name) for s in owner.request.artifact.request.sources)
     roots += tuple((r.registry_namespace, r.registry_name) for r in requirements)
@@ -305,7 +343,7 @@ def qualify_sources(owner):
             raise ExecutionError("POSTGRES_SOURCE_RESOURCE_LIMIT")
         active.add(oid)
         row = one("relation", oid)
-        if row[1] not in owner.request.postgres_adbc_deployment.schemas:
+        if premise is None or row[1] not in premise.schemas:
             raise ExecutionError("POSTGRES_ADBC_DEPLOYMENT_PREMISE_SCOPE")
         role(row[5])
         if row[11]:
@@ -325,10 +363,13 @@ def qualify_sources(owner):
         active.remove(oid)
         visited.add((oid, inherit))
 
-    role(owner.context[4])
+    role(context[4])
+    premise = postgres_source_premise(owner.request)
+    if premise is None:
+        raise ExecutionError("POSTGRES_SOURCE_PREMISE_REQUIRED")
     root_oids = []
     for root in roots:
-        if root[0] not in owner.request.postgres_adbc_deployment.schemas:
+        if root[0] not in premise.schemas:
             raise ExecutionError("POSTGRES_ADBC_DEPLOYMENT_PREMISE_SCOPE")
         found = fetch("resolve", root)
         if len(found) != 1 or len(found[0]) != 1:
@@ -340,14 +381,14 @@ def qualify_sources(owner):
         roots,
         tuple(root_oids),
         accepted_replies,
-        owner.context,
-        owner.request.postgres_adbc_deployment.schemas,
+        context,
+        premise.schemas,
         owner._context_native,
     )
     qualification = SourceQualification(
         owner,
         owner.request,
-        owner.context,
+        context,
         roots,
         accepted_replies,
         paths,
@@ -359,17 +400,30 @@ def qualify_sources(owner):
 
 
 def reply_state(replies):
-    return tuple(
-        (
-            r,
-            r.kind,
-            r.arguments,
-            r.rows,
-            r.native,
-            r.native.sql,
-            r.native.arguments,
-            r.native.rows,
-            r.native.terminal,
+    from pietto._project.project_execution_postgres import PostgresCatalogReply
+    from pietto._project.project_execution_postgres_adbc_native import NativeReply
+
+    result = []
+    for reply in replies:
+        native = reply.native
+        if type(native) is PostgresCatalogReply:
+            specific = (native.owner, native.connection, native.metadata, native.status)
+        elif type(native) is NativeReply:
+            specific = ()
+        else:
+            raise ExecutionError("POSTGRES_SOURCE_NATIVE_REPLY")
+        result.append(
+            (
+                reply,
+                reply.kind,
+                reply.arguments,
+                reply.rows,
+                native,
+                native.sql,
+                native.arguments,
+                native.rows,
+                native.terminal,
+                specific,
+            )
         )
-        for r in replies
-    )
+    return tuple(result)

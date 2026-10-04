@@ -60,6 +60,19 @@ class PiettoResultContract:
 
 
 def _neutral(checked):
+    from pietto._project.project_sql_plan_verification import (
+        CompiledSQLPlanVerification,
+        verify_compiled_sql_plan,
+    )
+
+    if type(checked) is CompiledSQLPlanVerification:
+        verify_compiled_sql_plan(checked.plan)
+        if (
+            checked.completed is not checked.plan.ir.completed
+            or checked.selected_owner is not checked.plan.ir.selected.owner
+        ):
+            raise ResultError("ROOT")
+        return checked.plan.ir.selected
     if (
         type(checked) is not ProjectSQLPlanVerification
         or type(checked.plan) is not ProjectSQLPlan

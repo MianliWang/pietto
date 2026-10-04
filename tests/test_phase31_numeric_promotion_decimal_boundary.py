@@ -32,6 +32,7 @@ from pietto.semantic import (
     EffectiveNullability,
     SemanticResult,
     TypeKind,
+    ValueType,
     ValueTypeKind,
     analyze,
 )
@@ -40,7 +41,6 @@ from pietto.sql.mysql import emit_mysql_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SEMANTIC_MODEL_PATH = REPO_ROOT / "src/pietto/semantic/model.py"
-SEMANTIC_EXPRESSIONS_PATH = REPO_ROOT / "src/pietto/semantic/expressions.py"
 SEMANTIC_ANALYZER_PATH = REPO_ROOT / "src/pietto/semantic/analyzer.py"
 AGGREGATES_PATH = REPO_ROOT / "src/pietto/semantic/aggregates.py"
 IR_MODEL_PATH = REPO_ROOT / "src/pietto/ir/model.py"
@@ -441,7 +441,6 @@ def test_decimal_precision_scale_literal_and_cast_boundaries_remain_absent() -> 
     semantic_model = _read(SEMANTIC_MODEL_PATH)
     ir_model = _read(IR_MODEL_PATH)
     analyzer = _read(SEMANTIC_ANALYZER_PATH)
-    expressions = _read(SEMANTIC_EXPRESSIONS_PATH)
     aggregates = _read(AGGREGATES_PATH)
     postgres = _read(POSTGRES_EXPRESSIONS_PATH)
     mysql = _read(MYSQL_EXPRESSIONS_PATH)
@@ -468,14 +467,32 @@ def test_decimal_precision_scale_literal_and_cast_boundaries_remain_absent() -> 
     assert "arguments = type_expr.arguments" in decimal_validator
     assert "_DECIMAL_PRECISION_MAX = 65" in analyzer
     assert "PIE-S2004" in analyzer
-    assert 'if expression.operator == "/":' in expressions
-    assert "return _UNKNOWN_VALUE_TYPE" in expressions
-    assert "Decimal" not in _function_body(expressions, "def _is_numeric(")
+    divided, division_diagnostics = _expression_facts("price / price")
+    assert divided.kind is ValueTypeKind.UNKNOWN
+    assert divided.nullability is EffectiveNullability.UNKNOWN
+    assert division_diagnostics == ()
+    unary, unary_diagnostics = _expression_facts("+price")
+    assert unary.kind is ValueTypeKind.UNKNOWN
+    assert unary_diagnostics == (
+        ("PIE-S2105", "Invalid operands for operator +: expected numeric operand"),
+    )
     assert "Decimal" in aggregates
 
     for renderer_source in (postgres, mysql):
         for forbidden in ("DECIMAL(", "NUMERIC(", "precision", "scale"):
             assert forbidden not in renderer_source
+
+
+def _expression_facts(
+    expression_source: str,
+) -> tuple[ValueType, tuple[tuple[str, str], ...]]:
+    """Current source typing and diagnostics for the shared numeric contract readers."""
+    script = _parse(_projected_source("postgres.table", f"value = {expression_source}"))
+    result = analyze(script)
+    expression = _select_expression(_relation_ast(script), "value")
+    return result.model.expression_value_types[expression], tuple(
+        (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
+    )
 
 
 def _source_prefix(connector: str) -> str:

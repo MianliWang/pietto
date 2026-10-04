@@ -235,25 +235,49 @@ def null_rejected_ports(join, equalities, predicate) -> frozenset:
     nothing. Retained relationship equalities are comparisons over two pre-match
     ports and prove both.
     """
-    if join.kind is not AuthoredJoinKind.INNER:
-        return frozenset()
-    proved = set()
-    for item in equalities:
-        proved.update((item.left_port, item.right_port))
-    pending = [predicate] if predicate is not None else []
+    nodes = {}
+    pending = [] if predicate is None else [predicate]
     while pending:
         value = pending.pop()
-        if type(value) is not rows.SQLOperation:
+        if id(value) in nodes:
             continue
-        if value.kind == "logical":
-            if value.original.expression.operator == "and":
-                pending.extend(value.operands)
+        if type(value) is rows.SQLStageReference:
+            nodes[id(value)] = ("read", None, (), value.port)
+        elif type(value) is rows.SQLOperation:
+            nodes[id(value)] = (
+                value.kind,
+                getattr(value.original.expression, "operator", None),
+                tuple(id(v) for v in value.operands),
+                None,
+            )
+            pending.extend(value.operands)
+        else:
+            nodes[id(value)] = ("opaque", None, (), None)
+    return resolved_null_rejected_ports(
+        join.kind,
+        tuple((e.left_port, e.right_port) for e in equalities),
+        None if predicate is None else id(predicate),
+        nodes,
+    )
+
+
+def resolved_null_rejected_ports(kind, equalities, predicate, nodes) -> frozenset:
+    """Original ON proof over resolved nodes; keys retain exact use identity."""
+    if kind is not AuthoredJoinKind.INNER:
+        return frozenset()
+    proved = {port for pair in equalities for port in pair}
+    pending = [] if predicate is None else [predicate]
+    seen = set()
+    while pending:
+        address = pending.pop()
+        if address in seen:
             continue
-        if value.kind != "comparison":
-            continue
-        for operand in value.operands:
-            if type(operand) is rows.SQLStageReference:
-                proved.add(operand.port)
+        seen.add(address)
+        operation, token, operands, _port = nodes[address]
+        if operation == "logical" and token == "and":
+            pending.extend(operands)
+        elif operation == "comparison":
+            proved.update(nodes[a][3] for a in operands if nodes[a][0] == "read")
     return frozenset(proved)
 
 
@@ -269,8 +293,14 @@ def port_realization(port, read: rows.StageColumn, *, outer: bool, proved=False)
     nullable = NULLABILITY.get(port.field.effective_nullability)
     if logical.kind is not ProjectResolvedTypeKind.BUILTIN or nullable is None:
         return None, ("PIE-B1004", "join_port_logical_type_evidence_missing")
-    carrier = read.realization
-    if carrier.tag != logical.name:
+    return resolved_port_realization(
+        logical.name, nullable, read.realization, outer=outer, proved=proved
+    )
+
+
+def resolved_port_realization(tag, nullable, carrier, *, outer, proved=False):
+    """The original pre-match/output physical NULL law over resolved inputs."""
+    if carrier.tag != tag:
         return None, ("PIE-B1002", "join_port_logical_type_drift")
     if not outer and nullable != carrier.nullable:
         return None, ("PIE-B1002", "pre_match_port_nullability_drift")
@@ -401,4 +431,158 @@ def guarded_path_input(scope, plan, item):
         for i, (ref, export) in enumerate(
             zip(item.ports, definition.exports, strict=True)
         )
+    )
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledJoinSubject:
+    ref: Any
+    kind: AuthoredJoinKind
+    on: Any
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledJoinPart:
+    ref: Any
+
+
+def build_compiled_unit(plan, record, images, predicate):
+    """Construct the original binary JOIN carriers from resolved input images."""
+    from dataclasses import replace
+    from pietto._project.project_compiled_schema import Address, CompiledError
+    from pietto._project.project_sql_emission_ast import SQLSymbol
+
+    records, refs = plan.ir.completed.root.records, plan.references
+    facts = {f.address: f for f in plan.ir.completed.facts}
+    name, labels, _aliases, _final, index = record.get("layout")
+    inputs = []
+    for ordinal, (address, (producer, source, symbol, columns, use)) in enumerate(
+        zip(record.get("inputs"), images, strict=True)
+    ):
+        inputs.append(
+            JoinInput(
+                CompiledJoinPart(refs[address]),
+                ordinal,
+                use,
+                producer,
+                symbol,
+                columns,
+                tuple(p.input_port.ref for p in use.bindings),
+                source,
+            )
+        )
+    if len(inputs) != 2:
+        raise CompiledError("COMPILED_JOIN_ARITY")
+    by_use = dict(zip(record.get("inputs"), inputs, strict=True))
+
+    def read(address):
+        item = records[address]
+        port = records[item.get("port")]
+        source = by_use[item.get("use")]
+        return (
+            source,
+            source.columns[port.get("ordinal")],
+            source.use.bindings[port.get("ordinal")].input_port,
+        )
+
+    equalities = []
+    for address in record.get("equalities"):
+        item = records[address]
+        left, left_column, left_port = read(item.get("left"))
+        right, right_column, right_port = read(item.get("right"))
+        if left_column.realization.tag != right_column.realization.tag:
+            raise CompiledError("COMPILED_JOIN_EQUALITY_TYPE")
+        equalities.append(
+            JoinEquality(
+                CompiledJoinPart(refs[address]),
+                left_column,
+                right_column,
+                left_port.ref,
+                right_port.ref,
+                left.symbol,
+                right.symbol,
+            )
+        )
+    kind = AuthoredJoinKind(record.get("kind"))
+    subject = CompiledJoinSubject(
+        refs[record.address],
+        kind,
+        None if record.get("predicate") is None else refs[record.get("predicate")],
+    )
+    if (kind is AuthoredJoinKind.CROSS) != (not equalities and predicate is None):
+        raise CompiledError("COMPILED_JOIN_CONDITION")
+    if predicate is not None:
+        physical = rows.realization_of(
+            predicate, records[Address("target", 0)].get("family")
+        )
+        if physical.tag != "Bool" or physical.domain.get("kind") != "bool01":
+            raise CompiledError("COMPILED_JOIN_PREDICATE")
+    if (
+        kind is AuthoredJoinKind.FULL
+        and full_admissible(
+            subject, equalities, predicate, records[Address("target", 0)].get("family")
+        )
+        is not None
+    ):
+        raise CompiledError("COMPILED_JOIN_FULL_DOMAIN")
+    rejected = null_rejected_ports(subject, equalities, predicate)
+    columns = []
+    for position, address in enumerate(record.get("outputs")):
+        port = plan.ports[address]
+        value = records[records[address].get("source")]
+        source, actual, match = read(value.get("input"))
+        fact = facts[address]
+        expected, problem = resolved_port_realization(
+            fact.value_type.resolved_type.name,
+            rows.NULLABILITY[fact.value_type.nullability],
+            actual.realization,
+            outer=True,
+            proved=match.ref in rejected,
+        )
+        if (
+            expected is None
+            or problem is not None
+            or (expected.tag, expected.storage, expected.nullable, expected.domain)
+            != (
+                fact.realization.tag,
+                fact.realization.storage,
+                fact.realization.nullable,
+                fact.realization.domain,
+            )
+        ):
+            raise CompiledError("COMPILED_JOIN_REALIZATION")
+        terminal = replace(
+            actual,
+            position=position,
+            name=port.identity.name,
+            terminal=port.ref,
+            realization=fact.realization,
+            scope=None,
+        )
+        columns.append(
+            JoinColumn(
+                position,
+                port,
+                match,
+                port.identity.name,
+                SQLSymbol(position, port.ref, port.identity.name),
+                terminal,
+                source.symbol,
+                actual,
+            )
+        )
+    return JoinBody(
+        subject,
+        index,
+        (inputs[0], inputs[1]),
+        tuple(equalities),
+        predicate,
+        tuple(columns),
+        SQLSymbol(index, subject.ref, name),
+        tuple(
+            SQLSymbol(i, c.port.ref, label)
+            for i, (c, label) in enumerate(zip(columns, labels, strict=True))
+        ),
+        MEMBERSHIP.get(kind),
+        subject.ref if kind in MEMBERSHIP else None,
     )

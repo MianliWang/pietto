@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Generic, TypeVar, cast, overload
 
 from pietto._project.project_sql_plan import ProjectSQLPlanRef, ProjectSQLPlanRefKind
 from pietto._project.project_sql_plan_source_maps import ProjectSQLSourceMapEntry
-from pietto._project.project_sql_emission_contract import PreparedEmission
+from pietto._project.project_sql_emission_contract import (
+    PreparedEmission,
+    CompiledPreparedEmission,
+)
 from pietto._project.project_sql_emission_rendering import RenderingEvent
 from pietto._project.project_sql_emission_verification import (
     EmissionVerification,
@@ -15,6 +18,8 @@ from pietto._project.project_sql_emission_verification import (
 )
 
 __all__: tuple[str, ...] = ()
+
+_Request = TypeVar("_Request", PreparedEmission, CompiledPreparedEmission)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -46,7 +51,7 @@ class SQLRange:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class EmissionInspection:
+class EmissionInspection(Generic[_Request]):
     """A read-only view over one verified artifact and its exact prepared request.
 
     Every field is a retained runtime object or a bounded tuple over retained
@@ -55,7 +60,7 @@ class EmissionInspection:
     """
 
     artifact: Any
-    request: PreparedEmission
+    request: _Request
     verification: EmissionVerification
     sql: bytes
     ranges: tuple[SQLRange, ...]
@@ -100,7 +105,12 @@ class EmissionInspection:
         A subject that emitted nothing yields an empty tuple; a reference that
         is not the retained object itself is foreign and is rejected.
         """
-        indexes = self.request.source_map.source_map.indexes
+        request = self.request
+        if isinstance(request, CompiledPreparedEmission):
+            if reference not in request.origin_subjects:
+                raise ValueError("Reference is not a retained compiled subject.")
+            return tuple(r for r in self.ranges if r.subject is reference)
+        indexes = request.source_map.source_map.indexes
         if type(reference) is ProjectSQLSourceMapEntry:
             if indexes.origins.get(reference.ref) is not reference:
                 raise ValueError("Origin is not a retained source-map entry.")
@@ -123,13 +133,28 @@ class EmissionInspection:
         return tuple(r for r in self.ranges if any(e is entry for e in r.event.origins))
 
 
-def inspect_project_sql_emission(artifact, request) -> EmissionInspection:
+@overload
+def inspect_project_sql_emission(
+    artifact, request: PreparedEmission
+) -> EmissionInspection[PreparedEmission]: ...
+
+
+@overload
+def inspect_project_sql_emission(
+    artifact, request: CompiledPreparedEmission
+) -> EmissionInspection[CompiledPreparedEmission]: ...
+
+
+def inspect_project_sql_emission(artifact, request):
     """Bind one runtime artifact to its prepared request after complete verification."""
-    from pietto._project.project_sql_emission import EmissionArtifact
+    from pietto._project.project_sql_emission import (
+        EmissionArtifact,
+        CompiledEmissionArtifact,
+    )
 
     if (
-        type(artifact) is not EmissionArtifact
-        or type(request) is not PreparedEmission
+        type(artifact) not in (EmissionArtifact, CompiledEmissionArtifact)
+        or type(request) not in (PreparedEmission, CompiledPreparedEmission)
         or artifact.request is not request
     ):
         raise ValueError(
@@ -141,7 +166,11 @@ def inspect_project_sql_emission(artifact, request) -> EmissionInspection:
             "Emission inspection requires a verified artifact: "
             + ", ".join(checked.issues)
         )
-    associations = request.source_map.source_map.indexes.associations
+    associations = (
+        {}
+        if type(request) is CompiledPreparedEmission
+        else request.source_map.source_map.indexes.associations
+    )
     rendered = artifact.rendered
     ranges = tuple(
         SQLRange(

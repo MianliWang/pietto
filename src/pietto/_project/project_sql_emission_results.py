@@ -734,3 +734,165 @@ def requirement_evidence(query, item) -> list[dict[str, Any]]:
             if body.limit.limit.ref is item.subject:
                 return [{"value": body.limit.value}]
     return []
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledResultBoundary:
+    ref: Any
+    value: int | None = None
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledResultPort:
+    ref: Any
+    source: Any
+    ordinal: int
+
+
+def build_compiled_result_body(
+    *,
+    request,
+    definition,
+    record,
+    producer,
+    columns,
+    scan_symbol,
+    symbol,
+    cte_columns,
+    order_reads,
+):
+    """Use the original result carriers after resolved compiled admission."""
+    from pietto._project.project_compiled_schema import CompiledError, MAX_RECORDS
+    from pietto._project.project_query_block_ir import CompiledIRReference
+    from pietto.semantic.relation_limits import valid_resolved_limit
+
+    plan = request.plan
+    if record.address.kind != "result" or type(record.get("distinct")) is not bool:
+        raise CompiledError("COMPILED_RESULT_KIND")
+    if record.get("limit") is not None and not valid_resolved_limit(
+        record.get("limit")
+    ):
+        raise CompiledError("COMPILED_STATIC_LIMIT")
+    if len(order_reads) != len(record.get("ordering")):
+        raise CompiledError("COMPILED_ORDER_INVENTORY")
+    boundaries = []
+    extra = []
+
+    def boundary(kind, position=0, value=None):
+        reference = CompiledIRReference(
+            plan.scope, kind, record.address.position * MAX_RECORDS + position
+        )
+        extra.append(reference)
+        return CompiledResultBoundary(reference, value)
+
+    distinct = None
+    if record.get("distinct"):
+        for column in columns:
+            if column.column.realization.tag not in ORDER_TAGS:
+                raise CompiledError("COMPILED_DISTINCT_DOMAIN")
+        selected = boundary("result_distinct")
+        boundaries.append(selected)
+        distinct = ResultDistinct(
+            selected,
+            selected,
+            tuple(
+                CompiledResultPort(
+                    boundary("result_quotient_field", c.ordinal).ref,
+                    c.export,
+                    c.ordinal,
+                )
+                for c in columns
+            ),
+        )
+    order = None
+    if order_reads:
+        selected = boundary("result_order")
+        boundaries.append(selected)
+        ordered = []
+        for position, (read, described) in enumerate(
+            zip(order_reads, record.get("ordering"), strict=True)
+        ):
+            direction = described[1]
+            if direction not in DIRECTIONS or read.realization.tag not in ORDER_TAGS:
+                raise CompiledError("COMPILED_ORDER_DOMAIN")
+            item = boundary("result_order_item", position)
+            record_port = request.verification.completed.root.records[described[0]].get(
+                "port"
+            )
+            ordered.append(
+                ResultOrderItem(
+                    position,
+                    item,
+                    boundary("result_order_expression", position),
+                    boundary("result_order_use", position),
+                    plan.ports[record_port],
+                    read,
+                    direction,
+                    None,
+                    COMPLETED,
+                )
+            )
+        order = ResultOrder(selected, selected, COMPLETED, tuple(ordered))
+    limit = None
+    if record.get("limit") is not None:
+        selected = boundary("result_limit", value=record.get("limit"))
+        boundaries.append(selected)
+        limit = ResultLimit(selected, selected, record.get("limit"))
+    if not boundaries:
+        raise CompiledError("COMPILED_RESULT_EMPTY_BOUNDARY")
+    scan = RowResultUse(producer, boundaries[0], scan_symbol)
+    converted = []
+    records = request.verification.completed.root.records
+    for column, address in zip(columns, record.get("outputs"), strict=True):
+        port = records[address]
+        read_record = records[port.get("source")]
+        if read_record.address.kind != "read":
+            raise CompiledError("COMPILED_RESULT_PROJECTION")
+        projection = plan.ports[read_record.get("port")]
+        stages, previous = [], projection
+        for index, b in enumerate(boundaries):
+            output = (
+                column.export
+                if index == len(boundaries) - 1
+                else CompiledResultPort(
+                    boundary("result_stage_" + str(index), column.ordinal).ref,
+                    previous,
+                    column.ordinal,
+                )
+            )
+            quotient = (
+                None
+                if distinct is None or b is not distinct.boundary
+                else distinct.fields[column.ordinal]
+            )
+            stages.append(ResultStage(b, previous, output, quotient))
+            previous = output
+        stages = tuple(stages)
+        converted.append(
+            ResultColumn(
+                column.ordinal,
+                column.export,
+                projection,
+                column.read,
+                column.export,
+                stages,
+                column.symbol,
+                column.label,
+                column.column,
+            )
+        )
+    body = RowResultBody(
+        definition,
+        tuple(boundaries),
+        record.get("layout")[-1],
+        scan,
+        tuple(converted),
+        tuple(c.column for c in converted),
+        distinct,
+        order,
+        limit,
+        record.get("layout")[3],
+        symbol,
+        cte_columns,
+    )
+    return body, tuple(extra)

@@ -12,7 +12,10 @@ from pietto._project.project_result_contract import (
     verify_result_contract,
 )
 from pietto._project.project_result_binding import _columns
-from pietto._project.project_sql_emission import EmissionArtifact
+from pietto._project.project_sql_emission import (
+    EmissionArtifact,
+    CompiledEmissionArtifact,
+)
 from pietto._project.project_sql_emission_inspection import inspect_project_sql_emission
 from pietto._project.project_sql_emission_rows import field_realization
 from pietto._project.project_execution_source import (
@@ -69,6 +72,78 @@ class MySQLDeploymentPremise:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class PostgresDeploymentPremise:
+    """Explicit per-request commitment for the common finite PG profile.
+
+    Its required lifetime includes discovery through the last possible remote
+    use. Neither the bundle nor local close establishes operator compliance.
+    """
+
+    access: PostgresAccess = field(repr=False)
+    sources: tuple = field(repr=False)
+    schemas: tuple[str, ...]
+    route: str
+    profile: str = "finite_pg_v1"
+    basis: str = "EXPLICIT_MANAGED_DEPLOYMENT_PREMISE"
+
+
+def postgres_deployment_state(premise):
+    if premise is None:
+        return None
+    if type(premise) is not PostgresDeploymentPremise:
+        raise ExecutionError("POSTGRES_DEPLOYMENT_PREMISE_INVALID")
+    return (
+        premise,
+        premise.access,
+        premise.sources,
+        premise.schemas,
+        premise.route,
+        premise.profile,
+        premise.basis,
+    )
+
+
+def verify_postgres_deployment(request):
+    premise = request.postgres_deployment
+    postgres_deployment_state(premise)
+    if premise is None:
+        raise ExecutionError("POSTGRES_DEPLOYMENT_PREMISE_REQUIRED")
+    sources = request.artifact.request.sources
+    if (
+        type(request.access) is not PostgresAccess
+        or premise.access is not request.access
+        or premise.route != request.route
+        or premise.route not in ("postgres_rows", "postgres_adbc")
+        or premise.profile != "finite_pg_v1"
+        or premise.basis != "EXPLICIT_MANAGED_DEPLOYMENT_PREMISE"
+        or type(premise.sources) is not tuple
+        or len(premise.sources) != len(sources)
+        or any(a is not b for a, b in zip(premise.sources, sources, strict=True))
+        or type(premise.schemas) is not tuple
+        or not 0 < len(premise.schemas) <= 128
+        or any(type(s) is not str or not s or "\0" in s for s in premise.schemas)
+        or len(set(premise.schemas)) != len(premise.schemas)
+        or any(s.namespace not in premise.schemas for s in sources)
+        or any(
+            (s.startswith("pg_") and s != "pg_catalog") or s == "information_schema"
+            for s in premise.schemas
+        )
+        or request.postgres_adbc_deployment is not None
+        or request.mysql_deployment is not None
+    ):
+        raise ExecutionError("POSTGRES_DEPLOYMENT_PREMISE_SCOPE")
+
+
+def postgres_source_premise(request):
+    """Return only the request's actually checked route-specific acceptance."""
+    if type(request) is ExecutionRequest and request.postgres_deployment is not None:
+        verify_postgres_deployment(request)
+        return request.postgres_deployment
+    verify_postgres_adbc_deployment(request)
+    return request.postgres_adbc_deployment
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class PostgresADBCDeploymentPremise:
     """Operator protection from before discovery through last remote source use.
 
@@ -99,6 +174,9 @@ def postgres_adbc_deployment_state(premise):
 
 
 def verify_postgres_adbc_deployment(request):
+    if type(request) is ExecutionRequest and request.postgres_deployment is not None:
+        verify_postgres_deployment(request)
+        return
     premise = request.postgres_adbc_deployment
     postgres_adbc_deployment_state(premise)
     if request.route != "postgres_adbc":
@@ -177,7 +255,7 @@ class ExecutionLimits:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class ExecutionRequest:
-    artifact: EmissionArtifact = field(repr=False)
+    artifact: EmissionArtifact | CompiledEmissionArtifact = field(repr=False)
     contract: Any = field(repr=False)
     access: PostgresAccess | MySQLAccess = field(repr=False)
     limits: ExecutionLimits
@@ -193,6 +271,9 @@ class ExecutionRequest:
     postgres_adbc_deployment: PostgresADBCDeploymentPremise | None = field(
         default=None, repr=False, kw_only=True
     )
+    postgres_deployment: PostgresDeploymentPremise | None = field(
+        default=None, repr=False, kw_only=True
+    )
 
 
 def verify_execution_request(request) -> None:
@@ -200,12 +281,19 @@ def verify_execution_request(request) -> None:
 
 
 def _verify_execution_structure(request, *, guarded=None) -> None:
-    from pietto._project.project_guard_preparation import GuardedArtifact
+    from pietto._project.project_guard_preparation import (
+        GuardedArtifact,
+        CompiledGuardedArtifact,
+    )
 
     artifact = request.artifact if type(request) is ExecutionRequest else None
-    allowed_artifact = type(artifact) is EmissionArtifact or (
+    allowed_artifact = type(artifact) in (
+        EmissionArtifact,
+        CompiledEmissionArtifact,
+    ) or (
         guarded is not None
-        and type(artifact) is GuardedArtifact
+        and type(artifact) in (GuardedArtifact, CompiledGuardedArtifact)
+        and isinstance(artifact, (GuardedArtifact, CompiledGuardedArtifact))
         and artifact.guard_scope is guarded.scope
     )
     if (
@@ -223,12 +311,37 @@ def _verify_execution_structure(request, *, guarded=None) -> None:
         view = inspect_pending(guarded, request.artifact)
         if request.output is None or request.output.guarded is not guarded:
             raise ExecutionError("GUARD_EXECUTION_OUTPUT")
+    from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
+
+    compiled = type(view.request) is CompiledPreparedEmission
     family = "mysql" if type(request.access) is MySQLAccess else "postgres"
-    if request.route not in ("", "postgres_adbc") or (
-        request.route == "postgres_adbc" and family != "postgres"
-    ):
-        raise ExecutionError("EXECUTION_TARGET")
-    verify_postgres_adbc_deployment(request)
+    if compiled:
+        routes = (
+            ("postgres_rows", "postgres_adbc")
+            if family == "postgres"
+            else ("mysql_rows",)
+        )
+        if request.route not in routes:
+            raise ExecutionError("COMPILED_FRESH_PROFILE_REQUIRED")
+        if request.binding is None or request.output is None:
+            raise ExecutionError("COMPILED_BINDING_REQUIRED")
+        if family == "postgres":
+            verify_postgres_deployment(request)
+        else:
+            if (
+                request.postgres_deployment is not None
+                or request.postgres_adbc_deployment is not None
+            ):
+                raise ExecutionError("MYSQL_DEPLOYMENT_PREMISE_SCOPE")
+            verify_deployment(request, required=True)
+    else:
+        if (
+            request.postgres_deployment is not None
+            or request.route not in ("", "postgres_adbc")
+            or (request.route == "postgres_adbc" and family != "postgres")
+        ):
+            raise ExecutionError("EXECUTION_TARGET")
+        verify_postgres_adbc_deployment(request)
     if view.request.family != family:
         raise ExecutionError("EXECUTION_TARGET")
     verify_result_contract(request.contract, view.request.verification)
@@ -339,8 +452,9 @@ def prepare_execution(
     mysql_deployment=None,
     route="",
     postgres_adbc_deployment=None,
+    postgres_deployment=None,
 ):
-    if type(artifact) is not EmissionArtifact:
+    if type(artifact) not in (EmissionArtifact, CompiledEmissionArtifact):
         raise ExecutionError("EXECUTION_ARTIFACT")
     if (type(access) is MySQLAccess or route == "postgres_adbc") and output is None:
         from pietto._project.project_result_output import prepare_output
@@ -374,6 +488,7 @@ def prepare_execution(
         mysql_deployment,
         route=route,
         postgres_adbc_deployment=postgres_adbc_deployment,
+        postgres_deployment=postgres_deployment,
     )
     verify_execution_request(request)
     return request
@@ -446,6 +561,7 @@ def request_state(request):
         deployment_state(request.mysql_deployment),
         request.route,
         postgres_adbc_deployment_state(request.postgres_adbc_deployment),
+        postgres_deployment_state(request.postgres_deployment),
         request.source_requirement,
         requirement_state(request.source_requirement),
     )
@@ -473,3 +589,177 @@ class ExecutionOutcome:
     cancel_requested: bool
     cancel_sent: bool
     cancel_observed: bool
+
+
+def prepare_compiled_execution(
+    binding,
+    access,
+    *,
+    route,
+    limits=ExecutionLimits(),
+    isolation="stable",
+    postgres_deployment=None,
+    mysql_deployment=None,
+    allow_guard_sql=True,
+):
+    """One common three-route entry over a freshly bound resolved template."""
+    from pietto._project.project_execution_binding_verification import verify_binding
+    from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
+    from pietto._project.project_compiled_schema import Address
+    from pietto._project.project_compiled_loading import supported_compatibility
+    from pietto._project.project_refinement import prepare_compiled_refinement
+    from pietto._project.project_refinement_enumeration import (
+        RefinedExecutionRequest,
+        verify_refined_execution,
+    )
+    from pietto._project.project_result_output import prepare_output
+    from pietto._project.project_guard_program import prepare_program
+    from pietto._project.project_guard_runtime import (
+        GuardedExecutionRequest,
+        verify_guarded_execution,
+    )
+
+    verify_binding(binding)
+    artifact = binding.artifact
+    if type(artifact.request) is not CompiledPreparedEmission:
+        raise ExecutionError("COMPILED_EXECUTION_ROOT")
+    root = artifact.request.verification.completed.root
+    if root.accepted_compatibility != supported_compatibility():
+        raise ExecutionError("COMPILED_COMPATIBILITY")
+    policy = root.records[Address("policy", 0)]
+    refinement = (
+        prepare_compiled_refinement(artifact, binding=binding, guarded=binding.guarded)
+        if policy.get("refinement") is not None
+        else None
+    )
+    program = (
+        prepare_program(binding.guarded, binding=binding, refinement=refinement)
+        if binding.guarded is not None
+        else None
+    )
+    output = (
+        program.output
+        if program is not None
+        else refinement.output
+        if refinement is not None
+        else prepare_output(artifact, binding=binding)
+    )
+    request = ExecutionRequest(
+        artifact,
+        output.contract,
+        access,
+        limits,
+        isolation,
+        binding=binding,
+        output=output,
+        mysql_deployment=mysql_deployment,
+        route=route,
+        postgres_deployment=postgres_deployment,
+    )
+    if program is not None:
+        guarded = GuardedExecutionRequest(request, program, allow_guard_sql)
+        verify_guarded_execution(guarded)
+        return guarded
+    if type(allow_guard_sql) is not bool:
+        raise ExecutionError("GUARD_EXECUTION_REQUEST")
+    if refinement is not None:
+        refined = RefinedExecutionRequest(request, refinement)
+        verify_refined_execution(refined)
+        return refined
+    verify_execution_request(request)
+    return request
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledAttemptOutcome:
+    """Portable descriptions of one attempt; never live replay authority."""
+
+    binding_reference: str
+    route: str
+    structure: str
+    deployment_acceptance: str
+    source_qualification: str
+    transaction_opened: bool
+    guard_states: tuple[str, ...]
+    source: str
+    transaction: str
+    delivery: str
+    cancel: tuple[bool, bool, bool]
+    cleanup: str
+    remote_source_use_end: str
+    premise_compliance: str = "NOT_INDEPENDENTLY_VERIFIED"
+    native_definition_lifetime_exclusion: str = "NOT_DEMONSTRATED"
+    local_durable_result: str = "NOT_IMPLEMENTED"
+
+
+def compiled_attempt_outcome(owner):
+    from pietto._project.project_execution_postgres import PostgresExecution
+    from pietto._project.project_execution_postgres_adbc import PostgresADBCExecution
+    from pietto._project.project_execution_mysql import MySQLExecution
+    from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
+
+    if type(owner) not in (PostgresExecution, PostgresADBCExecution, MySQLExecution):
+        raise ExecutionError("COMPILED_ATTEMPT_OWNER")
+    request = owner.request
+    if (
+        type(request.artifact.request) is not CompiledPreparedEmission
+        or request.binding is None
+    ):
+        raise ExecutionError("COMPILED_EXECUTION_ROOT")
+    if request_state(request) != owner._captured:
+        raise ExecutionError("EXECUTION_REQUEST_CHANGED")
+    outcome = owner.outcome
+    qualified = owner._qualification is not None
+    return CompiledAttemptOutcome(
+        request.binding.instance_reference,
+        request.route,
+        "ACCEPTED",
+        "EXPLICIT_MANAGED_DEPLOYMENT_PREMISE",
+        "QUALIFIED" if qualified else "NOT_QUALIFIED",
+        owner.context is not None,
+        () if owner.guards is None else tuple(owner.guards.states),
+        outcome.source,
+        outcome.transaction,
+        outcome.delivery,
+        (outcome.cancel_requested, outcome.cancel_sent, outcome.cancel_observed),
+        outcome.cleanup,
+        "TRANSACTION_ACK"
+        if outcome.transaction in ("COMMIT_ACK", "ROLLBACK_ACK")
+        else "REMOTE_QUIESCENCE_UNCONFIRMED",
+    )
+
+
+def verify_compiled_owner(owner):
+    """The real route must carry every mode required by this compiled template."""
+    from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
+    from pietto._project.project_compiled_schema import Address
+    from pietto._project.project_execution_postgres import PostgresExecution
+    from pietto._project.project_execution_postgres_adbc import PostgresADBCExecution
+    from pietto._project.project_execution_mysql import MySQLExecution
+
+    if type(owner) not in (PostgresExecution, PostgresADBCExecution, MySQLExecution):
+        raise ExecutionError("COMPILED_ATTEMPT_OWNER")
+    request = owner.request
+    if type(request.artifact.request) is not CompiledPreparedEmission:
+        return
+    expected = {
+        PostgresExecution: "postgres_rows",
+        PostgresADBCExecution: "postgres_adbc",
+        MySQLExecution: "mysql_rows",
+    }[type(owner)]
+    if request.route != expected:
+        raise ExecutionError("COMPILED_EXECUTION_ROUTE")
+    root = request.artifact.request.verification.completed.root
+    policy = root.records[Address("policy", 0)]
+    if (owner.guarded_request is not None) is not policy.get("guarded"):
+        raise ExecutionError("COMPILED_GUARD_MODE_REQUIRED")
+    if (owner.refined_request is not None) is not (
+        policy.get("refinement") is not None
+    ):
+        raise ExecutionError("COMPILED_REFINEMENT_MODE_REQUIRED")
+    if owner.refined_request is not None:
+        from pietto._project.project_refinement_enumeration import (
+            verify_refined_execution,
+        )
+
+        verify_refined_execution(owner.refined_request, _guarded=owner.guarded_request)

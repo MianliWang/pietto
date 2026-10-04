@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pietto.ast_nodes import (
     Expression,
@@ -879,3 +879,219 @@ class ProjectSQLWindowDemand:
     kind: ProjectSQLWindowDemandKind
     witness: Witness
     origin: ProjectSQLPlanRef
+
+
+def resolved_result_type(function, value_type, arguments):
+    """Apply original window signatures/formulas to resolved, static arguments."""
+    from pietto.semantic import window_analysis as ranking
+    from pietto.semantic import window_navigation_analysis as navigation
+    from pietto.semantic.generic_compatibility import (
+        LogicalTypeIdentity,
+        SignatureMatch,
+        bind_signature,
+    )
+    from pietto.semantic.nullability_formulas import (
+        NullabilityEvaluationContext,
+        NullabilityEvaluationMatch,
+        evaluate_signature_result_nullability,
+    )
+    from pietto.semantic.model import EffectiveNullability, ResolvedType, TypeKind
+    from pietto._project.project_compiled_schema import CompiledError
+
+    non_null = EffectiveNullability.NON_NULL
+    logical: tuple[LogicalTypeIdentity, ...] = (
+        ()
+        if value_type is None
+        else (
+            LogicalTypeIdentity(
+                name=value_type.resolved_type.name, kind=value_type.resolved_type.kind
+            ),
+        )
+    )
+    nulls: tuple[EffectiveNullability, ...] = (
+        () if value_type is None else (value_type.nullability,)
+    )
+    if function in ("row_number", "rank", "dense_rank"):
+        signature, formula = ranking._RANKING_SIGNATURE, ranking._RANKING_RESULT_FORMULA
+    elif function in ("percent_rank", "cume_dist", "ntile"):
+        matches = tuple(
+            (signature, formula)
+            for identity, _, signature, formula in ranking._DISTRIBUTION_FUNCTIONS
+            if identity.name == function
+        )
+        if len(matches) != 1:
+            raise CompiledError("COMPILED_WINDOW_SIGNATURE")
+        signature, formula = matches[0]
+        logical = (
+            (ranking._DISTRIBUTION_INT_RESULT_IDENTITY,) if function == "ntile" else ()
+        )
+        nulls = (non_null,) if logical else ()
+    elif function in ("lag", "lead"):
+        if value_type is None:
+            raise CompiledError("COMPILED_WINDOW_VALUE_TYPE")
+        signature = navigation._NAVIGATION_SIGNATURE
+        by_role = dict(arguments)
+        offset = by_role.get("offset", 1)
+        formula = (
+            navigation._ZERO_RESULT_FORMULA
+            if offset == 0
+            else navigation._BOUNDARY_RESULT_FORMULA
+        )
+        if "offset" in by_role:
+            logical += (navigation._INT_IDENTITY,)
+            nulls += (non_null,)
+        if "default" in by_role:
+            default = by_role["default"]
+            logical += (
+                LogicalTypeIdentity(
+                    name=value_type.resolved_type.name,
+                    kind=value_type.resolved_type.kind,
+                )
+                if default is None
+                else LogicalTypeIdentity(name="Int", kind=TypeKind.BUILTIN),
+            )
+            nulls += (EffectiveNullability.NULLABLE if default is None else non_null,)
+    elif function in ("first_value", "last_value", "nth_value"):
+        if value_type is None:
+            raise CompiledError("COMPILED_WINDOW_VALUE_TYPE")
+        signature, formula = (
+            navigation._FRAME_VALUE_SIGNATURE,
+            navigation._FRAME_VALUE_RESULT_FORMULA,
+        )
+        if function == "nth_value":
+            signature, formula = (
+                navigation._NTH_VALUE_SIGNATURE,
+                navigation._NTH_VALUE_RESULT_FORMULA,
+            )
+            logical += (navigation._INT_IDENTITY,)
+            nulls += (non_null,)
+    else:
+        raise CompiledError("COMPILED_WINDOW_FUNCTION")
+    match = bind_signature(signature, logical)
+    if type(match) is not SignatureMatch:
+        raise CompiledError("COMPILED_WINDOW_SIGNATURE")
+    nullable = evaluate_signature_result_nullability(
+        formula,
+        NullabilityEvaluationContext(
+            argument_nullabilities=nulls, omitted_positions=match.omitted_positions
+        ),
+    )
+    if type(nullable) is not NullabilityEvaluationMatch:
+        raise CompiledError("COMPILED_WINDOW_NULLABILITY")
+    return ValueType(
+        ResolvedType(match.result_type.name, match.result_type.kind), nullable.value
+    )
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledFrameBound:
+    kind: Any
+    offset: Any
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledWindowFrame:
+    unit: Any
+    start: CompiledFrameBound
+    end: CompiledFrameBound
+    exclusion: Any
+
+    @property
+    def resolved(self):
+        return self
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledWindowSpecification:
+    ref: Any
+    frame: CompiledWindowFrame | None
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledWindowPolicy:
+    ref: Any
+    window: Any
+    specification: CompiledWindowSpecification
+
+
+def compiled_window_policies(ir, primitives):
+    from pietto.ast_nodes import WindowFrameUnit, WindowFrameBoundKind
+    from pietto.semantic.window_semantics import WindowFrameExclusion
+
+    records, refs = ir.completed.root.records, ir.references
+    result = []
+    for record in records.values():
+        if record.address.kind != "window_value":
+            continue
+        specification = records[record.get("specification")]
+        described = specification.get("frame")
+        frame = (
+            None
+            if described is None
+            else CompiledWindowFrame(
+                WindowFrameUnit(described[0]),
+                CompiledFrameBound(
+                    WindowFrameBoundKind(described[1][0]),
+                    None if described[1][1] is None else primitives[described[1][1]],
+                ),
+                CompiledFrameBound(
+                    WindowFrameBoundKind(described[2][0]),
+                    None if described[2][1] is None else primitives[described[2][1]],
+                ),
+                None if described[3] is None else WindowFrameExclusion(described[3]),
+            )
+        )
+        ref = refs[specification.address]
+        result.append(
+            CompiledWindowPolicy(
+                ref, refs[record.address], CompiledWindowSpecification(ref, frame)
+            )
+        )
+    return tuple(result)
+
+
+def verify_compiled_window_policies(plan):
+    from pietto._project.project_compiled_verification import need
+    from pietto.ast_nodes import WindowFrameUnit, WindowFrameBoundKind
+    from pietto.semantic.window_semantics import WindowFrameExclusion
+
+    records, refs = plan.ir.completed.root.records, plan.references
+    expected = tuple(r for r in records.values() if r.address.kind == "window_value")
+    need(
+        type(plan.window_policies) is tuple
+        and len(plan.window_policies) == len(expected),
+        "PLAN_WINDOW_POLICIES",
+    )
+    for policy, record in zip(plan.window_policies, expected, strict=True):
+        specification = records[record.get("specification")]
+        need(
+            type(policy) is CompiledWindowPolicy
+            and policy.window is refs[record.address]
+            and policy.ref is refs[specification.address]
+            and type(policy.specification) is CompiledWindowSpecification
+            and policy.specification.ref is policy.ref,
+            "PLAN_WINDOW_POLICY",
+        )
+        described, frame = specification.get("frame"), policy.specification.frame
+        if described is None:
+            need(frame is None, "PLAN_WINDOW_FRAME")
+            continue
+        if type(frame) is not CompiledWindowFrame:
+            raise ValueError("COMPILED_PLAN_WINDOW_FRAME")
+        need(
+            frame.unit is WindowFrameUnit(described[0])
+            and frame.exclusion
+            is (None if described[3] is None else WindowFrameExclusion(described[3])),
+            "PLAN_WINDOW_FRAME",
+        )
+        for actual, (kind, offset) in zip(
+            (frame.start, frame.end), described[1:3], strict=True
+        ):
+            need(
+                type(actual) is CompiledFrameBound
+                and actual.kind is WindowFrameBoundKind(kind)
+                and actual.offset
+                is (None if offset is None else plan.expressions[offset].expression),
+                "PLAN_WINDOW_FRAME_BOUND",
+            )
+    return plan.window_policies

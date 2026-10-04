@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import re
 from typing import Any
@@ -357,6 +357,33 @@ STATEMENT_KEYS = {
 RESOURCE_KEYS = {"sql_bytes", "artifact_bytes", "nodes", "parameters", "columns"}
 
 
+def validate_resolved_premise(key, scope_kind, value, path, errors):
+    if type(key) is not str or key not in LOCAL_KEYS | STATEMENT_KEYS:
+        _error(errors, path + "/key")
+    elif (key in STATEMENT_KEYS) != (scope_kind == "statement") or (
+        key in {"row_domain_matches", "read_only_object"} and scope_kind == "expression"
+    ):
+        _error(errors, path + "/scope")
+    elif key in {"row_domain_matches", "read_only_object"}:
+        if type(value) is not bool:
+            _error(errors, path + "/value")
+    elif key == "value_domain":
+        _domain(value, path + "/value", errors)
+    elif key == "comparison_prefix_bytes":
+        if not _integer(value, 1):
+            _error(errors, path + "/value")
+    elif key == "resource_limits":
+        if (
+            type(value) is not dict
+            or not value
+            or set(value) - RESOURCE_KEYS
+            or any(not _integer(v) for v in value.values())
+        ):
+            _error(errors, path + "/value")
+    elif not _text(value):
+        _error(errors, path + "/value")
+
+
 def prepare_project_sql_emission(
     verification, data, *, target_request=None, scalar_meaning=None
 ):
@@ -660,31 +687,17 @@ def prepare_project_sql_emission(
                         bound_scope = (source_owner, matches[0])
         if bound_scope is None and len(errors) == start and not unbound_enclosing:
             _error(errors, path + "/scope", selector=True)
-        if type(key) is not str or key not in LOCAL_KEYS | STATEMENT_KEYS:
-            _error(errors, path + "/key")
-        elif (key in STATEMENT_KEYS) != (bound_scope == "statement") or (
-            key in {"row_domain_matches", "read_only_object"}
-            and type(bound_scope) is tuple
-        ):
-            _error(errors, path + "/scope")
-        elif key in {"row_domain_matches", "read_only_object"}:
-            if type(value) is not bool:
-                _error(errors, path + "/value")
-        elif key == "value_domain":
-            _domain(value, path + "/value", errors)
-        elif key == "comparison_prefix_bytes":
-            if not _integer(value, 1):
-                _error(errors, path + "/value")
-        elif key == "resource_limits":
-            if (
-                type(value) is not dict
-                or not value
-                or set(value) - RESOURCE_KEYS
-                or any(not _integer(v) for v in value.values())
-            ):
-                _error(errors, path + "/value")
-        elif not _text(value):
-            _error(errors, path + "/value")
+        validate_resolved_premise(
+            key,
+            "statement"
+            if bound_scope == "statement"
+            else "expression"
+            if type(bound_scope) is tuple
+            else "source",
+            value,
+            path,
+            errors,
+        )
         if len(errors) == start and not unbound_enclosing:
             premises.append(Premise(len(premises), key, bound_scope, canonical(value)))
     if errors:
@@ -799,3 +812,32 @@ def source_family(source):
         }
         return families.get(callee.parts)
     return None
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledPreparedEmission:
+    """Prepared resolved-input branch; it has no source-map or source authority."""
+
+    verification: Any = field(repr=False)
+    accepted_bytes: bytes = field(repr=False)
+    normalized_bytes: bytes = field(repr=False)
+    family: str
+    release: str
+    sources: tuple[BoundSource, ...] = field(repr=False)
+    premises: tuple[Premise, ...] = field(repr=False)
+    bindings: tuple = field(repr=False)
+    origin_subjects: Any = field(repr=False)
+    scalar_meaning: Any = field(default=None, repr=False)
+    report: Any = field(default=None, repr=False)
+
+    @property
+    def plan(self):
+        return self.verification.plan
+
+
+def emission_origin_subjects(request):
+    if type(request) is CompiledPreparedEmission:
+        return request.origin_subjects
+    if type(request) is not PreparedEmission:
+        raise ValueError("unknown prepared emission owner")
+    return request.source_map.source_map.indexes.subjects

@@ -201,6 +201,19 @@ def column_realization(kind, quantifier, column, inputs, evidence):
     type is inferred and no cast conceals a mismatch.
     """
 
+    return resolved_column_realization(
+        kind,
+        quantifier,
+        NULLABILITY[column.source.nullability],
+        inputs,
+        tuple(item.reason for item in evidence),
+    )
+
+
+def resolved_column_realization(
+    kind, quantifier, expected_nullability, inputs, equivalence_reasons
+):
+    """Original R22 representation rule over complete resolved operand facts."""
     first = inputs[0].realization
     tag = first.tag
     if any(item.realization.tag != tag for item in inputs):
@@ -253,13 +266,13 @@ def column_realization(kind, quantifier, column, inputs, evidence):
         elif any(item.realization.domain != first.domain for item in inputs):
             return None, ("PIE-B1002", "set_column_physical_representation_mismatch")
     physical = nullability(kind, tuple(item.realization.nullable for item in inputs))
-    if physical != NULLABILITY[column.source.nullability]:
+    if physical != expected_nullability:
         return None, ("PIE-B1002", "set_column_nullability_drift")
     if (
         quantifier is SetOperationQuantifier.DISTINCT
         or kind is not SetOperationKind.UNION
     ):
-        if any(item.reason is not None for item in evidence):
+        if any(reason is not None for reason in equivalence_reasons):
             return None, ("PIE-B1003", "set_row_equivalence_domain_unsupported")
     return rows.Realization(tag, storage, physical, domain), None
 
@@ -510,3 +523,93 @@ def requirement_evidence(query, item) -> list[dict[str, Any]]:
                         }
                     ]
     return []
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledSetSubject:
+    ref: Any
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledSetBodySubject:
+    ref: Any
+    kind: SetOperationKind
+    quantifier: SetOperationQuantifier
+    fold: str = "source_order_left_fold"
+
+    @property
+    def requires_equivalence(self):
+        from pietto._project.project_set_operations import resolved_requires_equivalence
+
+        return resolved_requires_equivalence(self.kind, self.quantifier)
+
+
+def build_compiled_unit(plan, record, definition, producers):
+    """Realize the original six SET forms over fresh complete input uses."""
+    from pietto._project.project_sql_emission_ast import SQLSymbol
+
+    facts = {f.address: f for f in plan.ir.completed.facts}
+    refs = plan.references
+    name, labels, aliases, final, index = record.get("layout")
+    operands = []
+    for ordinal, (address, (producer, source, reads, use)) in enumerate(
+        zip(record.get("operands"), producers, strict=True)
+    ):
+        subject = CompiledSetSubject(refs[address])
+        operands.append(
+            SetOperandBody(
+                ordinal,
+                subject,
+                use,
+                producer,
+                source,
+                SQLSymbol(ordinal, refs[address], aliases[ordinal]),
+                reads,
+                tuple(pair.input_port for pair in use.bindings),
+            )
+        )
+    columns = []
+    records = plan.ir.completed.root.records
+    for ordinal, address in enumerate(record.get("outputs")):
+        port = plan.ports[address]
+        fact = facts[address]
+        column = rows.StageColumn(
+            ordinal, port.identity.name, port.ref, fact.realization
+        )
+        source = CompiledSetSubject(refs[records[address].get("source")])
+        inputs = tuple(o.columns[ordinal] for o in operands)
+        columns.append(
+            SetColumn(
+                ordinal,
+                source,
+                port,
+                port,
+                inputs,
+                fact.realization,
+                SQLSymbol(ordinal, port.ref, port.identity.name),
+                port.identity.name,
+                column,
+            )
+        )
+    return SetBody(
+        definition,
+        CompiledSetBodySubject(
+            refs[record.address],
+            SetOperationKind(record.get("kind")),
+            SetOperationQuantifier(record.get("quantifier")),
+        ),
+        index,
+        SetOperationKind(record.get("kind")),
+        SetOperationQuantifier(record.get("quantifier")),
+        tuple(operands),
+        tuple(columns),
+        tuple(c.export for c in columns),
+        final,
+        None if name is None else SQLSymbol(index, refs[record.address], name),
+        tuple(
+            SQLSymbol(i, c.export.ref, label)
+            for i, (c, label) in enumerate(zip(columns, labels, strict=True))
+        )
+        if labels
+        else (),
+    )

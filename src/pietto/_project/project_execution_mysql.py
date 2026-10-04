@@ -55,11 +55,29 @@ __all__: tuple[str, ...] = ()
 
 class MySQLExecution:
     def __init__(self, request):
+        from pietto._project.project_sql_emission import CompiledEmissionArtifact
+        from pietto._project.project_guard_preparation import CompiledGuardedArtifact
+        from pietto._project.project_execution import verify_execution_limits
+
+        base = (
+            request.execution
+            if type(request) in (GuardedExecutionRequest, RefinedExecutionRequest)
+            else request
+        )
+        if type(base) is not ExecutionRequest:
+            raise ExecutionError("EXECUTION_REQUEST")
+        compiled = type(base.artifact) in (
+            CompiledEmissionArtifact,
+            CompiledGuardedArtifact,
+        )
+        if compiled:
+            verify_execution_limits(base.limits)
         self.guarded_request = (
             request if type(request) is GuardedExecutionRequest else None
         )
         if self.guarded_request is not None:
-            verify_guarded_execution(request)
+            if not compiled:
+                verify_guarded_execution(request)
             request = request.execution
         self.refined_request = (
             request if type(request) is RefinedExecutionRequest else None
@@ -72,11 +90,12 @@ class MySQLExecution:
                 self.guarded_request.execution, self.guarded_request.program.refinement
             )
         if self.refined_request is not None:
-            verify_refined_execution(
-                self.refined_request, _guarded=self.guarded_request
-            )
+            if not compiled:
+                verify_refined_execution(
+                    self.refined_request, _guarded=self.guarded_request
+                )
             request = self.refined_request.execution
-        if self.guarded_request is None:
+        if self.guarded_request is None and not compiled:
             verify_execution_request(request)
         request = cast(ExecutionRequest, request)
         if type(request.access) is not MySQLAccess or request.output is None:
@@ -120,6 +139,7 @@ class MySQLExecution:
         self.session_id: Any = None
         self.context: Any = None
         self._epoch: Any = None
+        self._initial_epoch: Any = None
         self.environment: Any = None
         self._qualification: Any = None
         self._owned_qualification: Any = None
@@ -226,6 +246,9 @@ class MySQLExecution:
         self._checkpoint()
 
     def _verify(self):
+        from pietto._project.project_execution import verify_compiled_owner
+
+        verify_compiled_owner(self)
         if (
             self.request is not self._owned_request
             or request_state(self.request) != self._captured
@@ -289,6 +312,7 @@ class MySQLExecution:
             self._transaction = "OPEN"
             self.context = native_context(self)
             self._epoch = native_epoch(self)
+            self._initial_epoch = self._epoch
             self.environment = (
                 self.context[0],
                 strength.lower(),
@@ -590,6 +614,39 @@ class MySQLExecution:
                     self._transaction = "UNKNOWN"
                 else:
                     try:
+                        from pietto._project.project_execution_mysql_context import (
+                            EPOCH_SQL,
+                        )
+
+                        # Check the originally admitted transaction even after a
+                        # prior failure; cleanup must not act on its replacement.
+                        if (
+                            self._initial_epoch is None
+                            or self._epoch != self._initial_epoch
+                            or self._connection is not connection
+                            or not connection.in_transaction
+                            or transport_state(connection) != self._transport
+                            or self._owned_control_connection is None
+                            or self._control_connection
+                            is not self._owned_control_connection
+                            or transport_state(self._owned_control_connection)
+                            != self._control_transport
+                        ):
+                            raise ExecutionError("MYSQL_TRANSACTION_CHANGED")
+                        _, observed = read_control(
+                            self,
+                            EPOCH_SQL,
+                            (self.session_id, self.request.access.user),
+                            connection=self._owned_control_connection,
+                            cleanup=True,
+                        )
+                        if (
+                            len(observed) != 1
+                            or tuple(map(type, observed[0]))
+                            != tuple(map(type, self._initial_epoch))
+                            or observed[0] != self._initial_epoch
+                        ):
+                            raise ExecutionError("MYSQL_TRANSACTION_CHANGED")
                         # Cancellation and commit publication share the same gate.
                         if commit:
                             self._checkpoint()

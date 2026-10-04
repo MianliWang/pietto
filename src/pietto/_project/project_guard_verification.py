@@ -5,6 +5,7 @@ import re
 from pietto._project.project_guard_preparation import verify_preparation
 from pietto._project.project_guard_program import (
     GuardProgram,
+    proof_kind,
     GuardSubject,
     GuardStatement,
     GuardControl,
@@ -121,7 +122,7 @@ def verify_statement(statement):
             for proof in proofs
             if proof.obligation is subject.obligation.ref
             and any(join is subject.unit.join.ref for join in proof.joins)
-            and proof.source.source.kind
+            and proof_kind(proof)
             in (
                 ProjectSingleMatchProofKind.RIGHT_LIMIT,
                 ProjectSingleMatchProofKind.RIGHT_GLOBAL,

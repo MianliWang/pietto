@@ -282,6 +282,7 @@ def test_slice3_guard_stays_independent_from_later_workflows() -> None:
         "scripts/package_smoke.py",
         "scripts/phase68_executor_premise.py",
         "scripts/phase68_recovery_premise.py",
+        "scripts/phase68_slice10_probe.py",
         "scripts/phase68_slice3_probe.py",
         "scripts/phase68_slice4_probe.py",
         "scripts/phase68_slice5_probe.py",

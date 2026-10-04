@@ -169,6 +169,30 @@ class ProjectSetOperandUse:
         )
 
 
+def resolved_set_nullability(
+    kind: SetOperationKind, states: tuple[ProjectRowFieldNullability, ...]
+) -> ProjectRowFieldNullability:
+    """Original positional SET nullability law over a complete operand vector."""
+    if not states or any(
+        type(state) is not ProjectRowFieldNullability for state in states
+    ):
+        raise ValueError("Set nullability requires complete exact operand states.")
+    if kind is SetOperationKind.EXCEPT:
+        state = states[0]
+    elif (
+        kind is SetOperationKind.INTERSECT
+        and ProjectRowFieldNullability.NON_NULL in states
+    ):
+        state = ProjectRowFieldNullability.NON_NULL
+    elif all(state is ProjectRowFieldNullability.NON_NULL for state in states):
+        state = ProjectRowFieldNullability.NON_NULL
+    elif ProjectRowFieldNullability.UNKNOWN in states:
+        state = ProjectRowFieldNullability.UNKNOWN
+    else:
+        state = ProjectRowFieldNullability.NULLABLE
+    return state
+
+
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSetColumn:
     uses: tuple[ProjectSetOperandUse, ...] = field(repr=False)
@@ -189,19 +213,7 @@ class ProjectSetColumn:
         if not all(compatible_row_types(inputs[0], item) for item in inputs):
             raise ValueError("Set column requires exact compatible type evidence.")
         states = tuple(item.selected.field.nullability for item in inputs)
-        if self.kind is SetOperationKind.EXCEPT:
-            state = states[0]
-        elif (
-            self.kind is SetOperationKind.INTERSECT
-            and ProjectRowFieldNullability.NON_NULL in states
-        ):
-            state = ProjectRowFieldNullability.NON_NULL
-        elif all(state is ProjectRowFieldNullability.NON_NULL for state in states):
-            state = ProjectRowFieldNullability.NON_NULL
-        elif ProjectRowFieldNullability.UNKNOWN in states:
-            state = ProjectRowFieldNullability.UNKNOWN
-        else:
-            state = ProjectRowFieldNullability.NULLABLE
+        state = resolved_set_nullability(self.kind, states)
         object.__setattr__(self, "inputs", inputs)
         object.__setattr__(self, "nullability", state)
         resolved = inputs[0].selected.field.resolved_type
@@ -261,10 +273,7 @@ class ProjectSetOperation:
         width = len(self.uses[0].fields)
         if any(len(use.fields) != width for use in self.uses):
             raise ValueError("Set operation requires equal concrete widths.")
-        requires = (
-            body.kind is not SetOperationKind.UNION
-            or body.quantifier is SetOperationQuantifier.DISTINCT
-        )
+        requires = resolved_requires_equivalence(body.kind, body.quantifier)
         if requires and any(
             f.reason is not None for use in self.uses for f in use.fields
         ):
@@ -318,4 +327,11 @@ def set_diagnostic(
             end_line=span.end_line,
             end_column=span.end_column,
         ),
+    )
+
+
+def resolved_requires_equivalence(kind, quantifier):
+    return (
+        kind is not SetOperationKind.UNION
+        or quantifier is SetOperationQuantifier.DISTINCT
     )

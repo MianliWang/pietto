@@ -393,6 +393,12 @@ def _reference_class(output, reference):
     return matches[0]
 
 
+def resolved_matching_keys(keys, matched_classes):
+    """All exact target keys covered by the complete matched class vector."""
+    matched = frozenset(matched_classes)
+    return tuple(key for key in keys if frozenset(key.determinants) <= matched)
+
+
 def derive_directional_match_guarantee(
     direction: ProjectRelationshipDirectionIdentity,
     condition: ProjectConcreteRelationshipCondition,
@@ -424,12 +430,7 @@ def derive_directional_match_guarantee(
         )
         for correspondence in condition.correspondences
     )
-    matched_target_set = frozenset(target_classes)
-    qualifying_keys = tuple(
-        key
-        for key in target_output.keys
-        if frozenset(key.determinants) <= matched_target_set
-    )
+    qualifying_keys = resolved_matching_keys(target_output.keys, target_classes)
     if qualifying_keys:
         maximum = ProjectRelationshipMaximumBound.AT_MOST_ONE
         maximum_evidence: ProjectMaximumBoundEvidence = ProjectAtMostOneEvidence(

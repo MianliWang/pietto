@@ -3519,3 +3519,56 @@ def _append_exact_unique(
         return
     seen.add(value)
     values.append(value)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledDeclarationOccurrence:
+    """One declaration of a compiled scope, without an authored AST definition."""
+
+    root: object = field(repr=False)
+    address: object
+    module_path: str
+    module_position: int
+    declaration_position: int
+    namespace: str
+    kind: str
+    name: str
+
+    def __post_init__(self) -> None:
+        from pietto._project.model import CompiledProjectInput
+        from pietto._project.project_compiled_schema import Address, CompiledError
+
+        if (
+            type(self.root) is not CompiledProjectInput
+            or type(self.address) is not Address
+        ):
+            raise CompiledError("COMPILED_DECLARATION_ROOT")
+        record = self.root.records.get(self.address)
+        if (
+            self.address.kind != "declaration"
+            or record is None
+            or record.values
+            != (
+                self.module_path,
+                self.module_position,
+                self.declaration_position,
+                self.namespace,
+                self.kind,
+                self.name,
+            )
+        ):
+            raise CompiledError("COMPILED_DECLARATION_CORRESPONDENCE")
+
+
+def compiled_declarations(root):
+    from pietto._project.model import CompiledProjectInput
+    from pietto._project.project_compiled_schema import CompiledError
+
+    if type(root) is not CompiledProjectInput:
+        raise CompiledError("COMPILED_DECLARATION_ROOT")
+    root.verify()
+    return tuple(
+        CompiledDeclarationOccurrence(root, record.address, *record.values)
+        for record in root.records.values()
+        if record.address.kind == "declaration"
+    )

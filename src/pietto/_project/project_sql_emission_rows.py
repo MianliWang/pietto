@@ -375,17 +375,27 @@ def _binary(
         assert problem is not None
         return None, problem
     left, right = (realization_of(value, request.family) for value in values)
+    checked, problem = resolved_binary_realization(
+        request.family, operator, tag, nullable, left, right
+    )
+    if checked is None:
+        assert problem is not None
+        return None, problem
+    return SQLOperation(
+        expression, "logical" if operator in LOGICAL else "arithmetic", values, checked
+    ), None
+
+
+def resolved_binary_realization(family, operator, tag, nullable, left, right):
+    """Original range/domain law over resolved operands; no name resolution."""
     if operator in LOGICAL:
         if tag != "Bool" or left.tag != "Bool" or right.tag != "Bool":
             return None, ("PIE-B1003", "logical_operands_require_bool")
         if left.domain.get("kind") != "bool01" or right.domain.get("kind") != "bool01":
             return None, ("PIE-B1002", "logical_operand_outside_bool_domain")
-        return (
-            SQLOperation(
-                expression, "logical", values, _bool(request.family, nullable)
-            ),
-            None,
-        )
+        return _bool(family, nullable), None
+    if operator not in ARITHMETIC:
+        return None, ("PIE-B1003", "binary_operator_not_admitted")
     if tag != "Int" or left.tag != "Int" or right.tag != "Int":
         return None, ("PIE-B1003", "arithmetic_requires_signed_int_operands")
     left_bounds, right_bounds = int_bounds(left), int_bounds(right)
@@ -393,11 +403,11 @@ def _binary(
         return None, ("PIE-B1004", "int_range_evidence_missing")
     low, high = _interval(operator, left_bounds, right_bounds)
     checked = _checked_int(
-        _arithmetic_storage(request.family, left, right), low, high, nullable
+        _arithmetic_storage(family, left, right), low, high, nullable
     )
     if checked is None:
         return None, ("PIE-B1002", "arithmetic_outside_physical_range")
-    return SQLOperation(expression, "arithmetic", values, checked), None
+    return checked, None
 
 
 def _comparison(
@@ -412,6 +422,17 @@ def _comparison(
         assert problem is not None
         return None, problem
     left, right = (realization_of(value, request.family) for value in values)
+    checked, problem = resolved_comparison_realization(
+        request.family, tag, nullable, left, right
+    )
+    if checked is None:
+        assert problem is not None
+        return None, problem
+    return SQLOperation(expression, "comparison", values, checked), None
+
+
+def resolved_comparison_realization(family, tag, nullable, left, right):
+    """Original comparison-domain law over already resolved physical inputs."""
     if tag != "Bool":
         return None, ("PIE-B1002", "comparison_result_not_bool")
     if left.tag not in COMPARABLE or left.tag != right.tag:
@@ -424,10 +445,7 @@ def _comparison(
         or left.storage != right.storage
     ):
         return None, ("PIE-B1005", "decimal_comparison_parameter_conflict")
-    return (
-        SQLOperation(expression, "comparison", values, _bool(request.family, nullable)),
-        None,
-    )
+    return _bool(family, nullable), None
 
 
 def realization_of(value, family: str) -> Realization:

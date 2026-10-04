@@ -2,6 +2,16 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pietto._project.model import CompiledProjectInput
+    from pietto._project.module_attribution import CompiledDeclarationOccurrence
+    from pietto._project.project_compiled_schema import Address
+    from pietto._project.project_sql_emission_rows import Realization
+    from pietto.semantic.model import ValueType
+
+
 from pietto._project.project_set_operations import ProjectSetFailure
 from pietto._project.module_relation_resolution import ProjectResolvedSetOperand
 
@@ -848,3 +858,1076 @@ def with_project_single_match_requests(
         roots=completed.roots,
         single_match_requests=requests,
     )
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledScalarFact:
+    """A fresh original-law result at one resolved compiled expression address."""
+
+    root: CompiledProjectInput = field(repr=False)
+    address: Address
+    value_type: ValueType
+    value: object = field(default=None, repr=False)
+    operator: tuple[str, str] | None = None
+    operands: tuple[Address, ...] = field(default=(), repr=False)
+    realization: Realization | None = field(kw_only=True, repr=False)
+    origin: str = field(kw_only=True, default="unsupported")
+    parameters: tuple[int, int] | None = field(kw_only=True, default=None)
+    introduction: Address | None = field(kw_only=True, default=None)
+    nulling: tuple[Address, ...] = field(kw_only=True, default=())
+
+    def require_realization(self) -> Realization:
+        from pietto._project.project_sql_emission_rows import Realization
+        from pietto._project.project_compiled_schema import CompiledError
+
+        if type(self.realization) is not Realization:
+            raise CompiledError("COMPILED_LOGICAL_ONLY_FACT")
+        return self.realization
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledCompletedSemanticResult:
+    """A compiled-input branch, never a fabricated source semantic result."""
+
+    root: CompiledProjectInput = field(repr=False)
+    values: tuple = field(repr=False)
+    declarations: tuple[CompiledDeclarationOccurrence, ...] = field(repr=False)
+    facts: tuple[CompiledScalarFact, ...] = field(repr=False)
+    retention: tuple = field(repr=False)
+    single_match_requests: tuple = field(default=(), repr=False)
+
+
+def derive_compiled_semantics(root, values):
+    """Derive resolved scalar inputs without calling any source elaborator."""
+    import json
+    from pietto._project.model import CompiledProjectInput
+    from pietto._project import project_sql_emission_rows as physical
+    from pietto._project.project_sql_emission_parameters import literal_representation
+    from pietto._project.module_attribution import compiled_declarations
+    from pietto._project.project_compiled_schema import Address, CompiledError, Scalar
+    from pietto._project.project_sql_emission_parameters import value_valid
+    from pietto.semantic.expressions import (
+        resolved_literal_value_type,
+        resolved_unary_value_type,
+        resolved_binary_value_type,
+    )
+    from pietto.semantic.model import (
+        EffectiveNullability,
+        ResolvedType,
+        TypeKind,
+        ValueType,
+    )
+
+    if type(root) is not CompiledProjectInput or type(values) is not tuple:
+        raise CompiledError("COMPILED_BINDING_INPUT")
+    root.verify()
+    records = root.records
+    from pietto._project.project_compiled_schema import selected_records
+
+    executable = selected_records(records, records[root.description.query])
+    slots = tuple(r for r in records.values() if r.address.kind == "slot")
+    family = records[Address("target", 0)].get("family")
+    if len(values) != len(slots):
+        raise CompiledError("COMPILED_BINDING_SLOTS")
+    replacements = {}
+    for slot, value in zip(slots, values, strict=True):
+        if not value_valid(slot.get("tag"), value, family):
+            raise CompiledError("COMPILED_BINDING_VALUE")
+        replacements[slot.get("literal")] = value
+    facts, active = {}, set()
+
+    def declared(value):
+        if (
+            type(value) is not tuple
+            or len(value) != 2
+            or value[0]
+            not in ("Int", "Bool", "Float", "Text", "Decimal", "Timestamp", "UUID")
+            or value[1] not in ("non_null", "nullable", "unknown")
+        ):
+            raise CompiledError("COMPILED_LOGICAL_TYPE")
+        return ValueType(
+            ResolvedType(value[0], TypeKind.BUILTIN),
+            EffectiveNullability(value[1]),
+        )
+
+    def dependencies(record) -> tuple[Address, ...]:
+        kind, get = record.address.kind, record.get
+        if kind == "operation":
+            return get("operands")
+        if kind == "aggregate_value":
+            return get("arguments")
+        if kind == "set_value":
+            return get("inputs")
+        if kind == "join_value":
+            join = records[get("owner")]
+            return (
+                get("input"),
+                *(
+                    a
+                    for e in join.get("equalities")
+                    for a in (records[e].get("left"), records[e].get("right"))
+                ),
+                *(
+                    (join.get("predicate"),)
+                    if join.get("predicate") is not None
+                    else ()
+                ),
+            )
+        if kind == "window_value":
+            spec = records[get("specification")]
+            return (
+                *get("inputs"),
+                *(a for _, a in get("arguments") if a.kind != "null_literal"),
+                *spec.get("partition"),
+                *(a for a, _, _ in spec.get("ordering")),
+            )
+        if kind == "port":
+            return (get("source"),)
+        if kind == "read":
+            return (get("port"),)
+        return ()
+
+    scalar_kinds = {
+        "field",
+        "port",
+        "read",
+        "literal",
+        "operation",
+        "aggregate_value",
+        "window_value",
+        "set_value",
+        "join_value",
+    }
+    for address in records:
+        if address.kind not in scalar_kinds:
+            continue
+        pending = [(address, False)]
+        while pending:
+            ref, returning = pending.pop()
+            if ref in facts:
+                continue
+            record = records[ref]
+            if not returning:
+                if ref in active:
+                    raise CompiledError("COMPILED_VALUE_CYCLE")
+                active.add(ref)
+                pending.append((ref, True))
+                children = dependencies(record)
+                if type(children) is not tuple or any(
+                    type(child) is not Address
+                    or child not in records
+                    or child.kind not in scalar_kinds
+                    for child in children
+                ):
+                    raise CompiledError("COMPILED_VALUE_DEPENDENCY")
+                pending.extend((child, False) for child in reversed(children))
+                continue
+            active.remove(ref)
+            kind, get = record.address.kind, record.get
+            value, operator, operands = None, None, dependencies(record)
+            physical_required = ref in executable
+            origin = "unsupported"
+            type_parameters = None
+            introduction, nulling = None, ()
+            if kind == "field":
+                origin = "field"
+                type_parameters = get("decimal")
+                typed = declared(get("logical"))
+                if physical_required:
+                    described = json.loads(get("physical"))
+                    realized = physical.Realization(
+                        typed.resolved_type.name,
+                        described["storage"],
+                        described["nullable"],
+                        described["domain"],
+                    )
+                else:
+                    realized = None
+            elif kind == "literal":
+                origin = "literal"
+                original = get("value")
+                if type(original) is not Scalar:
+                    raise CompiledError("COMPILED_LITERAL")
+                value = replacements.get(ref, original.value)
+                if not value_valid(original.tag, value, family):
+                    raise CompiledError("COMPILED_BINDING_VALUE")
+                typed = resolved_literal_value_type(value)
+                if physical_required:
+                    described = literal_representation(original.tag, value, family)
+                    realized = physical.Realization(
+                        original.tag,
+                        described["storage"],
+                        described["nullable"],
+                        described["domain"],
+                    )
+                else:
+                    realized = None
+            elif kind == "aggregate_value":
+                origin = "aggregate"
+                from pietto.semantic.aggregates import (
+                    semantic_aggregate_result_value_type,
+                )
+                from pietto._project import project_sql_emission_aggregation as grouping
+
+                function = get("function")
+                if function not in grouping.SPELLING or len(operands) > 1:
+                    raise CompiledError("COMPILED_AGGREGATE_SIGNATURE")
+                argument = None if not operands else facts[operands[0]]
+                if (
+                    physical_required
+                    and argument is not None
+                    and grouping.resolved_argument_problem(
+                        function, argument.address.kind == "read", argument.realization
+                    )
+                    is not None
+                ):
+                    raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
+                typed = semantic_aggregate_result_value_type(
+                    function, None if argument is None else argument.value_type
+                )
+                if typed is None or typed != declared(get("logical")):
+                    raise CompiledError("COMPILED_AGGREGATE_TYPE")
+                if physical_required:
+                    realized, problem = grouping.result_realization(
+                        family,
+                        function,
+                        argument,
+                        (
+                            typed.resolved_type.name,
+                            physical.NULLABILITY[typed.nullability],
+                        ),
+                    )
+                    if realized is None or problem is not None:
+                        raise CompiledError("COMPILED_AGGREGATE_DOMAIN")
+                else:
+                    realized = None
+            elif kind == "join_value":
+                from pietto._project.project_sql_plan_joins import (
+                    compiled_join_rejections,
+                )
+                from pietto._project.project_sql_emission_joins import (
+                    resolved_port_realization,
+                )
+
+                join = records[get("owner")]
+                read = records[get("input")]
+                incoming = facts[read.address]
+                use = records[read.get("use")]
+                rejected = (use.address, read.get("port")) in compiled_join_rejections(
+                    records, join
+                )
+                from pietto._project.project_current_joins import (
+                    resolved_join_field_nullability,
+                )
+                from pietto.ast_nodes import AuthoredJoinKind
+                from pietto._project.model import ProjectRowFieldNullability
+
+                preserve = (
+                    use.get("ordinal") == 0 and use.get("producer").kind == "join"
+                )
+                introduction = incoming.introduction if preserve else use.address
+                nulling = incoming.nulling if preserve else ()
+                if join.get("kind") == "full" or (
+                    join.get("kind"),
+                    use.get("ordinal"),
+                ) in (("left", 1), ("right", 0)):
+                    nulling = (*nulling, join.address)
+                nullable = EffectiveNullability(
+                    resolved_join_field_nullability(
+                        AuthoredJoinKind(join.get("kind")),
+                        ProjectRowFieldNullability(
+                            incoming.value_type.nullability.value
+                        ),
+                        bool(nulling),
+                        rejected,
+                    ).value
+                )
+                typed = ValueType(incoming.value_type.resolved_type, nullable)
+                if typed != declared(get("logical")):
+                    raise CompiledError("COMPILED_JOIN_NULLABILITY")
+                origin, type_parameters = incoming.origin, incoming.parameters
+                if physical_required:
+                    realized, problem = resolved_port_realization(
+                        typed.resolved_type.name,
+                        physical.NULLABILITY[nullable],
+                        incoming.realization,
+                        outer=True,
+                        proved=rejected,
+                    )
+                    if realized is None or problem is not None:
+                        raise CompiledError("COMPILED_JOIN_DOMAIN")
+                else:
+                    realized = None
+            elif kind == "set_value":
+                from pietto._project.project_set_operations import (
+                    resolved_set_nullability,
+                )
+                from pietto._project.project_row_equivalence import (
+                    resolved_builtin_equivalence_reason,
+                )
+                from pietto._project import project_sql_emission_sets as setting
+                from pietto._project.model import ProjectRowFieldNullability
+                from pietto.ast_nodes import SetOperationKind, SetOperationQuantifier
+
+                operation = records[get("owner")]
+                inputs = tuple(facts[a] for a in operands)
+                first = inputs[0]
+                if any(
+                    i.value_type.resolved_type != first.value_type.resolved_type
+                    or i.parameters != first.parameters
+                    for i in inputs
+                ):
+                    raise CompiledError("COMPILED_SET_TYPE")
+                type_parameters = first.parameters
+                set_kind, quantifier = (
+                    SetOperationKind(operation.get("kind")),
+                    SetOperationQuantifier(operation.get("quantifier")),
+                )
+                nullable = resolved_set_nullability(
+                    set_kind,
+                    tuple(
+                        ProjectRowFieldNullability(i.value_type.nullability.value)
+                        for i in inputs
+                    ),
+                )
+                typed = ValueType(
+                    first.value_type.resolved_type, EffectiveNullability(nullable.value)
+                )
+                if typed != declared(get("logical")):
+                    raise CompiledError("COMPILED_SET_NULLABILITY")
+                reasons = tuple(
+                    resolved_builtin_equivalence_reason(i.value_type.resolved_type.name)
+                    for i in inputs
+                )
+                if physical_required:
+                    realized, problem = setting.resolved_column_realization(
+                        set_kind,
+                        quantifier,
+                        physical.NULLABILITY[typed.nullability],
+                        inputs,
+                        reasons,
+                    )
+                    if realized is None or problem is not None:
+                        raise CompiledError("COMPILED_SET_DOMAIN")
+                else:
+                    realized = None
+            elif kind == "window_value":
+                from pietto._project import project_sql_emission_windows as windowing
+                from pietto._project.project_sql_plan_windows import (
+                    resolved_result_type,
+                )
+
+                origin = "window"
+                function = get("function")
+                static = windowing.resolved_arguments(
+                    function, get("arguments"), records, family
+                )
+                value_reads = tuple(
+                    a for role, a in get("arguments") if role == "value"
+                )
+                argument = facts[value_reads[0]] if value_reads else None
+                typed = resolved_result_type(
+                    function, None if argument is None else argument.value_type, static
+                )
+                type_parameters = None if argument is None else argument.parameters
+                if typed != declared(get("logical")):
+                    raise CompiledError("COMPILED_WINDOW_TYPE")
+                retained = (
+                    typed.resolved_type.name,
+                    physical.NULLABILITY[typed.nullability],
+                )
+                if physical_required:
+                    if argument is None:
+                        realized, problem = windowing.result_realization(
+                            family, function, (), retained
+                        )
+                    else:
+                        defaults = tuple(v for role, v in static if role == "default")
+                        default = (
+                            None
+                            if not defaults
+                            else "NULL"
+                            if defaults[0] is None
+                            else str(defaults[0])
+                        )
+                        realized, problem = windowing.resolved_value_result(
+                            family,
+                            argument.realization,
+                            argument.origin,
+                            default,
+                            retained,
+                        )
+                    if realized is None or problem is not None:
+                        raise CompiledError("COMPILED_WINDOW_DOMAIN")
+                else:
+                    realized = None
+            elif kind in ("port", "read"):
+                origin = facts[operands[0]].origin
+                type_parameters = facts[operands[0]].parameters
+                introduction, nulling = (
+                    facts[operands[0]].introduction,
+                    facts[operands[0]].nulling,
+                )
+                if kind == "port" and get("owner").kind == "aggregate":
+                    origin = "aggregate"
+                typed = facts[operands[0]].value_type
+                realized = facts[operands[0]].realization
+                if kind == "port" and declared(get("logical")) != typed:
+                    raise CompiledError("COMPILED_PORT_TYPE")
+            else:
+                operator = get("operator")
+                if type(operator) is not tuple or len(operator) != 2:
+                    raise CompiledError("COMPILED_OPERATOR")
+                role, token = operator
+                arguments = tuple(facts[child].value_type for child in operands)
+                error = None
+                if role == "unary" and token in ("+", "-") and len(arguments) == 1:
+                    typed, error = resolved_unary_value_type(arguments[0])
+                    origin = input_origin = facts[operands[0]].origin
+                    if input_origin != "literal":
+                        origin = "unsupported"
+                elif (
+                    role == "binary"
+                    and token in ("+", "-", "*", "and", "or")
+                    and len(arguments) == 2
+                ):
+                    typed, error = resolved_binary_value_type(token, *arguments)
+                elif (
+                    role == "comparison"
+                    and token in ("==", "!=", "<", "<=", ">", ">=")
+                    and len(arguments) == 2
+                ):
+                    typed = ValueType(
+                        ResolvedType("Bool", TypeKind.BUILTIN),
+                        EffectiveNullability.UNKNOWN,
+                    )
+                elif (
+                    role == "null_test"
+                    and token in ("is_null", "is_not_null")
+                    and len(arguments) == 1
+                ):
+                    typed = ValueType(
+                        ResolvedType("Bool", TypeKind.BUILTIN),
+                        EffectiveNullability.NON_NULL,
+                    )
+                else:
+                    raise CompiledError("COMPILED_OPERATOR")
+                if error is not None or typed != declared(get("logical")):
+                    raise CompiledError("COMPILED_OPERATOR_TYPE")
+                literal_value = facts[operands[0]].value
+                if role == "unary" and type(literal_value) in (int, float):
+                    value = -literal_value if token == "-" else +literal_value
+                input_facts = tuple(facts[child] for child in operands)
+                if physical_required:
+                    inputs = tuple(item.require_realization() for item in input_facts)
+                    nullable = physical.NULLABILITY[typed.nullability]
+                    tag = typed.resolved_type.name
+                    problem = None
+                    if role == "binary":
+                        realized, problem = physical.resolved_binary_realization(
+                            family, token, tag, nullable, *inputs
+                        )
+                    elif role == "comparison":
+                        realized, problem = physical.resolved_comparison_realization(
+                            family, tag, nullable, *inputs
+                        )
+                    elif role == "null_test":
+                        realized = physical._bool(family, False)
+                    elif type(input_facts[0].value) in (int, float):
+                        value = (
+                            -input_facts[0].value
+                            if token == "-"
+                            else +input_facts[0].value
+                        )
+                        described = literal_representation(tag, value, family)
+                        realized = physical.Realization(
+                            tag,
+                            described["storage"],
+                            described["nullable"],
+                            described["domain"],
+                        )
+                    else:
+                        inner = inputs[0]
+                        interval = physical.int_bounds(inner)
+                        if tag != "Int" or interval is None:
+                            raise CompiledError("COMPILED_UNARY_DOMAIN")
+                        low, high = (
+                            (-interval[1], -interval[0]) if token == "-" else interval
+                        )
+                        realized = physical._checked_int(
+                            physical._arithmetic_storage(family, inner, inner),
+                            low,
+                            high,
+                            nullable,
+                        )
+                    if realized is None or problem is not None:
+                        raise CompiledError("COMPILED_PHYSICAL_DOMAIN")
+                else:
+                    realized = None
+            if not physical_required:
+                realized = None
+            facts[ref] = CompiledScalarFact(
+                root,
+                ref,
+                typed,
+                value,
+                operator,
+                operands,
+                realization=realized,
+                origin=origin,
+                parameters=type_parameters,
+                introduction=introduction,
+                nulling=nulling,
+            )
+    retention = tuple(
+        (r.address, project_joined_row_filter._SQL_ROW_RETENTION_EFFECTS)
+        for r in records.values()
+        if r.address.kind == "row" and r.get("predicate") is not None
+    )
+    from pietto._project.project_single_match import compiled_requests
+
+    declarations = compiled_declarations(root)
+    return CompiledCompletedSemanticResult(
+        root,
+        values,
+        declarations,
+        tuple(facts[address] for address in records if address in facts),
+        retention,
+        compiled_requests(root, declarations),
+    )
+
+
+def verify_compiled_semantics(value):
+    """Independently inspect derived facts; never invoke their constructor."""
+    import json
+    from pietto._project.project_compiled_schema import Address
+    from pietto._project.project_compiled_verification import need
+    from pietto._project.project_sql_emission_parameters import (
+        literal_representation,
+        same_value,
+        value_valid,
+    )
+    from pietto._project.project_sql_emission_rows import Realization, NULLABILITY
+    from pietto._project.project_sql_emission_verification import (
+        resolved_row_realization,
+    )
+    from pietto.semantic.expressions import (
+        resolved_literal_value_type,
+        resolved_unary_value_type,
+        resolved_binary_value_type,
+    )
+    from pietto.semantic.model import (
+        EffectiveNullability,
+        ResolvedType,
+        TypeKind,
+        ValueType,
+    )
+
+    need(type(value) is CompiledCompletedSemanticResult, "SEMANTIC_ROOT")
+    value.root.verify()
+    records = value.root.records
+    from pietto._project.project_compiled_schema import selected_records
+
+    executable = selected_records(records, records[value.root.description.query])
+    from pietto._project.project_single_match import (
+        CompiledSingleMatchRequest,
+        ProjectSingleMatchScope,
+        ProjectSingleMatchUnit,
+    )
+    from pietto._project.module_attribution import CompiledDeclarationOccurrence
+
+    declarations = tuple(r for r in records.values() if r.address.kind == "declaration")
+    need(
+        type(value.declarations) is tuple
+        and len(value.declarations) == len(declarations),
+        "SEMANTIC_DECLARATIONS",
+    )
+    owners = {}
+    for declaration, record in zip(value.declarations, declarations, strict=True):
+        need(
+            type(declaration) is CompiledDeclarationOccurrence
+            and declaration.root is value.root
+            and declaration.address == record.address
+            and (
+                declaration.module_path,
+                declaration.module_position,
+                declaration.declaration_position,
+                declaration.namespace,
+                declaration.kind,
+                declaration.name,
+            )
+            == record.values,
+            "SEMANTIC_DECLARATION",
+        )
+        owners[record.address] = declaration
+    expected_requests = records[value.root.description.query].get("requests")
+    need(
+        type(value.single_match_requests) is tuple
+        and len(value.single_match_requests) == len(expected_requests),
+        "SEMANTIC_REQUEST_INVENTORY",
+    )
+    request_objects = {}
+    for request, address in zip(
+        value.single_match_requests, expected_requests, strict=True
+    ):
+        record = records[address]
+        need(
+            type(request) is CompiledSingleMatchRequest
+            and request.root is value.root
+            and request.address == address
+            and request.owner is owners[record.get("owner")]
+            and request.use is records[record.get("use")]
+            and request.scope is ProjectSingleMatchScope(record.get("scope"))
+            and request.unit is ProjectSingleMatchUnit(record.get("unit"))
+            and request.path
+            is (None if record.get("path") is None else records[record.get("path")])
+            and request.hop == record.get("hop")
+            and request.input_pairs == record.get("pairs"),
+            "SEMANTIC_REQUEST",
+        )
+        need(
+            address not in request_objects or request_objects[address] is request,
+            "SEMANTIC_REQUEST_ALIAS",
+        )
+        request_objects[address] = request
+    family = records[Address("target", 0)].get("family")
+    slots = tuple(r for r in records.values() if r.address.kind == "slot")
+    need(
+        type(value.values) is tuple and len(slots) == len(value.values),
+        "SEMANTIC_BINDING",
+    )
+    replacements = {}
+    for slot, scalar in zip(slots, value.values, strict=True):
+        need(value_valid(slot.get("tag"), scalar, family), "SEMANTIC_BINDING")
+        replacements[slot.get("literal")] = scalar
+    expected_records = tuple(
+        r
+        for r in records.values()
+        if r.address.kind
+        in {
+            "field",
+            "port",
+            "read",
+            "literal",
+            "operation",
+            "aggregate_value",
+            "window_value",
+            "set_value",
+            "join_value",
+        }
+    )
+    need(
+        type(value.facts) is tuple and len(value.facts) == len(expected_records),
+        "SEMANTIC_INVENTORY",
+    )
+    by_address = {}
+    for fact, record in zip(value.facts, expected_records, strict=True):
+        need(
+            type(fact) is CompiledScalarFact
+            and fact.root is value.root
+            and fact.address == record.address
+            and fact.address not in by_address,
+            "SEMANTIC_FACT",
+        )
+        need(
+            type(fact.value_type) is ValueType
+            and (
+                type(fact.realization) is Realization
+                if fact.address in executable
+                else fact.realization is None
+            ),
+            "SEMANTIC_FACT_TYPE",
+        )
+        by_address[record.address] = fact
+    checked, active = set(), set()
+    for address in by_address:
+        stack = [(address, False)]
+        while stack:
+            current, returning = stack.pop()
+            if current in checked:
+                continue
+            record, actual = records[current], by_address[current]
+            kind, get = record.address.kind, record.get
+            children = (
+                get("operands")
+                if kind == "operation"
+                else get("arguments")
+                if kind == "aggregate_value"
+                else get("inputs")
+                if kind == "set_value"
+                else (get("source"),)
+                if kind == "port"
+                else (get("port"),)
+                if kind == "read"
+                else ()
+            )
+            if kind == "join_value":
+                join = records[get("owner")]
+                children = (
+                    get("input"),
+                    *(
+                        a
+                        for e in join.get("equalities")
+                        for a in (records[e].get("left"), records[e].get("right"))
+                    ),
+                    *(
+                        (join.get("predicate"),)
+                        if join.get("predicate") is not None
+                        else ()
+                    ),
+                )
+            if kind == "window_value":
+                spec = records[get("specification")]
+                children = (
+                    *get("inputs"),
+                    *(a for _, a in get("arguments") if a.kind != "null_literal"),
+                    *spec.get("partition"),
+                    *(a for a, _, _ in spec.get("ordering")),
+                )
+            need(
+                type(children) is tuple and all(c in by_address for c in children),
+                "SEMANTIC_DEPENDENCY",
+            )
+            if not returning:
+                need(current not in active, "SEMANTIC_CYCLE")
+                active.add(current)
+                stack.append((current, True))
+                stack.extend((c, False) for c in reversed(children))
+                continue
+            active.remove(current)
+            inputs = tuple(by_address[c] for c in children)
+            expected_value, operator = None, None
+            physical_required = current in executable
+            origin = "unsupported"
+            type_parameters = None
+            introduction, nulling = None, ()
+            if kind == "field":
+                origin = "field"
+                type_parameters = get("decimal")
+                name, nullable = get("logical")
+                typed = ValueType(
+                    ResolvedType(name, TypeKind.BUILTIN), EffectiveNullability(nullable)
+                )
+                if physical_required:
+                    expected = json.loads(get("physical"))
+                    realization = Realization(
+                        name,
+                        expected["storage"],
+                        expected["nullable"],
+                        expected["domain"],
+                    )
+                else:
+                    realization = None
+            elif kind == "literal":
+                origin = "literal"
+                expected_value = replacements.get(current, get("value").value)
+                typed = resolved_literal_value_type(expected_value)
+                if physical_required:
+                    expected = literal_representation(
+                        get("tag"), expected_value, family
+                    )
+                    realization = Realization(
+                        get("tag"),
+                        expected["storage"],
+                        expected["nullable"],
+                        expected["domain"],
+                    )
+                else:
+                    realization = None
+            elif kind == "aggregate_value":
+                origin = "aggregate"
+                from pietto.semantic.aggregates import (
+                    semantic_aggregate_result_value_type,
+                )
+                from pietto._project.project_sql_emission_verification import (
+                    _aggregate_result_realization,
+                )
+                from pietto._project import project_sql_emission_aggregation as grouping
+
+                function = get("function")
+                need(
+                    function in grouping.SPELLING and len(inputs) <= 1,
+                    "SEMANTIC_AGGREGATE_SIGNATURE",
+                )
+                argument = inputs[0] if inputs else None
+                if physical_required and argument is not None:
+                    need(
+                        grouping.resolved_argument_problem(
+                            function,
+                            argument.address.kind == "read",
+                            argument.realization,
+                        )
+                        is None,
+                        "SEMANTIC_AGGREGATE_ARGUMENT",
+                    )
+                typed = semantic_aggregate_result_value_type(
+                    function, None if argument is None else argument.value_type
+                )
+                if typed is None:
+                    raise ValueError("COMPILED_SEMANTIC_AGGREGATE_TYPE")
+                if physical_required:
+                    realization = _aggregate_result_realization(
+                        family,
+                        function,
+                        argument,
+                        (typed.resolved_type.name, NULLABILITY[typed.nullability]),
+                    )
+                else:
+                    realization = None
+            elif kind == "join_value":
+                from pietto._project.project_sql_plan_joins import (
+                    compiled_join_rejections,
+                )
+                from pietto._project.project_sql_emission_joins import (
+                    resolved_port_realization,
+                )
+
+                join = records[get("owner")]
+                read = records[get("input")]
+                incoming = by_address[read.address]
+                use = records[read.get("use")]
+                rejected = (use.address, read.get("port")) in compiled_join_rejections(
+                    records, join
+                )
+                from pietto._project.project_current_joins import (
+                    resolved_join_field_nullability,
+                )
+                from pietto.ast_nodes import AuthoredJoinKind
+                from pietto._project.model import ProjectRowFieldNullability
+
+                preserve = (
+                    use.get("ordinal") == 0 and use.get("producer").kind == "join"
+                )
+                introduction = incoming.introduction if preserve else use.address
+                nulling = incoming.nulling if preserve else ()
+                if join.get("kind") == "full" or (
+                    join.get("kind"),
+                    use.get("ordinal"),
+                ) in (("left", 1), ("right", 0)):
+                    nulling = (*nulling, join.address)
+                nullable = EffectiveNullability(
+                    resolved_join_field_nullability(
+                        AuthoredJoinKind(join.get("kind")),
+                        ProjectRowFieldNullability(
+                            incoming.value_type.nullability.value
+                        ),
+                        bool(nulling),
+                        rejected,
+                    ).value
+                )
+                typed = ValueType(incoming.value_type.resolved_type, nullable)
+                origin, type_parameters = incoming.origin, incoming.parameters
+                if physical_required:
+                    realization, problem = resolved_port_realization(
+                        typed.resolved_type.name,
+                        NULLABILITY[nullable],
+                        incoming.realization,
+                        outer=True,
+                        proved=rejected,
+                    )
+                    if realization is None or problem is not None:
+                        raise ValueError("COMPILED_SEMANTIC_JOIN_DOMAIN")
+                else:
+                    realization = None
+            elif kind == "set_value":
+                from pietto._project.project_set_operations import (
+                    resolved_set_nullability,
+                )
+                from pietto._project.project_row_equivalence import (
+                    resolved_builtin_equivalence_reason,
+                )
+                from pietto._project.project_sql_emission_verification import (
+                    resolved_set_column_realization,
+                )
+                from pietto._project.model import ProjectRowFieldNullability
+                from pietto.ast_nodes import SetOperationKind, SetOperationQuantifier
+
+                operation = records[get("owner")]
+                first = inputs[0]
+                need(
+                    all(
+                        i.value_type.resolved_type == first.value_type.resolved_type
+                        and i.parameters == first.parameters
+                        for i in inputs
+                    ),
+                    "SEMANTIC_SET_TYPE",
+                )
+                type_parameters = first.parameters
+                set_kind, quantifier = (
+                    SetOperationKind(operation.get("kind")),
+                    SetOperationQuantifier(operation.get("quantifier")),
+                )
+                nullable = resolved_set_nullability(
+                    set_kind,
+                    tuple(
+                        ProjectRowFieldNullability(i.value_type.nullability.value)
+                        for i in inputs
+                    ),
+                )
+                typed = ValueType(
+                    first.value_type.resolved_type, EffectiveNullability(nullable.value)
+                )
+                if physical_required:
+                    realization = resolved_set_column_realization(
+                        set_kind,
+                        quantifier,
+                        NULLABILITY[typed.nullability],
+                        inputs,
+                        tuple(
+                            resolved_builtin_equivalence_reason(
+                                i.value_type.resolved_type.name
+                            )
+                            for i in inputs
+                        ),
+                    )
+                else:
+                    realization = None
+            elif kind == "window_value":
+                from pietto._project import project_sql_emission_windows as windowing
+                from pietto._project.project_sql_plan_windows import (
+                    resolved_result_type,
+                )
+                from pietto._project.project_sql_emission_verification import (
+                    _window_result_realization,
+                    resolved_window_value_result,
+                )
+
+                origin = "window"
+                function = get("function")
+                static = windowing.resolved_arguments(
+                    function, get("arguments"), records, family
+                )
+                reads = tuple(a for role, a in get("arguments") if role == "value")
+                argument = by_address[reads[0]] if reads else None
+                typed = resolved_result_type(
+                    function, None if argument is None else argument.value_type, static
+                )
+                type_parameters = None if argument is None else argument.parameters
+                retained = (typed.resolved_type.name, NULLABILITY[typed.nullability])
+                if physical_required:
+                    if argument is None:
+                        realization = _window_result_realization(
+                            family, function, (), retained
+                        )
+                    else:
+                        defaults = tuple(v for role, v in static if role == "default")
+                        default = (
+                            None
+                            if not defaults
+                            else "NULL"
+                            if defaults[0] is None
+                            else str(defaults[0])
+                        )
+                        realization = resolved_window_value_result(
+                            family,
+                            argument.realization,
+                            argument.origin,
+                            default,
+                            retained,
+                        )
+                else:
+                    realization = None
+            elif kind in ("read", "port"):
+                origin = (
+                    "aggregate"
+                    if kind == "port" and get("owner").kind == "aggregate"
+                    else inputs[0].origin
+                )
+                typed, realization = inputs[0].value_type, inputs[0].realization
+                type_parameters = inputs[0].parameters
+                introduction, nulling = inputs[0].introduction, inputs[0].nulling
+            else:
+                operator = get("operator")
+                role, token = operator
+                if role == "unary":
+                    origin = (
+                        "literal" if inputs[0].origin == "literal" else "unsupported"
+                    )
+                    typed, problem = resolved_unary_value_type(inputs[0].value_type)
+                elif role == "binary":
+                    typed, problem = resolved_binary_value_type(
+                        token, *(i.value_type for i in inputs)
+                    )
+                else:
+                    problem = None
+                    typed = ValueType(
+                        ResolvedType("Bool", TypeKind.BUILTIN),
+                        EffectiveNullability.NON_NULL
+                        if role == "null_test"
+                        else EffectiveNullability.UNKNOWN,
+                    )
+                need(problem is None, "SEMANTIC_TYPE")
+                if role == "unary" and type(inputs[0].value) in (int, float):
+                    expected_value = (
+                        -inputs[0].value if token == "-" else +inputs[0].value
+                    )
+                if physical_required:
+                    if role == "unary" and type(inputs[0].value) in (int, float):
+                        expected_value = (
+                            -inputs[0].value if token == "-" else +inputs[0].value
+                        )
+                        expected = literal_representation(
+                            typed.resolved_type.name, expected_value, family
+                        )
+                        realization = Realization(
+                            typed.resolved_type.name,
+                            expected["storage"],
+                            expected["nullable"],
+                            expected["domain"],
+                        )
+                    else:
+                        realization = resolved_row_realization(
+                            family,
+                            role,
+                            token,
+                            typed.resolved_type.name,
+                            NULLABILITY[typed.nullability],
+                            tuple(i.realization for i in inputs),
+                        )
+                else:
+                    realization = None
+            need(
+                actual.value_type == typed
+                and actual.origin == origin
+                and actual.parameters == type_parameters
+                and actual.introduction == introduction
+                and actual.nulling == nulling
+                and same_value(actual.value, expected_value)
+                and actual.operator == operator
+                and actual.operands == children,
+                "SEMANTIC_DERIVATION",
+            )
+            if physical_required:
+                observed = actual.require_realization()
+                if type(realization) is not Realization:
+                    raise ValueError("COMPILED_SEMANTIC_REALIZATION")
+                need(
+                    type(observed.storage) is dict
+                    and type(observed.domain) is dict
+                    and type(observed.nullable) is type(realization.nullable),
+                    "SEMANTIC_REALIZATION",
+                )
+                need(
+                    observed.tag == realization.tag
+                    and json.dumps(
+                        (observed.storage, observed.nullable, observed.domain),
+                        sort_keys=True,
+                        allow_nan=False,
+                    )
+                    == json.dumps(
+                        (realization.storage, realization.nullable, realization.domain),
+                        sort_keys=True,
+                        allow_nan=False,
+                    ),
+                    "SEMANTIC_REALIZATION",
+                )
+            else:
+                need(actual.realization is None, "SEMANTIC_LOGICAL_ONLY")
+            checked.add(current)
+    expected_retention = tuple(
+        (r.address, project_joined_row_filter._SQL_ROW_RETENTION_EFFECTS)
+        for r in records.values()
+        if r.address.kind == "row" and r.get("predicate") is not None
+    )
+    need(value.retention == expected_retention, "SEMANTIC_RETENTION")
+    return value

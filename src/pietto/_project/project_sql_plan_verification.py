@@ -2,6 +2,16 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pietto._project.project_sql_plan import CompiledSQLPlan
+    from pietto._project.project_completed_semantics import (
+        CompiledCompletedSemanticResult,
+    )
+    from pietto._project.module_attribution import CompiledDeclarationOccurrence
+
+
 from math import isfinite
 from pietto.semantic.model import TypeKind, ValueType
 from pietto._project import project_sql_plan_literals as literals
@@ -5458,4 +5468,524 @@ def verify_project_sql_plan(
         selected_owner=selected_owner,
         literal_policy=literal_policy,
         envelope=envelope,
+    )
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledSQLPlanVerification:
+    plan: CompiledSQLPlan = field(repr=False)
+    completed: CompiledCompletedSemanticResult = field(repr=False)
+    selected_owner: CompiledDeclarationOccurrence = field(repr=False)
+
+    @property
+    def literal_policy(self):
+        return self.plan.literal_policy
+
+    @property
+    def verified(self):
+        return True
+
+
+def verify_compiled_sql_plan(plan):
+    from pietto._project.project_sql_plan import (
+        CompiledSQLPlan,
+        CompiledSQLPort,
+        CompiledSQLDefinition,
+        CompiledSQLSource,
+        CompiledLiteralSite,
+        CompiledLiteralSlot,
+        CompiledFixedEnvelope,
+        CompiledFixedValue,
+        CompiledBindUse,
+    )
+    from pietto._project.project_sql_plan_expressions import (
+        CompiledPlanValue,
+        CompiledLiteral,
+        CompiledBoundLiteral,
+        CompiledExpressionPrimitive,
+    )
+    from pietto._project.project_query_block_ir_verification import (
+        verify_compiled_query_block_ir,
+    )
+    from pietto._project.project_compiled_schema import Address
+    from pietto._project.project_compiled_verification import need
+    from pietto._project.project_sql_emission_parameters import (
+        NativeUse,
+        PHYSICAL,
+        same_value,
+    )
+
+    need(type(plan) is CompiledSQLPlan, "PLAN_ROOT")
+    verify_compiled_query_block_ir(plan.ir)
+    ir = plan.ir
+    root = ir.completed.root
+    records = root.records
+    from pietto._project.project_compiled_schema import selected_relations
+
+    active = selected_relations(records, records[root.description.query])
+    need(plan.scope is ir.scope and plan.references is ir.references, "PLAN_SCOPE")
+    need(
+        type(plan.definitions) is tuple and len(plan.definitions) == len(ir.operators),
+        "PLAN_DEFINITIONS",
+    )
+    expected_ports = {}
+    expected_sources = []
+    for definition, operator in zip(plan.definitions, ir.operators, strict=True):
+        need(
+            type(definition) is CompiledSQLDefinition
+            and definition.ref is operator.ref
+            and definition.entry is operator,
+            "PLAN_DEFINITION",
+        )
+        need(
+            type(definition.exports) is tuple
+            and len(definition.exports) == len(operator.fields),
+            "PLAN_EXPORTS",
+        )
+        for port, retained_field in zip(
+            definition.exports, operator.fields, strict=True
+        ):
+            address = Address(retained_field.ref.kind, retained_field.ref.position)
+            need(
+                type(port) is CompiledSQLPort
+                and port.ref is retained_field.ref
+                and port.owner is operator.ref
+                and port.field is retained_field
+                and port.identity.name == retained_field.evidence.name,
+                "PLAN_PORT",
+            )
+            need(address not in expected_ports, "PLAN_PORT_ALIAS")
+            expected_ports[address] = port
+        if operator.kind == "source" and operator.record.address in active:
+            expected_sources.append(operator)
+    need(
+        set(plan.ports) == set(expected_ports)
+        and all(plan.ports[k] is v for k, v in expected_ports.items()),
+        "PLAN_PORT_INVENTORY",
+    )
+    need(
+        type(plan.sources) is tuple and len(plan.sources) == len(expected_sources),
+        "PLAN_SOURCES",
+    )
+    for source, operator in zip(plan.sources, expected_sources, strict=True):
+        need(
+            type(source) is CompiledSQLSource
+            and source.ref is operator.ref
+            and source.source is operator,
+            "PLAN_SOURCE",
+        )
+    entry = records[root.description.query]
+    need(
+        type(plan.exports) is tuple
+        and len(plan.exports) == len(entry.get("exports"))
+        and all(
+            p is plan.ports[a]
+            for p, a in zip(plan.exports, entry.get("exports"), strict=True)
+        ),
+        "PLAN_OUTPUT",
+    )
+    facts = {f.address: f for f in ir.completed.facts}
+    expected_expressions = {
+        a for a in facts if a.kind in ("literal", "read", "operation")
+    }
+    need(set(plan.expressions) == expected_expressions, "PLAN_EXPRESSION_INVENTORY")
+    sites = tuple(r for r in records.values() if r.address.kind == "site")
+    slots = tuple(r for r in records.values() if r.address.kind == "slot")
+    need(
+        len(plan.literal_sites) == len(sites) and len(plan.literal_slots) == len(slots),
+        "PLAN_LITERAL_INVENTORY",
+    )
+    bound = {r.get("literal"): r for r in slots}
+    for address, expression in plan.expressions.items():
+        fact = facts[address]
+        expected_type = (
+            CompiledBoundLiteral
+            if address in bound
+            else CompiledLiteral
+            if address.kind == "literal"
+            else CompiledPlanValue
+        )
+        need(
+            type(expression) is expected_type
+            and expression.ref is plan.references[address]
+            and expression.value_type is fact.value_type,
+            "PLAN_EXPRESSION",
+        )
+        primitive = expression.expression
+        need(
+            type(primitive) is CompiledExpressionPrimitive
+            and same_value(primitive.value, fact.value)
+            and primitive.operator
+            == (None if fact.operator is None else fact.operator[1])
+            and primitive.negated is (fact.operator == ("null_test", "is_not_null")),
+            "PLAN_SCALAR",
+        )
+        need(
+            type(expression.operands) is tuple
+            and len(expression.operands) == len(fact.operands)
+            and all(
+                a is plan.references[b]
+                for a, b in zip(expression.operands, fact.operands, strict=True)
+            ),
+            "PLAN_OPERANDS",
+        )
+    for site, record in zip(plan.literal_sites, sites, strict=True):
+        need(
+            type(site) is CompiledLiteralSite
+            and site.ref is plan.references[record.address],
+            "PLAN_SITE",
+        )
+        originals = tuple(
+            r
+            for r in records.values()
+            if r.address.kind in ("literal", "null_literal")
+            and r.get("site") == record.address
+        )
+        need(len(originals) == 1, "PLAN_SITE_LITERAL")
+        original = originals[0]
+        need(
+            (
+                site.position.literal is plan.expressions[original.address].expression
+                if original.address.kind == "literal"
+                else type(site.position.literal) is CompiledExpressionPrimitive
+                and site.position.literal.value is None
+                and site.position.literal.operator is None
+                and site.position.literal.negated is False
+            )
+            and site.position.expression is plan.references[original.address]
+            and site.position.role.value == record.get("role")
+            and site.position.ancestry == record.get("ancestry")
+            and site.disposition.value == record.get("disposition")
+            and (None if site.reason is None else site.reason.value)
+            == record.get("reason"),
+            "PLAN_SITE_CORRESPONDENCE",
+        )
+    for slot, record in zip(plan.literal_slots, slots, strict=True):
+        sites_here = tuple(
+            s
+            for s in plan.literal_sites
+            if s.ref is plan.references[record.get("site")]
+        )
+        need(
+            type(slot) is CompiledLiteralSlot
+            and len(sites_here) == 1
+            and slot.site is sites_here[0]
+            and slot.ref is plan.references[record.address]
+            and slot.tag.value == record.get("tag"),
+            "PLAN_SLOT",
+        )
+        expression = plan.expressions[record.get("literal")]
+        need(
+            type(expression.use) is CompiledBindUse
+            and expression.use.slot is slot
+            and expression.use.expression is expression.ref,
+            "PLAN_BOUND_EXPRESSION",
+        )
+    need(
+        type(plan.fixed_envelope) is CompiledFixedEnvelope
+        and len(plan.fixed_envelope.values) == len(slots),
+        "PLAN_FIXED_VALUES",
+    )
+    for fixed, slot in zip(plan.fixed_envelope.values, plan.literal_slots, strict=True):
+        need(
+            type(fixed) is CompiledFixedValue
+            and fixed.slot is slot
+            and fixed.tag is slot.tag
+            and same_value(fixed.value, slot.site.position.literal.value),
+            "PLAN_FIXED_VALUE",
+        )
+    family = records[Address("target", 0)].get("family")
+    uses = tuple(r for r in records.values() if r.address.kind == "native_use")
+    need(
+        type(plan.parameter_uses) is tuple and len(plan.parameter_uses) == len(uses),
+        "PLAN_PARAMETER_INVENTORY",
+    )
+    allocated = []
+    for use, record in zip(plan.parameter_uses, uses, strict=True):
+        slot = plan.literal_slots[record.get("slot").position]
+        original = plan.expressions[records[record.get("slot")].get("literal")]
+        if not any(s is slot for s in allocated):
+            allocated.append(slot)
+        expected_index = (
+            use.ordinal + 1
+            if family == "mysql"
+            else next(i + 1 for i, s in enumerate(allocated) if s is slot)
+        )
+        need(
+            type(use) is NativeUse
+            and use.original is original
+            and use.slot is slot
+            and use.ordinal == record.address.position
+            and use.server_index == expected_index == record.get("index")
+            and use.physical_type == PHYSICAL[family][slot.tag.value],
+            "PLAN_PARAMETER_USE",
+        )
+    need(len(allocated) == len(slots), "PLAN_SLOT_USE_CLOSURE")
+    need(
+        plan.literal_policy.value
+        == records[Address("policy", 0)].get("literal_policy"),
+        "PLAN_LITERAL_POLICY",
+    )
+    from pietto._project.project_sql_plan_windows import verify_compiled_window_policies
+
+    verify_compiled_window_policies(plan)
+    from pietto._project.project_sql_plan_requirements import (
+        verify_compiled_semantic_references,
+    )
+
+    verify_compiled_semantic_references(plan)
+    _verify_compiled_match_inventory(plan)
+    from pietto._project.project_joined_aggregation import (
+        verify_compiled_aggregate_evidence,
+    )
+    from pietto._project.project_sql_plan import CompiledSQLAggregateRisk
+    from pietto._project.project_query_block_ir import CompiledIRReference
+
+    verify_compiled_aggregate_evidence(ir, plan.aggregate_evidence)
+    expected_risks = tuple(
+        (evidence.stage.ref, risk)
+        for evidence in plan.aggregate_evidence
+        for risk in evidence.risks
+    )
+    need(
+        type(plan.aggregate_risks) is tuple
+        and len(plan.aggregate_risks) == len(expected_risks),
+        "PLAN_AGGREGATE_RISKS",
+    )
+    for i, (risk, (stage, source)) in enumerate(
+        zip(plan.aggregate_risks, expected_risks, strict=True)
+    ):
+        need(
+            type(risk) is CompiledSQLAggregateRisk
+            and type(risk.ref) is CompiledIRReference
+            and risk.ref.scope is plan.scope
+            and risk.ref.kind == "aggregate_risk"
+            and risk.ref.position == i
+            and risk.aggregation is stage
+            and risk.source is source,
+            "PLAN_AGGREGATE_RISK",
+        )
+    return CompiledSQLPlanVerification(plan, ir.completed, ir.selected.owner)
+
+
+def _verify_compiled_match_inventory(plan: CompiledSQLPlan):
+    """Check request multiplicity, current proof grounds and every proof image."""
+    from pietto._project.project_compiled_verification import need
+    from pietto._project.project_query_block_ir import CompiledIRReference
+    from pietto._project.project_sql_plan import (
+        CompiledSQLSingleMatch,
+        CompiledSQLSingleMatchProof,
+    )
+    from pietto._project.project_single_match import (
+        CompiledSingleMatchAssessment,
+        CompiledSingleMatchProof,
+        ProjectSingleMatchScope as Scope,
+        ProjectSingleMatchState as State,
+        ProjectSingleMatchProofKind as Kind,
+        _compiled_right_bounds,
+    )
+    from pietto._project.project_relationship_match_guarantees import (
+        resolved_matching_keys,
+    )
+
+    ir, refs = plan.ir, plan.references
+    records = ir.completed.root.records
+    operators = {op.record.address: op for op in ir.operators}
+    ordered = tuple(
+        r
+        for _, r in sorted(
+            enumerate(ir.completed.single_match_requests),
+            key=lambda item: (item[1].use.get("position"), item[0]),
+        )
+    )
+    need(
+        type(plan.all_single_matches) is tuple
+        and len(plan.all_single_matches) == len(ordered),
+        "PLAN_MATCH_INVENTORY",
+    )
+    need(type(plan.all_single_match_proofs) is tuple, "PLAN_PROOF_INVENTORY")
+    assessments, all_images = {}, []
+
+    def boundary_grounds(address):
+        record = records[address]
+        right_use = records[record.get("inputs")[1]]
+        right = operators[right_use.get("producer")].properties.relational
+        grounds = []
+        if record.get("equalities"):
+            positions = tuple(
+                records[records[records[a].get("right")].get("port")].get("ordinal")
+                for a in record.get("equalities")
+            )
+            matched = tuple(
+                c
+                for c in right.value_classes
+                if any(m.field_position in positions for m in c.members)
+            )
+            keys = resolved_matching_keys(right.keys, matched)
+            if keys:
+                grounds.append(
+                    (
+                        Kind.REFINEMENT
+                        if record.get("predicate") is not None
+                        else Kind.RELATIONSHIP,
+                        (address,),
+                        (
+                            record,
+                            right_use,
+                            *keys,
+                            *tuple(records[a] for a in record.get("equalities")),
+                        ),
+                        (),
+                    )
+                )
+        grounds.extend(
+            (kind, (address,), (right_use, *roots), ())
+            for kind, roots in _compiled_right_bounds(ir, right_use.get("producer"))
+        )
+        return tuple(grounds)
+
+    def same_roots(actual, expected):
+        return (
+            type(actual) is tuple
+            and len(actual) == len(expected)
+            and all(a is b for a, b in zip(actual, expected, strict=True))
+        )
+
+    for position, (obligation, request) in enumerate(
+        zip(plan.all_single_matches, ordered, strict=True)
+    ):
+        need(
+            type(obligation) is CompiledSQLSingleMatch
+            and type(obligation.ref) is CompiledIRReference
+            and obligation.ref.scope is ir.scope
+            and obligation.ref.kind == "single_match"
+            and obligation.ref.position == position
+            and obligation.request is request,
+            "PLAN_MATCH",
+        )
+        assessment = obligation.assessment
+        need(
+            type(assessment) is CompiledSingleMatchAssessment
+            and assessment.request is request,
+            "PLAN_MATCH_ASSESSMENT",
+        )
+        need(
+            request.address not in assessments
+            or assessments[request.address] is assessment,
+            "PLAN_MATCH_ALIAS",
+        )
+        assessments[request.address] = assessment
+        boundaries = request.use.get("boundaries")
+        if request.scope is Scope.PATH_HOP:
+            boundaries = (boundaries[request.hop[1]],)
+        pairs = tuple(records[a].get("inputs") for a in boundaries)
+        need(
+            assessment.joins == boundaries
+            and assessment.input_pairs == pairs
+            and same_roots(obligation.joins, tuple(refs[a] for a in boundaries))
+            and type(obligation.input_pairs) is tuple
+            and len(obligation.input_pairs) == len(pairs)
+            and all(
+                same_roots(actual, tuple(refs[a] for a in expected))
+                for actual, expected in zip(obligation.input_pairs, pairs, strict=True)
+            ),
+            "PLAN_MATCH_INPUTS",
+        )
+        groups = tuple(boundary_grounds(a) for a in boundaries)
+        grounds = (
+            (
+                (
+                    (
+                        Kind.WHOLE_PATH,
+                        boundaries,
+                        (request.path, *tuple(records[a] for a in boundaries)),
+                        tuple(item for group in groups for item in group),
+                    ),
+                )
+                if all(groups)
+                else ()
+            )
+            if request.scope is Scope.WHOLE_PATH
+            else groups[0]
+        )
+        need(
+            type(assessment.proofs) is tuple
+            and len(assessment.proofs) == len(grounds)
+            and assessment.state is (State.PROVED if grounds else State.LEGAL_UNPROVED)
+            and obligation.downstream_enforcement_required is (not bool(grounds)),
+            "PLAN_MATCH_STATE",
+        )
+        pending: list[
+            tuple[CompiledSingleMatchProof, Any, CompiledIRReference | None]
+        ] = [
+            (proof, ground, None)
+            for proof, ground in reversed(
+                tuple(zip(assessment.proofs, grounds, strict=True))
+            )
+        ]
+        top_refs = []
+        while pending:
+            proof, ground, parent = pending.pop()
+            kind, joins, roots, children = ground
+            need(
+                type(proof) is CompiledSingleMatchProof
+                and proof.kind is kind
+                and proof.boundaries == joins
+                and same_roots(proof.roots, roots)
+                and type(proof.children) is tuple
+                and len(proof.children) == len(children),
+                "PLAN_PROOF_GROUNDS",
+            )
+            index = len(all_images)
+            need(index < len(plan.all_single_match_proofs), "PLAN_PROOF_INVENTORY")
+            image = plan.all_single_match_proofs[index]
+            need(
+                type(image) is CompiledSQLSingleMatchProof
+                and type(image.ref) is CompiledIRReference
+                and image.ref.scope is ir.scope
+                and image.ref.kind == "single_match_proof"
+                and image.ref.position == index
+                and image.obligation is obligation.ref
+                and image.parent is parent
+                and image.source is proof
+                and same_roots(image.joins, tuple(refs[a] for a in joins)),
+                "PLAN_PROOF_IMAGE",
+            )
+            all_images.append(image)
+            if parent is None:
+                top_refs.append(image.ref)
+            pending.extend(
+                (child, expected, image.ref)
+                for child, expected in reversed(
+                    tuple(zip(proof.children, children, strict=True))
+                )
+            )
+        need(same_roots(obligation.proofs, tuple(top_refs)), "PLAN_MATCH_PROOFS")
+    need(len(all_images) == len(plan.all_single_match_proofs), "PLAN_PROOF_INVENTORY")
+    for image in all_images:
+        need(
+            same_roots(
+                image.children,
+                tuple(child.ref for child in all_images if child.parent is image.ref),
+            ),
+            "PLAN_PROOF_CHILDREN",
+        )
+
+    from pietto._project.project_compiled_schema import Address, selected_relations
+
+    active = selected_relations(records, records[ir.completed.root.description.query])
+    selected = tuple(
+        o
+        for o in plan.all_single_matches
+        if any(Address(j.kind, j.position) in active for j in o.joins)
+    )
+    proof_selection = tuple(
+        p
+        for p in plan.all_single_match_proofs
+        if any(Address(j.kind, j.position) in active for j in p.joins)
+    )
+    need(
+        same_roots(plan.single_matches, selected)
+        and same_roots(plan.single_match_proofs, proof_selection),
+        "PLAN_SELECTED_OBLIGATIONS",
     )

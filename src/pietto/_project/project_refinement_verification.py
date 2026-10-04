@@ -473,27 +473,65 @@ class _Rules:
             original.function in ("first_value", "last_value", "nth_value"),
             "WINDOW_FUNCTION",
         )
-        policies = tuple(
-            p
-            for p in self.request.plan.window_policies
-            if p.window is original.window.ref
+        from pietto._project.project_sql_emission_contract import (
+            CompiledPreparedEmission,
         )
-        _need(len(policies) == 1, "WINDOW_POLICY")
-        resolved = getattr(policies[0].specification.frame, "resolved", None)
-        unit, start, end, exclusion = (
-            "range",
-            ("unbounded_preceding", None),
-            ("current_row", None),
-            None,
-        )
-        if resolved is not None and resolved.unit is not None:
-            unit = resolved.unit.value
-            start = (
-                resolved.start.kind.value,
-                getattr(resolved.start.offset, "value", None),
+
+        if type(self.request) is CompiledPreparedEmission:
+            from pietto._project.project_compiled_schema import Address
+
+            records = self.request.verification.completed.root.records
+            window = records[
+                Address(original.window.ref.kind, original.window.ref.position)
+            ]
+            described = records[window.get("specification")].get("frame")
+            unit, start, end, exclusion = (
+                ("range", ("unbounded_preceding", None), ("current_row", None), None)
+                if described is None
+                else (
+                    described[0],
+                    (
+                        described[1][0],
+                        None
+                        if described[1][1] is None
+                        else records[described[1][1]].get("value").value,
+                    ),
+                    (
+                        described[2][0],
+                        None
+                        if described[2][1] is None
+                        else records[described[2][1]].get("value").value,
+                    ),
+                    described[3],
+                )
             )
-            end = (resolved.end.kind.value, getattr(resolved.end.offset, "value", None))
-            exclusion = None if resolved.exclusion is None else resolved.exclusion.value
+        else:
+            policies = tuple(
+                p
+                for p in self.request.plan.window_policies
+                if p.window is original.window.ref
+            )
+            _need(len(policies) == 1, "WINDOW_POLICY")
+            resolved = getattr(policies[0].specification.frame, "resolved", None)
+            unit, start, end, exclusion = (
+                "range",
+                ("unbounded_preceding", None),
+                ("current_row", None),
+                None,
+            )
+            if resolved is not None and resolved.unit is not None:
+                unit = resolved.unit.value
+                start = (
+                    resolved.start.kind.value,
+                    getattr(resolved.start.offset, "value", None),
+                )
+                end = (
+                    resolved.end.kind.value,
+                    getattr(resolved.end.offset, "value", None),
+                )
+                exclusion = (
+                    None if resolved.exclusion is None else resolved.exclusion.value
+                )
         member, candidate = stem + "member", stem + "endpoint"
         endpoint_relation = relation
         if unit == "groups":

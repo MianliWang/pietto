@@ -18,6 +18,7 @@ from pietto._project.project_sql_emission_ast import (
     SQLLiteralColumn,
     SQLSelect,
     SQLRowQuery,
+    CompiledSQLQuery,
     SQLJoinQuery,
     RowValueColumn,
     RowCarryColumn,
@@ -79,7 +80,7 @@ def _prepare_output(artifact, *, binding=None, guarded=None):
     ast = artifact.ast
     if type(ast) is SQLSelect:
         units = tuple(c.body for c in ast.ctes) + (ast,)
-    elif type(ast) is SQLRowQuery:
+    elif type(ast) in (SQLRowQuery, CompiledSQLQuery):
         units = ast.bodies
     elif type(ast) is SQLJoinQuery:
         units = ast.units
@@ -144,7 +145,7 @@ def verify_output(output, artifact, contract, *, binding=None):
     ast = artifact.ast
     if type(ast) is SQLSelect:
         expected_units = tuple(c.body for c in ast.ctes) + (ast,)
-    elif type(ast) is SQLRowQuery:
+    elif type(ast) in (SQLRowQuery, CompiledSQLQuery):
         expected_units = ast.bodies
     elif type(ast) is SQLJoinQuery:
         expected_units = ast.units

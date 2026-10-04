@@ -82,3 +82,16 @@ must consume those states without becoming alternate resolvers.
 These laws refine the product boundary in [Pietto Product Architecture
 v1](product-architecture-v1.md) and apply through the dependency direction in
 [Layering And Coupling Laws v1](layering-and-coupling-laws-v1.md).
+
+
+## Explicit compiled input identity
+
+Phase68 [S10](../phases/phase-68/slice-10.md) separates canonical bundle content,
+trusted producer, supported code/semantic/occurrence/profile compatibility, fresh
+compiled-root identity, exact typed binding values, binding instance and native
+attempt authority. Equality at one layer does not mint another layer's identity.
+Stable declaration/use/port/field/output/slot addresses describe relationships;
+a loader independently checks the complete graph and constructs fresh roots.
+A serialized source/guard/refinement obligation is a requirement, never a live
+receipt, provider retention guarantee, deployment acceptance or durable progress.
+Later job/generation/publisher/checkpoint/sink identities remain separately owned.

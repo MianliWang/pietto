@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto._project.project_sql_emission_contract import emission_origin_subjects
+
 from dataclasses import dataclass, replace
 import json
 import math
@@ -612,7 +614,7 @@ def verify_sql_bytes(ast, rendered):
         events = iter(rendered.events)
         semantic_ranges = []
         offset = 0
-        subjects = ast.request.source_map.source_map.indexes.subjects
+        subjects = emission_origin_subjects(ast.request)
         quote = '"' if ast.request.family == "postgres" else "`"
 
         def take(kind, role, subject, expected, *, identifier=False):
@@ -1014,6 +1016,26 @@ def verify_project_sql_emission(artifact, request):
 
 
 def _verify_emission_structure(artifact, request, *, guarded=None):
+    from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
+
+    if type(request) is CompiledPreparedEmission:
+        from pietto._project.project_compiled_verification import (
+            verify_compiled_emission,
+        )
+        from pietto._project.project_compiled_schema import CompiledError
+
+        try:
+            return verify_compiled_emission(artifact, request)
+        except (
+            CompiledError,
+            ValueError,
+            TypeError,
+            AttributeError,
+            KeyError,
+            IndexError,
+        ):
+            return ("compiled_artifact_correspondence",)
+
     from pietto._project.project_sql_emission import EmissionArtifact
 
     from pietto._project.project_guard_preparation import GuardedArtifact
@@ -1138,21 +1160,36 @@ def _operand_children(plan):
 
 
 def _row_realization(request, expression, operands):
-    """Recompute one node's checked tag, storage, NULL posture and exact interval."""
-    family = request.family
+    """Read original logical evidence, then independently check the resolved law."""
+    kind = {
+        row.ProjectSQLIsNull: "null_test",
+        row.ProjectSQLComparison: "comparison",
+        row.ProjectSQLUnary: "unary",
+        row.ProjectSQLBinary: "binary",
+    }.get(type(expression))
+    if kind is None:
+        raise ValueError("logical expression kind")
     tag, nullable = rows.value_tag(expression), rows.value_nullable(expression)
     if tag is None or nullable is None:
         raise ValueError("logical type evidence")
-    if type(expression) is row.ProjectSQLIsNull:
+    operator = None if kind == "null_test" else expression.expression.operator
+    return resolved_row_realization(
+        request.family, kind, operator, tag, nullable, operands
+    )
+
+
+def resolved_row_realization(family, kind, operator, tag, nullable, operands):
+    """Existing independent physical-law checker over closed resolved inputs."""
+    if kind == "null_test":
         if tag != "Bool" or nullable is not False:
             raise ValueError("null test result")
         return rows.Realization(
             "Bool", {"kind": rows.BOOL_RESULT[family]}, nullable, {"kind": "bool01"}
         )
-    if type(expression) is row.ProjectSQLComparison:
+    if kind == "comparison":
         left, right = operands
         if (
-            expression.expression.operator not in rows.COMPARISONS
+            operator not in rows.COMPARISONS
             or tag != "Bool"
             or left.tag not in rows.COMPARABLE
             or left.tag != right.tag
@@ -1171,8 +1208,7 @@ def _row_realization(request, expression, operands):
         return rows.Realization(
             "Bool", {"kind": rows.BOOL_RESULT[family]}, nullable, {"kind": "bool01"}
         )
-    operator = expression.expression.operator
-    if type(expression) is row.ProjectSQLBinary and operator in rows.LOGICAL:
+    if kind == "binary" and operator in rows.LOGICAL:
         if tag != "Bool" or any(
             item.tag != "Bool" or item.domain.get("kind") != "bool01"
             for item in operands
@@ -1189,7 +1225,7 @@ def _row_realization(request, expression, operands):
         if interval is None:
             raise ValueError("int range evidence")
         bounds.append(interval)
-    if type(expression) is row.ProjectSQLUnary:
+    if kind == "unary":
         if operator not in {"+", "-"}:
             raise ValueError("unary operator")
         low, high = (-bounds[0][1], -bounds[0][0]) if operator == "-" else bounds[0]
@@ -1289,17 +1325,47 @@ def _window_result_realization(family, function, arguments, retained):
     if len(values) != 1:
         raise ValueError("window value result argument")
     read = values[0].read
-    carrier = read.realization
+    defaults = [item.literal for item in arguments if item.role == "default"]
+    default = defaults[0] if defaults else None
+    # Keep the independent width check's own origin projection.
+    if read.aggregate is not None:
+        origin = (
+            "aggregate"
+            if getattr(read.aggregate, "kind", None)
+            in {"group_key", "aggregate_result"}
+            else "unsupported"
+        )
+    elif read.literal is not None:
+        value = getattr(read.literal, "value", None)
+        while type(value) is parameters.SQLUnary:
+            value = value.operand
+        origin = (
+            "literal"
+            if type(value) is parameters.SQLAnchor
+            and value.physical_type == "my_signed_int"
+            else "unsupported"
+        )
+    else:
+        origin = (
+            ("field" if read.field is not None else "window")
+            if (read.field is None) is not (read.window is None)
+            else "unsupported"
+        )
+    return resolved_window_value_result(
+        family, read.realization, origin, default, retained
+    )
+
+
+def resolved_window_value_result(family, carrier, origin, default, retained):
+    """Independent original value-result rule on resolved physical evidence."""
+    tag, nullable = retained
     if tag != carrier.tag:
         raise ValueError("window value result logical type")
     if family == "mysql" and tag == "Bool":
         raise ValueError("MySQL Bool window value result outside Phase66")
     if tag != "Int":
         return rows.Realization(tag, carrier.storage, bool(nullable), carrier.domain)
-    defaults = [item.literal for item in arguments if item.role == "default"]
-    storage, domain = _window_integer_result(
-        family, read, defaults[0] if defaults else None
-    )
+    storage, domain = resolved_window_integer_result(family, carrier, origin, default)
     return rows.Realization("Int", storage, bool(nullable), domain)
 
 
@@ -1316,8 +1382,36 @@ def _window_integer_result(family, read, default):
     its own literal type; MySQL's is INT below ten display characters of the
     reviewed carrier column or non-negative default literal, BIGINT from ten.
     """
-    domain = read.realization.domain
-    kind = read.realization.storage.get("kind")
+    if read.aggregate is not None:
+        origin = (
+            "aggregate"
+            if getattr(read.aggregate, "kind", None)
+            in {"group_key", "aggregate_result"}
+            else "unsupported"
+        )
+    elif read.literal is not None:
+        value = getattr(read.literal, "value", None)
+        while type(value) is parameters.SQLUnary:
+            value = value.operand
+        origin = (
+            "literal"
+            if type(value) is parameters.SQLAnchor
+            and value.physical_type == "my_signed_int"
+            else "unsupported"
+        )
+    else:
+        origin = (
+            ("field" if read.field is not None else "window")
+            if (read.field is None) is not (read.window is None)
+            else "unsupported"
+        )
+    return resolved_window_integer_result(family, read.realization, origin, default)
+
+
+def resolved_window_integer_result(family, realization, origin, default):
+    """Independent original integer-width verifier on resolved origin evidence."""
+    domain = realization.domain
+    kind = realization.storage.get("kind")
     if domain.get("kind") != "int_range":
         raise ValueError("window value interval")
     low, high = int(domain["min"]), int(domain["max"])
@@ -1337,28 +1431,14 @@ def _window_integer_result(family, read, default):
             bits = max(bits, 32 if -(1 << 31) <= number < 1 << 31 else 64)
         storage = _PG_INT_OF_BITS[bits]
     else:
-        if read.aggregate is not None:
-            display = (
-                {**_MYSQL_FIELD_DISPLAY, "my_signed_int": 20}.get(kind)
-                if getattr(read.aggregate, "kind", None)
-                in {"group_key", "aggregate_result"}
-                else None
-            )
-        elif read.literal is not None:
-            value = getattr(read.literal, "value", None)
-            while type(value) is parameters.SQLUnary:
-                value = value.operand
-            display = (
-                21
-                if type(value) is parameters.SQLAnchor
-                and value.physical_type == "my_signed_int"
-                and kind == "my_signed_int"
-                else None
-            )
+        if origin == "aggregate":
+            display = {**_MYSQL_FIELD_DISPLAY, "my_signed_int": 20}.get(kind)
+        elif origin == "literal":
+            display = 21 if kind == "my_signed_int" else None
         else:
             display = (
                 _MYSQL_FIELD_DISPLAY.get(kind)
-                if (read.field is None) is not (read.window is None)
+                if origin in {"field", "window"}
                 else None
             )
         if display is None:
@@ -2686,6 +2766,19 @@ def _verify_result_body(
 
 def _set_column_realization(kind, quantifier, column, reads, evidence):
     """Independently re-derive one SET output's realization from operand reads."""
+    return resolved_set_column_realization(
+        kind,
+        quantifier,
+        setting.NULLABILITY[column.source.nullability],
+        reads,
+        tuple(item.reason for item in evidence),
+    )
+
+
+def resolved_set_column_realization(
+    kind, quantifier, expected_nullability, reads, equivalence_reasons
+):
+    """Independent original R22 check over resolved operand evidence."""
     from pietto.ast_nodes import SetOperationKind as Kind
     from pietto.ast_nodes import SetOperationQuantifier as Quantifier
 
@@ -2698,7 +2791,7 @@ def _set_column_realization(kind, quantifier, column, reads, evidence):
         union_all and tag == "Float"
     ):
         raise ValueError("set comparison domain")
-    if not union_all and any(item.reason is not None for item in evidence):
+    if not union_all and any(reason is not None for reason in equivalence_reasons):
         raise ValueError("set equivalence evidence")
     first = reads[0].realization
     storage = first.storage
@@ -2747,7 +2840,7 @@ def _set_column_realization(kind, quantifier, column, reads, evidence):
         nullable = "unknown"
     else:
         nullable = True
-    expected = setting.NULLABILITY[column.source.nullability]
+    expected = expected_nullability
     if nullable != expected:
         raise ValueError("set nullability")
     return rows.Realization(tag, storage, nullable, domain)
@@ -3577,7 +3670,7 @@ def verify_row_bytes(query, rendered):
         if len(data) > resource_limits(request)["sql_bytes"]:
             return False
         events = iter(rendered.events)
-        subjects = request.source_map.source_map.indexes.subjects
+        subjects = emission_origin_subjects(request)
         quote = '"' if request.family == "postgres" else "`"
         spans = []
         offset = 0
@@ -4474,6 +4567,13 @@ def verify_row_requirements(request, query, original, generated):
             or item.rule != rule
         ):
             return False
+    return verify_row_generated_requirements(request, query, generated)
+
+
+def verify_row_generated_requirements(request, query, generated):
+    """Independent actual-unit denominator; does not call the builder."""
+    units = getattr(query, "units", query.bodies)
+    generated_scopes = len(units) > 1
     if type(generated) is not tuple:
         return False
     naming = tuple(
@@ -4760,12 +4860,31 @@ def verify_row_requirements(request, query, original, generated):
                 )
                 # R15-INT-OFFSET-V1, enumerated from the retained policy's own
                 # frame rather than from the candidate's rendered bounds.
-                try:
-                    frame, offsets = _window_frame_expectation(
-                        windowing.window_policies(request.plan)[column.window.ref]
+                from pietto._project.project_sql_emission_contract import (
+                    CompiledPreparedEmission,
+                )
+
+                if type(request) is CompiledPreparedEmission:
+                    from pietto._project.project_compiled_schema import Address
+
+                    records = request.verification.completed.root.records
+                    described = records[
+                        Address(column.window.ref.kind, column.window.ref.position)
+                    ]
+                    specification = records[described.get("specification")]
+                    frame = specification.get("frame")
+                    offsets = (
+                        ()
+                        if frame is None
+                        else tuple(b for b in frame[1:3] if b[1] is not None)
                     )
-                except (KeyError, ValueError):
-                    frame, offsets = None, ()
+                else:
+                    try:
+                        frame, offsets = _window_frame_expectation(
+                            windowing.window_policies(request.plan)[column.window.ref]
+                        )
+                    except (KeyError, ValueError):
+                        frame, offsets = None, ()
                 if offsets:
                     expected.append(
                         ("window_frame_offset_domain", column.window.policy, "R15", ())

@@ -414,11 +414,23 @@ def test_deadline_after_commit_ack_preserves_commit_but_refuses_completion(
     owner._started = time.monotonic()
     owner._transaction = "OPEN"
     owner._source, owner._delivery = "EOF", "COMPLETE"
-    connection = SimpleNamespace(unread_result=False, shutdown=lambda: None)
-    owner._owned_connection = connection
+    connection = SimpleNamespace(
+        unread_result=False, in_transaction=True, shutdown=lambda: None
+    )
+    control = SimpleNamespace()
+    owner._connection = owner._owned_connection = connection
+    owner._control_connection = owner._owned_control_connection = control
+    owner._transport = owner._control_transport = ("fixture-transport",)
+    owner._epoch = owner._initial_epoch = (1, 2, "ACTIVE", "READ ONLY")
     owner._connections.append(connection)
+    monkeypatch.setattr(product, "transport_state", lambda c: ("fixture-transport",))
 
-    def commit(_, sql, **options):
+    def commit(_, sql, arguments=(), **options):
+        from pietto._project.project_execution_mysql_context import EPOCH_SQL
+
+        if sql == EPOCH_SQL:
+            assert options["connection"] is control and options["cleanup"] is True
+            return (), (owner._initial_epoch,)
         assert sql == "COMMIT"
         owner._started = time.monotonic() - 2
         return (), ()

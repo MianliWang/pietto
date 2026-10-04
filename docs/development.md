@@ -659,3 +659,28 @@ small preflight, controls and same-version fresh-process refinement retain separ
 histories. Core full validation stays unfiltered; natural CI owns its unchanged
 auxiliary partitions. S10 must freshly accept the route-specific premise and
 qualify native sources; S19 consolidation and S20 audit-only remain unchanged.
+
+
+## Phase68 S10 compiled inputs and acquisition review
+
+[S10](phases/phase-68/slice-10.md) keeps one cumulative dispatch/amendment ledger.
+The complete original pure corpus and no-source corruption checks precede native
+expansion. Small actual three-route representatives precede one integrated review
+and exact-input readiness; the complete named live/bundle/source/installed matrix
+precedes the authoritative unfiltered Python 3.13 validator and natural exact-head CI.
+Source building belongs to the external reference or the new live build boundary;
+the isolated bundle runtime receives explicit bytes/pins/values/access, never source
+graphs or source-rebuilding helpers. Preserve failed attempts and reconsume complete
+unchanged raw when only an independent checker changes.
+
+Phase-end acquisition review: reuse S04/S05/S06/S07 cases and literal oracles,
+S01 resource/runtime identities, S08 registered process ownership, original
+metadata/scalar/native/page consumers, and the existing two isolated prefixes.
+Fresh compiled roots, authorization, qualification, native attempts, installed
+origins and fault cuts remain fresh. Passive tracing is restricted to actual
+native boundaries; expensive semantic validation remains inside the owner timer.
+S19 must consolidate observer assembly and repeated pure reference acquisition
+without caching live qualification or collapsing occurrence/attempt histories.
+S20 stays audit-only. Current code/member/package changes require current
+installed and core-only source-free checks; unchanged grammar/golden producers
+retain their declared independent CI responsibility.

@@ -1,6 +1,7 @@
 """Typed rendering events with ranges captured in the final UTF-8 stream."""
 
 from dataclasses import dataclass
+from pietto._project.project_sql_emission_contract import emission_origin_subjects
 
 from pietto._project.project_sql_emission_ast import (
     SQLJoinQuery,
@@ -15,6 +16,7 @@ from pietto._project.project_sql_emission_ast import (
     RowJoinUse,
     RowCarryColumn,
     SQLRowQuery,
+    CompiledSQLQuery,
     resource_limits,
 )
 from pietto._project.project_sql_emission_aggregation import (
@@ -68,7 +70,7 @@ def render_sql(ast: SQLSelect) -> RenderedSQL:
     expression_ranges = []
     offset = 0
     limit = resource_limits(request)["sql_bytes"]
-    subjects = request.source_map.source_map.indexes.subjects
+    subjects = emission_origin_subjects(request)
 
     def emit(text, kind, role, subject):
         nonlocal offset
@@ -246,7 +248,7 @@ class _Writer:
         self.expression_ranges: list[RenderingEvent] = []
         self.offset = 0
         self.limit = resource_limits(request)["sql_bytes"]
-        self.subjects = request.source_map.source_map.indexes.subjects
+        self.subjects = emission_origin_subjects(request)
 
     def emit(self, text, kind, role, subject):
         chunk = text.encode("utf-8")
@@ -694,7 +696,7 @@ def _unit_select(w: _Writer, unit) -> None:
         _row_select(w, unit)
 
 
-def render_row_sql(query: SQLRowQuery) -> RenderedSQL:
+def render_row_sql(query: SQLRowQuery | CompiledSQLQuery) -> RenderedSQL:
     """Render ordered stage bodies; every range is a final UTF-8 byte interval."""
     w = _Writer(query.request)
     *cte_bodies, final_body = query.bodies

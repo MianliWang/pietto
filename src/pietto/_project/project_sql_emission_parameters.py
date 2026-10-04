@@ -172,7 +172,7 @@ def allocate_uses(family, occurrences, limit):
     seen = {}
     result = []
     for ordinal, (original, physical) in enumerate(occurrences):
-        if type(original) is not row.ProjectSQLBoundLiteral:
+        if type(original) not in (row.ProjectSQLBoundLiteral, row.CompiledBoundLiteral):
             raise ValueError("original bound occurrence required")
         slot = original.use.slot
         tag = tag_of(original)
@@ -285,7 +285,13 @@ def anchor_suffix(physical):
 def representation(value, family):
     tag = tag_of(value.original)
     assert tag is not None
-    result = result_value(value)
+    return literal_representation(tag, result_value(value), family)
+
+
+def literal_representation(tag, result, family):
+    """The original exact literal-domain rule, without an AST or plan operand."""
+    if not value_valid(tag, result, family):
+        raise ValueError("literal representation requires its exact scalar domain")
     storage = PHYSICAL[family][tag]
     if tag == "Bool":
         domain = {"kind": "bool01"}

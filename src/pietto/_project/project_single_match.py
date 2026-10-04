@@ -488,3 +488,196 @@ class ProjectSingleMatchSet:
             ),
         )
         object.__setattr__(self, "diagnostics", tuple(diagnostics))
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledSingleMatchRequest:
+    """One resolved request identity owned by a compiled input, with no AST."""
+
+    root: object = field(repr=False)
+    address: object
+    owner: object = field(repr=False)
+    use: object = field(repr=False)
+    scope: ProjectSingleMatchScope
+    unit: ProjectSingleMatchUnit
+    path: object = field(repr=False)
+    hop: tuple | None
+    input_pairs: tuple = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledSingleMatchProof:
+    kind: ProjectSingleMatchProofKind
+    boundaries: tuple = field(repr=False)
+    roots: tuple = field(repr=False)
+    children: tuple = field(default=(), repr=False)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledSingleMatchAssessment:
+    request: CompiledSingleMatchRequest = field(repr=False)
+    joins: tuple = field(repr=False)
+    input_pairs: tuple = field(repr=False)
+    proofs: tuple[CompiledSingleMatchProof, ...] = field(repr=False)
+    state: ProjectSingleMatchState
+
+    @property
+    def downstream_enforcement_required(self):
+        return self.state is ProjectSingleMatchState.LEGAL_UNPROVED
+
+
+def compiled_requests(root, declarations):
+    from pietto._project.project_compiled_schema import CompiledError
+    from pietto._project.model import CompiledProjectInput
+
+    if type(root) is not CompiledProjectInput:
+        raise CompiledError("COMPILED_REQUEST_ROOT")
+    owners = {d.address: d for d in declarations}
+    records = root.records
+    unique = {}
+    for address in records[root.description.query].get("requests"):
+        if address not in unique:
+            record = records[address]
+            unique[address] = CompiledSingleMatchRequest(
+                root,
+                address,
+                owners[record.get("owner")],
+                records[record.get("use")],
+                ProjectSingleMatchScope(record.get("scope")),
+                ProjectSingleMatchUnit(record.get("unit")),
+                None if record.get("path") is None else records[record.get("path")],
+                record.get("hop"),
+                record.get("pairs"),
+            )
+    return tuple(unique[a] for a in records[root.description.query].get("requests"))
+
+
+def _compiled_right_bounds(ir, address):
+    """Original RIGHT_GLOBAL/RIGHT_LIMIT applicability, over resolved stages."""
+    records = ir.completed.root.records
+    retained, proofs, seen = [], [], set()
+    while address.kind != "source":
+        if address in seen:
+            raise ValueError("COMPILED_CARDINALITY_CYCLE")
+        owner = records[address].get("owner")
+        limits, global_stage = [], None
+        stop = False
+        while address.kind != "source" and records[address].get("owner") == owner:
+            if address in seen:
+                raise ValueError("COMPILED_CARDINALITY_CYCLE")
+            seen.add(address)
+            record = records[address]
+            retained.append(record)
+            if address.kind == "result" and record.get("limit") is not None:
+                if record.get("limit") <= 1:
+                    limits.append(record)
+            if address.kind == "aggregate":
+                global_stage = record if record.get("mode") == "global" else None
+                stop = True
+                break
+            if address.kind in ("join", "set"):
+                stop = True
+                break
+            address = record.get("input")
+        if global_stage is not None:
+            proofs.append((ProjectSingleMatchProofKind.RIGHT_GLOBAL, tuple(retained)))
+        proofs.extend(
+            (
+                ProjectSingleMatchProofKind.RIGHT_LIMIT,
+                (*retained, records[limit.get("limit_literal")]),
+            )
+            for limit in limits
+        )
+        if stop:
+            break
+    return tuple(proofs)
+
+
+def compiled_boundary_proofs(ir, address):
+    from pietto._project.project_relationship_match_guarantees import (
+        resolved_matching_keys,
+    )
+
+    records = ir.completed.root.records
+    by_address = {op.record.address: op for op in ir.operators}
+    join = records[address]
+    right_use = records[join.get("inputs")[1]]
+    right = by_address[right_use.get("producer")].properties.relational
+    proofs = []
+    if join.get("equalities"):
+        positions = tuple(
+            records[records[records[a].get("right")].get("port")].get("ordinal")
+            for a in join.get("equalities")
+        )
+        matched = tuple(
+            c
+            for c in right.value_classes
+            if any(m.field_position in positions for m in c.members)
+        )
+        keys = resolved_matching_keys(right.keys, matched)
+        if keys:
+            proofs.append(
+                CompiledSingleMatchProof(
+                    ProjectSingleMatchProofKind.REFINEMENT
+                    if join.get("predicate") is not None
+                    else ProjectSingleMatchProofKind.RELATIONSHIP,
+                    (address,),
+                    (
+                        join,
+                        right_use,
+                        *keys,
+                        *tuple(records[a] for a in join.get("equalities")),
+                    ),
+                )
+            )
+    for kind, roots in _compiled_right_bounds(ir, right_use.get("producer")):
+        proofs.append(CompiledSingleMatchProof(kind, (address,), (right_use, *roots)))
+    return tuple(proofs)
+
+
+def assess_compiled_requests(ir):
+    """Derive fresh proof state from complete current typed properties."""
+    requests = ir.completed.single_match_requests
+    records = ir.completed.root.records
+    ordered = tuple(
+        sorted(
+            enumerate(requests), key=lambda item: (item[1].use.get("position"), item[0])
+        )
+    )
+    assessments = {}
+    for _position, request in ordered:
+        if request.address in assessments:
+            continue
+        boundaries = request.use.get("boundaries")
+        if request.scope is ProjectSingleMatchScope.PATH_HOP:
+            boundaries = (boundaries[request.hop[1]],)
+        pairs = tuple(records[a].get("inputs") for a in boundaries)
+        if pairs != request.input_pairs:
+            raise ValueError("COMPILED_REQUEST_INPUT_PAIRS")
+        per_boundary = tuple(compiled_boundary_proofs(ir, a) for a in boundaries)
+        if request.scope is ProjectSingleMatchScope.WHOLE_PATH:
+            children = tuple(p for group in per_boundary for p in group)
+            proofs = (
+                (
+                    CompiledSingleMatchProof(
+                        ProjectSingleMatchProofKind.WHOLE_PATH,
+                        boundaries,
+                        (request.path, *tuple(records[a] for a in boundaries)),
+                        children,
+                    ),
+                )
+                if all(per_boundary)
+                else ()
+            )
+        else:
+            proofs = per_boundary[0]
+        assessments[request.address] = CompiledSingleMatchAssessment(
+            request,
+            boundaries,
+            pairs,
+            proofs,
+            ProjectSingleMatchState.PROVED
+            if proofs
+            else ProjectSingleMatchState.LEGAL_UNPROVED,
+        )
+    return tuple(assessments[request.address] for _, request in ordered)

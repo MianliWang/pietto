@@ -40,5 +40,9 @@ def check_relation_limits(script: Script) -> tuple[Diagnostic, ...]:
 def _is_valid_limit(expression: object) -> bool:
     if not isinstance(expression, LiteralExpr):
         return False
-    value = expression.value
+    return valid_resolved_limit(expression.value)
+
+
+def valid_resolved_limit(value: object) -> bool:
+    """Shared static numeric law; this does not make LIMIT a binding slot."""
     return type(value) is int and 0 <= value <= MAX_RELATION_LIMIT

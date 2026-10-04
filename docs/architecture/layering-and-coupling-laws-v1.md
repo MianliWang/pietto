@@ -94,3 +94,17 @@ implements none of them.
 Identity and candidate completeness remain governed by [Identity And Authority
 Laws v1](identity-and-authority-laws-v1.md); the complete layer map is in
 [Pietto Product Architecture v1](product-architecture-v1.md).
+
+
+## Source and compiled preparation
+
+Phase68 [S10](../phases/phase-68/slice-10.md) permits closed resolved compiled
+inputs at the original semantic/IR/plan owners. Source and compiled adapters
+share original derivation laws; source parsing/name/type/connector elaboration
+stays in the source branch. The compiled graph is not a serialized AST, SQL
+parser, driver callback, plugin registry or second semantic engine.
+Build/export, externally pinned loading, value rederivation and native execution
+are distinct accepting boundaries. Actual Psycopg and ADBC catalog acquisition
+share PG qualification laws through their own native reply/context types; MySQL
+retains its separate definition/security rules. Fresh live authorization and
+transaction checks cannot be cached as immutable compiled structure.

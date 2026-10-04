@@ -69,9 +69,9 @@ abstraction needs a current caller or invariant.
 - Gate 2: implement the minimum change, run focused checks, review the complete
   finding set, consolidate repairs by root cause, run appropriate final
   validation, and seal the Git tree. Slice dispatches own cumulative repair
-  budgets; active S09 uses its original dispatch Section 9, approved PostgreSQL
-  source-assurance/managed-deployment amendment and explicit causal budget 36.
-  Closed S01–S08 and C01 counts stay closed. Diagnosed in-scope repairs and qualified mechanical reader-reserve
+  budgets; active S10 uses its original dispatch Section 11 and approved owner/budget
+  amendments: causal 36, focused 48, diagnostic 36, scope convergence 8; actual
+  changed paths 96, additions 20, deletions zero. Closed S01–S09 and C01 counts stay closed. Diagnosed in-scope repairs and qualified mechanical reader-reserve
   updates proceed under the active dispatch.
 - Gate 3: rebind the baseline, stage exactly the sealed tree, make one ordinary
   commit, fast-forward push, and require natural exact-head CI. A failed head

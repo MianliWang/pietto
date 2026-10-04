@@ -82,10 +82,10 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
         if "generated" not in path.parts
     )
     test_files = tuple(sorted((REPO_ROOT / "tests").rglob("*.py")))
-    # Current S09 candidate adds ADBC execution and source-assurance owners.
+    # Current S10 candidate adds five compiled owners and six test/observer files.
     # Both complete typing roots remain exact.
-    assert len(production_files) == 266
-    assert len(test_files) == 555
+    assert len(production_files) == 271
+    assert len(test_files) == 561
     assert set(production_files).isdisjoint(test_files)
 
 

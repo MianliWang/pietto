@@ -716,20 +716,24 @@ def _unary_value_type(
         bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
     )
-    if operand_type.kind is ValueTypeKind.UNKNOWN:
-        return _UNKNOWN_VALUE_TYPE
-    if not _is_numeric(operand_type):
+    result, expected = resolved_unary_value_type(operand_type)
+    if expected is not None:
         diagnostics.append(
-            _invalid_operator_operands_diagnostic(
-                expression,
-                expected="numeric operand",
-            )
+            _invalid_operator_operands_diagnostic(expression, expected=expected)
         )
-        return _UNKNOWN_VALUE_TYPE
+    return result
+
+
+def resolved_unary_value_type(operand_type: ValueType) -> tuple[ValueType, str | None]:
+    """Original numeric unary rule over an already resolved operand."""
+    if operand_type.kind is ValueTypeKind.UNKNOWN:
+        return _UNKNOWN_VALUE_TYPE, None
+    if not _is_numeric(operand_type):
+        return _UNKNOWN_VALUE_TYPE, "numeric operand"
     return ValueType(
         resolved_type=operand_type.resolved_type,
         nullability=operand_type.nullability,
-    )
+    ), None
 
 
 def _binary_value_type(
@@ -768,53 +772,39 @@ def _binary_value_type(
         bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
     )
-    if expression.operator == "/":
-        return _UNKNOWN_VALUE_TYPE
-    if (
+    result, expected = resolved_binary_value_type(
+        expression.operator, left_type, right_type
+    )
+    if expected is not None:
+        diagnostics.append(
+            _invalid_operator_operands_diagnostic(expression, expected=expected)
+        )
+    return result
+
+
+def resolved_binary_value_type(
+    operator: str, left_type: ValueType, right_type: ValueType
+) -> tuple[ValueType, str | None]:
+    """Original binary rule; no expression, name lookup or source elaboration."""
+    if operator == "/" or (
         left_type.kind is ValueTypeKind.UNKNOWN
         or right_type.kind is ValueTypeKind.UNKNOWN
     ):
-        return _UNKNOWN_VALUE_TYPE
-
-    if expression.operator in {"and", "or"}:
+        return _UNKNOWN_VALUE_TYPE, None
+    if operator in {"and", "or"}:
         if _is_builtin(left_type, "Bool") and _is_builtin(right_type, "Bool"):
-            return _builtin_value_type("Bool", EffectiveNullability.UNKNOWN)
-        diagnostics.append(
-            _invalid_operator_operands_diagnostic(
-                expression,
-                expected="Bool operands",
-            )
-        )
-        return _UNKNOWN_VALUE_TYPE
-
-    if expression.operator == "%":
+            return _builtin_value_type("Bool", EffectiveNullability.UNKNOWN), None
+        return _UNKNOWN_VALUE_TYPE, "Bool operands"
+    if operator == "%":
         if _is_builtin(left_type, "Int") and _is_builtin(right_type, "Int"):
-            return _builtin_value_type("Int", EffectiveNullability.UNKNOWN)
-        diagnostics.append(
-            _invalid_operator_operands_diagnostic(
-                expression,
-                expected="Int operands",
-            )
-        )
-        return _UNKNOWN_VALUE_TYPE
-
-    if expression.operator in {"+", "-", "*"}:
-        return_type = _binary_arithmetic_result_type(
-            expression.operator,
-            left_type,
-            right_type,
-        )
-        if return_type is not None:
-            return _builtin_value_type(return_type, EffectiveNullability.UNKNOWN)
-        diagnostics.append(
-            _invalid_operator_operands_diagnostic(
-                expression,
-                expected="numeric operands",
-            )
-        )
-        return _UNKNOWN_VALUE_TYPE
-
-    return _UNKNOWN_VALUE_TYPE
+            return _builtin_value_type("Int", EffectiveNullability.UNKNOWN), None
+        return _UNKNOWN_VALUE_TYPE, "Int operands"
+    if operator in {"+", "-", "*"}:
+        name = _binary_arithmetic_result_type(operator, left_type, right_type)
+        if name is not None:
+            return _builtin_value_type(name, EffectiveNullability.UNKNOWN), None
+        return _UNKNOWN_VALUE_TYPE, "numeric operands"
+    return _UNKNOWN_VALUE_TYPE, None
 
 
 def _between_value_type(
@@ -1048,7 +1038,11 @@ def _append_invalid_count_context_diagnostic(
 def _literal_value_type(expression: LiteralExpr) -> ValueType:
     """Map supported scalar literals to portable built-in types."""
 
-    value = expression.value
+    return resolved_literal_value_type(expression.value)
+
+
+def resolved_literal_value_type(value: object) -> ValueType:
+    """Original scalar literal law, independent of a source expression owner."""
     if isinstance(value, bool):
         name = "Bool"
     elif isinstance(value, str):

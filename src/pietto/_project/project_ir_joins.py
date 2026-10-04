@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import cast
+from typing import cast, TypeGuard
 
 from pietto._project.model import ProjectRowFieldNullability
 from pietto._project.project_grain import (
     ProjectBaseGrainFactorIdentity,
+    CompiledGrainFactorIdentity,
     ProjectGrainBasisState,
     ProjectGrainDependencyFact,
     ProjectGrainDomainFactor,
@@ -120,14 +121,20 @@ def _join_effects(
     ProjectIRJoinNullExtensionEffect,
     ProjectIROuterJoinBarrier,
 ]:
+    return resolved_join_effects(
+        kind, guarantee.minimum, guarantee.maximum, bool(source_nulling)
+    )
+
+
+def resolved_join_effects(kind, minimum, maximum, source_nulling):
+    """Original relationship JOIN effects over resolved directional bounds."""
     actual_nulling = kind is ProjectIRBinaryJoinKind.LEFT and (
-        guarantee.minimum is ProjectRelationshipMinimumBound.ZERO_ALLOWED
-        or bool(source_nulling)
+        minimum is ProjectRelationshipMinimumBound.ZERO_ALLOWED or bool(source_nulling)
     )
     return (
         (
             ProjectRelationshipFanoutEffect.PRESERVES_SOURCE_MULTIPLICITY
-            if guarantee.maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
+            if maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
             else ProjectRelationshipFanoutEffect.MAY_MULTIPLY
         ),
         (
@@ -135,7 +142,7 @@ def _join_effects(
             if kind is ProjectIRBinaryJoinKind.LEFT
             or (
                 not source_nulling
-                and guarantee.minimum is ProjectRelationshipMinimumBound.AT_LEAST_ONE
+                and minimum is ProjectRelationshipMinimumBound.AT_LEAST_ONE
             )
             else ProjectIRJoinRowSurvivalEffect.MAY_DROP_LEFT_ROWS
         ),
@@ -921,7 +928,7 @@ def _image_fd(
 
 def _class_for_field(
     classes: tuple[ProjectIROutputValueClass, ...],
-    field: ProjectIRJoinedRowField,
+    field: ProjectIRJoinedRowField | ProjectIROutputFieldOccurrence,
 ) -> ProjectIROutputValueClass:
     matches = tuple(
         item
@@ -951,10 +958,44 @@ def _all_non_null(value_class: ProjectIROutputValueClass) -> bool:
     )
 
 
+def _is_join_factor(
+    identity: object,
+) -> TypeGuard[ProjectJoinGrainFactorIdentity | CompiledGrainFactorIdentity]:
+    return type(identity) is ProjectJoinGrainFactorIdentity or (
+        type(identity) is CompiledGrainFactorIdentity and identity.base is not None
+    )
+
+
+def _join_factor(*, base, introduction_use, nulling_joins, source_factor=None):
+    if type(base) is CompiledGrainFactorIdentity:
+        from pietto._project.project_compiled_schema import Address
+
+        origin = base.origin
+        consumer = origin.root.records[
+            Address(introduction_use.kind, introduction_use.position)
+        ].get("consumer")
+        return CompiledGrainFactorIdentity(
+            origin=origin,
+            ref=origin.references[consumer],
+            kind=base.kind,
+            base=base,
+            introduction_use=introduction_use,
+            nulling_joins=nulling_joins,
+            source_factor=source_factor,
+        )
+    return ProjectJoinGrainFactorIdentity(
+        base=base,
+        introduction_use=introduction_use,
+        nulling_joins=nulling_joins,
+        source_factor=source_factor,
+    )
+
+
 def _base_factor(
     identity: ProjectGrainFactorIdentity,
-) -> ProjectBaseGrainFactorIdentity:
-    if type(identity) is ProjectJoinGrainFactorIdentity:
+) -> ProjectBaseGrainFactorIdentity | CompiledGrainFactorIdentity:
+    if _is_join_factor(identity):
+        assert identity.base is not None
         return identity.base
     return cast(ProjectBaseGrainFactorIdentity, identity)
 
@@ -992,39 +1033,38 @@ def _grain(
         identity = factor.identity
         left_images[identity] = (
             identity
-            if type(identity) is ProjectJoinGrainFactorIdentity
+            if _is_join_factor(identity)
             and not (preserve_nested_inputs and named_left_input)
             and not left_nulling
-            else ProjectJoinGrainFactorIdentity(
+            else _join_factor(
                 base=_base_factor(identity),
                 introduction_use=(
                     identity.introduction_use
-                    if type(identity) is ProjectJoinGrainFactorIdentity
+                    if _is_join_factor(identity)
                     and left_nulling
                     and not (preserve_nested_inputs and named_left_input)
                     else left_use.ref
                 ),
                 nulling_joins=(
                     (*identity.nulling_joins, *left_nulling)
-                    if type(identity) is ProjectJoinGrainFactorIdentity
+                    if _is_join_factor(identity)
                     and left_nulling
                     and not (preserve_nested_inputs and named_left_input)
                     else left_nulling
                 ),
                 source_factor=identity
-                if isinstance(identity, ProjectJoinGrainFactorIdentity)
+                if _is_join_factor(identity)
                 and (preserve_nested_inputs or bool(left_nulling))
                 else None,
             )
         )
     right_images = {
-        factor.identity: ProjectJoinGrainFactorIdentity(
+        factor.identity: _join_factor(
             base=_base_factor(factor.identity),
             introduction_use=right_use.ref,
             nulling_joins=nulling,
             source_factor=factor.identity
-            if preserve_nested_inputs
-            and isinstance(factor.identity, ProjectJoinGrainFactorIdentity)
+            if preserve_nested_inputs and _is_join_factor(factor.identity)
             else None,
         )
         for factor in (() if left_only else right.factors)
@@ -1113,7 +1153,56 @@ def _build_relational_properties(
     reverse: ProjectDirectionalRelationshipMatchGuarantee,
     origin_set: ProjectGrainOriginAuthority | None = None,
 ) -> tuple[ProjectIROutputRelationalProperties, tuple[ProjectGrainFactorIdentity, ...]]:
-    output = join.output
+    return resolved_relationship_join_properties(
+        output=join.output,
+        kind=join.kind,
+        left=left,
+        right=right,
+        matches=tuple(
+            (p.left.field_position, p.right.field_position, p.correspondence)
+            for p in join.matches
+        ),
+        source_positions=tuple(f.field_position for f in _source_slice_fields(join)),
+        actual_nulling=join.null_extension
+        is ProjectIRJoinNullExtensionEffect.MAY_NULL_EXTEND_RIGHT,
+        forward_at_most_one=join.guarantee.maximum
+        is ProjectRelationshipMaximumBound.AT_MOST_ONE,
+        reverse_at_most_one=reverse.maximum
+        is ProjectRelationshipMaximumBound.AT_MOST_ONE,
+        forward_support=join.guarantee,
+        reverse_support=reverse,
+        input_uses=join.input_uses,
+        source_factors=source_factors,
+        right_nulling=right_nulling,
+        origin_set=origin_set,
+        witness=join,
+        join_identity=join.identity,
+        grain_witness=None,
+    )
+
+
+def resolved_relationship_join_properties(
+    *,
+    output,
+    kind,
+    left,
+    right,
+    matches,
+    source_positions,
+    actual_nulling,
+    forward_at_most_one,
+    reverse_at_most_one,
+    forward_support,
+    reverse_support,
+    input_uses,
+    source_factors,
+    right_nulling,
+    origin_set,
+    witness,
+    join_identity=None,
+    grain_witness=None,
+):
+    """Original relationship JOIN algebra after source/use correspondence."""
     fields = _field_occurrences(output)
     left_classes, left_images = _classes_for_output(
         old=left.value_classes, output=output, fields=fields, offset=0
@@ -1127,15 +1216,17 @@ def _build_relational_properties(
     )
     classes = (*left_classes, *right_classes)
     source_classes = _ordered_classes(
-        tuple(_class_for_field(classes, pair.left) for pair in join.matches),
+        tuple(_class_for_field(classes, fields[pair[0]]) for pair in matches),
         classes,
     )
     source_binding_classes = _ordered_classes(
-        tuple(_class_for_field(classes, item) for item in _source_slice_fields(join)),
+        tuple(
+            _class_for_field(classes, fields[position]) for position in source_positions
+        ),
         classes,
     )
     right_match_classes = _ordered_classes(
-        tuple(_class_for_field(classes, pair.right) for pair in join.matches), classes
+        tuple(_class_for_field(classes, fields[pair[1]]) for pair in matches), classes
     )
     left_keys = tuple(
         _image_key(
@@ -1143,14 +1234,11 @@ def _build_relational_properties(
             left_images,
             classes,
             output=output,
-            support=join,
+            support=witness,
         )
         for key in left.keys
     )
     right_key_images: list[ProjectIROutputCandidateKey] = []
-    actual_nulling = (
-        join.null_extension is ProjectIRJoinNullExtensionEffect.MAY_NULL_EXTEND_RIGHT
-    )
     for key in right.keys:
         right_key_images.append(
             _image_key(
@@ -1159,13 +1247,9 @@ def _build_relational_properties(
                 classes,
                 output=output,
                 force_lax=actual_nulling,
-                support=join,
+                support=witness,
             )
         )
-    forward_at_most_one = (
-        join.guarantee.maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
-    )
-    reverse_at_most_one = reverse.maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
     candidates: list[ProjectIROutputCandidateKey] = []
     if forward_at_most_one:
         candidates.extend(left_keys)
@@ -1193,7 +1277,7 @@ def _build_relational_properties(
                     output=output,
                     determinants=determinants,
                     strength=strength,
-                    supports=(left_key, right_key, join),
+                    supports=(left_key, right_key, witness),
                 )
             )
     keys = _frontier(tuple(candidates))
@@ -1205,7 +1289,7 @@ def _build_relational_properties(
             classes,
             output=output,
             strength=fact.strength,
-            support=join,
+            support=witness,
         )
         if image is not None:
             fds.append(image)
@@ -1220,7 +1304,7 @@ def _build_relational_properties(
             classes,
             output=output,
             strength=strength,
-            support=join,
+            support=witness,
         )
         if image is not None:
             fds.append(image)
@@ -1232,7 +1316,7 @@ def _build_relational_properties(
                 determinants=source_classes,
                 dependents=right_all,
                 strength=ProjectRowUniquenessStrength.STRICT,
-                supports=(join.guarantee, join),
+                supports=(forward_support, witness),
             )
         )
     if reverse_at_most_one and right_match_classes and source_binding_classes:
@@ -1246,13 +1330,13 @@ def _build_relational_properties(
                     if actual_nulling
                     else ProjectRowUniquenessStrength.STRICT
                 ),
-                supports=(reverse, join),
+                supports=(reverse_support, witness),
             )
         )
-    if join.kind is ProjectIRBinaryJoinKind.INNER or not actual_nulling:
-        for pair in join.matches:
-            left_class = _class_for_field(classes, pair.left)
-            right_class = _class_for_field(classes, pair.right)
+    if kind is ProjectIRBinaryJoinKind.INNER or not actual_nulling:
+        for pair in matches:
+            left_class = _class_for_field(classes, fields[pair[0]])
+            right_class = _class_for_field(classes, fields[pair[1]])
             fds.extend(
                 (
                     ProjectIROutputValueFD(
@@ -1260,31 +1344,32 @@ def _build_relational_properties(
                         determinants=(left_class,),
                         dependents=(right_class,),
                         strength=ProjectRowUniquenessStrength.STRICT,
-                        supports=(pair.correspondence, join),
+                        supports=(pair[2], witness),
                     ),
                     ProjectIROutputValueFD(
                         output=output,
                         determinants=(right_class,),
                         dependents=(left_class,),
                         strength=ProjectRowUniquenessStrength.STRICT,
-                        supports=(pair.correspondence, join),
+                        supports=(pair[2], witness),
                     ),
                 )
             )
     fds = list(_key_fds(output, classes, keys, tuple(fds)))
     fd_index = _compile_output_fd_index(output, classes, tuple(fds))
     grain, right_factors = _grain(
-        join_identity=join.identity,
+        join_identity=join_identity,
         output=output,
         left=left.grain,
         right=right.grain,
-        left_use=join.input_uses[0],
-        right_use=join.input_uses[1],
+        left_use=input_uses[0],
+        right_use=input_uses[1],
         source_factors=source_factors,
         nulling=right_nulling,
         forward_at_most_one=forward_at_most_one,
         reverse_at_most_one=reverse_at_most_one,
         origin_set=origin_set,
+        witness=grain_witness,
     )
     return (
         ProjectIROutputRelationalProperties(

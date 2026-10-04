@@ -348,9 +348,18 @@ def result_realization(family: str, function: str, argument, retained):
 
 def argument_problem(function: str, argument):
     """R13 admits exactly one direct established V01 field per aggregate argument."""
-    if type(argument) is not rows.SQLStageReference:
+    return resolved_argument_problem(
+        function,
+        type(argument) is rows.SQLStageReference,
+        argument.realization if type(argument) is rows.SQLStageReference else None,
+    )
+
+
+def resolved_argument_problem(function: str, direct_reference: bool, realization):
+    """The same R13 argument law for an already-resolved input port."""
+    if not direct_reference:
         return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
-    if argument.realization.tag != "Int":
+    if realization is None or realization.tag != "Int":
         return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
     return None
 
@@ -740,3 +749,129 @@ def plan_projection_type():
     """The retained aggregate projection type, for exact dispatch by identity."""
 
     return aggregation.ProjectSQLAggregateProjection
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledAggregateSubject:
+    ref: Any
+
+
+def build_compiled_stage(plan, record, arguments):
+    """Realize resolved aggregate inputs with the same R12/R13 laws."""
+    from pietto._project.project_compiled_schema import Address, CompiledError
+    from pietto._project.project_sql_emission_ast import SQLSymbol
+
+    records = plan.ir.completed.root.records
+    facts = {f.address: f for f in plan.ir.completed.facts}
+    stage = CompiledAggregateSubject(plan.references[record.address])
+    keys, values, columns = [], [], []
+    for index, (address, argument) in enumerate(
+        zip(record.get("outputs"), arguments, strict=True)
+    ):
+        port = plan.ports[address]
+        expression = records[records[address].get("source")]
+        subject = CompiledAggregateSubject(plan.references[expression.address])
+        symbol = SQLSymbol(index, port.ref, port.identity.name)
+        if expression.address.kind == "read":
+            if (
+                type(argument) is not rows.SQLStageReference
+                or grouping_problem(argument.realization) is not None
+            ):
+                raise CompiledError("COMPILED_GROUP_KEY")
+            read = argument.column
+            column = AggregateKeyColumn(
+                index,
+                port,
+                subject,
+                argument.port,
+                read,
+                symbol,
+                port.identity.name,
+                replace(
+                    read,
+                    position=index,
+                    name=port.identity.name,
+                    terminal=port.ref,
+                    scope=None,
+                    aggregate=AggregateOrigin(
+                        "group_key", stage, port.ref, (read.terminal,), key=subject
+                    ),
+                ),
+            )
+            keys.append(column)
+        else:
+            function = expression.get("function")
+            if function not in SPELLING or (argument is None and function != "count"):
+                raise CompiledError("COMPILED_AGGREGATE_SIGNATURE")
+            if (
+                argument is not None
+                and argument_problem(function, argument) is not None
+            ):
+                raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
+            fact = facts[address]
+            expected, problem = result_realization(
+                records[Address("target", 0)].get("family"),
+                function,
+                argument,
+                (
+                    fact.value_type.resolved_type.name,
+                    rows.NULLABILITY[fact.value_type.nullability],
+                ),
+            )
+            if (
+                problem is not None
+                or expected is None
+                or (expected.tag, expected.storage, expected.nullable, expected.domain)
+                != (
+                    fact.realization.tag,
+                    fact.realization.storage,
+                    fact.realization.nullable,
+                    fact.realization.domain,
+                )
+            ):
+                raise CompiledError("COMPILED_AGGREGATE_REALIZATION")
+            inputs = (
+                (argument.column.terminal,)
+                if argument is not None
+                else tuple(
+                    plan.references[p] for p in records[record.get("use")].get("ports")
+                )
+            )
+            terminal = rows.StageColumn(
+                index,
+                port.identity.name,
+                port.ref,
+                fact.realization,
+                aggregate=AggregateOrigin(
+                    "aggregate_result",
+                    stage,
+                    port.ref,
+                    inputs,
+                    aggregate=subject,
+                    function=function,
+                ),
+            )
+            column = AggregateValueColumn(
+                index,
+                port,
+                subject,
+                function,
+                SPELLING[function],
+                function in DISTINCT_FUNCTIONS,
+                argument,
+                symbol,
+                port.identity.name,
+                terminal,
+            )
+            values.append(column)
+        columns.append(column)
+    mode = record.get("mode")
+    if mode not in ("grouped", "global") or bool(keys) is not (mode == "grouped"):
+        raise CompiledError("COMPILED_AGGREGATE_MODE")
+    return tuple(columns), AggregateStage(
+        stage,
+        tuple(keys),
+        tuple(values),
+        mode,
+        "no_groups" if mode == "grouped" else "one_global_row",
+    )

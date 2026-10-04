@@ -47,6 +47,7 @@ from pietto.semantic.capability_profiles import (
 )
 
 if TYPE_CHECKING:
+    from pietto._project.project_compiled_schema import Address, Description, Record
     from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
     from pietto._project.module_attribution import ProjectModuleAttributionFactSet
     from pietto._project.module_bindings import ProjectModuleBindingEnvironmentSet
@@ -3266,3 +3267,62 @@ def _project_unknown_direct_field_diagnostic(
         message=f"Unknown field: {projection.field_text}",
         location=projection.location,
     )
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledProjectInput:
+    """Accepted resolved data with a new scope, never reopened source authority."""
+
+    description: Description = field(repr=False)
+    expected_pin: str
+    accepted_producer: str
+    accepted_compatibility: tuple
+    scope: object = field(default_factory=object, init=False, repr=False)
+    records: Mapping[Address, Record] = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        from pietto._project.project_compiled_schema import (
+            CompiledError,
+            Description,
+            content_pin,
+            encode,
+        )
+        from pietto._project.project_compiled_verification import verify_description
+
+        if type(self.description) is not Description:
+            raise CompiledError("COMPILED_INPUT")
+        verify_description(self.description)
+        if (
+            self.description.compatibility != self.accepted_compatibility
+            or self.description.producer != self.accepted_producer
+            or content_pin(encode(self.description)) != self.expected_pin
+        ):
+            raise CompiledError("COMPILED_HANDOFF")
+        object.__setattr__(
+            self,
+            "records",
+            MappingProxyType({r.address: r for r in self.description.records}),
+        )
+
+    def verify(self) -> None:
+        from pietto._project.project_compiled_schema import (
+            CompiledError,
+            Description,
+            content_pin,
+            encode,
+        )
+        from pietto._project.project_compiled_verification import verify_description
+
+        if type(self.description) is not Description:
+            raise CompiledError("COMPILED_INPUT")
+        verify_description(self.description)
+        if (
+            self.description.compatibility != self.accepted_compatibility
+            or self.description.producer != self.accepted_producer
+            or content_pin(encode(self.description)) != self.expected_pin
+            or len(self.records) != len(self.description.records)
+            or any(
+                self.records.get(r.address) is not r for r in self.description.records
+            )
+        ):
+            raise CompiledError("COMPILED_INPUT_CHANGED")

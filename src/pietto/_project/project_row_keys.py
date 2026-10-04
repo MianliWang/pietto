@@ -71,6 +71,23 @@ class ProjectRowUniquenessStrength(StrEnum):
     LAX = "lax"
 
 
+def resolved_uniqueness_strength(
+    nullabilities: tuple[ProjectRowFieldNullability, ...],
+) -> ProjectRowUniquenessStrength:
+    """Original NULLS_DISTINCT strength law on resolved determinant facts."""
+    if not nullabilities or any(
+        type(value) is not ProjectRowFieldNullability for value in nullabilities
+    ):
+        raise ValueError(
+            "Uniqueness strength requires exact determinant nullabilities."
+        )
+    return (
+        ProjectRowUniquenessStrength.STRICT
+        if all(value is ProjectRowFieldNullability.NON_NULL for value in nullabilities)
+        else ProjectRowUniquenessStrength.LAX
+    )
+
+
 class ProjectConstraintEvidenceOrigin(StrEnum):
     """Closed origins for private constraint evidence."""
 
@@ -375,13 +392,8 @@ class ProjectRowUniquenessEvidence:
             or self.null_policy is not ProjectUniqueNullPolicy.NULLS_DISTINCT
         ):
             raise ValueError("Current authored UNIQUE uses NULLS_DISTINCT.")
-        expected_strength = (
-            ProjectRowUniquenessStrength.STRICT
-            if all(
-                determinant.nullability is ProjectRowFieldNullability.NON_NULL
-                for determinant in self.determinants
-            )
-            else ProjectRowUniquenessStrength.LAX
+        expected_strength = resolved_uniqueness_strength(
+            tuple(determinant.nullability for determinant in self.determinants)
         )
         if type(self.strength) is not ProjectRowUniquenessStrength or (
             self.strength is not expected_strength

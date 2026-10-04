@@ -663,3 +663,30 @@ def scalar_nodes(
         if id(node) not in terminal:
             pending.extend(reversed(scalar_children(node)))
     return tuple(result)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledExpressionPrimitive:
+    """Resolved scalar payload only; it contains no source-expression children."""
+
+    value: object = field(default=None, repr=False)
+    operator: str | None = None
+    negated: bool = False
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledPlanValue:
+    ref: object
+    value_type: ValueType
+    expression: CompiledExpressionPrimitive
+    operands: tuple = ()
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledLiteral(CompiledPlanValue):
+    pass
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledBoundLiteral(CompiledPlanValue):
+    use: object = field(default=None, repr=False)

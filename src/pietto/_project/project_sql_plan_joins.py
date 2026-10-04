@@ -401,3 +401,26 @@ class ProjectSQLJoinDemand:
     kind: ProjectSQLJoinDemandKind
     witness: ProjectSQLJoinWitness
     origin: ProjectSQLPlanRef
+
+
+def compiled_join_rejections(records, join):
+    """Project the resolved graph into the original per-use ON proof."""
+    from pietto._project.project_sql_emission_joins import resolved_null_rejected_ports
+
+    nodes = {}
+    for address, record in records.items():
+        if address.kind == "read":
+            nodes[address] = ("read", None, (), (record.get("use"), record.get("port")))
+        elif address.kind == "operation":
+            role, token = record.get("operator")
+            kind = "logical" if role == "binary" and token in ("and", "or") else role
+            nodes[address] = (kind, token, record.get("operands"), None)
+        elif address.kind == "literal":
+            nodes[address] = ("opaque", None, (), None)
+    equalities = tuple(
+        (nodes[records[a].get("left")][3], nodes[records[a].get("right")][3])
+        for a in join.get("equalities")
+    )
+    return resolved_null_rejected_ports(
+        AuthoredJoinKind(join.get("kind")), equalities, join.get("predicate"), nodes
+    )

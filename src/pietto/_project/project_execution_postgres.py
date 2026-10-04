@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+from dataclasses import dataclass, field
 import math
 import os
 import threading
@@ -19,6 +20,7 @@ from pietto._project.project_execution import (
     request_state,
     execution_arguments,
     verify_execution_request,
+    verify_compiled_owner,
 )
 from pietto._project.project_execution_reader import ExecutionPayloads
 from pietto._project.project_execution_source import (
@@ -61,7 +63,12 @@ def _connect(request):
         sslcertmode="disable",
         passfile="/dev/null",
         connect_timeout=max(2, min(10, math.ceil(request.limits.seconds))),
-        options=f"-c statement_timeout={max(1, min(10000, math.ceil(request.limits.seconds * 1000)))} -c client_encoding=UTF8 -c search_path=pg_catalog",
+        options=f"-c statement_timeout={max(1, min(10000, math.ceil(request.limits.seconds * 1000)))} -c client_encoding=UTF8 -c search_path=pg_catalog"
+        + (
+            " -c timezone=UTC -c standard_conforming_strings=on"
+            if request.route == "postgres_rows"
+            else ""
+        ),
         application_name="pietto_private_execution",
         autocommit=True,
         cursor_factory=pg.RawCursor,
@@ -75,14 +82,46 @@ def failure(error, phase):
     )
 
 
+@dataclass(frozen=True, slots=True, eq=False)
+class PostgresCatalogReply:
+    """An actual owned Psycopg control result, distinct from ADBC evidence."""
+
+    owner: Any = field(repr=False)
+    connection: Any = field(repr=False)
+    sql: bytes = field(repr=False)
+    arguments: tuple = field(repr=False)
+    metadata: tuple = field(repr=False)
+    rows: tuple = field(repr=False)
+    status: bytes
+    terminal: str
+
+
 class PostgresExecution:
     def __init__(self, request):
+        from pietto._project.project_sql_emission import CompiledEmissionArtifact
+        from pietto._project.project_guard_preparation import CompiledGuardedArtifact
+        from pietto._project.project_execution import verify_execution_limits
+
+        base = (
+            request.execution
+            if type(request) in (GuardedExecutionRequest, RefinedExecutionRequest)
+            else request
+        )
+        if type(base) is not ExecutionRequest:
+            raise ExecutionError("EXECUTION_REQUEST")
+        compiled = type(base.artifact) in (
+            CompiledEmissionArtifact,
+            CompiledGuardedArtifact,
+        )
+        if compiled:
+            verify_execution_limits(base.limits)
         self.guarded_request = (
             request if type(request) is GuardedExecutionRequest else None
         )
         self._owned_guarded_request = self.guarded_request
         if self.guarded_request is not None:
-            verify_guarded_execution(self.guarded_request)
+            if not compiled:
+                verify_guarded_execution(self.guarded_request)
             request = self.guarded_request.execution
         self.refined_request = (
             request if type(request) is RefinedExecutionRequest else None
@@ -96,17 +135,20 @@ class PostgresExecution:
             )
         self._owned_refined_request = self.refined_request
         if self.refined_request is not None:
-            verify_refined_execution(
-                self.refined_request, _guarded=self.guarded_request
-            )
+            if not compiled:
+                verify_refined_execution(
+                    self.refined_request, _guarded=self.guarded_request
+                )
             self._refined_state = refinement_state(self.refined_request.refinement)
             request = self.refined_request.execution
         else:
             self._refined_state = None
-        if self.guarded_request is None:
+        if self.guarded_request is None and not compiled:
             verify_execution_request(request)
         self.request = cast(ExecutionRequest, request)
-        if type(self.request.access) is not PostgresAccess or self.request.route:
+        if type(
+            self.request.access
+        ) is not PostgresAccess or self.request.route not in ("", "postgres_rows"):
             raise ExecutionError("EXECUTION_TARGET")
         self._captured = request_state(request)
         self.attempt = uuid.uuid4().hex
@@ -148,8 +190,179 @@ class PostgresExecution:
         self.guard_events = []
         self._guard_control: Any = None
         self._guard_bytes = 0
+        self._qualification: Any = None
+        self._owned_qualification: Any = None
+        self._profile_context: tuple | None = None
+        self._initial_profile_context: tuple | None = None
+        self._context_native: Any = None
+        self._profile_cursor: Any = None
+        self._catalog_replies = []
+        self._catalog_bytes = 0
+        self.requirements = (
+            self.refined_request.refinement.sources
+            if self.refined_request is not None
+            else ()
+            if self.request.source_requirement is None
+            else (self.request.source_requirement,)
+        )
+
+    def _checkpoint(self):
+        if self._cancel.is_set():
+            raise ExecutionError("EXECUTION_CANCELED")
+        self._remaining()
+
+    def _check_connection(self):
+        connection = self._connection
+        if (
+            connection is None
+            or connection is not self._owned_connection
+            or self._closed
+        ):
+            raise ExecutionError("POSTGRES_CONNECTION_IDENTITY")
+        pg = importlib.import_module("psycopg")
+        if (
+            type(connection) is not pg.Connection
+            or connection.closed
+            or connection.info.backend_pid != self.session_id
+            or int(connection.info.transaction_status) != 2
+            or self._transaction != "OPEN"
+        ):
+            raise ExecutionError("POSTGRES_TRANSACTION_STATUS")
+
+    def _profile_read(self, sql, arguments=(), *, finalizing=False):
+        from pietto._project.project_postgres_source_assurance import SQL
+        from pietto._project.project_execution_postgres_adbc_native import CONTEXT_SQL
+        from pietto._project.project_refinement_enumeration import _size
+
+        if (
+            sql not in (*SQL.values(), CONTEXT_SQL)
+            or type(arguments) is not tuple
+            or any(type(v) not in (int, str) for v in arguments)
+        ):
+            raise ExecutionError("POSTGRES_SOURCE_CATALOG_ARGUMENT")
+        if not finalizing:
+            self._checkpoint()
+        self._check_connection()
+        connection = self._owned_connection
+        cursor = connection.cursor()
+        self._profile_cursor = cursor
+        self.control_events.append(
+            ("catalog_cursor_registered", len(self._catalog_replies))
+        )
+        primary = None
+        try:
+            cursor.execute(sql, arguments)
+            description = cursor.description
+            if description is None:
+                raise ExecutionError("POSTGRES_SOURCE_CATALOG_SCHEMA")
+            metadata = tuple(
+                (i, c.name, c.type_code) for i, c in enumerate(description)
+            )
+            rows = tuple(tuple(row) for row in cursor.fetchmany(1025))
+            if len(rows) > 1024 or cursor.fetchone() is not None:
+                raise ExecutionError("POSTGRES_SOURCE_RESOURCE_LIMIT")
+            if any(len(row) != len(metadata) for row in rows):
+                raise ExecutionError("POSTGRES_SOURCE_CATALOG_SCHEMA")
+            for row in rows:
+                for value, (_ordinal, _name, oid) in zip(row, metadata, strict=True):
+                    expected = {16: bool, 20: int, 23: int, 25: str}.get(oid)
+                    if (
+                        expected is None
+                        or value is not None
+                        and type(value) is not expected
+                    ):
+                        raise ExecutionError("POSTGRES_SOURCE_CATALOG_TYPE")
+            result = cursor.pgresult
+            if result is None or int(result.status) != 2:
+                raise ExecutionError("POSTGRES_SOURCE_CATALOG_TERMINAL")
+            amount = sum(
+                _size(value, self.request.limits.max_bytes) + 8
+                for row in rows
+                for value in row
+            )
+            self._catalog_bytes += amount
+            self._check_profile_bytes()
+            self._check_connection()
+            if not finalizing:
+                self._checkpoint()
+            reply = PostgresCatalogReply(
+                self,
+                connection,
+                sql.encode(),
+                arguments,
+                metadata,
+                rows,
+                result.command_status,
+                "NORMAL",
+            )
+            self._catalog_replies.append(reply)
+            return metadata, rows, reply
+        except BaseException as error:
+            primary = error
+            raise
+        finally:
+            try:
+                cursor.close()
+            except BaseException as error:
+                self._cleanup_errors.append(failure(error, "catalog_cursor_close"))
+                if primary is None:
+                    raise
+            finally:
+                self._profile_cursor = None
+
+    def _check_profile_bytes(self, pending_page_bytes=0):
+        if self.request.route != "postgres_rows":
+            return
+        public = 0 if self._payloads is None else self._payloads.bytes
+        refined = (
+            0 if self.enumeration is None else self.enumeration._bytes
+        ) + pending_page_bytes
+        # Add the new metadata cost to both existing accounting measures.
+        # Public Arrow and refined raw-row measurements are not interchangeable.
+        if (
+            self._catalog_bytes + self._guard_bytes + max(public, refined)
+            > self.request.limits.max_bytes
+        ):
+            raise ExecutionError("EXECUTION_RESOURCE_LIMIT")
+
+    def _catalog_read(self, sql, arguments):
+        return self._profile_read(sql, arguments)
+
+    def _refresh_profile(self, *, finalizing=False):
+        from pietto._project.project_execution_postgres_adbc_native import CONTEXT_SQL
+
+        _, rows, reply = self._profile_read(CONTEXT_SQL, finalizing=finalizing)
+        if len(rows) != 1 or len(rows[0]) != 17:
+            raise ExecutionError("POSTGRES_SOURCE_NATIVE_CONTEXT")
+        context = rows[0]
+        strength = (
+            "repeatable read" if self.request.isolation == "stable" else "serializable"
+        )
+        if (
+            context[0] != 180006
+            or context[1] != self.request.access.database
+            or context[2:4] != (self.request.access.user, self.request.access.user)
+            or context[6] != self.session_id
+            or type(context[7]) is not str
+            or not context[7].isascii()
+            or not context[7].isdigit()
+            or context[8:14] != (strength, "on", "UTF8", "pg_catalog", "UTC", "on")
+        ):
+            raise ExecutionError("POSTGRES_SOURCE_NATIVE_CONTEXT")
+        if (
+            self._initial_profile_context is not None
+            and context != self._initial_profile_context
+        ):
+            raise ExecutionError("POSTGRES_TRANSACTION_CHANGED")
+        if self._initial_profile_context is None:
+            if finalizing:
+                raise ExecutionError("POSTGRES_TRANSACTION_NOT_ESTABLISHED")
+            self._initial_profile_context = context
+        self._profile_context, self._context_native = context, reply
+        return context
 
     def _verify(self):
+        verify_compiled_owner(self)
         if self.guarded_request is None:
             verify_execution_request(self.request)
         else:
@@ -199,6 +412,14 @@ class PostgresExecution:
                 )
         if self.guards is not None:
             refresh_postgres_guard_context(self)
+        if self.request.route == "postgres_rows" and self._transaction == "OPEN":
+            self._refresh_profile()
+            if (
+                self._qualification is None
+                or self._qualification is not self._owned_qualification
+            ):
+                raise ExecutionError("POSTGRES_SOURCE_QUALIFICATION_IDENTITY")
+            self._qualification.verify(self)
 
     def _remaining(self):
         if self._started is None:
@@ -211,7 +432,8 @@ class PostgresExecution:
     def open(self):
         if self._connection is not None or self._closed:
             raise ExecutionError("EXECUTION_REUSE")
-        self._verify()
+        if self.request.route == "":
+            self._verify()
         self._started = time.monotonic()
         try:
             if self._cancel.is_set():
@@ -220,6 +442,9 @@ class PostgresExecution:
             self._timer.name = "pietto-deadline-" + self.attempt
             self.control_events.append(("thread_registered", self._timer.name))
             self._timer.start()
+            if self.request.route == "postgres_rows":
+                self._verify()
+                self._checkpoint()
             self.control_events.append(("connection_open_intent", self.attempt))
             connection = _connect(self.request)
             with self._lock:
@@ -253,6 +478,14 @@ class PostgresExecution:
                     raise ExecutionError("EXECUTION_CONTEXT")
                 self.context = row[:5]
                 self.session_id = row[5]
+            if self.request.route == "postgres_rows":
+                from pietto._project.project_postgres_source_assurance import (
+                    qualify_sources,
+                )
+
+                self._refresh_profile()
+                qualify_sources(self)
+                self._refresh_profile()
             if self.request.source_requirement is not None:
                 self.source_admission = admit_postgres_source(
                     connection,
@@ -414,6 +647,7 @@ class PostgresExecution:
                 raise ExecutionError("EXECUTION_METADATA")
             batch = self._payloads.accept(rows)
             try:
+                self._check_profile_bytes()
                 if (
                     self._payloads.bytes + self._guard_bytes
                     > self.request.limits.max_bytes
@@ -577,6 +811,7 @@ class PostgresExecution:
                         > self.request.limits.max_bytes
                     ):
                         raise ExecutionError("GUARD_RESOURCE_LIMIT")
+                self._check_profile_bytes(checked.raw_bytes)
                 phase = "statement_close"
                 self._cursor.close()
                 self._cursor = self._owned_cursor = None
@@ -673,6 +908,10 @@ class PostgresExecution:
         if self._owned_connection is not None:
             if self._transaction == "OPEN":
                 try:
+                    if self.request.route == "postgres_rows":
+                        if self._initial_profile_context is None:
+                            raise ExecutionError("POSTGRES_TRANSACTION_NOT_ESTABLISHED")
+                        self._refresh_profile(finalizing=True)
                     with self._owned_connection.cursor() as control:
                         control.execute("COMMIT" if commit else "ROLLBACK")
                     self._transaction = "COMMIT_ACK" if commit else "ROLLBACK_ACK"

@@ -99,6 +99,17 @@ def compatible_row_types(
     )
 
 
+def resolved_builtin_equivalence_reason(
+    name: str,
+) -> ProjectRowEquivalenceReason | None:
+    """The existing capability rule after exact builtin type resolution."""
+    if name == "Float":
+        return ProjectRowEquivalenceReason.FLOAT_EQUIVALENCE_DEFERRED
+    if name not in {"Bool", "Int", "Text", "Date", "Timestamp", "UUID", "Decimal"}:
+        return ProjectRowEquivalenceReason.UNSUPPORTED_TYPE
+    return None
+
+
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectRowEquivalenceField:
     """Capability attached to one exact visible selected field and type root."""
@@ -167,12 +178,8 @@ class ProjectRowEquivalenceField:
         ):
             reason = ProjectRowEquivalenceReason.TYPE_EVIDENCE_MISMATCH
         elif resolved.kind is ProjectResolvedTypeKind.BUILTIN:
-            # Canonical builtin names here are existing type-resolution facts.
-            if resolved.name == "Float":
-                reason = ProjectRowEquivalenceReason.FLOAT_EQUIVALENCE_DEFERRED
-            elif resolved.name in {"Any", "Bytes", "Json"}:
-                reason = ProjectRowEquivalenceReason.UNSUPPORTED_TYPE
-            elif resolved.name == "Decimal":
+            reason = resolved_builtin_equivalence_reason(resolved.name)
+            if resolved.name == "Decimal":
                 if parents:
                     decimal = parents[0].decimal
                 elif resolution is not None:
@@ -199,15 +206,6 @@ class ProjectRowEquivalenceField:
                         reason = ProjectRowEquivalenceReason.DECIMAL_PARAMETERS_INVALID
                     elif decimal is None:
                         reason = ProjectRowEquivalenceReason.DECIMAL_PARAMETERS_MISSING
-            elif resolved.name not in {
-                "Bool",
-                "Int",
-                "Text",
-                "Date",
-                "Timestamp",
-                "UUID",
-            }:
-                reason = ProjectRowEquivalenceReason.UNSUPPORTED_TYPE
         elif resolved.kind is not ProjectResolvedTypeKind.ENUM:
             reason = ProjectRowEquivalenceReason.UNSUPPORTED_TYPE
         object.__setattr__(self, "resolution", resolution)

@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
+    from pietto._project.project_sql_emission_ast import CompiledSQLQuery
+    from pietto._project.project_sql_plan import CompiledFixedValue
+
 from dataclasses import asdict, dataclass
 import json
 from typing import Any, cast
@@ -988,3 +995,19 @@ def serialize_project_sql_emission(outcome: EmissionOutcome) -> bytes:
     ):
         raise ValueError("Invalid emission failure branch.")
     return canonical(_failure(outcome)) + b"\n"
+
+
+@dataclass(frozen=True, slots=True, eq=False, repr=False)
+class CompiledEmissionArtifact:
+    """The compiled authority branch is distinct from legacy source emission."""
+
+    request: CompiledPreparedEmission
+    ast: CompiledSQLQuery
+    rendered: RenderedSQL
+    original_requirements: tuple[Any, ...]
+    generated_requirements: tuple[Any, ...]
+    fixed_values: tuple[CompiledFixedValue, ...] = ()
+    parameter_uses: tuple[parameters.NativeUse, ...] = ()
+
+    def __repr__(self) -> str:
+        return "CompiledEmissionArtifact(request=..., ast=..., rendered=...)"

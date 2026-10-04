@@ -951,7 +951,15 @@ def result_realization(family: str, function: str, arguments, retained):
     if len(values) != 1:
         return None, ("PIE-B1004", "window_value_argument_evidence_missing")
     read = values[0].read
-    carrier = read.realization
+    default = next((item.literal for item in arguments if item.role == "default"), None)
+    return resolved_value_result(
+        family, read.realization, integer_origin(read), default, retained
+    )
+
+
+def resolved_value_result(family, carrier, origin, default, retained):
+    """Original window-value law on resolved physical inputs and origin class."""
+    tag, nullable = retained
     if tag != carrier.tag:
         return None, ("PIE-B1002", "window_result_logical_type_drift")
     if family == "mysql" and tag == "Bool":
@@ -966,8 +974,9 @@ def result_realization(family: str, function: str, arguments, retained):
             rows.Realization(tag, carrier.storage, bool(nullable), carrier.domain),
             None,
         )
-    default = next((item.literal for item in arguments if item.role == "default"), None)
-    representation, problem = integer_value_result(family, read, default)
+    representation, problem = resolved_integer_value_result(
+        family, carrier, origin, default
+    )
     if representation is None:
         return None, problem
     storage, domain = representation
@@ -984,8 +993,39 @@ def integer_value_result(family: str, read, default: str | None):
     carrier and default literal, never a range read from the data.
     """
 
-    bounds = rows.int_bounds(read.realization)
-    kind = read.realization.storage.get("kind")
+    return resolved_integer_value_result(
+        family, read.realization, integer_origin(read), default
+    )
+
+
+def integer_origin(read):
+    """The existing materialization classes used by MySQL's width law."""
+    if read.aggregate is not None:
+        return (
+            "aggregate"
+            if getattr(read.aggregate, "kind", None)
+            in {"group_key", "aggregate_result"}
+            else "unsupported"
+        )
+    if read.literal is not None:
+        value = getattr(read.literal, "value", None)
+        while type(value) is parameters.SQLUnary:
+            value = value.operand
+        return (
+            "literal"
+            if type(value) is parameters.SQLAnchor
+            and value.physical_type == "my_signed_int"
+            else "unsupported"
+        )
+    if (read.field is None) is not (read.window is None):
+        return "field" if read.field is not None else "window"
+    return "unsupported"
+
+
+def resolved_integer_value_result(family, realization, origin, default):
+    """Original integer window width law over an exact resolved origin class."""
+    bounds = rows.int_bounds(realization)
+    kind = realization.storage.get("kind")
     number = None if default is None or default == "NULL" else int(default)
     if bounds is None:
         return None, ("PIE-B1004", "window_value_argument_evidence_missing")
@@ -1002,31 +1042,12 @@ def integer_value_result(family: str, read, default: str | None):
             rank = max(rank, 1 if I32_MIN <= number <= I32_MAX else 2)
         storage = PG_INT_ORDER[rank]
     else:
-        # Grouped/aggregate producers and windows are materialized boundaries.
-        # Their consumers read fields, even when the retained origin is a literal.
-        if read.aggregate is not None:
-            display = (
-                {**MYSQL_DISPLAY, "my_signed_int": 20}.get(kind)
-                if getattr(read.aggregate, "kind", None)
-                in {"group_key", "aggregate_result"}
-                else None
-            )
-        elif read.literal is not None:
-            value = getattr(read.literal, "value", None)
-            while type(value) is parameters.SQLUnary:
-                value = value.operand
-            # The emitted SIGNED anchor is Item_int_func (max_length 21),
-            # not an uncast Item_int whose width depends on its decimal digits.
-            display = (
-                21
-                if type(value) is parameters.SQLAnchor
-                and value.physical_type == "my_signed_int"
-                and kind == "my_signed_int"
-                else None
-            )
+        if origin == "aggregate":
+            display = {**MYSQL_DISPLAY, "my_signed_int": 20}.get(kind)
+        elif origin == "literal":
+            display = 21 if kind == "my_signed_int" else None
         else:
-            reviewed = (read.field is None) is not (read.window is None)
-            display = MYSQL_DISPLAY.get(kind) if reviewed else None
+            display = MYSQL_DISPLAY.get(kind) if origin in {"field", "window"} else None
         if display is None:
             return None, (
                 "PIE-B1002",
@@ -1110,4 +1131,249 @@ def build_projection(
             replace(read, position=position, name=label, terminal=terminal.ref),
         ),
         None,
+    )
+
+
+def resolved_arguments(function, arguments, records, family):
+    """Validate the existing fixed window roles, without classifying new slots."""
+    from pietto._project.project_compiled_schema import CompiledError
+
+    if (
+        function not in ARITY
+        or not ARITY[function][0] <= len(arguments) <= ARITY[function][1]
+    ):
+        raise CompiledError("COMPILED_WINDOW_ARITY")
+    expected = (
+        ("bucket",)
+        if function == "ntile"
+        else (
+            ()
+            if function in RANKING | DISTRIBUTION
+            else ("value", "offset", "default")[: len(arguments)]
+            if function in NAVIGATION
+            else ("value", "position")[: len(arguments)]
+        )
+    )
+    if tuple(role for role, _ in arguments) != expected:
+        raise CompiledError("COMPILED_WINDOW_ROLES")
+    result = []
+    for role, address in arguments:
+        record = records[address]
+        if role == "value":
+            if address.kind != "read":
+                raise CompiledError("COMPILED_WINDOW_VALUE")
+            continue
+        if address.kind == "null_literal" and role == "default":
+            value = None
+        elif address.kind == "literal" and record.get("tag") == "Int":
+            value = record.get("value").value
+        else:
+            raise CompiledError("COMPILED_WINDOW_STATIC")
+        if role != "default":
+            if type(value) is not int or value < (0 if role == "offset" else 1):
+                raise CompiledError("COMPILED_WINDOW_STATIC")
+            if family == "postgres" and value > I32_MAX:
+                raise CompiledError("COMPILED_WINDOW_INT32")
+        elif value is not None and not I64_MIN <= value <= I64_MAX:
+            raise CompiledError("COMPILED_WINDOW_DEFAULT")
+        if records[record.get("site")].get("disposition") != "preserved_with_reason":
+            raise CompiledError("COMPILED_WINDOW_STATIC_SLOT")
+        result.append((role, value))
+    return tuple(result)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledWindowSubject:
+    ref: Any
+    policy: Any = None
+
+
+def compiled_specification(plan, address, reads, definitions):
+    """Construct one effective OVER clause from closed resolved references."""
+    from pietto._project.project_compiled_schema import Address, CompiledError
+    from pietto.semantic.window_semantics import _WINDOW_FRAME_BOUND_CATEGORY_ORDER
+
+    records = plan.ir.completed.root.records
+    record = records[address]
+    target = records[Address("target", 0)].get("family")
+    partitions = tuple(
+        (CompiledWindowSubject(plan.references[a]), reads[a])
+        for a in record.get("partition")
+    )
+    orders = tuple(
+        WindowOrderItem(
+            i, reads[a], direction, nulls, CompiledWindowSubject(plan.references[a])
+        )
+        for i, (a, direction, nulls) in enumerate(record.get("ordering"))
+    )
+    if (
+        not orders
+        or any(read.realization.tag not in ORDER_TAGS for _, read in partitions)
+        or any(
+            i.direction not in {"asc", "desc"}
+            or i.nulls is not None
+            or i.read.realization.tag not in ORDER_TAGS
+            for i in orders
+        )
+    ):
+        raise CompiledError("COMPILED_WINDOW_COMPARISON")
+    frame, offsets = None, []
+    described = record.get("frame")
+    if described is not None:
+        unit, start, end, exclusion = described
+        order = tuple(k.value for k in _WINDOW_FRAME_BOUND_CATEGORY_ORDER)
+        if (
+            start[0] not in order
+            or end[0] not in order
+            or start[0] == "unbounded_following"
+            or end[0] == "unbounded_preceding"
+            or order.index(start[0]) > order.index(end[0])
+        ):
+            raise CompiledError("COMPILED_WINDOW_FRAME_ORDER")
+        bounds = []
+        for kind, literal in (start, end):
+            if kind in BOUND_SPELLING:
+                if literal is not None:
+                    raise CompiledError("COMPILED_WINDOW_FRAME_VALUE")
+                bounds.append((kind, BOUND_SPELLING[kind]))
+            else:
+                atom = records[literal]
+                number = atom.get("value").value
+                if (
+                    literal.kind != "literal"
+                    or atom.get("tag") != "Int"
+                    or type(number) is not int
+                    or not 0 <= number <= I64_MAX
+                    or records[atom.get("site")].get("disposition")
+                    != "preserved_with_reason"
+                ):
+                    raise CompiledError("COMPILED_WINDOW_FRAME_OFFSET")
+                bounds.append((kind, str(number) + " " + OFFSET_BOUNDS[kind]))
+                offsets.append((kind, number))
+        frame = WindowFrameSpec(
+            unit,
+            bounds[0],
+            bounds[1],
+            None if exclusion is None else WindowFrameExclusion(exclusion),
+        )
+        if (
+            frame_problem(frame, target)
+            or offset_range_problem(frame, orders)
+            or range_arithmetic_problem(frame, offsets, orders)
+        ):
+            raise CompiledError("COMPILED_WINDOW_FRAME_DOMAIN")
+    named = record.get("named")
+    symbol = None if named is None else definitions[named].symbol
+    specification = WindowSpecification(partitions, orders, frame, symbol)
+    if named is not None and not same_specification(
+        specification, definitions[named].specification
+    ):
+        raise CompiledError("COMPILED_WINDOW_NAMED_SPECIFICATION")
+    return specification
+
+
+def build_compiled_stage(plan, record, reads):
+    """Build fresh window occurrences with original arguments and target laws."""
+    from pietto._project.project_compiled_schema import Address, CompiledError
+    from pietto._project.project_sql_emission_ast import SQLSymbol
+
+    records, refs = plan.ir.completed.root.records, plan.references
+    family = records[Address("target", 0)].get("family")
+    facts = {f.address: f for f in plan.ir.completed.facts}
+    definitions = {}
+    for address in record.get("definitions"):
+        described = records[address]
+        specification = compiled_specification(
+            plan, described.get("specification"), reads, definitions
+        )
+        index, label = described.get("ordinal"), described.get("label")
+        symbol = SQLSymbol(index, refs[address], label)
+        definitions[address] = WindowDefinition(
+            index, symbol, label, specification, CompiledWindowSubject(refs[address])
+        )
+    columns = {}
+    for position, address in enumerate(record.get("outputs")):
+        value = records[records[address].get("source")]
+        if value.address.kind != "window_value":
+            continue
+        function = value.get("function")
+        static = dict(
+            resolved_arguments(function, value.get("arguments"), records, family)
+        )
+        arguments = tuple(
+            WindowArgument(i, role, read=reads[a])
+            if role == "value"
+            else WindowArgument(
+                i, role, literal="NULL" if static[role] is None else str(static[role])
+            )
+            for i, (role, a) in enumerate(value.get("arguments"))
+        )
+        specification = compiled_specification(
+            plan, value.get("specification"), reads, definitions
+        )
+        if (
+            function in FRAME_INSENSITIVE
+            and specification.frame is not None
+            or function in FRAME_VALUE
+            and specification.frame is None
+        ):
+            raise CompiledError("COMPILED_WINDOW_FRAME_POLICY")
+        fact = facts[address]
+        expected, problem = result_realization(
+            family,
+            function,
+            arguments,
+            (
+                fact.value_type.resolved_type.name,
+                VALUE_NULLABILITY[fact.value_type.nullability],
+            ),
+        )
+        if (
+            problem is not None
+            or expected is None
+            or (expected.tag, expected.storage, expected.nullable, expected.domain)
+            != (
+                fact.realization.tag,
+                fact.realization.storage,
+                fact.realization.nullable,
+                fact.realization.domain,
+            )
+        ):
+            raise CompiledError("COMPILED_WINDOW_RESULT")
+        port = plan.ports[address]
+        policy = next(
+            p for p in plan.window_policies if p.window is refs[value.address]
+        )
+        subject = CompiledWindowSubject(refs[value.address], policy.ref)
+        inputs = tuple(refs[p] for p in value.get("inputs"))
+        origin = WindowOrigin(
+            "window_result",
+            subject,
+            port.ref,
+            inputs,
+            function=function,
+            selected=value.get("selected"),
+            policy=policy,
+        )
+        anchor = specification.orders[0].read
+        terminal = stage_column(
+            anchor, position, port.identity.name, port, origin, fact.realization
+        )
+        columns[address] = WindowColumn(
+            position,
+            port,
+            subject,
+            function,
+            arguments,
+            specification,
+            inputs,
+            SQLSymbol(position, port.ref, port.identity.name),
+            port.identity.name,
+            terminal,
+            value.get("selected"),
+        )
+    if resource_problem(family, len(columns)):
+        raise CompiledError("COMPILED_WINDOW_RESOURCE")
+    return columns, WindowStage(
+        refs[record.address], tuple(definitions.values()), tuple(columns.values())
     )

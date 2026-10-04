@@ -360,18 +360,13 @@ class ProjectCurrentBinaryJoin:
                     if (is_right and right_nulling) or (not is_right and left_nulling)
                     else ()
                 )
-            nullability = (
-                ProjectRowFieldNullability.NULLABLE
-                if nulling
-                else member.effective_nullability
-            )
             binding, original = origins[position]
-            if (
-                kind is AuthoredJoinKind.INNER
-                and not nulling
-                and (id(binding), id(original)) in rejected
-            ):
-                nullability = ProjectRowFieldNullability.NON_NULL
+            nullability = resolved_join_field_nullability(
+                kind,
+                member.effective_nullability,
+                bool(nulling),
+                (id(binding), id(original)) in rejected,
+            )
             fields.append(
                 ProjectIRJoinedRowField(
                     field_position=position,
@@ -455,6 +450,17 @@ class ProjectCurrentJoinProperties:
                 property_slot=ProjectIRProvidedPropertySlot.RELATION_RESULT_ORDERING,
             ),
         )
+
+
+def resolved_join_field_nullability(kind, incoming, null_extended, rejected):
+    """Original current field law; retained NULL provenance is never cleared."""
+    return (
+        ProjectRowFieldNullability.NULLABLE
+        if null_extended
+        else ProjectRowFieldNullability.NON_NULL
+        if kind is AuthoredJoinKind.INNER and rejected
+        else incoming
+    )
 
 
 def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProperties:
@@ -547,6 +553,88 @@ def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProp
             and len(reverse) == 1
             and reverse[0].maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
         )
+    return resolved_join_properties(
+        kind=kind,
+        left=left,
+        right=right,
+        output=output,
+        input_uses=join.input_uses,
+        node_ref=join.node.ref,
+        forward_at_most_one=forward_at_most_one,
+        reverse_at_most_one=reverse_at_most_one,
+        witness=join,
+        grain_witness=ProjectCurrentJoinGrainWitness(
+            condition=join.condition, left=left.grain, right=right.grain
+        ),
+        origin_set=(
+            None
+            if left.grain.origin_set is right.grain.origin_set
+            else ProjectCompositeGrainOriginAuthority(
+                witness=join.condition,
+                left=left.grain.origin_set,
+                right=right.grain.origin_set,
+            )
+        ),
+        named_left_input=type(left.output) is not ProjectIRJoinRowOutput,
+        prepared=(fields, classes, left_images, right_images, left_keys, right_keys),
+    )
+
+
+def resolved_join_properties(
+    *,
+    kind,
+    left,
+    right,
+    output,
+    input_uses,
+    node_ref,
+    forward_at_most_one,
+    reverse_at_most_one,
+    witness,
+    grain_witness,
+    origin_set,
+    named_left_input,
+    prepared=None,
+) -> ProjectIROutputRelationalProperties:
+    """Original current JOIN key/FD/grain algebra over resolved input images."""
+    left_nulling = kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
+    right_nulling = kind in {AuthoredJoinKind.LEFT, AuthoredJoinKind.FULL}
+    if prepared is None:
+        fields = _field_occurrences(output)
+        left_classes, left_images = _classes_for_output(
+            old=left.value_classes, output=output, fields=fields, offset=0
+        )
+        right_classes, right_images = _classes_for_output(
+            old=right.value_classes,
+            output=output,
+            fields=fields,
+            offset=len(left.fields),
+        )
+        classes = (*left_classes, *right_classes)
+        left_keys = tuple(
+            _image_key(
+                k,
+                left_images,
+                classes,
+                output=output,
+                force_lax=left_nulling,
+                support=witness,
+            )
+            for k in left.keys
+        )
+        right_keys = tuple(
+            _image_key(
+                k,
+                right_images,
+                classes,
+                output=output,
+                force_lax=right_nulling,
+                support=witness,
+            )
+            for k in right.keys
+        )
+    else:
+        fields, classes, left_images, right_images, left_keys, right_keys = prepared
     keys = list(left_keys) if forward_at_most_one else []
     if reverse_at_most_one:
         keys.extend(right_keys)
@@ -566,7 +654,7 @@ def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProp
                     strength=ProjectRowUniquenessStrength.STRICT
                     if strict
                     else ProjectRowUniquenessStrength.LAX,
-                    supports=(lhs, rhs, join),
+                    supports=(lhs, rhs, witness),
                 )
             )
     frontier = _frontier(tuple(keys))
@@ -592,7 +680,7 @@ def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProp
                     )
                     else fact.strength
                 ),
-                support=join,
+                support=witness,
             )
         )
         is not None
@@ -603,27 +691,17 @@ def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProp
         output=output,
         left=left.grain,
         right=right.grain,
-        left_use=join.input_uses[0],
-        right_use=join.input_uses[1],
+        left_use=input_uses[0],
+        right_use=input_uses[1],
         source_factors=None,
-        nulling=(join.node.ref,) if right_nulling else (),
-        left_nulling=(join.node.ref,) if left_nulling else (),
+        nulling=(node_ref,) if right_nulling else (),
+        left_nulling=(node_ref,) if left_nulling else (),
         forward_at_most_one=forward_at_most_one,
         reverse_at_most_one=reverse_at_most_one,
-        witness=ProjectCurrentJoinGrainWitness(
-            condition=join.condition, left=left.grain, right=right.grain
-        ),
-        origin_set=(
-            None
-            if left.grain.origin_set is right.grain.origin_set
-            else ProjectCompositeGrainOriginAuthority(
-                witness=join.condition,
-                left=left.grain.origin_set,
-                right=right.grain.origin_set,
-            )
-        ),
+        witness=grain_witness,
+        origin_set=origin_set,
         preserve_nested_inputs=True,
-        named_left_input=type(left.output) is not ProjectIRJoinRowOutput,
+        named_left_input=named_left_input,
         empty_state=(
             ProjectGrainBasisState.UNKNOWN
             if kind is AuthoredJoinKind.FULL
@@ -646,13 +724,42 @@ def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProp
 def _left_subset_properties(
     join: ProjectCurrentBinaryJoin,
 ) -> ProjectIROutputRelationalProperties:
-    left, output = join.left_input, join.output
+    return resolved_left_subset_properties(
+        left=join.left_input,
+        right=join.right_input,
+        output=join.output,
+        input_uses=join.input_uses,
+        witness=join,
+        grain_witness=ProjectCurrentJoinGrainWitness(
+            condition=join.condition,
+            left=join.left_input.grain,
+            right=join.right_input.grain,
+        ),
+        origin_set=None,
+        named_left_input=type(join.left_input.output) is not ProjectIRJoinRowOutput,
+    )
+
+
+def resolved_left_subset_properties(
+    *,
+    left,
+    right,
+    output,
+    input_uses,
+    witness,
+    grain_witness,
+    origin_set,
+    named_left_input,
+) -> ProjectIROutputRelationalProperties:
+    """Original SEMI/ANTI left-subset property kernel over resolved inputs."""
     fields = _field_occurrences(output)
     classes, images = _classes_for_output(
         old=left.value_classes, output=output, fields=fields, offset=0
     )
     keys = tuple(
-        _image_key(key, images, classes, output=output, force_lax=False, support=join)
+        _image_key(
+            key, images, classes, output=output, force_lax=False, support=witness
+        )
         for key in left.keys
     )
     fds = tuple(
@@ -665,7 +772,7 @@ def _left_subset_properties(
                 classes,
                 output=output,
                 strength=fact.strength,
-                support=join,
+                support=witness,
             )
         )
         is not None
@@ -674,18 +781,17 @@ def _left_subset_properties(
         join_identity=None,
         output=output,
         left=left.grain,
-        right=join.right_input.grain,
-        left_use=join.input_uses[0],
-        right_use=join.input_uses[1],
+        right=right.grain,
+        left_use=input_uses[0],
+        right_use=input_uses[1],
         source_factors=None,
         nulling=(),
         forward_at_most_one=False,
         reverse_at_most_one=False,
-        witness=ProjectCurrentJoinGrainWitness(
-            condition=join.condition, left=left.grain, right=join.right_input.grain
-        ),
+        witness=grain_witness,
+        origin_set=origin_set,
         preserve_nested_inputs=True,
-        named_left_input=type(left.output) is not ProjectIRJoinRowOutput,
+        named_left_input=named_left_input,
         left_only=True,
     )
     return ProjectIROutputRelationalProperties(
@@ -957,3 +1063,126 @@ class ProjectCurrentJoinRegion:
         if not any(binding is retained for retained in self.ledger.bindings):
             raise ValueError("Current introduction requires exact binding membership.")
         return self.binding_introductions[binding.identity.binding_position]
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledPropertyInputUse:
+    ref: object
+
+
+def compiled_join_properties(completed, record, output, built, origin, references):
+    """Bind compiled inputs to the existing current or relationship JOIN kernel."""
+    from pietto._project.project_compiled_schema import CompiledError
+    from pietto._project.project_relationship_match_guarantees import (
+        resolved_matching_keys,
+    )
+    from pietto._project.project_ir_joins import (
+        ProjectIRBinaryJoinKind,
+        resolved_relationship_join_properties,
+    )
+
+    records = completed.root.records
+    uses = tuple(records[a] for a in record.get("inputs"))
+    left, right = (built[u.get("producer")].properties.relational for u in uses)
+    input_uses = tuple(CompiledPropertyInputUse(references[u.address]) for u in uses)
+    kind = AuthoredJoinKind(record.get("kind"))
+    named_left = uses[0].get("producer").kind != "join"
+    if kind in (AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI):
+        return resolved_left_subset_properties(
+            left=left,
+            right=right,
+            output=output,
+            input_uses=input_uses,
+            witness=record,
+            grain_witness=record,
+            origin_set=origin,
+            named_left_input=named_left,
+        )
+
+    def matched_classes(side):
+        incoming = (left, right)[side]
+        positions = tuple(
+            records[
+                records[records[a].get("left" if side == 0 else "right")].get("port")
+            ].get("ordinal")
+            for a in record.get("equalities")
+        )
+        return tuple(
+            c
+            for c in incoming.value_classes
+            if any(m.field_position in positions for m in c.members)
+        )
+
+    matched_left, matched_right = matched_classes(0), matched_classes(1)
+    forward_keys = (
+        resolved_matching_keys(right.keys, matched_right) if matched_right else ()
+    )
+    reverse_keys = (
+        resolved_matching_keys(left.keys, matched_left) if matched_left else ()
+    )
+    if record.get("law") == "relationship":
+        matches = []
+        for address in record.get("equalities"):
+            equality = records[address]
+            lhs = records[records[equality.get("left")].get("port")].get("ordinal")
+            rhs = records[records[equality.get("right")].get("port")].get("ordinal")
+            matches.append((lhs, len(left.fields) + rhs, equality))
+        if not matches:
+            raise CompiledError("COMPILED_RELATIONSHIP_MATCHES")
+        right_nulling = (
+            (references[record.address],) if kind is AuthoredJoinKind.LEFT else ()
+        )
+        # The first hop consumes the complete left domain; a later hop consumes
+        # the factors introduced by the exact preceding right input occurrence.
+        source_factors = None
+        if not named_left:
+            from pietto._project.project_grain import CompiledGrainFactorIdentity
+
+            source_positions = record.get("source_positions")
+            previous = built[uses[0].get("producer")]
+            introduced = previous.fields[source_positions[0]].fact.introduction
+            source_factors = tuple(
+                f
+                for f in left.grain.active
+                if type(f) is CompiledGrainFactorIdentity
+                and f.introduction_use is references.get(introduced)
+            )
+        result, _ = resolved_relationship_join_properties(
+            output=output,
+            kind=ProjectIRBinaryJoinKind(kind.value),
+            left=left,
+            right=right,
+            matches=tuple(matches),
+            source_positions=record.get("source_positions"),
+            actual_nulling=kind is AuthoredJoinKind.LEFT,
+            forward_at_most_one=bool(forward_keys),
+            reverse_at_most_one=bool(reverse_keys),
+            forward_support=forward_keys,
+            reverse_support=reverse_keys,
+            input_uses=input_uses,
+            source_factors=source_factors,
+            right_nulling=right_nulling,
+            origin_set=origin,
+            witness=record,
+            grain_witness=record,
+        )
+        return result
+    source_is_key = bool(matched_left) and any(
+        set(k.determinants) == set(matched_left) for k in left.keys
+    )
+    return resolved_join_properties(
+        kind=kind,
+        left=left,
+        right=right,
+        output=output,
+        input_uses=input_uses,
+        node_ref=references[record.address],
+        forward_at_most_one=bool(forward_keys)
+        or right.grain.state is ProjectGrainBasisState.GLOBAL,
+        reverse_at_most_one=(source_is_key and bool(reverse_keys))
+        or left.grain.state is ProjectGrainBasisState.GLOBAL,
+        witness=record,
+        grain_witness=record,
+        origin_set=origin,
+        named_left_input=named_left,
+    )

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pietto.semantic import EffectiveNullability, TypeKind, ValueTypeKind
+from test_phase31_numeric_promotion_decimal_boundary import _expression_facts
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SPEC_PATH = REPO_ROOT / "docs/spec/operator-comparison-matrix-contract-v1.md"
 REGISTRY_CONTRACT_PATH = REPO_ROOT / "docs/spec/canonical-scalar-type-registry-v1.md"
@@ -116,7 +119,6 @@ def test_operator_status_vocabulary_and_nullability_boundary_are_locked() -> Non
 
 def test_unary_numeric_matrix_is_grounded_in_current_expressions() -> None:
     spec = _normalized(SPEC_PATH)
-    expressions = _read(EXPRESSIONS_PATH)
     numeric_tests = _read(PHASE26_NUMERIC_TEST_PATH)
 
     for required in (
@@ -130,23 +132,33 @@ def test_unary_numeric_matrix_is_grounded_in_current_expressions() -> None:
     ):
         assert required in spec
 
-    is_numeric_body = _function_body(expressions, "def _is_numeric(")
-    assert (
-        'return _is_builtin(value_type, "Int") or _is_builtin(value_type, "Float")'
-        in (is_numeric_body)
-    )
-    assert '"Decimal"' not in is_numeric_body
-
-    unary_body = _function_body(expressions, "def _unary_value_type(")
-    for required in (
-        "operand_type.kind is ValueTypeKind.UNKNOWN",
-        "return _UNKNOWN_VALUE_TYPE",
-        "if not _is_numeric(operand_type):",
-        'expected="numeric operand"',
-        "resolved_type=operand_type.resolved_type",
-        "nullability=operand_type.nullability",
+    for field, type_name, nullability in (
+        ("amount", "Int", EffectiveNullability.NON_NULL),
+        ("optional_amount", "Int", EffectiveNullability.NULLABLE),
+        ("score", "Float", EffectiveNullability.NON_NULL),
+        ("weight", "Float", EffectiveNullability.NULLABLE),
     ):
-        assert required in unary_body
+        for operator in ("+", "-"):
+            value, diagnostics = _expression_facts(operator + field)
+            assert value.kind is ValueTypeKind.KNOWN
+            assert value.resolved_type.kind is TypeKind.BUILTIN
+            assert value.resolved_type.name == type_name
+            assert value.nullability is nullability
+            assert diagnostics == ()
+    for operator in ("+", "-"):
+        for field in ("price", "discount", "status", "active"):
+            value, diagnostics = _expression_facts(operator + field)
+            assert value.kind is ValueTypeKind.UNKNOWN
+            assert value.nullability is EffectiveNullability.UNKNOWN
+            assert diagnostics == (
+                (
+                    "PIE-S2105",
+                    f"Invalid operands for operator {operator}: expected numeric operand",
+                ),
+            )
+        value, diagnostics = _expression_facts(operator + "(amount / tax)")
+        assert value.kind is ValueTypeKind.UNKNOWN
+        assert diagnostics == ()
 
     for required in (
         "test_unary_numeric_semantics_remain_unchanged",
@@ -160,7 +172,6 @@ def test_unary_numeric_matrix_is_grounded_in_current_expressions() -> None:
 
 def test_binary_numeric_decimal_modulo_and_division_matrix_is_grounded() -> None:
     spec = _normalized(SPEC_PATH)
-    expressions = _read(EXPRESSIONS_PATH)
     phase17_tests = _read(PHASE17_EXPRESSION_TEST_PATH)
     numeric_tests = _read(PHASE26_NUMERIC_TEST_PATH)
     decimal_tests = _read(PHASE26_DECIMAL_TEST_PATH)
@@ -183,34 +194,59 @@ def test_binary_numeric_decimal_modulo_and_division_matrix_is_grounded() -> None
     ):
         assert required in spec
 
-    binary_body = _function_body(expressions, "def _binary_value_type(")
-    for required in (
-        'if expression.operator == "/":',
-        "return _UNKNOWN_VALUE_TYPE",
-        "left_type.kind is ValueTypeKind.UNKNOWN",
-        "or right_type.kind is ValueTypeKind.UNKNOWN",
-        'if expression.operator == "%":',
-        '_is_builtin(left_type, "Int")',
-        '_is_builtin(right_type, "Int")',
-        'expected="Int operands"',
-        'if expression.operator in {"+", "-", "*"}:',
-        "return_type = _binary_arithmetic_result_type(",
-        'expected="numeric operands"',
+    for left, right, type_name in (
+        ("amount", "tax", "Int"),
+        ("score", "weight", "Float"),
+        ("amount", "score", "Float"),
+        ("score", "amount", "Float"),
+        ("price", "discount", "Decimal"),
+        # The current rule also includes the later Decimal/Int promotion.
+        ("price", "amount", "Decimal"),
+        ("amount", "price", "Decimal"),
     ):
-        assert required in binary_body
-
-    arithmetic_body = _function_body(expressions, "def _binary_arithmetic_result_type(")
-    for required in (
-        "if _is_numeric(left_type) and _is_numeric(right_type):",
-        '"Float"',
-        '"Int"',
-        'operator in {"+", "-"}',
-        '_is_builtin(left_type, "Decimal")',
-        '_is_builtin(right_type, "Decimal")',
-        'return "Decimal"',
-        "return None",
+        operators = ("+", "-") if type_name == "Decimal" else ("+", "-", "*")
+        for operator in operators:
+            value, diagnostics = _expression_facts(f"{left} {operator} {right}")
+            assert value.kind is ValueTypeKind.KNOWN
+            assert value.resolved_type.kind is TypeKind.BUILTIN
+            assert value.resolved_type.name == type_name
+            assert value.nullability is EffectiveNullability.UNKNOWN
+            assert diagnostics == ()
+    value, diagnostics = _expression_facts("amount % tax")
+    assert value.kind is ValueTypeKind.KNOWN
+    assert value.resolved_type.name == "Int"
+    assert value.nullability is EffectiveNullability.UNKNOWN
+    assert diagnostics == ()
+    for expression, operator, expected in (
+        ("price * discount", "*", "numeric operands"),
+        ("price * amount", "*", "numeric operands"),
+        ("amount * price", "*", "numeric operands"),
+        ("score + price", "+", "numeric operands"),
+        ("price - score", "-", "numeric operands"),
+        ("status + status", "+", "numeric operands"),
+        ("active * amount", "*", "numeric operands"),
+        ("score % amount", "%", "Int operands"),
+        ("amount % score", "%", "Int operands"),
+        ("price % price", "%", "Int operands"),
     ):
-        assert required in arithmetic_body
+        value, diagnostics = _expression_facts(expression)
+        assert value.kind is ValueTypeKind.UNKNOWN
+        assert diagnostics == (
+            (
+                "PIE-S2105",
+                f"Invalid operands for operator {operator}: expected {expected}",
+            ),
+        )
+    for left in ("amount", "score", "price", "status", "active"):
+        for right in ("amount", "score", "price", "status", "active"):
+            value, diagnostics = _expression_facts(f"{left} / {right}")
+            assert value.kind is ValueTypeKind.UNKNOWN
+            assert value.nullability is EffectiveNullability.UNKNOWN
+            assert diagnostics == ()
+    for expression in ("(amount / tax) + amount", "amount + (amount / tax)"):
+        value, diagnostics = _expression_facts(expression)
+        assert value.kind is ValueTypeKind.UNKNOWN
+        assert diagnostics == ()
 
     for required in (
         "test_modulo_projection_requires_int_and_returns_int",
@@ -281,7 +317,6 @@ def test_text_concatenation_and_scalar_function_boundaries_are_locked() -> None:
 
 def test_bool_operator_matrix_and_predicate_boundary_are_locked() -> None:
     spec = _normalized(SPEC_PATH)
-    expressions = _read(EXPRESSIONS_PATH)
     bool_contract = _normalized(BOOL_CONTRACT_PATH)
     predicate_checks = _read(PREDICATE_CHECKS_PATH)
     satisfying = _read(SATISFYING_PATH)
@@ -300,15 +335,25 @@ def test_bool_operator_matrix_and_predicate_boundary_are_locked() -> None:
     ):
         assert required in spec
 
-    binary_body = _function_body(expressions, "def _binary_value_type(")
-    for required in (
-        'if expression.operator in {"and", "or"}:',
-        '_is_builtin(left_type, "Bool")',
-        '_is_builtin(right_type, "Bool")',
-        'return _builtin_value_type("Bool", EffectiveNullability.UNKNOWN)',
-        'expected="Bool operands"',
-    ):
-        assert required in binary_body
+    for operator in ("and", "or"):
+        value, diagnostics = _expression_facts(f"active {operator} active")
+        assert value.kind is ValueTypeKind.KNOWN
+        assert value.resolved_type.name == "Bool"
+        assert value.nullability is EffectiveNullability.UNKNOWN
+        assert diagnostics == ()
+        for left, right in (("active", "amount"), ("amount", "active")):
+            value, diagnostics = _expression_facts(f"{left} {operator} {right}")
+            assert value.kind is ValueTypeKind.UNKNOWN
+            assert diagnostics == (
+                (
+                    "PIE-S2105",
+                    f"Invalid operands for operator {operator}: expected Bool operands",
+                ),
+            )
+        for left, right in (("active", "(amount / tax)"), ("(amount / tax)", "active")):
+            value, diagnostics = _expression_facts(f"{left} {operator} {right}")
+            assert value.kind is ValueTypeKind.UNKNOWN
+            assert diagnostics == ()
 
     for required in (
         "known `Bool` predicates pass the current Bool consumer check",

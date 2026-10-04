@@ -6,6 +6,23 @@ semantic fields, producer definitions and input uses remain distinct.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pietto._project.project_query_block_ir import (
+        CompiledQueryBlockIR,
+        CompiledIRReference,
+        CompiledIRField,
+        CompiledIROperator,
+    )
+    from pietto._project.project_compiled_schema import Address
+    from pietto._project.project_single_match import (
+        CompiledSingleMatchRequest,
+        CompiledSingleMatchAssessment,
+        CompiledSingleMatchProof,
+    )
+
+
 from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_results as results
@@ -3951,3 +3968,362 @@ def build_project_sql_plan(
     object.__setattr__(plan, "origins", tuple(origins))
     object.__setattr__(plan, "demands", tuple(demands))
     return plan
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledPortIdentity:
+    name: str
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledSQLPort:
+    ref: CompiledIRReference
+    owner: object
+    field: CompiledIRField = field(repr=False)
+    identity: CompiledPortIdentity
+
+    producer_port: CompiledIRReference | None = None
+
+    @property
+    def nulling(self):
+        return self.field.fact.nulling
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledSQLDefinition:
+    ref: CompiledIRReference
+    entry: CompiledIROperator = field(repr=False)
+    exports: tuple[CompiledSQLPort, ...]
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledSQLSource:
+    ref: CompiledIRReference
+    source: CompiledIROperator = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledLiteralPosition:
+    owner: object = field(repr=False)
+    role: literals.ProjectSQLLiteralRole
+    literal: row.CompiledExpressionPrimitive = field(repr=False)
+    expression: object
+    ancestry: tuple
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledLiteralSite:
+    ref: CompiledIRReference
+    position: CompiledLiteralPosition
+    disposition: literals.ProjectSQLLiteralDisposition
+    reason: literals.ProjectSQLLiteralReason | None
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledLiteralSlot:
+    ref: CompiledIRReference
+    site: CompiledLiteralSite
+    tag: literals.ProjectSQLLiteralTag
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledBindUse:
+    slot: CompiledLiteralSlot
+    expression: object
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledFixedValue:
+    slot: CompiledLiteralSlot
+    tag: literals.ProjectSQLLiteralTag
+    value: object = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledFixedEnvelope:
+    values: tuple[CompiledFixedValue, ...] = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledSQLSingleMatch:
+    ref: CompiledIRReference
+    request: CompiledSingleMatchRequest = field(repr=False)
+    assessment: CompiledSingleMatchAssessment = field(repr=False)
+    joins: tuple[CompiledIRReference, ...]
+    input_pairs: tuple[tuple[CompiledIRReference, ...], ...]
+    proofs: tuple[CompiledIRReference, ...]
+    downstream_enforcement_required: bool
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledSQLSingleMatchProof:
+    ref: CompiledIRReference
+    obligation: CompiledIRReference
+    parent: CompiledIRReference | None
+    source: CompiledSingleMatchProof = field(repr=False)
+    joins: tuple[CompiledIRReference, ...]
+    children: tuple[CompiledIRReference, ...]
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledSQLAggregateRisk:
+    ref: CompiledIRReference
+    aggregation: CompiledIRReference
+    source: object = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledSQLPlan:
+    ir: CompiledQueryBlockIR = field(repr=False)
+    scope: object = field(repr=False)
+    references: Mapping[Address, CompiledIRReference] = field(repr=False)
+    definitions: tuple[CompiledSQLDefinition, ...]
+    sources: tuple[CompiledSQLSource, ...]
+    ports: Mapping[Address, CompiledSQLPort] = field(repr=False)
+    exports: tuple[CompiledSQLPort, ...]
+    expressions: Mapping[Address, row.CompiledPlanValue] = field(repr=False)
+    literal_policy: literals.ProjectSQLLiteralPolicy
+    literal_sites: tuple[CompiledLiteralSite, ...]
+    literal_slots: tuple[CompiledLiteralSlot, ...]
+    fixed_envelope: CompiledFixedEnvelope = field(repr=False)
+    parameter_uses: tuple = field(repr=False)
+    single_matches: tuple[CompiledSQLSingleMatch, ...] = ()
+    single_match_proofs: tuple[CompiledSQLSingleMatchProof, ...] = ()
+    all_single_matches: tuple[CompiledSQLSingleMatch, ...] = ()
+    all_single_match_proofs: tuple[CompiledSQLSingleMatchProof, ...] = ()
+    aggregate_evidence: tuple = ()
+    aggregate_risks: tuple = ()
+    window_policies: tuple = ()
+    semantic_references: Mapping = field(default_factory=dict, repr=False)
+
+
+def build_compiled_sql_plan(ir):
+    """Plan the resolved branch; no source-only planning roots are manufactured."""
+    from types import MappingProxyType
+    from pietto._project.project_compiled_schema import Address, CompiledError
+    from pietto._project.project_query_block_ir_verification import (
+        verify_compiled_query_block_ir,
+    )
+    from pietto._project.project_sql_emission_parameters import allocate_uses, PHYSICAL
+
+    verify_compiled_query_block_ir(ir)
+    completed, refs = ir.completed, ir.references
+    records = completed.root.records
+    from pietto._project.project_compiled_schema import selected_relations
+
+    active = selected_relations(records, records[completed.root.description.query])
+    facts = {f.address: f for f in completed.facts}
+    declarations = {d.address: d for d in completed.declarations}
+    ports = {}
+    for operator in ir.operators:
+        for f in operator.fields:
+            address = Address(f.ref.kind, f.ref.position)
+            ports[address] = CompiledSQLPort(
+                f.ref, operator.ref, f, CompiledPortIdentity(f.evidence.name)
+            )
+    definitions = tuple(
+        CompiledSQLDefinition(
+            o.ref,
+            o,
+            tuple(ports[Address(f.ref.kind, f.ref.position)] for f in o.fields),
+        )
+        for o in ir.operators
+    )
+    source_bindings = tuple(
+        CompiledSQLSource(o.ref, o)
+        for o in ir.operators
+        if o.kind == "source" and o.record.address in active
+    )
+    primitives = {}
+    for address, fact in facts.items():
+        if address.kind in ("literal", "operation", "read"):
+            primitives[address] = row.CompiledExpressionPrimitive(
+                fact.value,
+                None if fact.operator is None else fact.operator[1],
+                fact.operator == ("null_test", "is_not_null"),
+            )
+    for address in records:
+        if address.kind == "null_literal":
+            primitives[address] = row.CompiledExpressionPrimitive(None, None, False)
+    sites = {}
+    for record in records.values():
+        if record.address.kind != "site":
+            continue
+        literals_here = tuple(
+            r
+            for r in records.values()
+            if r.address.kind in ("literal", "null_literal")
+            and r.get("site") == record.address
+        )
+        if len(literals_here) != 1:
+            raise CompiledError("COMPILED_PLAN_SITE")
+        literal = literals_here[0]
+        sites[record.address] = CompiledLiteralSite(
+            refs[record.address],
+            CompiledLiteralPosition(
+                declarations[record.get("owner")],
+                literals.ProjectSQLLiteralRole(record.get("role")),
+                primitives[literal.address],
+                refs[literal.address],
+                record.get("ancestry"),
+            ),
+            literals.ProjectSQLLiteralDisposition(record.get("disposition")),
+            None
+            if record.get("reason") is None
+            else literals.ProjectSQLLiteralReason(record.get("reason")),
+        )
+    slots, literal_slots = {}, {}
+    for record in records.values():
+        if record.address.kind == "slot":
+            slot = CompiledLiteralSlot(
+                refs[record.address],
+                sites[record.get("site")],
+                literals.ProjectSQLLiteralTag(record.get("tag")),
+            )
+            slots[record.address] = slot
+            literal_slots[record.get("literal")] = slot
+    expressions = {}
+    for address, primitive in primitives.items():
+        if address.kind == "null_literal":
+            continue
+        fact = facts[address]
+        arguments = (
+            refs[address],
+            fact.value_type,
+            primitive,
+            tuple(refs[a] for a in fact.operands),
+        )
+        if address in literal_slots:
+            expressions[address] = row.CompiledBoundLiteral(
+                *arguments, CompiledBindUse(literal_slots[address], refs[address])
+            )
+        elif address.kind == "literal":
+            expressions[address] = row.CompiledLiteral(*arguments)
+        else:
+            expressions[address] = row.CompiledPlanValue(*arguments)
+    family = records[Address("target", 0)].get("family")
+    occurrences = []
+    native_records = tuple(
+        r for r in records.values() if r.address.kind == "native_use"
+    )
+    for record in native_records:
+        slot_record = records[record.get("slot")]
+        expression = expressions[slot_record.get("literal")]
+        occurrences.append((expression, PHYSICAL[family][slot_record.get("tag")]))
+    native = allocate_uses(family, tuple(occurrences), len(occurrences))
+    for actual, described in zip(native, native_records, strict=True):
+        if (actual.ordinal, actual.server_index, actual.physical_type) != (
+            described.get("ordinal"),
+            described.get("index"),
+            described.get("physical"),
+        ):
+            raise CompiledError("COMPILED_PLAN_USES")
+    envelope = CompiledFixedEnvelope(
+        tuple(
+            CompiledFixedValue(slot, slot.tag, slot.site.position.literal.value)
+            for slot in slots.values()
+        )
+    )
+    from pietto._project.project_single_match import assess_compiled_requests
+    from pietto._project.project_query_block_ir import CompiledIRReference
+
+    obligations, proof_images = [], []
+    for position, assessment in enumerate(assess_compiled_requests(ir)):
+        obligation_ref = CompiledIRReference(ir.scope, "single_match", position)
+        proof_nodes = []
+        pending: list[
+            tuple[tuple[int, ...], tuple[int, ...] | None, CompiledSingleMatchProof]
+        ] = [
+            ((i,), None, proof)
+            for i, proof in reversed(tuple(enumerate(assessment.proofs)))
+        ]
+        while pending:
+            path, parent, proof = pending.pop()
+            proof_nodes.append((path, parent, proof))
+            pending.extend(
+                ((*path, i), path, child)
+                for i, child in reversed(tuple(enumerate(proof.children)))
+            )
+        proof_refs = {
+            path: CompiledIRReference(
+                ir.scope, "single_match_proof", len(proof_images) + i
+            )
+            for i, (path, _, _) in enumerate(proof_nodes)
+        }
+        for path, parent, proof in proof_nodes:
+            proof_images.append(
+                CompiledSQLSingleMatchProof(
+                    proof_refs[path],
+                    obligation_ref,
+                    None if parent is None else proof_refs[parent],
+                    proof,
+                    tuple(refs[a] for a in proof.boundaries),
+                    tuple(proof_refs[(*path, i)] for i in range(len(proof.children))),
+                )
+            )
+        obligations.append(
+            CompiledSQLSingleMatch(
+                obligation_ref,
+                assessment.request,
+                assessment,
+                tuple(refs[a] for a in assessment.joins),
+                tuple(tuple(refs[a] for a in pair) for pair in assessment.input_pairs),
+                tuple(proof_refs[(i,)] for i in range(len(assessment.proofs))),
+                assessment.downstream_enforcement_required,
+            )
+        )
+    from pietto._project.project_joined_aggregation import (
+        build_compiled_aggregate_evidence,
+    )
+
+    aggregate_evidence = build_compiled_aggregate_evidence(ir)
+    aggregate_risks = []
+    for evidence in aggregate_evidence:
+        for risk in evidence.risks:
+            aggregate_risks.append(
+                CompiledSQLAggregateRisk(
+                    CompiledIRReference(
+                        ir.scope, "aggregate_risk", len(aggregate_risks)
+                    ),
+                    evidence.stage.ref,
+                    risk,
+                )
+            )
+    from pietto._project.project_sql_plan_requirements import (
+        compiled_semantic_references,
+    )
+
+    entry = records[completed.root.description.query]
+    return CompiledSQLPlan(
+        ir,
+        ir.scope,
+        refs,
+        definitions,
+        source_bindings,
+        MappingProxyType(ports),
+        tuple(ports[p] for p in entry.get("exports")),
+        MappingProxyType(expressions),
+        literals.ProjectSQLLiteralPolicy(
+            records[Address("policy", 0)].get("literal_policy")
+        ),
+        tuple(sites.values()),
+        tuple(slots.values()),
+        envelope,
+        native,
+        single_matches=tuple(
+            o
+            for o in obligations
+            if any(Address(j.kind, j.position) in active for j in o.joins)
+        ),
+        single_match_proofs=tuple(
+            p
+            for p in proof_images
+            if any(Address(j.kind, j.position) in active for j in p.joins)
+        ),
+        all_single_matches=tuple(obligations),
+        all_single_match_proofs=tuple(proof_images),
+        aggregate_evidence=aggregate_evidence,
+        aggregate_risks=tuple(aggregate_risks),
+        window_policies=windows.compiled_window_policies(ir, primitives),
+        semantic_references=compiled_semantic_references(ir.scope, records),
+    )

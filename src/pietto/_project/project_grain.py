@@ -35,6 +35,9 @@ from pietto._project.project_value_fds import (
 from pietto.ast_nodes import GroupByItem, SourceDef
 
 if TYPE_CHECKING:
+    from pietto._project.model import CompiledProjectInput
+    from pietto._project.project_query_block_ir import CompiledIRReference
+    from pietto._project.project_compiled_schema import Address
     from pietto._project.project_final_outputs import ProjectDistinct
     from pietto._project.project_set_operations import ProjectSetOperation
 
@@ -184,6 +187,98 @@ class ProjectSetGrainFactorIdentity:
         )
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class CompiledGrainFactorIdentity:
+    """One actual compiled base/domain use, never a source-IR identity."""
+
+    origin: CompiledGrainOrigin = field(repr=False)
+    ref: CompiledIRReference = field(repr=False)
+    kind: ProjectGrainFactorKind
+    base: CompiledGrainFactorIdentity | None = field(default=None, repr=False)
+    introduction_use: CompiledIRReference | None = field(default=None, repr=False)
+    nulling_joins: tuple[CompiledIRReference, ...] = field(default=(), repr=False)
+    source_factor: CompiledGrainFactorIdentity | None = field(default=None, repr=False)
+
+    def __post_init__(self):
+        from pietto._project.project_query_block_ir import CompiledIRReference
+        from pietto._project.project_compiled_schema import Address
+
+        if (
+            type(self.origin) is not CompiledGrainOrigin
+            or type(self.ref) is not CompiledIRReference
+        ):
+            raise ValueError("Compiled grain requires exact owned references.")
+        references = self.origin.references
+        address = Address(self.ref.kind, self.ref.position)
+        if (
+            references.get(address) is not self.ref
+            or self.ref.scope is not self.origin.scope
+        ):
+            raise ValueError("Compiled grain reference belongs to another scope.")
+        if self.base is None:
+            expected = {
+                "source": ProjectGrainFactorKind.SOURCE_DOMAIN,
+                "aggregate": ProjectGrainFactorKind.GROUP_DOMAIN,
+                "result": ProjectGrainFactorKind.DISTINCT_DOMAIN,
+                "set": ProjectGrainFactorKind.SET_DOMAIN,
+            }.get(self.ref.kind)
+            if (
+                self.kind is not expected
+                or self.introduction_use is not None
+                or self.nulling_joins
+                or self.source_factor is not None
+            ):
+                raise ValueError("Compiled base grain requires its exact operator.")
+            record = self.origin.root.records[address]
+            if (
+                (self.ref.kind == "aggregate" and record.get("mode") != "grouped")
+                or (self.ref.kind == "result" and record.get("distinct") is not True)
+                or (
+                    self.ref.kind == "set"
+                    and record.get("quantifier") != "distinct"
+                    and record.get("kind") != "union"
+                )
+            ):
+                raise ValueError(
+                    "Compiled grain factor is not established by this operator."
+                )
+        else:
+            if (
+                type(self.base) is not CompiledGrainFactorIdentity
+                or self.base.base is not None
+                or self.base.origin is not self.origin
+                or self.kind is not self.base.kind
+                or type(self.introduction_use) is not CompiledIRReference
+                or self.introduction_use.kind != "use"
+                or self.introduction_use.scope is not self.origin.scope
+                or references.get(Address("use", self.introduction_use.position))
+                is not self.introduction_use
+            ):
+                raise ValueError("Compiled grain use requires its exact base and use.")
+            consumer = self.origin.root.records[
+                Address("use", self.introduction_use.position)
+            ].get("consumer")
+            if references[consumer] is not self.ref or self.ref.kind != "join":
+                raise ValueError("Compiled grain introduction must belong to its JOIN.")
+        if (
+            type(self.nulling_joins) is not tuple
+            or len({id(r) for r in self.nulling_joins}) != len(self.nulling_joins)
+            or any(
+                type(r) is not CompiledIRReference
+                or r.scope is not self.origin.scope
+                or r.kind != "join"
+                or references.get(Address(r.kind, r.position)) is not r
+                for r in self.nulling_joins
+            )
+        ):
+            raise ValueError("Compiled grain NULL provenance requires exact JOINs.")
+        if self.source_factor is not None and (
+            type(self.source_factor) is not CompiledGrainFactorIdentity
+            or self.source_factor.origin is not self.origin
+        ):
+            raise ValueError("Compiled grain source use belongs to another scope.")
+
+
 type ProjectBaseGrainFactorIdentity = (
     ProjectSourceGrainFactorIdentity
     | ProjectGroupedGrainFactorIdentity
@@ -245,6 +340,7 @@ type ProjectGrainFactorIdentity = (
     | ProjectDistinctGrainFactorIdentity
     | ProjectSetGrainFactorIdentity
     | ProjectJoinGrainFactorIdentity
+    | CompiledGrainFactorIdentity
 )
 
 
@@ -261,6 +357,7 @@ class ProjectGrainDomainFactor:
             ProjectDistinctGrainFactorIdentity,
             ProjectSetGrainFactorIdentity,
             ProjectJoinGrainFactorIdentity,
+            CompiledGrainFactorIdentity,
         }:
             raise TypeError("Grain factor requires an exact domain identity.")
 
@@ -288,6 +385,7 @@ class ProjectGrainDependencyFact:
                         ProjectDistinctGrainFactorIdentity,
                         ProjectSetGrainFactorIdentity,
                         ProjectJoinGrainFactorIdentity,
+                        CompiledGrainFactorIdentity,
                     }
                     for value in values
                 )
@@ -749,6 +847,57 @@ class ProjectGrainOriginAuthority:
     """Nominal root shared by historical and additive grain-origin snapshots."""
 
     __slots__ = ()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class CompiledGrainOrigin(ProjectGrainOriginAuthority):
+    """One compiled construction's exact origin/reference universe."""
+
+    root: CompiledProjectInput = field(repr=False)
+    scope: object = field(repr=False)
+    references: Mapping[Address, CompiledIRReference] = field(repr=False)
+
+    def __post_init__(self):
+        from pietto._project.model import CompiledProjectInput
+        from pietto._project.project_query_block_ir import CompiledIRReference
+
+        if type(self.root) is not CompiledProjectInput or set(self.references) != set(
+            self.root.records
+        ):
+            raise ValueError("Compiled grain requires the complete compiled root.")
+        if any(
+            type(r) is not CompiledIRReference
+            or r.scope is not self.scope
+            or (r.kind, r.position) != (a.kind, a.position)
+            for a, r in self.references.items()
+        ):
+            raise ValueError("Compiled grain requires exact scoped addresses.")
+        object.__setattr__(self, "references", MappingProxyType(dict(self.references)))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class CompiledGrainChange(ProjectGrainOriginAuthority):
+    """A SET/DISTINCT change in an existing compiled origin universe."""
+
+    origin: CompiledGrainOrigin = field(repr=False)
+    witness: object = field(repr=False)
+    factor: CompiledGrainFactorIdentity | None = field(repr=False)
+
+    def __post_init__(self):
+        from pietto._project.project_compiled_schema import Record
+
+        if (
+            type(self.origin) is not CompiledGrainOrigin
+            or type(self.witness) is not Record
+            or self.origin.root.records.get(self.witness.address) is not self.witness
+            or self.witness.address.kind not in ("result", "set")
+            or self.factor is not None
+            and (
+                type(self.factor) is not CompiledGrainFactorIdentity
+                or self.factor.origin is not self.origin
+            )
+        ):
+            raise ValueError("Compiled grain change requires exact resolved ownership.")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)

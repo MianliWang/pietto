@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pietto.semantic import EffectiveNullability, TypeKind, ValueTypeKind
+from test_phase31_numeric_promotion_decimal_boundary import _expression_facts
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SPEC_PATH = REPO_ROOT / "docs/spec/nullability-propagation-contract-v1.md"
 REGISTRY_CONTRACT_PATH = REPO_ROOT / "docs/spec/canonical-scalar-type-registry-v1.md"
 MODEL_PATH = REPO_ROOT / "src/pietto/semantic/model.py"
 ANALYZER_PATH = REPO_ROOT / "src/pietto/semantic/analyzer.py"
 SOURCES_PATH = REPO_ROOT / "src/pietto/semantic/sources.py"
-EXPRESSIONS_PATH = REPO_ROOT / "src/pietto/semantic/expressions.py"
 RELATION_SCHEMAS_PATH = REPO_ROOT / "src/pietto/semantic/relation_schemas.py"
 GROUP_BY_PATH = REPO_ROOT / "src/pietto/semantic/group_by.py"
 SATISFYING_PATH = REPO_ROOT / "src/pietto/semantic/satisfying.py"
@@ -139,7 +141,6 @@ def test_typeexpr_source_projection_and_unknown_nullability_rules_are_grounded()
 
 def test_expression_nullability_rules_are_current_behavior_only() -> None:
     spec = _normalized(SPEC_PATH)
-    expressions = _read(EXPRESSIONS_PATH)
 
     for required in (
         "Bool literal",
@@ -166,35 +167,33 @@ def test_expression_nullability_rules_are_current_behavior_only() -> None:
     ):
         assert required in spec
 
-    for required in (
-        "def _literal_value_type(expression: LiteralExpr) -> ValueType:",
-        "if isinstance(value, bool):",
-        'name = "Bool"',
-        "elif isinstance(value, str):",
-        'name = "Text"',
-        "elif isinstance(value, int):",
-        'name = "Int"',
-        "elif isinstance(value, float):",
-        'name = "Float"',
-        "return _builtin_value_type(name, EffectiveNullability.NON_NULL)",
-        "resolved_type=operand_type.resolved_type",
-        "nullability=operand_type.nullability",
-        'if expression.operator in {"and", "or"}:',
-        'return _builtin_value_type("Bool", EffectiveNullability.UNKNOWN)',
-        'if expression.operator == "%":',
-        'return _builtin_value_type("Int", EffectiveNullability.UNKNOWN)',
-        'if expression.operator in {"+", "-", "*"}:',
-        "return _builtin_value_type(return_type, EffectiveNullability.UNKNOWN)",
-        "elif isinstance(expression, ComparisonExpr):",
-        "elif isinstance(expression, BetweenExpr):",
-        'return _builtin_value_type("Bool", EffectiveNullability.UNKNOWN)',
-        "elif isinstance(expression, IsNullExpr):",
-        '"Bool",',
-        "EffectiveNullability.NON_NULL",
-        "signature.return_type",
-        "EffectiveNullability.UNKNOWN",
+    for expression, type_name, nullability in (
+        ("true", "Bool", EffectiveNullability.NON_NULL),
+        ('"text"', "Text", EffectiveNullability.NON_NULL),
+        ("1", "Int", EffectiveNullability.NON_NULL),
+        ("1.5", "Float", EffectiveNullability.NON_NULL),
+        ("+amount", "Int", EffectiveNullability.NON_NULL),
+        ("-weight", "Float", EffectiveNullability.NULLABLE),
+        ("amount + tax", "Int", EffectiveNullability.UNKNOWN),
+        ("amount - tax", "Int", EffectiveNullability.UNKNOWN),
+        ("amount * tax", "Int", EffectiveNullability.UNKNOWN),
+        ("amount % tax", "Int", EffectiveNullability.UNKNOWN),
+        ("active and active", "Bool", EffectiveNullability.UNKNOWN),
+        ("active or active", "Bool", EffectiveNullability.UNKNOWN),
+        ("amount > tax", "Bool", EffectiveNullability.UNKNOWN),
+        ("amount between 1 and 10", "Bool", EffectiveNullability.UNKNOWN),
+        ("amount is null", "Bool", EffectiveNullability.NON_NULL),
+        ("amount is not null", "Bool", EffectiveNullability.NON_NULL),
+        ("lower(status)", "Text", EffectiveNullability.UNKNOWN),
+        ("len(status)", "Int", EffectiveNullability.UNKNOWN),
+        ('matches(status, "ok")', "Bool", EffectiveNullability.UNKNOWN),
     ):
-        assert required in expressions
+        value, diagnostics = _expression_facts(expression)
+        assert value.kind is ValueTypeKind.KNOWN
+        assert value.resolved_type.kind is TypeKind.BUILTIN
+        assert value.resolved_type.name == type_name
+        assert value.nullability is nullability
+        assert diagnostics == ()
 
 
 def test_aggregate_result_nullability_matrix_is_locked() -> None:

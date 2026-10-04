@@ -28,6 +28,7 @@ from pietto._project.project_sql_emission_contract import (
     BoundField,
     BoundSource,
     PreparedEmission,
+    CompiledPreparedEmission,
     RELEASES,
     MAX_NODES,
     MAX_SQL_BYTES,
@@ -196,7 +197,46 @@ def projection_chain_shape(plan):
 
 
 def applicable_premises(request, owner, field=None):
+    from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
+
     plan = request.plan
+    if type(request) is CompiledPreparedEmission:
+        records = plan.ir.completed.root.records
+        fields = tuple(
+            r.address
+            for r in records.values()
+            if r.address.kind == "field"
+            and (
+                field is None
+                or (
+                    r.get("ordinal") == field.ordinal
+                    and any(
+                        source.owner is owner
+                        and any(f is field for f in source.fields)
+                        and source.position == r.get("source").position
+                        for source in request.sources
+                    )
+                )
+            )
+        )
+        contexts = tuple(
+            plan.references[r.address]
+            for r in records.values()
+            if r.address.kind == "expression_context"
+            and any(a in fields for a in r.get("fields"))
+        )
+        return tuple(
+            p
+            for p in request.premises
+            if p.scope == "statement"
+            or p.scope is owner
+            or (
+                field is not None
+                and type(p.scope) is tuple
+                and p.scope[0] is owner
+                and any(p.scope[1] is c for c in contexts)
+            )
+        )
     sites = (
         ()
         if field is None
@@ -234,9 +274,8 @@ def resource_limits(request):
     return limits
 
 
-def representation_problem(field: BoundField, family: str):
+def representation_problem(field: BoundField, family: str) -> tuple[str, str] | None:
     value = json.loads(field.representation)
-    storage, domain = value["storage"], value["domain"]
     evidence = field.field.evidence
     logical = evidence.resolved_type
     resolution = field.resolution
@@ -260,6 +299,22 @@ def representation_problem(field: BoundField, family: str):
     nullability = {"non_null": False, "nullable": True, "unknown": "unknown"}[
         field.field.effective_nullability.value
     ]
+    return resolved_representation_problem(
+        logical.name,
+        nullability,
+        value,
+        family,
+        None
+        if field.decimal is None
+        else (field.decimal.precision, field.decimal.scale),
+    )
+
+
+def resolved_representation_problem(
+    tag, nullability, value, family, decimal
+) -> tuple[str, str] | None:
+    """Existing target representation law after resolved logical admission."""
+    storage, domain = value["storage"], value["domain"]
     if value["nullable"] != nullability or type(value["nullable"]) is not type(
         nullability
     ):
@@ -267,7 +322,7 @@ def representation_problem(field: BoundField, family: str):
     kind = storage["kind"]
     prefix = "pg_" if family == "postgres" else "my_"
     valid = kind.startswith(prefix)
-    if logical.name == "Int":
+    if tag == "Int":
         bits = {
             "pg_int2": 16,
             "pg_int4": 32,
@@ -284,11 +339,11 @@ def representation_problem(field: BoundField, family: str):
                 <= int(domain["max"])
                 < 1 << (bits - 1)
             )
-    elif logical.name == "Bool":
+    elif tag == "Bool":
         valid = (
             valid and kind in {"pg_bool", "my_bool01"} and domain["kind"] == "bool01"
         )
-    elif logical.name == "Text":
+    elif tag == "Text":
         valid = valid and kind in {"pg_text", "my_varchar"} and domain["kind"] == "text"
         if valid:
             expected = (
@@ -302,8 +357,8 @@ def representation_problem(field: BoundField, family: str):
             )
             if kind == "my_varchar":
                 valid = valid and domain["max_characters"] <= storage["length"] <= 16383
-    elif logical.name == "Decimal":
-        if field.decimal is None:
+    elif tag == "Decimal":
+        if decimal is None:
             return "PIE-B1004", "validated_decimal_parameters_missing"
         valid = (
             valid
@@ -311,7 +366,7 @@ def representation_problem(field: BoundField, family: str):
             and domain["kind"] == "decimal"
         )
         if valid:
-            pair = (field.decimal.precision, field.decimal.scale)
+            pair = decimal
             valid = (
                 pair
                 == (storage["precision"], storage["scale"])
@@ -319,7 +374,7 @@ def representation_problem(field: BoundField, family: str):
                 and 1 <= pair[0] <= 65
                 and 0 <= pair[1] <= min(pair[0], 30)
             )
-    elif logical.name == "Timestamp":
+    elif tag == "Timestamp":
         valid = (
             valid
             and storage
@@ -329,14 +384,14 @@ def representation_problem(field: BoundField, family: str):
             }
             and domain == {"kind": "timestamp"}
         )
-    elif logical.name == "UUID":
+    elif tag == "UUID":
         valid = (
             valid
             and storage
             == {"kind": "pg_uuid" if family == "postgres" else "my_uuid_bytes"}
             and domain == {"kind": "uuid", "encoding": "standard_bytes"}
         )
-    elif logical.name == "Float":
+    elif tag == "Float":
         valid = (
             valid
             and kind in {"pg_float8", "my_double"}
@@ -345,6 +400,60 @@ def representation_problem(field: BoundField, family: str):
     else:
         return "PIE-B1003", "representation_not_in_initial_domain"
     return None if valid else ("PIE-B1002", "physical_storage_or_domain_mismatch")
+
+
+def operator_premise_problems(premises, family, parameterized):
+    result: list[tuple[str, str]] = []
+    keys = {"operator_environment": "builtin_only"}
+    if parameterized:
+        keys["parameter_protocol"] = (
+            "postgres_extended" if family == "postgres" else "mysql_prepared"
+        )
+    for key, expected in keys.items():
+        found = [p for p in premises if p.scope == "statement" and p.key == key]
+        if not found:
+            result.append(("PIE-B1004", key + "_declaration_missing"))
+        elif any(json.loads(p.value) != expected for p in found):
+            result.append(("PIE-B1005", key + "_declaration_mismatch"))
+    return tuple(result)
+
+
+def naming_premise_problems(premises, family):
+    result: list[tuple[str, str]] = []
+    names = [p for p in premises if p.key == "identifier_case"]
+    expected = "quoted_exact" if family == "postgres" else "lower_case_table_names=0"
+    if not names:
+        result.append(("PIE-B1004", "identifier_case_declaration_missing"))
+    elif any(json.loads(p.value) != expected for p in names):
+        result.append(("PIE-B1005", "identifier_case_declaration_mismatch"))
+    return tuple(result)
+
+
+def source_premise_problems(premises, family):
+    result: list[tuple[str, str]] = []
+    for key in ("row_domain_matches", "read_only_object"):
+        values = [p for p in premises if p.key == key]
+        if not values or any(p.value != b"true" for p in values):
+            result.append(("PIE-B1001", key + "_declaration_required"))
+    clients = [p for p in premises if p.key == "client_encoding"]
+    if not clients:
+        result.append(("PIE-B1004", "client_encoding_declaration_missing"))
+    elif any(
+        json.loads(p.value) != ("UTF8" if family == "postgres" else "utf8mb4")
+        for p in clients
+    ):
+        result.append(("PIE-B1005", "client_encoding_mismatch"))
+    return tuple(result)
+
+
+def field_premise_problems(premises, representation):
+    result: list[tuple[str, str]] = []
+    domain = json.loads(representation)["domain"]
+    for premise in premises:
+        expected = domain if premise.key == "value_domain" else domain.get(premise.key)
+        if expected is not None and json.loads(premise.value) != expected:
+            result.append(("PIE-B1005", "field_domain_premise_mismatch"))
+    return tuple(result)
 
 
 def emission_blockers(request: PreparedEmission, *, _guarded=None):
@@ -441,21 +550,10 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
                 assert chain is not None
                 scalar_nodes += 3 + len(chain[0])  # origin, anchor, leaf, every sign
     if scalar_nodes or realization is not None:
-        keys = {"operator_environment": "builtin_only"}
-        if plan.literal_slots:
-            keys["parameter_protocol"] = (
-                "postgres_extended"
-                if request.family == "postgres"
-                else "mysql_prepared"
-            )
-        for key, expected in keys.items():
-            found = [
-                p for p in request.premises if p.scope == "statement" and p.key == key
-            ]
-            if not found:
-                add("PIE-B1004", key + "_declaration_missing", plan.scope)
-            elif any(json.loads(p.value) != expected for p in found):
-                add("PIE-B1005", key + "_declaration_mismatch", plan.scope)
+        for problem in operator_premise_problems(
+            request.premises, request.family, bool(plan.literal_slots)
+        ):
+            add(*problem, plan.scope)
     if len(plan.bind_uses) > limits["parameters"]:
         add("PIE-B1007", "parameter_occurrence_limit", plan.scope)
     bodies = tuple(
@@ -489,16 +587,8 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
     if realization is not None and nodes > limits["nodes"]:
         add("PIE-B1007", "generated_structure_limit", plan.scope)
     if (admitted or realization is not None) and generated_scopes:
-        names = [p for p in request.premises if p.key == "identifier_case"]
-        expected = (
-            "quoted_exact"
-            if request.family == "postgres"
-            else "lower_case_table_names=0"
-        )
-        if not names:
-            add("PIE-B1004", "identifier_case_declaration_missing", plan.scope)
-        elif any(json.loads(p.value) != expected for p in names):
-            add("PIE-B1005", "identifier_case_declaration_mismatch", plan.scope)
+        for problem in naming_premise_problems(request.premises, request.family):
+            add(*problem, plan.scope)
     for aspect in request.assessment.assessment.aspects:
         if any(
             state.value in {"exact_negative", "conflicting_facts"}
@@ -536,19 +626,8 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
         ):
             add("PIE-B1001", "source_identifier_unrepresentable", source.ref)
         used = applicable_premises(request, bound.owner)
-        for key in ("row_domain_matches", "read_only_object"):
-            values = [p for p in used if p.key == key]
-            if not values or any(p.value != b"true" for p in values):
-                add("PIE-B1001", key + "_declaration_required", source.ref)
-        clients = [p for p in used if p.key == "client_encoding"]
-        if not clients:
-            add("PIE-B1004", "client_encoding_declaration_missing", source.ref)
-        elif any(
-            json.loads(p.value)
-            != ("UTF8" if request.family == "postgres" else "utf8mb4")
-            for p in clients
-        ):
-            add("PIE-B1005", "client_encoding_mismatch", source.ref)
+        for problem in source_premise_problems(used, request.family):
+            add(*problem, source.ref)
         columns = set()
         for field in bound.fields:
             subject = original[field.ordinal].ref
@@ -576,13 +655,10 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
                     if field.field.evidence.field_def
                     else None,
                 )
-            domain = json.loads(field.representation)["domain"]
-            for premise in applicable_premises(request, bound.owner, field):
-                expected = (
-                    domain if premise.key == "value_domain" else domain.get(premise.key)
-                )
-                if expected is not None and json.loads(premise.value) != expected:
-                    add("PIE-B1005", "field_domain_premise_mismatch", subject)
+            for problem in field_premise_problems(
+                applicable_premises(request, bound.owner, field), field.representation
+            ):
+                add(*problem, subject)
     for port in plan.exports:
         if not identifier_valid(port.identity.name, request.family, label=True):
             add("PIE-B1002", "output_label_unrepresentable", port.ref)
@@ -733,6 +809,14 @@ def build_sql_ast(request: PreparedEmission):
 
 def original_rule(plan, entry, *, generated_scopes):
     """One retained demand's rule: Slice6 operators first, then the prior mapping."""
+    from pietto._project.project_sql_plan import CompiledSQLPlan
+
+    if type(plan) is CompiledSQLPlan:
+        from pietto._project.project_sql_plan_requirements import (
+            compiled_requirement_rule,
+        )
+
+        return compiled_requirement_rule(plan, entry, generated_scopes=generated_scopes)
     rule = rows.demand_rule(plan, entry)
     if rule is not None:
         return rule
@@ -2211,6 +2295,13 @@ def build_row_requirements(request, query):
         )
         for entry in request.report.report.entries
     )
+    return original, row_generated_requirements(request, query)
+
+
+def row_generated_requirements(request, query):
+    """Original generated obligations over the actual closed dialect units."""
+    units = getattr(query, "units", query.bodies)
+    generated_scopes = len(units) > 1
     naming = tuple(
         p
         for p in request.premises
@@ -2423,7 +2514,7 @@ def build_row_requirements(request, query):
         generated.append(
             GeneratedRequirement("nonrecursive_with_bytes", query, "R23", ())
         )
-    return original, tuple(generated)
+    return tuple(generated)
 
 
 def row_parameter_leaves(query):
@@ -2454,3 +2545,16 @@ def row_parameter_leaves(query):
                     if type(leaf) is parameters.SQLParameter
                 )
     return tuple(result)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledSQLQuery:
+    """Explicit compiled request over the same closed typed dialect units."""
+
+    request: CompiledPreparedEmission
+    units: tuple[Any, ...]
+    nodes: int
+
+    @property
+    def bodies(self):
+        return self.units

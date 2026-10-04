@@ -6,8 +6,11 @@ Original trusted bytes remain origin evidence and are never rewritten.
 
 from __future__ import annotations
 
+from pietto._project.project_sql_emission import CompiledEmissionArtifact
+
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from typing import Any
+from uuid import uuid4
 
 from pietto._project.model import build_empty_project_semantic_result
 from pietto._project.project_completed_semantics import (
@@ -41,7 +44,7 @@ class ExecutionSlot:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class ExecutionTemplate:
-    artifact: EmissionArtifact = field(repr=False)
+    artifact: EmissionArtifact | CompiledEmissionArtifact = field(repr=False)
     slots: tuple[ExecutionSlot, ...]
     _state: tuple = field(repr=False)
     guarded: Any = field(default=None, repr=False)
@@ -51,10 +54,13 @@ class ExecutionTemplate:
 class ExecutionBinding:
     template: ExecutionTemplate = field(repr=False)
     values: tuple = field(repr=False)
-    artifact: EmissionArtifact = field(repr=False)
+    artifact: EmissionArtifact | CompiledEmissionArtifact = field(repr=False)
     arguments: tuple = field(repr=False)
     _state: tuple = field(repr=False)
     guarded: Any = field(default=None, repr=False)
+    instance_reference: str = field(
+        default_factory=lambda: "pietto-binding-v1:" + uuid4().hex, repr=False
+    )
 
 
 def prepare_template(artifact):
@@ -251,7 +257,24 @@ def bind_values(template, supplied):
         values.append(pair[1])
     captured = tuple(values)
     try:
-        specialized = _specialize(template, captured) if captured else None
+        from pietto._project.project_sql_emission_contract import (
+            CompiledPreparedEmission,
+        )
+
+        if captured and type(template.artifact.request) is CompiledPreparedEmission:
+            from pietto._project.project_compiled_lowering import emit_compiled
+
+            specialized = emit_compiled(
+                template.artifact.request.verification.completed.root, captured
+            )
+            if template.guarded is not None:
+                from pietto._project.project_guard_preparation import (
+                    prepare_compiled_guarded,
+                )
+
+                specialized = prepare_compiled_guarded(specialized)
+        else:
+            specialized = _specialize(template, captured) if captured else None
         guarded = (
             (specialized if captured else template.guarded)
             if template.guarded is not None
@@ -265,8 +288,10 @@ def bind_values(template, supplied):
             artifact = guarded.artifact
         else:
             artifact = specialized if captured else template.artifact
-            if type(artifact) is not EmissionArtifact:
+            if type(artifact) not in (EmissionArtifact, CompiledEmissionArtifact):
                 raise BindingError("BINDING_INVALID")
+        if not isinstance(artifact, (EmissionArtifact, CompiledEmissionArtifact)):
+            raise BindingError("BINDING_INVALID")
         arguments = check.native_arguments(artifact, captured)
         result = ExecutionBinding(template, captured, artifact, arguments, (), guarded)
         result = replace(result, _state=check.binding_state(result))
@@ -274,3 +299,156 @@ def bind_values(template, supplied):
         return result
     except (ValueError, TypeError, AttributeError, KeyError, IndexError):
         raise BindingError("BINDING_INVALID") from None
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledBindingDescription:
+    content_pin: str
+    producer: str
+    compatibility: tuple
+    query: tuple
+    binding_reference: str
+    target: tuple
+    interfaces: tuple
+    slots: tuple
+    outputs: tuple
+    sources: tuple
+    refinement: str | None
+    provider_requirements: tuple
+
+
+def describe_compiled_binding(binding, *, route):
+    """Portable relationships only; no values, handles or live qualification."""
+    from pietto._project.project_execution_binding_verification import verify_binding
+    from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
+    from pietto._project.project_compiled_schema import Address, selected_relations
+    from pietto._project.project_result_output import prepare_output
+    from pietto._project.project_scalar_meaning import TimestampMeaning, UUIDMeaning
+
+    verify_binding(binding)
+    request = binding.artifact.request
+    if type(request) is not CompiledPreparedEmission:
+        raise BindingError("COMPILED_DESCRIPTION_ROOT")
+    if route not in (
+        ("postgres_rows", "postgres_adbc")
+        if request.family == "postgres"
+        else ("mysql_rows",)
+    ):
+        raise BindingError("COMPILED_DESCRIPTION_ROUTE")
+    root = request.verification.completed.root
+    records, entry = root.records, root.records[root.description.query]
+    policy, target = records[Address("policy", 0)], records[Address("target", 0)]
+    if binding.guarded is None:
+        output = prepare_output(binding.artifact, binding=binding)
+    else:
+        from pietto._project.project_guard_preparation import prepare_guarded_output
+
+        output = prepare_guarded_output(binding.guarded, binding=binding)
+
+    def meaning(field):
+        if field.meaning is None:
+            return None
+        law = field.meaning.law
+        if type(law) is TimestampMeaning:
+            return (
+                "timestamp",
+                law.calendar,
+                law.resolution,
+                law.timezone,
+                law.lower,
+                law.upper,
+            )
+        if type(law) is UUIDMeaning:
+            return ("uuid", law.byte_order, law.byte_width)
+        raise BindingError("COMPILED_DESCRIPTION_MEANING")
+
+    active = selected_relations(records, entry)
+    return CompiledBindingDescription(
+        root.expected_pin,
+        root.accepted_producer,
+        root.accepted_compatibility,
+        (root.description.query, entry.get("declaration"), entry.get("terminal")),
+        binding.instance_reference,
+        (request.family, request.release, route, target.get("profile")),
+        (("output", 1), ("meaning", 1), ("guard", 1), ("occurrence", 1)),
+        tuple(
+            (r.address, r.get("tag"), r.get("site"), r.get("literal"))
+            for r in records.values()
+            if r.address.kind == "slot"
+        ),
+        tuple(
+            (
+                f.ordinal,
+                f.label,
+                address,
+                f.shape.canonical.name,
+                f.nullability.value,
+                meaning(f),
+            )
+            for f, address in zip(
+                output.contract.shape.fields, entry.get("exports"), strict=True
+            )
+        ),
+        tuple(
+            (
+                r.address,
+                r.get("declaration"),
+                r.get("namespace"),
+                r.get("name"),
+                r.get("fields"),
+            )
+            for r in records.values()
+            if r.address.kind == "source" and r.address in active
+        ),
+        policy.get("refinement"),
+        tuple(records[a].values for a in policy.get("sources")),
+    )
+
+
+def compatible_compiled_values(left, right, *, route):
+    """Exact protected vectors within one accepted query/build namespace."""
+    from pietto._project.project_execution_binding_verification import atom
+
+    a = describe_compiled_binding(left, route=route)
+    b = describe_compiled_binding(right, route=route)
+    return replace(a, binding_reference="") == replace(
+        b, binding_reference=""
+    ) and tuple(atom(value) for value in left.values) == tuple(
+        atom(value) for value in right.values
+    )
+
+
+def prepare_compiled_template(root):
+    """Prepare this accepted compiled structure without any source lookup."""
+    from pietto._project.model import CompiledProjectInput
+    from pietto._project.project_compiled_loading import supported_compatibility
+    from pietto._project.project_compiled_schema import Address
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_guard_preparation import (
+        prepare_compiled_guarded,
+        prepare_guarded_template,
+    )
+
+    if type(root) is not CompiledProjectInput:
+        raise BindingError("COMPILED_TEMPLATE_ROOT")
+    root.verify()
+    if root.accepted_compatibility != supported_compatibility():
+        raise BindingError("COMPILED_COMPATIBILITY")
+    values = tuple(
+        root.records[record.get("literal")].get("value").value
+        for record in root.description.records
+        if record.address.kind == "slot"
+    )
+    artifact = emit_compiled(root, values)
+    if root.records[Address("policy", 0)].get("guarded"):
+        return prepare_guarded_template(prepare_compiled_guarded(artifact))
+    return prepare_template(artifact)
+
+
+def prepare_live_template(artifact, *, guarded=None, refinement=None):
+    """Build the same resolved template from actual verified live source roots."""
+    from pietto._project.project_compiled_build import build_compiled
+
+    return prepare_compiled_template(
+        build_compiled(artifact, guarded=guarded, refinement=refinement).root
+    )

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pietto._project.project_query_block_ir import CompiledQueryBlockIR
+
 from pietto._project.project_query_block_ir_algebra import ProjectIRComposedJoinPrefix
 from pietto._project.project_final_outputs import (
     ProjectDistinct,
@@ -3546,3 +3551,799 @@ def _verify_single_match_retention(
                 _record(
                     issues, ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE
                 )
+
+
+def verify_compiled_query_block_ir(root: CompiledQueryBlockIR):
+    """Check every resolved operator, ordered input and retained_field against its owner."""
+    from pietto._project.project_query_block_ir import (
+        CompiledQueryBlockIR,
+        CompiledIROperator,
+        CompiledIRField,
+        CompiledIRReference,
+    )
+    from pietto._project.project_completed_semantics import (
+        CompiledCompletedSemanticResult,
+    )
+    from pietto._project.project_compiled_verification import RELATIONS, need
+    from pietto._project.model import ProjectRowField, ProjectResolvedTypeKind
+
+    need(type(root) is CompiledQueryBlockIR, "IR_ROOT")
+    completed = root.completed
+    need(type(completed) is CompiledCompletedSemanticResult, "IR_SEMANTICS")
+    from pietto._project.project_completed_semantics import verify_compiled_semantics
+
+    verify_compiled_semantics(completed)
+    records = completed.root.records
+    need(set(root.references) == set(records), "IR_REFERENCE_INVENTORY")
+    for address, reference in root.references.items():
+        need(
+            type(reference) is CompiledIRReference
+            and reference.scope is root.scope
+            and reference.kind == address.kind
+            and reference.position == address.position,
+            "IR_REFERENCE",
+        )
+    expected = tuple(r for r in records.values() if r.address.kind in RELATIONS)
+    need(
+        type(root.operators) is tuple and len(root.operators) == len(expected),
+        "IR_OPERATOR_INVENTORY",
+    )
+    owners = {d.address: d for d in completed.declarations}
+    facts = {f.address: f for f in completed.facts}
+    need(len(facts) == len(completed.facts), "IR_FACT_INVENTORY")
+    for actual, record in zip(root.operators, expected, strict=True):
+        declaration = (
+            record.get("declaration")
+            if record.address.kind == "source"
+            else record.get("owner")
+        )
+        need(
+            type(actual) is CompiledIROperator
+            and actual.ref is root.references[record.address]
+            and actual.record is record
+            and actual.owner is owners[declaration]
+            and actual.kind == record.address.kind,
+            "IR_OPERATOR",
+        )
+        inputs = tuple(
+            root.references[r.get("producer")]
+            for r in records.values()
+            if r.address.kind == "use" and r.get("consumer") == record.address
+        )
+        need(
+            type(actual.inputs) is tuple
+            and len(actual.inputs) == len(inputs)
+            and all(a is b for a, b in zip(actual.inputs, inputs, strict=True)),
+            "IR_INPUTS",
+        )
+        ports = tuple(
+            r
+            for r in records.values()
+            if r.address.kind == "port" and r.get("owner") == record.address
+        )
+        need(
+            type(actual.fields) is tuple and len(actual.fields) == len(ports),
+            "IR_FIELDS",
+        )
+        for position, (retained_field, port) in enumerate(
+            zip(actual.fields, ports, strict=True)
+        ):
+            fact = facts[port.address]
+            need(
+                type(retained_field) is CompiledIRField
+                and retained_field.ref is root.references[port.address]
+                and retained_field.owner is actual.ref
+                and retained_field.field_position == position
+                and retained_field.fact is fact
+                and fact.root is completed.root,
+                "IR_FIELD_OWNER",
+            )
+            need(
+                type(retained_field.evidence) is ProjectRowField
+                and retained_field.evidence.field_def is None
+                and retained_field.evidence.resolved_type.kind
+                is ProjectResolvedTypeKind.BUILTIN
+                and retained_field.evidence.name == port.get("label")
+                and retained_field.evidence.resolved_type.name
+                == fact.value_type.resolved_type.name
+                and retained_field.evidence.nullability.value
+                == fact.value_type.nullability.value,
+                "IR_FIELD_FACT",
+            )
+    from pietto._project.project_query_block_ir import (
+        CompiledIRProperties,
+        CompiledIRProperty,
+    )
+
+    from pietto._project.project_query_block_ir import CompiledIRRowOutput
+    from pietto._project.project_grain import (
+        CompiledGrainOrigin,
+        CompiledGrainFactorIdentity,
+    )
+
+    need(
+        type(root.grain_origin) is CompiledGrainOrigin
+        and root.grain_origin.root is completed.root
+        and root.grain_origin.scope is root.scope,
+        "IR_GRAIN_ORIGIN",
+    )
+    for position, operator in enumerate(root.operators):
+        output = operator.output
+        need(
+            type(output) is CompiledIRRowOutput
+            and output.node is operator.ref
+            and output.ref.scope is root.scope
+            and output.ref.kind == "relation_output"
+            and output.ref.position == position
+            and output.fields is operator.fields,
+            "IR_OUTPUT",
+        )
+        props = operator.properties
+        need(
+            type(props) is CompiledIRProperties
+            and type(props.multiplicity) is CompiledIRProperty
+            and type(props.ordering) is CompiledIRProperty,
+            "IR_PROPERTIES",
+        )
+        need(
+            props.multiplicity.owner is operator.ref
+            and props.multiplicity.kind == "bag_multiplicity"
+            and props.multiplicity.value == ("bag",),
+            "IR_MULTIPLICITY",
+        )
+        expected_order = (
+            operator.record.get("ordering") if operator.kind == "result" else ()
+        )
+        need(
+            props.ordering.owner is operator.ref
+            and props.ordering.kind == "ordering"
+            and props.ordering.value == expected_order,
+            "IR_ORDERING",
+        )
+        relational = props.relational
+        need(
+            type(relational) is ProjectIROutputRelationalProperties
+            and relational.output is output
+            and _property_shape_valid(relational)
+            and _fd_index_valid(relational),
+            "IR_RELATIONAL",
+        )
+        need(
+            relational.grain.output is output
+            and relational.grain.origin_set is root.grain_origin,
+            "IR_GRAIN_ROOT",
+        )
+        for factor in relational.grain.factors:
+            need(
+                type(factor.identity) is CompiledGrainFactorIdentity
+                and factor.identity.origin is root.grain_origin,
+                "IR_GRAIN_FACTOR",
+            )
+            factor.identity.__post_init__()
+        expected_limit = (
+            operator.record.get("limit") if operator.kind == "result" else None
+        )
+        need((props.cardinality is None) is (expected_limit is None), "IR_CARDINALITY")
+        if props.cardinality is not None:
+            need(
+                props.cardinality.owner is operator.ref
+                and props.cardinality.kind == "cardinality"
+                and props.cardinality.value == (expected_limit,),
+                "IR_CARDINALITY",
+            )
+    verify_compiled_property_laws(root)
+    terminal = records[completed.root.description.query].get("terminal")
+    need(
+        any(
+            root.selected is item and item.ref is root.references[terminal]
+            for item in root.operators
+        ),
+        "IR_SELECTED",
+    )
+    return root
+
+
+def verify_compiled_property_laws(root):
+    """Independent signatures from resolved inputs; never call property builders."""
+    from pietto._project.project_compiled_verification import need
+    from pietto._project.project_grain import (
+        ProjectGrainBasisState,
+        ProjectGrainFactorKind,
+    )
+    from pietto._project.project_row_keys import resolved_uniqueness_strength
+
+    records = root.completed.root.records
+    built = {}
+
+    def key_fds(keys, width, inherited=()):
+        result = list(inherited)
+        for determinants, strength in keys:
+            dependent = tuple(i for i in range(width) if i not in determinants)
+            item = (determinants, dependent, strength)
+            if dependent and item not in result:
+                result.append(item)
+        return tuple(dict.fromkeys(result))
+
+    def base_grain(operator, kind, state, incoming=None):
+        actual = operator.properties.relational.grain
+        if kind is None:
+            need(actual.state is state and not actual.active, "PROPERTY_GLOBAL")
+            return None
+        need(actual.state is state and len(actual.active) == 1, "PROPERTY_BASE_GRAIN")
+        factor = actual.active[0]
+        need(
+            factor.base is None
+            and factor.ref is operator.ref
+            and factor.kind is kind
+            and factor.introduction_use is None,
+            "PROPERTY_BASE_FACTOR",
+        )
+        expected = (
+            ()
+            if incoming is None
+            else tuple(f.identity for f in incoming.grain.factors)
+        ) + (factor,)
+        need(
+            tuple(f.identity for f in actual.factors) == expected,
+            "PROPERTY_BASE_FACTORS",
+        )
+        return factor
+
+    for operator in root.operators:
+        record = operator.record
+        kind = operator.kind
+        actual = operator.properties.relational
+        if kind == "source":
+            need(
+                _class_signatures(actual)
+                == tuple((i,) for i in range(len(actual.fields))),
+                "PROPERTY_SOURCE_CLASSES",
+            )
+            candidates = []
+            for unique in records.values():
+                if (
+                    unique.address.kind != "source_unique"
+                    or unique.get("source") != record.address
+                ):
+                    continue
+                indices = tuple(
+                    i
+                    for i in range(len(actual.fields))
+                    if any(records[a].get("ordinal") == i for a in unique.get("fields"))
+                )
+                candidates.append(
+                    (
+                        indices,
+                        resolved_uniqueness_strength(
+                            tuple(
+                                actual.fields[i].effective_nullability for i in indices
+                            )
+                        ),
+                    )
+                )
+            keys = _frontier_key_signatures(tuple(candidates))
+            fds = key_fds(keys, len(actual.value_classes))
+            base_grain(
+                operator,
+                ProjectGrainFactorKind.SOURCE_DOMAIN,
+                ProjectGrainBasisState.FACTORIZED,
+            )
+            need(not actual.grain.dependencies, "PROPERTY_SOURCE_DEPENDENCIES")
+        elif kind in ("row", "window", "result"):
+            incoming = built[record.get("input")].properties.relational
+            port_sources = tuple(
+                records[records[a].get("source")] for a in record.get("outputs")
+            )
+            images = tuple(
+                tuple(
+                    i
+                    for i, source in enumerate(port_sources)
+                    if source.address.kind == "read"
+                    and any(
+                        m.field_position == records[source.get("port")].get("ordinal")
+                        for m in value.members
+                    )
+                )
+                or None
+                for value in incoming.value_classes
+            )
+            groups = tuple(image for image in images if image)
+            used = {i for group in groups for i in group}
+            expected_classes = tuple(
+                sorted(
+                    (
+                        *groups,
+                        *((i,) for i in range(len(actual.fields)) if i not in used),
+                    ),
+                    key=min,
+                )
+            )
+            need(
+                _class_signatures(actual) == expected_classes, "PROPERTY_IMAGE_CLASSES"
+            )
+            keys, fds = _expected_imaged_key_fd_signatures(
+                incoming=incoming, output=actual, images=images
+            )
+            if kind == "result" and record.get("distinct"):
+                factor_kind = (
+                    None
+                    if incoming.grain.state is ProjectGrainBasisState.GLOBAL
+                    else ProjectGrainFactorKind.DISTINCT_DOMAIN
+                )
+                base_grain(
+                    operator,
+                    factor_kind,
+                    ProjectGrainBasisState.GLOBAL
+                    if factor_kind is None
+                    else ProjectGrainBasisState.FACTORIZED,
+                )
+                need(not actual.grain.dependencies, "PROPERTY_DISTINCT_DEPENDENCIES")
+            else:
+                need(
+                    actual.grain.state is incoming.grain.state
+                    and actual.grain.factors == incoming.grain.factors
+                    and actual.grain.active == incoming.grain.active
+                    and actual.grain.dependencies == incoming.grain.dependencies,
+                    "PROPERTY_IMAGE_GRAIN",
+                )
+        elif kind == "aggregate":
+            incoming = built[record.get("input")].properties.relational
+            count = len(record.get("keys"))
+            need(
+                _class_signatures(actual)
+                == tuple((i,) for i in range(len(actual.fields))),
+                "PROPERTY_GROUP_CLASSES",
+            )
+            keys = (
+                ((tuple(range(count)), ProjectRowUniquenessStrength.STRICT),)
+                if count
+                else ()
+            )
+            fds = key_fds(keys, len(actual.value_classes))
+            if count:
+                factor = base_grain(
+                    operator,
+                    ProjectGrainFactorKind.GROUP_DOMAIN,
+                    ProjectGrainBasisState.FACTORIZED,
+                    incoming,
+                )
+                grouped_positions = {
+                    records[records[a].get("port")].get("ordinal")
+                    for a in record.get("keys")
+                }
+                grouped_classes = tuple(
+                    c
+                    for c in incoming.value_classes
+                    if any(m.field_position in grouped_positions for m in c.members)
+                )
+                determines = any(
+                    k.strength is ProjectRowUniquenessStrength.STRICT
+                    and set(k.determinants) <= set(grouped_classes)
+                    for k in incoming.keys
+                )
+                edges = (
+                    [(incoming.grain.active, (factor,))]
+                    if incoming.grain.active
+                    else []
+                )
+                if incoming.grain.active and determines:
+                    edges.append(((factor,), incoming.grain.active))
+                prefix = incoming.grain.dependencies
+                need(
+                    actual.grain.dependencies[: len(prefix)] == prefix
+                    and tuple(
+                        (d.determinants, d.dependents)
+                        for d in actual.grain.dependencies[len(prefix) :]
+                    )
+                    == tuple(edges),
+                    "PROPERTY_GROUP_DEPENDENCIES",
+                )
+            else:
+                base_grain(operator, None, ProjectGrainBasisState.GLOBAL)
+                need(
+                    actual.grain.factors == incoming.grain.factors
+                    and actual.grain.dependencies == incoming.grain.dependencies,
+                    "PROPERTY_GLOBAL_GRAIN",
+                )
+        elif kind == "set":
+            inputs = tuple(
+                built[records[a].get("producer")].properties.relational
+                for a in record.get("operands")
+            )
+            subset = (
+                ()
+                if record.get("kind") == "union"
+                else inputs
+                if record.get("kind") == "intersect"
+                else inputs[:1]
+            )
+            groups = [{i} for i in range(len(actual.fields))]
+            for incoming in subset:
+                for c in incoming.value_classes:
+                    positions = {m.field_position for m in c.members}
+                    merged = set().union(*(g for g in groups if g & positions))
+                    groups = [g for g in groups if not g & positions] + [merged]
+            classes = tuple(tuple(sorted(g)) for g in sorted(groups, key=min))
+            need(_class_signatures(actual) == classes, "PROPERTY_SET_CLASSES")
+            candidates, inherited = [], []
+            for incoming in subset:
+                images = tuple(
+                    next(g for g in classes if c.members[0].field_position in g)
+                    for c in incoming.value_classes
+                )
+                mapped_keys, mapped_fds = _expected_imaged_key_fd_signatures(
+                    incoming=incoming, output=actual, images=images, coalesced=True
+                )
+                candidates.extend(mapped_keys)
+                inherited.extend(mapped_fds)
+            keys = _frontier_key_signatures(tuple(candidates))
+            fds = key_fds(keys, len(classes), inherited)
+            quotient = (
+                record.get("quantifier") == "distinct" or record.get("kind") == "union"
+            )
+            if quotient:
+                base_grain(
+                    operator,
+                    ProjectGrainFactorKind.SET_DOMAIN,
+                    ProjectGrainBasisState.FACTORIZED,
+                )
+                need(not actual.grain.dependencies, "PROPERTY_SET_DEPENDENCIES")
+            else:
+                left = inputs[0].grain
+                expected_state = (
+                    ProjectGrainBasisState.GLOBAL
+                    if left.state is ProjectGrainBasisState.GLOBAL
+                    or record.get("kind") == "intersect"
+                    and any(
+                        i.grain.state is ProjectGrainBasisState.GLOBAL for i in inputs
+                    )
+                    else left.state
+                    if left.state is ProjectGrainBasisState.FACTORIZED
+                    and any(
+                        k.strength is ProjectRowUniquenessStrength.STRICT
+                        for k in inputs[0].keys
+                    )
+                    else ProjectGrainBasisState.UNKNOWN
+                )
+                need(actual.grain.state is expected_state, "PROPERTY_SET_GRAIN")
+                if expected_state is ProjectGrainBasisState.GLOBAL:
+                    need(
+                        not actual.grain.active
+                        and not actual.grain.factors
+                        and not actual.grain.dependencies,
+                        "PROPERTY_SET_GLOBAL",
+                    )
+                else:
+                    need(
+                        actual.grain.factors == left.factors
+                        and actual.grain.dependencies == left.dependencies
+                        and actual.grain.active
+                        == (
+                            left.active
+                            if expected_state is ProjectGrainBasisState.FACTORIZED
+                            else ()
+                        ),
+                        "PROPERTY_SET_SUBSET",
+                    )
+        elif kind == "join":
+            keys, fds = compiled_join_property_signatures(root, operator, built)
+            verify_compiled_join_grain(root, operator, built)
+        else:
+            raise ValueError("COMPILED_PROPERTY_OPERATOR")
+        need(
+            _actual_key_signatures(actual) == keys
+            and _actual_fd_signatures(actual) == fds,
+            "PROPERTY_KEY_FD_DERIVATION",
+        )
+        built[record.address] = operator
+
+
+def _compiled_join_inputs(root, operator, built):
+    records = root.completed.root.records
+    record = operator.record
+    uses = tuple(records[a] for a in record.get("inputs"))
+    parents = tuple(built[u.get("producer")] for u in uses)
+    left, right = (p.properties.relational for p in parents)
+    matched = []
+    for side, incoming in enumerate((left, right)):
+        positions = {
+            records[
+                records[records[a].get("left" if side == 0 else "right")].get("port")
+            ].get("ordinal")
+            for a in record.get("equalities")
+        }
+        matched.append(
+            tuple(
+                i
+                for i, c in enumerate(incoming.value_classes)
+                if any(m.field_position in positions for m in c.members)
+            )
+        )
+    left_keys, right_keys = _actual_key_signatures(left), _actual_key_signatures(right)
+    forward = bool(matched[1]) and any(set(k[0]) <= set(matched[1]) for k in right_keys)
+    reverse = bool(matched[0]) and any(set(k[0]) <= set(matched[0]) for k in left_keys)
+    if record.get("law") == "current":
+        reverse = (
+            bool(matched[0])
+            and any(set(k[0]) == set(matched[0]) for k in left_keys)
+            and reverse
+        )
+        forward |= right.grain.state is ProjectGrainBasisState.GLOBAL
+        reverse |= left.grain.state is ProjectGrainBasisState.GLOBAL
+    return uses, parents, left, right, tuple(matched), forward, reverse
+
+
+def compiled_join_property_signatures(root, operator, built):
+    from pietto._project.project_compiled_verification import need
+
+    records, record = root.completed.root.records, operator.record
+    _uses, _parents, left, right, matched, forward, reverse = _compiled_join_inputs(
+        root, operator, built
+    )
+    actual = operator.properties.relational
+    kind = record.get("kind")
+    historical = record.get("law") == "relationship"
+    left_only = kind in ("semi", "anti")
+    offset = len(left.value_classes)
+    classes = _class_signatures(left) + (
+        ()
+        if left_only
+        else tuple(
+            tuple(i + len(left.fields) for i in c) for c in _class_signatures(right)
+        )
+    )
+    need(_class_signatures(actual) == classes, "PROPERTY_JOIN_CLASSES")
+    left_null, right_null = kind in ("right", "full"), kind in ("left", "full")
+
+    def mapped_keys(parent, shift, weaken):
+        result = []
+        for positions, strength in _actual_key_signatures(parent):
+            image = tuple(i + shift for i in positions)
+            non_null = all(
+                all(
+                    m.effective_nullability is ProjectRowFieldNullability.NON_NULL
+                    for m in actual.value_classes[i].members
+                )
+                for i in image
+            )
+            result.append(
+                (
+                    image,
+                    ProjectRowUniquenessStrength.LAX
+                    if weaken
+                    else ProjectRowUniquenessStrength.STRICT
+                    if non_null
+                    else strength,
+                )
+            )
+        return tuple(result)
+
+    left_keys = mapped_keys(left, 0, left_null)
+    right_keys = () if left_only else mapped_keys(right, offset, right_null)
+    candidates = list(left_keys) if left_only or forward else []
+    if (
+        not left_only
+        and reverse
+        and (not historical or any(set(k[0]) == set(matched[0]) for k in left_keys))
+    ):
+        candidates.extend(right_keys)
+    if not left_only:
+        for lhs, rhs in ((a, b) for a in left_keys for b in right_keys):
+            determinants = tuple(
+                i for i in range(len(classes)) if i in (*lhs[0], *rhs[0])
+            )
+            strict = (lhs[1] is rhs[1] is ProjectRowUniquenessStrength.STRICT) or all(
+                all(
+                    m.effective_nullability is ProjectRowFieldNullability.NON_NULL
+                    for m in actual.value_classes[i].members
+                )
+                for i in determinants
+            )
+            candidates.append(
+                (
+                    determinants,
+                    ProjectRowUniquenessStrength.STRICT
+                    if strict
+                    else ProjectRowUniquenessStrength.LAX,
+                )
+            )
+    keys = _frontier_key_signatures(tuple(candidates))
+    fds = []
+    for parent, shift, weaken in (
+        (left, 0, left_null),
+        *(((right, offset, right_null),) if not left_only else ()),
+    ):
+        for determinants, dependent, strength in _actual_fd_signatures(parent):
+            non_null = all(
+                all(
+                    m.effective_nullability is ProjectRowFieldNullability.NON_NULL
+                    for m in parent.value_classes[i].members
+                )
+                for i in determinants
+            )
+            if weaken and (
+                (not historical and kind in ("right", "full")) or not non_null
+            ):
+                strength = ProjectRowUniquenessStrength.LAX
+            item = (
+                tuple(i + shift for i in determinants),
+                tuple(i + shift for i in dependent),
+                strength,
+            )
+            if item not in fds:
+                fds.append(item)
+    if historical:
+        left_match = matched[0]
+        right_match = tuple(i + offset for i in matched[1])
+        source_slice = tuple(
+            i
+            for i, c in enumerate(actual.value_classes)
+            if any(
+                m.field_position in record.get("source_positions") for m in c.members
+            )
+        )
+        if forward and left_match and right.value_classes:
+            fds.append(
+                (
+                    left_match,
+                    tuple(range(offset, len(classes))),
+                    ProjectRowUniquenessStrength.STRICT,
+                )
+            )
+        if reverse and right_match and source_slice:
+            fds.append(
+                (
+                    right_match,
+                    source_slice,
+                    ProjectRowUniquenessStrength.LAX
+                    if right_null
+                    else ProjectRowUniquenessStrength.STRICT,
+                )
+            )
+        if kind == "inner" or not right_null:
+            for equality in record.get("equalities"):
+                pairs = []
+                for side, parent in enumerate((left, right)):
+                    read = records[
+                        records[equality].get("left" if side == 0 else "right")
+                    ]
+                    position = records[read.get("port")].get("ordinal")
+                    pairs.append(
+                        next(
+                            i
+                            for i, c in enumerate(parent.value_classes)
+                            if any(m.field_position == position for m in c.members)
+                        )
+                        + (offset if side else 0)
+                    )
+                fds.extend(
+                    (
+                        ((pairs[0],), (pairs[1],), ProjectRowUniquenessStrength.STRICT),
+                        ((pairs[1],), (pairs[0],), ProjectRowUniquenessStrength.STRICT),
+                    )
+                )
+    for determinants, strength in keys:
+        dependent = tuple(i for i in range(len(classes)) if i not in determinants)
+        if dependent:
+            fds.append((determinants, dependent, strength))
+    return keys, tuple(dict.fromkeys(fds))
+
+
+def verify_compiled_join_grain(root, operator, built):
+    from pietto._project.project_compiled_verification import need
+    from pietto._project.project_grain import CompiledGrainFactorIdentity
+
+    refs, record = root.references, operator.record
+    uses, parents, left, right, _matched, forward, reverse = _compiled_join_inputs(
+        root, operator, built
+    )
+    actual = operator.properties.relational.grain
+    kind, historical = record.get("kind"), record.get("law") == "relationship"
+    left_only = kind in ("semi", "anti")
+    named_left = uses[0].get("producer").kind != "join"
+    left_nulling = (operator.ref,) if kind in ("right", "full") else ()
+    right_nulling = (operator.ref,) if kind in ("left", "full") else ()
+    expected_count = len(left.grain.factors) + (
+        0 if left_only else len(right.grain.factors)
+    )
+    need(len(actual.factors) == expected_count, "PROPERTY_JOIN_FACTORS")
+    images = ({}, {})
+    position = 0
+    for side, parent in enumerate((left, right)):
+        if side and left_only:
+            continue
+        for old_factor in parent.grain.factors:
+            old = old_factor.identity
+            new = actual.factors[position].identity
+            position += 1
+            need(type(new) is CompiledGrainFactorIdentity, "PROPERTY_JOIN_FACTOR_TYPE")
+            old_join = old.base is not None
+            reuse = (
+                side == 0
+                and old_join
+                and (historical or not named_left)
+                and not left_nulling
+            )
+            if reuse:
+                need(new is old, "PROPERTY_JOIN_FACTOR_REUSE")
+            else:
+                keep_intro = (
+                    side == 0
+                    and old_join
+                    and bool(left_nulling)
+                    and (historical or not named_left)
+                )
+                introduction = (
+                    old.introduction_use if keep_intro else refs[uses[side].address]
+                )
+                nulling = (
+                    (
+                        (*old.nulling_joins, *left_nulling)
+                        if keep_intro
+                        else left_nulling
+                    )
+                    if side == 0
+                    else right_nulling
+                )
+                source = (
+                    old if old_join and (not historical or bool(left_nulling)) else None
+                )
+                need(
+                    new.base is (old.base if old_join else old)
+                    and new.introduction_use is introduction
+                    and new.nulling_joins == nulling
+                    and new.source_factor is source,
+                    "PROPERTY_JOIN_FACTOR_IMAGE",
+                )
+            images[side][old] = new
+    left_active = tuple(images[0][f] for f in left.grain.active)
+    right_active = () if left_only else tuple(images[1][f] for f in right.grain.active)
+    need(actual.active == (*left_active, *right_active), "PROPERTY_JOIN_ACTIVE")
+    edges = []
+    for side, parent in enumerate((left, right)):
+        if side and left_only:
+            continue
+        edges.extend(
+            (
+                tuple(images[side][f] for f in d.determinants),
+                tuple(images[side][f] for f in d.dependents),
+            )
+            for d in parent.grain.dependencies
+        )
+    source_active = left_active
+    if historical and not named_left:
+        introduction = (
+            parents[0].fields[record.get("source_positions")[0]].fact.introduction
+        )
+        source_active = tuple(
+            images[0][f]
+            for f in left.grain.active
+            if f.introduction_use is refs[introduction]
+        )
+    if not left_only and forward and source_active and right_active:
+        edges.append((source_active, right_active))
+    if (
+        not left_only
+        and reverse
+        and not right_nulling
+        and right_active
+        and source_active
+    ):
+        edges.append((right_active, source_active))
+    need(
+        tuple((d.determinants, d.dependents) for d in actual.dependencies)
+        == tuple(edges),
+        "PROPERTY_JOIN_DEPENDENCIES",
+    )
+    expected_state = (
+        left.grain.state
+        if left_only
+        else ProjectGrainBasisState.UNKNOWN
+        if ProjectGrainBasisState.UNKNOWN in (left.grain.state, right.grain.state)
+        else ProjectGrainBasisState.FACTORIZED
+        if actual.active
+        else ProjectGrainBasisState.UNKNOWN
+        if kind == "full"
+        else ProjectGrainBasisState.GLOBAL
+    )
+    need(actual.state is expected_state, "PROPERTY_JOIN_GRAIN")

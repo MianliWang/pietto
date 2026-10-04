@@ -3,7 +3,10 @@
 from dataclasses import fields, is_dataclass
 
 from pietto.ast_nodes import LiteralExpr
-from pietto._project.project_sql_emission import EmissionArtifact
+from pietto._project.project_sql_emission import (
+    EmissionArtifact,
+    CompiledEmissionArtifact,
+)
 from pietto._project.project_sql_emission_inspection import inspect_project_sql_emission
 from pietto._project.project_sql_emission_parameters import PHYSICAL, value_valid
 from pietto._project.project_execution_template import (
@@ -21,7 +24,10 @@ def atom(value):
 
 
 def inspect(artifact, guarded=None):
-    if guarded is None and type(artifact) is not EmissionArtifact:
+    if guarded is None and type(artifact) not in (
+        EmissionArtifact,
+        CompiledEmissionArtifact,
+    ):
         raise BindingError("BINDING_ARTIFACT")
     try:
         if guarded is not None:
@@ -51,6 +57,25 @@ def syntax_state(node):
 
 def template_state(artifact, slots, guarded=None):
     request = artifact.request
+    from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
+
+    if type(request) is CompiledPreparedEmission:
+        root = request.verification.completed.root
+        return (
+            "compiled",
+            artifact,
+            request,
+            request.verification,
+            root,
+            root.expected_pin,
+            request.accepted_bytes,
+            request.normalized_bytes,
+            request.family,
+            request.release,
+            request.plan.literal_policy,
+            tuple((s, s.ordinal, s.tag, s.original, s.original.site) for s in slots),
+            guarded,
+        )
     parsed = parse_root(artifact)
     return (
         artifact,
@@ -127,6 +152,7 @@ def native_arguments(artifact, values):
 
 def binding_state(binding):
     return (
+        binding.instance_reference,
         binding.guarded,
         binding.template,
         binding.artifact,
@@ -265,8 +291,17 @@ def _obligations(before, after, image):
 
 
 def verify_binding(binding):
+    from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
+
     if type(binding) is not ExecutionBinding:
         raise BindingError("BINDING_AUTHORITY")
+    if (
+        type(binding.instance_reference) is not str
+        or not binding.instance_reference.startswith("pietto-binding-v1:")
+        or len(binding.instance_reference) != 50
+        or any(c not in "0123456789abcdef" for c in binding.instance_reference[18:])
+    ):
+        raise BindingError("BINDING_INSTANCE_REFERENCE")
     verify_template(binding.template)
     template, artifact, values = binding.template, binding.artifact, binding.values
     if (template.guarded is None) != (binding.guarded is None):
@@ -280,9 +315,15 @@ def verify_binding(binding):
     if not values:
         if artifact is not template.artifact:
             raise BindingError("BINDING_PARAMETERLESS")
+    elif type(artifact.request) is CompiledPreparedEmission:
+        _compiled_correspondence(template, artifact, values)
     else:
         image = _syntax_correspondence(template, artifact, values)
         a, b = template.artifact.request, artifact.request
+        from pietto._project.project_sql_emission_contract import PreparedEmission
+
+        if type(a) is not PreparedEmission or type(b) is not PreparedEmission:
+            raise BindingError("BINDING_CONTEXT")
         if (
             b.accepted_bytes != a.accepted_bytes
             or b.target_request is not a.target_request
@@ -335,3 +376,53 @@ def verify_binding(binding):
         or binding_state(binding) != binding._state
     ):
         raise BindingError("BINDING_STATE")
+
+
+def _compiled_correspondence(template, artifact, values):
+    from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
+
+    old, new = template.artifact.request, artifact.request
+    if (
+        type(old) is not CompiledPreparedEmission
+        or type(new) is not CompiledPreparedEmission
+        or new.verification.completed.root is not old.verification.completed.root
+        or tuple(atom(v) for v in new.verification.completed.values)
+        != tuple(atom(v) for v in values)
+        or new.accepted_bytes != old.accepted_bytes
+        or new.normalized_bytes != old.normalized_bytes
+        or (new.family, new.release) != (old.family, old.release)
+        or new.plan.literal_policy is not old.plan.literal_policy
+        or new.plan.scope is old.plan.scope
+    ):
+        raise BindingError("BINDING_COMPILED_CONTEXT")
+    previous, current = old.plan.literal_slots, new.plan.literal_slots
+    if len(previous) != len(current) or len(artifact.fixed_values) != len(values):
+        raise BindingError("BINDING_INVENTORY")
+    for a, b, fixed, value in zip(
+        previous, current, artifact.fixed_values, values, strict=True
+    ):
+        if (
+            a is b
+            or a.tag is not b.tag
+            or (a.ref.kind, a.ref.position) != (b.ref.kind, b.ref.position)
+            or (a.site.ref.kind, a.site.ref.position)
+            != (b.site.ref.kind, b.site.ref.position)
+            or a.site.position.role is not b.site.position.role
+            or a.site.position.ancestry != b.site.position.ancestry
+            or fixed.slot is not b
+            or atom(fixed.value) != atom(value)
+            or a.site.position.literal is b.site.position.literal
+        ):
+            raise BindingError("BINDING_COMPILED_SITE")
+    before, after = template.artifact.parameter_uses, artifact.parameter_uses
+    if len(before) != len(after):
+        raise BindingError("BINDING_USES")
+    for a, b in zip(before, after, strict=True):
+        if tuple(i for i, s in enumerate(previous) if s is a.slot) != tuple(
+            i for i, s in enumerate(current) if s is b.slot
+        ) or (a.ordinal, a.server_index, a.physical_type) != (
+            b.ordinal,
+            b.server_index,
+            b.physical_type,
+        ):
+            raise BindingError("BINDING_USES")

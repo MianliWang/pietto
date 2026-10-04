@@ -20,6 +20,7 @@ from pietto._project.project_grain import (
     ProjectGrainOriginSet,
     ProjectSetGrainOrigin,
     ProjectDistinctGrainOrigin,
+    CompiledGrainChange,
 )
 from pietto._project.project_ir import (
     ProjectIROperatorFlowUseOccurrence,
@@ -1279,6 +1280,31 @@ def transfer_set_properties(
     ):
         raise ValueError("Set property transfer requires every exact positional input.")
     kind = definition.body.kind
+    return transfer_resolved_set_properties(
+        output,
+        inputs,
+        origin=origin,
+        kind=kind,
+        operation=operation,
+        uses=operation.uses,
+        fields=fields,
+    )
+
+
+def transfer_resolved_set_properties(
+    output,
+    inputs: tuple[ProjectIROutputRelationalProperties, ...],
+    *,
+    origin,
+    kind,
+    operation,
+    uses,
+    fields=None,
+) -> ProjectIROutputRelationalProperties:
+    """The same positional key/FD/grain kernel after resolved SET admission."""
+    fields = _field_occurrences(output) if fields is None else fields
+    if len(inputs) != len(uses) or any(len(p.fields) != len(fields) for p in inputs):
+        raise ValueError("Set property transfer requires every exact positional input.")
     subsets = (
         ()
         if kind is SetOperationKind.UNION
@@ -1322,7 +1348,7 @@ def transfer_set_properties(
             output,
             classes,
             images,
-            support=(operation, operation.uses[ordinal]),
+            support=(operation, uses[ordinal]),
             coalesced=True,
         )
         keys.extend(mapped_keys)
@@ -1390,7 +1416,7 @@ def transfer_set_properties(
 
 def distinct_output_grain(
     output: ProjectIRRelationalRowOutput,
-    origin: ProjectDistinctGrainOrigin,
+    origin: ProjectDistinctGrainOrigin | CompiledGrainChange,
     *,
     witness: object,
 ) -> ProjectIRProvidedIntrinsicGrain:

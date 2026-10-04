@@ -15,7 +15,12 @@ from pietto._project.project_sql_emission_ast import (
     realize_rows,
     row_parameter_leaves,
 )
-from pietto._project.project_sql_emission import EmissionArtifact, realize_project_sql
+from pietto._project.project_sql_emission import (
+    EmissionArtifact,
+    CompiledEmissionArtifact,
+    realize_project_sql,
+)
+from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
 from pietto._project.project_sql_emission_rendering import (
     render_join_sql,
     render_row_sql,
@@ -56,12 +61,57 @@ class GuardedArtifact(EmissionArtifact):
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class GuardedPreparation:
-    scope: PendingGuardScope = field(repr=False)
-    artifact: EmissionArtifact = field(repr=False)
+class CompiledPendingGuardScope:
+    request: CompiledPreparedEmission = field(repr=False)
+    obligations: tuple = field(repr=False)
+    enforcement: tuple = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True, eq=False, repr=False)
+class CompiledGuardedArtifact(CompiledEmissionArtifact):
+    guard_scope: CompiledPendingGuardScope = field(kw_only=True, repr=False)
+
+    def __repr__(self):
+        return "CompiledGuardedArtifact(pending_runtime_applicability=True)"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class GuardedPreparation[Artifact: EmissionArtifact | CompiledEmissionArtifact]:
+    scope: PendingGuardScope | CompiledPendingGuardScope = field(repr=False)
+    artifact: Artifact = field(repr=False)
 
 
 def verify_scope(scope, request):
+    if type(scope) is CompiledPendingGuardScope:
+        from pietto._project.project_sql_plan_verification import (
+            verify_compiled_sql_plan,
+        )
+        from pietto._project.project_compiled_schema import Address
+
+        if (
+            type(request) is not CompiledPreparedEmission
+            or scope.request is not request
+        ):
+            raise GuardPreparationError("GUARD_PREPARATION_ROOT")
+        verify_compiled_sql_plan(request.plan)
+        if (
+            scope.obligations is not request.plan.single_matches
+            or request.verification.completed.root.records[Address("policy", 0)].get(
+                "guarded"
+            )
+            is not True
+        ):
+            raise GuardPreparationError("GUARD_PREPARATION_ROOT")
+        expected = tuple(
+            o for o in scope.obligations if o.downstream_enforcement_required
+        )
+        if (
+            type(scope.enforcement) is not tuple
+            or len(scope.enforcement) != len(expected)
+            or any(a is not b for a, b in zip(scope.enforcement, expected, strict=True))
+        ):
+            raise GuardPreparationError("GUARD_ENFORCEMENT_DENOMINATOR")
+        return
     from pietto._project.project_sql_emission_verification import prepared_current
 
     if (
@@ -115,7 +165,7 @@ def structural_blockers(scope, request):
 
 def prepare_guarded(
     verification, contract_bytes, *, target_request=None, scalar_meaning=None
-):
+) -> GuardedPreparation[EmissionArtifact]:
     request = prepare_project_sql_emission(
         verification,
         contract_bytes,
@@ -131,7 +181,7 @@ def prepare_guarded(
     return prepare_guarded_request(request)
 
 
-def prepare_guarded_request(request):
+def prepare_guarded_request(request) -> GuardedPreparation[EmissionArtifact]:
     from pietto._project.project_sql_emission_verification import prepared_current
 
     if not prepared_current(request):
@@ -200,6 +250,19 @@ def verify_preparation(preparation):
     if type(preparation) is not GuardedPreparation:
         raise GuardPreparationError("GUARD_PREPARATION_ROOT")
     scope, artifact = preparation.scope, preparation.artifact
+    if type(scope) is CompiledPendingGuardScope:
+        from pietto._project.project_compiled_verification import (
+            verify_compiled_emission,
+        )
+
+        if (
+            type(artifact) is not CompiledGuardedArtifact
+            or artifact.guard_scope is not scope
+        ):
+            raise GuardPreparationError("GUARD_PREPARATION_ROOT")
+        verify_scope(scope, artifact.request)
+        verify_compiled_emission(artifact, artifact.request)
+        return scope.obligations
     if (
         type(artifact) not in (EmissionArtifact, GuardedArtifact)
         or artifact.request is not scope.request
@@ -216,7 +279,7 @@ def verify_preparation(preparation):
 @dataclass(frozen=True, slots=True, eq=False)
 class PendingInspection:
     preparation: GuardedPreparation = field(repr=False)
-    request: PreparedEmission = field(repr=False)
+    request: PreparedEmission | CompiledPreparedEmission = field(repr=False)
     columns: tuple = field(repr=False)
 
 
@@ -254,3 +317,11 @@ def prepare_guarded_template(preparation):
     )
     check.verify_template(template)
     return template
+
+
+def prepare_compiled_guarded(artifact) -> GuardedPreparation[CompiledEmissionArtifact]:
+    if type(artifact) is not CompiledGuardedArtifact:
+        raise GuardPreparationError("GUARD_PREPARATION_ROOT")
+    preparation = GuardedPreparation(artifact.guard_scope, artifact)
+    verify_preparation(preparation)
+    return preparation

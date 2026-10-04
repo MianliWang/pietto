@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Never
+from typing import Never, Any
 
 from pietto._project import project_sql_plan as sql
 from pietto._project import project_sql_plan_expressions as row
@@ -1139,3 +1139,639 @@ def inspect_project_sql_requirement_report(
     verification: ProjectSQLRequirementVerification,
 ) -> ProjectSQLRequirementInspection:
     return ProjectSQLRequirementInspection(verification=verification)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledDemandScope:
+    definition: object
+    stages: tuple
+    input_uses: tuple
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledDemandOrigin:
+    owner: object
+    subject: object
+    antecedents: tuple
+    evidence: object = field(repr=False)
+    ref: object
+    role: sql.ProjectSQLOriginRole
+    provenance: sql.ProjectSQLOriginProvenance
+    location: tuple
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledDemandEntry:
+    position: int
+    ref: object
+    family: ProjectSQLDemandFamily
+    subkind: object
+    subject: Any
+    scope: CompiledDemandScope
+    origin: CompiledDemandOrigin
+    role: str
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledDemandLink:
+    position: int
+    kind: ProjectSQLDemandLinkKind
+    source: CompiledDemandEntry
+    target: CompiledDemandEntry
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledRequirementReport:
+    verification: object = field(repr=False)
+    plan: object = field(repr=False)
+    entries: tuple[CompiledDemandEntry, ...]
+    links: tuple[CompiledDemandLink, ...]
+    by_family: Mapping
+    by_subject: Mapping
+    by_definition: Mapping
+    by_stage: Mapping
+    by_input_use: Mapping
+    proved: tuple
+    enforcement_required: tuple
+
+
+def _require_compiled_plan(verification):
+    from pietto._project.project_sql_plan_verification import (
+        CompiledSQLPlanVerification,
+        verify_compiled_sql_plan,
+    )
+
+    if (
+        type(verification) is not CompiledSQLPlanVerification
+        or type(verification.plan) is not sql.CompiledSQLPlan
+    ):
+        raise ValueError("COMPILED_REQUIREMENT_PLAN")
+    checked = verify_compiled_sql_plan(verification.plan)
+    if (
+        checked.completed is not verification.completed
+        or checked.selected_owner is not verification.selected_owner
+    ):
+        raise ValueError("COMPILED_REQUIREMENT_PLAN")
+    return verification.plan
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledSemanticReference:
+    scope: object = field(repr=False)
+    kind: str
+    position: int
+
+
+def compiled_semantic_references(scope, records):
+    """Resolved reference identities, not source names or source constructors."""
+    found = {}
+
+    def retain(pair):
+        if pair not in found:
+            found[pair] = CompiledSemanticReference(scope, *pair)
+
+    for record in records.values():
+        if record.address.kind == "requirement_origin":
+            retain(("origin", record.address.position))
+            retain(record.get("subject"))
+            for pair in record.get("antecedents"):
+                retain(pair)
+        elif record.address.kind == "requirement":
+            retain(("demand", record.address.position))
+            retain(record.get("subject"))
+            retain(record.get("definition"))
+            for pair in (*record.get("stages"), *record.get("uses")):
+                retain(pair)
+    return MappingProxyType(found)
+
+
+def compiled_requirement_facts(plan):
+    """Read the resolved demand inputs and attach current, freshly derived facts."""
+
+    records, semantic = plan.ir.completed.root.records, plan.semantic_references
+    owners = {d.address: d for d in plan.ir.completed.declarations}
+    facts = {f.address: f for f in plan.ir.completed.facts}
+    operators = {o.record.address: o for o in plan.ir.operators}
+    result = []
+    for record in records.values():
+        if record.address.kind != "requirement":
+            continue
+        family = F(record.get("family"))
+        subkind = next(
+            v
+            for v in SUBKINDS[family]
+            if (None if v is None else v.value) == record.get("subkind")
+        )
+        origin = records[record.get("origin")]
+        pair = record.get("subject")
+        role = pair[0]
+        if role == "single_match":
+            evidence = plan.single_matches[pair[1]].assessment
+        elif role == "single_match_proof":
+            evidence = plan.single_match_proofs[pair[1]].source
+        elif role == "aggregate_risk":
+            evidence = plan.aggregate_risks[pair[1]].source
+        else:
+            # The immutable input contains only references. No range, proof
+            # state or old value is accepted as current derived evidence.
+            anchors = []
+            for address in record.get("anchors"):
+                anchor = records[address]
+                if address.kind == "slot":
+                    anchors.append(facts[anchor.get("literal")])
+                elif address in facts:
+                    anchors.append(facts[address])
+                elif address in operators:
+                    anchors.append(operators[address])
+                else:
+                    anchors.append(anchor)
+            evidence = tuple(anchors)
+        result.append(
+            (
+                family,
+                subkind,
+                semantic[pair],
+                owners[origin.get("owner")],
+                semantic[record.get("definition")],
+                tuple(semantic[p] for p in record.get("stages")),
+                tuple(semantic[p] for p in record.get("uses")),
+                tuple(semantic[p] for p in origin.get("antecedents")),
+                evidence,
+                role,
+            )
+        )
+    return tuple(result)
+
+
+def build_compiled_requirement_report(verification):
+    from pietto._project.project_compiled_schema import Address
+
+    plan = _require_compiled_plan(verification)
+    records, references = plan.ir.completed.root.records, plan.semantic_references
+    entries = []
+    for i, (
+        family,
+        kind,
+        subject,
+        owner,
+        definition,
+        stages,
+        inputs,
+        antecedents,
+        evidence,
+        role,
+    ) in enumerate(compiled_requirement_facts(plan)):
+        record = records[Address("requirement", i)]
+        described = records[record.get("origin")]
+        origin = CompiledDemandOrigin(
+            owner,
+            references[described.get("subject")],
+            antecedents,
+            evidence,
+            references[("origin", described.address.position)],
+            sql.ProjectSQLOriginRole(described.get("role")),
+            sql.ProjectSQLOriginProvenance(described.get("provenance")),
+            described.get("location"),
+        )
+        entries.append(
+            CompiledDemandEntry(
+                i,
+                references[("demand", i)],
+                family,
+                kind,
+                subject,
+                CompiledDemandScope(definition, stages, inputs),
+                origin,
+                role,
+            )
+        )
+    entries = tuple(entries)
+    links = _compiled_requirement_links(plan, entries)
+    return CompiledRequirementReport(
+        verification,
+        plan,
+        entries,
+        links,
+        _group(tuple(F), entries, lambda e: (e.family,)),
+        _group(
+            dict.fromkeys(e.subject for e in entries), entries, lambda e: (e.subject,)
+        ),
+        _group(
+            dict.fromkeys(e.scope.definition for e in entries),
+            entries,
+            lambda e: (e.scope.definition,),
+        ),
+        _group(
+            dict.fromkeys(s for e in entries for s in e.scope.stages),
+            entries,
+            lambda e: e.scope.stages,
+        ),
+        _group(
+            dict.fromkeys(u for e in entries for u in e.scope.input_uses),
+            entries,
+            lambda e: e.scope.input_uses,
+        ),
+        tuple(
+            o
+            for o in plan.single_matches
+            if o.assessment.state is ProjectSingleMatchState.PROVED
+        ),
+        tuple(o for o in plan.single_matches if o.downstream_enforcement_required),
+    )
+
+
+def _compiled_requirement_links(plan, entries):
+    return tuple(
+        CompiledDemandLink(
+            i,
+            ProjectSQLDemandLinkKind(record.get("kind")),
+            entries[record.get("source").position],
+            entries[record.get("target").position],
+        )
+        for i, record in enumerate(
+            r
+            for r in plan.ir.completed.root.records.values()
+            if r.address.kind == "requirement_link"
+        )
+    )
+
+
+def verify_compiled_requirement_report(report, verification):
+    from pietto._project.project_compiled_schema import Address
+
+    plan = _require_compiled_plan(verification)
+    if (
+        type(report) is not CompiledRequirementReport
+        or report.verification is not verification
+        or report.plan is not plan
+    ):
+        raise ValueError("COMPILED_REQUIREMENT_ROOT")
+    expected = compiled_requirement_facts(plan)
+    if type(report.entries) is not tuple or len(report.entries) != len(expected):
+        raise ValueError("COMPILED_REQUIREMENT_INVENTORY")
+    for position, (entry, inputs) in enumerate(
+        zip(report.entries, expected, strict=True)
+    ):
+        (
+            family,
+            kind,
+            subject,
+            owner,
+            definition,
+            stages,
+            uses,
+            antecedents,
+            evidence,
+            role,
+        ) = inputs
+        described_origin = plan.ir.completed.root.records[
+            plan.ir.completed.root.records[Address("requirement", position)].get(
+                "origin"
+            )
+        ]
+        if (
+            type(entry) is not CompiledDemandEntry
+            or entry.position != position
+            or entry.ref is not plan.semantic_references[("demand", position)]
+            or entry.family is not family
+            or entry.subkind is not kind
+            or not any(kind is v for v in SUBKINDS[family])
+            or entry.subject is not subject
+            or entry.role != role
+            or type(entry.scope) is not CompiledDemandScope
+            or entry.scope.definition is not definition
+            or not _same(entry.scope.stages, stages)
+            or not _same(entry.scope.input_uses, uses)
+            or type(entry.origin) is not CompiledDemandOrigin
+            or entry.origin.owner is not owner
+            or entry.origin.subject
+            is not plan.semantic_references[described_origin.get("subject")]
+            or entry.origin.ref
+            is not plan.semantic_references[
+                ("origin", described_origin.address.position)
+            ]
+            or entry.origin.role
+            is not sql.ProjectSQLOriginRole(described_origin.get("role"))
+            or entry.origin.provenance
+            is not sql.ProjectSQLOriginProvenance(described_origin.get("provenance"))
+            or entry.origin.location != described_origin.get("location")
+            or not _same(entry.origin.antecedents, antecedents)
+            or not (
+                entry.origin.evidence is evidence
+                or type(evidence) is tuple
+                and _same(entry.origin.evidence, evidence)
+            )
+        ):
+            raise ValueError("COMPILED_REQUIREMENT_ENTRY")
+    expected_links = []
+    for record in plan.ir.completed.root.records.values():
+        if record.address.kind == "requirement_link":
+            expected_links.append(
+                (
+                    ProjectSQLDemandLinkKind(record.get("kind")),
+                    report.entries[record.get("source").position],
+                    report.entries[record.get("target").position],
+                )
+            )
+    if type(report.links) is not tuple or len(report.links) != len(expected_links):
+        raise ValueError("COMPILED_REQUIREMENT_LINKS")
+    for i, (link, (kind, source, target)) in enumerate(
+        zip(report.links, expected_links, strict=True)
+    ):
+        if (
+            type(link) is not CompiledDemandLink
+            or link.position != i
+            or link.kind is not kind
+            or link.source is not source
+            or link.target is not target
+        ):
+            raise ValueError("COMPILED_REQUIREMENT_LINKS")
+    for index, keys, member_keys in (
+        (report.by_family, tuple(F), lambda e: (e.family,)),
+        (
+            report.by_subject,
+            tuple(dict.fromkeys(e.subject for e in report.entries)),
+            lambda e: (e.subject,),
+        ),
+        (
+            report.by_definition,
+            tuple(dict.fromkeys(e.scope.definition for e in report.entries)),
+            lambda e: (e.scope.definition,),
+        ),
+        (
+            report.by_stage,
+            tuple(dict.fromkeys(s for e in report.entries for s in e.scope.stages)),
+            lambda e: e.scope.stages,
+        ),
+        (
+            report.by_input_use,
+            tuple(dict.fromkeys(u for e in report.entries for u in e.scope.input_uses)),
+            lambda e: e.scope.input_uses,
+        ),
+    ):
+        if type(index) is not MappingProxyType or not _same(tuple(index), keys):
+            raise ValueError("COMPILED_REQUIREMENT_INDEX")
+        for key in keys:
+            wanted = tuple(
+                e for e in report.entries if any(v is key for v in member_keys(e))
+            )
+            if not _same(index[key], wanted):
+                raise ValueError("COMPILED_REQUIREMENT_INDEX")
+    if not _same(
+        report.proved,
+        tuple(
+            o
+            for o in plan.single_matches
+            if o.assessment.state is ProjectSingleMatchState.PROVED
+        ),
+    ) or not _same(
+        report.enforcement_required,
+        tuple(o for o in plan.single_matches if o.downstream_enforcement_required),
+    ):
+        raise ValueError("COMPILED_REQUIREMENT_SUMMARY")
+    return report
+
+
+def compiled_requirement_rule(plan, entry, *, generated_scopes):
+    """Attribute compiled inputs using the original emission owners' rule tables."""
+    from pietto._project import project_sql_emission_aggregation as aggregate_rules
+    from pietto._project import project_sql_emission_windows as window_rules
+    from pietto._project import project_sql_emission_results as result_rules
+    from pietto._project.project_compiled_schema import Address
+
+    if type(plan) is not sql.CompiledSQLPlan or type(entry) is not CompiledDemandEntry:
+        raise ValueError("COMPILED_REQUIREMENT_RULE_INPUT")
+    family = entry.family
+    if family is F.FILTER:
+        return "R06"
+    if family is F.AGGREGATE:
+        return aggregate_rules.DEMAND_RULES.get(entry.role, "R12")
+    if family is F.WINDOW:
+        return window_rules.DEMAND_RULES.get(entry.role, "R14")
+    if family is F.RESULT:
+        return result_rules.DEMAND_RULES.get(entry.role, "R02")
+    if family is F.SET:
+        return "R22"
+    if family is F.LITERAL:
+        return "R04"
+    if family is F.EXPRESSION:
+        records = plan.ir.completed.root.records
+        described = records[Address("requirement", entry.position)]
+        anchors = tuple(
+            records[a]
+            for a in described.get("anchors")
+            if a.kind in ("literal", "read", "operation")
+        )
+        rules = []
+        for record in anchors:
+            if record.address.kind == "operation":
+                role, token = record.get("operator")
+                if role == "binary":
+                    rules.append("R06" if token in ("and", "or") else "R05")
+                    continue
+                if role in ("comparison", "null_test"):
+                    rules.append("R05")
+                    continue
+            rules.append("R01" if record.address.kind == "read" else "R04")
+        if len(set(rules)) != 1:
+            raise ValueError("COMPILED_REQUIREMENT_EXPRESSION_ANCHOR")
+        return rules[0]
+    if family is F.SCOPE:
+        return "R03" if generated_scopes else "R01"
+    return "R01" if family is F.SOURCE else "R02"
+
+
+def verify_compiled_requirement_inputs(records):
+    """Validate the closed resolved graph before any derived report exists."""
+    from pietto._project.project_compiled_verification import need
+    from pietto._project.project_compiled_schema import MAX_RECORDS
+
+    kinds = {kind.value for kind in sql.ProjectSQLPlanRefKind} | {"scope"}
+    origins = tuple(
+        r for r in records.values() if r.address.kind == "requirement_origin"
+    )
+    demands = tuple(r for r in records.values() if r.address.kind == "requirement")
+    need(bool(origins) and bool(demands), "REQUIREMENT_INPUT_INVENTORY")
+
+    def reference(value: tuple[str, int]):
+        need(
+            type(value) is tuple
+            and len(value) == 2
+            and type(value[0]) is str
+            and value[0] in kinds
+            and type(value[1]) is int
+            and 0 <= value[1] < MAX_RECORDS,
+            "REQUIREMENT_REFERENCE",
+        )
+        if value[0] == "scope":
+            need(value[1] == 0, "REQUIREMENT_SCOPE")
+        if value[0] == "origin":
+            need(value[1] < len(origins), "REQUIREMENT_ORIGIN_REFERENCE")
+        if value[0] == "demand":
+            need(value[1] < len(demands), "REQUIREMENT_DEMAND_REFERENCE")
+
+    subjects = {}
+    for origin in origins:
+        reference(origin.get("subject"))
+        need(
+            origin.get("role") in {v.value for v in sql.ProjectSQLOriginRole}
+            and origin.get("provenance")
+            in {v.value for v in sql.ProjectSQLOriginProvenance},
+            "REQUIREMENT_ORIGIN_KIND",
+        )
+        owner = records[origin.get("owner")]
+        need(owner.address.kind == "declaration", "REQUIREMENT_ORIGIN_OWNER")
+        location = origin.get("location")
+        need(
+            type(location) is tuple
+            and len(location) == 5
+            and (location[0] is None or type(location[0]) is str)
+            and all(type(i) is int and i >= 1 for i in location[1:])
+            and location[1:3] <= location[3:5],
+            "REQUIREMENT_LOCATION",
+        )
+        need(type(origin.get("antecedents")) is tuple, "REQUIREMENT_ANTECEDENTS")
+        for pair in origin.get("antecedents"):
+            reference(pair)
+        subjects.setdefault(origin.get("subject"), []).append(origin)
+    for i, demand in enumerate(demands):
+        try:
+            family = F(demand.get("family"))
+        except (ValueError, TypeError):
+            raise ValueError("COMPILED_REQUIREMENT_FAMILY") from None
+        need(
+            any(
+                (None if value is None else value.value) == demand.get("subkind")
+                for value in SUBKINDS[family]
+            ),
+            "REQUIREMENT_SUBKIND",
+        )
+        for pair in (
+            demand.get("subject"),
+            demand.get("definition"),
+            *demand.get("stages"),
+            *demand.get("uses"),
+        ):
+            reference(pair)
+            need(pair in subjects, "REQUIREMENT_SUBJECT_CLOSURE")
+        need(
+            demand.get("definition")[0] == "definition"
+            and all(p[0] == "input_use" for p in demand.get("uses")),
+            "REQUIREMENT_CONTEXT",
+        )
+        origin = records[demand.get("origin")]
+        need(
+            origin.address.kind == "requirement_origin"
+            and origin.get("subject") == ("demand", i)
+            and origin.get("role") == "demand",
+            "REQUIREMENT_DEMAND_ORIGIN",
+        )
+        need(
+            type(demand.get("anchors")) is tuple
+            and all(a in records for a in demand.get("anchors")),
+            "REQUIREMENT_ANCHORS",
+        )
+        role = demand.get("subject")[0]
+        expected = {
+            "expression": F.EXPRESSION,
+            "stage_port": F.STAGE_VALUE,
+            "filter": F.FILTER,
+            "select_block": F.SCOPE,
+            "bind_use": F.LITERAL,
+            "aggregation": F.AGGREGATE,
+            "group_key": F.AGGREGATE,
+            "aggregate": F.AGGREGATE,
+            "aggregate_projection": F.AGGREGATE,
+            "aggregate_risk": F.AGGREGATE,
+            "window": F.WINDOW,
+            "window_use": F.WINDOW,
+            "window_argument": F.WINDOW,
+            "window_policy": F.WINDOW,
+            "window_projection": F.WINDOW,
+            "join": F.JOIN,
+            "join_input": F.JOIN,
+            "join_port": F.JOIN,
+            "relationship_match": F.JOIN,
+            "join_tail": F.JOIN,
+            "single_match": F.JOIN,
+            "single_match_proof": F.JOIN,
+            "result_boundary": F.RESULT,
+            "result_port": F.RESULT,
+            "distinct": F.RESULT,
+            "quotient_field": F.RESULT,
+            "relation_order": F.RESULT,
+            "order_item": F.RESULT,
+            "order_expression": F.RESULT,
+            "order_use": F.RESULT,
+            "hidden_order_requirement": F.RESULT,
+            "result_limit": F.RESULT,
+            "result_export": F.RESULT,
+            "set_body": F.SET,
+            "set_operand": F.SET,
+            "set_input": F.SET,
+            "set_column": F.SET,
+            "definition": F.SOURCE,
+            "export": F.EXPORT,
+        }
+        need(expected.get(role) is family, "REQUIREMENT_SUBJECT_FAMILY")
+    for link in (r for r in records.values() if r.address.kind == "requirement_link"):
+        source, target = records[link.get("source")], records[link.get("target")]
+        need(
+            source.address.kind == target.address.kind == "requirement",
+            "REQUIREMENT_LINK_REFERENCE",
+        )
+        kind = link.get("kind")
+        if kind == ProjectSQLDemandLinkKind.LITERAL_CONTEXT.value:
+            need(source.get("family") == F.LITERAL.value, "REQUIREMENT_LITERAL_LINK")
+        elif kind == ProjectSQLDemandLinkKind.PROOF_ROOT.value:
+            need(
+                source.get("subject")[0] == "single_match"
+                and target.get("subject")[0] == "single_match_proof",
+                "REQUIREMENT_PROOF_ROOT",
+            )
+        elif kind == ProjectSQLDemandLinkKind.PROOF_CHILD.value:
+            need(
+                source.get("subject")[0]
+                == target.get("subject")[0]
+                == "single_match_proof",
+                "REQUIREMENT_PROOF_CHILD",
+            )
+        else:
+            raise ValueError("COMPILED_REQUIREMENT_LINK_KIND")
+
+
+def verify_compiled_semantic_references(plan):
+    from pietto._project.project_compiled_verification import need
+
+    records = plan.ir.completed.root.records
+    expected = {}
+    for record in records.values():
+        if record.address.kind == "requirement_origin":
+            pairs = (
+                ("origin", record.address.position),
+                record.get("subject"),
+                *record.get("antecedents"),
+            )
+        elif record.address.kind == "requirement":
+            pairs = (
+                ("demand", record.address.position),
+                record.get("subject"),
+                record.get("definition"),
+                *record.get("stages"),
+                *record.get("uses"),
+            )
+        else:
+            continue
+        expected.update((pair, None) for pair in pairs)
+    need(
+        type(plan.semantic_references) is MappingProxyType
+        and tuple(plan.semantic_references) == tuple(expected),
+        "PLAN_SEMANTIC_REFERENCE_INVENTORY",
+    )
+    for pair, reference in plan.semantic_references.items():
+        need(
+            type(reference) is CompiledSemanticReference
+            and reference.scope is plan.scope
+            and (reference.kind, reference.position) == pair,
+            "PLAN_SEMANTIC_REFERENCE",
+        )

@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from typing import cast
+from typing import Any, cast
 
 from pietto.ast_nodes import AuthoredJoinKind
 from pietto._project.model import ProjectAggregateResultFact
@@ -1295,16 +1295,24 @@ def _join_properties(
 def _localized_input_factors(
     *,
     grain: ProjectIRProvidedIntrinsicGrain,
-    introduction_use: ProjectIRJoinInputUseOccurrence,
+    introduction_use: ProjectIRJoinInputUseOccurrence | CompiledGrainUse,
     final_grain: ProjectIRProvidedIntrinsicGrain,
 ) -> tuple[ProjectGrainFactorIdentity, ...]:
+    from pietto._project.project_ir_joins import _is_join_factor
+    from pietto._project.project_grain import CompiledGrainFactorIdentity
+    from pietto._project.project_query_block_ir import CompiledIRRowOutput
+
     localized: list[ProjectGrainFactorIdentity] = []
-    carried_join_output = isinstance(grain.output, ProjectIRJoinRowOutput)
+    carried_join_output = isinstance(grain.output, ProjectIRJoinRowOutput) or (
+        type(grain.output) is CompiledIRRowOutput and grain.output.node.kind == "join"
+    )
     for factor in grain.active:
 
-        def retains_source(retained: ProjectJoinGrainFactorIdentity) -> bool:
+        def retains_source(
+            retained: ProjectJoinGrainFactorIdentity | CompiledGrainFactorIdentity,
+        ) -> bool:
             source = retained.source_factor
-            while type(source) is ProjectJoinGrainFactorIdentity:
+            while _is_join_factor(source):
                 if source is factor:
                     return True
                 source = source.source_factor
@@ -1314,21 +1322,20 @@ def _localized_input_factors(
             retained
             for retained in final_grain.active
             if (
-                (type(factor) is ProjectJoinGrainFactorIdentity and retained == factor)
+                (_is_join_factor(factor) and retained == factor)
                 or (
-                    type(retained) is ProjectJoinGrainFactorIdentity
+                    _is_join_factor(retained)
                     and retains_source(retained)
                     and retained.introduction_use
                     == (
                         factor.introduction_use
-                        if carried_join_output
-                        and type(factor) is ProjectJoinGrainFactorIdentity
+                        if carried_join_output and _is_join_factor(factor)
                         else introduction_use.ref
                     )
                 )
                 or (
-                    type(factor) is not ProjectJoinGrainFactorIdentity
-                    and type(retained) is ProjectJoinGrainFactorIdentity
+                    not _is_join_factor(factor)
+                    and _is_join_factor(retained)
                     and retained.base == factor
                     and retained.introduction_use == introduction_use.ref
                 )
@@ -2316,3 +2323,308 @@ def analyze_project_fact_locality_pair(
         requirements=(),
         chasms=(),
     )
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledGrainUse:
+    ir: Any = field(repr=False)
+    ref: Any
+    producer: Any = field(repr=False)
+
+    def __post_init__(self):
+        from pietto._project.project_query_block_ir import (
+            CompiledQueryBlockIR,
+            CompiledIRReference,
+        )
+        from pietto._project.project_compiled_schema import Address
+
+        if (
+            type(self.ir) is not CompiledQueryBlockIR
+            or type(self.ref) is not CompiledIRReference
+        ):
+            raise ValueError("COMPILED_GRAIN_USE")
+        address = Address(self.ref.kind, self.ref.position)
+        if self.ref.kind != "use" or self.ir.references.get(address) is not self.ref:
+            raise ValueError("COMPILED_GRAIN_USE")
+        record = self.ir.completed.root.records[address]
+        if not any(
+            o is self.producer and o.ref is self.ir.references[record.get("producer")]
+            for o in self.ir.operators
+        ):
+            raise ValueError("COMPILED_GRAIN_USE_PRODUCER")
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledMultiplicityExposure:
+    join: Any = field(repr=False)
+    factor_additions: tuple
+
+    def __post_init__(self):
+        from pietto._project.project_query_block_ir import CompiledIROperator
+        from pietto._project.project_grain import CompiledGrainFactorIdentity
+
+        if (
+            type(self.join) is not CompiledIROperator
+            or self.join.kind != "join"
+            or not self.factor_additions
+        ):
+            raise ValueError("COMPILED_MULTIPLICITY_EXPOSURE")
+        for factor in self.factor_additions:
+            if (
+                type(factor) is not CompiledGrainFactorIdentity
+                or factor.base is None
+                or factor.ref is not self.join.ref
+            ):
+                raise ValueError("COMPILED_MULTIPLICITY_EXPOSURE")
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledMultiFactRegion:
+    ir: Any = field(repr=False)
+    joins: tuple = field(repr=False)
+    uses: Mapping[Any, CompiledGrainUse] = field(repr=False)
+    final_properties: ProjectIROutputRelationalProperties = field(repr=False)
+    grain_index: ProjectGrainDependencyIndex = field(repr=False)
+    actual_candidates: tuple[ProjectActualGrainCandidate, ...]
+
+
+def compiled_region_inputs(ir, stage):
+    """Read one same-declaration JOIN region, never enter a named producer."""
+    from pietto._project.project_query_block_ir import (
+        CompiledQueryBlockIR,
+        CompiledIROperator,
+    )
+
+    if (
+        type(ir) is not CompiledQueryBlockIR
+        or type(stage) is not CompiledIROperator
+        or stage.kind != "aggregate"
+    ):
+        raise ValueError("COMPILED_AGGREGATE_REGION_INPUT")
+    joins = tuple(
+        o for o in ir.operators if o.kind == "join" and o.owner is stage.owner
+    )
+    records = ir.completed.root.records
+    by_address = {o.record.address: o for o in ir.operators}
+    inputs = tuple(
+        (
+            join,
+            tuple(
+                (address, by_address[records[address].get("producer")])
+                for address in join.record.get("inputs")
+            ),
+        )
+        for join in joins
+    )
+    if not joins or stage.record.get("risk_law") is None:
+        raise ValueError("COMPILED_AGGREGATE_REGION")
+    return inputs
+
+
+def build_compiled_region(ir, stage):
+    inputs = compiled_region_inputs(ir, stage)
+    joins = tuple(join for join, _ in inputs)
+    final = joins[-1].properties.relational
+    index = _grain_index(final.grain)
+    uses = {
+        address: CompiledGrainUse(ir, ir.references[address], producer)
+        for _join, pairs in inputs
+        for address, producer in pairs
+    }
+    candidates = []
+    for position, (join, pairs) in enumerate(inputs):
+        for side, (address, producer) in enumerate(pairs):
+            properties = producer.properties.relational
+            if (
+                side == 1 and join.record.get("kind") in ("semi", "anti")
+            ) or properties.grain.state is ProjectGrainBasisState.UNKNOWN:
+                continue
+            use = uses[address]
+            factors = _localized_input_factors(
+                grain=properties.grain, introduction_use=use, final_grain=final.grain
+            )
+            _add_actual_candidate(
+                candidates,
+                index=index,
+                kind=ProjectActualGrainAuthorityKind.JOIN_LEFT_INPUT
+                if side == 0
+                else ProjectActualGrainAuthorityKind.JOIN_RIGHT_INPUT,
+                evidence=(join, use, properties.grain),
+                factors=factors,
+                allow_empty=properties.grain.state is ProjectGrainBasisState.GLOBAL,
+            )
+        current = join.properties.relational.grain
+        if current.state is ProjectGrainBasisState.UNKNOWN:
+            continue
+        factors = (
+            current.active
+            if current is final.grain
+            else _localized_input_factors(
+                grain=current,
+                introduction_use=uses[inputs[position + 1][1][0][0]],
+                final_grain=final.grain,
+            )
+        )
+        _add_actual_candidate(
+            candidates,
+            index=index,
+            kind=ProjectActualGrainAuthorityKind.JOIN_OUTPUT,
+            evidence=(join, current),
+            factors=factors,
+            allow_empty=current.state is ProjectGrainBasisState.GLOBAL,
+        )
+    return CompiledMultiFactRegion(
+        ir, joins, MappingProxyType(uses), final, index, tuple(candidates)
+    )
+
+
+def verify_compiled_region(region, ir, stage):
+    """Check all candidate grounds from actual current inputs, not a saved list."""
+    from pietto._project.project_compiled_verification import need
+    from pietto._project.project_grain import _compile_grain_dependency_index
+
+    inputs = compiled_region_inputs(ir, stage)
+    joins = tuple(join for join, _ in inputs)
+    need(
+        type(region) is CompiledMultiFactRegion
+        and region.ir is ir
+        and len(region.joins) == len(joins)
+        and all(a is b for a, b in zip(region.joins, joins, strict=True))
+        and region.final_properties is joins[-1].properties.relational,
+        "AGGREGATE_REGION",
+    )
+    expected_uses = tuple(
+        address for _join, pairs in inputs for address, _producer in pairs
+    )
+    need(
+        type(region.uses) is MappingProxyType and tuple(region.uses) == expected_uses,
+        "AGGREGATE_REGION_USES",
+    )
+    for _join, pairs in inputs:
+        for address, producer in pairs:
+            use = region.uses[address]
+            need(
+                type(use) is CompiledGrainUse
+                and use.ir is ir
+                and use.ref is ir.references[address]
+                and use.producer is producer,
+                "AGGREGATE_REGION_USE",
+            )
+    grain, index = region.final_properties.grain, region.grain_index
+    need(
+        index.universe.factors is grain.factors
+        or index.universe.factors == grain.factors,
+        "AGGREGATE_GRAIN_UNIVERSE",
+    )
+    need(index.facts == grain.dependencies, "AGGREGATE_GRAIN_DEPENDENCIES")
+    expected_index = _compile_grain_dependency_index(index.universe, grain.dependencies)
+    need(
+        index == expected_index
+        and tuple(index.positions.items()) == tuple(expected_index.positions.items()),
+        "AGGREGATE_GRAIN_INDEX",
+    )
+    typed_uses = cast(Mapping[Any, CompiledGrainUse], region.uses)
+    expected = []
+    for position, (join, pairs) in enumerate(inputs):
+        for side, (address, producer) in enumerate(pairs):
+            local = producer.properties.relational.grain
+            if (
+                side == 1 and join.record.get("kind") in ("semi", "anti")
+            ) or local.state is ProjectGrainBasisState.UNKNOWN:
+                continue
+            use = typed_uses[address]
+            factors = _localized_input_factors(
+                grain=local, introduction_use=use, final_grain=grain
+            )
+            if factors or local.state is ProjectGrainBasisState.GLOBAL:
+                expected.append(
+                    (
+                        factors,
+                        ProjectActualGrainAuthorityKind.JOIN_LEFT_INPUT
+                        if side == 0
+                        else ProjectActualGrainAuthorityKind.JOIN_RIGHT_INPUT,
+                        (join, use, local),
+                    )
+                )
+        local = join.properties.relational.grain
+        if local.state is ProjectGrainBasisState.UNKNOWN:
+            continue
+        factors = (
+            local.active
+            if local is grain
+            else _localized_input_factors(
+                grain=local,
+                introduction_use=typed_uses[inputs[position + 1][1][0][0]],
+                final_grain=grain,
+            )
+        )
+        if factors or local.state is ProjectGrainBasisState.GLOBAL:
+            expected.append(
+                (factors, ProjectActualGrainAuthorityKind.JOIN_OUTPUT, (join, local))
+            )
+    groups = {}
+    for factors, kind, evidence in expected:
+        groups.setdefault(factors, []).append((kind, evidence))
+    need(
+        type(region.actual_candidates) is tuple
+        and len(region.actual_candidates) == len(groups),
+        "AGGREGATE_CANDIDATE_INVENTORY",
+    )
+    for candidate, (factors, authorities) in zip(
+        region.actual_candidates, groups.items(), strict=True
+    ):
+        need(
+            type(candidate) is ProjectActualGrainCandidate
+            and candidate.factors.universe is index.universe
+            and candidate.factors.factors == factors
+            and len(candidate.authorities) == len(authorities),
+            "AGGREGATE_CANDIDATE",
+        )
+        for actual, (kind, evidence) in zip(
+            candidate.authorities, authorities, strict=True
+        ):
+            need(
+                type(actual) is ProjectActualGrainAuthority
+                and actual.kind is kind
+                and len(actual.evidence) == len(evidence)
+                and all(a is b for a, b in zip(actual.evidence, evidence, strict=True)),
+                "AGGREGATE_CANDIDATE_AUTHORITY",
+            )
+
+
+def verify_compiled_grain_comparison(value, index, left, right):
+    """Independently check both directions against the actual dependency graph."""
+    from pietto._project.project_compiled_verification import need
+
+    need(
+        type(value) is ProjectFactGrainComparison
+        and value.left is left
+        and value.right is right,
+        "GRAIN_COMPARISON_ROOT",
+    )
+    for direction, seed, requested in (
+        (value.left_to_right, left, right),
+        (value.right_to_left, right, left),
+    ):
+        need(
+            type(direction) is ProjectFactGrainDetermination
+            and direction.index is index
+            and direction.seed.universe is index.universe
+            and direction.seed.factors == seed.factors
+            and direction.requested.universe is index.universe
+            and direction.requested.factors == requested.factors,
+            "GRAIN_COMPARISON_DIRECTION",
+        )
+        closure = grain_dependency_closure(index, direction.seed)
+        expected = (
+            ProjectFactGrainDirectionStatus.PROVEN
+            if direction.requested.mask & closure.mask == direction.requested.mask
+            else ProjectFactGrainDirectionStatus.NOT_PROVEN
+        )
+        need(
+            direction.closure.universe is index.universe
+            and direction.closure.factors == closure.factors
+            and direction.status is expected,
+            "GRAIN_COMPARISON_CLOSURE",
+        )
+    value.__post_init__()

@@ -122,6 +122,83 @@ def values(rows):
     return tuple(tuple(atom(v) for v in row) for row in rows)
 
 
+def verify_native_reply(reply, sql, arguments, rows):
+    from pietto._project.project_execution_postgres import PostgresCatalogReply
+    from pietto._project.project_execution_postgres_adbc_native import (
+        NativeReply,
+        CONTEXT_SQL,
+    )
+
+    need(
+        type(reply) in (NativeReply, PostgresCatalogReply),
+        "POSTGRES_SOURCE_NATIVE_REPLY",
+    )
+    need(
+        type(reply.arguments) is tuple
+        and type(reply.rows) is tuple
+        and all(type(row) is tuple for row in reply.rows),
+        "POSTGRES_SOURCE_NATIVE_REPLY",
+    )
+    need(
+        reply.sql == sql.encode()
+        and values((reply.arguments,)) == values((arguments,))
+        and reply.terminal == "NORMAL"
+        and values(reply.rows) == values(rows),
+        "POSTGRES_SOURCE_NATIVE_REPLY",
+    )
+    if type(reply) is not PostgresCatalogReply:
+        return
+    expected_types = {
+        "resolve": (20,),
+        "relation": (20, 25, 25, 25, 25, 20, 16, 16, 25, 20, 25, 20, 16),
+        "attributes": (23, 25, 20, 20, 25, 25),
+        "children": (20, 23, 16),
+        "rewrite": (20, 25, 25, 16, 25, 25),
+        "function": (20, 25, 25, 25, 25, 25, 25, 20, 25, 16, 25, 16, 25, 20, 16),
+        "type": (20, 25, 25, 25, 20, 20, 20, 20, 20, 20, 16),
+        "operator": (20, 25, 25, 20, 20, 20, 20, 16),
+        "collation": (20, 25, 25, 25, 16, 23, 16),
+        "role": (20, 25, 16, 16, 16),
+        "members": (20, 20, 20, 16, 16, 16),
+    }
+    expected = (
+        (23, 25, 25, 25, 20, 20, 23, 25, 25, 25, 25, 25, 25, 25, 25, 23, 25)
+        if sql == CONTEXT_SQL
+        else next((expected_types[k] for k, v in SQL.items() if v == sql), None)
+    )
+    if expected is None:
+        raise ExecutionError("POSTGRES_SOURCE_NATIVE_SCHEMA")
+    need(
+        type(reply.metadata) is tuple
+        and all(
+            type(m) is tuple
+            and len(m) == 3
+            and type(m[0]) is int
+            and m[0] == i
+            and type(m[1]) is str
+            and type(m[2]) is int
+            for i, m in enumerate(reply.metadata)
+        )
+        and tuple(m[2] for m in reply.metadata) == expected,
+        "POSTGRES_SOURCE_NATIVE_SCHEMA",
+    )
+    need(
+        type(reply.status) is bytes and reply.status.startswith(b"SELECT "),
+        "POSTGRES_SOURCE_NATIVE_TERMINAL",
+    )
+    for row in reply.rows:
+        need(
+            type(row) is tuple and len(row) == len(expected),
+            "POSTGRES_SOURCE_NATIVE_SCHEMA",
+        )
+        for value, oid in zip(row, expected, strict=True):
+            need(
+                value is None
+                or type(value) is {16: bool, 20: int, 23: int, 25: str}[oid],
+                "POSTGRES_SOURCE_NATIVE_TYPE",
+            )
+
+
 def verify_catalog(roots, root_oids, replies, context, schemas, context_native=None):
     """No acquisition call or constructor-derived safe verdict is consumed."""
     from pietto._project.project_execution_postgres_adbc_native import CONTEXT_SQL
@@ -137,6 +214,7 @@ def verify_catalog(roots, root_oids, replies, context, schemas, context_native=N
         and values(context_native.rows) == values((context,)),
         "POSTGRES_SOURCE_NATIVE_CONTEXT",
     )
+    verify_native_reply(context_native, CONTEXT_SQL, (), (context,))
     need(
         len(context) == 17
         and context[0] == 180006
@@ -162,6 +240,7 @@ def verify_catalog(roots, root_oids, replies, context, schemas, context_native=N
             and values(native.rows) == values(reply.rows),
             "POSTGRES_SOURCE_NATIVE_REPLY",
         )
+        verify_native_reply(native, SQL[reply.kind], reply.arguments, reply.rows)
         index[key] = reply.rows
     used, paths, stack = set(), [], set()
 

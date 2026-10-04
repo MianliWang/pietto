@@ -142,9 +142,19 @@ def pure_static_proofs(program, subject):
         for proof in program.preparation.artifact.request.plan.single_match_proofs
         if proof.obligation is subject.obligation.ref
         and any(join is subject.unit.join.ref for join in proof.joins)
-        and proof.source.source.kind
+        and proof_kind(proof)
         in (
             ProjectSingleMatchProofKind.RIGHT_LIMIT,
             ProjectSingleMatchProofKind.RIGHT_GLOBAL,
         )
+    )
+
+
+def proof_kind(proof):
+    from pietto._project.project_sql_plan import CompiledSQLSingleMatchProof
+
+    return (
+        proof.source.kind
+        if type(proof) is CompiledSQLSingleMatchProof
+        else proof.source.source.kind
     )

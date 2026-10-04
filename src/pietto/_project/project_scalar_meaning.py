@@ -14,7 +14,10 @@ from typing import Any
 from pietto._project.model import ProjectResolvedTypeKind
 from pietto._project.project_sql_plan import ProjectSQLPlan
 from pietto._project.project_sql_plan_inspection import inspect_project_sql_plan
-from pietto._project.project_sql_plan_verification import ProjectSQLPlanVerification
+from pietto._project.project_sql_plan_verification import (
+    ProjectSQLPlanVerification,
+    CompiledSQLPlanVerification,
+)
 
 __all__: tuple[str, ...] = ()
 
@@ -52,7 +55,9 @@ class ScalarMeaningEntry:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class ScalarMeaningBundle:
-    verification: ProjectSQLPlanVerification = field(repr=False)
+    verification: ProjectSQLPlanVerification | CompiledSQLPlanVerification = field(
+        repr=False
+    )
     entries: tuple[ScalarMeaningEntry, ...] = field(repr=False)
 
 
@@ -97,6 +102,29 @@ def verify_law(law, kind):
 
 
 def _sources(verification):
+    if type(verification) is CompiledSQLPlanVerification:
+        from pietto._project.project_sql_plan_verification import (
+            verify_compiled_sql_plan,
+        )
+        from pietto._project.project_compiled_schema import Address
+
+        verify_compiled_sql_plan(verification.plan)
+        plan = verification.plan
+        records = plan.ir.completed.root.records
+        result: list[tuple[Any, Any, Any, Any]] = []
+        for source in plan.sources:
+            source_record = records[Address(source.ref.kind, source.ref.position)]
+            for port in plan.ports.values():
+                if port.owner is not source.ref:
+                    continue
+                canonical = port.field.evidence.resolved_type
+                if canonical.name not in ("Timestamp", "UUID"):
+                    continue
+                record = records[source_record.get("fields")[port.field.field_position]]
+                if record.get("meaning") != canonical.name:
+                    raise ScalarMeaningError("MEANING_FIELDS")
+                result.append((port, record, canonical, port.field.fact))
+        return tuple(result)
     if (
         type(verification) is not ProjectSQLPlanVerification
         or type(verification.plan) is not ProjectSQLPlan
@@ -195,6 +223,8 @@ def _source_entry(bundle, field):
 def _output_entry(bundle, port):
     if bundle is None:
         return None
+    if type(bundle.verification) is CompiledSQLPlanVerification:
+        return _compiled_output_entry(bundle, port)
     plan = bundle.verification.plan
     origins = {p.ref: p for p in plan.source_ports}
     for projection in plan.projections:
@@ -210,3 +240,42 @@ def _output_entry(bundle, port):
     ):
         raise ScalarMeaningError("MEANING_OUTPUT")
     return entry
+
+
+def _compiled_output_entry(bundle, port):
+    """Resolve meaning through exact compiled value edges, preserving source identity."""
+    from pietto._project.project_compiled_schema import Address
+
+    plan = bundle.verification.plan
+    records = plan.ir.completed.root.records
+    if port.field.evidence.resolved_type.name not in ("Timestamp", "UUID"):
+        return None
+    sources = {
+        Address(e.source_port.ref.kind, e.source_port.ref.position): e
+        for e in bundle.entries
+    }
+    pending = [Address(port.ref.kind, port.ref.position)]
+    seen, found = set(), []
+    while pending:
+        address = pending.pop()
+        if address in seen:
+            continue
+        seen.add(address)
+        if address in sources:
+            entry = sources[address]
+            if all(entry is not e for e in found):
+                found.append(entry)
+            continue
+        record = records[address]
+        if address.kind == "port":
+            pending.append(record.get("source"))
+        elif address.kind == "read":
+            pending.append(record.get("port"))
+        elif address.kind == "window_value":
+            pending.extend(a for role, a in record.get("arguments") if role == "value")
+        else:
+            raise ScalarMeaningError("MEANING_OUTPUT")
+    if len(found) != 1:
+        raise ScalarMeaningError("MEANING_OUTPUT")
+    verify_law(found[0].law, port.field.evidence.resolved_type.name)
+    return found[0]

@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from typing import cast
+from typing import Any, cast
 
 from pietto._project import project_multifact as multifact
 from pietto._project.project_grain import (
@@ -1194,31 +1194,8 @@ def _build_group_protections(
             _value_class_for_input_field(properties, key.field_semantics)
             for key in local_keys
         )
-        seed = _value_class_set(properties, classes)
-        strict_keys = tuple(
-            key
-            for key in properties.keys
-            if key.strength is ProjectRowUniquenessStrength.STRICT
-        )
-        determinations = tuple(
-            strictly_determines_output(
-                properties.fd_index,
-                seed,
-                _value_class_set(properties, key.determinants),
-            )
-            for key in strict_keys
-        )
-        protected = (
-            multifact._localized_input_factors(
-                grain=properties.grain,
-                introduction_use=introduction_use,
-                final_grain=final_grain,
-            )
-            if any(
-                determination.status is ProjectIROutputDeterminationStatus.PROVEN
-                for determination in determinations
-            )
-            else ()
+        seed, strict_keys, determinations, protected = resolved_group_protection(
+            properties, introduction_use, final_grain, classes
         )
         protections.append(
             ProjectJoinedGroupProtection(
@@ -1250,15 +1227,27 @@ def _argument_factors(
     aggregate: ProjectJoinedAggregateOccurrence,
 ) -> tuple[ProjectGrainFactorIdentity, ...]:
     final_grain = aggregate.input_filter.joined_semantics.property_bridge.grain
-    if not aggregate.call.arguments:
+    return resolved_argument_factors(
+        final_grain,
+        bool(aggregate.call.arguments),
+        tuple(
+            (
+                dependency.field_semantics.input_properties.grain,
+                dependency.field_semantics.introduction_use,
+            )
+            for dependency in aggregate.field_dependencies
+        ),
+    )
+
+
+def resolved_argument_factors(final_grain, has_arguments, dependencies):
+    if not has_arguments:
         return final_grain.active
     factors = tuple(
         factor
-        for dependency in aggregate.field_dependencies
+        for grain, introduction in dependencies
         for factor in multifact._localized_input_factors(
-            grain=dependency.field_semantics.input_properties.grain,
-            introduction_use=dependency.field_semantics.introduction_use,
-            final_grain=final_grain,
+            grain=grain, introduction_use=introduction, final_grain=final_grain
         )
     )
     return _ordered_factors(final_grain.active, factors)
@@ -1273,6 +1262,43 @@ def _multiplicity_exposures(
     | multifact.ProjectCurrentMultiplicityExposure,
     ...,
 ]:
+    region = aggregate.input_filter.joined_semantics.row_source.region
+    pairs = resolved_multiplicity_exposures(
+        comparison,
+        tuple(
+            (join, tuple(use.ref for use in join.input_uses)) for join in region.joins
+        ),
+    )
+    if any(
+        type(factor) is not multifact.ProjectJoinGrainFactorIdentity
+        for _join, additions in pairs
+        for factor in additions
+    ):
+        raise ValueError("Source aggregate exposure requires source JOIN factors.")
+    return tuple(
+        multifact.ProjectCurrentMultiplicityExposure(
+            join=join,
+            factor_additions=cast(
+                tuple[multifact.ProjectJoinGrainFactorIdentity, ...], additions
+            ),
+        )
+        if isinstance(join, multifact.ProjectCurrentBinaryJoin)
+        else multifact.ProjectFactMultiplicityExposure(
+            join=join,
+            factor_additions=cast(
+                tuple[multifact.ProjectJoinGrainFactorIdentity, ...], additions
+            ),
+        )
+        for join, additions in pairs
+    )
+
+
+def resolved_multiplicity_exposures(
+    comparison, joins
+) -> tuple[tuple[Any, tuple[ProjectGrainFactorIdentity, ...]], ...]:
+    """Cover every unresolved finer factor in original JOIN authority order."""
+    from pietto._project.project_ir_joins import _is_join_factor
+
     if comparison.status is not multifact.ProjectIRGrainComparisonStatus.RIGHT_FINER:
         return ()
     unresolved = tuple(
@@ -1280,33 +1306,20 @@ def _multiplicity_exposures(
         for factor in comparison.right.factors
         if factor not in comparison.left_to_right.closure.factors
     )
-    region = aggregate.input_filter.joined_semantics.row_source.region
-    exposures: list[
-        multifact.ProjectFactMultiplicityExposure
-        | multifact.ProjectCurrentMultiplicityExposure
-    ] = []
+    result: list[tuple[Any, tuple[ProjectGrainFactorIdentity, ...]]] = []
     covered: set[ProjectGrainFactorIdentity] = set()
-    for join in region.joins:
+    for join, uses in joins:
         additions = tuple(
-            cast(multifact.ProjectJoinGrainFactorIdentity, factor)
+            factor
             for factor in unresolved
-            if type(factor) is multifact.ProjectJoinGrainFactorIdentity
-            and any(factor.introduction_use == use.ref for use in join.input_uses)
+            if _is_join_factor(factor) and factor.introduction_use in uses
         )
         if additions:
-            if isinstance(join, multifact.ProjectCurrentBinaryJoin):
-                exposure = multifact.ProjectCurrentMultiplicityExposure(
-                    join=join, factor_additions=additions
-                )
-            else:
-                exposure = multifact.ProjectFactMultiplicityExposure(
-                    join=join, factor_additions=additions
-                )
-            exposures.append(exposure)
+            result.append((join, additions))
             covered.update(additions)
     if covered != set(unresolved):
         raise ValueError("Aggregate fanout evidence must cover every finer factor.")
-    return tuple(exposures)
+    return tuple(result)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -1500,18 +1513,27 @@ def _pair_shape(
     ProjectJoinedAggregateGrainLinkage | None,
     tuple[multifact.ProjectCommonGrainCandidateEvidence, ...],
 ]:
+    structural, finer, chasm_candidates = resolved_pair_shape(
+        left.contextual_grain, right.contextual_grain, comparison, common
+    )
+    return (
+        structural,
+        (None if finer is None else (left, right)[finer]),
+        chasm_candidates,
+    )
+
+
+def resolved_pair_shape(left, right, comparison, common):
+    """Original winner-free contextual grain alignment law."""
     chasm_candidates = (
         common.candidates
         if comparison.status is multifact.ProjectIRGrainComparisonStatus.INCOMPARABLE
-        and left.contextual_grain.factors
-        and right.contextual_grain.factors
+        and left.factors
+        and right.factors
         else ()
     )
-    finer: ProjectJoinedAggregateGrainLinkage | None = None
-    if (
-        left.contextual_grain.state is right.contextual_grain.state
-        and left.contextual_grain.factors == right.contextual_grain.factors
-    ):
+    finer = None
+    if left.state is right.state and left.factors == right.factors:
         structural = multifact.ProjectMultiFactStructuralAlignment.EXACTLY_ALIGNED
     elif comparison.status is multifact.ProjectIRGrainComparisonStatus.EQUAL:
         structural = (
@@ -1521,12 +1543,12 @@ def _pair_shape(
         structural = (
             multifact.ProjectMultiFactStructuralAlignment.REAGGREGATION_REQUIRED
         )
-        finer = left
+        finer = 0
     elif comparison.status is multifact.ProjectIRGrainComparisonStatus.RIGHT_FINER:
         structural = (
             multifact.ProjectMultiFactStructuralAlignment.REAGGREGATION_REQUIRED
         )
-        finer = right
+        finer = 1
     elif common.status in {
         multifact.ProjectCommonGrainStatus.UNIQUE,
         multifact.ProjectCommonGrainStatus.AMBIGUOUS,
@@ -2772,3 +2794,622 @@ def build_project_joined_aggregations(
             for input_filter in filter_set.results
         ),
     )
+
+
+def resolved_group_protection(properties, introduction_use, final_grain, classes):
+    """Original complete STRICT-key proof law after field/use resolution."""
+    seed = _value_class_set(properties, classes)
+    strict_keys = tuple(
+        key
+        for key in properties.keys
+        if key.strength is ProjectRowUniquenessStrength.STRICT
+    )
+    determinations = tuple(
+        strictly_determines_output(
+            properties.fd_index,
+            seed,
+            _value_class_set(properties, key.determinants),
+        )
+        for key in strict_keys
+    )
+    protected = (
+        multifact._localized_input_factors(
+            grain=properties.grain,
+            introduction_use=introduction_use,
+            final_grain=final_grain,
+        )
+        if any(
+            determination.status is ProjectIROutputDeterminationStatus.PROVEN
+            for determination in determinations
+        )
+        else ()
+    )
+    return seed, strict_keys, determinations, protected
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledAggregateFieldDependency:
+    expression: Any
+    path: tuple
+    input_properties: ProjectIROutputRelationalProperties
+    introduction_use: multifact.CompiledGrainUse
+    input_field: Any
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledAggregateOccurrence:
+    stage: Any = field(repr=False)
+    ref: Any
+    function: str
+    arguments: tuple
+    field_dependencies: tuple[CompiledAggregateFieldDependency, ...]
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledGroupProtection:
+    stage: Any = field(repr=False)
+    input_properties: ProjectIROutputRelationalProperties
+    introduction_use: multifact.CompiledGrainUse
+    group_keys: tuple
+    seed: Any
+    strict_keys: tuple
+    determinations: tuple
+    protected_factors: tuple
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledAggregateGrainLinkage:
+    aggregate: CompiledAggregateOccurrence
+    multifact_region: multifact.CompiledMultiFactRegion
+    argument_factors: tuple
+    group_protection_factors: tuple
+    combined_seed: Any
+    closure: Any
+    contextual_grain: multifact.ProjectFactContextualGrain
+    final_grain: Any
+    final_comparison: multifact.ProjectFactGrainComparison
+    multiplicity_exposures: tuple[multifact.CompiledMultiplicityExposure, ...]
+    multiplicity_risks: tuple
+    requirements: tuple
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledAggregatePairLinkage:
+    left: CompiledAggregateGrainLinkage
+    right: CompiledAggregateGrainLinkage
+    grain_comparison: multifact.ProjectFactGrainComparison
+    common_grain: multifact.ProjectCommonGrainResult
+    chasm_candidates: tuple
+    structural: multifact.ProjectMultiFactStructuralAlignment
+    finer: CompiledAggregateGrainLinkage | None
+    multiplicity_risks: tuple
+    requirements: tuple
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledAggregateEvidence:
+    stage: Any = field(repr=False)
+    region: multifact.CompiledMultiFactRegion
+    group_protections: tuple[CompiledGroupProtection, ...]
+    aggregates: tuple[CompiledAggregateOccurrence, ...]
+    grain_linkages: tuple[CompiledAggregateGrainLinkage, ...]
+    pair_linkages: tuple[CompiledAggregatePairLinkage, ...]
+
+    @property
+    def risks(self):
+        return (*self.group_protections, *self.grain_linkages, *self.pair_linkages)
+
+
+def compiled_field_dependencies(ir, region, arguments):
+    """Resolved field-use ancestry, stopping at each original JOIN introduction."""
+    from pietto._project.project_compiled_schema import Address, MAX_RECORDS
+
+    records, refs = ir.completed.root.records, ir.references
+    retained, visits = [], 0
+    for argument in arguments:
+        pending: list[tuple[Address, tuple[Address, ...]]] = [(argument, ())]
+        while pending:
+            address, path = pending.pop()
+            visits += 1
+            if visits > MAX_RECORDS or address in path:
+                raise ValueError("COMPILED_AGGREGATE_DEPENDENCY_EXPANSION")
+            record = records[address]
+            path = (*path, address)
+            if address.kind == "read":
+                use_address = record.get("use")
+                if use_address in region.uses:
+                    use = region.uses[use_address]
+                    properties = use.producer.properties.relational
+                    port = records[record.get("port")]
+                    retained.append(
+                        (
+                            refs[address],
+                            tuple(refs[a] for a in path),
+                            properties,
+                            use,
+                            properties.fields[port.get("ordinal")],
+                        )
+                    )
+                    continue
+                pending.append((record.get("port"), path))
+            elif address.kind == "port":
+                pending.append((record.get("source"), path))
+            elif address.kind == "join_value":
+                pending.append((record.get("input"), path))
+            elif address.kind == "operation":
+                pending.extend((a, path) for a in reversed(record.get("operands")))
+            elif address.kind not in ("literal", "null_literal"):
+                raise ValueError("COMPILED_AGGREGATE_DEPENDENCY")
+    return tuple(retained)
+
+
+def _compiled_protection_inputs(ir, stage, region):
+    groups = []
+    for key in stage.record.get("keys"):
+        dependencies = compiled_field_dependencies(ir, region, (key,))
+        if len(dependencies) != 1:
+            raise ValueError("COMPILED_GROUP_KEY_DEPENDENCY")
+        _expression, _path, properties, use, field = dependencies[0]
+        matches = tuple(
+            c for c in properties.value_classes if any(f is field for f in c.members)
+        )
+        if len(matches) != 1:
+            raise ValueError("COMPILED_GROUP_KEY_CLASS")
+        existing = next((g for g in groups if g[0] is properties and g[1] is use), None)
+        if existing is None:
+            existing = (properties, use, [], [])
+            groups.append(existing)
+        existing[2].append(ir.references[key])
+        existing[3].append(matches[0])
+    return tuple(
+        (properties, use, tuple(keys), tuple(classes))
+        for properties, use, keys, classes in groups
+    )
+
+
+def _compiled_pair_values(left, right):
+    region = left.multifact_region
+    comparison = multifact._compare_grains(
+        region.grain_index, left.contextual_grain, right.contextual_grain
+    )
+    common = multifact._common_grain(
+        index=region.grain_index,
+        left=left.contextual_grain,
+        right=right.contextual_grain,
+        actual_candidates=region.actual_candidates,
+    )
+    structural, finer, chasms = resolved_pair_shape(
+        left.contextual_grain, right.contextual_grain, comparison, common
+    )
+    risks = []
+    if left.multiplicity_exposures or right.multiplicity_exposures:
+        risks.append(multifact.ProjectMultiFactMultiplicityRisk.FANOUT_RISK)
+    if chasms:
+        risks.append(
+            multifact.ProjectMultiFactMultiplicityRisk.CROSS_FACT_MULTIPLICATION
+        )
+    requirements = (
+        (multifact.ProjectMultiFactRequirement.AGGREGATE_ALGEBRA_REQUIRED,)
+        if (
+            structural
+            is multifact.ProjectMultiFactStructuralAlignment.REAGGREGATION_REQUIRED
+            or risks
+        )
+        else ()
+    )
+    return (
+        comparison,
+        common,
+        chasms,
+        structural,
+        None if finer is None else (left, right)[finer],
+        tuple(risks),
+        requirements,
+    )
+
+
+def build_compiled_aggregate_evidence(ir):
+    records, refs = ir.completed.root.records, ir.references
+    result = []
+    for stage in ir.operators:
+        if stage.kind != "aggregate" or stage.record.get("risk_law") is None:
+            continue
+        region = multifact.build_compiled_region(ir, stage)
+        grain, index = region.final_properties.grain, region.grain_index
+        protections = []
+        for properties, use, keys, classes in _compiled_protection_inputs(
+            ir, stage, region
+        ):
+            seed, strict_keys, determinations, factors = resolved_group_protection(
+                properties, use, grain, classes
+            )
+            protections.append(
+                CompiledGroupProtection(
+                    stage,
+                    properties,
+                    use,
+                    keys,
+                    seed,
+                    strict_keys,
+                    determinations,
+                    factors,
+                )
+            )
+        protected = _ordered_factors(
+            grain.active, tuple(f for p in protections for f in p.protected_factors)
+        )
+        aggregates, linkages = [], []
+        full = multifact.ProjectFactContextualGrain(
+            authority=grain,
+            state=grain.state,
+            factors=grain.active,
+            evidence=region.final_properties,
+        )
+        for address in stage.record.get("values"):
+            record = records[address]
+            arguments = record.get("arguments")
+            dependencies = tuple(
+                CompiledAggregateFieldDependency(*parts)
+                for parts in compiled_field_dependencies(ir, region, arguments)
+            )
+            aggregate = CompiledAggregateOccurrence(
+                stage,
+                refs[address],
+                record.get("function"),
+                tuple(refs[a] for a in arguments),
+                dependencies,
+            )
+            aggregates.append(aggregate)
+            argument_factors = resolved_argument_factors(
+                grain,
+                bool(arguments),
+                tuple(
+                    (d.input_properties.grain, d.introduction_use) for d in dependencies
+                ),
+            )
+            combined = _ordered_factors(grain.active, (*argument_factors, *protected))
+            seed = multifact._factor_set(index, combined)
+            closure = grain_dependency_closure(index, seed)
+            contextual = multifact.ProjectFactContextualGrain(
+                authority=grain,
+                state=ProjectGrainBasisState.FACTORIZED
+                if closure.factors
+                else ProjectGrainBasisState.GLOBAL,
+                factors=closure.factors,
+                evidence=aggregate,
+            )
+            comparison = multifact._compare_grains(index, contextual, full)
+            additions = resolved_multiplicity_exposures(
+                comparison,
+                tuple(
+                    (join, tuple(refs[a] for a in join.record.get("inputs")))
+                    for join in region.joins
+                ),
+            )
+            exposures = tuple(
+                multifact.CompiledMultiplicityExposure(join, factors)
+                for join, factors in additions
+            )
+            risks = (
+                (multifact.ProjectMultiFactMultiplicityRisk.FANOUT_RISK,)
+                if exposures
+                else ()
+            )
+            requirements = (
+                (multifact.ProjectMultiFactRequirement.AGGREGATE_ALGEBRA_REQUIRED,)
+                if exposures
+                else ()
+            )
+            linkages.append(
+                CompiledAggregateGrainLinkage(
+                    aggregate,
+                    region,
+                    argument_factors,
+                    protected,
+                    seed,
+                    closure,
+                    contextual,
+                    grain,
+                    comparison,
+                    exposures,
+                    risks,
+                    requirements,
+                )
+            )
+        pairs = tuple(
+            CompiledAggregatePairLinkage(
+                left, right, *_compiled_pair_values(left, right)
+            )
+            for i, left in enumerate(linkages)
+            for right in linkages[i + 1 :]
+        )
+        result.append(
+            CompiledAggregateEvidence(
+                stage,
+                region,
+                tuple(protections),
+                tuple(aggregates),
+                tuple(linkages),
+                pairs,
+            )
+        )
+    return tuple(result)
+
+
+def verify_compiled_aggregate_evidence(
+    ir, supplied: tuple[CompiledAggregateEvidence, ...]
+):
+    """Inspect every current FD, dependency, localization and pair relationship."""
+    from pietto._project.project_compiled_verification import need
+    from pietto._project.project_ir_relational_properties import (
+        strict_output_fd_closure,
+    )
+
+    stages = tuple(
+        o
+        for o in ir.operators
+        if o.kind == "aggregate" and o.record.get("risk_law") is not None
+    )
+    records, refs = ir.completed.root.records, ir.references
+    need(
+        type(supplied) is tuple and len(supplied) == len(stages),
+        "AGGREGATE_EVIDENCE_INVENTORY",
+    )
+
+    def same(a, b):
+        return (
+            type(a) is tuple
+            and len(a) == len(b)
+            and all(x is y for x, y in zip(a, b, strict=True))
+        )
+
+    for evidence, stage in zip(supplied, stages, strict=True):
+        need(
+            type(evidence) is CompiledAggregateEvidence and evidence.stage is stage,
+            "AGGREGATE_EVIDENCE_ROOT",
+        )
+        region = evidence.region
+        multifact.verify_compiled_region(region, ir, stage)
+        grain, index = region.final_properties.grain, region.grain_index
+        groups = _compiled_protection_inputs(ir, stage, region)
+        need(
+            type(evidence.group_protections) is tuple
+            and len(evidence.group_protections) == len(groups),
+            "GROUP_PROTECTION_INVENTORY",
+        )
+        for protection, (properties, use, keys, classes) in zip(
+            evidence.group_protections, groups, strict=True
+        ):
+            need(
+                type(protection) is CompiledGroupProtection
+                and protection.stage is stage
+                and protection.input_properties is properties
+                and protection.introduction_use is use
+                and same(protection.group_keys, keys)
+                and protection.seed.index is properties.fd_index
+                and same(
+                    protection.seed.classes,
+                    tuple(c for c in properties.fd_index.universe if c in classes),
+                ),
+                "GROUP_PROTECTION_ROOT",
+            )
+            strict_keys = tuple(
+                k
+                for k in properties.keys
+                if k.strength is ProjectRowUniquenessStrength.STRICT
+            )
+            need(
+                same(protection.strict_keys, strict_keys)
+                and len(protection.determinations) == len(strict_keys),
+                "GROUP_PROTECTION_KEYS",
+            )
+            closure = strict_output_fd_closure(properties.fd_index, protection.seed)
+            for determination, key in zip(
+                protection.determinations, strict_keys, strict=True
+            ):
+                status = (
+                    ProjectIROutputDeterminationStatus.PROVEN
+                    if all(c in closure.classes.classes for c in key.determinants)
+                    else ProjectIROutputDeterminationStatus.NOT_PROVEN
+                )
+                need(
+                    determination.seed is protection.seed
+                    and determination.requested.index is properties.fd_index
+                    and same(determination.requested.classes, key.determinants)
+                    and determination.closure == closure
+                    and determination.status is status,
+                    "GROUP_PROTECTION_DETERMINATION",
+                )
+            proven = any(
+                d.status is ProjectIROutputDeterminationStatus.PROVEN
+                for d in protection.determinations
+            )
+            factors = (
+                multifact._localized_input_factors(
+                    grain=properties.grain, introduction_use=use, final_grain=grain
+                )
+                if proven
+                else ()
+            )
+            need(
+                same(protection.protected_factors, factors), "GROUP_PROTECTION_FACTORS"
+            )
+        values = stage.record.get("values")
+        need(
+            len(evidence.aggregates) == len(values) == len(evidence.grain_linkages),
+            "AGGREGATE_LINKAGE_INVENTORY",
+        )
+        protected = _ordered_factors(
+            grain.active,
+            tuple(f for p in evidence.group_protections for f in p.protected_factors),
+        )
+        for aggregate, linkage, address in zip(
+            evidence.aggregates, evidence.grain_linkages, values, strict=True
+        ):
+            record = records[address]
+            parts = compiled_field_dependencies(ir, region, record.get("arguments"))
+            need(
+                type(aggregate) is CompiledAggregateOccurrence
+                and aggregate.stage is stage
+                and aggregate.ref is refs[address]
+                and aggregate.function == record.get("function")
+                and same(
+                    aggregate.arguments, tuple(refs[a] for a in record.get("arguments"))
+                )
+                and len(aggregate.field_dependencies) == len(parts),
+                "AGGREGATE_OCCURRENCE",
+            )
+            for dependency, (expression, path, properties, use, input_field) in zip(
+                aggregate.field_dependencies, parts, strict=True
+            ):
+                need(
+                    type(dependency) is CompiledAggregateFieldDependency
+                    and dependency.expression is expression
+                    and same(dependency.path, path)
+                    and dependency.input_properties is properties
+                    and dependency.introduction_use is use
+                    and dependency.input_field is input_field,
+                    "AGGREGATE_FIELD_DEPENDENCY",
+                )
+            argument_factors = resolved_argument_factors(
+                grain,
+                bool(record.get("arguments")),
+                tuple((part[2].grain, part[3]) for part in parts),
+            )
+            combined = _ordered_factors(grain.active, (*argument_factors, *protected))
+            need(
+                type(linkage) is CompiledAggregateGrainLinkage
+                and linkage.aggregate is aggregate
+                and linkage.multifact_region is region
+                and same(linkage.argument_factors, argument_factors)
+                and same(linkage.group_protection_factors, protected)
+                and linkage.combined_seed.universe is index.universe
+                and same(linkage.combined_seed.factors, combined)
+                and linkage.final_grain is grain,
+                "AGGREGATE_LINKAGE_ROOT",
+            )
+            closure = grain_dependency_closure(index, linkage.combined_seed)
+            need(
+                linkage.closure.universe is index.universe
+                and same(linkage.closure.factors, closure.factors)
+                and linkage.contextual_grain.authority is grain
+                and linkage.contextual_grain.evidence is aggregate
+                and same(linkage.contextual_grain.factors, closure.factors),
+                "AGGREGATE_LINKAGE_CLOSURE",
+            )
+            comparison = linkage.final_comparison
+            need(
+                comparison.left is linkage.contextual_grain
+                and comparison.right.authority is grain
+                and same(comparison.right.factors, grain.active)
+                and comparison.right.evidence is region.final_properties,
+                "AGGREGATE_FINAL_COMPARISON",
+            )
+            multifact.verify_compiled_grain_comparison(
+                comparison, index, linkage.contextual_grain, comparison.right
+            )
+            additions = resolved_multiplicity_exposures(
+                comparison,
+                tuple(
+                    (j, tuple(refs[a] for a in j.record.get("inputs")))
+                    for j in region.joins
+                ),
+            )
+            need(
+                len(linkage.multiplicity_exposures) == len(additions),
+                "AGGREGATE_EXPOSURE_INVENTORY",
+            )
+            for exposure, (join, factors) in zip(
+                linkage.multiplicity_exposures, additions, strict=True
+            ):
+                need(
+                    type(exposure) is multifact.CompiledMultiplicityExposure
+                    and exposure.join is join
+                    and same(exposure.factor_additions, factors),
+                    "AGGREGATE_EXPOSURE",
+                )
+            need(
+                linkage.multiplicity_risks
+                == (
+                    (multifact.ProjectMultiFactMultiplicityRisk.FANOUT_RISK,)
+                    if additions
+                    else ()
+                )
+                and linkage.requirements
+                == (
+                    (multifact.ProjectMultiFactRequirement.AGGREGATE_ALGEBRA_REQUIRED,)
+                    if additions
+                    else ()
+                ),
+                "AGGREGATE_RISKS",
+            )
+        pairs = tuple(
+            (left, right)
+            for i, left in enumerate(evidence.grain_linkages)
+            for right in evidence.grain_linkages[i + 1 :]
+        )
+        need(len(evidence.pair_linkages) == len(pairs), "AGGREGATE_PAIR_INVENTORY")
+        for pair, (left, right) in zip(evidence.pair_linkages, pairs, strict=True):
+            need(
+                type(pair) is CompiledAggregatePairLinkage
+                and pair.left is left
+                and pair.right is right,
+                "AGGREGATE_PAIR_ROOT",
+            )
+            comparison = pair.grain_comparison
+            need(
+                comparison.left is left.contextual_grain
+                and comparison.right is right.contextual_grain,
+                "AGGREGATE_PAIR_COMPARISON",
+            )
+            multifact.verify_compiled_grain_comparison(
+                comparison, index, left.contextual_grain, right.contextual_grain
+            )
+            expected_common = multifact._common_grain(
+                index=index,
+                left=left.contextual_grain,
+                right=right.contextual_grain,
+                actual_candidates=region.actual_candidates,
+            )
+            need(pair.common_grain == expected_common, "AGGREGATE_COMMON_GRAIN")
+            structural, finer, chasms = resolved_pair_shape(
+                left.contextual_grain,
+                right.contextual_grain,
+                comparison,
+                pair.common_grain,
+            )
+            need(
+                pair.structural is structural
+                and pair.finer is (None if finer is None else (left, right)[finer])
+                and same(pair.chasm_candidates, chasms),
+                "AGGREGATE_PAIR_SHAPE",
+            )
+            risks = tuple(
+                risk
+                for risk, present in (
+                    (
+                        multifact.ProjectMultiFactMultiplicityRisk.FANOUT_RISK,
+                        bool(
+                            left.multiplicity_exposures or right.multiplicity_exposures
+                        ),
+                    ),
+                    (
+                        multifact.ProjectMultiFactMultiplicityRisk.CROSS_FACT_MULTIPLICATION,
+                        bool(chasms),
+                    ),
+                )
+                if present
+            )
+            need(
+                pair.multiplicity_risks == risks
+                and pair.requirements
+                == (
+                    (multifact.ProjectMultiFactRequirement.AGGREGATE_ALGEBRA_REQUIRED,)
+                    if structural
+                    is multifact.ProjectMultiFactStructuralAlignment.REAGGREGATION_REQUIRED
+                    or risks
+                    else ()
+                ),
+                "AGGREGATE_PAIR_RISKS",
+            )
+    return supplied

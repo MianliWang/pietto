@@ -132,3 +132,18 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 - S10 重新取得每个 route 的明确前提与资格，不序列化 live receipt 或 compliance proof。
   新 PG ADBC 的闭合准入和 managed 条件不自动认证旧 PG rows，也不改写 MySQL 历史。
   S19 消费这些回归与 acquisition 成本后整合；S20 不再承担未完成的适配器实现。
+
+
+## Phase68 S10
+
+- Freeze the complete original rule-owner closure before native expansion: a
+  compiled constructor must reuse admission, requirement and property laws,
+  including retained unselected obligations and unused logical sources. Use the
+  full original pure corpus plus correctly repinned deep corruption controls.
+- Keep the original metadata/scalar/native/page readers as acquisition owners.
+  Preserve full raw before checking, and repair/reconsume a checker defect
+  without repeating an unchanged native history or accepting schema-only values.
+- Measure the highest-cost composite under intended instrumentation. Restrict
+  passive tracing to native boundaries, retain actual short-deadline/cancel
+  controls, and separate a measured test deadline from product defaults and
+  performance claims. See [S10](../phases/phase-68/slice-10.md).

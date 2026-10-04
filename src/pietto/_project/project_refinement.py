@@ -82,6 +82,14 @@ def prepare_refinement(artifact, sources, *, policy, output=None, binding=None):
         or policy.choice != "structural_occurrence_ascending"
     ):
         raise ValueError("REFINEMENT_POLICY")
+    from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
+
+    if type(artifact.request) is CompiledPreparedEmission:
+        expected = compiled_source_requirements(artifact)
+        if type(sources) is not tuple or tuple(
+            requirement_state(s) for s in sources
+        ) != tuple(requirement_state(s) for s in expected):
+            raise ValueError("COMPILED_REFINEMENT_REQUIREMENTS")
     if output is None:
         output = prepare_output(artifact, binding=binding)
     verify_sources(sources, artifact.request.sources, family=artifact.request.family)
@@ -99,3 +107,61 @@ def prepare_refinement(artifact, sources, *, policy, output=None, binding=None):
     )
     verify_refinement(value)
     return value
+
+
+def compiled_source_requirements(artifact):
+    """Rebind the complete immutable descriptions to this fresh artifact only."""
+    from pietto._project.project_compiled_schema import Address
+    from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
+
+    if type(artifact.request) is not CompiledPreparedEmission:
+        raise ValueError("COMPILED_REFINEMENT_ROOT")
+    request = artifact.request
+    records = request.verification.completed.root.records
+    policy = records[Address("policy", 0)]
+    if policy.get("refinement") != "structural_occurrence_ascending":
+        raise ValueError("COMPILED_REFINEMENT_POLICY")
+    from pietto._project.project_compiled_schema import selected_relations
+
+    active = selected_relations(
+        records, records[request.verification.completed.root.description.query]
+    )
+    sources = tuple(a for a in records if a.kind == "source" and a in active)
+    if len(sources) != len(request.sources):
+        raise ValueError("COMPILED_REFINEMENT_SOURCES")
+    by_address = dict(zip(sources, request.sources, strict=True))
+    requirements = tuple(
+        RetainedSourceRequirement(
+            by_address[r.get("source")],
+            r.get("provider"),
+            r.get("version"),
+            r.get("revision"),
+            r.get("registry")[0],
+            r.get("registry")[1],
+            r.get("definition"),
+            r.get("tokens"),
+            r.get("role"),
+            r.get("guarantee"),
+        )
+        for r in (records[a] for a in policy.get("sources"))
+    )
+    verify_sources(requirements, request.sources, family=request.family)
+    return requirements
+
+
+def prepare_compiled_refinement(artifact, *, binding=None, guarded=None):
+    if guarded is None:
+        output = prepare_output(artifact, binding=binding)
+    else:
+        from pietto._project.project_guard_preparation import prepare_guarded_output
+
+        if guarded.artifact is not artifact:
+            raise ValueError("COMPILED_REFINEMENT_GUARD")
+        output = prepare_guarded_output(guarded, binding=binding)
+    return prepare_refinement(
+        artifact,
+        compiled_source_requirements(artifact),
+        policy=TieRefinement(),
+        output=output,
+        binding=binding,
+    )
