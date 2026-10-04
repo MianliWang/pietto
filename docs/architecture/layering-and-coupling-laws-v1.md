@@ -108,3 +108,14 @@ are distinct accepting boundaries. Actual Psycopg and ADBC catalog acquisition
 share PG qualification laws through their own native reply/context types; MySQL
 retains its separate definition/security rules. Fresh live authorization and
 transaction checks cannot be cached as immutable compiled structure.
+
+
+## Durable metadata store
+
+Phase68 [S11](../phases/phase-68/slice-11.md) keeps the private SQLite store beside,
+not inside, the S10 compiled/execution owners: it persists their exact bytes and
+portable descriptions and calls their loader, binder, describer and owner outcome
+projection. It exposes closed domain operations only, never a raw database
+callback, and stores no connection, credential, live qualification, guard receipt
+or result row. Later chunk, reader, sink and scheduler owners extend its fenced
+transaction pattern rather than adding a competing registry.

@@ -684,3 +684,17 @@ without caching live qualification or collapsing occurrence/attempt histories.
 S20 stays audit-only. Current code/member/package changes require current
 installed and core-only source-free checks; unchanged grammar/golden producers
 retain their declared independent CI responsibility.
+
+
+## Phase68 S11 job store validation
+
+[S11](phases/phase-68/slice-11.md) keeps one cumulative dispatch ledger. Ordinary
+tests cover the qualified-profile positive branch on the measured local build and
+the explicit refusal on any other runtime (CI's system SQLite included); they never
+skip or simulate a durable PASS. Real process kill/reap, fork and contention
+histories use disposable owned workspaces only. The bounded native bridge
+(`scripts/phase68_slice11_probe.py`) registers in one process and executes from a
+fresh source-free process; S10's original consumers recheck values/SQL/sessions and
+the S11 checker reads a static backup copy against raw records and literal oracles.
+Store code changes the semantic build identity, so current bundles and installed
+witnesses are rebuilt on the final code closure; docs-only changes rerun nothing.

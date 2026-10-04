@@ -147,3 +147,16 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
   passive tracing to native boundaries, retain actual short-deadline/cancel
   controls, and separate a measured test deadline from product defaults and
   performance claims. See [S10](../phases/phase-68/slice-10.md).
+
+
+## Phase68 S11
+
+- Measure the storage runtime before trusting a mode name: a read-only WAL open
+  created `-wal/-shm` here, so unknown formats are refused before any SQLite open,
+  and connection settings are set and read back on every open.
+- Derive lifecycle predicates from the actual owner state, not one route's
+  vocabulary: PG rows close as `CLOSED`, ADBC/MySQL as
+  `LOCAL_CLOSED_REMOTE_UNOBSERVED`. A three-route DB-less regression now precedes
+  native pilots. See [S11](../phases/phase-68/slice-11.md).
+- Process-history helpers must bound every pipe read; an orphaned forked
+  descendant can hold inherited stdio and hang an unbounded reader.

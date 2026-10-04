@@ -95,3 +95,15 @@ a loader independently checks the complete graph and constructs fresh roots.
 A serialized source/guard/refinement obligation is a requirement, never a live
 receipt, provider retention guarantee, deployment acceptance or durable progress.
 Later job/generation/publisher/checkpoint/sink identities remain separately owned.
+
+
+## Durable job identity
+
+Phase68 [S11](../phases/phase-68/slice-11.md) adds separately owned workspace, job,
+binding-record, generation, attempt, publisher-instance/epoch and operation
+identities. None is derived from content pins, equal parameters, process or
+session identifiers, rowids or file names. A stored bundle pin, outcome or
+operation replay is history and consistency data, never a trust anchor, execution
+authority or remote acknowledgement; every reload takes fresh caller trust inputs.
+Every job mutation checks the current publisher epoch inside its own write
+transaction. Generation registration is not result completion.
