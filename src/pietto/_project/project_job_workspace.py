@@ -23,10 +23,14 @@ __all__: tuple[str, ...] = ()
 
 FORMAT = "pietto.job-workspace.v1"
 FEATURES: tuple[str, ...] = ()
+# S12's capture-capable revision is selected only by an explicit create option.
+FORMAT_V2 = "pietto.job-workspace.v2"
 ENVELOPE = "workspace.json"
 DATABASE = "store.sqlite"
 CREATING = "CREATING"
 LOCKS = "locks"
+CHUNKS = "chunks"
+STAGING = "staging"
 APPLICATION_ID = 0x50544A53
 SCHEMA_VERSION = 1
 PAGE_SIZE = 4096
@@ -37,7 +41,7 @@ MAX_BUDGET = 4 * 1024 * 1024 * 1024
 CONTROL_RESERVE = 4 * 1024 * 1024
 JOURNAL_SIZE_LIMIT = 4 * 1024 * 1024
 MAX_BUSY_SECONDS = 30.0
-IDENTITY = re.compile(r"(ws|job|bind|gen|att|pub|op)-[0-9a-f]{32}")
+IDENTITY = re.compile(r"(ws|job|bind|gen|att|pub|op|chk|ckp|ret)-[0-9a-f]{32}")
 
 # The one measured build (S11 profile probe). Version, source and compile
 # options together identify it; later versions or system libraries are not
@@ -137,6 +141,65 @@ SCHEMA = (
     " result TEXT NOT NULL) STRICT",
     "CREATE INDEX operation_job ON operation(job)",
 )
+# Closed S12 tables (v2 only). Rows are insert-only; extents are half-open
+# [start, stop). A checkpoint is an immutable full member set of committed chunks.
+CAPTURE_SCHEMA = (
+    "CREATE TABLE capture(generation TEXT PRIMARY KEY, job TEXT NOT NULL,"
+    " attempt TEXT NOT NULL UNIQUE REFERENCES attempt(identity),"
+    " kind TEXT NOT NULL CHECK (kind IN ('ORDINARY', 'REFINED')),"
+    " contract TEXT NOT NULL, scheme TEXT NOT NULL,"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " publisher_instance TEXT NOT NULL, UNIQUE (generation, job),"
+    " FOREIGN KEY (generation, job) REFERENCES generation(identity, job))"
+    " STRICT, WITHOUT ROWID",
+    "CREATE TABLE chunk(identity TEXT PRIMARY KEY, job TEXT NOT NULL,"
+    " generation TEXT NOT NULL, attempt TEXT NOT NULL,"
+    " start INTEGER NOT NULL CHECK (start >= 0),"
+    " stop INTEGER NOT NULL CHECK (stop >= start),"
+    " batches INTEGER NOT NULL CHECK (batches IN (0, 1)),"
+    " file TEXT NOT NULL UNIQUE, bytes INTEGER NOT NULL CHECK (bytes > 0),"
+    " digest TEXT NOT NULL, descriptor TEXT NOT NULL,"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " publisher_instance TEXT NOT NULL, UNIQUE (generation, start),"
+    " UNIQUE (identity, generation),"
+    " FOREIGN KEY (generation, job) REFERENCES capture(generation, job))"
+    " STRICT, WITHOUT ROWID",
+    "CREATE TABLE checkpoint(identity TEXT PRIMARY KEY, job TEXT NOT NULL,"
+    " generation TEXT NOT NULL, ordinal INTEGER NOT NULL CHECK (ordinal >= 1),"
+    " frontier INTEGER NOT NULL CHECK (frontier >= 0),"
+    " members INTEGER NOT NULL CHECK (members >= 1),"
+    " rows INTEGER NOT NULL CHECK (rows >= 0),"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " UNIQUE (generation, ordinal), UNIQUE (identity, generation),"
+    " FOREIGN KEY (generation, job) REFERENCES capture(generation, job))"
+    " STRICT, WITHOUT ROWID",
+    "CREATE TABLE checkpoint_member(checkpoint TEXT NOT NULL,"
+    " chunk TEXT NOT NULL, generation TEXT NOT NULL,"
+    " PRIMARY KEY (checkpoint, chunk),"
+    " FOREIGN KEY (checkpoint, generation) REFERENCES checkpoint(identity, generation),"
+    " FOREIGN KEY (chunk, generation) REFERENCES chunk(identity, generation))"
+    " STRICT, WITHOUT ROWID",
+    "CREATE TABLE capture_end(generation TEXT PRIMARY KEY"
+    " REFERENCES capture(generation), observed INTEGER NOT NULL CHECK (observed >= 0),"
+    " source TEXT NOT NULL, staged INTEGER NOT NULL CHECK (staged >= 0),"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1)) STRICT, WITHOUT ROWID",
+    "CREATE TABLE retention(identity TEXT PRIMARY KEY, job TEXT NOT NULL,"
+    " generation TEXT NOT NULL, checkpoint TEXT NOT NULL, scope TEXT NOT NULL,"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " publisher_instance TEXT NOT NULL,"
+    " FOREIGN KEY (checkpoint, generation) REFERENCES checkpoint(identity, generation))"
+    " STRICT, WITHOUT ROWID",
+    "CREATE TABLE retention_release(retention TEXT PRIMARY KEY"
+    " REFERENCES retention(identity),"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " publisher_instance TEXT NOT NULL) STRICT, WITHOUT ROWID",
+)
+# Closed known-version table: envelope (format, features) -> user_version,
+# exact schema and private directories. Anything else refuses before SQLite.
+VERSIONS = {
+    FORMAT: (FEATURES, SCHEMA_VERSION, SCHEMA, ()),
+    FORMAT_V2: (("result-chunks",), 2, SCHEMA + CAPTURE_SCHEMA, (CHUNKS, STAGING)),
+}
 _SAFE_CONFIG = (
     ("DEFENSIVE", True),
     ("TRUSTED_SCHEMA", False),
@@ -269,12 +332,12 @@ def _canonical_root(root: object) -> tuple[str, str, str]:
     return root, parent, name
 
 
-def envelope_bytes(identity: str, budget: int) -> bytes:
+def envelope_bytes(identity: str, budget: int, format: str = FORMAT) -> bytes:
     document = {
         "budget": budget,
         "database": DATABASE,
-        "features": list(FEATURES),
-        "format": FORMAT,
+        "features": list(VERSIONS[format][0]),
+        "format": format,
         "identity": identity,
     }
     return (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode(
@@ -291,16 +354,19 @@ def _pairs(items):
     return result
 
 
-def read_envelope(raw: bytes) -> tuple[str, int]:
+def read_envelope(raw: bytes) -> tuple[str, int, str]:
     """Bounded immutable outer identity, checked before any SQLite open."""
     try:
         if len(raw) > MAX_ENVELOPE_BYTES:
             raise JobStoreError("WORKSPACE_FORMAT")
         value = json.loads(raw.decode("ascii"), object_pairs_hook=_pairs)
+        if type(value) is not dict:
+            raise JobStoreError("WORKSPACE_FORMAT")
+        format = value.get("format")
         if (
-            type(value) is not dict
-            or value.get("format") != FORMAT
-            or value.get("features") != list(FEATURES)
+            type(format) is not str
+            or format not in VERSIONS
+            or value.get("features") != list(VERSIONS[format][0])
             or value.get("database") != DATABASE
             or set(value) != {"budget", "database", "features", "format", "identity"}
         ):
@@ -310,10 +376,10 @@ def read_envelope(raw: bytes) -> tuple[str, int]:
             not valid_identity(identity, "ws")
             or type(budget) is not int
             or not MIN_BUDGET <= budget <= MAX_BUDGET
-            or envelope_bytes(identity, budget) != raw
+            or envelope_bytes(identity, budget, format) != raw
         ):
             raise JobStoreError("WORKSPACE_FORMAT")
-        return identity, budget
+        return identity, budget, format
     except (ValueError, UnicodeError, RecursionError) as error:
         if type(error) is JobStoreError:
             raise
@@ -321,10 +387,10 @@ def read_envelope(raw: bytes) -> tuple[str, int]:
 
 
 @cache
-def expected_schema() -> tuple:
+def expected_schema(format: str = FORMAT) -> tuple:
     memory = sqlite3.connect(":memory:", isolation_level=None)
     try:
-        for statement in SCHEMA:
+        for statement in VERSIONS[format][2]:
             memory.execute(statement)
         return tuple(
             memory.execute(
@@ -382,24 +448,39 @@ class Workspace:
         "identity",
         "budget",
         "profile",
+        "format",
         "_connection",
         "_root_fd",
         "_locks_fd",
         "_root_state",
+        "_directories",
         "_pid",
         "_closed",
         "_retired",
     )
 
-    def __init__(self, root, identity, budget, profile, connection, root_fd, locks_fd):
+    def __init__(
+        self,
+        root,
+        identity,
+        budget,
+        profile,
+        connection,
+        root_fd,
+        locks_fd,
+        format=FORMAT,
+        directories=(),
+    ):
         self.root = root
         self.identity = identity
         self.budget = budget
         self.profile = profile
+        self.format = format
         self._connection = connection
         self._root_fd = root_fd
         self._locks_fd = locks_fd
         self._root_state = os.fstat(root_fd)
+        self._directories = dict(directories)
         self._pid = os.getpid()
         self._closed = False
         self._retired = False
@@ -425,6 +506,24 @@ class Workspace:
     def locks_fd(self) -> int:
         self.use()
         return self._locks_fd
+
+    def directory(self, name: str) -> int:
+        """A NEW read-only descriptor of a v2 private directory; caller closes it."""
+        self.use()
+        if name not in self._directories:
+            raise JobStoreError("WORKSPACE_CAPTURE_FORMAT")
+        fd = os.open(
+            name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=self._root_fd
+        )
+        try:
+            state = os.fstat(fd)
+            _private(state, stat.S_IFDIR)
+            if (state.st_dev, state.st_ino) != self._directories[name]:
+                raise JobStoreError("WORKSPACE_OBJECT")
+        except BaseException:
+            os.close(fd)
+            raise
+        return fd
 
     def retire(self) -> None:
         """Abandon uncertain connection state; later queries need a fresh open."""
@@ -508,6 +607,19 @@ def accounted_bytes(workspace: Workspace) -> int:
     with os.scandir(workspace.locks_fd()) as entries:
         for entry in entries:
             total += entry.stat(follow_symlinks=False).st_size
+    # Chunk files are charged once per inode: staging and final names share one.
+    seen = set()
+    for name in workspace._directories:
+        fd = workspace.directory(name)
+        try:
+            with os.scandir(fd) as entries:
+                for entry in entries:
+                    state = entry.stat(follow_symlinks=False)
+                    if (state.st_dev, state.st_ino) not in seen:
+                        seen.add((state.st_dev, state.st_ino))
+                        total += state.st_size
+        finally:
+            os.close(fd)
     return total
 
 
@@ -539,13 +651,20 @@ def _busy(busy_seconds: object) -> float:
 
 
 def create_workspace(
-    root: str, *, budget_bytes: int = DEFAULT_BUDGET, busy_seconds: float = 5.0
+    root: str,
+    *,
+    budget_bytes: int = DEFAULT_BUDGET,
+    busy_seconds: float = 5.0,
+    format: str = FORMAT,
 ) -> Workspace:
     """Exclusively create and atomically initialize a new private workspace."""
     root, parent, name = _canonical_root(root)
     busy = _busy(busy_seconds)
     if type(budget_bytes) is not int or not MIN_BUDGET <= budget_bytes <= MAX_BUDGET:
         raise JobStoreError("WORKSPACE_BUDGET")
+    if type(format) is not str or format not in VERSIONS:
+        raise JobStoreError("WORKSPACE_FORMAT")
+    _features, version, schema, directories = VERSIONS[format]
     profile = storage_profile(parent)
     identity = new_identity("ws")
     parent_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -586,6 +705,11 @@ def create_workspace(
         lock_state = os.fstat(locks_fd)
         owned[LOCKS] = (lock_state.st_dev, lock_state.st_ino)
         _private(lock_state, stat.S_IFDIR)
+        for directory in directories:
+            os.mkdir(directory, 0o700, dir_fd=root_fd)
+            state = os.stat(directory, dir_fd=root_fd, follow_symlinks=False)
+            owned[directory] = (state.st_dev, state.st_ino)
+            _private(state, stat.S_IFDIR)
         exclusive(DATABASE)
         os.fsync(root_fd)
         connection = _connect(root, budget_bytes, busy)
@@ -594,23 +718,31 @@ def create_workspace(
             raise JobStoreError("WORKSPACE_SETTINGS")
         _configure(connection, budget_bytes, busy)
         connection.execute("BEGIN IMMEDIATE")
-        for statement in SCHEMA:
+        for statement in schema:
             connection.execute(statement)
         connection.execute(f"PRAGMA application_id = {APPLICATION_ID}")
-        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        connection.execute(f"PRAGMA user_version = {version}")
         connection.execute(
             "INSERT INTO workspace(singleton, identity, format) VALUES (1, ?, ?)",
-            (identity, FORMAT),
+            (identity, format),
         )
         commit(connection)
-        _verify_database(connection, identity)
-        exclusive(ENVELOPE, envelope_bytes(identity, budget_bytes))
+        _verify_database(connection, identity, format)
+        exclusive(ENVELOPE, envelope_bytes(identity, budget_bytes, format))
         os.fsync(root_fd)
         os.unlink(CREATING, dir_fd=root_fd)
         del owned[CREATING]
         os.fsync(root_fd)
         workspace = Workspace(
-            root, identity, budget_bytes, profile, connection, root_fd, locks_fd
+            root,
+            identity,
+            budget_bytes,
+            profile,
+            connection,
+            root_fd,
+            locks_fd,
+            format,
+            {d: owned[d] for d in directories},
         )
         connection = None
         return workspace
@@ -638,7 +770,7 @@ def _abandon_creation(parent_fd, name, root_fd, locks_fd, connection, owned):
                 current = os.stat(child, dir_fd=root_fd, follow_symlinks=False)
                 if (current.st_dev, current.st_ino) != identity:
                     continue
-                if child == LOCKS:
+                if child in (LOCKS, CHUNKS, STAGING):
                     os.rmdir(child, dir_fd=root_fd)
                 else:
                     os.unlink(child, dir_fd=root_fd)
@@ -653,21 +785,24 @@ def _abandon_creation(parent_fd, name, root_fd, locks_fd, connection, owned):
         os.close(root_fd)
 
 
-def _verify_database(connection: sqlite3.Connection, identity: str) -> None:
+def _verify_database(
+    connection: sqlite3.Connection, identity: str, format: str = FORMAT
+) -> None:
     if (
         connection.execute("PRAGMA journal_mode").fetchone()[0] != "wal"
         or connection.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID
-        or connection.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION
+        or connection.execute("PRAGMA user_version").fetchone()[0]
+        != VERSIONS[format][1]
         or tuple(
             connection.execute(
                 "SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY type, name"
             )
         )
-        != expected_schema()
+        != expected_schema(format)
         or tuple(
             connection.execute("SELECT singleton, identity, format FROM workspace")
         )
-        != ((1, identity, FORMAT),)
+        != ((1, identity, format),)
     ):
         raise JobStoreError("WORKSPACE_SCHEMA")
 
@@ -698,23 +833,30 @@ def open_workspace(
             raw = os.read(envelope_fd, MAX_ENVELOPE_BYTES + 1)
         finally:
             os.close(envelope_fd)
-        identity, budget = read_envelope(raw)
+        identity, budget, format = read_envelope(raw)
         if identity != expected_identity:
             raise JobStoreError("WORKSPACE_IDENTITY")
+        directories = VERSIONS[format][3]
         if names - {
             ENVELOPE,
             DATABASE,
             DATABASE + "-wal",
             DATABASE + "-shm",
             LOCKS,
-        }:
+            *directories,
+        } or not names.issuperset(directories):
             raise JobStoreError("WORKSPACE_OBJECT")
-        for child in names - {ENVELOPE, LOCKS}:
+        for child in names - {ENVELOPE, LOCKS, *directories}:
             _private(
                 os.stat(child, dir_fd=root_fd, follow_symlinks=False),
                 stat.S_IFREG,
                 single=True,
             )
+        found = {}
+        for directory in directories:
+            state = os.stat(directory, dir_fd=root_fd, follow_symlinks=False)
+            _private(state, stat.S_IFDIR)
+            found[directory] = (state.st_dev, state.st_ino)
         locks_fd = os.open(
             LOCKS, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root_fd
         )
@@ -726,12 +868,20 @@ def open_workspace(
             os.path.join(root, DATABASE),
         ):
             raise JobStoreError("WORKSPACE_OBJECT")
-        _verify_database(connection, identity)
+        _verify_database(connection, identity, format)
         after = os.stat(DATABASE, dir_fd=root_fd, follow_symlinks=False)
         if (after.st_dev, after.st_ino) != (database.st_dev, database.st_ino):
             raise JobStoreError("WORKSPACE_OBJECT")
         workspace = Workspace(
-            root, identity, budget, profile, connection, root_fd, locks_fd
+            root,
+            identity,
+            budget,
+            profile,
+            connection,
+            root_fd,
+            locks_fd,
+            format,
+            found,
         )
         connection = None
         return workspace

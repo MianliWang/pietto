@@ -3,8 +3,9 @@
 A stored job is protected specification and history, never execution
 authority: loading needs fresh caller trust inputs, S10 rederives every
 binding, and each attempt needs new access, premise, qualification and guards.
-No result rows, chunks, frontiers, effects, ACKs or completed generations are
-stored. A local COMMIT is not a remote transaction ACK or result completion.
+This module stores no result rows; S12 chunks and checkpoints belong to
+project_job_capture. No effects, ACKs or completed generations are stored. A
+local COMMIT is not a remote transaction ACK or result completion.
 """
 
 from __future__ import annotations
@@ -38,6 +39,8 @@ LIMITS = {
     "generation": 16384,
     "attempt": 65536,
     "operation": 262144,
+    "chunk": 65536,
+    "retention": 16384,
 }
 MAX_ATTEMPT_ORDINAL = 1024
 ROUTES = ("postgres_rows", "postgres_adbc", "mysql_rows")

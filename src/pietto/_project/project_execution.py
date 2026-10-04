@@ -603,21 +603,52 @@ def prepare_compiled_execution(
     allow_guard_sql=True,
 ):
     """One common three-route entry over a freshly bound resolved template."""
+    from pietto._project.project_refinement_enumeration import (
+        RefinedExecutionRequest,
+        verify_refined_execution,
+    )
+    from pietto._project.project_guard_runtime import (
+        GuardedExecutionRequest,
+        verify_guarded_execution,
+    )
+
+    output, refinement, program = compiled_output(binding)
+    artifact = binding.artifact
+    request = ExecutionRequest(
+        artifact,
+        output.contract,
+        access,
+        limits,
+        isolation,
+        binding=binding,
+        output=output,
+        mysql_deployment=mysql_deployment,
+        route=route,
+        postgres_deployment=postgres_deployment,
+    )
+    if program is not None:
+        guarded = GuardedExecutionRequest(request, program, allow_guard_sql)
+        verify_guarded_execution(guarded)
+        return guarded
+    if type(allow_guard_sql) is not bool:
+        raise ExecutionError("GUARD_EXECUTION_REQUEST")
+    if refinement is not None:
+        refined = RefinedExecutionRequest(request, refinement)
+        verify_refined_execution(refined)
+        return refined
+    verify_execution_request(request)
+    return request
+
+
+def compiled_output(binding):
+    """Output, refinement and guard program of a fresh binding; no access or IO."""
     from pietto._project.project_execution_binding_verification import verify_binding
     from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
     from pietto._project.project_compiled_schema import Address
     from pietto._project.project_compiled_loading import supported_compatibility
     from pietto._project.project_refinement import prepare_compiled_refinement
-    from pietto._project.project_refinement_enumeration import (
-        RefinedExecutionRequest,
-        verify_refined_execution,
-    )
     from pietto._project.project_result_output import prepare_output
     from pietto._project.project_guard_program import prepare_program
-    from pietto._project.project_guard_runtime import (
-        GuardedExecutionRequest,
-        verify_guarded_execution,
-    )
 
     verify_binding(binding)
     artifact = binding.artifact
@@ -644,30 +675,7 @@ def prepare_compiled_execution(
         if refinement is not None
         else prepare_output(artifact, binding=binding)
     )
-    request = ExecutionRequest(
-        artifact,
-        output.contract,
-        access,
-        limits,
-        isolation,
-        binding=binding,
-        output=output,
-        mysql_deployment=mysql_deployment,
-        route=route,
-        postgres_deployment=postgres_deployment,
-    )
-    if program is not None:
-        guarded = GuardedExecutionRequest(request, program, allow_guard_sql)
-        verify_guarded_execution(guarded)
-        return guarded
-    if type(allow_guard_sql) is not bool:
-        raise ExecutionError("GUARD_EXECUTION_REQUEST")
-    if refinement is not None:
-        refined = RefinedExecutionRequest(request, refinement)
-        verify_refined_execution(refined)
-        return refined
-    verify_execution_request(request)
-    return request
+    return output, refinement, program
 
 
 @dataclass(frozen=True, slots=True)

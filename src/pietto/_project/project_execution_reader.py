@@ -218,6 +218,20 @@ def bind_native_output(output, route, metadata):
     verified original requirements. Missing protocol nullability/typmods stay
     missing in the adapter's raw evidence, including empty native results.
     """
+    return _bind_output(output, route, metadata, stored=False)
+
+
+def bind_stored_output(output, route):
+    """Stored-chunk purpose: original requirements only, no native metadata.
+
+    No protocol observation is forged; protocol nullability stays unknown. The
+    stored IPC schema and every value are then checked against this binding by
+    the original finite reader, as for any other producer.
+    """
+    return _bind_output(output, route, None, stored=True)
+
+
+def _bind_output(output, route, metadata, *, stored):
     from pietto._project.project_result_output import verify_output
 
     columns = verify_output(
@@ -228,20 +242,26 @@ def bind_native_output(output, route, metadata):
         "mysql" if route == "mysql_rows" else "postgres"
     ):
         raise ResultError("EXECUTION_METADATA_ROUTE")
-    if metadata is None or len(metadata) != len(columns):
+    if stored:
+        metadata = (None,) * len(columns)
+    elif metadata is None or len(metadata) != len(columns):
         raise ResultError("EXECUTION_METADATA")
     observations = []
     for column, meta in zip(columns, metadata, strict=True):
         real = column.realization
         storage = real.storage["kind"]
-        nullable = check_native_column(
-            real,
-            route,
-            meta,
-            label=column.label,
-            ordinal=column.ordinal,
-            source_field=column.source_field,
-            _guarded_output=output if output.guarded is not None else None,
+        nullable = (
+            None
+            if stored
+            else check_native_column(
+                real,
+                route,
+                meta,
+                label=column.label,
+                ordinal=column.ordinal,
+                source_field=column.source_field,
+                _guarded_output=output if output.guarded is not None else None,
+            )
         )
         options = {}
         domain, carrier = (
@@ -268,7 +288,7 @@ def bind_native_output(output, route, metadata):
             )
         elif real.tag == "Decimal":
             precision, scale = real.domain["precision"], real.domain["scale"]
-            if route == "postgres_rows":
+            if route == "postgres_rows" and not stored:
                 for name, expected in (("precision", precision), ("scale", scale)):
                     observed = getattr(meta, name, None)
                     if observed is not None and (

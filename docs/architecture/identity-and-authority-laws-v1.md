@@ -107,3 +107,14 @@ operation replay is history and consistency data, never a trust anchor, executio
 authority or remote acknowledgement; every reload takes fresh caller trust inputs.
 Every job mutation checks the current publisher epoch inside its own write
 transaction. Generation registration is not result completion.
+
+
+## Captured result identity
+
+Phase68 [S12](../phases/phase-68/slice-12.md) adds separately owned chunk `chk-`,
+checkpoint `ckp-` and retention `ret-` identities. A chunk file digest protects
+only a file boundary and stays private; equal payload bytes can belong to two
+legitimate chunks, and file names never encode an occurrence. A checkpoint is an
+immutable member set with a recomputed contiguous frontier, not a completed
+generation, ACK or source-resume right; refined coordinate atoms are data only.
+Every chunk publication and retention change is fenced by the current publisher.

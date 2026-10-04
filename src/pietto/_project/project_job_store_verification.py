@@ -8,10 +8,10 @@ coordinated re-encoding must still satisfy the fencing and identity laws.
 from __future__ import annotations
 
 import json
-from typing import NoReturn
+from typing import Any, NoReturn
 
 from pietto._project.project_job_workspace import (
-    FORMAT,
+    FORMAT_V2,
     JobStoreError,
     Workspace,
     read,
@@ -28,6 +28,41 @@ KINDS = (
     "open_attempt",
     "attempt_terminal",
     "cancel_job",
+)
+CAPTURE_KINDS = (
+    "begin_capture",
+    "publish_chunk",
+    "end_capture",
+    "retain_checkpoint",
+    "release_retention",
+)
+CAPTURE_TABLES = (
+    "capture",
+    "chunk",
+    "checkpoint",
+    "checkpoint_member",
+    "capture_end",
+    "retention",
+    "retention_release",
+)
+DESCRIPTOR = (
+    "attempt",
+    "batches",
+    "binding",
+    "chunk",
+    "contract",
+    "coordinates",
+    "format",
+    "frame_bytes",
+    "frame_sha256",
+    "generation",
+    "job",
+    "kind",
+    "rows",
+    "start",
+    "stop",
+    "terminal",
+    "workspace",
 )
 INTERRUPTED = {
     "basis": "PUBLISHER_EPOCH_ENDED_WITHOUT_TERMINAL",
@@ -61,12 +96,12 @@ def _fail(code: str) -> NoReturn:
     raise JobStoreError("STORE_INVARIANT_" + code)
 
 
-def _canonical(text: str):
+def _canonical(text: str, *, ascii: bool = False):
     value = json.loads(text)
     if (
         json.dumps(
             value,
-            ensure_ascii=False,
+            ensure_ascii=ascii,
             sort_keys=True,
             separators=(",", ":"),
             allow_nan=False,
@@ -87,8 +122,14 @@ def verify_store(workspace: Workspace) -> dict:
         scalar_read,
     )
 
-    def snapshot(c):
-        return {
+    capture = workspace.format == FORMAT_V2
+
+    def snapshot(c) -> dict[str, Any]:
+        tables: dict[str, Any] = {
+            name: tuple(c.execute(f"SELECT * FROM {name}"))
+            for name in (CAPTURE_TABLES if capture else ())
+        }
+        return tables | {
             "integrity": tuple(r[0] for r in c.execute("PRAGMA integrity_check")),
             "foreign": tuple(c.execute("PRAGMA foreign_key_check")),
             "workspace": tuple(c.execute("SELECT * FROM workspace")),
@@ -103,18 +144,19 @@ def verify_store(workspace: Workspace) -> dict:
     data = read(workspace, snapshot)
     if data["integrity"] != ("ok",) or data["foreign"]:
         _fail("INTEGRITY")
-    if data["workspace"] != ((1, workspace.identity, FORMAT),):
+    if data["workspace"] != ((1, workspace.identity, workspace.format),):
         _fail("WORKSPACE")
     jobs, bindings, generations = data["job"], data["binding"], data["generation"]
     attempts, terminals = data["attempt"], data["terminal"]
     created: dict[object, int] = {}
     state: dict[str, dict] = {}
+    events: list[tuple] = []
     for position, (sequence, identity, kind, job, request, result) in enumerate(
         data["operation"], 1
     ):
         if sequence != position or not valid_identity(identity, "op"):
             _fail("OPERATION_SEQUENCE")
-        if kind not in KINDS or job not in jobs:
+        if kind not in KINDS + (CAPTURE_KINDS if capture else ()) or job not in jobs:
             _fail("OPERATION_KIND")
         request, result = _canonical(request), _canonical(result)
         if kind == "register_job":
@@ -152,6 +194,21 @@ def verify_store(workspace: Workspace) -> dict:
             if current["state"] != "ACTIVE" or result.get("state") != "CANCELLED":
                 _fail("STATE_HISTORY")
             current["state"] = "CANCELLED"
+        elif kind in CAPTURE_KINDS:
+            # Data progress needs an ACTIVE job; ends and retention are control.
+            if kind in CAPTURE_KINDS[:2] and current["state"] != "ACTIVE":
+                _fail("STATE_HISTORY")
+            events.append(
+                (
+                    sequence,
+                    kind,
+                    job,
+                    request,
+                    result,
+                    current["epoch"],
+                    current["instance"],
+                )
+            )
         elif kind in ("register_binding", "register_generation", "open_attempt"):
             if current["state"] != "ACTIVE":
                 _fail("STATE_HISTORY")
@@ -294,11 +351,241 @@ def verify_store(workspace: Workspace) -> dict:
         _fail("ATTEMPT_ORDINAL")
     if any(("terminal", a) not in created for a in terminals):
         _fail("TERMINAL_HISTORY")
-    return {
+    counts = _verify_capture(workspace, data, events, created) if capture else {}
+    return counts | {
         "jobs": len(jobs),
         "bindings": len(bindings),
         "generations": len(generations),
         "attempts": len(attempts),
         "terminals": len(terminals),
         "operations": len(data["operation"]),
+    }
+
+
+def _verify_capture(workspace, data, events, created) -> dict:
+    """Replay S12 history: one capture attempt, files named before members, frontiers."""
+    from pietto._project.project_job_capture import frontier
+
+    captures = {r[0]: r for r in data["capture"]}
+    chunks = {r[0]: r for r in data["chunk"]}
+    checkpoints = {r[0]: r for r in data["checkpoint"]}
+    ends = {r[0]: r for r in data["capture_end"]}
+    retentions = {r[0]: r for r in data["retention"]}
+    releases = {r[0]: r for r in data["retention_release"]}
+    members: dict[str, set] = {}
+    for checkpoint, chunk, generation in data["checkpoint_member"]:
+        if checkpoints[checkpoint][2] != generation or chunks[chunk][2] != generation:
+            _fail("CHECKPOINT_MEMBER")
+        members.setdefault(checkpoint, set()).add(chunk)
+    attempts, generations = data["attempt"], data["generation"]
+    seen: dict[object, int] = {}
+    latest: dict[str, tuple[int, set]] = {}
+    for sequence, kind, job, request, result, epoch, instance in events:
+        publisher = [epoch, instance]
+        generation = request.get("generation")
+        if kind == "begin_capture":
+            row = captures.get(generation)
+            attempt = attempts.get(request.get("attempt"))
+            if (
+                row is None
+                or ("capture", generation) in seen
+                or attempt is None
+                or row[1:]
+                != (
+                    job,
+                    request.get("attempt"),
+                    request.get("kind"),
+                    request.get("contract"),
+                    request.get("scheme"),
+                    epoch,
+                    instance,
+                )
+                or (attempt[1], attempt[2], [attempt[4], attempt[5]])
+                != (generation, job, publisher)
+                or created.get(attempt[0], sequence) >= sequence
+                or created.get(("terminal", attempt[0]), sequence + 1) < sequence
+                or result.get("capture") != generation
+                or generations[generation][1] != job
+            ):
+                _fail("CAPTURE_HISTORY")
+            seen[("capture", generation)] = sequence
+        elif kind == "publish_chunk":
+            row = chunks.get(request.get("chunk"))
+            capture = captures.get(generation)
+            if (
+                row is None
+                or capture is None
+                or row[0] in seen
+                or seen.get(("capture", generation), sequence) >= sequence
+                or row[1:]
+                != (
+                    job,
+                    generation,
+                    request.get("attempt"),
+                    request.get("start"),
+                    request.get("stop"),
+                    request.get("batches"),
+                    request.get("file"),
+                    request.get("bytes"),
+                    request.get("digest"),
+                    request.get("descriptor"),
+                    epoch,
+                    instance,
+                )
+                or (capture[2], capture[6], capture[7]) != (row[3], epoch, instance)
+                or created.get(("terminal", row[3]), sequence + 1) < sequence
+                or row[7] != row[0] + ".chunk"
+            ):
+                _fail("CHUNK_HISTORY")
+            descriptor = _canonical(row[10], ascii=True)
+            if (
+                type(descriptor) is not dict
+                or tuple(sorted(descriptor)) != DESCRIPTOR
+                or descriptor["format"] != "pietto.result-chunk.v1"
+                or (
+                    descriptor["chunk"],
+                    descriptor["generation"],
+                    descriptor["job"],
+                    descriptor["attempt"],
+                    descriptor["start"],
+                    descriptor["stop"],
+                    descriptor["rows"],
+                    descriptor["batches"],
+                    descriptor["contract"],
+                    descriptor["kind"],
+                    descriptor["workspace"],
+                    descriptor["binding"],
+                )
+                != (
+                    row[0],
+                    generation,
+                    job,
+                    row[3],
+                    row[4],
+                    row[5],
+                    row[5] - row[4],
+                    row[6],
+                    capture[4],
+                    capture[3],
+                    workspace.identity,
+                    generations[generation][2],
+                )
+                or (descriptor["coordinates"] is None) != (capture[3] == "ORDINARY")
+                or (row[4] == row[5])
+                != (descriptor["terminal"] == "EOF" and row[6] == 0)
+                or (descriptor["terminal"] not in (None, "EOF"))
+            ):
+                _fail("CHUNK_DESCRIPTOR")
+            ordinal, previous = latest.get(generation, (0, set()))
+            ranges = [(chunks[m][4], chunks[m][5]) for m in previous]
+            start, stop = row[4], row[5]
+            if (start == stop and (start or ranges)) or any(
+                a == b or (a < stop and start < b) for a, b in ranges
+            ):
+                _fail("CHUNK_OVERLAP")
+            end = ends.get(generation)
+            if (
+                end is not None
+                and seen.get(("end", generation), sequence) < sequence
+                and stop > end[1]
+            ):
+                _fail("CHUNK_EXTENT")
+            checkpoint = checkpoints.get(result.get("checkpoint"))
+            current = previous | {row[0]}
+            extents = ranges + [(start, stop)]
+            if (
+                checkpoint is None
+                or checkpoint[0] in seen
+                or result.get("chunk") != row[0]
+                or checkpoint[1:]
+                != (
+                    job,
+                    generation,
+                    ordinal + 1,
+                    frontier(extents),
+                    len(current),
+                    sum(b - a for a, b in extents),
+                    epoch,
+                )
+                or members.get(checkpoint[0]) != current
+                or (
+                    result.get("ordinal"),
+                    result.get("frontier"),
+                    result.get("members"),
+                )
+                != (ordinal + 1, checkpoint[4], len(current))
+            ):
+                _fail("CHECKPOINT_HISTORY")
+            seen[row[0]] = seen[checkpoint[0]] = sequence
+            latest[generation] = (ordinal + 1, current)
+        elif kind == "end_capture":
+            row = ends.get(generation)
+            if (
+                row is None
+                or ("end", generation) in seen
+                or seen.get(("capture", generation), sequence) >= sequence
+                or row[1:]
+                != (
+                    request.get("observed"),
+                    request.get("source"),
+                    request.get("staged"),
+                    epoch,
+                )
+                or (captures[generation][6], captures[generation][7])
+                != (epoch, instance)
+                or max(
+                    (chunks[m][5] for m in latest.get(generation, (0, ()))[1]),
+                    default=0,
+                )
+                > row[1]
+            ):
+                _fail("END_HISTORY")
+            seen[("end", generation)] = sequence
+        elif kind == "retain_checkpoint":
+            row = retentions.get(result.get("retention"))
+            if (
+                row is None
+                or row[0] in seen
+                or row[1:]
+                != (
+                    job,
+                    generation,
+                    result.get("checkpoint"),
+                    request.get("scope"),
+                    epoch,
+                    instance,
+                )
+                or seen.get(row[3], sequence) >= sequence
+                or request.get("checkpoint") not in (None, row[3])
+            ):
+                _fail("RETENTION_HISTORY")
+            seen[row[0]] = sequence
+        else:
+            retention = request.get("retention")
+            row = releases.get(retention)
+            if (
+                row is None
+                or ("release", retention) in seen
+                or seen.get(retention, sequence) >= sequence
+                or retentions[retention][1] != job
+                or row[1:] != (epoch, instance)
+                or result.get("retention") != retention
+            ):
+                _fail("RELEASE_HISTORY")
+            seen[("release", retention)] = sequence
+    if (
+        any(("capture", g) not in seen for g in captures)
+        or any(c not in seen for c in chunks)
+        or any(c not in seen for c in checkpoints)
+        or any(("end", g) not in seen for g in ends)
+        or any(r not in seen for r in retentions)
+        or any(("release", r) not in seen for r in releases)
+    ):
+        _fail("CAPTURE_ROWS")
+    return {
+        "captures": len(captures),
+        "chunks": len(chunks),
+        "checkpoints": len(checkpoints),
+        "retentions": len(retentions),
+        "releases": len(releases),
     }

@@ -119,3 +119,13 @@ projection. It exposes closed domain operations only, never a raw database
 callback, and stores no connection, credential, live qualification, guard receipt
 or result row. Later chunk, reader, sink and scheduler owners extend its fenced
 transaction pattern rather than adding a competing registry.
+
+
+## Captured result plane
+
+Phase68 [S12](../phases/phase-68/slice-12.md) extends the S11 store with chunk files
+and checkpoints: a capture session consumes checked batches from a real S10 owner,
+reuses the original IPC writer/reader, and reads back through a stored-chunk
+producer purpose in the original result owner. Metadata-only operations stay
+Arrow- and driver-free. No raw database callback, live handle or second store is
+exposed; future readers, sinks and GC extend the same fenced operations.

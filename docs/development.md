@@ -698,3 +698,17 @@ fresh source-free process; S10's original consumers recheck values/SQL/sessions 
 the S11 checker reads a static backup copy against raw records and literal oracles.
 Store code changes the semantic build identity, so current bundles and installed
 witnesses are rebuilt on the final code closure; docs-only changes rerun nothing.
+
+
+## Phase68 S12 capture validation
+
+[S12](phases/phase-68/slice-12.md) keeps one cumulative dispatch ledger. The core
+environment has no Arrow, so ordinary tests cover the pure chunk-frame, coordinate
+and coverage laws on every host, plus v1/v2, file protocol, fence, hole, replay,
+retention and real SIGKILL histories on the qualified local profile (explicit
+refusal elsewhere). Storage mechanics use a labelled Arrow-free storage step;
+real checked Arrow captures run only in the execution profile through
+`scripts/phase68_slice12_probe.py` (`suite`, `bridge`, `representatives`), whose
+S10 consumers and S12 checker read a static backup plus the chunk bytes. Store or
+capture code changes the semantic build identity, so current bundles and installed
+witnesses are rebuilt on the final code closure.

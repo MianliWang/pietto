@@ -69,9 +69,9 @@ abstraction needs a current caller or invariant.
 - Gate 2: implement the minimum change, run focused checks, review the complete
   finding set, consolidate repairs by root cause, run appropriate final
   validation, and seal the Git tree. Slice dispatches own cumulative repair
-  budgets; active S11 uses its original dispatch Section 11: causal 36,
-  focused 32, diagnostic 16, scope convergence 3; actual changed paths 48,
-  additions 16, deletions zero. Closed S01–S10 and C01 counts stay closed. Diagnosed in-scope repairs and qualified mechanical reader-reserve
+  budgets; active S12 uses its original dispatch Section 11: causal 36,
+  focused 32, diagnostic 16, scope convergence 3; actual changed paths 56,
+  additions 16, deletions zero. Closed S01–S11 and C01 counts stay closed. Diagnosed in-scope repairs and qualified mechanical reader-reserve
   updates proceed under the active dispatch.
 - Gate 3: rebind the baseline, stage exactly the sealed tree, make one ordinary
   commit, fast-forward push, and require natural exact-head CI. A failed head

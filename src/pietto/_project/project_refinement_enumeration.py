@@ -227,6 +227,8 @@ class Enumeration:
         self._reads = reads
         self._pending = self._checked = None
         self._pending_state = self._checked_state = None
+        # The last committed checked page, kept for S12 capture lineage only.
+        self.last_committed = None
         self._frontier = None
         self._rows = self._bytes = self._pages = 0
         self._complete = self._failed = False
@@ -537,6 +539,7 @@ class Enumeration:
             if checked.coordinates:
                 self._frontier = checked.coordinates[-1]
             self._complete = checked.complete
+            self.last_committed = checked
             self._pending = self._checked = None
             self._pending_state = self._checked_state = None
             self._progress_state = self._progress_snapshot()

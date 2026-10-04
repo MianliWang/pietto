@@ -160,3 +160,15 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
   native pilots. See [S11](../phases/phase-68/slice-11.md).
 - Process-history helpers must bound every pipe read; an orphaned forked
   descendant can hold inherited stdio and hang an unbounded reader.
+
+
+## Phase68 S12
+
+- An inode number identifies nothing across an unlink: ext4 reused it at once for a
+  recreated file, so file object checks pair `(dev, ino)` with `st_ctime_ns`.
+- Confirm an existing carrier accepts the actual root before building on it: the
+  S10 IPC contract identity only exported source-language contracts, so compiled
+  roots needed a narrow identity in the original IPC owner.
+- When a core environment deliberately lacks an extra, split storage mechanics
+  from the extra-dependent encoding instead of skipping; real extra-backed
+  evidence then runs in the execution profile. See [S12](../phases/phase-68/slice-12.md).

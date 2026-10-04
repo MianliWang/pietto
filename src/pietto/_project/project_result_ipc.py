@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import io
+import json
 import struct
 from weakref import ref
 
@@ -48,9 +49,62 @@ def _extent(expected_rows, limits):
 
 def _contract_digest(binding):
     ingress.interop._capture(binding)
-    contract = binding.producer.contract
+    return contract_digest(binding.producer.contract)
+
+
+def contract_digest(contract):
+    """Exact output-contract identity carried by every frame header."""
+    from pietto._project.project_sql_plan_verification import (
+        CompiledSQLPlanVerification,
+    )
+
+    if type(contract.authority) is not CompiledSQLPlanVerification:
+        return hashlib.sha256(
+            export_result_contract(contract, contract.authority).canonical_bytes
+        ).digest()
+    # Source-free compiled roots have no portable source document; their
+    # identity is the pinned root plus the complete checked public shape.
+    from pietto._project.project_compiled_schema import _wire
+    from pietto._project.project_result_contract import verify_result_contract
+    from pietto._project.project_scalar_meaning import TimestampMeaning
+
+    verify_result_contract(contract, contract.authority)
+    root = contract.authority.completed.root
+    fields = []
+    for leaf in contract.shape.fields:
+        law = None if leaf.meaning is None else leaf.meaning.law
+        fields.append(
+            [
+                leaf.ordinal,
+                leaf.label,
+                leaf.shape.canonical.kind.value,
+                leaf.shape.canonical.name,
+                leaf.nullability.value,
+                None
+                if law is None
+                else [
+                    "timestamp",
+                    law.calendar,
+                    law.resolution,
+                    law.timezone,
+                    list(law.lower),
+                    list(law.upper),
+                ]
+                if type(law) is TimestampMeaning
+                else ["uuid", law.byte_order, law.byte_width],
+            ]
+        )
+    document = {
+        "fields": fields,
+        "format": "pietto.compiled-result-contract.v1",
+        "multiplicity": contract.multiplicity.value,
+        "pin": root.expected_pin,
+        "query": _wire(root.description.query),
+    }
     return hashlib.sha256(
-        export_result_contract(contract, contract.authority).canonical_bytes
+        json.dumps(
+            document, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+        ).encode("ascii")
     ).digest()
 
 
