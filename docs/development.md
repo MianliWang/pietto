@@ -729,3 +729,24 @@ Bridges stop and remove the source database before any replay; the S10 literal
 consumer and the S13 checker read the recovered rows, a static backup and the
 chunk bytes. Replay code changes the semantic build identity, so current
 bundles and installed witnesses are rebuilt on the final code closure.
+
+
+## Phase68 S14 extraction-recovery validation
+
+[S14](phases/phase-68/slice-14.md) keeps one cumulative dispatch ledger. Ordinary
+tests have no Arrow or database: the segment law is exhaustive over small layouts,
+every admitted R2 family rebuilds one exact specification from live and loaded
+roots, and v4 boundaries, initial basis, barrier/predecessor/extent rules, fresh
+authority, commit ambiguity, coverage, independent history damage, R1 handoff and
+real SIGKILL cuts run on the qualified profile through the labelled
+SYNTHETIC_OPEN_OWNER, ARROW_FREE_MEMBER_CHECK and ARROW_FREE_PAGE_STEP (the real
+step, fences, barrier, publication and verifier still run). Real evidence runs
+through `scripts/phase68_slice14_probe.py`: `matrix` R2-captures every admitted
+family per route and live/bundle, source/installed in an isolated S10 subject,
+abandons it, recovers it in a new subject with another page size, judges the
+complete fresh enumeration with S10's raw checker and the S06/S07 oracles and the
+R2 laws with the S14 checker, then reads every recovered store source-offline in
+a fresh Arrow-only process (guarded groups add a fresh-guard drift refusal);
+`histories` runs real SIGKILL histories A-I and L per route. Extraction code
+changes the semantic build identity, so bundles and installed witnesses are
+rebuilt on the final code closure.

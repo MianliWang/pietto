@@ -184,3 +184,14 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 - A child that prints a payload line right before its barrier can strand the
   barrier in the parent's buffered reader; print the barrier alone. See
   [S13](../phases/phase-68/slice-13.md).
+
+
+## Phase68 S14
+
+- Recovery that re-enumerates from position 0 needs only exact per-position
+  comparison plus a barrier: candidate files written before every saved island
+  matched are not progress, so a late mismatch publishes nothing.
+- Make a predecessor relation checkable in the write transaction (old members kept,
+  new members produced by this attempt) instead of trusting a process flag.
+- Never key test-side synthetic state by `id()` across tests; ids are reused. See
+  [S14](../phases/phase-68/slice-14.md).

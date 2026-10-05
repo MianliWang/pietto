@@ -23,10 +23,12 @@ __all__: tuple[str, ...] = ()
 
 FORMAT = "pietto.job-workspace.v1"
 FEATURES: tuple[str, ...] = ()
-# S12's capture-capable and S13's replay-capable revisions are selected only
-# by an explicit create option; nothing is ever upgraded in place.
+# S12's capture-capable, S13's replay-capable and S14's extraction-resume
+# revisions are selected only by an explicit create option; nothing is ever
+# upgraded in place.
 FORMAT_V2 = "pietto.job-workspace.v2"
 FORMAT_V3 = "pietto.job-workspace.v3"
+FORMAT_V4 = "pietto.job-workspace.v4"
 ENVELOPE = "workspace.json"
 DATABASE = "store.sqlite"
 CREATING = "CREATING"
@@ -244,6 +246,40 @@ REPLAY_SCHEMA = (
     " FOREIGN KEY (consumer, previous) REFERENCES acknowledgement(consumer, stop))"
     " STRICT, WITHOUT ROWID",
 )
+# Closed S14 tables (v4 only), insert-only. An extraction row is written in the
+# same transaction as its capture row, so only a generation registered before
+# its first capture can continue. A continuation freezes its predecessor
+# checkpoint; its chunks are admitted only after its reconciliation (barrier).
+EXTRACTION_SCHEMA = (
+    "CREATE TABLE extraction(generation TEXT PRIMARY KEY, job TEXT NOT NULL,"
+    " attempt TEXT NOT NULL UNIQUE REFERENCES attempt(identity),"
+    " specification TEXT NOT NULL, qualification TEXT NOT NULL,"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " publisher_instance TEXT NOT NULL,"
+    " FOREIGN KEY (generation, job) REFERENCES capture(generation, job))"
+    " STRICT, WITHOUT ROWID",
+    "CREATE TABLE continuation(attempt TEXT PRIMARY KEY REFERENCES attempt(identity),"
+    " job TEXT NOT NULL, generation TEXT NOT NULL REFERENCES extraction(generation),"
+    " predecessor TEXT, frontier INTEGER NOT NULL CHECK (frontier >= 0),"
+    " reach INTEGER NOT NULL CHECK (reach >= frontier),"
+    " members INTEGER NOT NULL CHECK (members >= 0),"
+    " rows INTEGER NOT NULL CHECK (rows >= frontier AND rows <= reach),"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " publisher_instance TEXT NOT NULL, UNIQUE (attempt, generation),"
+    " FOREIGN KEY (predecessor, generation) REFERENCES checkpoint(identity, generation))"
+    " STRICT, WITHOUT ROWID",
+    "CREATE TABLE reconciliation(attempt TEXT PRIMARY KEY"
+    " REFERENCES continuation(attempt), position INTEGER NOT NULL CHECK (position >= 0),"
+    " matched INTEGER NOT NULL CHECK (matched >= 0),"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1)) STRICT, WITHOUT ROWID",
+    "CREATE TABLE continuation_end(attempt TEXT PRIMARY KEY, generation TEXT NOT NULL,"
+    " observed INTEGER NOT NULL CHECK (observed >= 0), source TEXT NOT NULL,"
+    " staged INTEGER NOT NULL CHECK (staged >= 0), checkpoint TEXT,"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " FOREIGN KEY (attempt, generation) REFERENCES continuation(attempt, generation),"
+    " FOREIGN KEY (checkpoint, generation) REFERENCES checkpoint(identity, generation))"
+    " STRICT, WITHOUT ROWID",
+)
 # Closed known-version table: envelope (format, features) -> user_version,
 # exact schema and private directories. Anything else refuses before SQLite.
 VERSIONS = {
@@ -253,6 +289,12 @@ VERSIONS = {
         ("result-chunks", "saved-replay"),
         3,
         SCHEMA + CAPTURE_SCHEMA + REPLAY_SCHEMA,
+        (CHUNKS, STAGING),
+    ),
+    FORMAT_V4: (
+        ("result-chunks", "saved-replay", "extraction-resume"),
+        4,
+        SCHEMA + CAPTURE_SCHEMA + REPLAY_SCHEMA + EXTRACTION_SCHEMA,
         (CHUNKS, STAGING),
     ),
 }

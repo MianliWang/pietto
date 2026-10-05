@@ -130,3 +130,17 @@ trust inputs, binding values, route and output contract are rechecked; no stored
 row, receipt or copy mints one, and it grants no source or R2 authority. The
 occurrence label is `(generation, position)`; delivery, session and operation
 identities may change on redelivery. A local acknowledgement is not a sink ACK.
+
+
+## Extraction-recovery identity
+
+Phase68 [S14](../phases/phase-68/slice-14.md) keeps `(generation, logical output
+position)` as the occurrence identity across every extraction attempt and R1
+rebatching; attempt, session, epoch, page and chunk identities never rename an
+occurrence. Each chunk keeps its real producing attempt. Only a generation whose
+extraction specification and owner-linked stable source description were written
+with its first capture may continue; a recovery needs a fresh process-local,
+purpose-scoped acceptance and a new attempt whose real owner requalifies the
+complete source vector and guards. Stored descriptions, barrier rows and
+persisted success are compared, never trusted as authority. Complete coverage is
+not a transaction ACK, delivery, sink effect or generation publication.

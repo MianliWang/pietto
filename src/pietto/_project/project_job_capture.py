@@ -5,8 +5,9 @@ attempt. Each chunk file is durable before its metadata is published under the
 publisher fence, and each publication creates an immutable checkpoint whose
 contiguous frontier is recomputed from its complete member set. Committed is
 not complete: source, transaction, delivery, cleanup and remote use stay the
-attempt's own layers. Nothing here is consumer recovery, extraction resume, an
-ACK, generation publication, expiry or garbage collection.
+attempt's own layers. On v4, a later attempt's chunks are admitted only through
+S14's reconciled continuation rows. Nothing here re-enumerates a source, ACKs,
+publishes a generation, expires or collects garbage.
 """
 
 from __future__ import annotations
@@ -219,7 +220,9 @@ class CaptureSession:
                 if owner._payloads is None:
                     raise JobStoreError("CAPTURE_SCHEMA_UNAVAILABLE") from None
                 self._binding = owner._payloads.binding
-                return self._checked_step(workspace, None, 0, None, "EOF")
+                # A refined descriptor always carries its (here empty) coordinates.
+                coordinates = [] if self.kind == "REFINED" else None
+                return self._checked_step(workspace, None, 0, coordinates, "EOF")
             return None
         except BaseException:
             self._terminal = self._owner_terminal()
@@ -383,12 +386,8 @@ class CaptureSession:
 
         def effect(c):
             revision = _fence(c, publisher, _FENCE)
-            _open_capture(c, publisher, attempt)
-            ended = c.execute(
-                "SELECT observed FROM capture_end WHERE generation = ?",
-                (attempt.generation,),
-            ).fetchone()
-            if ended is not None and staged.stop > ended[0]:
+            bound = _writer(c, workspace, publisher, attempt)
+            if bound is not None and staged.stop > bound:
                 raise JobStoreError("CAPTURE_EXTENT")
             ranges = c.execute(
                 "SELECT start, stop FROM chunk WHERE generation = ?",
@@ -547,25 +546,89 @@ class CaptureSession:
         return result
 
 
-def _open_capture(c, publisher, attempt) -> None:
+def known_extent(c, workspace, generation) -> int | None:
+    """The complete result extent of every recorded normal source end, if any."""
+    sql = "SELECT observed FROM capture_end WHERE generation = ?1 AND source = 'EOF'"
+    if supports(workspace, "extraction-resume"):
+        sql += (
+            " UNION SELECT observed FROM continuation_end"
+            " WHERE generation = ?1 AND source = 'EOF'"
+        )
+    ends = c.execute(sql, (generation,)).fetchall()
+    if len(ends) > 1:
+        raise JobStoreError("CAPTURE_EXTENT")
+    return ends[0][0] if ends else None
+
+
+def _writer(c, workspace, publisher, attempt) -> int | None:
+    """The original capture attempt, or (v4) a reconciled continuation of it.
+
+    Returns the extent bound a new chunk must respect. A continuation adds
+    chunks only after its barrier, by its own publisher, while every member
+    added since its frozen predecessor is its own.
+    """
     row = c.execute(
         "SELECT c.attempt, c.publisher_epoch, c.publisher_instance,"
-        " (SELECT count(*) FROM attempt_terminal t WHERE t.attempt = c.attempt)"
+        " (SELECT count(*) FROM attempt_terminal t WHERE t.attempt = ?)"
         " FROM capture c WHERE c.generation = ? AND c.job = ?",
-        (attempt.generation, publisher.job),
+        (attempt.identity, attempt.generation, publisher.job),
     ).fetchone()
     if row is None:
         raise JobStoreError("CAPTURE_UNKNOWN")
-    if row[:3] != (attempt.identity, publisher.epoch, publisher.instance):
+    if row[0] == attempt.identity:
+        if row[1:3] != (publisher.epoch, publisher.instance):
+            raise JobStoreError("CAPTURE_PUBLISHER")
+        if row[3]:
+            raise JobStoreError("ATTEMPT_TERMINAL")
+        ended = c.execute(
+            "SELECT observed FROM capture_end WHERE generation = ?",
+            (attempt.generation,),
+        ).fetchone()
+        return None if ended is None else ended[0]
+    if not supports(workspace, "extraction-resume"):
+        raise JobStoreError("CAPTURE_PUBLISHER")
+    found = c.execute(
+        "SELECT predecessor, publisher_epoch, publisher_instance,"
+        " (SELECT count(*) FROM reconciliation r WHERE r.attempt = n.attempt)"
+        " FROM continuation n WHERE attempt = ? AND generation = ? AND job = ?",
+        (attempt.identity, attempt.generation, publisher.job),
+    ).fetchone()
+    if found is None or found[1:3] != (publisher.epoch, publisher.instance):
         raise JobStoreError("CAPTURE_PUBLISHER")
     if row[3]:
         raise JobStoreError("ATTEMPT_TERMINAL")
+    if not found[3]:
+        raise JobStoreError("RECONCILIATION_REQUIRED")
+    head = c.execute(
+        "SELECT identity FROM checkpoint WHERE generation = ?"
+        " ORDER BY ordinal DESC LIMIT 1",
+        (attempt.generation,),
+    ).fetchone()
+    if (
+        head is not None
+        and c.execute(
+            "SELECT (SELECT count(*) FROM checkpoint_member p WHERE p.checkpoint = ?1"
+            " AND p.chunk NOT IN (SELECT chunk FROM checkpoint_member WHERE checkpoint = ?2))"
+            " + (SELECT count(*) FROM checkpoint_member m JOIN chunk k"
+            " ON k.identity = m.chunk WHERE m.checkpoint = ?2 AND k.attempt != ?3"
+            " AND m.chunk NOT IN (SELECT chunk FROM checkpoint_member WHERE checkpoint = ?1))",
+            (found[0], head[0], attempt.identity),
+        ).fetchone()[0]
+    ):
+        raise JobStoreError("CONTINUATION_PREDECESSOR")
+    return known_extent(c, workspace, attempt.generation)
 
 
 def begin_capture(
     publisher: Publisher, attempt: AttemptHandle, owner, *, operation: str
 ) -> CaptureSession:
     """Bind one capture to this publisher, open attempt, fresh binding and owner."""
+    return _begin(publisher, attempt, owner, operation, None)
+
+
+def _begin(publisher, attempt, owner, operation, extraction) -> CaptureSession:
+    """`extraction` = (specification, description) of a v4 R2 generation; its
+    row is written in the same transaction as the capture row (before progress)."""
     from pietto._project.project_execution import (
         compiled_attempt_outcome,
         verify_compiled_owner,
@@ -610,6 +673,8 @@ def begin_capture(
         contract=contract,
         scheme=scheme,
     )
+    if extraction is not None:
+        document.update(specification=extraction[0], qualification=extraction[1])
 
     def effect(c):
         revision = _fence(c, publisher, _FENCE)
@@ -644,10 +709,32 @@ def begin_capture(
                 publisher.instance,
             ),
         )
+        if extraction is not None:
+            c.execute(
+                "INSERT INTO extraction(generation, job, attempt, specification,"
+                " qualification, publisher_epoch, publisher_instance)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    attempt.generation,
+                    publisher.job,
+                    attempt.identity,
+                    *extraction,
+                    publisher.epoch,
+                    publisher.instance,
+                ),
+            )
         return publisher.job, {"capture": attempt.generation, "revision": revision}
 
     result = _advance(
-        publisher, _operate(workspace, operation, "begin_capture", document, effect)
+        publisher,
+        _operate(
+            workspace,
+            operation,
+            "begin_capture" if extraction is None else "begin_extraction",
+            document,
+            effect,
+            payload=0 if extraction is None else sum(map(len, extraction)),
+        ),
     )
     if result.observation != "COMMITTED_THIS_CALL":
         raise JobStoreError("CAPTURE_REPLAYED")
@@ -664,6 +751,8 @@ class Member:
     bytes: int
     digest: str = field(repr=False)
     descriptor: str = field(repr=False)
+    # The real producing attempt (the capture attempt, or a v4 continuation).
+    attempt: str = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -716,22 +805,41 @@ def _snapshot(c, workspace, job, generation, checkpoint, retention=None):
         ).fetchone()
         if head is None:
             raise JobStoreError("CHECKPOINT_UNKNOWN")
+    # v4: reconciled continuations of this generation also produce members.
+    continuations = []
+    if supports(workspace, "extraction-resume"):
+        continuations = c.execute(
+            "SELECT n.attempt, t.kind, t.outcome, e.observed, e.source,"
+            " (SELECT count(*) FROM reconciliation r WHERE r.attempt = n.attempt)"
+            " FROM continuation n JOIN attempt a ON a.identity = n.attempt"
+            " LEFT JOIN attempt_terminal t ON t.attempt = n.attempt"
+            " LEFT JOIN continuation_end e ON e.attempt = n.attempt"
+            " WHERE n.generation = ? AND n.job = ? ORDER BY a.ordinal",
+            (generation, job),
+        ).fetchall()
+    producers = (capture[0], *(r[0] for r in continuations if r[5]))
     members: tuple[Member, ...] = ()
     if head is not None:
         members = tuple(
             Member(*r)
             for r in c.execute(
                 "SELECT k.identity, k.start, k.stop, k.batches, k.file, k.bytes,"
-                " k.digest, k.descriptor FROM checkpoint_member m JOIN chunk k"
-                " ON k.identity = m.chunk AND k.generation = m.generation"
-                " WHERE m.checkpoint = ? AND k.job = ? AND k.attempt = ?"
-                " ORDER BY k.start, k.stop",
-                (head[0], job, capture[0]),
+                " k.digest, k.descriptor, k.attempt FROM checkpoint_member m"
+                " JOIN chunk k ON k.identity = m.chunk AND k.generation = m.generation"
+                " WHERE m.checkpoint = ? AND k.job = ? AND k.attempt IN ("
+                + ", ".join("?" * len(producers))
+                + ") ORDER BY k.start, k.stop",
+                (head[0], job, *producers),
             )
         )
     end = c.execute(
         "SELECT observed, source FROM capture_end WHERE generation = ?", (generation,)
     ).fetchone()
+    if continuations:
+        # One complete extent (all normal ends agree), else the latest end.
+        known = known_extent(c, workspace, generation)
+        ends = ([end] if end else []) + [r[3:5] for r in continuations if r[4]]
+        end = (known, "EOF") if known is not None else ends[-1] if ends else None
     terminal = c.execute(
         "SELECT kind, outcome FROM attempt_terminal WHERE attempt = ?", (capture[0],)
     ).fetchone()
@@ -753,6 +861,16 @@ def _snapshot(c, workspace, job, generation, checkpoint, retention=None):
         ("publication", NOT_IMPLEMENTED),
         ("consumer_ack", NOT_IMPLEMENTED),
     )
+    later = []
+    for attempt, kind, text, *_ in continuations:
+        # The original attempt's layers and UNKNOWNs stay; each later
+        # extraction attempt keeps its own layers.
+        values = {} if text is None else dict(_pairs(text))
+        later.append(
+            (attempt, kind, tuple((n, values.get(n, "UNKNOWN")) for n in LAYERS))
+        )
+    if later:
+        layers += (("continuations", tuple(later)),)
     return CheckpointSnapshot(
         workspace.identity,
         job,
@@ -1110,7 +1228,7 @@ class SnapshotReader:
         # Every descriptor field that names this member must equal the snapshot.
         if text != member.descriptor or descriptor != {
             **descriptor,
-            "attempt": snapshot.attempt,
+            "attempt": member.attempt,
             "batches": member.batches,
             "binding": snapshot.binding,
             "chunk": member.chunk,

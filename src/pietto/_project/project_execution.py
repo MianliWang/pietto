@@ -771,3 +771,81 @@ def verify_compiled_owner(owner):
         )
 
         verify_refined_execution(owner.refined_request, _guarded=owner.guarded_request)
+
+
+# Fresh fields of each route's native context row: PG/ADBC backend pid,
+# transaction id, server address, port and postmaster start; MySQL connection id.
+_FRESH_CONTEXT = {
+    "postgres_rows": (6, 7, 14, 15, 16),
+    "postgres_adbc": (6, 7, 14, 15, 16),
+    "mysql_rows": (3,),
+}
+
+
+def compiled_source_description(owner):
+    """Stable source/environment observations of an open, qualified refined attempt.
+
+    It copies only this owner's own checked qualification and admissions; no
+    query, session/transaction identity or live object. It is a description to
+    compare with a later fresh attempt, never source authority.
+    """
+    from pietto._project.project_result_output import source_read_columns
+
+    verify_compiled_owner(owner)
+    refined, admissions = owner.refined_request, owner.source_admissions
+    qualification = owner._qualification
+    if (
+        refined is None
+        or admissions is None
+        or qualification is None
+        or owner._closed
+        or owner._transaction != "OPEN"
+    ):
+        raise ExecutionError("COMPILED_SOURCE_DESCRIPTION")
+    qualification.verify(owner)
+    admissions.verify(
+        owner._connection,
+        refined.refinement.sources,
+        source_read_columns(refined.refinement.output),
+    )
+    route = owner.request.route
+    if route == "mysql_rows":
+        context = owner.context
+        closure = (
+            tuple(
+                (o.key, o.kind, o.engine, o.columns, o.native_definition)
+                for o in qualification.objects
+            ),
+            qualification.edges,
+            qualification.security,
+        )
+    else:
+        context = (
+            owner._initial_profile_context
+            if route == "postgres_rows"
+            else owner._initial_context
+        )
+        closure = (
+            qualification.roots,
+            tuple((r.kind, r.arguments, r.rows) for r in qualification.replies),
+        )
+    return (
+        route,
+        owner.request.isolation,
+        admissions.role,
+        admissions.environment,
+        tuple(v for i, v in enumerate(context) if i not in _FRESH_CONTEXT[route]),
+        closure,
+        tuple(
+            (
+                o.registry,
+                o.definition,
+                o.token_types,
+                o.collision_rows,
+                o.schema,
+                o.collations,
+                o.terminals,
+            )
+            for o in admissions.observations
+        ),
+    )

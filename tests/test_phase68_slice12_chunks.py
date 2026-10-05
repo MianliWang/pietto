@@ -296,7 +296,7 @@ def test_v1_default_and_v2_explicit_layouts(tmp_path):
     [
         lambda d: {**d, "features": []},
         lambda d: {**d, "format": "pietto.job-workspace.v1"},
-        lambda d: {**d, "format": "pietto.job-workspace.v4"},
+        lambda d: {**d, "format": "pietto.job-workspace.v5"},
         lambda d: {**d, "features": ["result-chunks", "gc"]},
     ],
 )
@@ -320,7 +320,7 @@ def test_mismatched_or_future_versions_refuse_before_sqlite(
     with pytest.raises(JobStoreError, match="WORKSPACE_FORMAT"):
         w.open_workspace(str(root), expected_identity=workspace.identity)
     assert probe.tree(root) == before
-    for bad in ("pietto.job-workspace.v4", None, b"pietto.job-workspace.v2"):
+    for bad in ("pietto.job-workspace.v5", None, b"pietto.job-workspace.v2"):
         with pytest.raises(JobStoreError, match="WORKSPACE_FORMAT"):
             w.create_workspace(str(tmp_path / "other"), format=bad)  # type: ignore[arg-type]
     assert not (tmp_path / "other").exists()

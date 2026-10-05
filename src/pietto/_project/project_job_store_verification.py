@@ -52,6 +52,13 @@ REPLAY_KINDS = (
     "acknowledge_delivery",
 )
 REPLAY_TABLES = ("consumer", "replay_session", "issuance", "acknowledgement")
+EXTRACTION_KINDS = (
+    "begin_extraction",
+    "begin_continuation",
+    "reconcile_extraction",
+    "end_continuation",
+)
+EXTRACTION_TABLES = ("extraction", "continuation", "reconciliation", "continuation_end")
 DESCRIPTOR = (
     "attempt",
     "batches",
@@ -131,8 +138,12 @@ def verify_store(workspace: Workspace) -> dict:
 
     capture = supports(workspace, "result-chunks")
     replay = supports(workspace, "saved-replay")
+    extraction = supports(workspace, "extraction-resume")
     kinds = (
-        KINDS + (CAPTURE_KINDS if capture else ()) + (REPLAY_KINDS if replay else ())
+        KINDS
+        + (CAPTURE_KINDS if capture else ())
+        + (REPLAY_KINDS if replay else ())
+        + (EXTRACTION_KINDS if extraction else ())
     )
 
     def snapshot(c) -> dict[str, Any]:
@@ -140,6 +151,7 @@ def verify_store(workspace: Workspace) -> dict:
             name: tuple(c.execute(f"SELECT * FROM {name}"))
             for name in (CAPTURE_TABLES if capture else ())
             + (REPLAY_TABLES if replay else ())
+            + (EXTRACTION_TABLES if extraction else ())
         }
         return tables | {
             "integrity": tuple(r[0] for r in c.execute("PRAGMA integrity_check")),
@@ -206,11 +218,11 @@ def verify_store(workspace: Workspace) -> dict:
             if current["state"] != "ACTIVE" or result.get("state") != "CANCELLED":
                 _fail("STATE_HISTORY")
             current["state"] = "CANCELLED"
-        elif kind in CAPTURE_KINDS + REPLAY_KINDS:
+        elif kind in CAPTURE_KINDS + REPLAY_KINDS + EXTRACTION_KINDS:
             # Data progress and saved reads need an ACTIVE job; ends and
             # retention (including a consumer's release) are control.
             if (
-                kind in CAPTURE_KINDS[:2] + REPLAY_KINDS
+                kind in CAPTURE_KINDS[:2] + REPLAY_KINDS + EXTRACTION_KINDS[:3]
                 and current["state"] != "ACTIVE"
             ):
                 _fail("STATE_HISTORY")
@@ -398,6 +410,14 @@ def _verify_capture(workspace, data, events, created) -> dict:
     sessions = {r[0]: r for r in data.get("replay_session", ())}
     issuances = {r[0]: r for r in data.get("issuance", ())}
     acknowledgements = {r[0]: r for r in data.get("acknowledgement", ())}
+    extractions = {r[0]: r for r in data.get("extraction", ())}
+    continuations = {r[0]: r for r in data.get("continuation", ())}
+    reconciliations = {r[0]: r for r in data.get("reconciliation", ())}
+    finished = {r[0]: r for r in data.get("continuation_end", ())}
+    # Replayed v4 state: each generation's latest checkpoint and the one
+    # complete extent of any normal source end recorded so far.
+    head: dict[str, str] = {}
+    eof: dict[str, int] = {}
     # Replayed S13 state: acknowledged frontier, latest session and its single
     # outstanding issuance, per-owner ordinals.
     progress: dict[str, int] = {}
@@ -423,7 +443,6 @@ def _verify_capture(workspace, data, events, created) -> dict:
                 sort_keys=True,
                 separators=(",", ":"),
             )
-            end = ends.get(generation)
             if (
                 row is None
                 or retention is None
@@ -458,14 +477,7 @@ def _verify_capture(workspace, data, events, created) -> dict:
                     "retention": retention[0],
                     "revision": result.get("revision"),
                 }
-                or (
-                    row[6] == "complete_capture"
-                    and (
-                        end is None
-                        or seen.get(("end", generation), sequence) >= sequence
-                        or (end[1], end[2]) != (row[7], "EOF")
-                    )
-                )
+                or (row[6] == "complete_capture" and eof.get(generation) != row[7])
             ):
                 _fail("CONSUMER_HISTORY")
             seen[row[0]] = seen[retention[0]] = sequence
@@ -569,7 +581,7 @@ def _verify_capture(workspace, data, events, created) -> dict:
         if kind in REPLAY_KINDS:
             replay(sequence, kind, job, request, result, epoch, instance)
             continue
-        if kind == "begin_capture":
+        if kind in ("begin_capture", "begin_extraction"):
             row = captures.get(generation)
             attempt = attempts.get(request.get("attempt"))
             if (
@@ -595,12 +607,171 @@ def _verify_capture(workspace, data, events, created) -> dict:
             ):
                 _fail("CAPTURE_HISTORY")
             seen[("capture", generation)] = sequence
+            if kind == "begin_extraction":
+                extraction = extractions.get(generation)
+                specification = _canonical(extraction[3]) if extraction else {}
+                if (
+                    extraction is None
+                    or ("extraction", generation) in seen
+                    or extraction[1:]
+                    != (
+                        job,
+                        request.get("attempt"),
+                        request.get("specification"),
+                        request.get("qualification"),
+                        epoch,
+                        instance,
+                    )
+                    or _canonical(extraction[4]) is None
+                    or row[3] != "REFINED"
+                    or (
+                        specification.get("kind"),
+                        specification.get("contract"),
+                        specification.get("scheme"),
+                        specification.get("route"),
+                        specification.get("isolation"),
+                    )
+                    != ("REFINED", row[4], row[5], *generations[generation][3:5])
+                ):
+                    _fail("EXTRACTION_HISTORY")
+                seen[("extraction", generation)] = sequence
+        elif kind == "begin_continuation":
+            attempt = request.get("attempt")
+            row = continuations.get(attempt)
+            owner = attempts.get(attempt)
+            extraction = extractions.get(generation)
+            _ordinal, current = latest.get(generation, (0, set()))
+            ranges = sorted((chunks[m][4], chunks[m][5]) for m in current)
+            if (
+                row is None
+                or owner is None
+                or extraction is None
+                or ("continuation", attempt) in seen
+                or ("extraction", generation) not in seen
+                or extraction[2] == attempt
+                or (owner[1], owner[2], [owner[4], owner[5]])
+                != (generation, job, publisher)
+                or created.get(attempt, sequence) >= sequence
+                or created.get(("terminal", attempt), sequence + 1) < sequence
+                or row[1:]
+                != (
+                    job,
+                    generation,
+                    request.get("predecessor"),
+                    request.get("frontier"),
+                    request.get("reach"),
+                    request.get("members"),
+                    request.get("rows"),
+                    epoch,
+                    instance,
+                )
+                or row[3] != head.get(generation)
+                or row[4:8]
+                != (
+                    frontier(ranges),
+                    max((b for _a, b in ranges), default=0),
+                    len(current),
+                    sum(b - a for a, b in ranges),
+                )
+                or request.get("qualification") != extraction[4]
+                or result.get("continuation") != attempt
+            ):
+                _fail("CONTINUATION_HISTORY")
+            seen[("continuation", attempt)] = sequence
+        elif kind == "reconcile_extraction":
+            attempt = request.get("attempt")
+            row = reconciliations.get(attempt)
+            frozen = continuations.get(attempt)
+            if (
+                row is None
+                or frozen is None
+                or ("reconciled", attempt) in seen
+                or ("continuation", attempt) not in seen
+                or frozen[2] != generation
+                or (frozen[8], frozen[9]) != (epoch, instance)
+                or created.get(("terminal", attempt), sequence + 1) < sequence
+                or head.get(generation) != frozen[3]
+                or request.get("predecessor") != frozen[3]
+                or row[1:]
+                != (
+                    request.get("position"),
+                    request.get("matched"),
+                    epoch,
+                )
+                or row[1] < frozen[5]
+                or row[2] != frozen[7]
+                or (result.get("position"), result.get("reconciliation"))
+                != (row[1], attempt)
+            ):
+                _fail("RECONCILIATION_HISTORY")
+            seen[("reconciled", attempt)] = sequence
+        elif kind == "end_continuation":
+            attempt = request.get("attempt")
+            row = finished.get(attempt)
+            frozen = continuations.get(attempt)
+            _ordinal, current = latest.get(generation, (0, set()))
+            ranges = sorted((chunks[m][4], chunks[m][5]) for m in current)
+            if (
+                row is None
+                or frozen is None
+                or ("finished", attempt) in seen
+                or ("continuation", attempt) not in seen
+                or frozen[2] != generation
+                or (frozen[8], frozen[9]) != (epoch, instance)
+                or row[1:]
+                != (
+                    generation,
+                    request.get("observed"),
+                    request.get("source"),
+                    request.get("staged"),
+                    result.get("checkpoint"),
+                    epoch,
+                )
+                or result.get("observed") != row[2]
+                or (
+                    row[3] == "EOF"
+                    and (
+                        ("reconciled", attempt) not in seen
+                        or row[5] != head.get(generation)
+                        or not current
+                        or frontier(ranges) != row[2]
+                        or sum(b - a for a, b in ranges) != row[2]
+                        or eof.get(generation, row[2]) != row[2]
+                    )
+                )
+                or (row[3] != "EOF" and row[5] is not None)
+            ):
+                _fail("END_HISTORY")
+            if row[3] == "EOF":
+                eof[generation] = row[2]
+            seen[("finished", attempt)] = sequence
         elif kind == "publish_chunk":
             row = chunks.get(request.get("chunk"))
             capture = captures.get(generation)
+            # The original capture attempt, or a reconciled continuation whose
+            # own publisher adds chunks after its frozen predecessor.
+            frozen = continuations.get(row[3]) if row else None
+            ordinal, previous = latest.get(generation, (0, set()))
+            producer = (
+                capture is not None
+                and row is not None
+                and (
+                    (capture[2], capture[6], capture[7]) == (row[3], epoch, instance)
+                    or frozen is not None
+                    and frozen[2] == generation
+                    and ("reconciled", row[3]) in seen
+                    and (frozen[8], frozen[9]) == (epoch, instance)
+                    and members.get(frozen[3], set()) <= previous
+                    and all(
+                        chunks[m][3] == row[3]
+                        for m in previous - members.get(frozen[3], set())
+                    )
+                )
+            )
             if (
                 row is None
                 or capture is None
+                or not producer
                 or row[0] in seen
                 or seen.get(("capture", generation), sequence) >= sequence
                 or row[1:]
@@ -618,7 +789,6 @@ def _verify_capture(workspace, data, events, created) -> dict:
                     epoch,
                     instance,
                 )
-                or (capture[2], capture[6], capture[7]) != (row[3], epoch, instance)
                 or created.get(("terminal", row[3]), sequence + 1) < sequence
                 or row[7] != row[0] + ".chunk"
             ):
@@ -662,7 +832,6 @@ def _verify_capture(workspace, data, events, created) -> dict:
                 or (descriptor["terminal"] not in (None, "EOF"))
             ):
                 _fail("CHUNK_DESCRIPTOR")
-            ordinal, previous = latest.get(generation, (0, set()))
             ranges = [(chunks[m][4], chunks[m][5]) for m in previous]
             start, stop = row[4], row[5]
             if (start == stop and (start or ranges)) or any(
@@ -672,9 +841,10 @@ def _verify_capture(workspace, data, events, created) -> dict:
             end = ends.get(generation)
             if (
                 end is not None
+                and row[3] == capture[2]
                 and seen.get(("end", generation), sequence) < sequence
                 and stop > end[1]
-            ):
+            ) or stop > eof.get(generation, stop):
                 _fail("CHUNK_EXTENT")
             checkpoint = checkpoints.get(result.get("checkpoint"))
             current = previous | {row[0]}
@@ -704,6 +874,7 @@ def _verify_capture(workspace, data, events, created) -> dict:
                 _fail("CHECKPOINT_HISTORY")
             seen[row[0]] = seen[checkpoint[0]] = sequence
             latest[generation] = (ordinal + 1, current)
+            head[generation] = checkpoint[0]
         elif kind == "end_capture":
             row = ends.get(generation)
             if (
@@ -724,8 +895,11 @@ def _verify_capture(workspace, data, events, created) -> dict:
                     default=0,
                 )
                 > row[1]
+                or (row[2] == "EOF" and eof.get(generation, row[1]) != row[1])
             ):
                 _fail("END_HISTORY")
+            if row[2] == "EOF":
+                eof[generation] = row[1]
             seen[("end", generation)] = sequence
         elif kind == "retain_checkpoint":
             row = retentions.get(result.get("retention"))
@@ -775,6 +949,13 @@ def _verify_capture(workspace, data, events, created) -> dict:
         or any(("ack", a) not in seen for a in acknowledgements)
     ):
         _fail("REPLAY_ROWS")
+    if (
+        any(("extraction", g) not in seen for g in extractions)
+        or any(("continuation", a) not in seen for a in continuations)
+        or any(("reconciled", a) not in seen for a in reconciliations)
+        or any(("finished", a) not in seen for a in finished)
+    ):
+        _fail("EXTRACTION_ROWS")
     counts = {
         "captures": len(captures),
         "chunks": len(chunks),
@@ -788,5 +969,12 @@ def _verify_capture(workspace, data, events, created) -> dict:
             "sessions": len(sessions),
             "issuances": len(issuances),
             "acknowledgements": len(acknowledgements),
+        }
+    if "extraction" in data:
+        counts |= {
+            "extractions": len(extractions),
+            "continuations": len(continuations),
+            "reconciliations": len(reconciliations),
+            "continuation_ends": len(finished),
         }
     return counts

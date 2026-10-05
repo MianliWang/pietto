@@ -205,6 +205,7 @@ def test_slice4_keeps_prior_commands_independent_and_later_slices_absent() -> No
         "scripts/phase68_slice11_probe.py",
         "scripts/phase68_slice12_probe.py",
         "scripts/phase68_slice13_probe.py",
+        "scripts/phase68_slice14_probe.py",
         "scripts/phase68_slice3_probe.py",
         "scripts/phase68_slice4_probe.py",
         "scripts/phase68_slice5_probe.py",

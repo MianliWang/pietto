@@ -1,6 +1,6 @@
 # Phase68 baseline route — 20 rows
 
-Phase68 ACTIVE；S01–S12 与 C01 COMPLETED / PUBLISHED；[S13](slice-13.md) CANDIDATE; completed only after closure；S14–S20 NOT STARTED。
+Phase68 ACTIVE；S01–S13 与 C01 COMPLETED / PUBLISHED；[S14](slice-14.md) CANDIDATE; completed only after closure；S15–S20 NOT STARTED。
 S03 内部 gate QUALIFIED_UNDER_THIS_DISPATCH；路线 JUSTIFIED_CANDIDATE，后续验收不由本表自证。
 上限20；下表是覆盖与依赖基准，不是20片总尺寸或工期已经实验确认。coding单写入者、严格按派发范围串行。
 
@@ -29,6 +29,6 @@ S03 内部 gate QUALIFIED_UNDER_THIS_DISPATCH；路线 JUSTIFIED_CANDIDATE，后
 
 P1/P2 当前资格、20位置完整机制与成本评估见 [S03](slice-03.md)。S02 的 PRODUCT_GATE_BLOCKED_REPLAN / sizing NOT_VALIDATED 是闭合历史；S03 新批准的 source/tie 决定与实测解开其特定前提。
 S04/S05/S06/S07/S10/S14 仍为尺寸 watchpoints。S10 重查共同合同与 S/H/L/K/Q，S19 保留联合故障验收。
-保留 A01–A22、全部已承诺查询族与目标特定 exclusions；不增加 S21，也不把未交付功能隐移 Phase69。S04 已完成类型化绑定；S05 已接通原 outputs、general producer binding 与七 scalar native results；S06 已接通 compositional refinement / independent verification / bounded pages；S07 已闭合 pending guards / same-context fulfillment；S08 已发布显式 managed-deployment 前提下的 private MySQL execution；S09 已发布有限来源资格与独立 PG managed-deployment 前提下的 private PostgreSQL ADBC execution。S10 已发布 compiled bundle/独立 loader/source-free binding 与两个新 PG route 的共同有限 profile。S11 已发布合格私有工作区、durable job/generation/attempt 身份与独占 publisher epoch 写端围栏。S12 已发布显式 v2 工作区、受检捕获的不可变 chunk、文件先于元数据、围栏下的 committed checkpoint/连续 frontier 与 retention 引用基础。S13 candidate 接入显式 v3 工作区、进程内新鲜已保存结果读取授权、绑定精确 checkpoint 与固定 extent 的 consumer、有界重分批与围栏下的显式本地确认进度；R1 不访问源；完成须当前验收、发布与自然 CI 激活。S14 须另行派发；每次新执行仍须 fresh acceptance/qualification。
+保留 A01–A22、全部已承诺查询族与目标特定 exclusions；不增加 S21，也不把未交付功能隐移 Phase69。S04 已完成类型化绑定；S05 已接通原 outputs、general producer binding 与七 scalar native results；S06 已接通 compositional refinement / independent verification / bounded pages；S07 已闭合 pending guards / same-context fulfillment；S08 已发布显式 managed-deployment 前提下的 private MySQL execution；S09 已发布有限来源资格与独立 PG managed-deployment 前提下的 private PostgreSQL ADBC execution。S10 已发布 compiled bundle/独立 loader/source-free binding 与两个新 PG route 的共同有限 profile。S11 已发布合格私有工作区、durable job/generation/attempt 身份与独占 publisher epoch 写端围栏。S12 已发布显式 v2 工作区、受检捕获的不可变 chunk、文件先于元数据、围栏下的 committed checkpoint/连续 frontier 与 retention 引用基础。S13 已发布显式 v3 工作区、进程内新鲜已保存结果读取授权、绑定精确 checkpoint 与固定 extent 的 consumer、有界重分批与围栏下的显式本地确认进度；R1 不访问源。S14 candidate 接入显式 v4 工作区、首次捕获前登记的 R2 规格与初始资格描述、新进程显式恢复（新鲜资格与 guard）、从位置 0 的有序重新枚举与 occurrence 对账、全部旧岛屿匹配前的候选屏障、围栏下补洞与后缀续写及多 attempt 成员；完成须当前验收、发布与自然 CI 激活。S15 须另行派发；每次新执行仍须 fresh acceptance/qualification。
 
 S04 acquisition handoff：复用现有 source/compiler fixture、S01 resource/pump 和 C01 text observation；保留 fresh AST identity、source/installed native witnesses。S10 midpoint 检查累积准备成本，S19 在联合验收前完成必要整合实现，S20 保持 audit-only；不删除产品位置或 A01–A22。

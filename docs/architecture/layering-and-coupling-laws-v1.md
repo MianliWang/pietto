@@ -140,3 +140,15 @@ issuance and acknowledgement rows extend the S11 fenced operation pattern in the
 explicit v3 workspace. Acceptance, registration and observations stay Arrow- and
 driver-free; only the data step imports Arrow. Sinks, extraction recovery and GC
 extend these operations rather than bypassing them.
+
+
+## Extraction-recovery plane
+
+Phase68 [S14](../phases/phase-68/slice-14.md) recovers extraction through the S10
+common entry, the real route owners and S06 `Enumeration` from position 0; it
+adds no seek, frontier import, source table, scheduler or second encoder. The
+read-only S10 bridge `compiled_source_description` projects an open owner's own
+checked qualification. Continuation, reconciliation and end rows extend the S11
+fenced operation pattern in the explicit v4 workspace, new chunks reuse the S12
+file protocol and publication, and readers admit later producing attempts only
+through those rows. Sinks, publication and GC extend these operations.
