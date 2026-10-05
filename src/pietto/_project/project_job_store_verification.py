@@ -11,10 +11,10 @@ import json
 from typing import Any, NoReturn
 
 from pietto._project.project_job_workspace import (
-    FORMAT_V2,
     JobStoreError,
     Workspace,
     read,
+    supports,
     valid_identity,
 )
 
@@ -45,6 +45,13 @@ CAPTURE_TABLES = (
     "retention",
     "retention_release",
 )
+REPLAY_KINDS = (
+    "register_consumer",
+    "open_replay",
+    "issue_delivery",
+    "acknowledge_delivery",
+)
+REPLAY_TABLES = ("consumer", "replay_session", "issuance", "acknowledgement")
 DESCRIPTOR = (
     "attempt",
     "batches",
@@ -122,12 +129,17 @@ def verify_store(workspace: Workspace) -> dict:
         scalar_read,
     )
 
-    capture = workspace.format == FORMAT_V2
+    capture = supports(workspace, "result-chunks")
+    replay = supports(workspace, "saved-replay")
+    kinds = (
+        KINDS + (CAPTURE_KINDS if capture else ()) + (REPLAY_KINDS if replay else ())
+    )
 
     def snapshot(c) -> dict[str, Any]:
         tables: dict[str, Any] = {
             name: tuple(c.execute(f"SELECT * FROM {name}"))
             for name in (CAPTURE_TABLES if capture else ())
+            + (REPLAY_TABLES if replay else ())
         }
         return tables | {
             "integrity": tuple(r[0] for r in c.execute("PRAGMA integrity_check")),
@@ -156,7 +168,7 @@ def verify_store(workspace: Workspace) -> dict:
     ):
         if sequence != position or not valid_identity(identity, "op"):
             _fail("OPERATION_SEQUENCE")
-        if kind not in KINDS + (CAPTURE_KINDS if capture else ()) or job not in jobs:
+        if kind not in kinds or job not in jobs:
             _fail("OPERATION_KIND")
         request, result = _canonical(request), _canonical(result)
         if kind == "register_job":
@@ -194,9 +206,13 @@ def verify_store(workspace: Workspace) -> dict:
             if current["state"] != "ACTIVE" or result.get("state") != "CANCELLED":
                 _fail("STATE_HISTORY")
             current["state"] = "CANCELLED"
-        elif kind in CAPTURE_KINDS:
-            # Data progress needs an ACTIVE job; ends and retention are control.
-            if kind in CAPTURE_KINDS[:2] and current["state"] != "ACTIVE":
+        elif kind in CAPTURE_KINDS + REPLAY_KINDS:
+            # Data progress and saved reads need an ACTIVE job; ends and
+            # retention (including a consumer's release) are control.
+            if (
+                kind in CAPTURE_KINDS[:2] + REPLAY_KINDS
+                and current["state"] != "ACTIVE"
+            ):
                 _fail("STATE_HISTORY")
             events.append(
                 (
@@ -378,11 +394,181 @@ def _verify_capture(workspace, data, events, created) -> dict:
             _fail("CHECKPOINT_MEMBER")
         members.setdefault(checkpoint, set()).add(chunk)
     attempts, generations = data["attempt"], data["generation"]
+    consumers = {r[0]: r for r in data.get("consumer", ())}
+    sessions = {r[0]: r for r in data.get("replay_session", ())}
+    issuances = {r[0]: r for r in data.get("issuance", ())}
+    acknowledgements = {r[0]: r for r in data.get("acknowledgement", ())}
+    # Replayed S13 state: acknowledged frontier, latest session and its single
+    # outstanding issuance, per-owner ordinals.
+    progress: dict[str, int] = {}
+    newest: dict[str, str] = {}
+    outstanding: dict[str, str | None] = {}
+    ordinals: dict[str, int] = {}
     seen: dict[object, int] = {}
     latest: dict[str, tuple[int, set]] = {}
+
+    def replay(sequence, kind, job, request, result, epoch, instance):
+        """One S13 operation against raw rows and the replayed consumer state."""
+        if kind == "register_consumer":
+            row = consumers.get(request.get("consumer"))
+            retention = retentions.get(result.get("retention"))
+            checkpoint = checkpoints.get(request.get("checkpoint"))
+            generation = request.get("generation")
+            scope = json.dumps(
+                {
+                    "consumer": request.get("consumer"),
+                    "purpose": request.get("purpose"),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            end = ends.get(generation)
+            if (
+                row is None
+                or retention is None
+                or checkpoint is None
+                or row[0] in seen
+                or retention[0] in seen
+                or seen.get(checkpoint[0], sequence) >= sequence
+                or generation not in generations
+                or row[1:]
+                != (
+                    job,
+                    generation,
+                    checkpoint[0],
+                    generations[generation][2],
+                    retention[0],
+                    request.get("scope"),
+                    request.get("extent"),
+                    request.get("purpose"),
+                    request.get("not_after"),
+                    epoch,
+                    instance,
+                )
+                or retention[1:]
+                != (job, generation, checkpoint[0], scope, epoch, instance)
+                or checkpoint[1:3] != (job, generation)
+                or row[7] != checkpoint[4]
+                or result
+                != {
+                    "checkpoint": checkpoint[0],
+                    "consumer": row[0],
+                    "extent": row[7],
+                    "retention": retention[0],
+                    "revision": result.get("revision"),
+                }
+                or (
+                    row[6] == "complete_capture"
+                    and (
+                        end is None
+                        or seen.get(("end", generation), sequence) >= sequence
+                        or (end[1], end[2]) != (row[7], "EOF")
+                    )
+                )
+            ):
+                _fail("CONSUMER_HISTORY")
+            seen[row[0]] = seen[retention[0]] = sequence
+            progress[row[0]] = ordinals[row[0]] = 0
+            return
+        if kind == "open_replay":
+            row = sessions.get(result.get("session"))
+            consumer = consumers.get(request.get("consumer"))
+            if (
+                row is None
+                or consumer is None
+                or row[0] in seen
+                or seen.get(consumer[0], sequence) >= sequence
+                or consumer[1] != job
+                or ("release", consumer[5]) in seen
+                or row[1:]
+                != (
+                    consumer[0],
+                    ordinals[consumer[0]] + 1,
+                    progress[consumer[0]],
+                    request.get("accepted_at"),
+                    request.get("seconds"),
+                    request.get("batch_rows"),
+                    epoch,
+                    instance,
+                )
+                or (result.get("ordinal"), result.get("position")) != (row[2], row[3])
+            ):
+                _fail("SESSION_HISTORY")
+            seen[row[0]] = sequence
+            ordinals[consumer[0]] += 1
+            newest[consumer[0]] = row[0]
+            outstanding[row[0]] = None
+            ordinals[row[0]] = 0
+            return
+        if kind == "issue_delivery":
+            row = issuances.get(result.get("delivery"))
+            session = sessions.get(request.get("session"))
+            if (
+                row is None
+                or session is None
+                or row[0] in seen
+                or session[0] not in seen
+                or newest.get(session[1]) != session[0]
+                or outstanding.get(session[0]) is not None
+                or (session[7], session[8]) != (epoch, instance)
+                or ("release", consumers[session[1]][5]) in seen
+                or request.get("consumer") != session[1]
+                or row[1:]
+                != (
+                    session[1],
+                    session[0],
+                    ordinals[session[0]] + 1,
+                    request.get("start"),
+                    request.get("stop"),
+                    epoch,
+                )
+                or (result.get("ordinal"), result.get("start"), result.get("stop"))
+                != (row[3], row[4], row[5])
+                or row[4] != progress[session[1]]
+                or row[5] > consumers[session[1]][7]
+                or row[5] - row[4] > session[6]
+            ):
+                _fail("ISSUANCE_HISTORY")
+            seen[row[0]] = sequence
+            ordinals[session[0]] += 1
+            outstanding[session[0]] = row[0]
+            return
+        issued = issuances.get(request.get("delivery"))
+        row = acknowledgements.get(request.get("delivery"))
+        if (
+            row is None
+            or issued is None
+            or ("ack", row[0]) in seen
+            or issued[0] not in seen
+            or outstanding.get(issued[2]) != issued[0]
+            or newest.get(issued[1]) != issued[2]
+            or (sessions[issued[2]][7], sessions[issued[2]][8]) != (epoch, instance)
+            or ("release", consumers[issued[1]][5]) in seen
+            or row[1:]
+            != (issued[1], issued[2], issued[4], issued[5], issued[4] or None, epoch)
+            or (
+                request.get("consumer"),
+                request.get("session"),
+                request.get("start"),
+                request.get("stop"),
+            )
+            != (issued[1], issued[2], issued[4], issued[5])
+            or issued[4] != progress[issued[1]]
+            or (result.get("delivery"), result.get("position"))
+            != (issued[0], issued[5])
+        ):
+            _fail("ACK_HISTORY")
+        seen[("ack", row[0])] = sequence
+        outstanding[issued[2]] = None
+        progress[issued[1]] = issued[5]
+
     for sequence, kind, job, request, result, epoch, instance in events:
         publisher = [epoch, instance]
         generation = request.get("generation")
+        if kind in REPLAY_KINDS:
+            replay(sequence, kind, job, request, result, epoch, instance)
+            continue
         if kind == "begin_capture":
             row = captures.get(generation)
             attempt = attempts.get(request.get("attempt"))
@@ -582,10 +768,25 @@ def _verify_capture(workspace, data, events, created) -> dict:
         or any(("release", r) not in seen for r in releases)
     ):
         _fail("CAPTURE_ROWS")
-    return {
+    if (
+        any(c not in seen for c in consumers)
+        or any(s not in seen for s in sessions)
+        or any(i not in seen for i in issuances)
+        or any(("ack", a) not in seen for a in acknowledgements)
+    ):
+        _fail("REPLAY_ROWS")
+    counts = {
         "captures": len(captures),
         "chunks": len(chunks),
         "checkpoints": len(checkpoints),
         "retentions": len(retentions),
         "releases": len(releases),
     }
+    if "consumer" in data:
+        counts |= {
+            "consumers": len(consumers),
+            "sessions": len(sessions),
+            "issuances": len(issuances),
+            "acknowledgements": len(acknowledgements),
+        }
+    return counts

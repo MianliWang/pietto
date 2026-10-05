@@ -34,12 +34,12 @@ from pietto._project.project_job_store import (
 )
 from pietto._project.project_job_workspace import (
     CHUNKS,
-    FORMAT_V2,
     STAGING,
     JobStoreError,
     Workspace,
     new_identity,
     read,
+    supports,
     valid_identity,
 )
 
@@ -59,8 +59,9 @@ LAYERS = (
 )
 
 
-def _v2(workspace: Workspace) -> None:
-    if workspace.format != FORMAT_V2:
+def _capturing(workspace: Workspace) -> None:
+    """Capture-capable formats (v2, v3) by exact feature; v1 is never upgraded."""
+    if not supports(workspace, "result-chunks"):
         raise JobStoreError("WORKSPACE_CAPTURE_FORMAT")
 
 
@@ -571,7 +572,7 @@ def begin_capture(
     )
 
     workspace = publisher.use()
-    _v2(workspace)
+    _capturing(workspace)
     if type(attempt) is not AttemptHandle or attempt.publisher is not publisher:
         raise JobStoreError("ATTEMPT_PUBLISHER")
     verify_compiled_owner(owner)
@@ -778,7 +779,7 @@ def checkpoint_snapshot(
     workspace: Workspace, job: str, generation: str, *, checkpoint: str | None = None
 ) -> CheckpointSnapshot:
     """One read transaction; no protection record and no file is opened."""
-    _v2(workspace)
+    _capturing(workspace)
     if not valid_identity(job, "job") or not valid_identity(generation, "gen"):
         raise JobStoreError("CAPTURE_UNKNOWN")
     return read(
@@ -802,6 +803,29 @@ def _scope(scope) -> str:
     return text
 
 
+def _retain(c, workspace, publisher, generation, checkpoint, text):
+    """Transaction-local retention insert; the caller owns fence and operation."""
+    _limit(c, "retention")
+    identity = new_identity("ret")
+    snapshot = _snapshot(c, workspace, publisher.job, generation, checkpoint)
+    if snapshot.checkpoint is None:
+        raise JobStoreError("CHECKPOINT_UNKNOWN")
+    c.execute(
+        "INSERT INTO retention(identity, job, generation, checkpoint, scope,"
+        " publisher_epoch, publisher_instance) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            identity,
+            publisher.job,
+            generation,
+            snapshot.checkpoint,
+            text,
+            publisher.epoch,
+            publisher.instance,
+        ),
+    )
+    return identity, snapshot
+
+
 def retain_checkpoint(
     publisher: Publisher,
     generation: str,
@@ -812,7 +836,7 @@ def retain_checkpoint(
 ) -> CheckpointSnapshot:
     """Atomically protect one immutable checkpoint and return its member snapshot."""
     workspace = publisher.use()
-    _v2(workspace)
+    _capturing(workspace)
     if not valid_identity(generation, "gen"):
         raise JobStoreError("CAPTURE_UNKNOWN")
     text = _scope(scope)
@@ -823,23 +847,8 @@ def retain_checkpoint(
 
     def effect(c):
         revision = _fence(c, publisher, _FENCE_CONTROL)
-        _limit(c, "retention")
-        identity = new_identity("ret")
-        snapshot = _snapshot(c, workspace, publisher.job, generation, checkpoint)
-        if snapshot.checkpoint is None:
-            raise JobStoreError("CHECKPOINT_UNKNOWN")
-        c.execute(
-            "INSERT INTO retention(identity, job, generation, checkpoint, scope,"
-            " publisher_epoch, publisher_instance) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                identity,
-                publisher.job,
-                generation,
-                snapshot.checkpoint,
-                text,
-                publisher.epoch,
-                publisher.instance,
-            ),
+        identity, snapshot = _retain(
+            c, workspace, publisher, generation, checkpoint, text
         )
         taken.append(snapshot)
         return publisher.job, {
@@ -874,7 +883,7 @@ def release_retention(
 ) -> OperationResult:
     """A metadata release by the current publisher; no file is deleted."""
     workspace = publisher.use()
-    _v2(workspace)
+    _capturing(workspace)
     if not valid_identity(retention, "ret"):
         raise JobStoreError("RETENTION_UNKNOWN")
 
@@ -911,7 +920,7 @@ def release_retention(
 
 def protected_chunks(workspace: Workspace, job: str) -> frozenset[str]:
     """Latest checkpoint members per generation plus unreleased retained snapshots."""
-    _v2(workspace)
+    _capturing(workspace)
     return frozenset(
         r[0]
         for r in read(
@@ -931,7 +940,7 @@ def protected_chunks(workspace: Workspace, job: str) -> frozenset[str]:
 
 def classify_files(workspace: Workspace) -> dict:
     """Referenced, orphan, staging and foreign names; nothing is adopted or removed."""
-    _v2(workspace)
+    _capturing(workspace)
     referenced = {
         r[0]
         for r in read(
@@ -960,7 +969,7 @@ class StoredOutput:
     binding: Any = field(repr=False)
 
 
-def stored_output(
+def stored_binding(
     workspace: Workspace,
     job: str,
     generation: str,
@@ -968,14 +977,11 @@ def stored_output(
     expected_pin: str,
     accepted_producer: str,
     accepted_compatibility: tuple,
-) -> StoredOutput:
-    """Fresh caller trust -> S10 template/binding/output -> stored-chunk producer."""
-    from pietto._project.project_arrow_result import bind_arrow
-    from pietto._project.project_execution import compiled_output
-    from pietto._project.project_execution_reader import bind_stored_output
+):
+    """Fresh caller trust -> S10 template and stored-vector binding; Arrow-free."""
     from pietto._project.project_job_store import bind_record, load_job
 
-    _v2(workspace)
+    _capturing(workspace)
     template = load_job(
         workspace,
         job,
@@ -998,14 +1004,45 @@ def stored_output(
     binding = bind_record(workspace, job, template, row[0])
     if _description(binding, row[1]) != row[2]:
         raise JobStoreError("GENERATION_DESCRIPTION")
-    output, refinement, _program = compiled_output(binding)
+    return template, binding, row[1]
+
+
+def arrow_output(job, generation, output, refinement, route) -> StoredOutput:
+    """The stored-chunk producer of a freshly rederived compiled output."""
+    from pietto._project.project_arrow_result import bind_arrow
+    from pietto._project.project_execution_reader import bind_stored_output
+
     return StoredOutput(
         job,
         generation,
         contract_digest(output),
         coordinate_scheme(refinement),
-        bind_arrow(bind_stored_output(output, row[1])),
+        bind_arrow(bind_stored_output(output, route)),
     )
+
+
+def stored_output(
+    workspace: Workspace,
+    job: str,
+    generation: str,
+    *,
+    expected_pin: str,
+    accepted_producer: str,
+    accepted_compatibility: tuple,
+) -> StoredOutput:
+    """Fresh caller trust -> S10 template/binding/output -> stored-chunk producer."""
+    from pietto._project.project_execution import compiled_output
+
+    _template, binding, route = stored_binding(
+        workspace,
+        job,
+        generation,
+        expected_pin=expected_pin,
+        accepted_producer=accepted_producer,
+        accepted_compatibility=accepted_compatibility,
+    )
+    output, refinement, _program = compiled_output(binding)
+    return arrow_output(job, generation, output, refinement, route)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -1026,7 +1063,7 @@ class SnapshotReader:
     __slots__ = ("snapshot", "output", "_directory", "_pid", "_closed")
 
     def __init__(self, workspace: Workspace, snapshot, output):
-        _v2(workspace)
+        _capturing(workspace)
         if (
             type(snapshot) is not CheckpointSnapshot
             or type(output) is not StoredOutput
@@ -1121,12 +1158,15 @@ class SnapshotReader:
         )
 
     def verify(self) -> dict:
-        """Read and check every member; only then is the snapshot VERIFIED."""
-        checked = [self.read(i) for i in range(len(self.snapshot.members))]
+        """Read and check every member one at a time; only then VERIFIED (not cached)."""
+        rows = 0
+        for index in range(len(self.snapshot.members)):
+            checked = self.read(index)
+            rows += checked.stop - checked.start
         return {
             "integrity": "VERIFIED",
             "checkpoint": self.snapshot.checkpoint,
-            "members": len(checked),
-            "rows": sum(c.stop - c.start for c in checked),
+            "members": len(self.snapshot.members),
+            "rows": rows,
             "frontier": self.snapshot.frontier,
         }

@@ -129,3 +129,14 @@ reuses the original IPC writer/reader, and reads back through a stored-chunk
 producer purpose in the original result owner. Metadata-only operations stay
 Arrow- and driver-free. No raw database callback, live handle or second store is
 exposed; future readers, sinks and GC extend the same fenced operations.
+
+
+## Saved-result replay plane
+
+Phase68 [S13](../phases/phase-68/slice-13.md) reads committed S12 chunks through the
+original stored-output producer, `SnapshotReader` and S10 batch checks; it adds no
+second encoder, store, clock or authorization service. Consumer, session,
+issuance and acknowledgement rows extend the S11 fenced operation pattern in the
+explicit v3 workspace. Acceptance, registration and observations stay Arrow- and
+driver-free; only the data step imports Arrow. Sinks, extraction recovery and GC
+extend these operations rather than bypassing them.

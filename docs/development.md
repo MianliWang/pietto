@@ -712,3 +712,20 @@ real checked Arrow captures run only in the execution profile through
 S10 consumers and S12 checker read a static backup plus the chunk bytes. Store or
 capture code changes the semantic build identity, so current bundles and installed
 witnesses are rebuilt on the final code closure.
+
+
+## Phase68 S13 replay validation
+
+[S13](phases/phase-68/slice-13.md) keeps one cumulative dispatch ledger. Ordinary
+tests stay Arrow-free: pure interval laws run on every host, and v1/v2/v3,
+acceptance, registration, session supersession, issuance, acknowledgement,
+expiry clocks, late authority changes, fences, faults and real SIGKILL cursor
+cuts run on the qualified local profile through the labelled
+ARROW_FREE_REPLAY_STEP (explicit refusal elsewhere). Real checked Arrow replay
+runs through `scripts/phase68_slice13_probe.py` (`suite`, `bridge`,
+`representatives`) with two explicit profiles: native capture (pinned executor
+requirements) and Arrow-only replay (pinned Arrow requirements, no drivers).
+Bridges stop and remove the source database before any replay; the S10 literal
+consumer and the S13 checker read the recovered rows, a static backup and the
+chunk bytes. Replay code changes the semantic build identity, so current
+bundles and installed witnesses are rebuilt on the final code closure.

@@ -172,3 +172,15 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 - When a core environment deliberately lacks an extra, split storage mechanics
   from the extra-dependent encoding instead of skipping; real extra-backed
   evidence then runs in the execution profile. See [S12](../phases/phase-68/slice-12.md).
+
+
+## Phase68 S13
+
+- Make contiguity structural where SQLite can hold it: a self-referencing foreign
+  key from each acknowledgement's start to an earlier stop, plus unique starts and
+  stops, keeps one gap-free chain without a cached cursor.
+- Keep the fresh-trust half of an acceptance Arrow-free and build the Arrow binding
+  only when data is read; core tests then exercise the whole protocol for real.
+- A child that prints a payload line right before its barrier can strand the
+  barrier in the parent's buffered reader; print the barrier alone. See
+  [S13](../phases/phase-68/slice-13.md).

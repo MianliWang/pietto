@@ -118,3 +118,15 @@ legitimate chunks, and file names never encode an occurrence. A checkpoint is an
 immutable member set with a recomputed contiguous frontier, not a completed
 generation, ACK or source-resume right; refined coordinate atoms are data only.
 Every chunk publication and retention change is fenced by the current publisher.
+
+
+## Saved-result consumer identity
+
+Phase68 [S13](../phases/phase-68/slice-13.md) adds consumer `csm-`, replay session
+`rps-` and delivery `dlv-` identities. A consumer is bound to one exact immutable
+checkpoint and fixed extent; its progress is derived from acknowledgements, never
+supplied. A saved-result read needs a fresh process-local caller acceptance whose
+trust inputs, binding values, route and output contract are rechecked; no stored
+row, receipt or copy mints one, and it grants no source or R2 authority. The
+occurrence label is `(generation, position)`; delivery, session and operation
+identities may change on redelivery. A local acknowledgement is not a sink ACK.

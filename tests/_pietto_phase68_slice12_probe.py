@@ -227,14 +227,14 @@ def op():
     return s.new_operation()
 
 
-def store(root, template, values=(), *, format=None):
+def store(root, template, values=(), *, format=None, **options):
     """A v2 (default) workspace with one job, publisher, binding and generation."""
     from pietto._project import project_job_store as s
     from pietto._project import project_job_workspace as w
     from pietto._project.project_execution_template import bind_values
 
     workspace = w.create_workspace(
-        str(root), format=w.FORMAT_V2 if format is None else format
+        str(root), format=w.FORMAT_V2 if format is None else format, **options
     )
     job = s.register_job(workspace, template, operation=op()).get("job")
     publisher = s.claim_publisher(workspace, job, operation=op())

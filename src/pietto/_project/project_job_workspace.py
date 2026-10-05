@@ -23,8 +23,10 @@ __all__: tuple[str, ...] = ()
 
 FORMAT = "pietto.job-workspace.v1"
 FEATURES: tuple[str, ...] = ()
-# S12's capture-capable revision is selected only by an explicit create option.
+# S12's capture-capable and S13's replay-capable revisions are selected only
+# by an explicit create option; nothing is ever upgraded in place.
 FORMAT_V2 = "pietto.job-workspace.v2"
+FORMAT_V3 = "pietto.job-workspace.v3"
 ENVELOPE = "workspace.json"
 DATABASE = "store.sqlite"
 CREATING = "CREATING"
@@ -41,7 +43,9 @@ MAX_BUDGET = 4 * 1024 * 1024 * 1024
 CONTROL_RESERVE = 4 * 1024 * 1024
 JOURNAL_SIZE_LIMIT = 4 * 1024 * 1024
 MAX_BUSY_SECONDS = 30.0
-IDENTITY = re.compile(r"(ws|job|bind|gen|att|pub|op|chk|ckp|ret)-[0-9a-f]{32}")
+IDENTITY = re.compile(
+    r"(ws|job|bind|gen|att|pub|op|chk|ckp|ret|csm|rps|dlv)-[0-9a-f]{32}"
+)
 
 # The one measured build (S11 profile probe). Version, source and compile
 # options together identify it; later versions or system libraries are not
@@ -194,11 +198,63 @@ CAPTURE_SCHEMA = (
     " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
     " publisher_instance TEXT NOT NULL) STRICT, WITHOUT ROWID",
 )
+# Closed S13 tables (v3 only), insert-only. A consumer is bound to one exact
+# checkpoint and fixed extent; its progress is derived from acknowledgements,
+# whose self-reference makes the acknowledged intervals one gap-free chain
+# from position 0. An acknowledgement range must equal its issued range.
+REPLAY_SCHEMA = (
+    "CREATE TABLE consumer(identity TEXT PRIMARY KEY, job TEXT NOT NULL,"
+    " generation TEXT NOT NULL, checkpoint TEXT NOT NULL, binding TEXT NOT NULL,"
+    " retention TEXT NOT NULL UNIQUE REFERENCES retention(identity),"
+    " scope TEXT NOT NULL CHECK (scope IN ('complete_capture', 'committed_prefix')),"
+    " extent INTEGER NOT NULL CHECK (extent >= 0), purpose TEXT NOT NULL,"
+    " not_after INTEGER CHECK (not_after IS NULL OR not_after > 0),"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " publisher_instance TEXT NOT NULL,"
+    " FOREIGN KEY (generation, job) REFERENCES generation(identity, job),"
+    " FOREIGN KEY (binding, job) REFERENCES binding(identity, job),"
+    " FOREIGN KEY (checkpoint, generation) REFERENCES checkpoint(identity, generation))"
+    " STRICT, WITHOUT ROWID",
+    "CREATE TABLE replay_session(identity TEXT PRIMARY KEY,"
+    " consumer TEXT NOT NULL REFERENCES consumer(identity),"
+    " ordinal INTEGER NOT NULL CHECK (ordinal >= 1),"
+    " position INTEGER NOT NULL CHECK (position >= 0),"
+    " accepted_at INTEGER NOT NULL, seconds INTEGER NOT NULL CHECK (seconds >= 1),"
+    " batch_rows INTEGER NOT NULL CHECK (batch_rows >= 1),"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " publisher_instance TEXT NOT NULL, UNIQUE (consumer, ordinal),"
+    " UNIQUE (identity, consumer)) STRICT, WITHOUT ROWID",
+    "CREATE TABLE issuance(identity TEXT PRIMARY KEY, consumer TEXT NOT NULL,"
+    " session TEXT NOT NULL, ordinal INTEGER NOT NULL CHECK (ordinal >= 1),"
+    " start INTEGER NOT NULL CHECK (start >= 0),"
+    " stop INTEGER NOT NULL CHECK (stop > start),"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " UNIQUE (session, ordinal), UNIQUE (identity, session, consumer, start, stop),"
+    " FOREIGN KEY (session, consumer) REFERENCES replay_session(identity, consumer))"
+    " STRICT, WITHOUT ROWID",
+    "CREATE TABLE acknowledgement(issuance TEXT PRIMARY KEY, consumer TEXT NOT NULL,"
+    " session TEXT NOT NULL, start INTEGER NOT NULL CHECK (start >= 0),"
+    " stop INTEGER NOT NULL CHECK (stop > start),"
+    " previous INTEGER CHECK ((previous IS NULL) = (start = 0)"
+    " AND (previous IS NULL OR previous = start)),"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " UNIQUE (consumer, start), UNIQUE (consumer, stop),"
+    " FOREIGN KEY (issuance, session, consumer, start, stop)"
+    " REFERENCES issuance(identity, session, consumer, start, stop),"
+    " FOREIGN KEY (consumer, previous) REFERENCES acknowledgement(consumer, stop))"
+    " STRICT, WITHOUT ROWID",
+)
 # Closed known-version table: envelope (format, features) -> user_version,
 # exact schema and private directories. Anything else refuses before SQLite.
 VERSIONS = {
     FORMAT: (FEATURES, SCHEMA_VERSION, SCHEMA, ()),
     FORMAT_V2: (("result-chunks",), 2, SCHEMA + CAPTURE_SCHEMA, (CHUNKS, STAGING)),
+    FORMAT_V3: (
+        ("result-chunks", "saved-replay"),
+        3,
+        SCHEMA + CAPTURE_SCHEMA + REPLAY_SCHEMA,
+        (CHUNKS, STAGING),
+    ),
 }
 _SAFE_CONFIG = (
     ("DEFENSIVE", True),
@@ -237,6 +293,11 @@ def valid_identity(value: object, kind: str) -> bool:
         and IDENTITY.fullmatch(value) is not None
         and value.startswith(kind + "-")
     )
+
+
+def supports(workspace: Workspace, feature: str) -> bool:
+    """An exact capability case of the closed version table, never `version >= n`."""
+    return feature in VERSIONS[workspace.format][0]
 
 
 def _mount(path: str, device: int) -> tuple[str, str, str, str]:
