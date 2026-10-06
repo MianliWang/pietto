@@ -13,6 +13,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = REPO_ROOT / ".github/workflows/ci.yml"
 PYTHON_VERSION_PATH = REPO_ROOT / ".python-version"
 PRIMARY = (("3.12", "twelve"), ("3.13", "thirteen"))
+# Exact setup-python patch per logical family. Reports compare the full
+# python_version, so every producer and consumer of a family moves together.
+SETUP_PATCH = {"3.12": "3.12.14", "3.13": "3.13.15"}
 EXPECTED_JOBS = (
     "checks_twelve",
     "runtime_twelve",
@@ -23,6 +26,10 @@ EXPECTED_JOBS = (
     "target_conformance",
     "target_conformance_aggregate",
 )
+EXPECTED_PINS = {
+    job: [SETUP_PATCH["3.12" if job.endswith("_twelve") else "3.13"]]
+    for job in EXPECTED_JOBS
+}
 ACTIONS = {
     "actions/checkout": ("3d3c42e5aac5ba805825da76410c181273ba90b1", "v7.0.1"),
     "actions/setup-python": ("5fda3b95a4ea91299a34e894583c3862153e4b97", "v7.0.0"),
@@ -44,6 +51,17 @@ def _job(workflow: str, name: str) -> str:
     return re.split(r"\n  [a-z_]+:\n", workflow.split(marker, 1)[1], maxsplit=1)[0]
 
 
+def _setup_pins(workflow: str) -> dict[str, list[str]]:
+    pins = {
+        job: re.findall(
+            r'(?m)^          python-version: "([^"]*)"$', _job(workflow, job)
+        )
+        for job in EXPECTED_JOBS
+    }
+    assert workflow.count("python-version:") == sum(map(len, pins.values()))
+    return pins
+
+
 def test_ci_triggers_permissions_runner_and_matrix_are_exact() -> None:
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
     assert re.search(
@@ -56,9 +74,8 @@ def test_ci_triggers_permissions_runner_and_matrix_are_exact() -> None:
     )
     assert workflow.count("runs-on: ubuntu-latest") == len(EXPECTED_JOBS)
     assert PYTHON_VERSION_PATH.read_text(encoding="utf-8") == "3.12\n"
-    for python, word in PRIMARY:
-        for owner in ("checks", "runtime", "python"):
-            assert f'python-version: "{python}"' in _job(workflow, f"{owner}_{word}")
+    assert _setup_pins(workflow) == EXPECTED_PINS
+    for _python, word in PRIMARY:
         runtime = _job(workflow, f"runtime_{word}")
         assert re.findall(r"(?m)^          - ([\w-]+)$", runtime) == [
             "shared-acquisition",
@@ -73,6 +90,19 @@ def test_ci_triggers_permissions_runner_and_matrix_are_exact() -> None:
         assert "include:" not in runtime and "exclude:" not in runtime
     # Two four-way runtime matrices and the two-target matrix add seven jobs.
     assert len(EXPECTED_JOBS) + 7 == 15
+
+
+@pytest.mark.parametrize(
+    "split,old,new",
+    (
+        (str.split, '"3.13.15"', '"3.13"'),  # checks_thirteen floats
+        (str.rsplit, '"3.12.14"', '"3.12.15"'),  # python_twelve drifts (PR #81)
+    ),
+)
+def test_one_floating_or_differently_patched_setup_site_is_rejected(split, old, new):
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    damaged = _setup_pins(new.join(split(workflow, old, 1)))
+    assert sum(damaged[job] != EXPECTED_PINS[job] for job in EXPECTED_JOBS) == 1
 
 
 def test_ci_sets_java_21_and_pins_the_local_uv_version() -> None:
@@ -271,7 +301,7 @@ def test_two_target_cells_and_strict_always_aggregate_are_explicit() -> None:
         "      matrix:\n        target:\n          - postgres\n          - mysql\n"
         in target
     )
-    assert "fail-fast: false" in target and 'python-version: "3.13"' in target
+    assert "fail-fast: false" in target
     assert "exclude:" not in target and "include:" not in target
     assert "needs: [python_twelve, python_thirteen, target_conformance]" in aggregate
     assert "if: always()" in aggregate
@@ -457,6 +487,21 @@ def test_foreign_runtime_checkout_run_and_attempt_are_rejected(field, value):
     reports[0]["context"][field] = value
     with pytest.raises(ValueError):
         _verify(collection, reports)
+
+
+def test_collection_patch_must_equal_the_consumer_patch():
+    # PR #81 run 37468124114: the 3.12 collection recorded 3.12.14 while its
+    # aggregate consumer ran 3.12.15; only identical full contexts reconcile.
+    collection, reports = _reports()
+    producer = {**CONTEXT, "python": "3.12", "python_version": "3.12.14"}
+    for report in (collection, *reports):
+        report["context"] = dict(producer)
+        report["domain"] = [[3, 12], [3, 13]]
+    result = ci.reconcile(collection, reports, producer, "success", "success")
+    assert result["passed"] == len(collection["nodes"])
+    consumer = {**producer, "python_version": "3.12.15"}
+    with pytest.raises(ValueError, match="wrong report identity or fields"):
+        ci.reconcile(collection, reports, consumer, "success", "success")
 
 
 @pytest.mark.parametrize(

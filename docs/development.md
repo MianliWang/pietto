@@ -383,6 +383,12 @@ S1/S2 的计数和 S2 环境事件保留在独立历史记录。S3 使用新的�
 冻结前还必须查全 script inventories 的直接 readers。具体时长分开记录 pytest、gate、job、critical
 path 与 summed runner time，不从一次 hosted run 推出版本因果或稳定 p95。
 
+CI 的 setup-python 对每个逻辑 family 使用确切 patch（3.12.14 / 3.13.15），因为 coverage/report
+上下文按完整 `python_version` 严格相等核对：PR #81 的 3.12 collection 记录 3.12.14，而同 family
+的聚合消费者被浮动 `"3.12"` 解析为 3.12.15，因此被拒绝。升级 patch 时同一 family 的全部
+producer/consumer/target 站点一起改（`tests/test_phase11_ci_workflow.py` 守护）；不放宽相等性，
+不回到 minor 浮动选择；`--python` 逻辑标签与 artifact 名称不变。
+
 CI runtime 使用 `--durations=30 --durations-min=1`，另从实际 pytest reports 输出有界的慢节点、
 文件累计耗时和 worker 摘要；setup/call/teardown 与 child start/finish 分开，时序不取自 parent
 收到报告的时间。计时不进入 coverage schema 或 native receipts，也不决定成员。fixture 依赖分组
