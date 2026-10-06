@@ -32,6 +32,7 @@ from pietto._project.project_job_store import (
     _limit,
     _operate,
     _pairs,
+    _unpublished,
 )
 from pietto._project.project_job_workspace import (
     CHUNKS,
@@ -508,6 +509,7 @@ class CaptureSession:
 
         def effect(c):
             revision = _fence(c, publisher, _FENCE_CONTROL)
+            _unpublished(c, workspace, attempt.generation)
             row = c.execute(
                 "SELECT attempt, publisher_epoch, publisher_instance FROM capture"
                 " WHERE generation = ? AND job = ?",
@@ -565,8 +567,10 @@ def _writer(c, workspace, publisher, attempt) -> int | None:
 
     Returns the extent bound a new chunk must respect. A continuation adds
     chunks only after its barrier, by its own publisher, while every member
-    added since its frozen predecessor is its own.
+    added since its frozen predecessor is its own. A v6 published generation
+    takes no further chunk or checkpoint.
     """
+    _unpublished(c, workspace, attempt.generation)
     row = c.execute(
         "SELECT c.attempt, c.publisher_epoch, c.publisher_instance,"
         " (SELECT count(*) FROM attempt_terminal t WHERE t.attempt = ?)"
@@ -999,7 +1003,8 @@ def retain_checkpoint(
 def release_retention(
     publisher: Publisher, retention: str, *, operation: str
 ) -> OperationResult:
-    """A metadata release by the current publisher; no file is deleted."""
+    """A metadata release by the current publisher; no file is deleted. A v6
+    publication's own protection is never released."""
     workspace = publisher.use()
     _capturing(workspace)
     if not valid_identity(retention, "ret"):
@@ -1012,6 +1017,13 @@ def release_retention(
             (retention, publisher.job),
         ).fetchone():
             raise JobStoreError("RETENTION_UNKNOWN")
+        if (
+            supports(workspace, "complete-publication")
+            and c.execute(
+                "SELECT 1 FROM publication WHERE retention = ?", (retention,)
+            ).fetchone()
+        ):
+            raise JobStoreError("RETENTION_PUBLISHED")
         if c.execute(
             "SELECT 1 FROM retention_release WHERE retention = ?", (retention,)
         ).fetchone():

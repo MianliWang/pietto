@@ -165,3 +165,16 @@ fenced operation pattern in the explicit v5 workspace; window protection reuses
 S12 retention. The sink reuses the workspace profile and connection settings but
 never shares a connection, transaction or ATTACH with a job store. Publication
 and GC extend these operations.
+
+
+## Complete-publication plane
+
+Phase68 [S16](../phases/phase-68/slice-16.md) publishes committed S12/S14
+checkpoints by reference in one short S11 fenced operation of the explicit v6
+workspace; it rewrites no data file and adds no second store, latest register,
+notification service, sink policy or cross-database transaction. The read-only
+S10 bridge `compiled_closing_facts` projects an owner's own closing facts into
+the v6 attempt terminal; preparation reuses S12 retention and the bounded
+`SnapshotReader`, and publication converts that retention by reference. Readers
+reach a publication only through S13, sinks stay independent of it, and
+scheduling and GC extend these operations.

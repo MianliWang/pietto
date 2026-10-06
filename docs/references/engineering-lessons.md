@@ -207,3 +207,16 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 - A literal oracle may be a bag; judge position order against independently
   decoded saved bytes instead of assuming the oracle list order. See
   [S15](../phases/phase-68/slice-15.md).
+
+
+## Phase68 S16
+
+- Record the facts a later predicate needs in the same transaction as the terminal
+  they describe; recompute eligibility from those raw rows at the visibility
+  transaction instead of storing or inferring a success flag.
+- Put every refusal check after a protection is taken inside the path that
+  releases it; an early validity check outside that path leaks the protection.
+- Compose two earlier probes' setups in one database by suppressing the shared
+  statements, not by rerunning either whole: a rerun changes session state such
+  as `search_path` for the next statement. See
+  [S16](../phases/phase-68/slice-16.md).

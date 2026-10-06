@@ -24,6 +24,7 @@ from pietto._project.project_job_workspace import (
     admit,
     new_identity,
     read,
+    supports,
     valid_identity,
     write,
 )
@@ -273,6 +274,17 @@ def _advance(publisher: Publisher, result: OperationResult) -> OperationResult:
     if result.observation == "COMMITTED_THIS_CALL":
         publisher.revision = result.get("revision")
     return result
+
+
+def _unpublished(connection, workspace, generation) -> None:
+    """v6 write admission: a published generation takes no new attempt or data."""
+    if (
+        supports(workspace, "complete-publication")
+        and connection.execute(
+            "SELECT 1 FROM publication WHERE generation = ?", (generation,)
+        ).fetchone()
+    ):
+        raise JobStoreError("GENERATION_PUBLISHED")
 
 
 def _template_root(template):
@@ -612,6 +624,7 @@ def open_attempt(
 
     def effect(connection):
         revision = _fence(connection, publisher)
+        _unpublished(connection, workspace, generation)
         if connection.execute(
             "SELECT 1 FROM attempt a WHERE a.job = ? AND NOT EXISTS"
             " (SELECT 1 FROM attempt_terminal t WHERE t.attempt = a.identity)",
@@ -663,19 +676,22 @@ def open_attempt(
     )
 
 
-def _terminal(publisher, attempt, kind, outcome, operation):
+def _terminal(publisher, attempt, kind, outcome, operation, observation=None):
+    """`observation` (v6 OUTCOME only) is written with the terminal, never alone."""
     workspace = publisher.use()
     text = _json(outcome)
     if len(text.encode("utf-8")) > MAX_OUTCOME_BYTES:
         raise JobStoreError("ATTEMPT_OUTCOME")
     request = _identity_request(publisher, attempt=attempt, kind=kind, outcome=outcome)
+    if observation is not None:
+        request["observation"] = observation
 
     def effect(connection):
         revision = _fence(connection, publisher, _FENCE_CONTROL)
         row = connection.execute(
             "SELECT publisher_epoch, publisher_instance, binding_reference,"
-            " (SELECT count(*) FROM attempt_terminal WHERE attempt = identity)"
-            " FROM attempt WHERE identity = ? AND job = ?",
+            " (SELECT count(*) FROM attempt_terminal WHERE attempt = identity),"
+            " generation FROM attempt WHERE identity = ? AND job = ?",
             (attempt, publisher.job),
         ).fetchone()
         if row is None:
@@ -696,6 +712,23 @@ def _terminal(publisher, attempt, kind, outcome, operation):
             " VALUES (?, ?, ?, ?)",
             (attempt, kind, publisher.epoch, text),
         )
+        if observation is not None:
+            failure = observation["failure"]
+            connection.execute(
+                "INSERT INTO closing_observation(attempt, generation, job, closed,"
+                " rows, failure, cleanup, publisher_epoch) VALUES (?, ?, ?, ?, ?, ?,"
+                " ?, ?)",
+                (
+                    attempt,
+                    row[4],
+                    publisher.job,
+                    observation["closed"],
+                    observation["rows"],
+                    None if failure is None else _json(failure),
+                    _json(observation["cleanup"]),
+                    publisher.epoch,
+                ),
+            )
         return publisher.job, {"attempt": attempt, "kind": kind, "revision": revision}
 
     return _advance(
@@ -709,13 +742,18 @@ def _terminal(publisher, attempt, kind, outcome, operation):
 def record_attempt(
     publisher: Publisher, attempt: AttemptHandle, owner, *, operation: str
 ) -> OperationResult:
-    """Store the exact layered outcome of this attempt's closed native owner."""
+    """Store the exact layered outcome of this attempt's closed native owner.
+
+    On v6 the same transaction also stores the owner's closing observation
+    (closed state, checked rows, failure categories), read from that owner now.
+    """
     from pietto._project.project_execution import (
         compiled_attempt_outcome,
+        compiled_closing_facts,
         verify_compiled_owner,
     )
 
-    publisher.use()
+    workspace = publisher.use()
     if type(attempt) is not AttemptHandle or attempt.publisher is not publisher:
         raise JobStoreError("ATTEMPT_PUBLISHER")
     request = owner.request
@@ -731,7 +769,18 @@ def record_attempt(
     # Each route has its own cleanup vocabulary; the owner's state is authority.
     if owner._closed is not True:
         raise JobStoreError("ATTEMPT_OWNER_OPEN")
-    return _terminal(publisher, attempt.identity, "OUTCOME", outcome, operation)
+    observation = None
+    if supports(workspace, "complete-publication"):
+        facts = compiled_closing_facts(owner)
+        observation = {
+            "cleanup": [list(item) for item in facts.cleanup],
+            "closed": facts.closed,
+            "failure": None if facts.failure is None else list(facts.failure),
+            "rows": facts.rows,
+        }
+    return _terminal(
+        publisher, attempt.identity, "OUTCOME", outcome, operation, observation
+    )
 
 
 def record_not_executed(

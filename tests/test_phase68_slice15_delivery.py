@@ -275,7 +275,7 @@ def test_a_runtime_without_v5_refuses_it_before_sqlite(tmp_path, monkeypatch):
         w.open_workspace(str(root), expected_identity=workspace.identity)
     assert s12.tree(root) == before
     monkeypatch.undo()
-    for bad in ("pietto.job-workspace.v6", "pietto.job-workspace.v5 "):
+    for bad in ("pietto.job-workspace.v7", "pietto.job-workspace.v5 "):
         with pytest.raises(JobStoreError, match="WORKSPACE_FORMAT"):
             w.create_workspace(str(tmp_path / "other"), format=bad)
     assert not (tmp_path / "other").exists()

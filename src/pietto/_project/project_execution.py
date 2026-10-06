@@ -737,6 +737,30 @@ def compiled_attempt_outcome(owner):
     )
 
 
+@dataclass(frozen=True, slots=True)
+class CompiledClosingFacts:
+    """Closure facts the layered outcome does not carry; categories, no message text."""
+
+    closed: bool
+    rows: int
+    failure: tuple[str, str] | None
+    cleanup: tuple[tuple[str, str], ...]
+
+
+def compiled_closing_facts(owner):
+    """The same checked owner as `compiled_attempt_outcome`: its own closed state,
+    checked delivered rows and the phase/kind of its primary and cleanup failures."""
+    compiled_attempt_outcome(owner)
+    outcome = owner.outcome
+    primary = outcome.primary
+    return CompiledClosingFacts(
+        owner._closed is True,
+        outcome.rows,
+        None if primary is None else (primary.phase, primary.kind),
+        tuple((f.phase, f.kind) for f in outcome.cleanup_failures),
+    )
+
+
 def verify_compiled_owner(owner):
     """The real route must carry every mode required by this compiled template."""
     from pietto._project.project_sql_emission_contract import CompiledPreparedEmission

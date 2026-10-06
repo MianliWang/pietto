@@ -160,3 +160,19 @@ description is read from its owner and compared with independent expectations.
 A sink reply is data, a local observation is not a sink commit, and neither is an
 S13 acknowledgement, source EOF or generation publication. A changed namespace,
 epoch or retention contract is a different destination, never recovery.
+
+
+## Complete-publication identity
+
+Phase68 [S16](../phases/phase-68/slice-16.md) publishes at most one immutable
+reference per generation, keyed by the generation; it adds no new identity
+class. The reference names one exact checkpoint, extent `[0, N)`, output
+contract, coordinate scheme, closing attempt, closing observation and
+publication-owned retention, and the original operation is the only handle a
+caller needs after a lost reply. Eligibility is recomputed from raw recorded
+facts, never from a stored success flag, files, timing, sink effects or a later
+unrelated success; a new attempt never acknowledges an older transaction.
+Publishing needs a fresh process-local, purpose-scoped acceptance that
+authenticates no one, and the record grants no read: a new reader still needs a
+fresh S13 saved-result acceptance. Preparation protection is not publication,
+and a later cancellation or publisher change never withdraws a publication.

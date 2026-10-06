@@ -23,13 +23,14 @@ __all__: tuple[str, ...] = ()
 
 FORMAT = "pietto.job-workspace.v1"
 FEATURES: tuple[str, ...] = ()
-# S12's capture-capable, S13's replay-capable, S14's extraction-resume and
-# S15's cooperative-delivery revisions are selected only by an explicit create
-# option; nothing is ever upgraded in place.
+# S12's capture-capable, S13's replay-capable, S14's extraction-resume,
+# S15's cooperative-delivery and S16's complete-publication revisions are
+# selected only by an explicit create option; nothing is ever upgraded in place.
 FORMAT_V2 = "pietto.job-workspace.v2"
 FORMAT_V3 = "pietto.job-workspace.v3"
 FORMAT_V4 = "pietto.job-workspace.v4"
 FORMAT_V5 = "pietto.job-workspace.v5"
+FORMAT_V6 = "pietto.job-workspace.v6"
 ENVELOPE = "workspace.json"
 DATABASE = "store.sqlite"
 CREATING = "CREATING"
@@ -354,6 +355,39 @@ DELIVERY_SCHEMA = (
     " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
     " publisher_instance TEXT NOT NULL) STRICT, WITHOUT ROWID",
 )
+# Closed S16 tables (v6 only), insert-only. A closing observation is the
+# structured closure of one OUTCOME attempt, written with its terminal. A
+# publication is the one immutable complete-result reference of a generation;
+# its retention is the publication-owned protection of the exact checkpoint.
+PUBLICATION_SCHEMA = (
+    "CREATE UNIQUE INDEX attempt_subject ON attempt(identity, generation, job)",
+    "CREATE UNIQUE INDEX retention_subject ON retention(identity, generation, checkpoint)",
+    "CREATE TABLE closing_observation(attempt TEXT PRIMARY KEY"
+    " REFERENCES attempt_terminal(attempt), generation TEXT NOT NULL,"
+    " job TEXT NOT NULL, closed INTEGER NOT NULL CHECK (closed = 1),"
+    " rows INTEGER NOT NULL CHECK (rows >= 0), failure TEXT, cleanup TEXT NOT NULL,"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " UNIQUE (attempt, generation), FOREIGN KEY (attempt, generation, job)"
+    " REFERENCES attempt(identity, generation, job)) STRICT, WITHOUT ROWID",
+    "CREATE TABLE publication(generation TEXT PRIMARY KEY, job TEXT NOT NULL,"
+    " binding TEXT NOT NULL, checkpoint TEXT NOT NULL,"
+    " extent INTEGER NOT NULL CHECK (extent >= 0),"
+    " members INTEGER NOT NULL CHECK (members >= 1),"
+    " contract TEXT NOT NULL, scheme TEXT NOT NULL, closing TEXT NOT NULL UNIQUE,"
+    " retention TEXT NOT NULL UNIQUE, descriptor TEXT NOT NULL,"
+    " operation TEXT NOT NULL UNIQUE,"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " publisher_instance TEXT NOT NULL,"
+    " FOREIGN KEY (generation, job) REFERENCES capture(generation, job),"
+    " FOREIGN KEY (binding, job) REFERENCES binding(identity, job),"
+    " FOREIGN KEY (checkpoint, generation) REFERENCES checkpoint(identity, generation),"
+    " FOREIGN KEY (closing, generation)"
+    " REFERENCES closing_observation(attempt, generation),"
+    " FOREIGN KEY (retention, generation, checkpoint)"
+    " REFERENCES retention(identity, generation, checkpoint),"
+    " FOREIGN KEY (operation) REFERENCES operation(identity)"
+    " DEFERRABLE INITIALLY DEFERRED) STRICT, WITHOUT ROWID",
+)
 # Closed known-version table: envelope (format, features) -> user_version,
 # exact schema and private directories. Anything else refuses before SQLite.
 VERSIONS = {
@@ -375,6 +409,23 @@ VERSIONS = {
         ("result-chunks", "saved-replay", "extraction-resume", "cooperative-delivery"),
         5,
         SCHEMA + CAPTURE_SCHEMA + REPLAY_SCHEMA + EXTRACTION_SCHEMA + DELIVERY_SCHEMA,
+        (CHUNKS, STAGING),
+    ),
+    FORMAT_V6: (
+        (
+            "result-chunks",
+            "saved-replay",
+            "extraction-resume",
+            "cooperative-delivery",
+            "complete-publication",
+        ),
+        6,
+        SCHEMA
+        + CAPTURE_SCHEMA
+        + REPLAY_SCHEMA
+        + EXTRACTION_SCHEMA
+        + DELIVERY_SCHEMA
+        + PUBLICATION_SCHEMA,
         (CHUNKS, STAGING),
     ),
 }

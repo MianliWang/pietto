@@ -75,6 +75,15 @@ DELIVERY_TABLES = (
     "sink_observation",
     "stream_retirement",
 )
+PUBLICATION_KINDS = ("publish_generation",)
+PUBLICATION_TABLES = ("closing_observation", "publication")
+# Each route's own normal cleanup term and the positive guard states (S16).
+CLEAN = {
+    "postgres_rows": "CLOSED",
+    "postgres_adbc": "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+    "mysql_rows": "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+}
+GUARDS = ("STATIC", "FULFILLED")
 DESCRIPTOR = (
     "attempt",
     "batches",
@@ -126,6 +135,13 @@ def _fail(code: str) -> NoReturn:
     raise JobStoreError("STORE_INVARIANT_" + code)
 
 
+def _category(value) -> bool:
+    """A failure category [phase, kind]; never a message."""
+    return (
+        type(value) is list and len(value) == 2 and all(type(v) is str for v in value)
+    )
+
+
 def _canonical(text: str, *, ascii: bool = False):
     value = json.loads(text)
     if (
@@ -156,12 +172,14 @@ def verify_store(workspace: Workspace) -> dict:
     replay = supports(workspace, "saved-replay")
     extraction = supports(workspace, "extraction-resume")
     delivery = supports(workspace, "cooperative-delivery")
+    publication = supports(workspace, "complete-publication")
     kinds = (
         KINDS
         + (CAPTURE_KINDS if capture else ())
         + (REPLAY_KINDS if replay else ())
         + (EXTRACTION_KINDS if extraction else ())
         + (DELIVERY_KINDS if delivery else ())
+        + (PUBLICATION_KINDS if publication else ())
     )
 
     def snapshot(c) -> dict[str, Any]:
@@ -171,6 +189,7 @@ def verify_store(workspace: Workspace) -> dict:
             + (REPLAY_TABLES if replay else ())
             + (EXTRACTION_TABLES if extraction else ())
             + (DELIVERY_TABLES if delivery else ())
+            + (PUBLICATION_TABLES if publication else ())
         }
         return tables | {
             "integrity": tuple(r[0] for r in c.execute("PRAGMA integrity_check")),
@@ -191,6 +210,7 @@ def verify_store(workspace: Workspace) -> dict:
         _fail("WORKSPACE")
     jobs, bindings, generations = data["job"], data["binding"], data["generation"]
     attempts, terminals = data["attempt"], data["terminal"]
+    closings = {r[0]: r for r in data.get("closing_observation", ())}
     created: dict[object, int] = {}
     state: dict[str, dict] = {}
     events: list[tuple] = []
@@ -237,15 +257,24 @@ def verify_store(workspace: Workspace) -> dict:
             if current["state"] != "ACTIVE" or result.get("state") != "CANCELLED":
                 _fail("STATE_HISTORY")
             current["state"] = "CANCELLED"
-        elif kind in CAPTURE_KINDS + REPLAY_KINDS + EXTRACTION_KINDS + DELIVERY_KINDS:
-            # Data progress, saved reads and delivery need an ACTIVE job; ends,
-            # retention, releases and stream retirement are control.
+        elif (
+            kind
+            in CAPTURE_KINDS
+            + REPLAY_KINDS
+            + EXTRACTION_KINDS
+            + DELIVERY_KINDS
+            + PUBLICATION_KINDS
+        ):
+            # Data progress, saved reads, delivery and publication need an
+            # ACTIVE job; ends, retention, releases and stream retirement are
+            # control.
             if (
                 kind
                 in CAPTURE_KINDS[:2]
                 + REPLAY_KINDS
                 + EXTRACTION_KINDS[:3]
                 + DELIVERY_KINDS[:5]
+                + PUBLICATION_KINDS
                 and current["state"] != "ACTIVE"
             ):
                 _fail("STATE_HISTORY")
@@ -345,6 +374,40 @@ def verify_store(workspace: Workspace) -> dict:
                 "binding_reference": row[6],
             }:
                 _fail("TERMINAL_OUTCOME")
+            observation = request.get("observation")
+            if publication and terminal[1] == "OUTCOME":
+                # v6: the owner's closing observation, in the terminal's transaction.
+                closing = closings.get(attempt)
+                if (
+                    closing is None
+                    or type(observation) is not dict
+                    or tuple(sorted(observation))
+                    != ("cleanup", "closed", "failure", "rows")
+                    or observation["closed"] is not True
+                    or type(observation["rows"]) is not int
+                    or not (
+                        observation["failure"] is None
+                        or _category(observation["failure"])
+                    )
+                    or type(observation["cleanup"]) is not list
+                    or not all(_category(item) for item in observation["cleanup"])
+                    or (
+                        closing[1:5],
+                        None if closing[5] is None else _canonical(closing[5]),
+                        _canonical(closing[6]),
+                        closing[7],
+                    )
+                    != (
+                        (row[1], job, 1, observation["rows"]),
+                        observation["failure"],
+                        observation["cleanup"],
+                        current["epoch"],
+                    )
+                ):
+                    _fail("CLOSING_HISTORY")
+                created[("closing", attempt)] = sequence
+            elif observation is not None or attempt in closings:
+                _fail("CLOSING_HISTORY")
             if current["open"] == attempt:
                 current["open"] = None
     for job, row in jobs.items():
@@ -402,6 +465,8 @@ def verify_store(workspace: Workspace) -> dict:
         _fail("ATTEMPT_ORDINAL")
     if any(("terminal", a) not in created for a in terminals):
         _fail("TERMINAL_HISTORY")
+    if any(("closing", a) not in created for a in closings):
+        _fail("CLOSING_HISTORY")
     counts = _verify_capture(workspace, data, events, created) if capture else {}
     return counts | {
         "jobs": len(jobs),
@@ -599,6 +664,7 @@ def _verify_capture(workspace, data, events, created) -> dict:
         progress[issued[1]] = issued[5]
 
     deliver = _delivery_replay(data, seen, members)
+    publish = _publication_replay(data, seen, members, created, head, eof, latest)
     for sequence, kind, job, request, result, epoch, instance in events:
         publisher = [epoch, instance]
         generation = request.get("generation")
@@ -607,6 +673,9 @@ def _verify_capture(workspace, data, events, created) -> dict:
             continue
         if kind in DELIVERY_KINDS:
             deliver(sequence, kind, job, request, result, epoch, instance)
+            continue
+        if kind in PUBLICATION_KINDS:
+            publish(sequence, job, request, result, epoch, instance)
             continue
         if kind in ("begin_capture", "begin_extraction"):
             row = captures.get(generation)
@@ -1006,6 +1075,8 @@ def _verify_capture(workspace, data, events, created) -> dict:
         }
     if "stream" in data:
         counts |= deliver(None, "rows", None, None, None, None, None)
+    if "publication" in data:
+        counts |= publish(None, None, None, None, None, None)
     return counts
 
 
@@ -1329,3 +1400,190 @@ def _delivery_replay(data, seen, members):
             _fail("OBSERVATION_HISTORY")
 
     return deliver
+
+
+def _covers(ranges, extent) -> bool:
+    """Exactly [0, extent): contiguous non-empty extents, or the one [0, 0)."""
+    if type(extent) is not int or extent < 0:
+        return False
+    if extent == 0:
+        return list(ranges) == [(0, 0)]
+    position = 0
+    for start, stop in sorted(ranges):
+        if start != position or stop <= start:
+            return False
+        position = stop
+    return position == extent
+
+
+def _closed_well(outcome, closing, route, reference) -> bool:
+    """The complete-result truth table over one raw terminal outcome and its
+    closing observation row, re-derived here independently of the owner."""
+    states = outcome.get("guard_states")
+    return (
+        outcome.get("source") == "EOF"
+        and outcome.get("transaction") == "COMMIT_ACK"
+        and outcome.get("remote_source_use_end") == "TRANSACTION_ACK"
+        and outcome.get("delivery") == "COMPLETE"
+        and outcome.get("cleanup") == CLEAN.get(route)
+        and outcome.get("source_qualification") == "QUALIFIED"
+        and outcome.get("transaction_opened") is True
+        and type(states) is list
+        and all(s in GUARDS for s in states)
+        and outcome.get("structure") == "ACCEPTED"
+        and outcome.get("deployment_acceptance")
+        == "EXPLICIT_MANAGED_DEPLOYMENT_PREMISE"
+        and outcome.get("route") == route
+        and outcome.get("binding_reference") == reference
+        and closing[5] is None
+        and _canonical(closing[6]) == []
+    )
+
+
+def _publication_replay(data, seen, members, created, head, eof, latest):
+    """S16 history against raw rows: each publication re-derived at its own
+    point (closing observation, basis, extent, exact coverage, unreleased own
+    protection, no open or later attempt) and nothing written to its
+    generation afterwards."""
+    publications = {r[0]: r for r in data.get("publication", ())}
+    closings = {r[0]: r for r in data.get("closing_observation", ())}
+    captures = {r[0]: r for r in data["capture"]}
+    chunks = {r[0]: r for r in data["chunk"]}
+    ends = {r[0]: r for r in data["capture_end"]}
+    retentions = {r[0]: r for r in data["retention"]}
+    continuations = {r[0]: r for r in data.get("continuation", ())}
+    finished = {r[0]: r for r in data.get("continuation_end", ())}
+    attempts, terminals = data["attempt"], data["terminal"]
+    generations, operations = data["generation"], data["operation"]
+
+    def publish(sequence, job, request, result, epoch, instance):
+        if sequence is None:
+            for generation, row in publications.items():
+                at = seen.get(("publication", generation))
+                later = (
+                    [seen.get(c[0], 0) for c in chunks.values() if c[2] == generation]
+                    + [seen.get(("end", generation), 0)]
+                    + [
+                        seen.get((name, a), 0)
+                        for a, n in continuations.items()
+                        if n[2] == generation
+                        for name in ("continuation", "reconciled", "finished")
+                    ]
+                )
+                if at is None or ("release", row[9]) in seen or max(later) > at:
+                    _fail("PUBLICATION_ROWS")
+            return {
+                "closing_observations": len(closings),
+                "publications": len(publications),
+            }
+        generation = request.get("generation")
+        row = publications.get(generation)
+        capture = captures.get(generation)
+        closing = request.get("closing")
+        attempt = attempts.get(closing)
+        terminal = terminals.get(closing)
+        observed = closings.get(closing)
+        retention = retentions.get(request.get("retention"))
+        checkpoint, extent = request.get("checkpoint"), request.get("extent")
+        _ordinal, current = latest.get(generation, (0, set()))
+        ranges = sorted((chunks[m][4], chunks[m][5]) for m in current)
+        if (
+            row is None
+            or capture is None
+            or attempt is None
+            or terminal is None
+            or observed is None
+            or retention is None
+        ):
+            _fail("PUBLICATION_HISTORY")
+        if closing == capture[2]:
+            end = ends.get(generation)
+            basis = "CAPTURE"
+            based = (
+                end is not None
+                and seen.get(("end", generation), sequence) < sequence
+                and (end[1], end[2]) == (extent, "EOF")
+                and all(chunks[m][3] == closing for m in current)
+            )
+        else:
+            frozen = continuations.get(closing)
+            done = finished.get(closing)
+            previous = members.get(frozen[3], set()) if frozen and frozen[3] else set()
+            basis = "CONTINUATION"
+            based = (
+                frozen is not None
+                and done is not None
+                and frozen[2] == generation
+                and seen.get(("reconciled", closing), sequence) < sequence
+                and seen.get(("finished", closing), sequence) < sequence
+                and (done[2], done[3], done[5]) == (extent, "EOF", checkpoint)
+                and previous <= current
+                and all(chunks[m][3] == closing for m in current - previous)
+            )
+        descriptor = {
+            "basis": basis,
+            "chunk": "pietto.result-chunk.v1",
+            "coordinates": "pietto.coordinate-atoms.v1"
+            if capture[3] == "REFINED"
+            else None,
+            "format": "pietto.publication.v1",
+            "kind": capture[3],
+            "workspace": data["workspace"][0][2],
+        }
+        if (
+            not based
+            or ("publication", generation) in seen
+            or row[1:]
+            != (
+                job,
+                generations[generation][2],
+                checkpoint,
+                extent,
+                request.get("members"),
+                capture[4],
+                capture[5],
+                closing,
+                retention[0],
+                request.get("descriptor"),
+                operations[sequence - 1][1],
+                epoch,
+                instance,
+            )
+            or _canonical(row[10]) != descriptor
+            or result
+            != {
+                "checkpoint": checkpoint,
+                "closing": closing,
+                "extent": extent,
+                "generation": generation,
+                "retention": retention[0],
+                "revision": result.get("revision"),
+            }
+            or head.get(generation) != checkpoint
+            or members.get(checkpoint) != current
+            or len(current) != row[5]
+            or not _covers(ranges, extent)
+            or (attempt[1], attempt[2]) != (generation, job)
+            or terminal[1] != "OUTCOME"
+            or created.get(("closing", closing), sequence) >= sequence
+            or not _closed_well(
+                _canonical(terminal[3]),
+                observed,
+                generations[generation][3],
+                attempt[6],
+            )
+            or observed[4] != extent
+            or eof.get(generation) != extent
+            or retention[1:4] != (job, generation, checkpoint)
+            or seen.get(retention[0], sequence) >= sequence
+            or ("release", retention[0]) in seen
+            or any(
+                a[1] == generation
+                and created.get(("terminal", a[0]), sequence) >= sequence
+                for a in attempts.values()
+            )
+        ):
+            _fail("PUBLICATION_HISTORY")
+        seen[("publication", generation)] = sequence
+
+    return publish

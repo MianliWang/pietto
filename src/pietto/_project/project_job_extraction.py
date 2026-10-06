@@ -48,6 +48,7 @@ from pietto._project.project_job_store import (
     _identity_request,
     _json,
     _operate,
+    _unpublished,
     _vector,
 )
 from pietto._project.project_job_workspace import (
@@ -789,6 +790,7 @@ class ContinuationSession(CaptureSession):
 
         def effect(c):
             revision = _fence(c, publisher, _FENCE_CONTROL)
+            _unpublished(c, workspace, attempt.generation)
             row = c.execute(
                 "SELECT publisher_epoch, publisher_instance,"
                 " (SELECT count(*) FROM reconciliation r WHERE r.attempt = ?1),"

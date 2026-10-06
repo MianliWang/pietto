@@ -774,3 +774,30 @@ R2 history (relay before EOF, SIGKILL, S14 recovery, next window into the same
 sink, source deletion, driver-free Arrow-only R1 bridge). Delivery code changes
 the semantic build identity, so bundles and installed witnesses are rebuilt on the
 final code closure.
+
+
+## Phase68 S16 complete-publication validation
+
+[S16](phases/phase-68/slice-16.md) keeps one cumulative dispatch ledger. Ordinary
+tests have no Arrow or database: the pure completion truth table, the three route
+cleanup vocabularies and the coverage model run on every host, and v6
+boundaries, closing observations, ordinary, empty and R2 publication, the refusal
+matrix, holes and open attempts, member damage, cancel ordering, stale publishers,
+authority and clocks, injected faults, history retention, protection, S13/S15
+adjacency and independent history damage run on the qualified profile through the
+labelled SYNTHETIC_CLOSED_OWNER and ARROW_FREE_MEMBER_CHECK (the truth table,
+fences, preparation, the publication transaction, queries and the verifier still
+run); real SIGKILL cuts, notification loss, two-process snapshots and both
+cancel/publish orders run in registered children. Real evidence runs through
+`scripts/phase68_slice16_probe.py`: `suite` captures seven-scalar, duplicate,
+empty and late-failure cases with SIMULATED_NATIVE_IO in the Arrow-only profile,
+publishes or refuses them, reads every publication in a fresh process through
+S13, refuses member damage before visibility and shows the archived S15 wheel
+refusing v6; `native` runs per route, entry and source a joined R2 history (S15
+prefix relay, SIGKILL, refused publication before R2, S14 recovery whose real
+owner records the closing observation, source deletion, driver-free Arrow-only
+publish, query and S13 read) plus ordinary, empty, refined and guarded
+publications, and an independent checker recomputes eligibility, members, lineage
+and correspondence from raw relations and refuses coordinated damage. Publication
+code changes the semantic build identity, so bundles and installed witnesses are
+rebuilt on the final code closure.
