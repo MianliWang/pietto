@@ -77,6 +77,18 @@ DELIVERY_TABLES = (
 )
 PUBLICATION_KINDS = ("publish_generation",)
 PUBLICATION_TABLES = ("closing_observation", "publication")
+# S17 (v7): a chunk claim is data; retirement is control.
+RUNTIME_KINDS = ("claim_chunk", "retire_generation")
+RUNTIME_TABLES = (
+    "runtime_owner",
+    "admission",
+    "admission_settlement",
+    "chunk_claim",
+    "generation_retirement",
+    "collection",
+    "tombstone",
+    "removal",
+)
 # Each route's own normal cleanup term and the positive guard states (S16).
 CLEAN = {
     "postgres_rows": "CLOSED",
@@ -173,6 +185,7 @@ def verify_store(workspace: Workspace) -> dict:
     extraction = supports(workspace, "extraction-resume")
     delivery = supports(workspace, "cooperative-delivery")
     publication = supports(workspace, "complete-publication")
+    runtime = supports(workspace, "concurrent-gc")
     kinds = (
         KINDS
         + (CAPTURE_KINDS if capture else ())
@@ -180,6 +193,7 @@ def verify_store(workspace: Workspace) -> dict:
         + (EXTRACTION_KINDS if extraction else ())
         + (DELIVERY_KINDS if delivery else ())
         + (PUBLICATION_KINDS if publication else ())
+        + (RUNTIME_KINDS if runtime else ())
     )
 
     def snapshot(c) -> dict[str, Any]:
@@ -190,6 +204,7 @@ def verify_store(workspace: Workspace) -> dict:
             + (EXTRACTION_TABLES if extraction else ())
             + (DELIVERY_TABLES if delivery else ())
             + (PUBLICATION_TABLES if publication else ())
+            + (RUNTIME_TABLES if runtime else ())
         }
         return tables | {
             "integrity": tuple(r[0] for r in c.execute("PRAGMA integrity_check")),
@@ -264,10 +279,11 @@ def verify_store(workspace: Workspace) -> dict:
             + EXTRACTION_KINDS
             + DELIVERY_KINDS
             + PUBLICATION_KINDS
+            + RUNTIME_KINDS
         ):
-            # Data progress, saved reads, delivery and publication need an
-            # ACTIVE job; ends, retention, releases and stream retirement are
-            # control.
+            # Data progress, saved reads, delivery, publication and chunk
+            # claims need an ACTIVE job; ends, retention, releases, stream
+            # retirement and generation retirement are control.
             if (
                 kind
                 in CAPTURE_KINDS[:2]
@@ -275,6 +291,7 @@ def verify_store(workspace: Workspace) -> dict:
                 + EXTRACTION_KINDS[:3]
                 + DELIVERY_KINDS[:5]
                 + PUBLICATION_KINDS
+                + RUNTIME_KINDS[:1]
                 and current["state"] != "ACTIVE"
             ):
                 _fail("STATE_HISTORY")
@@ -665,9 +682,82 @@ def _verify_capture(workspace, data, events, created) -> dict:
 
     deliver = _delivery_replay(data, seen, members)
     publish = _publication_replay(data, seen, members, created, head, eof, latest)
+    runtime = "chunk_claim" in data
+    claims = {r[0]: r for r in data.get("chunk_claim", ())}
+    admissions = {r[0]: r for r in data.get("admission", ())}
+    retirements = {r[0]: r for r in data.get("generation_retirement", ())}
+
+    def claim(sequence, job, request, result, epoch, instance):
+        """One v7 chunk claim: before its file, by the open attempt's publisher."""
+        generation = request.get("generation")
+        row = claims.get(request.get("chunk"))
+        attempt = attempts.get(request.get("attempt"))
+        capture = captures.get(generation)
+        if (
+            row is None
+            or attempt is None
+            or capture is None
+            or ("claim", row[0]) in seen
+            or row[1:]
+            != (
+                job,
+                generation,
+                request.get("attempt"),
+                request.get("admission"),
+                request.get("bytes"),
+                epoch,
+                instance,
+            )
+            or (attempt[1], attempt[2], attempt[4], attempt[5])
+            != (generation, job, epoch, instance)
+            or created.get(attempt[0], sequence) >= sequence
+            or created.get(("terminal", attempt[0]), sequence + 1) < sequence
+            or seen.get(("capture", generation), sequence) >= sequence
+            or (
+                capture[2] != attempt[0]
+                and seen.get(("continuation", attempt[0]), sequence) >= sequence
+            )
+            or admissions.get(row[4]) is None
+            or admissions[row[4]][1] != job
+            or ("retired", generation) in seen
+            or ("publication", generation) in seen
+            or result
+            != {"bytes": row[5], "chunk": row[0], "revision": result.get("revision")}
+        ):
+            _fail("CLAIM_HISTORY")
+        seen[("claim", row[0])] = sequence
+
+    def retire(sequence, job, request, result, epoch, instance):
+        """Explicit retirement of an unpublished generation with no open attempt."""
+        generation = request.get("generation")
+        row = retirements.get(generation)
+        if (
+            row is None
+            or generation not in generations
+            or ("retired", generation) in seen
+            or row[1:] != (job, epoch, instance)
+            or generations[generation][1] != job
+            or ("publication", generation) in seen
+            or any(
+                a[1] == generation
+                and created.get(a[0], sequence) < sequence
+                and created.get(("terminal", a[0]), sequence) >= sequence
+                for a in attempts.values()
+            )
+            or result != {"generation": generation, "revision": result.get("revision")}
+        ):
+            _fail("RETIREMENT_HISTORY")
+        seen[("retired", generation)] = sequence
+
     for sequence, kind, job, request, result, epoch, instance in events:
         publisher = [epoch, instance]
         generation = request.get("generation")
+        if kind == "claim_chunk":
+            claim(sequence, job, request, result, epoch, instance)
+            continue
+        if kind == "retire_generation":
+            retire(sequence, job, request, result, epoch, instance)
+            continue
         if kind in REPLAY_KINDS:
             replay(sequence, kind, job, request, result, epoch, instance)
             continue
@@ -887,6 +977,16 @@ def _verify_capture(workspace, data, events, created) -> dict:
                 )
                 or created.get(("terminal", row[3]), sequence + 1) < sequence
                 or row[7] != row[0] + ".chunk"
+                or ("retired", generation) in seen
+                or (
+                    runtime
+                    and (
+                        claims.get(row[0]) is None
+                        or seen.get(("claim", row[0]), sequence) >= sequence
+                        or (claims[row[0]][2], claims[row[0]][3], claims[row[0]][5])
+                        != (generation, row[3], row[8])
+                    )
+                )
             ):
                 _fail("CHUNK_HISTORY")
             descriptor = _canonical(row[10], ascii=True)
@@ -1077,6 +1177,8 @@ def _verify_capture(workspace, data, events, created) -> dict:
         counts |= deliver(None, "rows", None, None, None, None, None)
     if "publication" in data:
         counts |= publish(None, None, None, None, None, None)
+    if runtime:
+        counts |= _runtime_rows(data, seen, created, members)
     return counts
 
 
@@ -1402,6 +1504,140 @@ def _delivery_replay(data, seen, members):
     return deliver
 
 
+def _runtime_rows(data, seen, created, members) -> dict:
+    """S17 relations against raw rows: contiguous runtime incarnations, each
+    admission's allowance and once-only settlement, a claim for every chunk,
+    nothing produced, referenced or published after a retirement, and every
+    tombstone recomputed against the final roots (a protected, published or
+    still-claimable object can never have been decided)."""
+    owners = {r[0]: r for r in data["runtime_owner"]}
+    admissions = {r[0]: r for r in data["admission"]}
+    settlements = {r[0]: r for r in data["admission_settlement"]}
+    claims = {r[0]: r for r in data["chunk_claim"]}
+    retirements = {r[0]: r for r in data["generation_retirement"]}
+    collections = {r[0]: r for r in data["collection"]}
+    tombstones = {r[0]: r for r in data["tombstone"]}
+    removals = {r[0]: r for r in data["removal"]}
+    chunks = {r[0]: r for r in data["chunk"]}
+    retentions = {r[0]: r for r in data["retention"]}
+    releases = {r[0] for r in data["retention_release"]}
+    publications = {r[0]: r for r in data.get("publication", ())}
+    attempts, terminals, jobs = data["attempt"], data["terminal"], data["job"]
+    if sorted(owners) != list(range(1, len(owners) + 1)) or any(
+        not valid_identity(r[1], "run") for r in owners.values()
+    ):
+        _fail("RUNTIME_OWNER")
+    claimed: dict[str, int] = {}
+    for row in claims.values():
+        claimed[row[4]] = claimed.get(row[4], 0) + row[5]
+        if ("claim", row[0]) not in seen:
+            _fail("CLAIM_ROWS")
+    for identity, row in admissions.items():
+        vector = _canonical(row[4])
+        if (
+            not valid_identity(identity, "adm")
+            or row[2] not in owners
+            or type(vector) is not dict
+            or tuple(sorted(vector))
+            != ("connections", "durable", "memory", "operations", "workers")
+            or (vector["durable"], vector["operations"]) != (row[5], row[6])
+            or claimed.get(identity, 0) > row[5]
+        ):
+            _fail("ADMISSION_ROWS")
+    for identity, row in settlements.items():
+        admission = admissions[identity]
+        if (
+            row[1] < admission[2]
+            or row[2] != ("RELEASED" if row[1] == admission[2] else "RECONCILED")
+            or row[3] != claimed.get(identity, 0)
+        ):
+            _fail("SETTLEMENT_ROWS")
+    for identity, row in chunks.items():
+        held = claims.get(identity)
+        if held is None or (held[1], held[2], held[3], held[5]) != (
+            row[1],
+            row[2],
+            row[3],
+            row[8],
+        ):
+            _fail("CLAIM_ROWS")
+    for generation, row in retirements.items():
+        at = seen.get(("retired", generation))
+        if at is None or generation in publications:
+            _fail("RETIREMENT_ROWS")
+        later = (
+            [seen.get(c, 0) for c, r in chunks.items() if r[2] == generation]
+            + [
+                seen.get(("claim", c), 0)
+                for c, r in claims.items()
+                if r[2] == generation
+            ]
+            + [seen.get(r, 0) for r, v in retentions.items() if v[2] == generation]
+            + [created.get(a, 0) for a, v in attempts.items() if v[1] == generation]
+            + [seen.get(("end", generation), 0)]
+        )
+        if max(later) > at:
+            _fail("RETIREMENT_ROWS")
+    protected = set()
+    for identity, row in retentions.items():
+        if identity not in releases:
+            protected |= members.get(row[3], set())
+    counted: dict[str, int] = {}
+    for chunk, row in tombstones.items():
+        held = claims.get(chunk)
+        collection = collections.get(row[1])
+        objects = _canonical(row[4])
+        counted[row[1]] = counted.get(row[1], 0) + 1
+        if (
+            held is None
+            or collection is None
+            or (held[2], held[5]) != (row[2], row[5])
+            or collection[2] != row[2]
+            or type(objects) is not list
+            or any(
+                type(o) is not list
+                or len(o) != 6
+                or (o[0], o[1])
+                not in (("chunks", chunk + ".chunk"), ("staging", chunk + ".staging"))
+                for o in objects
+            )
+        ):
+            _fail("TOMBSTONE_ROWS")
+        if row[3] == "RETIRED":
+            if (
+                chunk not in chunks
+                or row[2] not in retirements
+                or row[2] in publications
+                or chunk in protected
+                or not any(o[0] == "chunks" for o in objects)
+            ):
+                _fail("TOMBSTONE_ROOTS")
+        else:
+            terminal = held[3] in terminals
+            if chunk in chunks or not (terminal or held[6] < jobs[held[1]][6]):
+                _fail("TOMBSTONE_ROOTS")
+    for identity, row in collections.items():
+        if (
+            not valid_identity(identity, "gcd")
+            or row[3] not in owners
+            or counted.get(identity, 0) != row[4]
+        ):
+            _fail("COLLECTION_ROWS")
+    for chunk, row in removals.items():
+        if row[1] < collections[tombstones[chunk][1]][3]:
+            _fail("REMOVAL_ROWS")
+    return {
+        "runtime_owners": len(owners),
+        "admissions": len(admissions),
+        "settlements": len(settlements),
+        "claims": len(claims),
+        "retirements": len(retirements),
+        "collections": len(collections),
+        "tombstones": len(tombstones),
+        "removals": len(removals),
+    }
+
+
 def _covers(ranges, extent) -> bool:
     """Exactly [0, extent): contiguous non-empty extents, or the one [0, 0)."""
     if type(extent) is not int or extent < 0:
@@ -1533,6 +1769,7 @@ def _publication_replay(data, seen, members, created, head, eof, latest):
         if (
             not based
             or ("publication", generation) in seen
+            or ("retired", generation) in seen
             or row[1:]
             != (
                 job,

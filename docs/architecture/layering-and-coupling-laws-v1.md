@@ -178,3 +178,17 @@ the v6 attempt terminal; preparation reuses S12 retention and the bounded
 `SnapshotReader`, and publication converts that retention by reference. Readers
 reach a publication only through S13, sinks stay independent of it, and
 scheduling and GC extend these operations.
+
+
+## Bounded-runtime and collection plane
+
+Phase68 [S17](../phases/phase-68/slice-17.md) drives the original S11–S16
+operations from bounded worker threads of one caller-created runtime per
+workspace; it adds no daemon, scheduler service, second store or cross-database
+transaction. Each worker owns its workspace handle, publisher and native owner;
+the coordinator mutex is a leaf held only for bookkeeping, and the lock order is
+job publisher, generation lease, SQLite writer. Capture, readers, publication
+and the collector meet only through v7 claims, per-generation leases and
+tombstones in the original owners, so a direct caller of an original API joins
+the same admission and exclusion protocol as the runtime. Sinks keep their own
+store and retention and are never collected by the workspace.

@@ -630,6 +630,14 @@ def publish_generation(
         # Validity is judged at the visibility point itself (an expired
         # acceptance after slow preparation refuses here, and is released).
         _accepted(prepared.acceptance)
+        if (
+            supports(workspace, "concurrent-gc")
+            and c.execute(
+                "SELECT 1 FROM generation_retirement WHERE generation = ?",
+                (prepared.generation,),
+            ).fetchone()
+        ):
+            raise JobStoreError("GENERATION_RETIRED")
         facts = _facts(
             c,
             workspace,
@@ -689,6 +697,12 @@ def publish_generation(
             "revision": revision,
         }
 
+    # v7: the member file objects are rechecked under the shared lease.
+    lease = (
+        chunks.Lease(workspace, prepared.generation)
+        if supports(workspace, "concurrent-gc")
+        else None
+    )
     first = prepared.state == "PREPARED"
     try:
         result = _advance(
@@ -709,6 +723,9 @@ def publish_generation(
             prepared.state = "REFUSED"
             _release(publisher, prepared.retention, primary)
         raise
+    finally:
+        if lease is not None:
+            lease.close()
     prepared.state = "PUBLISHED"
     return result
 

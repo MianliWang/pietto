@@ -176,3 +176,20 @@ Publishing needs a fresh process-local, purpose-scoped acceptance that
 authenticates no one, and the record grants no read: a new reader still needs a
 fresh S13 saved-result acceptance. Preparation protection is not publication,
 and a later cancellation or publisher change never withdraws a publication.
+
+
+## Bounded-runtime and collection identity
+
+Phase68 [S17](../phases/phase-68/slice-17.md) adds three identity classes to the
+explicit v7 workspace only: a runtime incarnation (`run`, with a monotone epoch),
+an admission (`adm`) and a collection decision (`gcd`). None is authority by
+itself: a runtime incarnation proves only that its process held the workspace's
+runtime lock when it claimed the epoch; an admission is the process-local
+allowance a v7 capture needs to claim files, settled exactly once by its own
+epoch or reconciled by a later one; a collection decision authorizes deleting
+only the exact objects it pinned, after the roots were recomputed under the
+generation's exclusive lease. A chunk claim names one future file before it can
+exist. Retirement is an explicit, fenced, monotone local decision about one
+unpublished generation; it is never inferred from cancellation, time, a PID or
+pressure, and it never withdraws a publication. History rows keep their
+identities after collection; a tombstoned subject is refused, never resurrected.

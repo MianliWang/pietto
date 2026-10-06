@@ -801,3 +801,37 @@ publications, and an independent checker recomputes eligibility, members, lineag
 and correspondence from raw relations and refuses coordinated damage. Publication
 code changes the semantic build identity, so bundles and installed witnesses are
 rebuilt on the final code closure.
+
+
+## Phase68 S17 bounded-runtime and collection validation
+
+[S17](phases/phase-68/slice-17.md) keeps one cumulative dispatch ledger. Ordinary
+tests have no Arrow or database: the exhaustive admission/settlement and
+reader/collector lifetime models run on every host; the v7 boundary, claims,
+leases, admissions and settlements, retirement, every protection root alone and
+combined, the retired-generation collection positive with its history intact,
+S13/S14/S15/S16 adjacency, aliases and foreign, replaced, symlinked or missing
+objects, injected deletion cuts and lost-reply queries, root races, storage
+pressure, and the coordinator's overlap, same-job conflict, last-credit races,
+rollback, admission ambiguity, relay and replay high-water marks, explicit
+acknowledgement, control under saturation, deadlines, bounded overtaking and
+close/replacement run on the qualified profile through the labelled
+ARROW_FREE_STORAGE_STEP, SIMULATED_NATIVE_IO, SYNTHETIC_CLOSED_OWNER,
+ARROW_FREE_MEMBER_CHECK and ARROW_FREE_READER steps; an independent checker
+recomputes the S17 laws from raw rows, files and runtime events and names the
+law that rejects each coordinated damage. Separate-process reader/collector
+orders, real SIGKILL at the five collection cuts, coordinator death with
+replacement and an inherited lease run in registered children. Real evidence
+runs through `scripts/phase68_slice17_probe.py`: `suite` drives the runtime in
+the Arrow-only profile with real Arrow, IPC and chunks (overlap, a stalled sink,
+explicit replay acknowledgements, publication, control under saturation,
+retirement with a surviving root, real cross-process reader/collector races, a
+checksum-valid typed-value damage and the archived S16 wheel refusing v7);
+`native` runs per route, entry and source a native R2 relay held by a stalled
+sink beside a mixed-route contention capture (and, for bundles, the S16
+distinctions), a SIGKILL, a replacement runtime's recovery with fresh
+qualification while another relay is cancelled under pressure and a same-job
+unit meets the publisher lock, source deletion, then a driver-free Arrow-only
+runtime that publishes, replays and collects. Runtime and collection code
+changes the semantic build identity, so bundles and installed witnesses are
+rebuilt on the final code closure.

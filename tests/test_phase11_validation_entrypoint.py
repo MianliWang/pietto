@@ -587,6 +587,7 @@ def test_slice2_validation_stays_separate_from_later_workflows() -> None:
         "scripts/phase68_slice14_probe.py",
         "scripts/phase68_slice15_probe.py",
         "scripts/phase68_slice16_probe.py",
+        "scripts/phase68_slice17_probe.py",
         "scripts/phase68_slice3_probe.py",
         "scripts/phase68_slice4_probe.py",
         "scripts/phase68_slice5_probe.py",

@@ -4,7 +4,8 @@ A chunk file is one fixed frame: header, canonical descriptor and the unchanged
 private result IPC frame. Its whole-file digest protects a file boundary, never
 authenticity against same-user edits. Files are made durable before any
 metadata names them; product code never reopens a final file for writing and
-never deletes a committed one. Device/OS synchronization honesty is external.
+deletes one only through the v7 collection protocol (an exclusive lease and a
+committed tombstone first). Device/OS synchronization honesty is external.
 """
 
 from __future__ import annotations
@@ -13,11 +14,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 import errno
+import fcntl
 import hashlib
 import json
 import os
 import stat
 import struct
+import time
 from typing import Any, cast
 from uuid import UUID
 
@@ -30,6 +33,9 @@ from pietto._project.project_job_workspace import (
 )
 
 __all__: tuple[str, ...] = ()
+
+LEASE = ".life"
+MAX_LEASE_WAIT = 30.0
 
 FORMAT = "pietto.result-chunk.v1"
 COORDINATES = "pietto.coordinate-atoms.v1"
@@ -205,6 +211,79 @@ def _sync(fd: int) -> None:
 def _link(staged: str, final: str, staging: int, chunks: int) -> None:
     # link(2) never replaces an existing name: EEXIST is the no-clobber check.
     os.link(staged, final, src_dir_fd=staging, dst_dir_fd=chunks, follow_symlinks=False)
+
+
+def _unlink(name: str, directory: int) -> None:
+    os.unlink(name, dir_fd=directory)
+
+
+class Lease:
+    """One generation's v7 lifetime lock on its stable `locks/<gen>.life` file:
+    SHARED around any chunk file use, EXCLUSIVE (never waiting) around a
+    collection decision and its deletions. Each lease is its own open file
+    description, so leases conflict even inside one process. Private local
+    coordination, never authentication; the lock file is never deleted."""
+
+    __slots__ = ("generation", "exclusive", "_fd", "_pid")
+
+    def __init__(self, workspace, generation, *, exclusive=False, wait=MAX_LEASE_WAIT):
+        from pietto._project.project_job_workspace import valid_identity
+
+        if not valid_identity(generation, "gen"):
+            raise JobStoreError("GENERATION_UNKNOWN")
+        if type(wait) not in (int, float) or not 0 <= wait <= MAX_LEASE_WAIT:
+            raise JobStoreError("LEASE_WAIT_BOUND")
+        locks = workspace.locks_fd()
+        name = generation + LEASE
+        fd = os.open(
+            name,
+            os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC,
+            0o600,
+            dir_fd=locks,
+        )
+        try:
+            state = os.fstat(fd)
+            if not _private_file(state) or state.st_nlink != 1:
+                raise JobStoreError("LEASE_OBJECT")
+            mode = (fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH) | fcntl.LOCK_NB
+            deadline = time.monotonic() + (0 if exclusive else wait)
+            while True:
+                try:
+                    fcntl.flock(fd, mode)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise JobStoreError("LEASE_BUSY") from None
+                    time.sleep(0.01)
+            if not _same(
+                os.stat(name, dir_fd=locks, follow_symlinks=False),
+                (
+                    state.st_dev,
+                    state.st_ino,
+                ),
+            ):
+                raise JobStoreError("LEASE_OBJECT")
+        except BaseException:
+            os.close(fd)
+            raise
+        self.generation, self.exclusive = generation, exclusive
+        self._fd, self._pid = fd, os.getpid()
+
+    def __repr__(self) -> str:
+        return f"Lease(generation={self.generation!r}, exclusive={self.exclusive})"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+        return False
+
+    def close(self) -> None:
+        """Close this description once; an inherited copy may still hold it."""
+        if self._fd >= 0 and self._pid == os.getpid():
+            fd, self._fd = self._fd, -1
+            os.close(fd)
 
 
 def _same(state: os.stat_result, identity: tuple[int, int]) -> bool:

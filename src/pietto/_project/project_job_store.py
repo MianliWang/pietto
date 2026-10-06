@@ -19,9 +19,11 @@ import stat
 from typing import Any
 
 from pietto._project.project_job_workspace import (
+    CONTROL_RESERVE,
     JobStoreError,
     Workspace,
     admit,
+    charged_bytes,
     new_identity,
     read,
     supports,
@@ -42,7 +44,13 @@ LIMITS = {
     "operation": 262144,
     "chunk": 65536,
     "retention": 16384,
+    "admission": 65536,
+    "chunk_claim": 131072,
+    "collection": 65536,
 }
+# v7: operation rows that data operations never consume, kept for cancel,
+# attempt terminals, ends, releases, retirement and reconciliation.
+CONTROL_OPERATIONS = 4096
 MAX_ATTEMPT_ORDINAL = 1024
 ROUTES = ("postgres_rows", "postgres_adbc", "mysql_rows")
 ISOLATIONS = ("stable", "serializable")
@@ -208,12 +216,24 @@ def _limit(connection: sqlite3.Connection, table: str) -> None:
         raise JobStoreError("STORE_LIMIT")
 
 
+def charge(connection, workspace, need: int, *, control: bool = False) -> None:
+    """v7 in-transaction admission: one serialization point for every writer."""
+    if (
+        charged_bytes(connection, workspace)
+        + need
+        + (0 if control else CONTROL_RESERVE)
+        > workspace.budget
+    ):
+        raise JobStoreError("WORKSPACE_BUDGET")
+
+
 def _operate(workspace, operation, kind, request, effect, *, payload=0, control=False):
     """Replay check, conditional effect and operation record in ONE transaction."""
     if not valid_identity(operation, "op"):
         raise JobStoreError("OPERATION_IDENTITY")
     text = _json(request)
-    admit(workspace, payload + len(text.encode("utf-8")), control=control)
+    size = payload + len(text.encode("utf-8"))
+    admit(workspace, size, control=control)
 
     def body(connection):
         row = connection.execute(
@@ -227,6 +247,16 @@ def _operate(workspace, operation, kind, request, effect, *, payload=0, control=
             return OperationResult(
                 operation, kind, row[3], row[0], _pairs(row[4]), "PREVIOUSLY_COMMITTED"
             )
+        if supports(workspace, "bounded-job-runtime"):
+            # Under the writer lock: committed accounting plus every outstanding
+            # reservation, and the operation rows kept for control.
+            charge(connection, workspace, 3 * size, control=control)
+            if (
+                not control
+                and connection.execute("SELECT count(*) FROM operation").fetchone()[0]
+                >= LIMITS["operation"] - CONTROL_OPERATIONS
+            ):
+                raise JobStoreError("STORE_LIMIT")
         _limit(connection, "operation")
         subject, result = effect(connection)
         cursor = connection.execute(
@@ -277,7 +307,8 @@ def _advance(publisher: Publisher, result: OperationResult) -> OperationResult:
 
 
 def _unpublished(connection, workspace, generation) -> None:
-    """v6 write admission: a published generation takes no new attempt or data."""
+    """v6 write admission: a published generation takes no new attempt or data;
+    v7: neither does an explicitly retired one."""
     if (
         supports(workspace, "complete-publication")
         and connection.execute(
@@ -285,6 +316,13 @@ def _unpublished(connection, workspace, generation) -> None:
         ).fetchone()
     ):
         raise JobStoreError("GENERATION_PUBLISHED")
+    if (
+        supports(workspace, "concurrent-gc")
+        and connection.execute(
+            "SELECT 1 FROM generation_retirement WHERE generation = ?", (generation,)
+        ).fetchone()
+    ):
+        raise JobStoreError("GENERATION_RETIRED")
 
 
 def _template_root(template):

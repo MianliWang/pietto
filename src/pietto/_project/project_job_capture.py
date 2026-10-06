@@ -6,8 +6,10 @@ publisher fence, and each publication creates an immutable checkpoint whose
 contiguous frontier is recomputed from its complete member set. Committed is
 not complete: source, transaction, delivery, cleanup and remote use stay the
 attempt's own layers. On v4, a later attempt's chunks are admitted only through
-S14's reconciled continuation rows. Nothing here re-enumerates a source, ACKs,
-publishes a generation, expires or collects garbage.
+S14's reconciled continuation rows. On v7 each file is claimed under a runtime
+admission before its name exists, and every file use holds its generation's
+shared lease (S17 collection takes it exclusively). Nothing here re-enumerates a
+source, ACKs, publishes a generation, expires or collects garbage.
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ from pietto._project.project_job_store import (
     _operate,
     _pairs,
     _unpublished,
+    new_operation,
 )
 from pietto._project.project_job_workspace import (
     CHUNKS,
@@ -146,6 +149,7 @@ class CaptureSession:
         "record",
         "kind",
         "contract",
+        "admission",
         "_binding",
         "_observed",
         "_batches",
@@ -164,6 +168,8 @@ class CaptureSession:
         self.record = record
         self.kind = kind
         self.contract = contract
+        # v7: the process-local runtime Admission whose allowance claims files.
+        self.admission: Any = None
         self._binding = None
         self._observed = self._batches = 0
         self._checked = None
@@ -343,7 +349,14 @@ class CaptureSession:
             },
             frame,
         )
-        facts = chunks.write_chunk(workspace, identity, data)
+        if supports(workspace, "concurrent-gc"):
+            # The claim names this exact file before it can exist unreferenced;
+            # the shared lease keeps a collector out while the file is made.
+            with chunks.Lease(workspace, self.attempt.generation):
+                self._claim(workspace, identity, len(data))
+                facts = chunks.write_chunk(workspace, identity, data)
+        else:
+            facts = chunks.write_chunk(workspace, identity, data)
         staged = StagedChunk(
             self,
             identity,
@@ -361,6 +374,70 @@ class CaptureSession:
         self._staged[identity] = staged
         return staged
 
+    def _claim(self, workspace, identity, size) -> OperationResult:
+        """v7: reserve one exact future file under this unit's runtime admission
+        (fenced data operation, before the staging name exists)."""
+        from pietto._project.project_job_runtime import admitted
+
+        admission = admitted(self.admission, workspace, self.publisher.job)
+        publisher, attempt = self.publisher, self.attempt
+        request = _identity_request(
+            publisher,
+            generation=attempt.generation,
+            attempt=attempt.identity,
+            chunk=identity,
+            bytes=size,
+            admission=admission.identity,
+        )
+
+        def effect(c):
+            revision = _fence(c, publisher, _FENCE)
+            _claimant(c, workspace, publisher, attempt)
+            row = c.execute(
+                "SELECT a.job, a.runtime, a.durable,"
+                " (SELECT count(*) FROM admission_settlement s"
+                " WHERE s.admission = a.identity),"
+                " (SELECT coalesce(sum(k.bytes), 0) FROM chunk_claim k"
+                " WHERE k.admission = a.identity),"
+                " (SELECT max(epoch) FROM runtime_owner)"
+                " FROM admission a WHERE a.identity = ?",
+                (admission.identity,),
+            ).fetchone()
+            if row is None or row[0] != publisher.job:
+                raise JobStoreError("RUNTIME_ADMISSION_UNKNOWN")
+            if row[3]:
+                raise JobStoreError("RUNTIME_ADMISSION_SETTLED")
+            if row[1] != row[5]:
+                raise JobStoreError("RUNTIME_STALE")
+            if row[4] + size > row[2]:
+                raise JobStoreError("RUNTIME_ALLOWANCE")
+            _limit(c, "chunk_claim")
+            c.execute(
+                "INSERT INTO chunk_claim(chunk, job, generation, attempt, admission,"
+                " bytes, publisher_epoch, publisher_instance)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    identity,
+                    publisher.job,
+                    attempt.generation,
+                    attempt.identity,
+                    admission.identity,
+                    size,
+                    publisher.epoch,
+                    publisher.instance,
+                ),
+            )
+            return publisher.job, {
+                "bytes": size,
+                "chunk": identity,
+                "revision": revision,
+            }
+
+        return _advance(
+            publisher,
+            _operate(workspace, new_operation(), "claim_chunk", request, effect),
+        )
+
     def publish(self, staged: StagedChunk, *, operation: str) -> OperationResult:
         """One fenced transaction: chunk reference, new checkpoint and members."""
         workspace = self._use()
@@ -370,6 +447,12 @@ class CaptureSession:
             or self._staged.get(staged.identity) is not staged
         ):
             raise JobStoreError("CAPTURE_STAGED_FOREIGN")
+        if supports(workspace, "concurrent-gc"):
+            with chunks.Lease(workspace, self.attempt.generation):
+                return self._publish(workspace, staged, operation)
+        return self._publish(workspace, staged, operation)
+
+    def _publish(self, workspace, staged, operation) -> OperationResult:
         publisher, attempt = self.publisher, self.attempt
         request = _identity_request(
             publisher,
@@ -403,6 +486,18 @@ class CaptureSession:
             if len(ranges) >= MAX_CHUNKS_PER_GENERATION:
                 raise JobStoreError("STORE_LIMIT")
             _limit(c, "chunk")
+            if supports(workspace, "concurrent-gc"):
+                # Only this attempt's own claimed, never-collected object.
+                held = c.execute(
+                    "SELECT attempt, bytes, EXISTS (SELECT 1 FROM tombstone t"
+                    " WHERE t.chunk = k.chunk) FROM chunk_claim k"
+                    " WHERE k.chunk = ? AND k.generation = ?",
+                    (staged.identity, attempt.generation),
+                ).fetchone()
+                if held is None or held[:2] != (attempt.identity, staged.size):
+                    raise JobStoreError("CHUNK_CLAIM")
+                if held[2]:
+                    raise JobStoreError("CHUNK_COLLECTED")
             # The commit boundary rechecks the final object; nothing is read.
             directory = workspace.directory(CHUNKS)
             try:
@@ -560,6 +655,31 @@ def known_extent(c, workspace, generation) -> int | None:
     if len(ends) > 1:
         raise JobStoreError("CAPTURE_EXTENT")
     return ends[0][0] if ends else None
+
+
+def _claimant(c, workspace, publisher, attempt) -> None:
+    """v7 claim admission: this publisher's open capture attempt, or its S14
+    continuation (candidate files exist before the barrier), of a generation
+    that is neither published nor retired."""
+    _unpublished(c, workspace, attempt.generation)
+    row = c.execute(
+        "SELECT a.publisher_epoch, a.publisher_instance,"
+        " (SELECT count(*) FROM attempt_terminal t WHERE t.attempt = a.identity),"
+        " (SELECT attempt FROM capture p WHERE p.generation = a.generation),"
+        " (SELECT count(*) FROM continuation n WHERE n.attempt = a.identity)"
+        " FROM attempt a WHERE a.identity = ? AND a.generation = ? AND a.job = ?",
+        (attempt.identity, attempt.generation, publisher.job),
+    ).fetchone()
+    if row is None:
+        raise JobStoreError("ATTEMPT_UNKNOWN")
+    if row[:2] != (publisher.epoch, publisher.instance):
+        raise JobStoreError("CAPTURE_PUBLISHER")
+    if row[2]:
+        raise JobStoreError("ATTEMPT_TERMINAL")
+    if row[3] is None:
+        raise JobStoreError("CAPTURE_UNKNOWN")
+    if row[3] != attempt.identity and not row[4]:
+        raise JobStoreError("CAPTURE_PUBLISHER")
 
 
 def _writer(c, workspace, publisher, attempt) -> int | None:
@@ -926,7 +1046,16 @@ def _scope(scope) -> str:
 
 
 def _retain(c, workspace, publisher, generation, checkpoint, text):
-    """Transaction-local retention insert; the caller owns fence and operation."""
+    """Transaction-local retention insert; the caller owns fence and operation.
+    v7: a retired generation takes no new reference (consumer, window,
+    preparation or explicit retention); existing ones stay effective."""
+    if (
+        supports(workspace, "concurrent-gc")
+        and c.execute(
+            "SELECT 1 FROM generation_retirement WHERE generation = ?", (generation,)
+        ).fetchone()
+    ):
+        raise JobStoreError("GENERATION_RETIRED")
     _limit(c, "retention")
     identity = new_identity("ret")
     snapshot = _snapshot(c, workspace, publisher.job, generation, checkpoint)
@@ -1028,6 +1157,8 @@ def release_retention(
             "SELECT 1 FROM retention_release WHERE retention = ?", (retention,)
         ).fetchone():
             raise JobStoreError("RETENTION_RELEASED")
+        if supports(workspace, "concurrent-gc") and _obligated(c, retention):
+            raise JobStoreError("RETENTION_OBLIGATION")
         c.execute(
             "INSERT INTO retention_release(retention, publisher_epoch,"
             " publisher_instance) VALUES (?, ?, ?)",
@@ -1048,43 +1179,132 @@ def release_retention(
     )
 
 
+_UNRESOLVED = (
+    "(SELECT count(*) FROM sink_observation o WHERE o.stream = i.stream"
+    " AND o.position >= i.start AND o.position < i.stop) < i.stop - i.start"
+)
+
+
+def _obligated(c, retention) -> bool:
+    """v7: an S15 window, or an S13 consumer whose deliveries were bridged, still
+    has an issued occurrence without a local sink observation; only the stream's
+    own retirement (after resolution) may release such protection."""
+    return bool(
+        c.execute(
+            "SELECT EXISTS (SELECT 1 FROM stream_window w JOIN stream_issuance i"
+            " ON i.stream = w.stream WHERE w.retention = ?1 AND " + _UNRESOLVED + ")"
+            " OR EXISTS (SELECT 1 FROM consumer k JOIN issuance d"
+            " ON d.consumer = k.identity JOIN stream_issuance i"
+            " ON i.delivery = d.identity WHERE k.retention = ?1 AND "
+            + _UNRESOLVED
+            + ")",
+            (retention,),
+        ).fetchone()[0]
+    )
+
+
 def protected_chunks(workspace: Workspace, job: str) -> frozenset[str]:
-    """Latest checkpoint members per generation plus unreleased retained snapshots."""
+    """Latest checkpoint members per (v7: non-retired) generation plus unreleased
+    retained snapshots. Live file users are protected by leases, not here."""
     _capturing(workspace)
-    return frozenset(
-        r[0]
-        for r in read(
-            workspace,
-            lambda c: c.execute(
-                "SELECT m.chunk FROM checkpoint_member m JOIN checkpoint k"
-                " ON k.identity = m.checkpoint WHERE k.job = ? AND (k.ordinal ="
-                " (SELECT max(ordinal) FROM checkpoint WHERE generation = k.generation)"
-                " OR k.identity IN (SELECT r.checkpoint FROM retention r WHERE"
-                " r.job = k.job AND r.identity NOT IN"
-                " (SELECT retention FROM retention_release)))",
-                (job,),
-            ).fetchall(),
+    latest = "k.ordinal = (SELECT max(ordinal) FROM checkpoint WHERE generation = k.generation)"
+    if supports(workspace, "concurrent-gc"):
+        latest += (
+            " AND NOT EXISTS (SELECT 1 FROM generation_retirement g"
+            " WHERE g.generation = k.generation)"
         )
+    sql = (
+        "SELECT m.chunk FROM checkpoint_member m JOIN checkpoint k"
+        " ON k.identity = m.checkpoint WHERE k.job = ? AND ((" + latest + ")"
+        " OR k.identity IN (SELECT r.checkpoint FROM retention r WHERE"
+        " r.job = k.job AND r.identity NOT IN"
+        " (SELECT retention FROM retention_release)))"
+    )
+    return frozenset(
+        r[0] for r in read(workspace, lambda c: c.execute(sql, (job,)).fetchall())
     )
 
 
 def classify_files(workspace: Workspace) -> dict:
-    """Referenced, orphan, staging and foreign names; nothing is adopted or removed."""
+    """Referenced, orphan, staging and foreign names; nothing is adopted or removed.
+
+    v7 also separates claimed-but-unpublished names, collection-decided names
+    still present, decided names already absent but not yet observed, removed
+    (observed) names and removed names that reappeared. `missing` stays a
+    committed name absent WITHOUT a collection decision: an integrity failure.
+    """
     _capturing(workspace)
-    referenced = {
-        r[0]
-        for r in read(
-            workspace, lambda c: c.execute("SELECT file FROM chunk").fetchall()
-        )
-    }
+    gc = supports(workspace, "concurrent-gc")
+
+    def body(c):
+        referenced = {r[0] for r in c.execute("SELECT file FROM chunk")}
+        if not gc:
+            return referenced, set(), set(), set()
+        claimed = {r[0] for r in c.execute("SELECT chunk FROM chunk_claim")}
+        decided = {r[0] for r in c.execute("SELECT chunk FROM tombstone")}
+        removed = {r[0] for r in c.execute("SELECT chunk FROM removal")}
+        return referenced, claimed, decided, removed
+
+    referenced, claimed, decided, removed = read(workspace, body)
     finals = chunks.list_names(workspace, CHUNKS)
     staging = chunks.list_names(workspace, STAGING)
+    if not gc:
+        return {
+            "referenced": tuple(
+                n for n, k in finals if n in referenced and k == "file"
+            ),
+            "missing": tuple(sorted(referenced - {n for n, _k in finals})),
+            "orphans": tuple(
+                n for n, k in finals if n not in referenced and k == "file"
+            ),
+            "staging": tuple(n for n, k in staging if k == "file"),
+            "foreign": tuple(n for n, k in finals + staging if k != "file"),
+        }
+
+    def subject(name):
+        for suffix in (chunks.SUFFIX, chunks.STAGED):
+            if name.endswith(suffix):
+                return name[: -len(suffix)]
+        return None
+
+    present = {n for n, k in finals + staging if k == "file"}
+    names = [(n, subject(n)) for n, k in finals + staging if k == "file"]
+    collected = decided - removed
     return {
-        "referenced": tuple(n for n, k in finals if n in referenced and k == "file"),
-        "missing": tuple(sorted(referenced - {n for n, _k in finals})),
-        "orphans": tuple(n for n, k in finals if n not in referenced and k == "file"),
+        "referenced": tuple(
+            n
+            for n, k in finals
+            if n in referenced and k == "file" and subject(n) not in decided
+        ),
+        "missing": tuple(
+            sorted(
+                n
+                for n in referenced - {n for n, _k in finals}
+                if subject(n) not in decided
+            )
+        ),
+        "orphans": tuple(
+            n
+            for n, k in finals
+            if n not in referenced and k == "file" and subject(n) not in claimed
+        ),
         "staging": tuple(n for n, k in staging if k == "file"),
         "foreign": tuple(n for n, k in finals + staging if k != "file"),
+        "claimed": tuple(
+            n
+            for n, s in names
+            if s in claimed and s not in decided and n not in referenced
+        ),
+        "collected": tuple(n for n, s in names if s in collected),
+        "collected_absent": tuple(
+            sorted(
+                s
+                for s in collected
+                if s + chunks.SUFFIX not in present and s + chunks.STAGED not in present
+            )
+        ),
+        "removed": tuple(sorted(removed)),
+        "reappeared": tuple(n for n, s in names if s in removed),
     }
 
 
@@ -1188,9 +1408,14 @@ class CheckedChunk:
 
 
 class SnapshotReader:
-    """Holds a member snapshot and its own read-only directory descriptor only."""
+    """Holds a member snapshot and its own read-only directory descriptor only.
 
-    __slots__ = ("snapshot", "output", "_directory", "_pid", "_closed")
+    v7: it also holds its generation's SHARED lease for its whole lifetime and,
+    after acquiring it, refuses a snapshot with any collection-decided member;
+    an earlier snapshot is never deletion protection by itself.
+    """
+
+    __slots__ = ("snapshot", "output", "_directory", "_lease", "_pid", "_closed")
 
     def __init__(self, workspace: Workspace, snapshot, output):
         _capturing(workspace)
@@ -1204,8 +1429,28 @@ class SnapshotReader:
         ):
             raise JobStoreError("READER_SNAPSHOT")
         self.snapshot, self.output = snapshot, output
-        self._directory = workspace.directory(CHUNKS)
         self._pid = os.getpid()
+        self._closed = True
+        self._lease = None
+        if supports(workspace, "concurrent-gc"):
+            self._lease = chunks.Lease(workspace, snapshot.generation)
+        try:
+            if self._lease is not None:
+                members = {m.chunk for m in snapshot.members}
+                decided = read(
+                    workspace,
+                    lambda c: c.execute(
+                        "SELECT chunk FROM tombstone WHERE generation = ?",
+                        (snapshot.generation,),
+                    ).fetchall(),
+                )
+                if members & {r[0] for r in decided}:
+                    raise JobStoreError("CHUNK_COLLECTED")
+            self._directory = workspace.directory(CHUNKS)
+        except BaseException:
+            if self._lease is not None:
+                self._lease.close()
+            raise
         self._closed = False
 
     def __enter__(self):
@@ -1219,6 +1464,8 @@ class SnapshotReader:
         if not self._closed and self._pid == os.getpid():
             self._closed = True
             os.close(self._directory)
+            if self._lease is not None:
+                self._lease.close()
 
     def read(self, index: int) -> CheckedChunk:
         """Bounded file, exact descriptor correspondence, full IPC value checks."""

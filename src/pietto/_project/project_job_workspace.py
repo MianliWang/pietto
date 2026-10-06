@@ -24,13 +24,16 @@ __all__: tuple[str, ...] = ()
 FORMAT = "pietto.job-workspace.v1"
 FEATURES: tuple[str, ...] = ()
 # S12's capture-capable, S13's replay-capable, S14's extraction-resume,
-# S15's cooperative-delivery and S16's complete-publication revisions are
-# selected only by an explicit create option; nothing is ever upgraded in place.
+# S15's cooperative-delivery, S16's complete-publication and S17's bounded-runtime
+# and concurrent-gc revisions are selected only by an explicit create option;
+# nothing is ever upgraded in place.
 FORMAT_V2 = "pietto.job-workspace.v2"
 FORMAT_V3 = "pietto.job-workspace.v3"
 FORMAT_V4 = "pietto.job-workspace.v4"
 FORMAT_V5 = "pietto.job-workspace.v5"
 FORMAT_V6 = "pietto.job-workspace.v6"
+# S17's bounded runtime and concurrent safe collection (v7), equally explicit.
+FORMAT_V7 = "pietto.job-workspace.v7"
 ENVELOPE = "workspace.json"
 DATABASE = "store.sqlite"
 CREATING = "CREATING"
@@ -48,7 +51,8 @@ CONTROL_RESERVE = 4 * 1024 * 1024
 JOURNAL_SIZE_LIMIT = 4 * 1024 * 1024
 MAX_BUSY_SECONDS = 30.0
 IDENTITY = re.compile(
-    r"(ws|job|bind|gen|att|pub|op|chk|ckp|ret|csm|rps|dlv|stm|sts|sti|snk|skc)"
+    r"(ws|job|bind|gen|att|pub|op|chk|ckp|ret|csm|rps|dlv|stm|sts|sti|snk|skc"
+    r"|run|adm|gcd)"
     r"-[0-9a-f]{32}"
 )
 
@@ -388,6 +392,65 @@ PUBLICATION_SCHEMA = (
     " FOREIGN KEY (operation) REFERENCES operation(identity)"
     " DEFERRABLE INITIALLY DEFERRED) STRICT, WITHOUT ROWID",
 )
+# Closed S17 tables (v7 only), insert-only. A runtime owner is one coordinating
+# incarnation (the latest epoch is current). An admission is one unit's durable
+# resource allowance under that incarnation, settled exactly once. A chunk claim
+# reserves one exact future chunk file (name = chunk identity) before it exists.
+RUNTIME_SCHEMA = (
+    "CREATE TABLE runtime_owner(epoch INTEGER PRIMARY KEY CHECK (epoch >= 1),"
+    " instance TEXT NOT NULL UNIQUE, policy TEXT NOT NULL) STRICT",
+    "CREATE TABLE admission(identity TEXT PRIMARY KEY,"
+    " job TEXT NOT NULL REFERENCES job(identity),"
+    " runtime INTEGER NOT NULL REFERENCES runtime_owner(epoch),"
+    " mode TEXT NOT NULL CHECK (mode IN"
+    " ('CAPTURE', 'RELAY', 'RECOVER', 'REPLAY', 'PUBLISH')),"
+    " vector TEXT NOT NULL, durable INTEGER NOT NULL CHECK (durable >= 0),"
+    " operations INTEGER NOT NULL CHECK (operations >= 0),"
+    " UNIQUE (identity, job)) STRICT, WITHOUT ROWID",
+    "CREATE TABLE admission_settlement(admission TEXT PRIMARY KEY"
+    " REFERENCES admission(identity),"
+    " runtime INTEGER NOT NULL REFERENCES runtime_owner(epoch),"
+    " kind TEXT NOT NULL CHECK (kind IN ('RELEASED', 'RECONCILED')),"
+    " claimed INTEGER NOT NULL CHECK (claimed >= 0)) STRICT, WITHOUT ROWID",
+    "CREATE TABLE chunk_claim(chunk TEXT PRIMARY KEY, job TEXT NOT NULL,"
+    " generation TEXT NOT NULL, attempt TEXT NOT NULL, admission TEXT NOT NULL,"
+    " bytes INTEGER NOT NULL CHECK (bytes > 0),"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " publisher_instance TEXT NOT NULL, UNIQUE (chunk, generation),"
+    " FOREIGN KEY (attempt, generation, job) REFERENCES attempt(identity, generation, job),"
+    " FOREIGN KEY (admission, job) REFERENCES admission(identity, job))"
+    " STRICT, WITHOUT ROWID",
+    "CREATE INDEX chunk_claim_admission ON chunk_claim(admission)",
+)
+# A retirement removes only the implicit latest-checkpoint root of an exact
+# unpublished generation. A collection is one bounded, pinned deletion decision;
+# a tombstone is its exact object, a removal the observed absence after the
+# directory synchronization. History rows are never deleted.
+COLLECTION_SCHEMA = (
+    "CREATE TABLE generation_retirement(generation TEXT PRIMARY KEY,"
+    " job TEXT NOT NULL,"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " publisher_instance TEXT NOT NULL,"
+    " FOREIGN KEY (generation, job) REFERENCES generation(identity, job))"
+    " STRICT, WITHOUT ROWID",
+    "CREATE TABLE collection(identity TEXT PRIMARY KEY, job TEXT NOT NULL,"
+    " generation TEXT NOT NULL,"
+    " runtime INTEGER NOT NULL REFERENCES runtime_owner(epoch),"
+    " members INTEGER NOT NULL CHECK (members >= 1), UNIQUE (identity, generation),"
+    " FOREIGN KEY (generation, job) REFERENCES generation(identity, job))"
+    " STRICT, WITHOUT ROWID",
+    "CREATE TABLE tombstone(chunk TEXT PRIMARY KEY, collection TEXT NOT NULL,"
+    " generation TEXT NOT NULL,"
+    " basis TEXT NOT NULL CHECK (basis IN ('RETIRED', 'ABANDONED')),"
+    " objects TEXT NOT NULL, bytes INTEGER NOT NULL CHECK (bytes > 0),"
+    " FOREIGN KEY (chunk, generation) REFERENCES chunk_claim(chunk, generation),"
+    " FOREIGN KEY (collection, generation) REFERENCES collection(identity, generation))"
+    " STRICT, WITHOUT ROWID",
+    "CREATE TABLE removal(chunk TEXT PRIMARY KEY REFERENCES tombstone(chunk),"
+    " runtime INTEGER NOT NULL REFERENCES runtime_owner(epoch),"
+    " basis TEXT NOT NULL CHECK (basis IN ('UNLINKED', 'ABSENT')))"
+    " STRICT, WITHOUT ROWID",
+)
 # Closed known-version table: envelope (format, features) -> user_version,
 # exact schema and private directories. Anything else refuses before SQLite.
 VERSIONS = {
@@ -426,6 +489,27 @@ VERSIONS = {
         + EXTRACTION_SCHEMA
         + DELIVERY_SCHEMA
         + PUBLICATION_SCHEMA,
+        (CHUNKS, STAGING),
+    ),
+    FORMAT_V7: (
+        (
+            "result-chunks",
+            "saved-replay",
+            "extraction-resume",
+            "cooperative-delivery",
+            "complete-publication",
+            "bounded-job-runtime",
+            "concurrent-gc",
+        ),
+        7,
+        SCHEMA
+        + CAPTURE_SCHEMA
+        + REPLAY_SCHEMA
+        + EXTRACTION_SCHEMA
+        + DELIVERY_SCHEMA
+        + PUBLICATION_SCHEMA
+        + RUNTIME_SCHEMA
+        + COLLECTION_SCHEMA,
         (CHUNKS, STAGING),
     ),
 }
@@ -829,15 +913,38 @@ def read(workspace: Workspace, body):
         raise JobStoreError(category(error)) from None
 
 
-def accounted_bytes(workspace: Workspace) -> int:
-    """Database, WAL, SHM, envelope and lock files; not every transient allocation."""
-    root = workspace._root_fd
+def metadata_bytes(workspace: Workspace) -> int:
+    """Database, WAL, SHM and envelope sizes now: a measured observation."""
     total = 0
     for name in (DATABASE, DATABASE + "-wal", DATABASE + "-shm", ENVELOPE):
         try:
-            total += os.stat(name, dir_fd=root, follow_symlinks=False).st_size
+            total += os.stat(
+                name, dir_fd=workspace._root_fd, follow_symlinks=False
+            ).st_size
         except FileNotFoundError:
             pass
+    return total
+
+
+def charged_bytes(connection: sqlite3.Connection, workspace: Workspace) -> int:
+    """v7 accounting inside one transaction: measured metadata files, every
+    claimed chunk file not yet observed removed (one charge per claim, so a
+    staging/final alias pair counts once) and each open admission's unused
+    allowance. A conservative reservation, never a free-space guarantee."""
+    claimed, reserved = connection.execute(
+        "SELECT (SELECT coalesce(sum(c.bytes), 0) FROM chunk_claim c WHERE NOT EXISTS"
+        " (SELECT 1 FROM removal r WHERE r.chunk = c.chunk)),"
+        " (SELECT coalesce(sum(max(a.durable - (SELECT coalesce(sum(k.bytes), 0)"
+        " FROM chunk_claim k WHERE k.admission = a.identity), 0)), 0) FROM admission a"
+        " WHERE NOT EXISTS (SELECT 1 FROM admission_settlement s"
+        " WHERE s.admission = a.identity))"
+    ).fetchone()
+    return metadata_bytes(workspace) + claimed + reserved
+
+
+def accounted_bytes(workspace: Workspace) -> int:
+    """Database, WAL, SHM, envelope and lock files; not every transient allocation."""
+    total = metadata_bytes(workspace)
     with os.scandir(workspace.locks_fd()) as entries:
         for entry in entries:
             total += entry.stat(follow_symlinks=False).st_size

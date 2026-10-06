@@ -220,3 +220,16 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
   statements, not by rerunning either whole: a rerun changes session state such
   as `search_path` for the next statement. See
   [S16](../phases/phase-68/slice-16.md).
+
+
+## Phase68 S17
+
+- Put the claim (the durable reservation of a future file) before the name can
+  exist and check the global budget inside the same writer transaction; a fresh
+  size sample before parallel writes is not admission.
+- Treat a deletion as a durable decision taken under exclusion and observed only
+  after directory synchronization; a later incarnation that finds the object
+  already gone records `ABSENT`, never an unlink it did not perform.
+- In process tests, read barrier lines before any buffered data line from the
+  same pipe, and open a fresh workspace handle in every thread: SQLite
+  connections are thread-bound. See [S17](../phases/phase-68/slice-17.md).
