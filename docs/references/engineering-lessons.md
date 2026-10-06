@@ -195,3 +195,15 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
   new members produced by this attempt) instead of trusting a process flag.
 - Never key test-side synthetic state by `id()` across tests; ids are reused. See
   [S14](../phases/phase-68/slice-14.md).
+
+
+## Phase68 S15
+
+- Put an effect and its deduplication decision in one row of the destination's own
+  transaction: the primary key decides a concurrent duplicate, and an existing
+  different row is an explicit conflict, never an overwrite or silent ignore.
+- Derive delivered progress from per-occurrence observations, never from the last
+  issued stop: a lost reply leaves a hole that only a later observation fills.
+- A literal oracle may be a bag; judge position order against independently
+  decoded saved bytes instead of assuming the oracle list order. See
+  [S15](../phases/phase-68/slice-15.md).

@@ -59,6 +59,22 @@ EXTRACTION_KINDS = (
     "end_continuation",
 )
 EXTRACTION_TABLES = ("extraction", "continuation", "reconciliation", "continuation_end")
+DELIVERY_KINDS = (
+    "register_stream",
+    "adopt_window",
+    "open_stream",
+    "issue_stream",
+    "confirm_sink",
+    "retire_stream",
+)
+DELIVERY_TABLES = (
+    "stream",
+    "stream_window",
+    "stream_session",
+    "stream_issuance",
+    "sink_observation",
+    "stream_retirement",
+)
 DESCRIPTOR = (
     "attempt",
     "batches",
@@ -139,11 +155,13 @@ def verify_store(workspace: Workspace) -> dict:
     capture = supports(workspace, "result-chunks")
     replay = supports(workspace, "saved-replay")
     extraction = supports(workspace, "extraction-resume")
+    delivery = supports(workspace, "cooperative-delivery")
     kinds = (
         KINDS
         + (CAPTURE_KINDS if capture else ())
         + (REPLAY_KINDS if replay else ())
         + (EXTRACTION_KINDS if extraction else ())
+        + (DELIVERY_KINDS if delivery else ())
     )
 
     def snapshot(c) -> dict[str, Any]:
@@ -152,6 +170,7 @@ def verify_store(workspace: Workspace) -> dict:
             for name in (CAPTURE_TABLES if capture else ())
             + (REPLAY_TABLES if replay else ())
             + (EXTRACTION_TABLES if extraction else ())
+            + (DELIVERY_TABLES if delivery else ())
         }
         return tables | {
             "integrity": tuple(r[0] for r in c.execute("PRAGMA integrity_check")),
@@ -218,11 +237,15 @@ def verify_store(workspace: Workspace) -> dict:
             if current["state"] != "ACTIVE" or result.get("state") != "CANCELLED":
                 _fail("STATE_HISTORY")
             current["state"] = "CANCELLED"
-        elif kind in CAPTURE_KINDS + REPLAY_KINDS + EXTRACTION_KINDS:
-            # Data progress and saved reads need an ACTIVE job; ends and
-            # retention (including a consumer's release) are control.
+        elif kind in CAPTURE_KINDS + REPLAY_KINDS + EXTRACTION_KINDS + DELIVERY_KINDS:
+            # Data progress, saved reads and delivery need an ACTIVE job; ends,
+            # retention, releases and stream retirement are control.
             if (
-                kind in CAPTURE_KINDS[:2] + REPLAY_KINDS + EXTRACTION_KINDS[:3]
+                kind
+                in CAPTURE_KINDS[:2]
+                + REPLAY_KINDS
+                + EXTRACTION_KINDS[:3]
+                + DELIVERY_KINDS[:5]
                 and current["state"] != "ACTIVE"
             ):
                 _fail("STATE_HISTORY")
@@ -575,11 +598,15 @@ def _verify_capture(workspace, data, events, created) -> dict:
         outstanding[issued[2]] = None
         progress[issued[1]] = issued[5]
 
+    deliver = _delivery_replay(data, seen, members)
     for sequence, kind, job, request, result, epoch, instance in events:
         publisher = [epoch, instance]
         generation = request.get("generation")
         if kind in REPLAY_KINDS:
             replay(sequence, kind, job, request, result, epoch, instance)
+            continue
+        if kind in DELIVERY_KINDS:
+            deliver(sequence, kind, job, request, result, epoch, instance)
             continue
         if kind in ("begin_capture", "begin_extraction"):
             row = captures.get(generation)
@@ -977,4 +1004,328 @@ def _verify_capture(workspace, data, events, created) -> dict:
             "reconciliations": len(reconciliations),
             "continuation_ends": len(finished),
         }
+    if "stream" in data:
+        counts |= deliver(None, "rows", None, None, None, None, None)
     return counts
+
+
+def _delivery_replay(data, seen, members):
+    """S15 history against raw rows: registration, window chain, sessions,
+    issuances, observations and retirement, with the replayed frontier."""
+    from pietto._project.project_job_capture import frontier
+
+    streams = {r[0]: r for r in data.get("stream", ())}
+    windows = {(r[0], r[1]): r for r in data.get("stream_window", ())}
+    sessions = {r[0]: r for r in data.get("stream_session", ())}
+    issued = {r[0]: r for r in data.get("stream_issuance", ())}
+    observations = {(r[0], r[1]): r for r in data.get("sink_observation", ())}
+    retirements = {r[0]: r for r in data.get("stream_retirement", ())}
+    checkpoints = {r[0]: r for r in data["checkpoint"]}
+    retentions = {r[0]: r for r in data["retention"]}
+    releases = {r[0]: r for r in data["retention_release"]}
+    consumers = {r[0]: r for r in data.get("consumer", ())}
+    deliveries = {r[0]: r for r in data.get("issuance", ())}
+    captures = {r[0]: r for r in data["capture"]}
+    generations = data["generation"]
+    chain: dict[str, list] = {}
+    newest: dict[str, str] = {}
+    counter: dict[str, int] = {}
+    last: dict[str, tuple[int, int]] = {}
+    observed: dict[str, set] = {}
+    covered: dict[str, set] = {}
+
+    def reached(stream) -> int:
+        return frontier([(p, p + 1) for p in observed.get(stream, ())])
+
+    def live(sequence, stream, session, job, epoch, instance):
+        row = sessions.get(session)
+        if (
+            row is None
+            or stream not in streams
+            or streams[stream][1] != job
+            or seen.get(session, sequence) >= sequence
+            or row[1] != stream
+            or newest.get(stream) != session
+            or (row[8], row[9]) != (epoch, instance)
+            or ("retired", stream) in seen
+        ):
+            _fail("STREAM_SESSION_HISTORY")
+        return row
+
+    def deliver(sequence, kind, job, request, result, epoch, instance):
+        if kind == "rows":
+            if (
+                any(s not in seen for s in streams)
+                or any(("window",) + w not in seen for w in windows)
+                or any(s not in seen for s in sessions)
+                or any(i not in seen for i in issued)
+                or any(("observed",) + o not in seen for o in observations)
+                or any(("retired", s) not in seen for s in retirements)
+            ):
+                _fail("DELIVERY_ROWS")
+            return {
+                "streams": len(streams),
+                "windows": len(windows),
+                "stream_sessions": len(sessions),
+                "stream_issuances": len(issued),
+                "sink_observations": len(observations),
+                "retirements": len(retirements),
+            }
+        if kind == "register_stream":
+            row = streams.get(result.get("stream"))
+            generation = request.get("generation")
+            capture = captures.get(generation)
+            shape = _canonical(request.get("layout") or "null") or {}
+            if (
+                row is None
+                or row[0] in seen
+                or capture is None
+                or seen.get(("capture", generation), sequence) >= sequence
+                or ("destination", *row[2:3], *row[8:11]) in seen
+                or row[1:]
+                != (
+                    job,
+                    generation,
+                    request.get("binding"),
+                    request.get("route"),
+                    request.get("contract"),
+                    request.get("scheme"),
+                    request.get("layout"),
+                    request.get("sink"),
+                    request.get("namespace"),
+                    request.get("epoch"),
+                    request.get("retention"),
+                    request.get("purpose"),
+                    epoch,
+                    instance,
+                )
+                or (row[3], row[4]) != generations[generation][2:4]
+                or (row[5], row[6]) != (capture[4], capture[5])
+                or type(shape) is not dict
+                or shape.get("contract") != row[5]
+                or shape.get("scheme") != (None if row[6] == "null" else row[6])
+            ):
+                _fail("STREAM_HISTORY")
+            seen[row[0]] = seen[("destination", *row[2:3], *row[8:11])] = sequence
+            chain[row[0]] = []
+            observed[row[0]] = set()
+            covered[row[0]] = set()
+            return
+        stream = request.get("stream")
+        if kind == "retire_stream":
+            row = retirements.get(stream)
+            windows_of = chain.get(stream, [])
+            fresh = [w[5] for w in windows_of if ("release", w[5]) not in seen]
+            if (
+                row is None
+                or stream not in streams
+                or streams[stream][1] != job
+                or ("retired", stream) in seen
+                or covered[stream] - observed[stream]
+                or row[1:] != (reached(stream), epoch, instance)
+                or result.get("released") != len(fresh)
+                or result.get("position") != row[1]
+                or any(
+                    releases.get(r) is None or releases[r][1:] != (epoch, instance)
+                    for r in fresh
+                )
+            ):
+                _fail("RETIREMENT_HISTORY")
+            for retention in fresh:
+                seen[("release", retention)] = sequence
+            seen[("retired", stream)] = sequence
+            return
+        if kind == "open_stream":
+            row = sessions.get(result.get("session"))
+            windows_of = chain.get(stream, [])
+            latest = windows_of[-1] if windows_of else None
+            if (
+                row is None
+                or row[0] in seen
+                or stream not in streams
+                or streams[stream][1] != job
+                or ("retired", stream) in seen
+                or row[1:]
+                != (
+                    stream,
+                    counter.get(stream, 0) + 1,
+                    reached(stream),
+                    request.get("accepted_at"),
+                    request.get("seconds"),
+                    request.get("batch_rows"),
+                    request.get("purpose"),
+                    epoch,
+                    instance,
+                )
+                or (result.get("ordinal"), result.get("position")) != (row[2], row[3])
+                or (
+                    latest is not None
+                    and (
+                        ("release", latest[5]) in seen
+                        or request.get("checkpoint") not in (None, latest[4])
+                    )
+                )
+            ):
+                _fail("STREAM_SESSION_HISTORY")
+            seen[row[0]] = sequence
+            counter[stream] = row[2]
+            newest[stream] = row[0]
+            counter[row[0]] = 0
+            return
+        session = live(sequence, stream, request.get("session"), job, epoch, instance)
+        if kind == "adopt_window":
+            windows_of = chain[stream]
+            latest = windows_of[-1] if windows_of else None
+            ordinal = len(windows_of) + 1
+            row = windows.get((stream, ordinal))
+            checkpoint = checkpoints.get(request.get("checkpoint"))
+            retention = retentions.get(result.get("retention"))
+            generation = streams[stream][2]
+            if (
+                row is None
+                or checkpoint is None
+                or retention is None
+                or retention[0] in seen
+                or seen.get(checkpoint[0], sequence) >= sequence
+                or checkpoint[2] != generation
+                or row[1:]
+                != (
+                    ordinal,
+                    None if latest is None else latest[1],
+                    generation,
+                    checkpoint[0],
+                    retention[0],
+                    0 if latest is None else latest[7],
+                    checkpoint[4],
+                    epoch,
+                )
+                or retention[1:]
+                != (
+                    job,
+                    generation,
+                    checkpoint[0],
+                    request.get("scope"),
+                    epoch,
+                    instance,
+                )
+                or (
+                    result.get("checkpoint"),
+                    result.get("ordinal"),
+                    result.get("start"),
+                    result.get("stop"),
+                )
+                != (checkpoint[0], ordinal, row[6], row[7])
+                or (
+                    latest is not None
+                    and (
+                        latest[4] == checkpoint[0]
+                        or reached(stream) < latest[7]
+                        or checkpoint[3] <= checkpoints[latest[4]][3]
+                        or not members.get(latest[4], set())
+                        <= members.get(checkpoint[0], set())
+                        or row[7] < latest[7]
+                    )
+                )
+            ):
+                _fail("WINDOW_HISTORY")
+            seen[("window", stream, ordinal)] = seen[retention[0]] = sequence
+            windows_of.append(row)
+            return
+        if kind == "issue_stream":
+            row = issued.get(result.get("issuance"))
+            previous = last.get(session[0])
+            start, stop = request.get("start"), request.get("stop")
+            window, delivery = request.get("window"), request.get("delivery")
+            windows_of = chain[stream]
+            if (
+                row is None
+                or row[0] in seen
+                or row[1:]
+                != (
+                    stream,
+                    session[0],
+                    counter[session[0]] + 1,
+                    window,
+                    delivery,
+                    start,
+                    stop,
+                    request.get("digest"),
+                    epoch,
+                )
+                or (result.get("start"), result.get("stop")) != (start, stop)
+                or (
+                    previous is not None
+                    and not set(range(*previous)) <= observed[stream]
+                )
+            ):
+                _fail("STREAM_ISSUANCE_HISTORY")
+            if window is not None:
+                latest = windows_of[-1] if windows_of else None
+                if (
+                    latest is None
+                    or latest[1] != window
+                    or ("release", latest[5]) in seen
+                    or start != reached(stream)
+                    or stop > latest[7]
+                ):
+                    _fail("STREAM_ISSUANCE_HISTORY")
+            else:
+                found = deliveries.get(delivery)
+                consumer = consumers.get(found[1]) if found else None
+                if (
+                    found is None
+                    or consumer is None
+                    or found[0] not in seen
+                    or ("ack", delivery) in seen
+                    or (found[4], found[5]) != (start, stop)
+                    or consumer[2] != streams[stream][2]
+                    or ("release", consumer[5]) in seen
+                ):
+                    _fail("STREAM_ISSUANCE_HISTORY")
+            seen[row[0]] = sequence
+            counter[session[0]] += 1
+            last[session[0]] = (start, stop)
+            covered[stream].update(range(start, stop))
+            return
+        row = issued.get(request.get("issuance"))
+        added = 0
+        if (
+            row is None
+            or row[0] not in seen
+            or (row[1], row[2]) != (stream, session[0])
+            or type(request.get("observations")) is not list
+        ):
+            _fail("OBSERVATION_HISTORY")
+        for item in request["observations"]:
+            position = item[0] if type(item) is list and len(item) == 6 else None
+            stored = observations.get((stream, position))
+            if position in observed[stream]:
+                if stored is None or (stored[6], stored[8]) != (item[3], item[5]):
+                    _fail("OBSERVATION_HISTORY")
+                continue
+            if (
+                stored is None
+                or not row[6] <= position < row[7]
+                or stored[2:]
+                != (
+                    row[0],
+                    session[0],
+                    item[1],
+                    item[2],
+                    item[3],
+                    item[4],
+                    item[5],
+                    epoch,
+                )
+            ):
+                _fail("OBSERVATION_HISTORY")
+            seen[("observed", stream, position)] = sequence
+            observed[stream].add(position)
+            added += 1
+        if (result.get("confirmed"), result.get("position")) != (
+            added,
+            reached(stream),
+        ):
+            _fail("OBSERVATION_HISTORY")
+
+    return deliver

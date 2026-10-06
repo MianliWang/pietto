@@ -144,3 +144,19 @@ purpose-scoped acceptance and a new attempt whose real owner requalifies the
 complete source vector and guards. Stored descriptions, barrier rows and
 persisted success are compared, never trusted as authority. Complete coverage is
 not a transaction ACK, delivery, sink effect or generation publication.
+
+
+## Cooperative-delivery identity
+
+Phase68 [S15](../phases/phase-68/slice-15.md) names one effect by the destination
+incarnation plus the occurrence: `(sink instance, namespace, namespace epoch,
+source workspace, generation, position)`. Attempt, checkpoint, chunk, batch,
+session, consumer, operation, size, path and payload hash never name an effect;
+equal rows at two positions are two effects. A stream (`stm-`) is the one
+registration of a generation to one sink incarnation; sessions (`sts-`),
+issuances (`sti-`) and sink commits (`skc-`) are history, not authority. Reading
+and submitting need distinct fresh process-local acceptances; the sink
+description is read from its owner and compared with independent expectations.
+A sink reply is data, a local observation is not a sink commit, and neither is an
+S13 acknowledgement, source EOF or generation publication. A changed namespace,
+epoch or retention contract is a different destination, never recovery.

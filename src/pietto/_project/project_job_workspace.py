@@ -23,12 +23,13 @@ __all__: tuple[str, ...] = ()
 
 FORMAT = "pietto.job-workspace.v1"
 FEATURES: tuple[str, ...] = ()
-# S12's capture-capable, S13's replay-capable and S14's extraction-resume
-# revisions are selected only by an explicit create option; nothing is ever
-# upgraded in place.
+# S12's capture-capable, S13's replay-capable, S14's extraction-resume and
+# S15's cooperative-delivery revisions are selected only by an explicit create
+# option; nothing is ever upgraded in place.
 FORMAT_V2 = "pietto.job-workspace.v2"
 FORMAT_V3 = "pietto.job-workspace.v3"
 FORMAT_V4 = "pietto.job-workspace.v4"
+FORMAT_V5 = "pietto.job-workspace.v5"
 ENVELOPE = "workspace.json"
 DATABASE = "store.sqlite"
 CREATING = "CREATING"
@@ -46,7 +47,8 @@ CONTROL_RESERVE = 4 * 1024 * 1024
 JOURNAL_SIZE_LIMIT = 4 * 1024 * 1024
 MAX_BUSY_SECONDS = 30.0
 IDENTITY = re.compile(
-    r"(ws|job|bind|gen|att|pub|op|chk|ckp|ret|csm|rps|dlv)-[0-9a-f]{32}"
+    r"(ws|job|bind|gen|att|pub|op|chk|ckp|ret|csm|rps|dlv|stm|sts|sti|snk|skc)"
+    r"-[0-9a-f]{32}"
 )
 
 # The one measured build (S11 profile probe). Version, source and compile
@@ -280,6 +282,78 @@ EXTRACTION_SCHEMA = (
     " FOREIGN KEY (checkpoint, generation) REFERENCES checkpoint(identity, generation))"
     " STRICT, WITHOUT ROWID",
 )
+# Closed S15 tables (v5 only), insert-only. A stream is the one delivery
+# registration of a generation to one sink namespace incarnation. Its windows
+# form one gap-free chain of protected checkpoints from position 0. An issuance
+# is the local intention recorded before any sink contact; a sink observation is
+# one exact confirmation of one occurrence. Progress is derived, never stored.
+DELIVERY_SCHEMA = (
+    "CREATE TABLE stream(identity TEXT PRIMARY KEY, job TEXT NOT NULL,"
+    " generation TEXT NOT NULL, binding TEXT NOT NULL, route TEXT NOT NULL,"
+    " contract TEXT NOT NULL, scheme TEXT NOT NULL, layout TEXT NOT NULL,"
+    " sink TEXT NOT NULL, namespace TEXT NOT NULL,"
+    " epoch INTEGER NOT NULL CHECK (epoch >= 1), retention TEXT NOT NULL,"
+    " purpose TEXT NOT NULL,"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " publisher_instance TEXT NOT NULL, UNIQUE (generation, sink, namespace, epoch),"
+    " UNIQUE (identity, generation),"
+    " FOREIGN KEY (generation, job) REFERENCES capture(generation, job),"
+    " FOREIGN KEY (binding, job) REFERENCES binding(identity, job))"
+    " STRICT, WITHOUT ROWID",
+    "CREATE TABLE stream_window(stream TEXT NOT NULL,"
+    " ordinal INTEGER NOT NULL CHECK (ordinal >= 1),"
+    " previous INTEGER CHECK ((previous IS NULL) = (ordinal = 1)"
+    " AND (previous IS NULL OR previous = ordinal - 1)),"
+    " generation TEXT NOT NULL, checkpoint TEXT NOT NULL,"
+    " retention TEXT NOT NULL UNIQUE REFERENCES retention(identity),"
+    " start INTEGER NOT NULL CHECK (start >= 0 AND (previous IS NOT NULL OR start = 0)),"
+    " stop INTEGER NOT NULL CHECK (stop >= start),"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " PRIMARY KEY (stream, ordinal), UNIQUE (stream, ordinal, stop),"
+    " FOREIGN KEY (stream, generation) REFERENCES stream(identity, generation),"
+    " FOREIGN KEY (checkpoint, generation) REFERENCES checkpoint(identity, generation),"
+    " FOREIGN KEY (stream, previous, start)"
+    " REFERENCES stream_window(stream, ordinal, stop)) STRICT, WITHOUT ROWID",
+    "CREATE TABLE stream_session(identity TEXT PRIMARY KEY,"
+    " stream TEXT NOT NULL REFERENCES stream(identity),"
+    " ordinal INTEGER NOT NULL CHECK (ordinal >= 1),"
+    " position INTEGER NOT NULL CHECK (position >= 0),"
+    " accepted_at INTEGER NOT NULL, seconds INTEGER NOT NULL CHECK (seconds >= 1),"
+    " batch_rows INTEGER CHECK (batch_rows IS NULL OR batch_rows >= 1),"
+    " purpose TEXT NOT NULL,"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " publisher_instance TEXT NOT NULL, UNIQUE (stream, ordinal),"
+    " UNIQUE (identity, stream)) STRICT, WITHOUT ROWID",
+    "CREATE TABLE stream_issuance(identity TEXT PRIMARY KEY, stream TEXT NOT NULL,"
+    " session TEXT NOT NULL, ordinal INTEGER NOT NULL CHECK (ordinal >= 1),"
+    " window_ordinal INTEGER, delivery TEXT UNIQUE REFERENCES issuance(identity),"
+    " start INTEGER NOT NULL CHECK (start >= 0), stop INTEGER NOT NULL CHECK (stop > start),"
+    " digest TEXT NOT NULL,"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " CHECK ((window_ordinal IS NULL) != (delivery IS NULL)),"
+    " UNIQUE (session, ordinal), UNIQUE (identity, stream),"
+    " FOREIGN KEY (session, stream) REFERENCES stream_session(identity, stream),"
+    " FOREIGN KEY (stream, window_ordinal) REFERENCES stream_window(stream, ordinal))"
+    " STRICT, WITHOUT ROWID",
+    "CREATE TABLE sink_observation(stream TEXT NOT NULL,"
+    " position INTEGER NOT NULL CHECK (position >= 0),"
+    " issuance TEXT NOT NULL, session TEXT NOT NULL,"
+    " basis TEXT NOT NULL CHECK (basis IN ('REPLY', 'QUERY')),"
+    " status TEXT NOT NULL CHECK (status IN ('COMMITTED', 'DUPLICATE', 'PRESENT_MATCHING')),"
+    " commit_identity TEXT NOT NULL,"
+    " commit_sequence INTEGER NOT NULL CHECK (commit_sequence >= 1),"
+    " digest TEXT NOT NULL,"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " CHECK ((basis = 'QUERY') = (status = 'PRESENT_MATCHING')),"
+    " PRIMARY KEY (stream, position), UNIQUE (stream, commit_identity),"
+    " FOREIGN KEY (issuance, stream) REFERENCES stream_issuance(identity, stream),"
+    " FOREIGN KEY (session, stream) REFERENCES stream_session(identity, stream))"
+    " STRICT, WITHOUT ROWID",
+    "CREATE TABLE stream_retirement(stream TEXT PRIMARY KEY REFERENCES stream(identity),"
+    " position INTEGER NOT NULL CHECK (position >= 0),"
+    " publisher_epoch INTEGER NOT NULL CHECK (publisher_epoch >= 1),"
+    " publisher_instance TEXT NOT NULL) STRICT, WITHOUT ROWID",
+)
 # Closed known-version table: envelope (format, features) -> user_version,
 # exact schema and private directories. Anything else refuses before SQLite.
 VERSIONS = {
@@ -295,6 +369,12 @@ VERSIONS = {
         ("result-chunks", "saved-replay", "extraction-resume"),
         4,
         SCHEMA + CAPTURE_SCHEMA + REPLAY_SCHEMA + EXTRACTION_SCHEMA,
+        (CHUNKS, STAGING),
+    ),
+    FORMAT_V5: (
+        ("result-chunks", "saved-replay", "extraction-resume", "cooperative-delivery"),
+        5,
+        SCHEMA + CAPTURE_SCHEMA + REPLAY_SCHEMA + EXTRACTION_SCHEMA + DELIVERY_SCHEMA,
         (CHUNKS, STAGING),
     ),
 }

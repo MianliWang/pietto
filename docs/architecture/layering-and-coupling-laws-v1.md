@@ -152,3 +152,16 @@ checked qualification. Continuation, reconciliation and end rows extend the S11
 fenced operation pattern in the explicit v4 workspace, new chunks reuse the S12
 file protocol and publication, and readers admit later producing attempts only
 through those rows. Sinks, publication and GC extend these operations.
+
+
+## Cooperative-delivery plane
+
+Phase68 [S15](../phases/phase-68/slice-15.md) delivers committed S12/S14 chunks
+through the S13 checked rebatch and the original atom/coordinate codec into a
+separate reference sink owner; it adds no second result store, query engine,
+scalar interpreter, process adapter, scheduler or callback inside a transaction.
+Stream, window, session, issuance, observation and retirement rows extend the S11
+fenced operation pattern in the explicit v5 workspace; window protection reuses
+S12 retention. The sink reuses the workspace profile and connection settings but
+never shares a connection, transaction or ATTACH with a job store. Publication
+and GC extend these operations.

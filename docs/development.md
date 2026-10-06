@@ -750,3 +750,27 @@ a fresh Arrow-only process (guarded groups add a fresh-guard drift refusal);
 `histories` runs real SIGKILL histories A-I and L per route. Extraction code
 changes the semantic build identity, so bundles and installed witnesses are
 rebuilt on the final code closure.
+
+
+## Phase68 S15 cooperative-delivery validation
+
+[S15](phases/phase-68/slice-15.md) keeps one cumulative dispatch ledger. Ordinary
+tests have no Arrow or database: pure key, interval and frontier laws run on every
+host, and v5 and sink boundaries, typed sink effects, window chains, issuance,
+frontier holes, changed batch sizes, lost replies and bounded reconciliation,
+conflicts, authority and clocks, injected faults, protection and retirement, the
+S13 bridge, the relay backpressure step and independent history damage run on the
+qualified profile through the labelled ARROW_FREE_REPLAY_STEP and
+ARROW_FREE_PAYLOAD_STEP (the sink's own transactions, windows, issuance,
+confirmations, fences and the verifier still run); real SIGKILL cuts and
+two-process submissions run in registered children. Real evidence runs through
+`scripts/phase68_slice15_probe.py`: `suite` captures seven-scalar, duplicate,
+empty and late-failure cases with SIMULATED_NATIVE_IO in the Arrow-only profile,
+relays committed chunks to a sink before the source ends, redelivers them in a
+fresh process with batch sizes 1/2/3/whole and through the S13 bridge, and an
+independent checker decodes chunk bytes and sink rows itself against the S12
+literal oracle and refuses coordinated damage; `native` runs per route a joined
+R2 history (relay before EOF, SIGKILL, S14 recovery, next window into the same
+sink, source deletion, driver-free Arrow-only R1 bridge). Delivery code changes
+the semantic build identity, so bundles and installed witnesses are rebuilt on the
+final code closure.
