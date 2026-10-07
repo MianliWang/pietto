@@ -1376,11 +1376,13 @@ def r2_histories(
     wheel=None,
     only=None,
     shared=None,
+    routes=None,
 ):
     """Real per-route SIGKILL histories over R2_seven 39_values: original attempt
     death, holes, coordinated late-island damage, reply loss, repeated crashes,
     barrier crash, source drift, version replacement and cancellations. `shared`
-    = (resource, providers) of a finished matrix group's live database."""
+    = (resource, providers) of a finished matrix group's live database; `routes`
+    narrows the target's routes (one route per interpreter installation)."""
     import time
 
     import _pietto_phase68_slice10_probe as s10
@@ -1429,7 +1431,10 @@ def r2_histories(
     }
     report_path = directory / (PREFIX + "histories.json")
     started = time.monotonic()
-    routes = ["mysql_rows"] if target == "mysql" else ["postgres_rows", "postgres_adbc"]
+    routes = list(
+        routes
+        or (["mysql_rows"] if target == "mysql" else ["postgres_rows", "postgres_adbc"])
+    )
     namespace = "public" if target == "postgres" else "phase66"
     try:
         if shared is None:

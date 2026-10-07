@@ -874,3 +874,37 @@ restart window, retained consumer, reclaim and the Arrow-only refusal of new
 extraction and R2). Registered workers force `PSYCOPG_IMPL=binary`; the damaged
 binary is also observed without that override. Production edits change the
 semantic build identity, so bundles and installed witnesses use the final code.
+
+
+## Phase68 S19 joint-assurance validation
+
+[S19](phases/phase-68/slice-19.md) keeps one cumulative dispatch ledger. Ordinary
+tests have no Arrow, database or network: the independently derived required
+matrix equals the producer owners' `native_manifest`/`r2_families`, the five
+inventory damages, evidence classes, the bounded joint model and the J01/J02,
+storage, matrix and equal-guarantee laws on controlled facts, each damage rejected
+by its designated law. Real evidence runs through `scripts/phase68_slice19_probe.py`
+with the harness parent in the union recipe prefix (checkout `src` first, never a
+witness) and every witness in its own route installation: `install` (S18 recipes on
+the current wheel), `compat` (archived S16 refusal and the B19 predecessor from
+their original wheel bytes), `matrix --part i/n` (one owned database per part for
+ordinary, guarded and R2 cells; `--drift` and `--joint` add the fresh-guard refusal
+and the J01/J02/J09 histories), `joint` (the unchanged S18 12-cell history),
+`storage --origin` (the connected J03–J10 history with real Arrow chunks and real
+SIGKILL cuts; J08 coordinator units run in the postgres_rows installation because
+S18's submit preflight requires the selected route drivers), `tuning` (one
+serial/concurrent pair per route, exclusive window), `controls` (the original
+S03/S09/S08 adapter control families) and `consumer`. `check` re-consumes one
+campaign directory: every cell's raw under the original S10/S14 laws, each
+origin's source-offline tail, and every damage family on copies of the real raw,
+each rejected by its designated law.
+
+`consumer` is the local entry for CI-only installed consumers: with explicit
+`GITHUB_RUN_ID`/`GITHUB_RUN_ATTEMPT` labels it runs package smoke with
+`--extra-env`, the Arrow readiness and installed result-product consumers with
+their `ci_validation.py` checks, and the real-consumer `prepare`/`replay`/`verify`.
+Replay consumes archived receipts only under their original identity, which equals
+local `HEAD` only before the next commit; nothing is rewritten and the reports are
+LOCAL provenance. Package metadata/extras changes must run it before a seal.
+Production edits change the semantic build identity, so bundles and installed
+witnesses would use the final code.

@@ -246,3 +246,31 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
   system libpq on `PSYCOPG_IMPL` or a broken extension): check the selected
   implementation, and observe damaged installs with and without harness
   overrides. See [S18](../phases/phase-68/slice-18.md).
+
+
+## Phase68 S19
+
+- Package metadata and extras have CI-only installed readers: run the CI-shaped
+  local consumer entry before a seal instead of discovering them on a failed
+  main publication.
+- A newer product boundary can invalidate an older harness's assumptions (S18's
+  submit preflight refuses simulated runtime captures in an Arrow-only install):
+  reread reused programs against the current owners before composing them.
+- Persist parent-side observations (server-session ends, cut records) beside the
+  child raw, never only in memory, so an independent consumer can rerun the
+  original checker on the same bytes.
+- Shape checker fixtures after a real pilot raw before trusting a law: fixtures
+  generated beside the checker agreed with it while the producer recorded other
+  fields (exclusion owners, killed-step facts, sink payload coordinates), and an
+  independent verdict must re-run the original layer checkers over the raw
+  rather than read the producer's own `checked` flag. See
+  [S19](../phases/phase-68/slice-19.md).
+- Run a reused control family inside its own original premise environment,
+  workers included: moving only the family's parent process into the premise
+  fixed a symptom, and the next campaign failed again at the worker.
+- A damage proves a law only when that law is the one that rejects it: keep
+  the damage coherent with every copy the original checkers re-decode
+  (PostgreSQL fetches, MySQL binary row returns with their integer Bool
+  carrier) and inside every declared column domain. Pilot raw need not reach
+  these paths, so run the damage families over the whole campaign raw as a
+  diagnostic before spending the authoritative check.
