@@ -193,3 +193,18 @@ exist. Retirement is an explicit, fenced, monotone local decision about one
 unpublished generation; it is never inferred from cancellation, time, a PID or
 pressure, and it never withdraws a publication. History rows keep their
 identities after collection; a tombstoned subject is refused, never resurrected.
+
+
+## Installed origin and selected-dependency identity
+
+Phase68 [S18](../phases/phase-68/slice-18.md) adds no identity class. A package
+version is not an origin: an installation is identified by the exact wheel bytes
+it was resolved from and the bytes of the modules it actually loaded, and an
+archived runtime by its archived wheel's bytes. The compiled-code compatibility
+identity covers every pietto and ANTLR `.py` byte, so changed code makes earlier
+bundles (`COMPILED_COMPATIBILITY`) and stored jobs (`JOB_COMPATIBILITY`) refuse
+while their workspaces stay recognizable data. An installed extra, an install
+receipt, an importable driver or a metadata check is never authority: it does
+not select a route, grant execution, open a source, qualify storage or replace
+fresh acceptance. A selected route's own pinned drivers are checked where they
+are used, and another route's installed driver is never a substitute.

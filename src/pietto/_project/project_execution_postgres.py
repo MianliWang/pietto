@@ -17,6 +17,7 @@ from pietto._project.project_execution import (
     ExecutionFailure,
     ExecutionOutcome,
     PostgresAccess,
+    pinned_modules,
     request_state,
     execution_arguments,
     verify_execution_request,
@@ -45,12 +46,23 @@ from pietto._project.project_guard_context import (
 )
 
 __all__: tuple[str, ...] = ()
+# The pinned driver closure of `pietto[execute-postgres]`.
+DRIVERS = (("psycopg", "3.3.5", "psycopg"), ("psycopg-binary", "3.3.5", None))
+
+
+def drivers():
+    (pg,) = pinned_modules(DRIVERS, "EXECUTION_DRIVER_VERSION")
+    # Only the selected binary implementation carries the pinned libpq; a broken
+    # one or PSYCOPG_IMPL would otherwise silently load a system library.
+    if pg.pq.__impl__ != "binary":
+        raise ExecutionError("POSTGRES_DRIVER_LIBRARY")
+    return (pg,)
 
 
 def _connect(request):
     if any(name.startswith("PG") or name == "SSLKEYLOGFILE" for name in os.environ):
         raise ExecutionError("EXECUTION_AMBIENT_CONNECTION_PROFILE")
-    pg = importlib.import_module("psycopg")
+    (pg,) = drivers()
     a = request.access
     return pg.connect(
         host=a.host,

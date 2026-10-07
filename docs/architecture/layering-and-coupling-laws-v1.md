@@ -192,3 +192,15 @@ and the collector meet only through v7 claims, per-generation leases and
 tombstones in the original owners, so a direct caller of an original API joins
 the same admission and exclusion protocol as the runtime. Sinks keep their own
 store and retention and are never collected by the workspace.
+
+
+## Optional dependency plane
+
+Phase68 [S18](../phases/phase-68/slice-18.md) keeps optional imports lazy: the
+compiler, CLI, workspace metadata and saved replay, publication and collection
+never import a source driver, and only the Arrow owner imports PyArrow. Each
+native route module owns its pinned driver closure (`DRIVERS`, `drivers()`);
+`project_execution.pinned_modules` is the single generic bridge and names no
+driver. The runtime loads a native unit's route drivers before admission and an
+owner loads them before connecting; nothing else consults packaging metadata.
+Extras exist only in `pyproject.toml` and the lock.

@@ -233,3 +233,16 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 - In process tests, read barrier lines before any buffered data line from the
   same pipe, and open a fresh workspace handle in every thread: SQLite
   connections are thread-bound. See [S17](../phases/phase-68/slice-17.md).
+
+
+## Phase68 S18
+
+- Witness each extra with one normal resolution into a fresh prefix from a
+  verified wheelhouse; a preloaded environment plus a no-deps install cannot
+  show that a selection is sufficient and non-polluting.
+- Take artifact filenames from the lock instead of guessing platform tags, and
+  transfer them in bounded chunks with recorded attempts.
+- A driver can silently swap its native implementation (psycopg falls back to a
+  system libpq on `PSYCOPG_IMPL` or a broken extension): check the selected
+  implementation, and observe damaged installs with and without harness
+  overrides. See [S18](../phases/phase-68/slice-18.md).

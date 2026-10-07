@@ -92,17 +92,21 @@ def test_project_and_lock_select_exactly_one_optional_arrow_dependency():
         ">=3.12",
     )
     assert project["dependencies"] == ["antlr4-python3-runtime>=4.13.2"]
-    assert project["optional-dependencies"] == {"arrow": ["pyarrow==25.0.1"]}
+    # The Arrow extra is unchanged; Phase68 S18 pins its route extras exactly.
+    assert project["optional-dependencies"]["arrow"] == ["pyarrow==25.0.1"]
     assert project["scripts"] == {"pietto": "pietto.cli:main"}
     assert "pyarrow" not in json.dumps(document["dependency-groups"]).lower()
     lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text())
     (package,) = [p for p in lock["package"] if p["name"] == "pietto"]
     assert package["version"] == "0.1.0"
     assert package["dependencies"] == [{"name": "antlr4-python3-runtime"}]
-    assert package["optional-dependencies"] == {"arrow": [{"name": "pyarrow"}]}
-    assert package["metadata"]["provides-extras"] == ["arrow"]
-    assert package["metadata"]["requires-dist"] == [
-        {"name": "antlr4-python3-runtime", "specifier": ">=4.13.2"},
+    assert package["optional-dependencies"]["arrow"] == [{"name": "pyarrow"}]
+    assert package["metadata"]["provides-extras"][0] == "arrow"
+    requires = package["metadata"]["requires-dist"]
+    assert [r for r in requires if "marker" not in r] == [
+        {"name": "antlr4-python3-runtime", "specifier": ">=4.13.2"}
+    ]
+    assert [r for r in requires if r.get("marker") == "extra == 'arrow'"] == [
         {"name": "pyarrow", "marker": "extra == 'arrow'", "specifier": "==25.0.1"},
     ]
     (arrow,) = [p for p in lock["package"] if p["name"] == "pyarrow"]

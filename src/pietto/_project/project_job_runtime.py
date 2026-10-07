@@ -33,7 +33,7 @@ import os
 import stat
 import threading
 import time
-from typing import Any
+from typing import Any, cast
 import weakref
 
 from pietto._project import project_job_chunks as chunks
@@ -619,8 +619,10 @@ class Runtime:
     # --- public API ---------------------------------------------------------
 
     def submit(self, unit: Unit) -> str:
-        """Queue one unit; refused at once when its vector can never fit or the
-        finite queue is full. Returns the admission identity (the query handle)."""
+        """Queue one unit; refused at once when its vector can never fit, its
+        selected route's pinned drivers are not installed (before any admission
+        or worker) or the finite queue is full. Returns the admission identity
+        (the query handle)."""
         if os.getpid() != self._pid:
             raise JobStoreError("RUNTIME_FOREIGN_PROCESS")
         if type(unit) is not Unit or (unit.root, unit.workspace) != (
@@ -638,6 +640,9 @@ class Runtime:
         limiting = _fits(Vector(0, 0, 0, 0, 0), wanted, self.policy)
         if limiting is not None:
             raise JobStoreError("RUNTIME_UNIT_BOUND")
+        if unit.mode in ("CAPTURE", "RELAY", "RECOVER"):
+            # vector() refused any other source for these modes.
+            _drivers(cast(NativeSource, unit.source).route)
         handle = new_identity("adm")
         record = _Record(unit, handle, wanted, time.monotonic() + unit.seconds)
         with self._cond:
@@ -1594,6 +1599,23 @@ class Runtime:
             raise
         p.publish_generation(publisher, prepared, operation=new_operation())
         self._count(record, "published")
+
+
+def _drivers(route):
+    """Load the selected route's own pinned drivers; another route's installed
+    drivers are never a substitute."""
+    from pietto._project import project_execution_mysql_native as mysql
+    from pietto._project import project_execution_postgres as postgres
+    from pietto._project import project_execution_postgres_adbc_native as adbc
+
+    loaders = {
+        "postgres_rows": postgres.drivers,
+        "postgres_adbc": adbc.drivers,
+        "mysql_rows": mysql.drivers,
+    }
+    if type(route) is not str or route not in loaders:
+        raise JobStoreError("RUNTIME_ROUTE")
+    loaders[route]()
 
 
 def _owner(binding, source: NativeSource):

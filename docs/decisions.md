@@ -103,3 +103,11 @@ PG managed-deployment definition/security-lifetime premise。它绑定原 access
 仍允许。compliance 未独立验证，native all-definition exclusion 未证明；source structure、
 data snapshot、retained provider 与 guards/outputs 分别核查。旧 PG rows/MySQL 和旧声明含义不变。
 具体域、实际原始反例与 S10 fresh acceptance 边界见 [S09](phases/phase-68/slice-09.md)。
+
+## Phase68 S18 — selected execution extras
+
+S18 派发选定三个路线 extra：`execute-postgres`（`pyarrow==25.0.1`、`psycopg[binary]==3.3.5`）、`execute-mysql`
+（`pyarrow==25.0.1`、`mysql-connector-python==26.7.0`）与 `execute-postgres-adbc`（`pyarrow==25.0.1`、
+`adbc-driver-postgresql==1.12.0`、`adbc-driver-manager==1.12.0`）。D67.30 的 `arrow` 选择不变并承担无驱动的已保存结果使用；
+不增加 recovery 别名、全驱动 extra 或平台 marker。core 依赖、版本与入口不变；extra 不选择路线、不授予执行、不证明存储资格，
+执行 API 仍为私有；不冻结 Phase69 公共 API 或发布工程。精确依赖边界与已验证域见 [S18](phases/phase-68/slice-18.md)。

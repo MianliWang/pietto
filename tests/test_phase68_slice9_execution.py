@@ -363,6 +363,8 @@ def test_explicit_tls_files_cannot_fall_back_to_user_home(
     from urllib.parse import urlparse, parse_qs
     from pathlib import Path
     from pietto._project import project_execution_postgres_adbc_native as native
+    import importlib
+    import importlib.metadata
     import os
 
     package = tmp_path / "driver"
@@ -386,9 +388,9 @@ def test_explicit_tls_files_cannot_fall_back_to_user_home(
         ),
         "pyarrow": object(),
     }
-    monkeypatch.setattr(native.importlib, "import_module", modules.__getitem__)
+    monkeypatch.setattr(importlib, "import_module", modules.__getitem__)
     monkeypatch.setattr(
-        native.importlib.metadata,
+        importlib.metadata,
         "version",
         lambda name: "25.0.1" if name == "pyarrow" else "1.12.0",
     )

@@ -262,6 +262,14 @@ The verified extra matrix is CPython3.12/3.13 on Linux x86-64 with PyArrow25.0.1
 See [checkout and local-wheel installation](../README.md#optional-arrow-interoperability).
 This is not a PyPI release or a broader platform/version support promise.
 
+Phase68 S18 adds three route selectors, each Arrow plus one route's exact pins:
+`execute-postgres` (`psycopg[binary]==3.3.5`), `execute-mysql`
+(`mysql-connector-python==26.7.0`) and `execute-postgres-adbc`
+(`adbc-driver-postgresql==1.12.0`, `adbc-driver-manager==1.12.0`); see the
+[execution extras](../README.md#execution-extras). Installation never chooses
+a route, grants execution or qualifies storage, and execution stays private;
+the [S18 contract](phases/phase-68/slice-18.md) records the verified domain.
+
 The [Phase67 audit and handoff](phases/phase-67/completion-audit.md) identifies
 the existing private bindings, ownership and finite-completion prerequisites.
 Phase68 execution authority and higher-level adapters remain separately owned.

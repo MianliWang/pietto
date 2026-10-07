@@ -4,17 +4,25 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
-import importlib
-import importlib.metadata
 import math
 import os
 import stat
 from pathlib import Path
 from urllib.parse import urlencode, quote
 
-from pietto._project.project_execution import ExecutionError, ExecutionFailure
+from pietto._project.project_execution import (
+    ExecutionError,
+    ExecutionFailure,
+    pinned_modules,
+)
 
 __all__: tuple[str, ...] = ()
+# The pinned driver closure of `pietto[execute-postgres-adbc]`.
+DRIVERS = (
+    ("adbc-driver-postgresql", "1.12.0", "adbc_driver_postgresql"),
+    ("adbc-driver-manager", "1.12.0", "adbc_driver_manager"),
+    ("pyarrow", "25.0.1", "pyarrow"),
+)
 CONTEXT_SQL = "SELECT current_setting('server_version_num')::integer,current_database()::text,current_user::text,session_user::text,(SELECT oid::bigint FROM pg_catalog.pg_roles WHERE rolname=current_user),(SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=current_database()),pg_backend_pid(),pg_current_xact_id()::text,current_setting('transaction_isolation'),current_setting('transaction_read_only'),current_setting('client_encoding'),current_setting('search_path'),current_setting('TimeZone'),current_setting('standard_conforming_strings'),inet_server_addr()::text,inet_server_port(),pg_postmaster_start_time()::text"
 
 
@@ -25,25 +33,22 @@ def failure(error, phase):
     )
 
 
-def connect(owner):
-    if any(k.startswith("PG") or k == "SSLKEYLOGFILE" for k in os.environ):
-        raise ExecutionError("EXECUTION_AMBIENT_CONNECTION_PROFILE")
-    driver = importlib.import_module("adbc_driver_postgresql")
-    manager = importlib.import_module("adbc_driver_manager")
-    pa = importlib.import_module("pyarrow")
-    for name, version in (
-        ("adbc-driver-postgresql", "1.12.0"),
-        ("adbc-driver-manager", "1.12.0"),
-        ("pyarrow", "25.0.1"),
-    ):
-        if importlib.metadata.version(name) != version:
-            raise ExecutionError("POSTGRES_ADBC_DRIVER_PROFILE")
+def drivers():
+    """The pinned driver, manager and Arrow modules and the driver's own library."""
+    driver, manager, pa = pinned_modules(DRIVERS, "POSTGRES_ADBC_DRIVER_PROFILE")
     filename = driver.__file__
     if type(filename) is not str:
         raise ExecutionError("POSTGRES_ADBC_DRIVER_LIBRARY")
     library = Path(filename).resolve().parent / "libadbc_driver_postgresql.so"
     if not library.is_file() or library.resolve().parent != library.parent:
         raise ExecutionError("POSTGRES_ADBC_DRIVER_LIBRARY")
+    return manager, pa, library
+
+
+def connect(owner):
+    if any(k.startswith("PG") or k == "SSLKEYLOGFILE" for k in os.environ):
+        raise ExecutionError("EXECUTION_AMBIENT_CONNECTION_PROFILE")
+    manager, pa, library = drivers()
     a = owner.request.access
     # The pinned Linux driver supports require (encryption) or explicit loopback
     # disable. A child of the null character device cannot name a CA/CRL/key,

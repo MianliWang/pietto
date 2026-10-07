@@ -234,7 +234,7 @@ def test_private_product_does_not_change_public_api_or_core_dependencies():
 
     project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
     assert project["dependencies"] == ["antlr4-python3-runtime>=4.13.2"]
-    assert project["optional-dependencies"] == {"arrow": ["pyarrow==25.0.1"]}
+    assert project["optional-dependencies"]["arrow"] == ["pyarrow==25.0.1"]
     assert json.loads(probe.emission_input("mysql"))["target"]["family"] == "mysql"
 
 

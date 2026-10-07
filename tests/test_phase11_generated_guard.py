@@ -290,6 +290,7 @@ def test_slice3_guard_stays_independent_from_later_workflows() -> None:
         "scripts/phase68_slice15_probe.py",
         "scripts/phase68_slice16_probe.py",
         "scripts/phase68_slice17_probe.py",
+        "scripts/phase68_slice18_probe.py",
         "scripts/phase68_slice3_probe.py",
         "scripts/phase68_slice4_probe.py",
         "scripts/phase68_slice5_probe.py",

@@ -259,17 +259,29 @@ def _missing_files(inventory: set[str], required: frozenset[str]) -> tuple[str, 
     return tuple(sorted(required - inventory))
 
 
-def _dependency(value: str) -> tuple[str, str, str, str | None]:
-    """Parse only the two current requirement forms, including legal spacing."""
+def _dependency(value: str) -> tuple[str, tuple[str, ...], str, str, str | None]:
+    """Parse only the current requirement forms (optional requirement extras such
+    as `psycopg[binary]`), including legal spacing; the extras stay compared."""
     requirement, separator, marker = value.partition(";")
     specifier = r"(?:>=|==)\s*[0-9]+(?:\.[0-9]+)*"
+    identifier = r"[A-Za-z0-9][A-Za-z0-9._-]*"
     match = re.fullmatch(
-        rf"\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(\(\s*{specifier}\s*\)|{specifier})\s*",
+        rf"\s*({identifier})\s*(?:\[\s*({identifier}(?:\s*,\s*{identifier})*)?\s*\])?"
+        rf"\s*(\(\s*{specifier}\s*\)|{specifier})\s*",
         requirement,
     )
     if match is None:
         raise SmokeFailure(f"unsupported artifact dependency {value!r}")
-    name, spec = match.groups()
+    name, selected_extras, spec = match.groups()
+    extras = tuple(
+        sorted(
+            {
+                re.sub(r"[-_.]+", "-", part.strip()).lower()
+                for part in (selected_extras or "").split(",")
+                if part.strip()
+            }
+        )
+    )
     spec = re.sub(r"[\s()]", "", spec)
     operator = spec[:2]
     extra = None
@@ -281,7 +293,7 @@ def _dependency(value: str) -> tuple[str, str, str, str | None]:
         if selected is None:
             raise SmokeFailure(f"unsupported artifact extra condition {value!r}")
         extra = selected[2]
-    return re.sub(r"[-_.]+", "-", name).lower(), operator, spec[2:], extra
+    return re.sub(r"[-_.]+", "-", name).lower(), extras, operator, spec[2:], extra
 
 
 def _validate_core_metadata(metadata_bytes: bytes, contract: ProjectContract) -> None:

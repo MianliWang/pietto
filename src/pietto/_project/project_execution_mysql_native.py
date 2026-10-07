@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import importlib
-import importlib.metadata
 import math
 import os
 import ssl
 from typing import Any
 
-from pietto._project.project_execution import ExecutionError, ExecutionFailure
+from pietto._project.project_execution import (
+    ExecutionError,
+    ExecutionFailure,
+    pinned_modules,
+)
 
 __all__: tuple[str, ...] = ()
+# The pinned driver closure of `pietto[execute-mysql]`.
+DRIVERS = (("mysql-connector-python", "26.7.0", "mysql.connector.connection"),)
+
+
+def drivers():
+    return pinned_modules(DRIVERS, "EXECUTION_DRIVER_VERSION")
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,9 +51,7 @@ def transport_state(connection):
 def connect(owner, *, control=False):
     if "SSLKEYLOGFILE" in os.environ:
         raise ExecutionError("EXECUTION_AMBIENT_CONNECTION_PROFILE")
-    if importlib.metadata.version("mysql-connector-python") != "26.7.0":
-        raise ExecutionError("EXECUTION_DRIVER_VERSION")
-    module = importlib.import_module("mysql.connector.connection")
+    (module,) = drivers()
     connection = module.MySQLConnection()
     # Register the unconnected handle, including failed handshakes.
     owner._connections.append(connection)

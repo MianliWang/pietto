@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import importlib
+import importlib.metadata
 import math
 import threading
 from typing import Any
@@ -29,6 +31,33 @@ __all__: tuple[str, ...] = ()
 
 class ExecutionError(ValueError):
     pass
+
+
+def pinned_modules(pins, version_error):
+    """Import one selected route's own pinned (distribution, version, module or
+    None) drivers, without I/O and never another route's. Every distribution is
+    checked before any import: an absent one, or an absent module, is
+    EXECUTION_DEPENDENCY_MISSING and another installed version is the route's own
+    version refusal; any other import failure (a broken transitive dependency or
+    native library) propagates unchanged."""
+    for distribution, version, _module in pins:
+        try:
+            installed = importlib.metadata.version(distribution)
+        except importlib.metadata.PackageNotFoundError:
+            raise ExecutionError("EXECUTION_DEPENDENCY_MISSING") from None
+        if installed != version:
+            raise ExecutionError(version_error)
+    modules = []
+    for _distribution, _version, module in pins:
+        if module is None:
+            continue
+        try:
+            modules.append(importlib.import_module(module))
+        except ModuleNotFoundError as error:
+            if error.name is None or not (module + ".").startswith(error.name + "."):
+                raise
+            raise ExecutionError("EXECUTION_DEPENDENCY_MISSING") from error
+    return modules
 
 
 @dataclass(frozen=True, slots=True)

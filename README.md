@@ -43,8 +43,9 @@ uv run pietto --help
 
 ### Optional Arrow interoperability
 
-The core compiler and CLI need no PyArrow. The only optional distribution
-selector is `pietto[arrow]`, which selects exactly `pyarrow==25.0.1`.
+The core compiler and CLI need no PyArrow. The `pietto[arrow]` selector
+selects exactly `pyarrow==25.0.1`; the [execution extras](#execution-extras)
+below add one database route's pinned drivers.
 From this checkout, install it into a separate environment:
 
 ```bash
@@ -69,6 +70,28 @@ extra only makes the dependency available. Public result APIs belong to
 Phase69, and the extra does not enable database execution.
 The [Phase67 audit and handoff](docs/phases/phase-67/completion-audit.md) records
 the evidence layers, supported boundaries and remaining execution obligations.
+
+### Execution extras
+
+Each private execution route has its own selector; each includes the Arrow pin
+because captured results are Arrow IPC:
+
+| Selector | Adds |
+| --- | --- |
+| `pietto[execute-postgres]` | `psycopg[binary]==3.3.5` (PostgreSQL rows) |
+| `pietto[execute-mysql]` | `mysql-connector-python==26.7.0` (MySQL rows) |
+| `pietto[execute-postgres-adbc]` | `adbc-driver-postgresql==1.12.0`, `adbc-driver-manager==1.12.0` (PostgreSQL ADBC) |
+
+Saved-result use without any database driver needs only `pietto[arrow]`.
+Selectors combine, for example
+`"./dist/pietto-0.1.0-py3-none-any.whl[execute-postgres,execute-mysql]"`.
+Installing an extra never selects a route, grants execution, opens a source or
+qualifies storage. A selected route whose pinned driver is absent refuses with
+`EXECUTION_DEPENDENCY_MISSING` before any connection, another version refuses
+with that route's version error, and another route's installed driver is never
+used instead. These extras were verified on CPython 3.13.13, Linux x86-64,
+with the lock's exact artifacts; other platforms, interpreters and driver
+versions are not covered. Execution APIs remain private under `pietto._project`.
 
 ## Quick start
 

@@ -841,3 +841,36 @@ unit meets the publisher lock, source deletion, then a driver-free Arrow-only
 runtime that publishes, replays and collects. Runtime and collection code
 changes the semantic build identity, so bundles and installed witnesses are
 rebuilt on the final code closure.
+
+
+## Phase68 S18 installation and compatibility validation
+
+[S18](phases/phase-68/slice-18.md) keeps one cumulative dispatch ledger. Ordinary
+tests have no Arrow, database or network: exact extras, lock entries and the
+locked closure of each selection, artifact METADATA with requirement extras and
+its coordinated damages, the controlled pinned-driver decision table (absent,
+other version, broken transitive or native import, string-prefix traps), each
+route's pins against its declared selection, the PG rows binary-libpq rule, the
+runtime refusing an unavailable selected route before any admission or worker
+without application mutation, a direct owner refusing before it connects, lazy
+imports, the v1-v7 capability matrix and the envelope/schema programs in a fresh
+registered interpreter on the qualified profile, and every law of the
+independent checker with each damage rejected by its designated law. Real
+evidence runs through `scripts/phase68_slice18_probe.py`: `install` verifies the
+lock's exact cp313 Linux artifacts into a wheelhouse, materializes six fresh
+prefixes from the one candidate wheel with a single normal resolver command each
+(`--no-index`, the wheelhouse, exact constraints, no `--no-deps`), runs `uv pip
+check` and an installed fact worker (distributions, every module's bytes against
+the wheel, lazy imports, CLI agreement, each route's driver check, union
+no-fallback controls), two failing resolutions and four damaged-installation
+checks; `compat` compares the current and archived S17 installed capability
+matrices, refuses unknown envelopes before SQLite, a recognized schema damage and
+an S18 v7 workspace under the archived S16 runtime, and separates S17 compiled
+code (refused) from a fresh current subject (accepted); `native` runs the original
+S17 joined histories per route, entry and origin in each route's own selected
+installation, routed union captures with no-fallback controls, source deletion,
+a real sink lost reply and the driver-free Arrow tail (publication query, S13
+restart window, retained consumer, reclaim and the Arrow-only refusal of new
+extraction and R2). Registered workers force `PSYCOPG_IMPL=binary`; the damaged
+binary is also observed without that override. Production edits change the
+semantic build identity, so bundles and installed witnesses use the final code.
