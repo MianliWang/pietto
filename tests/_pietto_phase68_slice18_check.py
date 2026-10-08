@@ -30,8 +30,8 @@ ADBC = {
     **ARROW,
     "adbc-driver-postgresql": "1.12.0",
     "adbc-driver-manager": "1.12.0",
-    "importlib-resources": "6.5.2",
-    "typing-extensions": "4.15.0",
+    "importlib-resources": "7.1.0",
+    "typing-extensions": "4.16.0",
 }
 # Installed closure of each selection on CPython 3.13 Linux x86-64.
 SELECTIONS = {

@@ -5,6 +5,6 @@ mysql-connector-python==26.7.0
 pyarrow==25.0.1
 adbc-driver-postgresql @ https://files.pythonhosted.org/packages/00/bb/ee19e7d56824c05892f82a3a2abca94fd2345b7de3dc22baac9e65a46acc/adbc_driver_postgresql-1.12.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl#sha256=2c2dc9c29db07ba3e0caf293c57a7ab1259dd772d3725ff1f1aeedb7a1895dd4
 adbc-driver-manager @ https://files.pythonhosted.org/packages/00/c6/a35e38ef5e0db391be79e0e14c019ce378b87d9d7e31d1dfcd451e9d291f/adbc_driver_manager-1.12.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl#sha256=532ab290b3d923ce0a75bca21dc6e13f55835625f78808e1664755939f3ebdf6
-importlib-resources==6.5.2
-typing-extensions==4.15.0
+importlib-resources==7.1.0
+typing-extensions==4.16.0
 antlr4-python3-runtime==4.13.2

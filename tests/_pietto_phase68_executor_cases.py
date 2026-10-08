@@ -40,8 +40,8 @@ PINS = {
     "pyarrow": "25.0.1",
     "adbc-driver-manager": "1.12.0",
     "adbc-driver-postgresql": "1.12.0",
-    "importlib-resources": "6.5.2",
-    "typing-extensions": "4.15.0",
+    "importlib-resources": "7.1.0",
+    "typing-extensions": "4.16.0",
     "antlr4-python3-runtime": "4.13.2",
 }
 PARAMETER_SQL = {

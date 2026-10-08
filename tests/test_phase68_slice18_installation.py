@@ -54,15 +54,15 @@ ARROW = CORE | {"pyarrow==25.0.1"}
 POSTGRES = ARROW | {
     "psycopg==3.3.5",
     "psycopg-binary==3.3.5 ; implementation_name != 'pypy'",
-    "typing-extensions==4.15.0 ; python_full_version < '3.13'",
+    "typing-extensions==4.16.0 ; python_full_version < '3.13'",
     "tzdata==2026.4 ; sys_platform == 'win32'",
 }
 MYSQL = ARROW | {"mysql-connector-python==26.7.0"}
 ADBC = ARROW | {
     "adbc-driver-manager==1.12.0",
     "adbc-driver-postgresql==1.12.0",
-    "importlib-resources==6.5.2",
-    "typing-extensions==4.15.0",
+    "importlib-resources==7.1.0",
+    "typing-extensions==4.16.0",
 }
 CLOSURES = {
     (): CORE,
@@ -72,7 +72,7 @@ CLOSURES = {
     ("execute-postgres-adbc",): ADBC,
     # psycopg's conditional typing-extensions edge is absorbed by ADBC's own.
     ROUTES: (POSTGRES | MYSQL | ADBC)
-    - {"typing-extensions==4.15.0 ; python_full_version < '3.13'"},
+    - {"typing-extensions==4.16.0 ; python_full_version < '3.13'"},
 }
 DRIVER_MODULES = (
     "psycopg",
@@ -131,13 +131,13 @@ def test_selections_are_exactly_the_dispatch_extras_and_core_is_unchanged():
         "adbc-driver-manager": "1.12.0",
         "adbc-driver-postgresql": "1.12.0",
         "antlr4-python3-runtime": "4.13.2",
-        "importlib-resources": "6.5.2",
+        "importlib-resources": "7.1.0",
         "mysql-connector-python": "26.7.0",
         "psycopg": "3.3.5",
         "psycopg-binary": "3.3.5",
         "pyarrow": "25.0.1",
         "ruff": "0.16.10",
-        "typing-extensions": "4.15.0",
+        "typing-extensions": "4.16.0",
     }
     edges = {
         name: [d["name"] for d in packages[name].get("dependencies", ())]
