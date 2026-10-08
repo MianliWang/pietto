@@ -517,7 +517,9 @@ print(json.dumps({"cases":len(records),"source_calls":0,"source_ast_construction
             )
         )
         try:
-            stdout, stderr = child.communicate(input="g", timeout=600)
+            # A hang guard, not a speed claim: the child verifies every bundle
+            # while all four xdist workers may still be busy on a 4-vCPU runner.
+            stdout, stderr = child.communicate(input="g", timeout=1800)
         except BaseException:
             child.kill()
             child.communicate(timeout=10)
