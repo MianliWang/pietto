@@ -1,8 +1,8 @@
 # Phase68：显式受控只读执行、运行包与恢复
 
 Phase67 COMPLETED，终态基线 `2f280ea02b974c0ab7e6e8e07017b960b55f850a`；其原合同和失败历史保留。
-本期 ACTIVE；S01–S18 和 C01 COMPLETED / PUBLISHED；[S19](slice-19.md) CANDIDATE; completed only after closure。
-S03 内部资格 gate 为 QUALIFIED_UNDER_THIS_DISPATCH；[20行路线](slices.md)为 JUSTIFIED_CANDIDATE，后续产品验收仍待完成。
+本期 ACTIVE — completion candidate pending S20 closure；S01–S19 和 C01 COMPLETED / PUBLISHED；[S20](slice-20.md) 为仅审计的完成候选，[完成审计](completion-audit.md)与[Phase69 交接](phase69-handoff.md)只按其[唯一闭环规则](slice-20.md#唯一闭环规则)生效。
+S03 内部资格 gate 为 QUALIFIED_UNDER_THIS_DISPATCH；[20行路线](slices.md)的产品验收由 S20 三层审计判定，生效仍待其闭环。
 
 ## R/A/C 与使命
 
@@ -28,7 +28,7 @@ S03 内部资格 gate 为 QUALIFIED_UNDER_THIS_DISPATCH；[20行路线](slices.m
 
 明确不做任意SQL/DML/DDL产品、业务源写入、hidden COUNT、silent fallback/换driver、整job自动重试、XA/共识/自写WAL、任意callback全局事务、
 永久磁盘丢失/远程复制/多机接管、自动跨版迁移、OS scheduler、公共release或Phase69实现。时间有余才增加非必要性能取点/可视化。
-不能用全部拒绝替代必需正例，不能将三路线缩到最弱交集。限20个编号Slices；当前累计执行预算沿用 S19 dispatch Section 12：causal54、focused48、diagnostic24、scope convergence6；历史 S01–S18/C01 计数保持闭合。
+不能用全部拒绝替代必需正例，不能将三路线缩到最弱交集。限20个编号Slices；当前累计执行预算沿用 S20 dispatch Section 12：causal54、focused48、diagnostic24、scope convergence6；历史 S01–S19/C01 计数保持闭合。
 
 R2 首次 attempt 前显式选择 tie refinement；不得改变既定 ordering、peers、frames、值、NULL、类型、重数与 guards。
 R2 要求合格 K-provider 的完整实际 source domain、可重开 retained version、非空单射且 reopen-stable tokens；既有 composite key 可合格。

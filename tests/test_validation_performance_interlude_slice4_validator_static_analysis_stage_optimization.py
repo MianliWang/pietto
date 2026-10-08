@@ -85,7 +85,7 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
     # Current S18 candidate adds no production file and four test/observer
     # files. Both complete typing roots remain exact.
     assert len(production_files) == 283
-    assert len(test_files) == 600
+    assert len(test_files) == 601
     assert set(production_files).isdisjoint(test_files)
 
 

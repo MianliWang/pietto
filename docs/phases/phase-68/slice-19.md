@@ -1,5 +1,8 @@
 # Phase68 Slice19：全矩阵差分保证、联合崩溃历史、同保证并发与阶段末获取合并
 
+**闭合指针（S20 记录）：** S19 COMPLETED / PUBLISHED——head `ec8a03775ab1f52b72bfd72429a744252e94bcf8`、tree `1273371325f042030879f4305973d9b24cab3aa3`、唯一父 B19，
+自然 CI37705001971/push/main/attempt1 的全部 15 个 job 与数据消费者通过（`PASS_EXACT_HEAD_ALL_CONSUMERS`）；以下保留原候选合同文字，三层完成审计见 [S20](slice-20.md)。
+
 S19 CANDIDATE; completed only after closure。基线 B19 为 S18 published head
 `35fb67afa3d12088de7571bfe313c296a68a2f0d`（C10 修复子提交，唯一父为保留的失败 head `52551f4aa3a95fd2e5e2d430f1bb572291d22b12`），
 自然 CI37566435211/push/main/attempt1；S17 以 COMPLETED_WITH_DISCLOSED_PROCESS_EXCEPTION 闭合，C16 一次性接受、历史保留。本文只描述

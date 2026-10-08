@@ -274,3 +274,21 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
   carrier) and inside every declared column domain. Pilot raw need not reach
   these paths, so run the damage families over the whole campaign raw as a
   diagnostic before spending the authoritative check.
+
+
+## Phase68 完成审计的耐久教训
+
+下一个阶段或插段的 initiation 先筛选适用项，再说明消费方式与仍然存在的限制；不要求每个后续切片重跑全部消费者。
+
+1. 包元数据与 extras 有只在 CI 运行的已安装读者（S18 C10）：发布前运行与 CI 同形的本地消费者入口，并把这些读者列为直接读者；
+   输入不变的切片不必重跑。见 [S18](../phases/phase-68/slice-18.md) 与 [S19](../phases/phase-68/slice-19.md)。
+2. 复用的控制族必须在它原本的前提环境中运行，连同 worker 子进程（S19 C24）：只移动父进程是治标，下一次 campaign 在 worker 处再次失败。
+3. 损坏只有被它指定的定律拒绝时才证明该定律（S19 C25）：损坏须与原检查器重新解码的每个副本一致并留在声明域内；拒绝分支本身也应绑定
+   指定的拒绝类别——S14 的无 basis 分支只要求失败非 abandon，S20 才用原始数据确认其为 `SINGLE_MATCH_VIOLATED`。
+   见[全矩阵对账](../phases/phase-68/completion-audit.md#全矩阵对账)。
+4. 采纳依赖更新前查找每个字面 pin 读者：PR 自身的 CI 可以是绿的，而本地前提与配方消费者会拒绝运行（#82/#83）；更新后把原生合格
+   profile 与当前锁定 profile 分开记录，未重跑的原生观察标为 NOT_OBSERVED，不因 wheel 相同而改称 REUSED_UNCHANGED。
+   见[产品与依赖两个证据域](../phases/phase-68/completion-audit.md#产品与依赖两个证据域)。
+5. 单调时长、UTC 跨度、预留槽位与实测 CPU 是不同的量：S19 长命令的 UTC 跨度一致比单调时长多约 2.2–2.5%，wrapper 的
+   `RUSAGE_CHILDREN` 不含容器内数据库，8 个预留槽下各组件实测约 1 核；新的并发上限须以实测内存与数据库容量为依据。
+   见[成本复盘](../phases/phase-68/completion-audit.md#成本复盘)。

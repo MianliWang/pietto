@@ -908,3 +908,19 @@ local `HEAD` only before the next commit; nothing is rewritten and the reports a
 LOCAL provenance. Package metadata/extras changes must run it before a seal.
 Production edits change the semantic build identity, so bundles and installed
 witnesses would use the final code.
+
+
+## Phase68 S20 completion-audit validation
+
+[S20](phases/phase-68/slice-20.md) is audit-only and keeps one cumulative dispatch ledger; it adds no product,
+dependency, native-campaign, database-lifecycle or performance work. The
+[completion audit](phases/phase-68/completion-audit.md) consumes S19 campaign04 and check02 under their original
+producing and checking identities. Its data-only recounts read JSON reports and raw files only (never a SQLite store,
+WAL or backup) and re-verify the digests those reports already recorded. `tests/test_phase68_slice20_completion_audit.py`
+is an offline drift principal: owner modules and named callables resolve, the audit's matrix accounting follows the S19
+checker's independent `required()` derivation, every brief requirement has one disposition, the closure rule is singular,
+product code imports neither changed transitive dependency, and lesson links resolve; it proves no historical execution.
+Package, generated and golden auxiliaries are not required locally while the sdist/wheel inputs (`pyproject.toml`,
+`README.md`, `src/**`) and generator inputs are unchanged; natural CI still runs every hosted consumer on the exact
+publication. The S19 native-qualified profile (importlib-resources 6.5.2, typing-extensions 4.15.0) and the current
+locked profile (7.1.0, 4.16.0) stay separate, and a real PostgreSQL ADBC query under the updated pair is NOT_OBSERVED.
