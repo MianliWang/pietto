@@ -629,9 +629,12 @@ def test_resource_worker_formula_respects_cpu_memory_and_optional_cap(
 ) -> None:
     gib = 1024**3
     monkeypatch.setattr(validate, "_usable_cpu_count", lambda: 20)
-    monkeypatch.setattr(validate, "_memory_snapshot", lambda: (8 * gib, 4 * gib))
-    assert resource_worker_count() == 4
+    # One GiB per worker after reserving max(1 GiB, total / 5), at most eight.
+    monkeypatch.setattr(validate, "_memory_snapshot", lambda: (16 * gib, 12 * gib))
+    assert resource_worker_count() == 8
     assert resource_worker_count(2) == 2
+    monkeypatch.setattr(validate, "_memory_snapshot", lambda: (16 * gib, 9 * gib))
+    assert resource_worker_count() == 5
 
     monkeypatch.setattr(validate, "_memory_snapshot", lambda: (8 * gib, gib))
     assert resource_worker_count() == 1

@@ -25,6 +25,8 @@ def universe():
             *(p + "::test_existing" for p in ci.MATRIX_FILES),
             *ci.STANDALONE_NODES,
             "tests/test_new.py::test_ordinary",
+            "tests/test_new.py::test_other",
+            "tests/test_new.py::test_third",
             "tests/test_new.py::test_marked",
         ]
     )
@@ -39,7 +41,11 @@ def test_new_ordinary_and_module_function_parameter_declarations_preserve_u():
     indices = w.resolve(ci.POLICY, nodes, {marked: [declaration] * 3})
     placed = w.place(ci.POLICY, nodes, indices)
     assert (
-        ordinary in placed["general-runtime"] and marked in placed["plan-portability"]
+        ordinary
+        in placed["general-runtime-1"]
+        + placed["general-runtime-2"]
+        + placed["general-runtime-3"]
+        and marked in placed["plan-portability"]
     )
     assert (
         sum(map(len, placed.values()))
@@ -110,7 +116,7 @@ def test_registry_and_legacy_errors_fail_before_execution(damage):
         req["family"] = "another"
         policy["requirements"].append(req)
         policy["placements"].append(
-            {"kind": req["kind"], "family": "another", "shard": "general-runtime"}
+            {"kind": req["kind"], "family": "another", "shards": ["general-runtime-1"]}
         )
     elif damage == "duplicate_rule":
         policy["legacy_files"].append(deepcopy(policy["legacy_files"][0]))
@@ -149,7 +155,7 @@ def test_new_family_requires_only_registration_and_approved_placement():
         {
             "kind": "process-portability",
             "family": "future-family",
-            "shard": "plan-portability",
+            "shards": ["plan-portability"],
         }
     )
     assert (
@@ -257,7 +263,7 @@ def test_illegal_or_unknown_managed_production_is_hard_failure(damage):
     with pytest.raises(ValueError):
         w.managed_observations(
             ci.POLICY,
-            "general-runtime" if damage == "foreign_shard" else "shared-acquisition",
+            "general-runtime-1" if damage == "foreign_shard" else "shared-acquisition",
             context,
             [[3, 13]],
             "a" * 64,
@@ -340,7 +346,10 @@ def test_two_of_three_comparable_history_and_topology_domain_patch_drift():
     for field in ("policy", "domain", "patch", "runner", "test-set"):
         changed = deepcopy(history)
         if field == "policy":
-            changed[0]["policy"] = {**ci.POLICY_ID, "topology_version": 2}
+            changed[0]["policy"] = {
+                **ci.POLICY_ID,
+                "topology_version": ci.POLICY_ID["topology_version"] + 1,
+            }
         elif field == "domain":
             changed[0]["runtimes"]["3.13"]["domain"] = [[3, 12], [3, 13]]
         elif field == "patch":

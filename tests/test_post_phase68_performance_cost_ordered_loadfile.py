@@ -124,11 +124,38 @@ def test_without_estimates_the_order_is_exactly_stock_loadfile():
     assert [n.sent for n in ordered] == [n.sent for n in stock]
 
 
+def test_registry_standalone_nodes_are_their_own_units_with_the_file_estimate():
+    standalone = "tests/test_heavy.py::t2"
+    nodes = _run(
+        conftest.CostOrderedFileScheduling(
+            _config(), _quiet(), COSTS, frozenset({standalone})
+        )
+    )
+    assert sorted(i for n in nodes for i in n.sent) == list(range(len(COLLECTION)))
+    owners = {
+        n.gateway.id for n in nodes for i in n.sent if COLLECTION[i] == standalone
+    }
+    rest = {
+        n.gateway.id
+        for n in nodes
+        for i in n.sent
+        if COLLECTION[i] == "tests/test_heavy.py::t1"
+    }
+    # Both halves of the estimated file go out first, on different workers.
+    assert owners != rest and {_units(n)[0] for n in nodes} == {"tests/test_heavy.py"}
+
+
 def test_only_loadfile_is_replaced_and_it_reads_the_reviewed_registry():
     assert conftest.pytest_xdist_make_scheduler(_config("load"), _quiet()) is None
     scheduler = conftest.pytest_xdist_make_scheduler(_config(), _quiet())
+    policy = workloads.load_policy()
     assert type(scheduler) is conftest.CostOrderedFileScheduling
-    assert scheduler.costs == workloads.file_costs(workloads.load_policy())
+    assert scheduler.costs == workloads.file_costs(policy)
+    assert scheduler.independent == {
+        row["function"] + "[" + mode + "]"
+        for row in policy["legacy_nodes"]
+        for mode in row["modes"]
+    }
 
 
 def test_reviewed_estimates_name_current_test_files():

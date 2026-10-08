@@ -214,30 +214,42 @@ def validate_policy(policy: dict[str, Any]) -> dict[str, Any]:
             "duplicate shard, unsupported scheduler/profile",
         )
         shards[row["id"]] = row
-    require(len(shards) <= 4, "runtime job ceiling exceeded")
+    require(len(shards) <= 6, "runtime job ceiling exceeded")
     placements = {}
     group_owners: dict[str, set[str]] = {}
     for row in policy["placements"]:
-        exact(row, {"kind", "family", "shard"}, "placement")
-        require(all(type(v) is str for v in row.values()), "malformed placement")
+        exact(row, {"kind", "family", "shards"}, "placement")
+        targets = row["shards"]
+        require(
+            type(row["kind"]) is str
+            and type(row["family"]) is str
+            and type(targets) is list
+            and targets
+            and all(type(s) is str for s in targets),
+            "malformed placement",
+        )
         key = (row["kind"], row["family"])
         require(
-            key in requirements and key not in placements and row["shard"] in shards,
+            key in requirements
+            and key not in placements
+            and len(set(targets)) == len(targets)
+            and set(targets) <= set(shards),
             "unknown or duplicate placement",
         )
         req = requirements[key]
-        require(
-            req["dependency_profile"] == shards[row["shard"]]["dependency_profile"],
-            "dependency profile mismatch",
-        )
-        if req["kind"] != "process-portability":
+        for shard in targets:
             require(
-                shards[row["shard"]]["scheduler"] == "loadfile",
-                "only independent portability may use load",
+                req["dependency_profile"] == shards[shard]["dependency_profile"],
+                "dependency profile mismatch",
             )
+            if req["kind"] != "process-portability":
+                require(
+                    shards[shard]["scheduler"] == "loadfile",
+                    "only independent portability may use load",
+                )
         if req["acquisition_group"]:
-            group_owners.setdefault(req["acquisition_group"], set()).add(row["shard"])
-        placements[key] = row["shard"]
+            group_owners.setdefault(req["acquisition_group"], set()).update(targets)
+        placements[key] = targets
     require(
         all(len(owners) == 1 for owners in group_owners.values()),
         "acquisition group split across shards",
@@ -397,8 +409,9 @@ def place(
 ) -> dict[str, list[str]]:
     require(len(nodes) == len(indices), "missing resolved requirements")
     descriptors = table(policy)
-    placements = {(r["kind"], r["family"]): r["shard"] for r in policy["placements"]}
+    placements = {(r["kind"], r["family"]): r["shards"] for r in policy["placements"]}
     result: dict[str, list[str]] = {r["id"]: [] for r in policy["shards"]}
+    dealt: dict[tuple[str, str], int] = {}
     for node, index in zip(nodes, indices, strict=True):
         row = descriptors[integer(index, 0, len(descriptors) - 1, "descriptor index")]
         key = (row[0], row[1])
@@ -406,7 +419,9 @@ def place(
             key in placements,
             "registered requirement has no approved placement: " + "/".join(key),
         )
-        result[placements[key]].append(node)
+        targets = placements[key]
+        dealt[key] = dealt.get(key, -1) + 1
+        result[targets[dealt[key] % len(targets)]].append(node)
     return result
 
 
@@ -450,8 +465,8 @@ def managed_observations(
         "missing managed observer evidence",
     )
     group = policy["groups"][0]
-    owner = next(
-        p["shard"]
+    (owner,) = next(
+        p["shards"]
         for p in policy["placements"]
         if any(
             r["acquisition_group"] == group["name"]
@@ -1547,7 +1562,7 @@ def verify_workflow_health(value, expected_context=None):
             "foreign runtime summary",
         )
         require(
-            type(runtime["shards"]) is list and 1 <= len(runtime["shards"]) <= 4,
+            type(runtime["shards"]) is list and 1 <= len(runtime["shards"]) <= 6,
             "invalid runtime shard inventory",
         )
         require(

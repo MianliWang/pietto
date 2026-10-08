@@ -603,7 +603,8 @@ def runtime_command(
 ) -> tuple[str, ...]:
     parser = validate._build_parser()
     args = parser.parse_args(())
-    args.pytest_maxprocesses = max_workers
+    # Hosted jobs keep at most four workers whatever the local ceiling is.
+    args.pytest_maxprocesses = max_workers or 4
     selected = validate._pytest_command(args, parser)
     scheduler = next(
         row["scheduler"] for row in POLICY["shards"] if row["id"] == partition

@@ -63,7 +63,7 @@ def test_fixed_thresholds_and_retained_startup_policy():
         v.PYTEST_WORKER_MEMORY_BYTES,
         v.PYTEST_MIN_MEMORY_RESERVE_BYTES,
         v.PYTEST_MAX_RESOURCE_WORKERS,
-    ) == (512 * MIB, GIB, 4)
+    ) == (GIB, GIB, 8)
     assert v.PYTEST_DIST_CHOICES == ("loadfile", "loadscope")
 
 

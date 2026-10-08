@@ -41,9 +41,9 @@ GATES: tuple[tuple[str, tuple[str, ...]], ...] = (
 PYTEST_GATE_NAME = "tests"
 PYTEST_COMMAND = ("uv", "run", "pytest")
 PYTEST_DIST_CHOICES = ("loadfile", "loadscope")
-PYTEST_WORKER_MEMORY_BYTES = 512 * 1024 * 1024
+PYTEST_WORKER_MEMORY_BYTES = 1024 * 1024 * 1024
 PYTEST_MIN_MEMORY_RESERVE_BYTES = 1024 * 1024 * 1024
-PYTEST_MAX_RESOURCE_WORKERS = 4
+PYTEST_MAX_RESOURCE_WORKERS = 8
 
 
 def _read_text(path: str) -> str | None:

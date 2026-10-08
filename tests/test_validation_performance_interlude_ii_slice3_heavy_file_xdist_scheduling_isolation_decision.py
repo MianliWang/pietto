@@ -277,9 +277,9 @@ def test_no_custom_scheduler_exists_and_the_retained_policy_is_intact() -> None:
     assert validate.GATES == EXPECTED_GATES
     assert validate.PYTEST_COMMAND == ("uv", "run", "pytest")
     assert validate.PYTEST_DIST_CHOICES == ("loadfile", "loadscope")
-    assert validate.PYTEST_WORKER_MEMORY_BYTES == 512 * 1024 * 1024
+    assert validate.PYTEST_WORKER_MEMORY_BYTES == 1024 * 1024 * 1024
     assert validate.PYTEST_MIN_MEMORY_RESERVE_BYTES == 1024 * 1024 * 1024
-    assert validate.PYTEST_MAX_RESOURCE_WORKERS == 4
+    assert validate.PYTEST_MAX_RESOURCE_WORKERS == 8
 
     # The retained default is loadfile, and the serial fallback is unchanged.
     command_source = inspect.getsource(validate._pytest_command)
@@ -315,9 +315,9 @@ def test_resource_worker_ceiling_bounds_every_resource_computation(
     # Identical inputs are deterministic; no history or adaptive state exists.
     assert validate._resource_worker_count() == ceiling
 
-    # The 512 MiB budget and the 20% reserve still select below the ceiling.
-    # A 1 GiB-only reserve would admit four workers here, so both remain live.
-    monkeypatch.setattr(validate, "_memory_snapshot", lambda: (8 * gib, 3 * gib))
+    # The 1 GiB budget and the 20% reserve still select below the ceiling.
+    # A 1 GiB-only reserve would admit five workers here, so both remain live.
+    monkeypatch.setattr(validate, "_memory_snapshot", lambda: (16 * gib, 6 * gib))
     assert validate._resource_worker_count() == 2
 
     # CPU capacity still selects below the ceiling.

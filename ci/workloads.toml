@@ -1,5 +1,5 @@
 version = 1
-topology_version = 1
+topology_version = 2
 
 [thresholds]
 imbalance_watch = 1.25
@@ -36,25 +36,27 @@ family = "emission"
 acquisition_group = ""
 dependency_profile = "core"
 
+# A placement listing several shards deals that requirement's sorted nodes to
+# them in turn (node i goes to shards[i % n]); acquisition groups keep one shard.
 [[placements]]
 kind = "general-runtime"
 family = "default"
-shard = "general-runtime"
+shards = ["general-runtime-1", "general-runtime-2", "general-runtime-3"]
 
 [[placements]]
 kind = "shared-acquisition"
 family = "compiler-differential"
-shard = "shared-acquisition"
+shards = ["shared-acquisition"]
 
 [[placements]]
 kind = "process-portability"
 family = "plan"
-shard = "plan-portability"
+shards = ["plan-portability"]
 
 [[placements]]
 kind = "process-portability"
 family = "emission"
-shard = "emission-portability"
+shards = ["emission-portability"]
 
 [[shards]]
 id = "shared-acquisition"
@@ -72,7 +74,17 @@ scheduler = "load"
 dependency_profile = "core"
 
 [[shards]]
-id = "general-runtime"
+id = "general-runtime-1"
+scheduler = "loadfile"
+dependency_profile = "core"
+
+[[shards]]
+id = "general-runtime-2"
+scheduler = "loadfile"
+dependency_profile = "core"
+
+[[shards]]
+id = "general-runtime-3"
 scheduler = "loadfile"
 dependency_profile = "core"
 

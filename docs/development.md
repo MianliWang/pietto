@@ -87,6 +87,15 @@ the table from one complete local four-worker session run with pytest's own
 and keep files of at least 20 seconds, rounded to 10 seconds. A stale or missing estimate only changes the order, never which tests
 run.
 
+The local validator chooses its pytest worker count from usable CPUs and memory:
+one GiB per worker after reserving max(1 GiB, total / 5), at most eight
+(`PYTEST_MAX_RESOURCE_WORKERS`). Hosted runtime jobs stay capped at four
+workers. The usual authoritative entry is
+`UV_PYTHON=3.13.13 UV_NO_SYNC=1 UV_LOCKED=1 .venv/bin/python scripts/validate.py --timings --oom-guard on`;
+add `--pytest-maxprocesses N` to leave room on a shared machine. The OOM guard
+still stops a gate under sustained memory pressure, and registry standalone
+nodes run as separate units so that extra workers are not stuck behind them.
+
 
 ## Phase-end acquisition consolidation
 
@@ -409,8 +418,9 @@ CI runtime 使用 `--durations=30 --durations-min=1`，另从实际 pytest repor
 ## 当前 CI workload governance 与 Phase67
 
 [CI governance v1](architecture/ci-workload-governance-v1.md) 取代R1的当前placement；旧段落保留历史。
-四个当前分区是 shared-acquisition/loadfile、plan-portability/load、emission-portability/load、
-general-runtime/loadfile。普通local validator仍不改变selection；pytest.ini只注册marker。
+当前六个分区是 shared-acquisition/loadfile、plan-portability/load、emission-portability/load、
+general-runtime-1/2/3/loadfile（general-runtime/default 按排序节点序号轮流拆成三份，
+见[插段记录](spec/post-phase68-performance-interlude-v1.md)）。普通local validator仍不改变selection；pytest.ini只注册marker。
 新special节点用ci_workload声明class/family/group/profile，registry负责placement；无placement即拒绝。
 新ordinary自动纳入实际U。添加测试时说明扩展的assurance、预计资源影响及正负检查，不要求精确秒数。
 

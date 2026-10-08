@@ -311,8 +311,14 @@ def test_all_bindable_tags_a_b_a_current_evidence(tmp_path, target, seed, values
         )
 
 
-def test_complete_named_corpus_in_fresh_source_free_process(tmp_path):
-    """A fresh portability witness reuses the original cases and their oracles."""
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_complete_named_corpus_in_fresh_source_free_process(tmp_path, target):
+    """A fresh portability witness reuses the original cases and their oracles.
+
+    Each target's part of the named corpus is built here and verified in its own
+    fresh source-free process; together the two parameters cover the whole corpus,
+    with exactly the two MySQL exclusions.
+    """
     from dataclasses import asdict
     import json
     import shutil
@@ -374,42 +380,42 @@ def test_complete_named_corpus_in_fresh_source_free_process(tmp_path):
 
     cell = 0
     excluded = []
-    for target in ("postgres", "mysql"):
-        for case, variant in (*CASES, ("R2_bound", "range")):
-            artifact = source_artifact(source_root / str(cell), target, case, variant)
-            cell += 1
-            if artifact is None:
-                assert target == "mysql" and (case, variant) in (
-                    ("V_join_full", "null_keys"),
-                    ("A_window_groups", "exclude"),
-                )
-                excluded.append((target, case, variant))
-                continue
-            retain(artifact, [target, case, variant, "ordinary"])
-            retain(artifact, [target, case, variant, "refined"], refined=True)
-        for case in manifest():
-            if target == "mysql" and case["options"].get("postgres_only", False):
-                continue
-            preparation = case_preparation(source_root / str(cell), target, case)
-            cell += 1
-            retain(
-                preparation.artifact,
-                [target, case["name"], "guarded"],
-                guarded=preparation,
-                refined=case["options"].get("refined", False),
+    for case, variant in (*CASES, ("R2_bound", "range")):
+        artifact = source_artifact(source_root / str(cell), target, case, variant)
+        cell += 1
+        if artifact is None:
+            assert target == "mysql" and (case, variant) in (
+                ("V_join_full", "null_keys"),
+                ("A_window_groups", "exclude"),
             )
-    retained = _proof_artifact(source_root / str(cell), retained=True).artifact
-    assert retained is not None
-    retain(retained, ["postgres", "retained_unselected"])
-    from test_phase68_slice10_compiled_families import retained_unmapped_source
+            excluded.append((target, case, variant))
+            continue
+        retain(artifact, [target, case, variant, "ordinary"])
+        retain(artifact, [target, case, variant, "refined"], refined=True)
+    for case in manifest():
+        if target == "mysql" and case["options"].get("postgres_only", False):
+            continue
+        preparation = case_preparation(source_root / str(cell), target, case)
+        cell += 1
+        retain(
+            preparation.artifact,
+            [target, case["name"], "guarded"],
+            guarded=preparation,
+            refined=case["options"].get("refined", False),
+        )
+    if target == "postgres":
+        retained = _proof_artifact(source_root / str(cell), retained=True).artifact
+        assert retained is not None
+        retain(retained, ["postgres", "retained_unselected"])
+        from test_phase68_slice10_compiled_families import retained_unmapped_source
 
-    with pytest.MonkeyPatch.context() as patcher:
-        unmapped = retained_unmapped_source(
-            source_root / "unmapped", "postgres", "key", patcher
-        ).artifact
-    assert unmapped is not None
-    retain(unmapped, ["postgres", "retained_unselected_unmapped_key"])
-    assert len(excluded) == 2
+        with pytest.MonkeyPatch.context() as patcher:
+            unmapped = retained_unmapped_source(
+                source_root / "unmapped", "postgres", "key", patcher
+            ).artifact
+        assert unmapped is not None
+        retain(unmapped, ["postgres", "retained_unselected_unmapped_key"])
+    assert len(excluded) == (2 if target == "mysql" else 0)
     handoff = tmp_path / "trusted-handoff.json"
     handoff.write_text(json.dumps(declarations, ensure_ascii=False))
     shutil.rmtree(source_root)

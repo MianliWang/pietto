@@ -534,9 +534,9 @@ def test_static_boundaries_and_witness_matrices_are_zero_delta() -> None:
     assert validate.GATES == EXPECTED_GATES
     assert validate.PYTEST_COMMAND == ("uv", "run", "pytest")
     assert validate.PYTEST_DIST_CHOICES == ("loadfile", "loadscope")
-    assert validate.PYTEST_WORKER_MEMORY_BYTES == 512 * 1024 * 1024
+    assert validate.PYTEST_WORKER_MEMORY_BYTES == 1024 * 1024 * 1024
     assert validate.PYTEST_MIN_MEMORY_RESERVE_BYTES == 1024 * 1024 * 1024
-    assert validate.PYTEST_MAX_RESOURCE_WORKERS == 4
+    assert validate.PYTEST_MAX_RESOURCE_WORKERS == 8
 
     workflow = WORKFLOW.read_text(encoding="utf-8")
     assert workflow.count("uv run python scripts/ci_validation.py run") == 2

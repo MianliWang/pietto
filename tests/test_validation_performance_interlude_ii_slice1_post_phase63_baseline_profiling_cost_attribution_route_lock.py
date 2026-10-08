@@ -218,9 +218,9 @@ def test_slice1_is_profiling_only_with_zero_delta_policy() -> None:
     assert validate.PYTEST_COMMAND == ("uv", "run", "pytest")
     assert validate.PYTEST_GATE_NAME == "tests"
     assert validate.PYTEST_DIST_CHOICES == ("loadfile", "loadscope")
-    assert validate.PYTEST_WORKER_MEMORY_BYTES == 512 * 1024 * 1024
+    assert validate.PYTEST_WORKER_MEMORY_BYTES == 1024 * 1024 * 1024
     assert validate.PYTEST_MIN_MEMORY_RESERVE_BYTES == 1024 * 1024 * 1024
-    assert validate.PYTEST_MAX_RESOURCE_WORKERS == 4
+    assert validate.PYTEST_MAX_RESOURCE_WORKERS == 8
 
     workflow = _read(WORKFLOW)
     assert workflow.count("uv run python scripts/ci_validation.py run") == 2

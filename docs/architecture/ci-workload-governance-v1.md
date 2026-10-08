@@ -30,9 +30,14 @@ v1只作历史，不允许宽松fallback。coverage仍≤8MiB，所有旧semanti
 | shared-acquisition | compiler-differential cohort／named group | loadfile |
 | plan-portability | process-portability / plan | load |
 | emission-portability | process-portability / emission | load |
-| general-runtime | general-runtime / default | loadfile |
+| general-runtime-1 | general-runtime / default，排序后序号 i % 3 == 0 的节点 | loadfile |
+| general-runtime-2 | general-runtime / default，排序后序号 i % 3 == 1 的节点 | loadfile |
+| general-runtime-3 | general-runtime / default，排序后序号 i % 3 == 2 的节点 | loadfile |
 
-每job资源选择≤4workers，无嵌套池。checks/runtime/targets独立启动；共15realized jobs；保留两个Python
+placement以`shards`列出目标；列出多个shard时，该需求的节点按排序后的序号轮流分配（第i个到`shards[i % n]`），
+同一文件可分在两个job，每个job内仍按loadfile；有acquisition group的需求只能有一个shard，旧单值`shard`字段拒绝。
+
+每job资源选择≤4workers，无嵌套池。checks/runtime/targets独立启动；共19realized jobs（每个Python六个runtime分片）；保留两个Python
 completion contexts与strict target aggregate。共享lock/Ruff、双Pyright/generated/golden/installed和pins不变；
 两个Pyright gate各以`--threads 4`运行，仍是两个独立权威。
 小Arrow实验是两compiler/package jobs中的required隔离step，core全量测试不靠缺依赖skip。
@@ -40,8 +45,10 @@ completion contexts与strict target aggregate。共享lock/Ruff、双Pyright/gen
 loadfile的发放顺序由`tests/conftest.py`的`pytest_xdist_make_scheduler`决定，覆盖本地validator与两个loadfile分片：
 文件单元与stock loadfile相同，只先发registry中经review的`[[file_costs]]`估计（一次完整本地session里该文件
 setup/call/teardown秒数之和）最大的单元，未估计文件保持xdist按测试数的顺序；仍有未完成已估计文件的worker
-补充最小单元，避免重文件排在单节点长尾之后。估计只改变顺序，不选择、放置、跳过、重试或限时测试；路径必须是
+补充最小单元，避免重文件排在单节点长尾之后。registry `[[legacy_nodes]]`的standalone节点（CI已在load分片独立运行）
+在loadfile会话里各自成为单元并沿用所属文件的估计。估计只改变顺序，不选择、放置、跳过、重试或限时测试；路径必须是
 现有`tests/test_*.py`，畸形或重复即拒绝。health只能建议review，估计只经普通reviewed commit维护。load分片不变。
+拓扑版本为2：general-runtime拆分后的分区ID与历史不同，health把这一差异作为拓扑差异呈现，不与旧分区数值硬比。
 
 ## managed locality与观察
 

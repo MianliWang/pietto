@@ -81,15 +81,17 @@ def test_ci_triggers_permissions_runner_and_matrix_are_exact() -> None:
             "shared-acquisition",
             "plan-portability",
             "emission-portability",
-            "general-runtime",
+            "general-runtime-1",
+            "general-runtime-2",
+            "general-runtime-3",
         ]
         assert "fail-fast: false" in runtime
         assert "needs:" not in runtime and "needs:" not in _job(
             workflow, f"checks_{word}"
         )
         assert "include:" not in runtime and "exclude:" not in runtime
-    # Two four-way runtime matrices and the two-target matrix add seven jobs.
-    assert len(EXPECTED_JOBS) + 7 == 15
+    # Two six-way runtime matrices and the two-target matrix add eleven jobs.
+    assert len(EXPECTED_JOBS) + 11 == 19
 
 
 @pytest.mark.parametrize(
@@ -224,14 +226,16 @@ def test_ci_has_no_write_credentials_and_only_scoped_evidence_artifacts() -> Non
             ):
                 assert fragment in job
         summary = _job(workflow, f"python_{word}")
-        assert summary.count("digest-mismatch: error") == 11
-        assert summary.count("skip-decompress: true") == 11
+        assert summary.count("digest-mismatch: error") == 15
+        assert summary.count("skip-decompress: true") == 15
         for part in (
             "collection",
             "shared-acquisition",
             "plan-portability",
             "emission-portability",
-            "general-runtime",
+            "general-runtime-1",
+            "general-runtime-2",
+            "general-runtime-3",
         ):
             assert (
                 f"name: ci-coverage-${{{{ github.run_id }}}}-${{{{ github.run_attempt }}}}-{python}-{part}.json"
@@ -350,6 +354,8 @@ def _universe():
             *ci.STANDALONE_NODES,
             FUTURE,
             FUTURE + "_other",
+            FUTURE + "_third",
+            FUTURE + "_fourth",
         ]
     )
 
@@ -408,8 +414,11 @@ def _verify(collection, partitions, checks="success", runtime="success"):
 def test_unknown_ordinary_nodes_and_six_standalone_modes_keep_complete_coverage():
     collection, reports = _reports()
     result = _verify(collection, reports)
-    matrix, plan, emission, remaining = reports
-    assert remaining["nodes"] == [FUTURE, FUTURE + "_other"]
+    matrix, plan, emission, first, second, third = reports
+    # Sorted general-runtime nodes are dealt to the three shards in turn.
+    assert first["nodes"] == [FUTURE, FUTURE + "_third"]
+    assert second["nodes"] == [FUTURE + "_fourth"]
+    assert third["nodes"] == [FUTURE + "_other"]
     assert sorted(plan["nodes"] + emission["nodes"]) == sorted(ci.STANDALONE_NODES)
     assert len(plan["nodes"]) == len(emission["nodes"]) == 3
     assert matrix["nodes"] == sorted(p + "::test_existing" for p in ci.MATRIX_FILES)
@@ -462,7 +471,7 @@ def test_independent_universe_catches_a_classifier_that_omits_a_node(monkeypatch
 
     def incomplete(nodes, indices=None):
         partitions = original(nodes, indices)
-        partitions["general-runtime"].remove(FUTURE)
+        partitions["general-runtime-1"].remove(FUTURE)
         return partitions
 
     monkeypatch.setattr(ci, "partition_nodes", incomplete)
@@ -528,7 +537,7 @@ def test_reports_cannot_substitute_other_parts_or_hide_pytest_failure(damage):
     elif damage == "wrong_digest":
         reports[0]["collection"]["sha256"] = "0" * 64
     elif damage == "wrong_owner":
-        reports[0]["partition"] = "general-runtime"
+        reports[0]["partition"] = "general-runtime-1"
     elif damage == "foreign_owner":
         reports[1]["partition"] = "foreign"
     elif damage == "foreign_field":
@@ -621,7 +630,7 @@ def test_default_local_gates_and_existing_worker_policy_remain_complete(monkeypa
         "test typing",
         "tests",
     )
-    assert v.PYTEST_MAX_RESOURCE_WORKERS == 4
+    assert v.PYTEST_MAX_RESOURCE_WORKERS == 8
     parser = v._build_parser()
     monkeypatch.setattr(
         v, "_resource_worker_count", lambda maximum=None: min(maximum or 4, 4)
@@ -643,7 +652,8 @@ def test_default_local_gates_and_existing_worker_policy_remain_complete(monkeypa
         "--dist=loadfile",
     )
     assert ci.runtime_command(4, "plan-portability")[-1] == "--dist=load"
-    assert ci.runtime_command(4, "general-runtime")[-1] == "--dist=loadfile"
+    for part in ("general-runtime-1", "general-runtime-2"):
+        assert ci.runtime_command(4, part)[-1] == "--dist=loadfile"
     assert tuple(
         name for name, _ in v._resolved_gates(parser.parse_args(()), parser)
     ) == tuple(name for name, _ in v.GATES)
@@ -660,7 +670,7 @@ def test_raw_artifact_names_bind_current_run_attempt_runtime_and_partition():
     )
     assert (
         len({ci.report_name(CONTEXT, part) for part in ("collection", *ci.PARTITIONS)})
-        == 5
+        == 7
     )
     with pytest.raises(ValueError):
         ci.report_name(CONTEXT, "missing")
@@ -721,8 +731,8 @@ def test_independent_universe_rejects_classifier_created_overlap(monkeypatch):
 
     def overlapping(nodes, indices=None):
         partitions = original(nodes, indices)
-        partitions["general-runtime"] = sorted(
-            [*partitions["general-runtime"], partitions["shared-acquisition"][0]]
+        partitions["general-runtime-1"] = sorted(
+            [*partitions["general-runtime-1"], partitions["shared-acquisition"][0]]
         )
         return partitions
 
