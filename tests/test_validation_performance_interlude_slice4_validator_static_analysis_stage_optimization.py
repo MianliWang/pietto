@@ -16,11 +16,19 @@ SPEC = (
     REPO_ROOT
     / "docs/spec/validation-performance-interlude-slice4-validator-static-analysis-stage-optimization-v1.md"
 )
-LEGACY_TYPING_GATES = (
-    ("production typing", ("uv", "run", "pyright")),
+TWO_STAGE_TYPING_GATES = (
+    ("production typing", ("uv", "run", "pyright", "--threads", "4")),
     (
         "test typing",
-        ("uv", "run", "pyright", "--project", "pyrightconfig.tests.json"),
+        (
+            "uv",
+            "run",
+            "pyright",
+            "--project",
+            "pyrightconfig.tests.json",
+            "--threads",
+            "4",
+        ),
     ),
 )
 REJECTED_COMBINED_COMMAND = (
@@ -55,7 +63,7 @@ validate = cast(Any, _load_validate_module())
 
 
 def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
-    assert validate.GATES[3:5] == LEGACY_TYPING_GATES
+    assert validate.GATES[3:5] == TWO_STAGE_TYPING_GATES
     assert REJECTED_COMBINED_COMMAND not in {command for _, command in validate.GATES}
     assert sum("pyright" in command for _, command in validate.GATES) == 2
 
@@ -82,10 +90,11 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
         if "generated" not in path.parts
     )
     test_files = tuple(sorted((REPO_ROOT / "tests").rglob("*.py")))
-    # Current S18 candidate adds no production file and four test/observer
-    # files. Both complete typing roots remain exact.
+    # The post-Phase68 performance interlude adds no production file and two
+    # test files (the scheduler conftest and its principal). Both complete
+    # typing roots remain exact.
     assert len(production_files) == 283
-    assert len(test_files) == 601
+    assert len(test_files) == 603
     assert set(production_files).isdisjoint(test_files)
 
 

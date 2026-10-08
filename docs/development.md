@@ -68,13 +68,24 @@ The current four partitions and completion consumers are specified by
 [CI governance](architecture/ci-workload-governance-v1.md); older monolithic
 and no-gain records below retain their historical applicability.
 
-Do not propose horizontal CI pytest sharding, extra shards, extra pytest workers,
-a different xdist scheduler, or arbitrary heavy-file splitting as a performance
-route. The [CI sharding no-gain record](spec/validation-performance-interlude-iv-slice1-ci-horizontal-sharding-and-gate-decomposition-v1.md)
-measured that route and rejected it: every independent pytest invocation pays a
-shared acquisition floor of roughly 470.64s, which is already above the 55%
-adoption ceiling, so sharding multiplies that floor rather than dividing it. That
-record also states the measured reopening boundary.
+The [CI sharding no-gain record](spec/validation-performance-interlude-iv-slice1-ci-horizontal-sharding-and-gate-decomposition-v1.md)
+measured the then-monolithic suite, where every independent pytest invocation
+paid a shared acquisition floor of roughly 470.64s; it stays historically
+accurate. The current topology already confines that floor to the
+shared-acquisition shard. The
+[post-Phase68 performance interlude](spec/post-phase68-performance-interlude-v1.md)
+reopened scheduling under its own authority: `loadfile` units are handed out by
+the reviewed `[[file_costs]]` estimates in `ci/workloads.toml`, and both Pyright
+gates run with `--threads 4`. Further scheduler, sharding, worker-ceiling or
+file-splitting changes still need fresh measurements and separate authority;
+they are not routine review conclusions.
+
+When a test file's real cost moves far from its estimate (the CI health
+`slowest_groups_summed_seconds` and worker finish spread show it), re-derive
+the table from one complete local four-worker session run with pytest's own
+`--durations=0 --durations-min=0`: sum each file's setup/call/teardown durations
+and keep files of at least 20 seconds, rounded to 10 seconds. A stale or missing estimate only changes the order, never which tests
+run.
 
 
 ## Phase-end acquisition consolidation

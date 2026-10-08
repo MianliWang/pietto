@@ -76,6 +76,95 @@ id = "general-runtime"
 scheduler = "loadfile"
 dependency_profile = "core"
 
+# Reviewed estimates of each file's summed setup/call/teardown seconds in one
+# complete local session (4 workers). tests/conftest.py hands out loadfile units
+# largest estimate first; estimates never select, place, skip, retry or time a test.
+# Maintain them by ordinary reviewed commits; health may recommend, never edit.
+
+[[file_costs]]
+path = "tests/test_phase65_slice14_portable_boundary_minimal_process_integration.py"
+seconds = 730
+
+[[file_costs]]
+path = "tests/test_phase68_slice10_compiled_families.py"
+seconds = 450
+
+[[file_costs]]
+path = "tests/test_phase66_slice14_private_emission_observation_process_integration.py"
+seconds = 430
+
+[[file_costs]]
+path = "tests/test_phase68_slice10_source_free.py"
+seconds = 430
+
+[[file_costs]]
+path = "tests/test_phase68_slice14_extraction.py"
+seconds = 390
+
+[[file_costs]]
+path = "tests/test_phase65_slice15_whole_selected_plan_real_source_differential_conformance.py"
+seconds = 360
+
+[[file_costs]]
+path = "tests/test_phase66_slice2_isolated_target_conformance_facility.py"
+seconds = 140
+
+[[file_costs]]
+path = "tests/test_phase68_slice7_guards.py"
+seconds = 140
+
+[[file_costs]]
+path = "tests/test_phase64_slice10_ir_observation_and_differential.py"
+seconds = 130
+
+[[file_costs]]
+path = "tests/test_phase68_slice15_delivery.py"
+seconds = 80
+
+[[file_costs]]
+path = "tests/test_phase68_slice16_publication.py"
+seconds = 80
+
+[[file_costs]]
+path = "tests/test_phase68_slice13_replay.py"
+seconds = 50
+
+[[file_costs]]
+path = "tests/test_phase68_slice14_process_histories.py"
+seconds = 50
+
+[[file_costs]]
+path = "tests/test_phase68_slice17_collection.py"
+seconds = 50
+
+[[file_costs]]
+path = "tests/test_phase68_slice17_runtime.py"
+seconds = 40
+
+[[file_costs]]
+path = "tests/test_phase68_slice13_process_histories.py"
+seconds = 30
+
+[[file_costs]]
+path = "tests/test_phase68_slice15_process_histories.py"
+seconds = 30
+
+[[file_costs]]
+path = "tests/test_phase66_pre_slice16_completion_corrective_closure.py"
+seconds = 20
+
+[[file_costs]]
+path = "tests/test_phase66_slice13_project_emit_sql_cli_contract_atomic_output.py"
+seconds = 20
+
+[[file_costs]]
+path = "tests/test_phase68_slice11_job_store.py"
+seconds = 20
+
+[[file_costs]]
+path = "tests/test_phase68_slice16_process_histories.py"
+seconds = 20
+
 [[groups]]
 name = "compiler-differential"
 observer = "differential"

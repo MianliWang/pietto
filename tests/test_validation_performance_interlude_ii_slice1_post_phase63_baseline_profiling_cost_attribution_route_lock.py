@@ -35,10 +35,18 @@ EXPECTED_GATES = (
     ("lockfile", ("uv", "lock", "--check")),
     ("format", ("uv", "run", "ruff", "format", "--check", ".")),
     ("lint", ("uv", "run", "ruff", "check", ".")),
-    ("production typing", ("uv", "run", "pyright")),
+    ("production typing", ("uv", "run", "pyright", "--threads", "4")),
     (
         "test typing",
-        ("uv", "run", "pyright", "--project", "pyrightconfig.tests.json"),
+        (
+            "uv",
+            "run",
+            "pyright",
+            "--project",
+            "pyrightconfig.tests.json",
+            "--threads",
+            "4",
+        ),
     ),
     ("tests", ("uv", "run", "pytest")),
 )

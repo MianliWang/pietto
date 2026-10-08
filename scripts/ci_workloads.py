@@ -126,6 +126,7 @@ def validate_policy(policy: dict[str, Any]) -> dict[str, Any]:
             "groups",
             "legacy_files",
             "legacy_nodes",
+            "file_costs",
         },
         "registry",
     )
@@ -159,6 +160,7 @@ def validate_policy(policy: dict[str, Any]) -> dict[str, Any]:
         "groups",
         "legacy_files",
         "legacy_nodes",
+        "file_costs",
     ):
         require(type(policy[key]) is list and policy[key], "empty or malformed " + key)
     requirements = {}
@@ -289,12 +291,27 @@ def validate_policy(policy: dict[str, Any]) -> dict[str, Any]:
             "malformed or duplicate required modes",
         )
         functions.add(row["function"])
+    costs = set()
+    for row in policy["file_costs"]:
+        exact(row, {"path", "seconds"}, "file cost")
+        require(
+            type(row["path"]) is str
+            and re.fullmatch(r"tests/test_[A-Za-z0-9_]+\.py", row["path"])
+            and row["path"] not in costs,
+            "invalid or duplicate file cost path",
+        )
+        integer(row["seconds"], 1, 86400, "file cost seconds")
+        costs.add(row["path"])
     return policy
 
 
 def load_policy(path: Path = ROOT / "ci/workloads.toml") -> dict[str, Any]:
     with path.open("rb") as stream:
         return validate_policy(tomllib.load(stream))
+
+
+def file_costs(policy: dict[str, Any]) -> dict[str, int]:
+    return {row["path"]: row["seconds"] for row in policy["file_costs"]}
 
 
 def policy_identity(policy: dict[str, Any]) -> dict[str, Any]:
