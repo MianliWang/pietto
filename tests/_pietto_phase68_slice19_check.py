@@ -1236,7 +1236,8 @@ def check_tuning(report: dict) -> dict:
         need(
             peaks["serial"]["workers"] == 1
             and peaks["concurrent"]["workers"] > 1
-            # Physical native connections open at the backpressure moment.
+            # The largest set of identified native connections open at one
+            # instant before the relay was seen parked on the sink.
             and len(serial["open_sessions"]) == 1
             and len(concurrent["open_sessions"]) > 1,
             "TUNING_OVERLAP",
@@ -1793,6 +1794,122 @@ def _rechecks(parts: dict, wheel, install) -> dict:
     return totals
 
 
+def part_reports(dirs: list) -> list:
+    """One target's part reports: exactly the parts 0..n-1 of n, each finished
+    with its own database removed, as the S10/S14 group laws this per-part
+    lifecycle replaced required."""
+    import json as _json
+
+    reports = [
+        _json.loads((d / "pietto-phase68-slice19-matrix.json").read_text())
+        for d in dirs
+    ]
+    need(
+        sorted(tuple(r["part"]) for r in reports)
+        == [(i, len(reports)) for i in range(len(reports))],
+        "MATRIX_PARTS",
+    )
+    need(
+        all(
+            r["status"] == "CHECKED" and r["source_cleanup"]["status"] == "success"
+            for r in reports
+        ),
+        "MATRIX_PART_CLEANUP",
+    )
+    return reports
+
+
+def matrix_verdict(target: str, dirs: list, recheck: dict, wheel) -> dict:
+    """One target's matrix parts (sorted by directory name, part 0 first)
+    under the S19 laws: the part tuples, the union inventory, the independent
+    recheck counts, the coordinated damages and part 0's joint histories."""
+    import _pietto_phase68_slice6_check as s6check
+    import _pietto_phase68_slice14_check as s14check
+
+    reports = part_reports(dirs)
+    found = check_matrix(target, reports)
+    found["recheck"] = recheck
+    need(
+        found["recheck"]["MATRIX"]
+        + found["recheck"]["R2"]
+        + found["recheck"]["NO_R2_BASIS"]
+        == found["cells"]
+        and found["recheck"]["DRIFT"] == found["drift"]
+        and found["recheck"]["R1"] == sum(found["recovered"].values()),
+        "MATRIX_RECHECK",
+    )
+    found["damages"] = matrix_damages(dirs, target, wheel)
+    need(found["damages"] == MATRIX_DAMAGES, "MATRIX_DAMAGES")
+    found["inventory_damages"] = inventory_damages(
+        target,
+        [r for rp in reports for r in rp["records"] if "cell" in r or "excluded" in r],
+    )
+    found["report_damages"] = matrix_report_damages(target, reports)
+    joint = reports[0]["joint"]
+    need(
+        sorted(joint["j01"]) == sorted(joint["j02"]) == sorted(ROUTES[target])
+        and all(
+            [h["history"] for h in item["histories"]] == list(J01_HISTORIES)
+            for item in joint["j01"].values()
+        ),
+        "J01_LINEAGE",
+    )
+    literal, ordered = s6check.expected(target, "R2_seven", "39_values", None)
+    for route, item in joint["j01"].items():
+        for history in item["histories"]:
+            # The original S14 law, re-run here outside the harness.
+            s14check.check_history(
+                history, route, {"rows": literal, "ordered": ordered}
+            )
+    found["j01"] = {
+        route: [check_j01(h) for h in item["histories"]]
+        for route, item in joint["j01"].items()
+    }
+    found["j02"] = {
+        route: check_j02(item, target) for route, item in joint["j02"].items()
+    }
+    rows_route = ROUTES[target][0]
+    found["j01_damages"] = j01_damages(
+        next(
+            h
+            for h in joint["j01"][rows_route]["histories"]
+            if h["history"] == "C_reply_lost"
+        )
+    )
+    found["j02_damages"] = {
+        route: j02_damages(item, target) for route, item in joint["j02"].items()
+    }
+    found["r2_damages"] = r2_damages(
+        dirs, target, dirs[0] / ("pietto-phase68-slice19-j01-" + rows_route)
+    )
+    need(found["r2_damages"] == R2_DAMAGES, "R2_DAMAGES")
+    return found
+
+
+def tuning_pairs(c, target: str) -> dict:
+    """This campaign's pairs, from a run that was acquired and removed its own
+    database, plus any complete pair reused under a recorded producing-input
+    bridge (tuning-reused/, accepted on that bridge); each route exactly once."""
+    import json as _json
+
+    pairs: dict = {}
+    for base in ("tuning", "tuning-reused"):
+        path = c / base / target / "pietto-phase68-slice19-tuning.json"
+        if path.exists():
+            report = _json.loads(path.read_text())
+            if base == "tuning":
+                need(
+                    report["status"] == "ACQUIRED"
+                    and report["source_cleanup"]["status"] == "success",
+                    "TUNING_CLEANUP",
+                )
+            for route, pair in report["pairs"].items():
+                need(route not in pairs, "TUNING_ROUTES")
+                pairs[route] = pair
+    need(sorted(pairs) == sorted(ROUTES[target]), "TUNING_ROUTES")
+    return pairs
+
+
 def campaign_check(directory, wheel, house, install) -> dict:
     """Re-consume every component of one campaign directory with the original
     layer checkers and the S19 laws; returns the per-component verdicts."""
@@ -1800,8 +1917,6 @@ def campaign_check(directory, wheel, house, install) -> dict:
     import json as _json
     from pathlib import Path
 
-    import _pietto_phase68_slice6_check as s6check
-    import _pietto_phase68_slice14_check as s14check
     import _pietto_phase68_slice18_probe as s18
 
     c = Path(directory)
@@ -1820,80 +1935,13 @@ def campaign_check(directory, wheel, house, install) -> dict:
         ]
         for target, short in (("postgres", "pg"), ("mysql", "mysql"))
     }
+    for target in ("postgres", "mysql"):
+        part_reports(parts[target])  # before any part's raw is re-read
     rechecks = _rechecks(parts, wheel, install)
     for target in ("postgres", "mysql"):
-        dirs = parts[target]
-        reports = [
-            _json.loads((d / "pietto-phase68-slice19-matrix.json").read_text())
-            for d in dirs
-        ]
-        need(
-            sorted(tuple(r["part"]) for r in reports)
-            == [(i, len(reports)) for i in range(len(reports))],
-            "MATRIX_PARTS",
+        verdict["matrix-" + target] = matrix_verdict(
+            target, parts[target], rechecks[target], wheel
         )
-        found = check_matrix(target, reports)
-        found["recheck"] = rechecks[target]
-        need(
-            found["recheck"]["MATRIX"]
-            + found["recheck"]["R2"]
-            + found["recheck"]["NO_R2_BASIS"]
-            == found["cells"]
-            and found["recheck"]["DRIFT"] == found["drift"]
-            and found["recheck"]["R1"] == sum(found["recovered"].values()),
-            "MATRIX_RECHECK",
-        )
-        found["damages"] = matrix_damages(dirs, target, wheel)
-        need(found["damages"] == MATRIX_DAMAGES, "MATRIX_DAMAGES")
-        found["inventory_damages"] = inventory_damages(
-            target,
-            [
-                r
-                for rp in reports
-                for r in rp["records"]
-                if "cell" in r or "excluded" in r
-            ],
-        )
-        found["report_damages"] = matrix_report_damages(target, reports)
-        joint = reports[0]["joint"]
-        need(
-            sorted(joint["j01"]) == sorted(joint["j02"]) == sorted(ROUTES[target])
-            and all(
-                [h["history"] for h in item["histories"]] == list(J01_HISTORIES)
-                for item in joint["j01"].values()
-            ),
-            "J01_LINEAGE",
-        )
-        literal, ordered = s6check.expected(target, "R2_seven", "39_values", None)
-        for route, item in joint["j01"].items():
-            for history in item["histories"]:
-                # The original S14 law, re-run here outside the harness.
-                s14check.check_history(
-                    history, route, {"rows": literal, "ordered": ordered}
-                )
-        found["j01"] = {
-            route: [check_j01(h) for h in item["histories"]]
-            for route, item in joint["j01"].items()
-        }
-        found["j02"] = {
-            route: check_j02(item, target) for route, item in joint["j02"].items()
-        }
-        rows_route = ROUTES[target][0]
-        found["j01_damages"] = j01_damages(
-            next(
-                h
-                for h in joint["j01"][rows_route]["histories"]
-                if h["history"] == "C_reply_lost"
-            )
-        )
-        found["j02_damages"] = {
-            route: j02_damages(item, target) for route, item in joint["j02"].items()
-        }
-        found["r2_damages"] = r2_damages(
-            dirs, target, dirs[0] / ("pietto-phase68-slice19-j01-" + rows_route)
-        )
-        need(found["r2_damages"] == R2_DAMAGES, "R2_DAMAGES")
-        verdict["matrix-" + target] = found
     for origin in ("source", "installed"):
         raw = report("storage/" + origin, "pietto-phase68-slice19-storage.json")
         view = storage_view(raw, raw["backup"], raw["sink_backup"])
@@ -1931,17 +1979,7 @@ def campaign_check(directory, wheel, house, install) -> dict:
     }
     verdict["tuning"] = {}
     for target in ("postgres", "mysql"):
-        # This campaign's pairs plus any complete pair reused under a recorded
-        # producing-input bridge (tuning-reused/); each route exactly once.
-        pairs: dict = {}
-        for base in ("tuning", "tuning-reused"):
-            path = c / base / target / "pietto-phase68-slice19-tuning.json"
-            if path.exists():
-                for route, pair in _json.loads(path.read_text())["pairs"].items():
-                    need(route not in pairs, "TUNING_ROUTES")
-                    pairs[route] = pair
-        need(sorted(pairs) == sorted(ROUTES[target]), "TUNING_ROUTES")
-        raw = {"target": target, "pairs": pairs}
+        raw = {"target": target, "pairs": tuning_pairs(c, target)}
         verdict["tuning"][target] = {
             "pairs": check_tuning(raw),
             "damages": tuning_damages(raw),
@@ -1974,8 +2012,8 @@ def campaign_check(directory, wheel, house, install) -> dict:
     need(
         consumer["provenance"] == "LOCAL"
         # The archived receipts replay under their original identity, which
-        # the local checkout must still be at (before the S19 commit).
-        and consumer["head"] == "35fb67afa3d12088de7571bfe313c296a68a2f0d"
+        # the local checkout must still be at (before the next commit).
+        and consumer["head"] == "381376fba59868cfed70fc09a21c4cd6a8be4309"
         and [s["step"] for s in consumer["steps"]]
         == [
             "package_smoke",

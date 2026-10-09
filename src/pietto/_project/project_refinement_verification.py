@@ -45,6 +45,7 @@ from pietto._project.project_sql_emission_joins import JoinBody
 from pietto._project.project_sql_emission_results import RowResultBody
 from pietto._project.project_sql_emission_sets import SetBody
 from pietto._project.project_sql_emission_windows import WindowColumn
+from pietto._project.project_verification_scope import entry
 
 __all__: tuple[str, ...] = ()
 
@@ -1003,6 +1004,7 @@ def _syntax_resources(statement, request):
     return limits
 
 
+@entry
 def verify_refinement(value):
     _need(type(value) is RefinedQuery and type(value.policy) is TieRefinement, "ROOT")
     _need(
@@ -1472,6 +1474,7 @@ def page_syntax(value, frontier, size):
     return replace(value.statement, query=query), controls + (size,)
 
 
+@entry
 def verify_native(native, value, *, frontier=None, size=None):
     verify_refinement(value)
     _need(

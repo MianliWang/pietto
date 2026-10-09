@@ -9,10 +9,12 @@ from pietto._project.project_sql_emission_ast import SQLSelect, resource_limits
 from pietto._project.project_sql_emission_contract import BoundSource
 from pietto._project.project_sql_emission_rendering import _Writer, _join_condition
 from pietto._project.project_execution_binding_verification import native_arguments
+from pietto._project.project_verification_scope import entry
 
 __all__: tuple[str, ...] = ()
 
 
+@entry
 def render_guard(statement):
     from pietto._project.project_guard_verification import (
         verify_statement,

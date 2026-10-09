@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto._project.project_verification_scope import once
+
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -1396,7 +1398,7 @@ def _compiled_requirement_links(plan, entries):
     )
 
 
-def verify_compiled_requirement_report(report, verification):
+def _verify_compiled_requirement_report(report, verification):
     from pietto._project.project_compiled_schema import Address
 
     plan = _require_compiled_plan(verification)
@@ -1511,11 +1513,14 @@ def verify_compiled_requirement_report(report, verification):
     ):
         if type(index) is not MappingProxyType or not _same(tuple(index), keys):
             raise ValueError("COMPILED_REQUIREMENT_INDEX")
+        # One pass: each entry joins the bucket of every distinct member object
+        # (by identity) once, in entry order, as the per-key rescan selected it.
+        buckets: dict[int, list] = {}
+        for e in report.entries:
+            for v in dict.fromkeys(map(id, member_keys(e))):
+                buckets.setdefault(v, []).append(e)
         for key in keys:
-            wanted = tuple(
-                e for e in report.entries if any(v is key for v in member_keys(e))
-            )
-            if not _same(index[key], wanted):
+            if not _same(index[key], tuple(buckets.get(id(key), ()))):
                 raise ValueError("COMPILED_REQUIREMENT_INDEX")
     if not _same(
         report.proved,
@@ -1529,6 +1534,12 @@ def verify_compiled_requirement_report(report, verification):
         tuple(o for o in plan.single_matches if o.downstream_enforcement_required),
     ):
         raise ValueError("COMPILED_REQUIREMENT_SUMMARY")
+    return report
+
+
+def verify_compiled_requirement_report(report, verification):
+    """The complete requirement-report check; repeated checks of these exact objects inside one top-level call rely on the completed one."""
+    once(_verify_compiled_requirement_report, report, verification)
     return report
 
 
@@ -1587,6 +1598,8 @@ def verify_compiled_requirement_inputs(records):
     from pietto._project.project_compiled_schema import MAX_RECORDS
 
     kinds = {kind.value for kind in sql.ProjectSQLPlanRefKind} | {"scope"}
+    roles = {v.value for v in sql.ProjectSQLOriginRole}
+    provenances = {v.value for v in sql.ProjectSQLOriginProvenance}
     origins = tuple(
         r for r in records.values() if r.address.kind == "requirement_origin"
     )
@@ -1614,9 +1627,7 @@ def verify_compiled_requirement_inputs(records):
     for origin in origins:
         reference(origin.get("subject"))
         need(
-            origin.get("role") in {v.value for v in sql.ProjectSQLOriginRole}
-            and origin.get("provenance")
-            in {v.value for v in sql.ProjectSQLOriginProvenance},
+            origin.get("role") in roles and origin.get("provenance") in provenances,
             "REQUIREMENT_ORIGIN_KIND",
         )
         owner = records[origin.get("owner")]

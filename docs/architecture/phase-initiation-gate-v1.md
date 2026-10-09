@@ -30,7 +30,7 @@ closeout查看 [CI health](ci-workload-governance-v1.md) 的适用样本与alert
 scheduler/topology/resource-policy维护仍需既有证据与另行授权。常规phase-end acquisition整合
 无需health alert，按[开发程序](../development.md#phase-end-acquisition-consolidation)在start/midpoint预留，
 在最终audit-only边界及seal之前完成。相对实际Phase baseline审查新/改测试与受影响既有消费者；
-handoff记录共享/保留fresh的理由、覆盖等价、成本和剩余债务。复用现有证据，不强制重复profile/DB/full矩阵。
+handoff记录共享/保留fresh的理由、覆盖等价、成本和剩余债务。复用现有证据；除 [development.md](../development.md#phase-end-acquisition-consolidation) 的有界十个最慢测试 profile 复核外，不强制重复profile/DB/full矩阵。
 该流程不替代下面30项语义/身份/authority技术义务。
 
 ## Mandatory review fields

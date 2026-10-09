@@ -35,13 +35,24 @@ def check_capture(record: dict[str, Any], cell, case) -> None:
     """At most three pages of two, published by the fixed plan, then abandoned."""
     facts, failure = record["s14"], record["failure"]
     if facts is None:
-        # A guard outside the page fails the attempt before any R2 basis.
+        # A guard outside the page fails the attempt before any R2 basis: the
+        # designated case's violated guard, rolled back with nothing captured.
+        outcome = record["outcome"]
         need(
             case is not None
             and cell["case"] == "refined_violation_outside_page"
             and failure is not None
-            and failure["kind"] != "S14Abandoned"
-            and not record["rows"],
+            and (failure["kind"], failure["category"], failure["message"])
+            == ("ValueError", "SINGLE_MATCH_VIOLATED", "SINGLE_MATCH_VIOLATED")
+            and record["guard_states"] == ["VIOLATED"]
+            and not record["rows"]
+            and not record["post_close_rows"]
+            and (outcome["rows"], outcome["batches"], outcome["bytes"]) == (0, 0, 0)
+            and (outcome["transaction"], outcome["delivery"])
+            == ("ROLLBACK_ACK", "FAILED")
+            and outcome["primary"]["kind"] == "ValueError"
+            and outcome["primary"]["phase"] in ("guard", "admission")
+            and outcome["cleanup_failures"] == [],
             "CAPTURE_WITHOUT_BASIS",
         )
         return

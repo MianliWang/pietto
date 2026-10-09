@@ -41,6 +41,12 @@ def main():
     parser.add_argument("--cells", nargs="+", default=CELLS, choices=CELLS)
     parser.add_argument("--drift", action="store_true")
     parser.add_argument("--joint", action="store_true", help="matrix: J01/J02 too")
+    parser.add_argument(
+        "--queue",
+        type=Path,
+        help="matrix: the target's shared claims (each part still passes its own"
+        " --part i/n label)",
+    )
     parser.add_argument("--tree", help="controls: the producing tree")
     parser.add_argument(
         "--families", nargs="+", choices=("s03", "s09", "s08"), help="controls"
@@ -105,6 +111,7 @@ def main():
             selected=selected,
             drift=args.drift,
             joint=args.joint,
+            queue=args.queue,
         )
     elif args.family == "joint":
         report = s18.native(

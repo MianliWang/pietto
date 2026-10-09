@@ -15,6 +15,7 @@ from pietto._project.project_execution_template import (
     ExecutionSlot,
     ExecutionBinding,
 )
+from pietto._project.project_verification_scope import entry
 
 __all__: tuple[str, ...] = ()
 
@@ -101,6 +102,7 @@ def template_state(artifact, slots, guarded=None):
     )
 
 
+@entry
 def verify_template(template):
     if type(template) is not ExecutionTemplate or type(template.slots) is not tuple:
         raise BindingError("BINDING_TEMPLATE")
@@ -290,6 +292,7 @@ def _obligations(before, after, image):
                 raise BindingError("BINDING_OBLIGATIONS")
 
 
+@entry
 def verify_binding(binding):
     from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
 
@@ -355,8 +358,8 @@ def verify_binding(binding):
                 or atom(fixed.value) != atom(value)
             ):
                 raise BindingError("BINDING_SITE")
-        # Native uses are reverified upstream, then matched to original owned
-        # slots and occurrence positions, not text or equal-looking values.
+        # Native uses are verified upstream in this call, then matched to original
+        # owned slots and occurrence positions, not text or equal-looking values.
         au, bu = template.artifact.parameter_uses, artifact.parameter_uses
         if len(au) != len(bu):
             raise BindingError("BINDING_USES")

@@ -19,6 +19,7 @@ from pietto._project.project_sql_emission_joins import JoinBody
 from pietto._project.project_sql_emission_results import RowResultBody
 from pietto._project.project_sql_emission_parameters import same_value
 from pietto._project.project_refinement_verification import _Bytes
+from pietto._project.project_verification_scope import entry
 
 __all__: tuple[str, ...] = ()
 
@@ -28,6 +29,7 @@ def need(condition, reason):
         raise ValueError("GUARD_" + reason)
 
 
+@entry
 def verify_program(program):
     need(type(program) is GuardProgram, "PROGRAM")
     p = program.preparation
@@ -100,6 +102,7 @@ def verify_program(program):
     need(program.source_reads == source_read_columns(output), "SOURCE_READ_CLOSURE")
 
 
+@entry
 def verify_statement(statement):
     need(type(statement) is GuardStatement, "STATEMENT")
     verify_program(statement.program)
@@ -616,6 +619,7 @@ class _Read(_Bytes):
         )
 
 
+@entry
 def verify_native_guard(native):
     need(
         type(native) is NativeGuardStatement

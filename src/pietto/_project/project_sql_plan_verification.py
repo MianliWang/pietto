@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto._project.project_verification_scope import once
+
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -5486,7 +5488,7 @@ class CompiledSQLPlanVerification:
         return True
 
 
-def verify_compiled_sql_plan(plan):
+def _verify_compiled_sql_plan(plan):
     from pietto._project.project_sql_plan import (
         CompiledSQLPlan,
         CompiledSQLPort,
@@ -5766,6 +5768,12 @@ def verify_compiled_sql_plan(plan):
             "PLAN_AGGREGATE_RISK",
         )
     return CompiledSQLPlanVerification(plan, ir.completed, ir.selected.owner)
+
+
+def verify_compiled_sql_plan(plan):
+    """The complete plan check; repeated checks of these exact objects inside one top-level call rely on the completed one."""
+    once(_verify_compiled_sql_plan, plan)
+    return CompiledSQLPlanVerification(plan, plan.ir.completed, plan.ir.selected.owner)
 
 
 def _verify_compiled_match_inventory(plan: CompiledSQLPlan):

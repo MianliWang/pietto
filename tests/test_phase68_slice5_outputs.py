@@ -51,33 +51,45 @@ def test_computed_metadata_and_original_damage(tmp_path):
     ].nullable  # original UNKNOWN is retained, never non-null proof
     assert binding.fields[1].field.nullability.value == "unknown"
     assert scalar._value(9007199254740994, binding.fields[1]) == 9007199254740994
-    with pytest.raises(ResultError, match="VALUE_DOMAIN"):
+    with pytest.raises(ResultError, match="^VALUE_DOMAIN$"):
         scalar._value(True, binding.fields[1])
-    with pytest.raises(ResultError, match="PRODUCER_UNSUPPORTED"):
+    with pytest.raises(ResultError, match="^PRODUCER_UNSUPPORTED$"):
         bind_producer(
             output.contract, artifact, tuple(f.observation for f in binding.fields)
         )
-    for columns in (
-        output.columns[::-1],
-        output.columns[:-1],
-        (*output.columns, output.columns[0]),
-        (output.columns[0], *output.columns[:-1]),
-        (replace(output.columns[0], source_field=None), *output.columns[1:]),
+    for columns, code in (
+        (output.columns[::-1], "COLUMNS"),
+        (output.columns[:-1], "INVENTORY"),
+        ((*output.columns, output.columns[0]), "INVENTORY"),
+        ((output.columns[0], *output.columns[:-1]), "COLUMNS"),
         (
-            output.columns[0],
-            replace(output.columns[1], source_field=output.columns[0].source_field),
-            *output.columns[2:],
+            (replace(output.columns[0], source_field=None), *output.columns[1:]),
+            "REALIZATION",
         ),
-        (replace(output.columns[0], terminal=artifact), *output.columns[1:]),
+        (
+            (
+                output.columns[0],
+                replace(output.columns[1], source_field=output.columns[0].source_field),
+                *output.columns[2:],
+            ),
+            "REALIZATION",
+        ),
+        (
+            (replace(output.columns[0], terminal=artifact), *output.columns[1:]),
+            "COLUMNS",
+        ),
     ):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="^OUTPUT_%s$" % code):
             verify_output(replace(output, columns=columns), artifact, output.contract)
     # Coordinated native description cannot certify a corrupted original range.
     real = output.columns[1].realization
     saved = dict(real.domain)
     try:
         real.domain["max"] = "9223372036854775807"
-        with pytest.raises(ValueError):
+        with pytest.raises(
+            ValueError,
+            match="^Emission inspection requires a verified artifact: plan_ast_correspondence$",
+        ):
             bind_postgres_output(output, metadata)
     finally:
         real.domain.clear()
@@ -96,7 +108,7 @@ def test_outer_join_and_set_have_result_authority(tmp_path):
     )
     assert selected.columns[0].source_field is None
     assert len(selected.columns[0].original.inputs) == 2
-    with pytest.raises(ResultError):
+    with pytest.raises(ResultError, match="^OUTPUT_INVENTORY$"):
         verify_output(
             replace(outer, units=selected.units), outer.artifact, outer.contract
         )
@@ -142,13 +154,13 @@ def test_value_sensitive_fact_root_and_same_type_swap(tmp_path):
     access = PostgresAccess(
         "127.0.0.1", 5432, "test", "pietto_query", "private", "disable"
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="^ROOT$"):
         prepare_bound_execution(b, access, output=output)
     assert (
         prepare_output(b.artifact, binding=b).columns[0].realization.domain["max"]
         == "15"
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="^OUTPUT_COLUMNS$"):
         verify_output(
             replace(output, columns=output.columns[::-1]),
             a.artifact,
@@ -179,5 +191,8 @@ def test_family_authority_cannot_be_replaced_by_matching_shape(
     else:
         original = output.columns[0].original
         object.__setattr__(original, "inputs", original.inputs[::-1])
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError,
+        match="^Emission inspection requires a verified artifact: plan_ast_correspondence$",
+    ):
         verify_output(output, output.artifact, output.contract)

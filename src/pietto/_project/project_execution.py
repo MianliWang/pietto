@@ -25,6 +25,7 @@ from pietto._project.project_execution_source import (
     requirement_state,
     verify_requirement,
 )
+from pietto._project.project_verification_scope import entry
 
 __all__: tuple[str, ...] = ()
 
@@ -620,6 +621,7 @@ class ExecutionOutcome:
     cancel_observed: bool
 
 
+@entry
 def prepare_compiled_execution(
     binding,
     access,
@@ -669,6 +671,7 @@ def prepare_compiled_execution(
     return request
 
 
+@entry
 def compiled_output(binding):
     """Output, refinement and guard program of a fresh binding; no access or IO."""
     from pietto._project.project_execution_binding_verification import verify_binding

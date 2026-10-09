@@ -15,6 +15,7 @@ from pietto._project.project_execution_source import (
 from pietto._project.project_result_output import GeneralOutput, prepare_output
 from pietto._project.project_refinement_order import Coordinate
 from pietto._project.project_refinement_rendering import CTE, Statement
+from pietto._project.project_verification_scope import entry
 
 __all__: tuple[str, ...] = ()
 
@@ -149,6 +150,7 @@ def compiled_source_requirements(artifact):
     return requirements
 
 
+@entry
 def prepare_compiled_refinement(artifact, *, binding=None, guarded=None):
     if guarded is None:
         output = prepare_output(artifact, binding=binding)

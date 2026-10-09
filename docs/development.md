@@ -64,8 +64,8 @@ keep dirty-stage checks focused, run one complete review, then run the
 authoritative Python 3.13 validator exactly once. Run generated, golden, and
 package-smoke audits locally only when their owned risk surfaces change.
 Natural CI remains the final independent Python 3.12 and 3.13 coverage owner.
-The current four partitions and completion consumers are specified by
-[CI governance](architecture/ci-workload-governance-v1.md); older monolithic
+The current runtime shards (six per Python) and completion consumers are
+specified by [CI governance](architecture/ci-workload-governance-v1.md); older monolithic
 and no-gain records below retain their historical applicability.
 
 The [CI sharding no-gain record](spec/validation-performance-interlude-iv-slice1-ci-horizontal-sharding-and-gate-decomposition-v1.md)
@@ -96,6 +96,18 @@ add `--pytest-maxprocesses N` to leave room on a shared machine. The OOM guard
 still stops a gate under sustained memory pressure, and registry standalone
 nodes run as separate units so that extra workers are not stuck behind them.
 
+Verification budget: within one top-level call each memoized structural
+verifier runs at most once for the same exact arguments, and every new call
+verifies again (call-scoped verification, see the
+[interlude record](spec/post-phase68-performance-interlude-v1.md)). The
+principal `tests/test_post_phase68_performance_verification_scope.py` counts
+complete runs with `sys.monitoring` and prints up to three call paths for each
+over-budget object. Every scope entry must run inside one of its routes (an entry
+only an execution owner's attempt reaches is listed with that reason), so a new
+entry or memoized verifier adds its route there; a second complete check inside
+one call needs a written allowance. Hot verifier loops are bounded by
+count laws, never by wall-time thresholds.
+
 
 ## Phase-end acquisition consolidation
 
@@ -118,7 +130,14 @@ cells. Session scope is per worker; it does not establish cross-worker sharing.
    Keep evidence-based low-value exceptions with a reason and owner.
 4. Reuse current timings and operation counts. Measure bounded before/after only
    for unanswered questions; integrate the ordinary final validation and evidence
-   selection, without another mandatory full profile or database matrix.
+   selection, without another mandatory full profile or database matrix. One
+   bounded profile is required: the ten slowest in-process nodes of the Phase's
+   final natural CI health, each alone under cProfile on a quiet host, reporting
+   verifier runs per top-level call, functions called far more often than their
+   inputs, and top self time. Each finding is fixed (with a budget or op-count
+   test), recorded as debt (owner, latest point) or kept deliberately (reason);
+   child-dominated nodes are recorded as such and an unchanged node reuses the
+   previous review. The review is advisory.
 5. Review exact equivalence/coverage, changed/add/remove/overlay detection,
    duplicate-work reduction, memory and measured total/critical-path cost. Report
    structural improvement, wall-time improvement and no-gain separately.
@@ -914,11 +933,29 @@ and the J01/J02/J09 histories), `joint` (the unchanged S18 12-cell history),
 `storage --origin` (the connected J03–J10 history with real Arrow chunks and real
 SIGKILL cuts; J08 coordinator units run in the postgres_rows installation because
 S18's submit preflight requires the selected route drivers), `tuning` (one
-serial/concurrent pair per route, exclusive window), `controls` (the original
-S03/S09/S08 adapter control families) and `consumer`. `check` re-consumes one
-campaign directory: every cell's raw under the original S10/S14 laws, each
-origin's source-offline tail, and every damage family on copies of the real raw,
-each rejected by its designated law.
+serial/concurrent pair per route, exclusive window; it records the largest set of
+identified native sessions open at one instant before the sink is seen pushing
+back),
+`controls` (the original S03/S09/S08 adapter control families) and `consumer`.
+`check` re-consumes one campaign directory: every cell's raw under the original
+S10/S14 laws, each origin's source-offline tail, every matrix part and the
+campaign's own tuning runs finished with their database removed, and every damage
+family on copies of the real raw, each rejected by its designated law.
+
+With `--queue DIR`, the matrix parts of one target share one claim directory
+instead of a fixed interleaved slice (each part still passes its own distinct
+`--part i/n` label, which `check` requires). Every part walks the R2-admitted declarations
+(the long cells) first, each class in manifest order, and takes a declaration only by
+exclusively creating its claim file, so each declaration is claimed exactly once
+whatever the completion order. A claim is dispatch, not evidence: the union of the
+parts' checked records must still equal the independently derived inventory, which
+`matrix_verdict` (the matrix section of `check`, callable for one target's parts)
+judges. The `--joint` part walks only the R2 class, so its J01/J02/J09 histories,
+which mutate the source and therefore run last in that database, start when that
+class is exhausted rather than after the queue drains. The
+[post-Phase68 performance interlude](spec/post-phase68-performance-interlude-v1.md)
+records the queue and its attempts; the accepted campaign is recorded in that
+interlude's evidence instance.
 
 `consumer` is the local entry for CI-only installed consumers: with explicit
 `GITHUB_RUN_ID`/`GITHUB_RUN_ATTEMPT` labels it runs package smoke with

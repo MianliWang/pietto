@@ -39,31 +39,36 @@ def test_complete_original_subjects_and_native_parameter_domains(
         assert [u.index for u in native.uses] == list(range(1, len(native.uses) + 1))
     else:
         assert len(native.arguments) == (2 if kind == "data" else 4)
-    for changed in (
-        replace(native, sql=native.sql + b"; SELECT 1"),
-        replace(native, arguments=native.arguments[:-1]),
-        replace(native, uses=native.uses[::-1]),
+    for changed, code in (
+        (replace(native, sql=native.sql + b"; SELECT 1"), "NATIVE_COVERAGE"),
+        (replace(native, arguments=native.arguments[:-1]), "NATIVE_ARGUMENTS"),
+        (replace(native, uses=native.uses[::-1]), "PARAMETER_CORRESPONDENCE"),
     ):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="^GUARD_%s$" % code):
             verify_native_guard(changed)
 
 
 def test_complete_request_boundary_rejects_coordinated_scope_damage(tmp_path):
     program = prepare_program(prepare_guarded(*planned(tmp_path, copies=2)))
-    for changed in (
-        replace(program, subjects=program.subjects[:1]),
-        replace(program, subjects=program.subjects[::-1]),
-        replace(
-            program,
-            subjects=(
-                replace(program.subjects[0], inputs=program.subjects[0].inputs[::-1]),
-                program.subjects[1],
+    for changed, code in (
+        (replace(program, subjects=program.subjects[:1]), "DENOMINATOR"),
+        (replace(program, subjects=program.subjects[::-1]), "IDENTITY"),
+        (
+            replace(
+                program,
+                subjects=(
+                    replace(
+                        program.subjects[0], inputs=program.subjects[0].inputs[::-1]
+                    ),
+                    program.subjects[1],
+                ),
             ),
+            "IDENTITY",
         ),
     ):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="^GUARD_SUBJECT_%s$" % code):
             verify_program(changed)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="^GUARD_SELECTED_SUBJECT_COVERAGE$"):
         render_guard(statement_for(program, "combined", subjects=program.subjects[:1]))
 
 
@@ -109,12 +114,12 @@ def test_refined_guards_keep_whole_subject_and_distinct_control_domain(
     monkeypatch.setattr(lowering, "refined_guard_syntax", forbidden)
     monkeypatch.setattr(rendering, "render_guard", forbidden)
     verify_native_guard(native)
-    for damaged in (
-        replace(native, sql=native.sql + b" "),
-        replace(native, arguments=(1, 0)),
-        replace(native, uses=native.uses[::-1]),
+    for damaged, code in (
+        (replace(native, sql=native.sql + b" "), "NATIVE_COVERAGE"),
+        (replace(native, arguments=(1, 0)), "NATIVE_ARGUMENTS"),
+        (replace(native, uses=native.uses[::-1]), "PARAMETER_CORRESPONDENCE"),
     ):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="^GUARD_%s$" % code):
             verify_native_guard(damaged)
 
 
@@ -125,7 +130,7 @@ def test_every_campaign_fixture_has_complete_original_contract_and_guard(
 ):
     if target == "mysql" and case["options"].get("postgres_only"):
         # The original target boundary remains a refusal, not a new skip.
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="^GUARD_PREPARATION_BLOCKED$"):
             case_preparation(tmp_path, target, case)
         return
     from pietto._project.project_guard_preparation import GuardPreparationError
@@ -195,8 +200,9 @@ def test_multi_hop_checker_rejects_complete_coordinated_grafts_without_builder(
             a, subjects=(replace(a.subjects[0], unit=a.subjects[1].unit), a.subjects[1])
         ),
     )
-    for damage in damages:
-        with pytest.raises(ValueError):
+    codes = ("DENOMINATOR", "DENOMINATOR", *("IDENTITY",) * 4)
+    for damage, code in zip(damages, codes, strict=True):
+        with pytest.raises(ValueError, match="^GUARD_SUBJECT_%s$" % code):
             verify_program(damage)
     unit = a.subjects[0].unit
     altered = replace(
@@ -217,7 +223,7 @@ def test_multi_hop_checker_rejects_complete_coordinated_grafts_without_builder(
             units=tuple(altered if u is unit else u for u in artifact.ast.units),
         ),
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="^GUARD_PREPARATION_STRUCTURE$"):
         verify_preparation(replace(a.preparation, artifact=broken))
 
     def forbidden(*args, **kwargs):
@@ -230,5 +236,5 @@ def test_multi_hop_checker_rejects_complete_coordinated_grafts_without_builder(
     monkeypatch.setattr(
         program_builder, "pure_static_proofs", lambda *args: (object(),)
     )
-    with pytest.raises(ValueError, match="SELECTED_SUBJECT_COVERAGE"):
+    with pytest.raises(ValueError, match="^GUARD_SELECTED_SUBJECT_COVERAGE$"):
         render_guard(statement_for(a, "data"))

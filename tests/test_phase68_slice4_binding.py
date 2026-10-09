@@ -36,7 +36,7 @@ def test_reusable_immutable_a_b_a_and_failed_bind(predicate):
     assert b.values == b.arguments == (-1,)
     assert t.slots[0].original.site.position.literal.value == 1
     assert a.artifact is not b.artifact
-    with pytest.raises(binding.BindingError):
+    with pytest.raises(binding.BindingError, match="^BINDING_VALUE:0:Int$"):
         bind(t, True)
     for item in (a, b, a):
         checking.verify_binding(item)
@@ -47,7 +47,7 @@ def test_reusable_immutable_a_b_a_and_failed_bind(predicate):
     "value", [True, None, 1.0, "1", 2**63, -(2**63) - 1, [], object()]
 )
 def test_strict_int_rejection(predicate, value):
-    with pytest.raises(binding.BindingError, match="BINDING_VALUE:0:Int"):
+    with pytest.raises(binding.BindingError, match="^BINDING_VALUE:0:Int$"):
         bind(predicate, value)
 
 
@@ -61,7 +61,7 @@ def test_exact_inventory(predicate, tmp_path):
         ((replace(slot), 2),),
         {slot: 2},
     ):
-        with pytest.raises(binding.BindingError):
+        with pytest.raises(binding.BindingError, match="^BINDING_SLOTS$"):
             binding.bind_values(predicate, pairs)
 
 
@@ -96,11 +96,13 @@ def test_complete_eligible_domains(tmp_path, target, seed, values, bad):
             )
             assert real["domain"]["max_characters"] == len(value)
     for value in bad:
-        with pytest.raises(binding.BindingError):
+        with pytest.raises(
+            binding.BindingError, match="^BINDING_VALUE:0:%s$" % t.slots[0].tag
+        ):
             bind(t, value)
     if seed == '"seed"':
         if target == "postgres":
-            with pytest.raises(binding.BindingError):
+            with pytest.raises(binding.BindingError, match="^BINDING_VALUE:0:Text$"):
                 bind(t, "x\0y")
         else:
             assert bind(t, "x\0y").arguments == ("x\0y",)
@@ -114,7 +116,7 @@ def test_equal_distinct_slots_and_repeated_native_use(tmp_path):
     assert len(t.slots) == 2 and t.slots[0] is not t.slots[1]
     accepted = bind(t, 2, 3)
     assert accepted.arguments == (2, 3)
-    with pytest.raises(binding.BindingError):
+    with pytest.raises(binding.BindingError, match="^BINDING_SLOTS$"):
         binding.bind_values(t, ((t.slots[1], 2), (t.slots[0], 3)))
     leaves = [u.original for u in accepted.artifact.parameter_uses]
     occurrences = tuple((leaf, "pg_int8") for leaf in (leaves[0], leaves[0], leaves[1]))
@@ -137,19 +139,19 @@ def test_equal_distinct_slots_and_repeated_native_use(tmp_path):
 
 def test_coordinated_values_arguments_and_old_artifact(predicate):
     a, b = bind(predicate, 2), bind(predicate, 3)
-    for damaged in (
-        replace(a, values=(3,), arguments=(3,)),
-        replace(a, artifact=b.artifact),
-        replace(a, arguments=()),
-        replace(a, arguments=(True,)),
-        replace(a, template=replace(predicate)),
+    for damaged, code in (
+        (replace(a, values=(3,), arguments=(3,)), "LITERAL"),
+        (replace(a, artifact=b.artifact), "LITERAL"),
+        (replace(a, arguments=()), "STATE"),
+        (replace(a, arguments=(True,)), "STATE"),
+        (replace(a, template=replace(predicate)), "STATE"),
     ):
-        with pytest.raises(binding.BindingError):
+        with pytest.raises(binding.BindingError, match="^BINDING_%s$" % code):
             checking.verify_binding(damaged)
     # Even copying a superficially matching state does not change syntax evidence.
     damaged = replace(a, values=(3,), arguments=(3,))
     damaged = replace(damaged, _state=checking.binding_state(damaged))
-    with pytest.raises(binding.BindingError):
+    with pytest.raises(binding.BindingError, match="^BINDING_LITERAL$"):
         checking.verify_binding(damaged)
 
 
@@ -162,7 +164,7 @@ def test_signed_zero_is_not_python_equality(tmp_path):
     assert checking.binding_state(positive) != checking.binding_state(negative)
     damaged = replace(positive, values=(-0.0,), arguments=(-0.0,))
     damaged = replace(damaged, _state=checking.binding_state(damaged))
-    with pytest.raises(binding.BindingError):
+    with pytest.raises(binding.BindingError, match="^BINDING_LITERAL$"):
         checking.verify_binding(damaged)
 
 
@@ -170,14 +172,14 @@ def test_value_dependent_arithmetic_and_sign(tmp_path):
     source = product.source("postgres").replace("renamed = id", "renamed = id + 1")
     t = template(tmp_path / "arithmetic", source, lower=0, upper=10)
     assert bind(t, 2).arguments == (2,)
-    with pytest.raises(binding.BindingError):
+    with pytest.raises(binding.BindingError, match="^BINDING_INVALID$"):
         bind(t, 2**63 - 1)
     signed = template(
         tmp_path / "signed",
         product.source("postgres").replace("renamed = id", "renamed = -1"),
     )
     assert bind(signed, 9007199254740993).arguments == (9007199254740993,)
-    with pytest.raises(binding.BindingError):
+    with pytest.raises(binding.BindingError, match="^BINDING_INVALID$"):
         bind(signed, -(2**63))
 
 
@@ -231,7 +233,7 @@ def test_structural_limit_and_original_context_are_not_slots(tmp_path):
     accepted = bind(t, 7)
     assert b" LIMIT 2" in accepted.artifact.rendered.sql
     assert b" ORDER BY " in accepted.artifact.rendered.sql
-    with pytest.raises(binding.BindingError):
+    with pytest.raises(binding.BindingError, match="^BINDING_SLOTS$"):
         binding.bind_values(t, ((t.slots[0], 7), ("limit", 3)))
     sites = t.artifact.request.plan.literal_sites
     limit = next(s.position.literal for s in sites if s.position.role.value == "limit")
@@ -241,12 +243,12 @@ def test_structural_limit_and_original_context_are_not_slots(tmp_path):
     assert type(original) is int
     try:
         object.__setattr__(limit, "value", original + 1)
-        with pytest.raises(binding.BindingError):
+        with pytest.raises(binding.BindingError, match="^BINDING_ARTIFACT$"):
             checking.verify_binding(accepted)
     finally:
         object.__setattr__(limit, "value", original)
     checking.verify_binding(accepted)
-    with pytest.raises(binding.BindingError):
+    with pytest.raises(binding.BindingError, match="^BINDING_INVENTORY$"):
         checking.verify_template(replace(t, artifact=accepted.artifact))
 
 
@@ -262,7 +264,7 @@ def test_native_use_order_count_and_anchors_are_verified(tmp_path):
         (replace(uses[0], server_index=2), uses[1]),
         (replace(uses[0], physical_type="pg_text"), uses[1]),
     ):
-        with pytest.raises(binding.BindingError):
+        with pytest.raises(binding.BindingError, match="^BINDING_ARTIFACT$"):
             checking.verify_binding(
                 replace(
                     accepted, artifact=replace(accepted.artifact, parameter_uses=wrong)
@@ -355,7 +357,7 @@ def test_proofs_rederived_and_unfulfilled_guard_refuses(tmp_path):
     assert any(
         b.detail == "original_enforcement_not_fulfilled" for b in rejected.blockers
     )
-    with pytest.raises(binding.BindingError):
+    with pytest.raises(binding.BindingError, match="^BINDING_ARTIFACT$"):
         binding.prepare_template(rejected.artifact)
 
 
@@ -405,7 +407,7 @@ def test_complete_path_and_hop_request_correspondence(tmp_path, all_unique):
     swapped = with_project_single_match_requests(
         fresh, (wrong, *mapped.single_match_requests[1:])
     )
-    with pytest.raises(binding.BindingError):
+    with pytest.raises(binding.BindingError, match="^BINDING_OBLIGATIONS$"):
         checking._obligations(original, swapped, nodes)
 
 
@@ -437,7 +439,7 @@ def test_repeated_request_object_retains_alias_and_cardinality(tmp_path):
         fresh,
         (mapped.single_match_requests[0], replace(mapped.single_match_requests[1])),
     )
-    with pytest.raises(binding.BindingError):
+    with pytest.raises(binding.BindingError, match="^BINDING_OBLIGATION_ALIAS$"):
         checking._obligations(original, split, nodes)
 
 
@@ -479,7 +481,7 @@ def test_window_static_arguments_and_frames_do_not_become_slots(
     assert static and all(
         s.disposition.value == "preserved_with_reason" for s in static
     )
-    with pytest.raises(binding.BindingError):
+    with pytest.raises(binding.BindingError, match="^BINDING_SLOTS$"):
         binding.bind_values(t, (*tuple((s, 2) for s in t.slots), (static[0], 2)))
 
 

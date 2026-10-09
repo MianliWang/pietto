@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto._project.project_verification_scope import once
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -3553,7 +3555,7 @@ def _verify_single_match_retention(
                 )
 
 
-def verify_compiled_query_block_ir(root: CompiledQueryBlockIR):
+def _verify_compiled_query_block_ir(root: CompiledQueryBlockIR):
     """Check every resolved operator, ordered input and retained_field against its owner."""
     from pietto._project.project_query_block_ir import (
         CompiledQueryBlockIR,
@@ -3740,6 +3742,12 @@ def verify_compiled_query_block_ir(root: CompiledQueryBlockIR):
         ),
         "IR_SELECTED",
     )
+    return root
+
+
+def verify_compiled_query_block_ir(root: CompiledQueryBlockIR):
+    """The complete IR check; repeated checks of these exact objects inside one top-level call rely on the completed one."""
+    once(_verify_compiled_query_block_ir, root)
     return root
 
 

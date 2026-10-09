@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 import math
+import re
 from typing import Any
 
 __all__: tuple[str, ...] = ()
@@ -347,9 +348,33 @@ def _no_float(_text):
     raise CompiledError("COMPILED_NUMBER")
 
 
+# Quoted spans exactly as _bounded_scan reads them: a backslash escapes any next
+# byte and an unterminated tail stays quoted.
+_QUOTED = re.compile(rb'"[^"\\]*+(?:\\.[^"\\]*+)*+(?:"|\\?\Z)', re.DOTALL)
+_SQUARE = bytes.maketrans(b"{}", b"[]")
+_NOT_BRACKET = bytes(b for b in range(256) if b not in b"[]{}")
+_FAST_BYTES = 1 << 20  # bounds the accept-only path's transient memory
+
+
+def _shallow(raw: bytes) -> bool:
+    """Accept-only: unquoted brackets balanced and at most MAX_DEPTH deep."""
+    nest = _QUOTED.sub(b"", raw).translate(_SQUARE, _NOT_BRACKET)
+    for _ in range(MAX_DEPTH):
+        if not nest:
+            return True
+        nest = nest.replace(b"[]", b"")
+    return not nest
+
+
 def _bounded(raw: bytes) -> None:
     if type(raw) is not bytes or not 0 < len(raw) <= MAX_BYTES:
         raise CompiledError("COMPILED_BYTE_LIMIT")
+    if len(raw) <= _FAST_BYTES and _shallow(raw):
+        return
+    _bounded_scan(raw)
+
+
+def _bounded_scan(raw: bytes) -> None:
     # Check syntactic depth before the standard decoder can recurse. Quoted
     # brackets and escaped quotes never change structural depth.
     depth, quoted, escaped = 0, False, False

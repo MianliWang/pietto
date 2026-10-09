@@ -16,6 +16,7 @@ from pietto._project.project_sql_emission_verification import (
     EmissionVerification,
     verify_project_sql_emission,
 )
+from pietto._project.project_verification_scope import entry
 
 __all__: tuple[str, ...] = ()
 
@@ -145,6 +146,7 @@ def inspect_project_sql_emission(
 ) -> EmissionInspection[CompiledPreparedEmission]: ...
 
 
+@entry
 def inspect_project_sql_emission(artifact, request):
     """Bind one runtime artifact to its prepared request after complete verification."""
     from pietto._project.project_sql_emission import (

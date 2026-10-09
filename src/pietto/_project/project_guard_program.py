@@ -9,6 +9,7 @@ from pietto._project.project_guard_preparation import (
     verify_preparation,
 )
 from pietto._project.project_sql_emission_joins import JoinBody
+from pietto._project.project_verification_scope import entry
 
 __all__: tuple[str, ...] = ()
 
@@ -63,6 +64,7 @@ class NativeGuardStatement:
     arguments: tuple = field(repr=False)
 
 
+@entry
 def prepare_program(preparation, *, binding=None, refinement=None):
     from pietto._project.project_result_output import source_read_columns
     from pietto._project.project_guard_verification import verify_program
@@ -109,6 +111,7 @@ def prepare_program(preparation, *, binding=None, refinement=None):
     return program
 
 
+@entry
 def statement_for(program, kind, *, subjects=None):
     from pietto._project.project_guard_verification import verify_program
 

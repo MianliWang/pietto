@@ -17,7 +17,7 @@ def test_original_named_family_closure(tmp_path, target, case, variant):
     original = build(tmp_path / "source-build", target, case, variant)
     if original.status == "BLOCKED":
         assert original.artifact is None and original.blockers
-        with pytest.raises(BindingError):
+        with pytest.raises(BindingError, match="^BINDING_ARTIFACT$"):
             build_compiled(original.artifact)
         return
     _compare(original.artifact)
@@ -279,7 +279,10 @@ def test_compiled_requirement_correspondence_rejects_coordinated_damage(tmp_path
         verify_compiled_requirement_report(report, artifact.request.verification)
         is report
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError,
+        match=r"^Requirement report construction requires complete current plan evidence\.$",
+    ):
         build_project_sql_requirement_report(artifact.request.verification)
     damaged = (
         replace(report, entries=()),
@@ -305,15 +308,23 @@ def test_compiled_requirement_correspondence_rejects_coordinated_damage(tmp_path
             ),
         ),
     )
-    for candidate in damaged:
-        with pytest.raises(ValueError):
+    codes = ("INVENTORY", "ENTRY", "INVENTORY", "INVENTORY", "ENTRY")
+    for candidate, code in zip(damaged, codes, strict=True):
+        with pytest.raises(ValueError, match="^COMPILED_REQUIREMENT_%s$" % code):
             verify_compiled_requirement_report(candidate, artifact.request.verification)
-    for candidate in (
-        replace(artifact, original_requirements=()),
-        replace(artifact, generated_requirements=()),
-        replace(artifact, generated_requirements=artifact.generated_requirements[::-1]),
+    for candidate, code in (
+        (replace(artifact, original_requirements=()), "ORIGINAL"),
+        (replace(artifact, generated_requirements=()), "GENERATED"),
+        (
+            replace(
+                artifact, generated_requirements=artifact.generated_requirements[::-1]
+            ),
+            "GENERATED",
+        ),
     ):
-        with pytest.raises(ValueError):
+        with pytest.raises(
+            ValueError, match="^COMPILED_EMISSION_%s_REQUIREMENTS$" % code
+        ):
             verify_compiled_emission(candidate, artifact.request)
 
 
@@ -774,7 +785,7 @@ def test_embedded_json_depth_is_checked_before_decoder_recursion(tmp_path):
             ),
         )
         raw = encode(description)
-        with pytest.raises(CompiledError, match="DEPTH_LIMIT"):
+        with pytest.raises(CompiledError, match="^COMPILED_DEPTH_LIMIT$"):
             load_compiled(
                 raw,
                 expected_pin=content_pin(raw),
@@ -824,7 +835,14 @@ def test_repinned_slot_and_requirement_damage_refuses(tmp_path):
             profile="finite_mysql_v1",
         ),
     )
-    for damaged in damages:
+    codes = (
+        "SLOT_ELIGIBILITY",
+        "SLOT_ANCESTRY",
+        "SLOT_ALIAS",
+        "REQUIREMENT_SUBKIND",
+        "PROFILE",
+    )
+    for damaged, code in zip(damages, codes, strict=True):
         description = replace(
             built.root.description,
             members=tuple(
@@ -838,7 +856,7 @@ def test_repinned_slot_and_requirement_damage_refuses(tmp_path):
             ),
         )
         raw = encode(description)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="^COMPILED_%s$" % code):
             load_compiled(
                 raw,
                 expected_pin=content_pin(raw),
@@ -911,14 +929,14 @@ def test_compiled_premises_preserve_original_admission(tmp_path, target):
         )
 
     # Expected rejection comes from the original source emitter and its real roots.
-    for key, value in (
-        ("operator_environment", "unqualified_operators"),
-        ("parameter_protocol", "interpolated_text"),
-        ("identifier_case", "case_folded"),
-        ("client_encoding", "LATIN1"),
-        ("row_domain_matches", False),
-        ("read_only_object", False),
-        ("row_domain_matches", 1),
+    for key, value, code in (
+        ("operator_environment", "unqualified_operators", "OPERATOR_PREMISE"),
+        ("parameter_protocol", "interpolated_text", "OPERATOR_PREMISE"),
+        ("identifier_case", "case_folded", "NAMING_PREMISE"),
+        ("client_encoding", "LATIN1", "SOURCE_PREMISE"),
+        ("row_domain_matches", False, "SOURCE_PREMISE"),
+        ("read_only_object", False, "SOURCE_PREMISE"),
+        ("row_domain_matches", 1, "PREMISE_VALUE"),
     ):
         contract = copy.deepcopy(original_contract)
         raw_premises = contract["environment"] + [
@@ -936,15 +954,15 @@ def test_compiled_premises_preserve_original_admission(tmp_path, target):
             else r
             for r in original_premises
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="^COMPILED_%s$" % code):
             load(contract, premises)
 
-    for key in (
-        "operator_environment",
-        "parameter_protocol",
-        "client_encoding",
-        "row_domain_matches",
-        "read_only_object",
+    for key, code in (
+        ("operator_environment", "OPERATOR"),
+        ("parameter_protocol", "OPERATOR"),
+        ("client_encoding", "SOURCE"),
+        ("row_domain_matches", "SOURCE"),
+        ("read_only_object", "SOURCE"),
     ):
         contract = copy.deepcopy(original_contract)
         contract["environment"] = [
@@ -954,7 +972,7 @@ def test_compiled_premises_preserve_original_admission(tmp_path, target):
             s["premises"] = [p for p in s["premises"] if p["key"] != key]
         outcome = emit_project_sql(source.request.verification, canonical(contract))
         assert outcome.status == "BLOCKED", key
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="^COMPILED_%s_PREMISE$" % code):
             load(contract, tuple(r for r in original_premises if r.get("key") != key))
 
     # Preserve the original distinction between equal repeats and conflicts.
@@ -993,16 +1011,16 @@ def test_compiled_premises_preserve_original_admission(tmp_path, target):
                 == source.rendered.sql
             )
         else:
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match="^COMPILED_PREMISE_CONFLICT$"):
                 load(contract, premises)
 
     # The raw contract and resolved graph must agree independently and completely.
-    for damage in (
-        "missing_record",
-        "extra_field",
-        "wrong_scan",
-        "bool_ordinal",
-        "wrong_source_scope",
+    for damage, code in (
+        ("missing_record", "PREMISES"),
+        ("extra_field", "SOURCE"),
+        ("wrong_scan", "SOURCE"),
+        ("bool_ordinal", "FIELD"),
+        ("wrong_source_scope", "PREMISE_SCOPE"),
     ):
         contract = copy.deepcopy(original_contract)
         premises = original_premises
@@ -1016,7 +1034,7 @@ def test_compiled_premises_preserve_original_admission(tmp_path, target):
             contract["sources"][0]["fields"][0]["ordinal"] = False
         else:
             contract["sources"][0]["premises"][0]["scope"] = "statement"
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="^COMPILED_CONTRACT_%s$" % code):
             load(contract, premises)
 
 
@@ -1171,7 +1189,8 @@ def test_retained_unselected_request_does_not_require_execution_mapping(
             request, pairs=tuple(pair[::-1] for pair in request.get("pairs"))
         ),
     ]
-    for damage in damages:
+    codes = ("SOURCE_FIELD", "USE_INPUT", "REQUEST_INPUTS")
+    for damage, code in zip(damages, codes, strict=True):
         candidate = replace(
             description,
             members=tuple(
@@ -1184,7 +1203,7 @@ def test_retained_unselected_request_does_not_require_execution_mapping(
                 for name, records in description.members
             ),
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="^COMPILED_RETAINED_%s$" % code):
             checker(candidate, checked, correspondence)
     removed = {"site"}
     if variant == "key":
@@ -1198,7 +1217,8 @@ def test_retained_unselected_request_does_not_require_execution_mapping(
                 for name, records in description.members
             ),
         )
-        with pytest.raises(ValueError):
+        code = {"site": "LITERAL", "source_unique": "KEY"}[kind]
+        with pytest.raises(ValueError, match="^COMPILED_RETAINED_%s_INVENTORY$" % code):
             checker(candidate, checked, correspondence)
 
     # A retained logical source cannot become an executable source by changing
@@ -1240,7 +1260,7 @@ def test_retained_unselected_request_does_not_require_execution_mapping(
         ),
     )
     raw = encode(candidate)
-    with pytest.raises(ValueError, match="COMPILED_SOURCE$"):
+    with pytest.raises(ValueError, match="^COMPILED_SOURCE$"):
         load_compiled(
             raw,
             expected_pin=content_pin(raw),

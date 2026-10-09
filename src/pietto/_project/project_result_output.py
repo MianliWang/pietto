@@ -33,6 +33,7 @@ from pietto._project.project_sql_emission_rows import (
     constant_realization,
 )
 from pietto._project.project_sql_emission_inspection import inspect_project_sql_emission
+from pietto._project.project_verification_scope import entry
 
 __all__: tuple[str, ...] = ()
 
@@ -59,6 +60,7 @@ class GeneralOutput:
     guarded: Any = dc_field(default=None, repr=False)
 
 
+@entry
 def prepare_output(artifact, *, binding=None):
     return _prepare_output(artifact, binding=binding)
 
@@ -120,6 +122,7 @@ def _prepare_output(artifact, *, binding=None, guarded=None):
     return output
 
 
+@entry
 def verify_output(output, artifact, contract, *, binding=None):
     if (
         type(output) is not GeneralOutput
@@ -137,7 +140,9 @@ def verify_output(output, artifact, contract, *, binding=None):
         if binding.artifact is not artifact or binding.guarded is not output.guarded:
             raise ResultError("OUTPUT_BINDING")
     # This upstream verifier independently re-derives all concrete realizations,
-    # including hidden computations and both complete SEMI/ANTI input terminals.
+    # including hidden computations and both complete SEMI/ANTI input terminals;
+    # its compiled and guarded checks run once per top-level call for these
+    # exact objects.
     view = _inspect_output(artifact, output.guarded)
     verify_result_contract(contract, view.request.verification)
     if contract.scalar_meaning is not view.request.scalar_meaning:

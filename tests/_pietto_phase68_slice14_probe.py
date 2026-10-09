@@ -1529,11 +1529,13 @@ def r2_histories(
             with (directory / (label + "-worker.log")).open("w") as log:
                 child = _spawn(interpreter, program, path, ledger, log, label)
                 try:
+                    # Hang guards sized for a fully loaded campaign host, as in
+                    # S17: a page-size-1 recovery took 248 s on a lighter host.
                     if cut:
-                        until(child, "cut", 180)
+                        until(child, "cut", 1800)
                         code, _ = kill(child)
                     else:
-                        code = child.wait(timeout=300)
+                        code = child.wait(timeout=3600)
                 finally:
                     if child.poll() is None:
                         kill(child)

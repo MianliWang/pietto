@@ -27,6 +27,7 @@ from pietto._project.project_sql_plan_verification import verify_project_sql_pla
 from pietto._project.project_sql_emission import EmissionArtifact, emit_project_sql
 from pietto._project.project_sql_emission_parameters import value_valid
 from pietto._project.project_single_match import ProjectSingleMatchAssessment
+from pietto._project.project_verification_scope import entry
 
 __all__: tuple[str, ...] = ()
 
@@ -241,6 +242,7 @@ def _specialize(template, values):
     return outcome.artifact
 
 
+@entry
 def bind_values(template, supplied):
     """Capture a complete ordered sequence of (exact slot, exact builtin value)."""
     from pietto._project import project_execution_binding_verification as check
@@ -317,6 +319,7 @@ class CompiledBindingDescription:
     provider_requirements: tuple
 
 
+@entry
 def describe_compiled_binding(binding, *, route):
     """Portable relationships only; no values, handles or live qualification."""
     from pietto._project.project_execution_binding_verification import verify_binding
@@ -405,6 +408,7 @@ def describe_compiled_binding(binding, *, route):
     )
 
 
+@entry
 def compatible_compiled_values(left, right, *, route):
     """Exact protected vectors within one accepted query/build namespace."""
     from pietto._project.project_execution_binding_verification import atom
@@ -418,6 +422,7 @@ def compatible_compiled_values(left, right, *, route):
     )
 
 
+@entry
 def prepare_compiled_template(root):
     """Prepare this accepted compiled structure without any source lookup."""
     from pietto._project.model import CompiledProjectInput
@@ -445,6 +450,7 @@ def prepare_compiled_template(root):
     return prepare_template(artifact)
 
 
+@entry
 def prepare_live_template(artifact, *, guarded=None, refinement=None):
     """Build the same resolved template from actual verified live source roots."""
     from pietto._project.project_compiled_build import build_compiled

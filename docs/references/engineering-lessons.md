@@ -292,3 +292,29 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 5. 单调时长、UTC 跨度、预留槽位与实测 CPU 是不同的量：S19 长命令的 UTC 跨度一致比单调时长多约 2.2–2.5%，wrapper 的
    `RUSAGE_CHILDREN` 不含容器内数据库，8 个预留槽下各组件实测约 1 核；新的并发上限须以实测内存与数据库容量为依据。
    见[成本复盘](../phases/phase-68/completion-audit.md#成本复盘)。
+
+
+## Post-Phase68 performance interlude
+
+- Repetition multiplies through nesting: one plan built once was verified 522
+  times and its root 526 times in one test parameter. Verify each exact object
+  once per top-level call and let every new call verify again; see
+  [call-scoped verification](../spec/post-phase68-performance-interlude-v1.md#call-scoped-verification).
+- Count work, not time: guard repetition with counter laws (once per object per
+  call, a loop-invariant vocabulary built once per check, an index check linear
+  in its entries), never with stored totals or wall-time thresholds, and see each
+  guard fail on the old code first.
+- A call-scoped pass is keyed by every argument's identity, records success
+  only, returns no stored result, and never spans caller code, another thread or
+  an execution owner's attempt boundary.
+- A bare `pytest.raises` cannot show a changed first-failure code; when changing
+  how often verification runs, shadow-re-run every skipped check and pin the
+  reachable codes.
+- Size harness hang guards for a fully loaded campaign host, not the quiet one:
+  the S14 history runner's 300 s guard already spent 248 s on a page-size-1
+  recovery and failed a whole native attempt once six parts ran together; see the
+  [native matrix claim queue](../spec/post-phase68-performance-interlude-v1.md#native-matrix-claim-queue).
+- Throughput and latency are different limits: on the reference laptop eight
+  native matrix parts completed about 11% more cells in the same time than six,
+  but each statement took longer, and the product's fixed 10 s cap turned that
+  latency into a failure.

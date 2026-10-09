@@ -49,6 +49,7 @@ from pietto._project.project_refinement_enumeration import (
     _size,
     atom,
 )
+from pietto._project.project_verification_scope import boundary
 
 __all__: tuple[str, ...] = ()
 
@@ -277,6 +278,7 @@ class MySQLExecution:
             self.guards.verify(self)
         self._checkpoint()
 
+    @boundary
     def open(self):
         if self._started is not None or self._closed:
             raise ExecutionError("EXECUTION_REUSE")
@@ -438,6 +440,7 @@ class MySQLExecution:
     def __iter__(self):
         return self
 
+    @boundary
     def __next__(self):
         if self._closed:
             raise StopIteration

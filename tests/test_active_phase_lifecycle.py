@@ -370,7 +370,7 @@ EXPECTED_STATUS = (
     ("Phase 68 Slice 19", "`COMPLETED / PUBLISHED`"),
     ("Phase 68 Slice 20", "`COMPLETED / PUBLISHED`"),
     ("Phase 68 route", "`20 positions; COMPLETED`"),
-    ("Post-Phase68 Performance Interlude", "`ACTIVE`"),
+    ("Post-Phase68 Performance Interlude", "`COMPLETED`"),
     ("Interlude V", "`COMPLETED`"),
     ("Interlude V route", "`N=3`"),
     ("Interlude V Slice 1", "`COMPLETED / PUBLISHED`"),
@@ -378,11 +378,7 @@ EXPECTED_STATUS = (
     ("Interlude V S2 performance outcome", "`MEASURED_GAIN`"),
     ("Interlude V Slice 3", "`COMPLETED / PUBLISHED`"),
     ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
-    (
-        "Next",
-        "`post-Phase68 performance interlude closure; then a separately dispatched"
-        " Phase69 FULL Phase Start`",
-    ),
+    ("Next", "`a separately dispatched Phase69 FULL Phase Start`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
@@ -6230,7 +6226,7 @@ def test_phase68_initiation_keeps_completion_and_candidate_evidence_separate() -
             "CI37711770935/push/main/attempt1",
             "Phase68 `COMPLETED`（恰好二十个产品位置）",
             "PG ADBC 查询 NOT_OBSERVED",
-            "performance interlude ACTIVE",
+            "performance interlude COMPLETED",
             "spec/post-phase68-performance-interlude-v1.md",
             "Phase69 FULL Phase Start 未开始",
             "S10 要求 fresh acceptance/qualification",

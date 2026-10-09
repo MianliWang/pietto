@@ -3,6 +3,7 @@
 from collections import Counter
 from typing import Any, cast
 
+from pietto._project.project_verification_scope import once
 from pietto._project.project_compiled_schema import (
     Address,
     CompiledError,
@@ -2337,7 +2338,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
     )
 
 
-def verify_compiled_emission(artifact, request):
+def _verify_compiled_emission(artifact, request):
     """Original typed SQL carriers checked against the complete compiled plan."""
     import json
     from pietto._project.project_sql_emission import CompiledEmissionArtifact
@@ -2964,6 +2965,12 @@ def verify_compiled_emission(artifact, request):
         "EMISSION_GENERATED_REQUIREMENTS",
     )
     need(verify_row_bytes(query, artifact.rendered), "EMISSION_BYTES")
+    return ()
+
+
+def verify_compiled_emission(artifact, request):
+    """The complete emission check; repeated checks of these exact objects inside one top-level call rely on the completed one."""
+    once(_verify_compiled_emission, artifact, request)
     return ()
 
 

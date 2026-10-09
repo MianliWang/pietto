@@ -69,11 +69,9 @@ abstraction needs a current caller or invariant.
 - Gate 2: implement the minimum change, run focused checks, review the complete
   finding set, consolidate repairs by root cause, run appropriate final
   validation, and seal the Git tree. Slice dispatches own cumulative repair
-  budgets; the active post-Phase68 performance interlude uses its own
-  dispatch Section 7 expensive-action ceilings and has no small per-category
-  quota. Closed Phase68 S01–S20 and C01 counts stay closed. Diagnosed in-scope
-  repairs and qualified mechanical reader-reserve updates proceed under the
-  active dispatch.
+  budgets. Closed Phase68 S01–S20, C01 and post-Phase68 performance
+  interlude counts stay closed. Diagnosed in-scope repairs and qualified
+  mechanical reader-reserve updates proceed under the active dispatch.
 - Gate 3: rebind the baseline, stage exactly the sealed tree, make one ordinary
   commit, fast-forward push, and require natural exact-head CI. A failed head
   is preserved; repair a new child and push it normally. Do not rerun it.

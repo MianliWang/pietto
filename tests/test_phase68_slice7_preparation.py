@@ -50,7 +50,10 @@ def test_real_unproved_prepares_pending_without_old_verified_authority(
         "VERIFIED", checked.completed.diagnostics, guarded.artifact
     )
     assert json.loads(serialize_project_sql_emission(forged))["status"] == "BLOCKED"
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError,
+        match=r"^Emission inspection requires the exact runtime artifact and its request\.$",
+    ):
         prepare_output(guarded.artifact)
 
 
@@ -64,9 +67,9 @@ def test_pending_scope_keeps_all_occurrences_and_rejects_foreign_or_missing(tmp_
         replace(guarded.scope, enforcement=()),
         foreign.scope,
     ):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="^GUARD_PREPARATION_ROOT$"):
             verify_preparation(replace(guarded, scope=scope))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="^GUARD_PREPARATION_ROOT$"):
         verify_preparation(replace(guarded, artifact=foreign.artifact))
 
 
@@ -127,14 +130,14 @@ def test_pending_binding_rebuilds_every_request_and_preserves_old_refusal(
         assert not verify_project_sql_emission(
             binding.artifact, binding.artifact.request
         ).verified
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="^EXECUTION_ARTIFACT$"):
             prepare_bound_execution(
                 binding,
                 PostgresAccess("127.0.0.1", 5432, "lab", "role", "not-live", "disable"),
             )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="^BINDING_ARTIFACT$"):
         verify_binding(replace(a, guarded=b.guarded))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="^BINDING_GUARDED_CONTEXT$"):
         verify_binding(replace(a, guarded=None))
 
 

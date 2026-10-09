@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
+from pietto._project.project_verification_scope import entry, once
 from pietto._project.project_sql_emission_contract import (
     PreparedEmission,
     PreparationFailure,
@@ -81,7 +82,7 @@ class GuardedPreparation[Artifact: EmissionArtifact | CompiledEmissionArtifact]:
     artifact: Artifact = field(repr=False)
 
 
-def verify_scope(scope, request):
+def _verify_scope(scope, request):
     if type(scope) is CompiledPendingGuardScope:
         from pietto._project.project_sql_plan_verification import (
             verify_compiled_sql_plan,
@@ -144,6 +145,11 @@ def verify_scope(scope, request):
         for record, original in zip(scope.enforcement, expected, strict=True)
     ):
         raise GuardPreparationError("GUARD_ENFORCEMENT_DENOMINATOR")
+
+
+def verify_scope(scope, request):
+    """The complete scope check; repeated checks of these exact objects inside one top-level call rely on the completed one."""
+    once(_verify_scope, scope, request)
 
 
 def structural_blockers(scope, request):
@@ -242,7 +248,7 @@ def prepare_guarded_request(request) -> GuardedPreparation[EmissionArtifact]:
     return preparation
 
 
-def verify_preparation(preparation):
+def _verify_preparation(preparation):
     from pietto._project.project_sql_emission_verification import (
         _verify_emission_structure,
     )
@@ -276,6 +282,12 @@ def verify_preparation(preparation):
     return scope.obligations
 
 
+def verify_preparation(preparation):
+    """The complete preparation check; repeated checks of these exact objects inside one top-level call rely on the completed one."""
+    once(_verify_preparation, preparation)
+    return preparation.scope.obligations
+
+
 @dataclass(frozen=True, slots=True, eq=False)
 class PendingInspection:
     preparation: GuardedPreparation = field(repr=False)
@@ -292,6 +304,7 @@ def inspect_pending(preparation, artifact):
     return PendingInspection(preparation, artifact.request, tuple(units[-1].columns))
 
 
+@entry
 def prepare_guarded_output(preparation, *, binding=None):
     from pietto._project.project_result_output import _prepare_output
 
@@ -299,6 +312,7 @@ def prepare_guarded_output(preparation, *, binding=None):
     return _prepare_output(preparation.artifact, binding=binding, guarded=preparation)
 
 
+@entry
 def prepare_guarded_template(preparation):
     from pietto._project.project_execution_template import (
         ExecutionTemplate,
@@ -319,6 +333,7 @@ def prepare_guarded_template(preparation):
     return template
 
 
+@entry
 def prepare_compiled_guarded(artifact) -> GuardedPreparation[CompiledEmissionArtifact]:
     if type(artifact) is not CompiledGuardedArtifact:
         raise GuardPreparationError("GUARD_PREPARATION_ROOT")

@@ -30,6 +30,7 @@ from pietto._project.project_sql_emission_scopes import (
 )
 from pietto._project.project_sql_emission_rendering import render_join_sql
 from pietto._project.project_sql_emission import CompiledEmissionArtifact
+from pietto._project.project_verification_scope import entry
 
 __all__: tuple[str, ...] = ()
 
@@ -45,8 +46,9 @@ class CompiledSubject:
     ref: object
 
 
+@entry
 def emit_compiled(root, values):
-    completed = derive_compiled_semantics(root, tuple(values))
+    completed = derive_compiled_semantics(root, values)
     ir = build_compiled_query_block_ir(completed)
     plan = build_compiled_sql_plan(ir)
     verification = verify_compiled_sql_plan(plan)

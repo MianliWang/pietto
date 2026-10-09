@@ -44,6 +44,7 @@ from pietto._project.project_guard_context import (
     admit_postgres_guard_context,
     refresh_postgres_guard_context,
 )
+from pietto._project.project_verification_scope import boundary
 
 __all__: tuple[str, ...] = ()
 # The pinned driver closure of `pietto[execute-postgres]`.
@@ -441,6 +442,7 @@ class PostgresExecution:
             raise TimeoutError("EXECUTION_DEADLINE")
         return remaining
 
+    @boundary
     def open(self):
         if self._connection is not None or self._closed:
             raise ExecutionError("EXECUTION_REUSE")
@@ -549,6 +551,7 @@ class PostgresExecution:
     def __iter__(self):
         return self
 
+    @boundary
     def __next__(self):
         if self._closed:
             raise StopIteration

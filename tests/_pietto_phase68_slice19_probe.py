@@ -7,7 +7,8 @@ runtime/collection, S18 installation/compatibility) in registered fresh
 interpreters (`-I -B`, clean environment, unrelated working directory):
 
 - matrix: one owned database per interleaved part of the whole declared matrix
-  of a target. General and guarded fixtures are prepared once; one reference
+  of a target or per claimant of its shared queue (each declaration claimed
+  once). General and guarded fixtures are prepared once; one reference
   bundle per declared case serves every route and (origin, entry) cell; each
   route runs in its own selected installation. An ordinary or guarded cell is
   one checked attempt; an admitted R2 cell is an abandoned R2 capture and a
@@ -149,6 +150,36 @@ def _latest_checkpoint(root, facts):
         opened.close()
 
 
+def queue_work(declarations, admitted, *, joint):
+    """A queue claimant's walk over the whole declared matrix, as (manifest
+    index, declaration): the R2-admitted class (the long cells) first, each
+    class in manifest order. The joint part walks only that class, so its joint
+    history starts when the class is exhausted, not after the queue drains."""
+    keyed = [
+        (index, cell, (cell["group"], cell["case"], cell["variant"]) in admitted)
+        for index, cell in enumerate(declarations)
+    ]
+    keyed.sort(key=lambda item: not item[2])
+    return [(index, cell) for index, cell, r2 in keyed if r2 or not joint]
+
+
+def claim(queue, target, index) -> bool:
+    """Whether this part takes declaration `index` of `target` off the shared
+    queue: the first exclusive creation of its claim file wins. A claim is
+    dispatch, not completion; only checked records count."""
+    try:
+        os.close(
+            os.open(
+                queue / ("%s-%d.claim" % (target, index)),
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o600,
+            )
+        )
+    except FileExistsError:
+        return False
+    return True
+
+
 def matrix(
     directory,
     ledger,
@@ -162,11 +193,14 @@ def matrix(
     selected=None,
     drift=False,
     joint=False,
+    queue=None,
 ):
     """One owned database for the interleaved part `part` of the whole declared
-    matrix of `target` (see the module docstring); `drift` adds the guarded
-    fresh-guard violation item on installed:bundle per route and `joint` runs
-    `joint_extensions` (J01, J02, J09) in the same live database last."""
+    matrix of `target` (see the module docstring), or, with a shared `queue`
+    directory, for every declaration this part claims there (`queue_work`);
+    `drift` adds the guarded fresh-guard violation item on installed:bundle per
+    route and `joint` runs `joint_extensions` (J01, J02, J09) in the same live
+    database last."""
     import _pietto_phase68_slice10_probe as s10
     import _pietto_phase68_slice14_probe as s14
     from _pietto_phase68_slice6_probe import session_gone
@@ -191,7 +225,9 @@ def matrix(
         c
         for c in s10.native_manifest(target)
         if selected is None or (c["group"], c["case"], c["variant"]) in selected
-    ][part[0] :: part[1]]
+    ]
+    if queue is None:
+        declarations = declarations[part[0] :: part[1]]
     if not declarations:
         raise ValueError("S19_EMPTY_MATRIX_PART")
     resource = _owned_database(directory, ledger, target, "s19_matrix")
@@ -200,7 +236,7 @@ def matrix(
         "target": target,
         "part": list(part),
         "cells": [list(c) for c in cells],
-        "denominator": declarations,
+        "denominator": declarations if queue is None else [],
         "records": [],
         "timings": {},
     }
@@ -272,7 +308,12 @@ def matrix(
         resource.acquire()
         general, guard = fixtures(resource)
         report["timings"]["fixtures"] = time.monotonic() - mark
-        work = [(index, cell, False) for index, cell in enumerate(declarations)]
+        order = (
+            enumerate(declarations)
+            if queue is None
+            else queue_work(declarations, admitted, joint=joint)
+        )
+        work = [(index, cell, False) for index, cell in order]
         if drift:
             pages = next(
                 c
@@ -282,6 +323,10 @@ def matrix(
             work.append((len(declarations), pages, True))
         violation = guards["refined_violation_outside_page"]
         for index, cell, drifted in work:
+            if queue is not None and not drifted:
+                if not claim(queue, target, index):
+                    continue
+                report["denominator"].append(cell)
             key = (cell["group"], cell["case"], cell["variant"])
             case = guards.get(cell["case"]) if cell["group"] == "guarded" else None
             providers = guard if case is not None else general
@@ -1862,10 +1907,23 @@ for label, workers in config["policies"]:
     # Backpressure: the sink stays busy until the relay is observed parked on it,
     # then for the stall; the lock is released and the unit given its relief.
     slow = handles[keys.index("slow")]
-    blocked = runtime.wait_activity(slow, "WAITING_FOR_DOWNSTREAM", 600)
-    # Native connections actually open while the sink pushes back.
-    open_sessions = sorted({str(r_.owner.session_id) for r_ in runtime._records.values()
-        if r_.owner is not None and r_.terminal is None})
+    # Identified native connections open at one instant (registered and not yet
+    # closed), sampled from submission until the relay is seen parked on the
+    # pushing-back sink (the largest such set): one worker never holds two, a
+    # bounded concurrent policy does. A single sample at the park instant raced
+    # the other jobs' completion once they ran faster.
+    open_sessions, deadline = [], time.monotonic() + 600
+    while True:
+        blocked = runtime.wait_activity(slow, "WAITING_FOR_DOWNSTREAM", 0.05)
+        with runtime._cond:
+            current = sorted({str(r_.owner.session_id) for r_ in runtime._records.values()
+                if r_.owner is not None and r_.terminal is None
+                and r_.owner.session_id is not None and not r_.owner._closed})
+        if len(current) > len(open_sessions):
+            open_sessions = current
+        if (blocked.activity == "WAITING_FOR_DOWNSTREAM" or blocked.terminal is not None
+                or time.monotonic() > deadline):
+            break
     time.sleep(config["stall_seconds"])
     lock.execute("ROLLBACK")
     lock.close()
@@ -1908,7 +1966,9 @@ def tuning(directory, ledger, *, target, interpreters, wheel, routes=None):
     """Per route (all of the target's, or the named subset) one pair (serial
     workers=1 vs concurrent workers=3) over the same small, larger multi-page,
     slow-sink relay and cancelled jobs in fresh workspaces; values, terminals and
-    runtime laws are compared, elapsed time is only reported. Run in an
+    runtime laws are compared, the largest set of identified native sessions open
+    at one instant before the sink is seen pushing back is recorded, and elapsed
+    time is only reported. Run in an
     exclusive measurement window. A route's policy order alternates by its
     position in the target's route list."""
     import _pietto_phase68_slice10_probe as s10
@@ -2045,12 +2105,16 @@ def tuning(directory, ledger, *, target, interpreters, wheel, routes=None):
 # Compiler/Package job's Arrow readiness and installed result-product consumers
 # and the aggregate's real-consumer prepare/replay/verify over this head's
 # archived native receipts with their ORIGINAL identity (local HEAD equals that
-# identity only before the S19 commit; nothing is rewritten).
+# identity only before the next commit; nothing is rewritten). The receipts are
+# the latest published head's verified natural-CI artifacts.
 
-RECEIPTS = S18_EVIDENCE / (
-    "pietto-phase68-slice18-ci-37566435211-attempt1/pietto-phase68-slice18-artifacts"
+RECEIPT_RUN = (
+    Path.home()
+    / ".local/state/pietto/evidence/pietto-post-phase68-performance-20261008T060017Z"
+    / "pietto-post-phase68-performance-ci-37823793256-attempt1"
 )
-RECEIPT_IDENTITY = ("35fb67afa3d12088de7571bfe313c296a68a2f0d", "37566435211", 1)
+RECEIPTS = RECEIPT_RUN / "pietto-post-phase68-performance-artifacts"
+RECEIPT_IDENTITY = ("381376fba59868cfed70fc09a21c4cd6a8be4309", "37823793256", 1)
 
 
 def consumer(directory, ledger, *, label, uv_cache=None):
@@ -2061,10 +2125,7 @@ def consumer(directory, ledger, *, label, uv_cache=None):
 
     directory.mkdir(mode=0o700)
     audit = json.loads(
-        (
-            S18_EVIDENCE
-            / "pietto-phase68-slice18-ci-37566435211-attempt1/pietto-phase68-slice18-audit.json"
-        ).read_text()
+        (RECEIPT_RUN / "pietto-post-phase68-performance-audit.json").read_text()
     )
     receipts = directory / (PREFIX + "receipts")
     receipts.mkdir(mode=0o700)

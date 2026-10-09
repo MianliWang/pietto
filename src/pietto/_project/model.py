@@ -3305,24 +3305,31 @@ class CompiledProjectInput:
         )
 
     def verify(self) -> None:
-        from pietto._project.project_compiled_schema import (
-            CompiledError,
-            Description,
-            content_pin,
-            encode,
-        )
-        from pietto._project.project_compiled_verification import verify_description
+        """Run the complete description check, then the handoff pin and
+        record-identity checks; a repeated check of this exact root inside one
+        top-level call relies on the completed one."""
+        from pietto._project.project_verification_scope import once
 
-        if type(self.description) is not Description:
-            raise CompiledError("COMPILED_INPUT")
-        verify_description(self.description)
-        if (
-            self.description.compatibility != self.accepted_compatibility
-            or self.description.producer != self.accepted_producer
-            or content_pin(encode(self.description)) != self.expected_pin
-            or len(self.records) != len(self.description.records)
-            or any(
-                self.records.get(r.address) is not r for r in self.description.records
-            )
-        ):
-            raise CompiledError("COMPILED_INPUT_CHANGED")
+        once(_verify_compiled_input, self)
+
+
+def _verify_compiled_input(root: CompiledProjectInput) -> None:
+    from pietto._project.project_compiled_schema import (
+        CompiledError,
+        Description,
+        content_pin,
+        encode,
+    )
+    from pietto._project.project_compiled_verification import verify_description
+
+    if type(root.description) is not Description:
+        raise CompiledError("COMPILED_INPUT")
+    verify_description(root.description)
+    if (
+        root.description.compatibility != root.accepted_compatibility
+        or root.description.producer != root.accepted_producer
+        or content_pin(encode(root.description)) != root.expected_pin
+        or len(root.records) != len(root.description.records)
+        or any(root.records.get(r.address) is not r for r in root.description.records)
+    ):
+        raise CompiledError("COMPILED_INPUT_CHANGED")
