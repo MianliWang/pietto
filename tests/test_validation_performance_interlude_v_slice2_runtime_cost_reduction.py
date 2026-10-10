@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import subprocess
 import sys
 
 import pytest
@@ -113,3 +115,53 @@ def test_cell_failure_is_published_once_and_never_retried(tmp_path, monkeypatch)
     assert not tuple(tmp_path.glob("**/cell.json"))
     assert not tuple(tmp_path.glob("**/*.lock"))
     assert not tuple(tmp_path.glob("**/*.pending"))
+
+
+@pytest.mark.parametrize("owner", ("live", "dead"))
+def test_unheld_needed_cells_are_produced_before_waiting_on_a_held_cell(
+    tmp_path, monkeypatch, owner
+):
+    interpreters = {
+        version: sys.executable for version in process.SUPPORTED_INTERPRETERS
+    }
+    monkeypatch.setattr(
+        process, "available_supported_interpreters", lambda: interpreters
+    )
+    monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw1")
+    monkeypatch.setenv("PYTEST_XDIST_WORKER_COUNT", "4")
+    # The original traversal waits on the held cell first; fail in 1 s, not 900 s.
+    monkeypatch.setattr(process, "ACQUISITION_TIMEOUT_SECONDS", 1.0)
+    produced = _synthetic_producer(monkeypatch)
+    expected = {
+        request.key: (request.request_id + "\n").encode()
+        for request in process.family_requests("phase65", interpreters)
+    }
+    free = process.DifferentialAcquisition(tmp_path / "free")
+    assert free.documents("phase65") == expected
+    rotation = [cell for _, cell in produced]
+    store = process.DifferentialAcquisition(tmp_path / "held")
+    held, held_root = rotation[0], store.root / f"cell-{rotation[0].name}"
+    held_root.mkdir()
+    pid = os.getpid()
+    if owner == "dead":
+        finished = subprocess.Popen((sys.executable, "-c", ""))
+        finished.wait()
+        pid = finished.pid
+    (held_root / "cell.lock").write_text(str(pid), encoding="ascii")
+    run = process.DifferentialAcquisition._run_cell
+
+    def produce(self, cell, root):
+        payload = run(self, cell, root)
+        if owner == "live" and cell == rotation[-1]:
+            # The live owner publishes only after every unheld cell exists.
+            run(self, held, held_root)
+            (held_root / "cell.lock").unlink()
+        return payload
+
+    monkeypatch.setattr(process.DifferentialAcquisition, "_run_cell", produce)
+    before = len(produced)
+    documents = store.documents("phase65")
+    assert documents == expected and tuple(documents) == tuple(expected)
+    # Every unheld cell comes first; a dead owner's lock is reclaimed afterwards.
+    assert [cell for _, cell in produced[before:]] == [*rotation[1:], held]
+    assert not tuple(store.root.glob("**/*.lock"))

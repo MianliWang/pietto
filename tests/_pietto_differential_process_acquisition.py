@@ -569,10 +569,17 @@ class DifferentialAcquisition:
             count = int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1"))
             offset = (int(worker.removeprefix("gw")) * len(cells) // count) % len(cells)
         # Existing workers start at different needed cells instead of all waiting
-        # on the same producer. Locks still own acquisition; no extra child pool.
+        # on the same producer, and take every needed cell nobody holds before
+        # waiting on a held one. Locks still own acquisition; no extra child pool.
+        order = cells[offset:] + cells[:offset]
         payloads = {
-            cell: self._cell_payload(cell) for cell in cells[offset:] + cells[:offset]
+            cell: self._cell_payload(cell)
+            for cell in order
+            if not (self.root / f"cell-{cell.name}" / "cell.lock").exists()
         }
+        for cell in order:
+            if cell not in payloads:
+                payloads[cell] = self._cell_payload(cell)
         documents: dict[str, bytes] = {}
         for request in requests:
             payload = payloads[request.cell]
