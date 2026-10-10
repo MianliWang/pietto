@@ -91,10 +91,21 @@ The local validator chooses its pytest worker count from usable CPUs and memory:
 one GiB per worker after reserving max(1 GiB, total / 5), at most eight
 (`PYTEST_MAX_RESOURCE_WORKERS`). Hosted runtime jobs stay capped at four
 workers. The usual authoritative entry is
-`UV_PYTHON=3.13.13 UV_NO_SYNC=1 UV_LOCKED=1 .venv/bin/python scripts/validate.py --timings --oom-guard on`;
-add `--pytest-maxprocesses N` to leave room on a shared machine. The OOM guard
+`UV_PYTHON=3.13.13 UV_NO_SYNC=1 UV_LOCKED=1 .venv/bin/python scripts/validate.py --timings --oom-guard on --pytest-workers 8`;
+the explicit eight is the owner-approved standing choice for the integration
+host, because an explicit count bypasses the memory estimate. Add
+`--pytest-maxprocesses N` to leave room on a shared machine. The OOM guard
 still stops a gate under sustained memory pressure, and registry standalone
 nodes run as separate units so that extra workers are not stuck behind them.
+
+The validator declares `--pietto-storage-class=qualified` for its pytest gate
+only, so hosted `ci_validation.py run` commands never inherit it. Before the
+first gate it checks the storage profile of pytest's temporary root
+(`PYTEST_DEBUG_TEMPROOT` or the system temporary directory). An unqualified
+profile, or a `PIETTO_STORAGE_CLASS` other than `qualified`, stops it with
+exit 2 before any gate runs, and that is not a validation start. A
+non-authoritative run on other storage calls pytest directly and gets the
+`report` class (see the S11 job store section below).
 
 Verification budget: within one top-level call each memoized structural
 verifier runs at most once for the same exact arguments, and every new call
@@ -736,8 +747,20 @@ retain their declared independent CI responsibility.
 
 [S11](phases/phase-68/slice-11.md) keeps one cumulative dispatch ledger. Ordinary
 tests cover the qualified-profile positive branch on the measured local build and
-the explicit refusal on any other runtime (CI's system SQLite included); they never
-skip or simulate a durable PASS. Real process kill/reap, fork and contention
+the explicit refusal on any other runtime (CI's system SQLite included). An
+explicit storage environment class decides what an observed refusal does; it
+never grants qualification, because the observed profile still decides:
+
+- `hosted-refusal`: the asserted refusal is the result;
+- `qualified`: the test fails with `PIETTO_STORAGE_REQUIRED <category>`;
+- `report`: the test skips with `PIETTO_NOT_RUN storage-positive <category>`, so
+  a positive that did not run is counted, never passed.
+
+`--pietto-storage-class` or `PIETTO_STORAGE_CLASS` declares the class; a
+conflict or an unknown value fails closed. With neither, hosted CI
+(`GITHUB_ACTIONS=true`) is `hosted-refusal` and any other run is `report`.
+Hosted `verify` refuses any `PIETTO_NOT_RUN` skip. No class ever simulates a
+durable PASS. Real process kill/reap, fork and contention
 histories use disposable owned workspaces only. The bounded native bridge
 (`scripts/phase68_slice11_probe.py`) registers in one process and executes from a
 fresh source-free process; S10's original consumers recheck values/SQL/sessions and

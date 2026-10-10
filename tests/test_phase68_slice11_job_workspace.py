@@ -6,6 +6,8 @@ import json
 import os
 import sqlite3
 import stat
+import subprocess
+import sys
 
 import pytest
 
@@ -102,6 +104,80 @@ def test_unsupported_profile_refuses_before_any_file(
     finally:
         if change == "tmpfs":
             root.parent.rmdir()
+
+
+@pytest.mark.parametrize(
+    "environ,option,expected",
+    [
+        ({}, None, "report"),
+        ({"GITHUB_ACTIONS": "false"}, None, "report"),
+        ({"GITHUB_ACTIONS": "true"}, None, "hosted-refusal"),
+        ({"GITHUB_ACTIONS": "true"}, "report", "report"),
+        (
+            {"GITHUB_ACTIONS": "true", "PIETTO_STORAGE_CLASS": "qualified"},
+            None,
+            "qualified",
+        ),
+        ({"PIETTO_STORAGE_CLASS": "report"}, "report", "report"),
+        (
+            {"PIETTO_STORAGE_CLASS": "report"},
+            "qualified",
+            "PIETTO_STORAGE_CLASS_CONFLICT",
+        ),
+        ({}, "ext4", "PIETTO_STORAGE_CLASS_UNKNOWN"),
+        ({"PIETTO_STORAGE_CLASS": ""}, None, "PIETTO_STORAGE_CLASS_UNKNOWN"),
+    ],
+)
+def test_storage_class_declaration_wins_and_fails_closed(environ, option, expected):
+    if expected.startswith("PIETTO_"):
+        with pytest.raises(ValueError, match="^" + expected + "$"):
+            probe.storage_class(environ, option)
+    else:
+        assert probe.storage_class(environ, option) == expected
+
+
+@pytest.mark.parametrize("declared", probe.STORAGE_CLASSES)
+def test_storage_class_decides_what_an_observed_refusal_does(
+    tmp_path, monkeypatch, declared
+):
+    # An unqualified engine refuses on every host; no class grants qualification.
+    monkeypatch.setattr(w, "QUALIFIED_SQLITE", frozenset())
+    monkeypatch.setattr(probe, "STORAGE_CLASS_OPTION", declared)
+    monkeypatch.delenv(probe.STORAGE_CLASS_VARIABLE, raising=False)
+    if declared == "hosted-refusal":
+        assert probe.qualified(tmp_path) is False
+    elif declared == "qualified":
+        with pytest.raises(
+            pytest.fail.Exception,
+            match="^PIETTO_STORAGE_REQUIRED WORKSPACE_PROFILE_SQLITE$",
+        ):
+            probe.qualified(tmp_path)
+    else:
+        with pytest.raises(
+            pytest.skip.Exception,
+            match="^PIETTO_NOT_RUN storage-positive WORKSPACE_PROFILE_SQLITE$",
+        ):
+            probe.qualified(tmp_path)
+    assert not (tmp_path / "refused-workspace").exists()
+
+
+def test_probe_import_and_hosted_refusal_do_not_import_pytest(tmp_path):
+    # Bundle producers and consumers import the probe in venvs without pytest.
+    code = (
+        "import sys; sys.path.insert(0, sys.argv[1]); "
+        "import _pietto_phase68_slice11_probe as probe; "
+        "from pietto._project import project_job_workspace as w; "
+        "w.QUALIFIED_SQLITE = frozenset(); "
+        "assert probe.qualified(sys.argv[2]) is False; "
+        "assert 'pytest' not in sys.modules"
+    )
+    environ = {**os.environ, "GITHUB_ACTIONS": "true"}
+    environ.pop(probe.STORAGE_CLASS_VARIABLE, None)
+    subprocess.run(
+        [sys.executable, "-B", "-c", code, str(probe.ROOT / "tests"), str(tmp_path)],
+        check=True,
+        env=environ,
+    )
 
 
 def test_exclusive_private_creation_and_exact_reopen(tmp_path, qualified):

@@ -81,6 +81,7 @@ job elapsed、test elapsed、依赖关键路径、queue与job sum分开；当前
 不输出credentials或任意environment values。维护只能通过普通reviewed commit，health不改U、不调worker、不retry。
 
 新测试清单：ordinary或special；family/profile/group；估算成本/资源影响；扩展的既有assurance；可执行正反例。
+依赖runner能力（如合格存储）的测试要声明该能力并让分支可观察；提前返回或skip不能充当正例见证。
 不要求精确时间目标。phase start消费eligible health与适用lesson，midpoint/closeout评价alerts。
 常规[phase-end acquisition整合](../development.md#phase-end-acquisition-consolidation)不要求health alert；
 按实际Phase baseline分类new/changed acquisition与必要旧消费者，在audit-only closeout前安排实质工作。

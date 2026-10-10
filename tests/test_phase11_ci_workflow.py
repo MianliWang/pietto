@@ -713,6 +713,38 @@ def test_runtime_launch_prepares_fresh_invocation_parent(tmp_path, monkeypatch):
     assert report.read_text() == "preserve existing evidence"
 
 
+@pytest.mark.parametrize("not_run", (False, True))
+def test_hosted_verify_refuses_not_run_capability_positives(
+    tmp_path, monkeypatch, capsys, not_run
+):
+    collection, reports = _reports()
+    shard = next(report for report in reports if report["nodes"])
+    shard["outcomes"][0] = [0, "skipped", None, "passed"]
+    reason = "PIETTO_NOT_RUN storage-positive" if not_run else "optional driver absent"
+    shard["skips"] = [[0, f"('tests/x.py', 1, 'Skipped: {reason} WORKSPACE')"]]
+    ci.write_report(tmp_path / ci.report_name(CONTEXT, "collection"), collection)
+    for report in reports:
+        ci.write_report(tmp_path / ci.report_name(CONTEXT, report["partition"]), report)
+    completed = []
+    monkeypatch.setattr(ci, "runtime_context", lambda *args: dict(CONTEXT))
+    monkeypatch.setattr(ci, "complete_runtime", lambda *args: completed.append(args))
+    arguments = [
+        "verify",
+        "--python",
+        f"{sys.version_info.major}.{sys.version_info.minor}",
+        "--evidence-dir",
+        str(tmp_path),
+        "--checks-status",
+        "success",
+        "--runtime-status",
+        "success",
+    ]
+    assert ci.main(arguments) == int(not_run)
+    assert len(completed) == int(not not_run)
+    if not_run:
+        assert "carries PIETTO_NOT_RUN skips" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("name", ("MATRIX_FILES", "STANDALONE", "STANDALONE_NODES"))
 def test_duplicate_special_selector_definitions_fail_before_routing(monkeypatch, name):
     policy = deepcopy(ci.POLICY)

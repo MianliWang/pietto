@@ -40,6 +40,23 @@ GATES: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 PYTEST_GATE_NAME = "tests"
 PYTEST_COMMAND = ("uv", "run", "pytest")
+# Authoritative runs declare the qualified storage class; the pre-check below
+# refuses an unqualified host before any gate starts, so it is not a start.
+STORAGE_CLASS_DECLARATION = "--pietto-storage-class=qualified"
+STORAGE_PRECHECK = """\
+import os
+import sys
+import tempfile
+
+from pietto._project.project_job_workspace import JobStoreError, storage_profile
+
+root = os.environ.get("PYTEST_DEBUG_TEMPROOT") or tempfile.gettempdir()
+try:
+    storage_profile(os.path.realpath(root))
+except JobStoreError as error:
+    print(error)
+    sys.exit(1)
+"""
 PYTEST_DIST_CHOICES = ("loadfile", "loadscope")
 PYTEST_WORKER_MEMORY_BYTES = 1024 * 1024 * 1024
 PYTEST_MIN_MEMORY_RESERVE_BYTES = 1024 * 1024 * 1024
@@ -505,11 +522,34 @@ def _resolved_gates(
     args: argparse.Namespace,
     parser: argparse.ArgumentParser,
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
-    pytest_command = _pytest_command(args, parser)
+    pytest_command = (*_pytest_command(args, parser), STORAGE_CLASS_DECLARATION)
     return tuple(
         (name, pytest_command if name == PYTEST_GATE_NAME else command)
         for name, command in GATES
     )
+
+
+def _storage_precheck(parser: argparse.ArgumentParser) -> None:
+    declared = os.environ.get("PIETTO_STORAGE_CLASS")
+    if declared is not None and declared != "qualified":
+        parser.error(
+            "PIETTO_STORAGE_CLASS conflicts with the qualified storage class "
+            "that authoritative validation declares"
+        )
+    result = subprocess.run(
+        ("uv", "run", "python", "-c", STORAGE_PRECHECK),
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        refusal = (result.stdout.strip() or result.stderr.strip())[-200:]
+        parser.error(
+            f"storage pre-check refused ({refusal}): authoritative validation "
+            "needs the qualified storage profile; run `uv run pytest` directly "
+            "for a non-authoritative report-class run"
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -521,6 +561,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     guarded = _oom_guard_enabled(args.oom_guard, parser)
     if guarded:
         print("[validate] OOM guard enabled: Linux owned process groups", flush=True)
+    if any(STORAGE_CLASS_DECLARATION in command for _name, command in gates):
+        _storage_precheck(parser)
     total_started = time.perf_counter() if args.timings else 0.0
 
     for name, command in gates:

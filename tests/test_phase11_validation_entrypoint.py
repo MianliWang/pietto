@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import os
 import subprocess
+import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
@@ -35,9 +37,13 @@ EXPECTED_GATES = (
     ),
     ("tests", ("uv", "run", "pytest")),
 )
+QUALIFIED = "--pietto-storage-class=qualified"
 DEFAULT_GATES = (
     *EXPECTED_GATES[:-1],
-    ("tests", ("uv", "run", "pytest", "-n", "4", "--dist=loadfile")),
+    (
+        "tests",
+        ("uv", "run", "pytest", "-n", "4", "--dist=loadfile", QUALIFIED),
+    ),
 )
 
 
@@ -52,6 +58,7 @@ def _load_validate_module() -> ModuleType:
 
 validate = cast(Any, _load_validate_module())
 resource_worker_count = validate._resource_worker_count
+storage_precheck = validate._storage_precheck
 
 
 @pytest.fixture(autouse=True)
@@ -64,6 +71,8 @@ def _stable_resource_worker_count(monkeypatch: pytest.MonkeyPatch) -> None:
         "_resource_worker_count",
         lambda maximum=None: min(4, maximum) if maximum is not None else 4,
     )
+    # The storage pre-check observes the host; its own tests below fake it.
+    monkeypatch.setattr(validate, "_storage_precheck", lambda parser: None)
 
 
 def test_validation_script_exists_and_uses_only_standard_library_imports() -> None:
@@ -174,8 +183,8 @@ def test_validation_pytest_workers_off_keeps_serial_pytest_command(
     monkeypatch.setattr(validate.subprocess, "run", fake_run)
 
     assert validate.main(("--pytest-workers", "off")) == 0
-    assert calls == [command for _, command in EXPECTED_GATES]
-    assert calls[-1] == ("uv", "run", "pytest")
+    assert calls[:-1] == [command for _, command in EXPECTED_GATES[:-1]]
+    assert calls[-1] == ("uv", "run", "pytest", QUALIFIED)
 
 
 def test_validation_pytest_integer_workers_use_loadfile_by_default(
@@ -196,7 +205,7 @@ def test_validation_pytest_integer_workers_use_loadfile_by_default(
 
     assert validate.main(("--pytest-workers", "4")) == 0
     assert calls[:-1] == [command for _, command in EXPECTED_GATES[:-1]]
-    assert calls[-1] == ("uv", "run", "pytest", "-n", "4", "--dist=loadfile")
+    assert calls[-1] == ("uv", "run", "pytest", "-n", "4", "--dist=loadfile", QUALIFIED)
 
 
 def test_validation_pytest_integer_workers_are_capped_by_maxprocesses(
@@ -216,7 +225,7 @@ def test_validation_pytest_integer_workers_are_capped_by_maxprocesses(
     monkeypatch.setattr(validate.subprocess, "run", fake_run)
 
     assert validate.main(("--pytest-workers", "4", "--pytest-maxprocesses", "2")) == 0
-    assert calls[-1] == ("uv", "run", "pytest", "-n", "2", "--dist=loadfile")
+    assert calls[-1] == ("uv", "run", "pytest", "-n", "2", "--dist=loadfile", QUALIFIED)
 
 
 def test_validation_pytest_auto_workers_support_maxprocesses(
@@ -247,6 +256,7 @@ def test_validation_pytest_auto_workers_support_maxprocesses(
         "--maxprocesses",
         "4",
         "--dist=loadfile",
+        QUALIFIED,
     )
 
 
@@ -271,7 +281,7 @@ def test_validation_pytest_logical_workers_use_cpu_count_and_maxprocesses(
         validate.main(("--pytest-workers", "logical", "--pytest-maxprocesses", "4"))
         == 0
     )
-    assert calls[-1] == ("uv", "run", "pytest", "-n", "4", "--dist=loadfile")
+    assert calls[-1] == ("uv", "run", "pytest", "-n", "4", "--dist=loadfile", QUALIFIED)
 
 
 def test_validation_pytest_logical_workers_fall_back_to_one(
@@ -292,7 +302,7 @@ def test_validation_pytest_logical_workers_fall_back_to_one(
     monkeypatch.setattr(validate.os, "cpu_count", lambda: None)
 
     assert validate.main(("--pytest-workers", "logical")) == 0
-    assert calls[-1] == ("uv", "run", "pytest", "-n", "1", "--dist=loadfile")
+    assert calls[-1] == ("uv", "run", "pytest", "-n", "1", "--dist=loadfile", QUALIFIED)
 
 
 def test_validation_pytest_dist_is_emitted_only_when_workers_are_enabled(
@@ -312,7 +322,15 @@ def test_validation_pytest_dist_is_emitted_only_when_workers_are_enabled(
     monkeypatch.setattr(validate.subprocess, "run", fake_run)
 
     assert validate.main(("--pytest-workers", "2", "--pytest-dist", "loadscope")) == 0
-    assert calls[-1] == ("uv", "run", "pytest", "-n", "2", "--dist=loadscope")
+    assert calls[-1] == (
+        "uv",
+        "run",
+        "pytest",
+        "-n",
+        "2",
+        "--dist=loadscope",
+        QUALIFIED,
+    )
     assert "--dist=loadfile" not in calls[-1]
 
 
@@ -459,13 +477,16 @@ def test_validation_timings_compose_with_pytest_workers(
     assert validate.main(("--timings", "--pytest-workers", "2")) == 0
     expected_gates = (
         *EXPECTED_GATES[:-1],
-        ("tests", ("uv", "run", "pytest", "-n", "2", "--dist=loadfile")),
+        (
+            "tests",
+            ("uv", "run", "pytest", "-n", "2", "--dist=loadfile", QUALIFIED),
+        ),
     )
     assert calls == [(command, REPO_ROOT, False) for _, command in expected_gates]
 
     output_lines = capsys.readouterr().out.splitlines()
     assert output_lines[-3:] == [
-        "[validate] tests: uv run pytest -n 2 --dist=loadfile",
+        "[validate] tests: uv run pytest -n 2 --dist=loadfile " + QUALIFIED,
         "[validate] tests completed in 0.750s",
         "[validate] total completed in 7.000s",
     ]
@@ -574,6 +595,91 @@ def test_validation_pytest_worker_argparse_errors_do_not_invoke_gates(
 
     assert raised.value.code == 2
     assert calls == []
+
+
+@pytest.mark.parametrize("refused", (False, True))
+def test_storage_precheck_runs_before_any_gate_and_a_refusal_is_not_a_start(
+    refused: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    precheck = ("uv", "run", "python", "-c", validate.STORAGE_PRECHECK)
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run(
+        command: tuple[str, ...], *, cwd: Path, check: bool, **_: object
+    ) -> subprocess.CompletedProcess[str]:
+        assert cwd == REPO_ROOT and check is False
+        calls.append(command)
+        failed = refused and command == precheck
+        output = "WORKSPACE_PROFILE_FILESYSTEM\n" if failed else ""
+        return subprocess.CompletedProcess(command, int(failed), output, "")
+
+    monkeypatch.setattr(validate, "_storage_precheck", storage_precheck)
+    monkeypatch.setattr(validate.subprocess, "run", fake_run)
+    monkeypatch.delenv("PIETTO_STORAGE_CLASS", raising=False)
+
+    if not refused:
+        assert validate.main(()) == 0
+        assert calls == [precheck, *(command for _, command in DEFAULT_GATES)]
+        return
+    with pytest.raises(SystemExit) as raised:
+        validate.main(())
+    assert raised.value.code == 2
+    assert calls == [precheck]
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "storage pre-check refused (WORKSPACE_PROFILE_FILESYSTEM)" in captured.err
+
+
+@pytest.mark.parametrize("declared", ("report", "hosted-refusal", ""))
+def test_storage_precheck_refuses_a_conflicting_environment_class(
+    declared: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run(
+        command: tuple[str, ...], **_: object
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(validate, "_storage_precheck", storage_precheck)
+    monkeypatch.setattr(validate.subprocess, "run", fake_run)
+    monkeypatch.setenv("PIETTO_STORAGE_CLASS", declared)
+
+    with pytest.raises(SystemExit) as raised:
+        validate.main(())
+    assert raised.value.code == 2
+    assert calls == []
+    assert "PIETTO_STORAGE_CLASS conflicts" in capsys.readouterr().err
+
+
+def test_storage_declaration_and_precheck_match_the_test_side_contract(
+    pytestconfig: pytest.Config,
+) -> None:
+    import _pietto_phase68_slice11_probe as probe
+
+    option, value = QUALIFIED.split("=")
+    assert validate.STORAGE_CLASS_DECLARATION == QUALIFIED
+    pytestconfig.getoption(option)  # registered by tests/conftest.py
+    assert value in probe.STORAGE_CLASSES
+    # The real snippet refuses procfs on every host with a profile category.
+    result = subprocess.run(
+        (sys.executable, "-c", validate.STORAGE_PRECHECK),
+        env={**os.environ, "PYTEST_DEBUG_TEMPROOT": "/proc"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert result.stdout.strip() in (
+        "WORKSPACE_PROFILE_PLATFORM",
+        "WORKSPACE_PROFILE_SQLITE",
+        "WORKSPACE_PROFILE_FILESYSTEM",
+    )
 
 
 def test_slice2_validation_stays_separate_from_later_workflows() -> None:

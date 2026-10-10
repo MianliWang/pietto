@@ -13,6 +13,10 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 PREFIX = "pietto-phase68-slice11-"
 SENTINEL = "S11-SENTINEL-6b1f0c4e"
+STORAGE_CLASS_VARIABLE = "PIETTO_STORAGE_CLASS"
+STORAGE_CLASSES = ("hosted-refusal", "qualified", "report")
+# This session's --pietto-storage-class value, set by tests/conftest.py.
+STORAGE_CLASS_OPTION = None
 
 
 def compiled_template(directory, *, seed=None, target="postgres", entry="live"):
@@ -46,10 +50,29 @@ def compiled_template(directory, *, seed=None, target="postgres", entry="live"):
     return prepare_compiled_template(root), built
 
 
+def storage_class(environ=None, option=None):
+    """The declared storage class; a declaration wins, and without one hosted
+    CI keeps the refusal branch while any other run reports not-run positives.
+    A class never grants qualification: the observed profile still decides."""
+    environ = os.environ if environ is None else environ
+    declared = environ.get(STORAGE_CLASS_VARIABLE)
+    if option is not None and declared is not None and declared != option:
+        raise ValueError("PIETTO_STORAGE_CLASS_CONFLICT")
+    value = option if option is not None else declared
+    if value is None:
+        return "hosted-refusal" if environ.get("GITHUB_ACTIONS") == "true" else "report"
+    if value not in STORAGE_CLASSES:
+        raise ValueError("PIETTO_STORAGE_CLASS_UNKNOWN")
+    return value
+
+
 def qualified(path):
-    """True on the allowlisted profile; otherwise assert the explicit refusal."""
+    """True on the allowlisted profile. Otherwise assert the explicit refusal,
+    then act by the storage class: hosted-refusal returns False, qualified
+    fails and report skips as a counted not-run storage positive."""
     from pietto._project import project_job_workspace as w
 
+    declared = storage_class(option=STORAGE_CLASS_OPTION)
     try:
         w.storage_profile(str(path))
     except w.JobStoreError as error:
@@ -66,7 +89,13 @@ def qualified(path):
         else:
             raise AssertionError("unqualified profile created a workspace")
         assert not refused.exists()
-        return False
+        if declared == "hosted-refusal":
+            return False
+        import pytest
+
+        if declared == "qualified":
+            pytest.fail("PIETTO_STORAGE_REQUIRED " + str(error), pytrace=False)
+        pytest.skip("PIETTO_NOT_RUN storage-positive " + str(error))
     return True
 
 

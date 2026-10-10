@@ -9,6 +9,9 @@ smallest unit instead: xdist queues one more test before a worker starts its
 last one, and a heavy file must not wait behind it. Registry standalone nodes
 (``[[legacy_nodes]]`` modes, which CI already runs on ``load`` shards) are units
 of their own and inherit their file's estimate.
+
+It also registers ``--pietto-storage-class``, the explicit storage environment
+class that ``tests/_pietto_phase68_slice11_probe.py`` resolves and applies.
 """
 
 from __future__ import annotations
@@ -51,6 +54,24 @@ class CostOrderedFileScheduling(LoadFileScheduling):
         )
         self.workqueue.move_to_end(scope, last=False)
         super()._assign_work_unit(node)
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--pietto-storage-class",
+        default=None,
+        help="storage environment class: hosted-refusal, qualified or report",
+    )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    import _pietto_phase68_slice11_probe as probe
+
+    probe.STORAGE_CLASS_OPTION = config.getoption("--pietto-storage-class")
+    try:
+        probe.storage_class(option=probe.STORAGE_CLASS_OPTION)
+    except ValueError as error:
+        raise pytest.UsageError(str(error)) from None
 
 
 @pytest.hookimpl(optionalhook=True)

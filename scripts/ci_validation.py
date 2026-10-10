@@ -895,6 +895,13 @@ def main(argv: list[str] | None = None) -> int:
             result = reconcile(
                 collection, reports, context, args.checks_status, args.runtime_status
             )
+            # Only hosted verify refuses them; verify_report also reads report-class runs.
+            if any(
+                "PIETTO_NOT_RUN" in reason
+                for report in reports
+                for _index, reason in report["skips"]
+            ):
+                raise ValueError("hosted coverage carries PIETTO_NOT_RUN skips")
             complete_runtime(args, context, collection, reports, result)
             print(
                 "[ci-validation] coverage reconciled "
