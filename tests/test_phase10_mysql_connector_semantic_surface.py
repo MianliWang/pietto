@@ -62,7 +62,7 @@ def test_mysql_backend_remains_private_when_cli_enabled() -> None:
 def test_dependencies_and_sqlglot_boundary_are_unchanged() -> None:
     project = tomllib.loads(_read("pyproject.toml"))
 
-    assert project["project"]["dependencies"] == ["antlr4-python3-runtime>=4.13.2"]
+    assert project["project"]["dependencies"] == ["antlr4-python3-runtime==4.13.2"]
     assert "sqlglot" not in _read("pyproject.toml").lower()
     assert 'name = "sqlglot"' not in _read("uv.lock")
 

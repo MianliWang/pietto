@@ -94,16 +94,20 @@ def test_wheel_and_sdist_inventory_metadata_and_entry_point_are_checked(
             archive.writestr(name, b"")
         archive.writestr(f"{wheel_prefix}/METADATA", metadata)
         archive.writestr(f"{wheel_prefix}/WHEEL", b"Wheel-Version: 1.0\n")
+        for path, content in _license_members().items():
+            archive.writestr(f"{wheel_prefix}/licenses/{path}", content)
         archive.writestr(
             f"{wheel_prefix}/entry_points.txt",
             b"[console_scripts]\npietto = pietto.cli:main\n",
         )
 
     with tarfile.open(sdist, mode="w:gz") as archive:
+        licenses = {f"{sdist_prefix}/{p}": c for p, c in _license_members().items()}
         names = smoke._required_runtime_files(f"{sdist_prefix}/src/pietto") | {
             f"{sdist_prefix}/PKG-INFO",
             f"{sdist_prefix}/pyproject.toml",
             f"{sdist_prefix}/README.md",
+            *licenses,
         }
         for name in names:
             content = metadata if name.endswith("PKG-INFO") else b""
@@ -111,6 +115,8 @@ def test_wheel_and_sdist_inventory_metadata_and_entry_point_are_checked(
                 content = (REPO_ROOT / "pyproject.toml").read_bytes()
             elif name.endswith("README.md"):
                 content = (REPO_ROOT / "README.md").read_bytes()
+            elif name in licenses:
+                content = licenses[name]
             info = tarfile.TarInfo(name)
             info.size = len(content)
             archive.addfile(info, io.BytesIO(content))
@@ -132,6 +138,8 @@ def test_missing_generated_module_fails_artifact_inspection(tmp_path: Path) -> N
             archive.writestr(name, b"")
         archive.writestr(f"{prefix}/METADATA", _metadata_bytes())
         archive.writestr(f"{prefix}/WHEEL", b"Wheel-Version: 1.0\n")
+        for path, content in _license_members().items():
+            archive.writestr(f"{prefix}/licenses/{path}", content)
         archive.writestr(
             f"{prefix}/entry_points.txt",
             b"[console_scripts]\npietto = pietto.cli:main\n",
@@ -251,11 +259,16 @@ def _metadata_bytes() -> bytes:
         f"Requires-Dist: {dependency}\n".encode("utf-8")
         for dependency in _runtime_dependency_specifiers()
     )
+    license_metadata = b"".join(
+        f"License-File: {path}\n".encode("utf-8") for path in _license_members()
+    )
     return b"".join(
         (
-            b"Metadata-Version: 2.3\n",
+            b"Metadata-Version: 2.4\n",
             b"Name: pietto\n",
             b"Version: 0.1.0\n",
+            b"License-Expression: MIT\n",
+            license_metadata,
             b"Requires-Python: >=3.12\n",
             dependency_metadata,
             b"Provides-Extra: arrow\n",
@@ -275,6 +288,27 @@ def _metadata_bytes() -> bytes:
             (REPO_ROOT / "README.md").read_bytes(),
         )
     )
+
+
+LICENSE_FILES = (
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "LICENSES/ANTLR-4.13.2.txt",
+    "LICENSES/ANTLR-4.13.2-Python3-template-header.txt",
+    "LICENSES/pgvector-0.8.6.txt",
+    "LICENSES/PostgreSQL-18.6.txt",
+    "LICENSES/SOURCES.md",
+)
+
+
+def _license_members() -> dict[str, bytes]:
+    """The reviewed license files and their repository bytes, in declared order."""
+    return {path: (REPO_ROOT / path).read_bytes() for path in LICENSE_FILES}
+
+
+def test_project_declares_mit_and_the_reviewed_license_files() -> None:
+    contract = smoke._project_contract()
+    assert (contract.license, contract.license_files) == ("MIT", LICENSE_FILES)
 
 
 def _runtime_dependency_specifiers() -> tuple[str, ...]:

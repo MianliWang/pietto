@@ -525,7 +525,7 @@ def test_phase_6_boundaries_dependencies_and_diagnostic_codes_remain_clean() -> 
     project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     dependencies = project["project"]["dependencies"]
 
-    assert dependencies == ["antlr4-python3-runtime>=4.13.2"]
+    assert dependencies == ["antlr4-python3-runtime==4.13.2"]
     assert not hasattr(cli, "compile_to_ir")
     assert not hasattr(cli, "compile_to_sql")
     assert not hasattr(ir_api, "compile_to_ir")

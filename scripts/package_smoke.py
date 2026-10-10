@@ -122,6 +122,8 @@ class ProjectContract:
     console_entry: str
     readme: str | None
     extras: tuple[tuple[str, tuple[str, ...]], ...]
+    license: str | None
+    license_files: tuple[str, ...]
 
 
 class SmokeFailure(Exception):
@@ -152,6 +154,8 @@ def _project_contract(project_text: str | None = None) -> ProjectContract:
                 (name, tuple(deps))
                 for name, deps in project.get("optional-dependencies", {}).items()
             ),
+            license=project.get("license"),
+            license_files=tuple(project.get("license-files", ())),
         )
     except (OSError, KeyError, TypeError, tomllib.TOMLDecodeError) as error:
         raise SmokeFailure(f"cannot read packaging contract: {error}") from error
@@ -324,6 +328,18 @@ def _validate_core_metadata(metadata_bytes: bytes, contract: ProjectContract) ->
         name for name, _ in contract.extras
     ):
         raise SmokeFailure("artifact Provides-Extra declarations differ")
+    if (
+        metadata.get_all("Metadata-Version") != ["2.4"]
+        or metadata.get_all("License-Expression") != [contract.license]
+        or Counter(metadata.get_all("License-File", ()))
+        != Counter(contract.license_files)
+        or metadata.get_all("License") is not None
+        or any(
+            str(value).startswith("License ::")
+            for value in metadata.get_all("Classifier", ())
+        )
+    ):
+        raise SmokeFailure("artifact license metadata differs")
 
     if contract.readme is not None:
         if metadata.get_all("Description-Content-Type") != ["text/markdown"]:
@@ -343,14 +359,18 @@ def _inspect_wheel(wheel: Path, contract: ProjectContract) -> None:
     try:
         with zipfile.ZipFile(wheel) as archive:
             inventory = set(archive.namelist())
+            licenses = {f"{dist_info}/licenses/{p}": p for p in contract.license_files}
             required = _required_runtime_files(contract.name) | frozenset(
-                {metadata_path, entry_points_path, f"{dist_info}/WHEEL"}
+                {metadata_path, entry_points_path, f"{dist_info}/WHEEL", *licenses}
             )
             missing = _missing_files(inventory, required)
             if missing:
                 raise SmokeFailure(
                     f"wheel is missing required files: {', '.join(missing)}"
                 )
+            for member, path in licenses.items():
+                if archive.read(member) != (REPO_ROOT / path).read_bytes():
+                    raise SmokeFailure(f"wheel license file differs: {path}")
             metadata_bytes = archive.read(metadata_path)
             entry_points_text = archive.read(entry_points_path).decode("utf-8")
     except (OSError, UnicodeError, zipfile.BadZipFile, KeyError) as error:
@@ -387,6 +407,8 @@ def _inspect_sdist(sdist: Path, contract: ProjectContract) -> None:
     )
     if contract.readme is not None:
         required |= frozenset({f"{prefix}/{contract.readme}"})
+    licenses = {f"{prefix}/{path}": path for path in contract.license_files}
+    required |= frozenset(licenses)
 
     try:
         with tarfile.open(sdist, mode="r:gz") as archive:
@@ -396,6 +418,9 @@ def _inspect_sdist(sdist: Path, contract: ProjectContract) -> None:
                 raise SmokeFailure(
                     f"sdist is missing required files: {', '.join(missing)}"
                 )
+            for member, path in licenses.items():
+                if _read_tar_member(archive, member) != (REPO_ROOT / path).read_bytes():
+                    raise SmokeFailure(f"sdist license file differs: {path}")
             metadata_bytes = _read_tar_member(archive, metadata_path)
             project = _read_tar_member(archive, f"{prefix}/pyproject.toml").decode(
                 "utf-8"
@@ -1180,6 +1205,9 @@ def _installed_check(wheel: Path, extra: str) -> None:
             if member.endswith("/") or not (
                 member.startswith("pietto/")
                 or member.endswith(("/METADATA", "/entry_points.txt", "/WHEEL"))
+                or member.startswith(
+                    f"{contract.name}-{contract.version}.dist-info/licenses/"
+                )
             ):
                 continue
             installed = _installed_path(Path(distribution.locate_file(member)))

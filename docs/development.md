@@ -978,7 +978,7 @@ WAL or backup) and re-verify the digests those reports already recorded. `tests/
 is an offline drift principal: owner modules and named callables resolve, the audit's matrix accounting follows the S19
 checker's independent `required()` derivation, every brief requirement has one disposition, the closure rule is singular,
 product code imports neither changed transitive dependency, and lesson links resolve; it proves no historical execution.
-Package, generated and golden auxiliaries are not required locally while the sdist/wheel inputs (`pyproject.toml`,
-`README.md`, `src/**`) and generator inputs are unchanged; natural CI still runs every hosted consumer on the exact
+Package, generated and golden auxiliaries are not required locally while the sdist/wheel inputs (`pyproject.toml` and
+everything it packages: `README.md`, its `license-files`, `src/**`) and generator inputs are unchanged; natural CI still runs every hosted consumer on the exact
 publication. The S19 native-qualified profile (importlib-resources 6.5.2, typing-extensions 4.15.0) and the current
 locked profile (7.1.0, 4.16.0) stay separate, and a real PostgreSQL ADBC query under the updated pair is NOT_OBSERVED.

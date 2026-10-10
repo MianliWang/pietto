@@ -92,7 +92,7 @@ def test_selections_are_exactly_the_dispatch_extras_and_core_is_unchanged():
         "0.1.0",
         ">=3.12",
     )
-    assert project["dependencies"] == ["antlr4-python3-runtime>=4.13.2"]
+    assert project["dependencies"] == ["antlr4-python3-runtime==4.13.2"]
     assert project["optional-dependencies"] == EXTRAS
     assert project["scripts"] == {"pietto": "pietto.cli:main"}
     lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text())

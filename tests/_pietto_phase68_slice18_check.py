@@ -53,7 +53,7 @@ EXTRAS = {
 # Artifact Requires-Dist: (name, requirement extras, specifier, extra marker).
 REQUIRES = frozenset(
     {
-        ("antlr4-python3-runtime", (), ">=4.13.2", None),
+        ("antlr4-python3-runtime", (), "==4.13.2", None),
         ("pyarrow", (), "==25.0.1", "arrow"),
         ("pyarrow", (), "==25.0.1", "execute-postgres"),
         ("psycopg", ("binary",), "==3.3.5", "execute-postgres"),

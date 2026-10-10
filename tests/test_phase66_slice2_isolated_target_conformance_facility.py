@@ -1860,7 +1860,7 @@ def test_test_dependency_group_preserves_runtime_metadata() -> None:
 
     project = tomllib.loads((facility.ROOT / "pyproject.toml").read_text())
     assert project["project"]["version"] == "0.1.0"
-    assert project["project"]["dependencies"] == ["antlr4-python3-runtime>=4.13.2"]
+    assert project["project"]["dependencies"] == ["antlr4-python3-runtime==4.13.2"]
     assert project["dependency-groups"]["target-conformance"] == [
         "psycopg[binary]==3.3.5",
         "mysql-connector-python==26.7.0",

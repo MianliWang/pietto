@@ -253,7 +253,7 @@ and the [Slice13 contract](spec/phase66-slice13-project-emit-sql-cli-explicit-co
 
 ## Optional Arrow dependency
 
-The core distribution depends only on `antlr4-python3-runtime>=4.13.2`.
+The core distribution depends only on `antlr4-python3-runtime==4.13.2`.
 The public selector `pietto[arrow]` adds exactly `pyarrow==25.0.1`; it changes
 available dependencies, not the public Python API or CLI. Phase67 result
 modules remain private under `pietto._project`; Phase69 owns public alpha.

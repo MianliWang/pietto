@@ -3,12 +3,22 @@ name = "pietto"
 version = "0.1.0"
 description = "A gradual, semantic SQL authoring DSL"
 readme = "README.md"
+license = "MIT"
+license-files = [
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "LICENSES/ANTLR-4.13.2.txt",
+    "LICENSES/ANTLR-4.13.2-Python3-template-header.txt",
+    "LICENSES/pgvector-0.8.6.txt",
+    "LICENSES/PostgreSQL-18.6.txt",
+    "LICENSES/SOURCES.md",
+]
 authors = [
     { name = "Mianli Wang", email = "mianli.wang@mail.utoronto.ca" }
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "antlr4-python3-runtime>=4.13.2",
+    "antlr4-python3-runtime==4.13.2",
 ]
 
 [project.optional-dependencies]

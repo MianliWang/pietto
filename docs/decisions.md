@@ -111,3 +111,12 @@ S18 派发选定三个路线 extra：`execute-postgres`（`pyarrow==25.0.1`、`p
 `adbc-driver-postgresql==1.12.0`、`adbc-driver-manager==1.12.0`）。D67.30 的 `arrow` 选择不变并承担无驱动的已保存结果使用；
 不增加 recovery 别名、全驱动 extra 或平台 marker。core 依赖、版本与入口不变；extra 不选择路线、不授予执行、不证明存储资格，
 执行 API 仍为私有；不冻结 Phase69 公共 API 或发布工程。精确依赖边界与已验证域见 [S18](phases/phase-68/slice-18.md)。
+
+## 0.1.0 public preview release — owner decisions (2026-10-10)
+
+所有者在 Phase69 之外批准一次公开预览发行，让外部用户可以下载并试用现有能力。发布范围只限已验证的公开面：单文件与项目的
+`check`、`explain`、`emit-sql`，以及现有的公开 Python 导出；执行与结果 API 仍为私有，由 Phase69 负责公开。所有者选择 MIT
+许可证（`LICENSE`）；第三方材料按 wheel、sdist 与源码归档分列于 `THIRD_PARTY_NOTICES.md`，上游原文按固定 commit（abego 许可页为固定 Wayback 快照，Python3 模板头取自已跟踪的 ANTLR jar）存于
+`LICENSES/`，不作法律结论。core 依赖固定为 `antlr4-python3-runtime==4.13.2`。包与 CLI 版本保持 0.1.0，tag `v0.1.0`，在
+GitHub 上标为 pre-release；不上传 PyPI/TestPyPI。只构建一次，验收过的确切 wheel/sdist 即发布字节，独立验证构建不替换它们。0.1.0 与 tag v0.1.0 由此绑定本次验收字节；Phase69 的发行须使用新的版本号与 tag，不得以不同字节复用 0.1.0。
+Phase69 规划的顺序、范围与所有者已作出的决定不因此改变；Phase69 重新绑定时扣除已完成的许可与元数据工作。

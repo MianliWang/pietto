@@ -1545,7 +1545,7 @@ def test_no_public_api_cli_json_package_ir_sql_rust_or_build_expansion_occurs(
         assert forbidden not in encoded
     pyproject = tomllib.loads(_read("pyproject.toml"))
     assert pyproject["project"]["version"] == "0.1.0"
-    assert pyproject["project"]["dependencies"] == ["antlr4-python3-runtime>=4.13.2"]
+    assert pyproject["project"]["dependencies"] == ["antlr4-python3-runtime==4.13.2"]
     assert "build-dependencies" not in pyproject
     generated = tuple(
         path

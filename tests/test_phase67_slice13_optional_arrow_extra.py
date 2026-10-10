@@ -15,7 +15,12 @@ import zipfile
 
 import pytest
 
-from test_phase11_packaging_smoke import REPO_ROOT, _metadata_bytes, smoke
+from test_phase11_packaging_smoke import (
+    REPO_ROOT,
+    _license_members,
+    _metadata_bytes,
+    smoke,
+)
 
 
 RESULT_OWNERS = (
@@ -41,8 +46,14 @@ def _artifact(
     missing: str = "",
     project: bytes | None = None,
     entry: bytes | None = None,
+    license_damage: str = "",
 ) -> Path:
     contract = smoke._project_contract()
+    licenses = _license_members()
+    if license_damage == "missing":
+        licenses.pop("LICENSE")
+    elif license_damage == "altered":
+        licenses["LICENSE"] += b"\n"
     if kind == "wheel":
         path = tmp_path / "pietto-0.1.0-py3-none-any.whl"
         with zipfile.ZipFile(path, "w") as archive:
@@ -55,6 +66,8 @@ def _artifact(
                 "pietto-0.1.0.dist-info/entry_points.txt",
                 entry or b"[console_scripts]\npietto = pietto.cli:main\n",
             )
+            for name, content in licenses.items():
+                archive.writestr(f"pietto-0.1.0.dist-info/licenses/{name}", content)
         return path
     path = tmp_path / "pietto-0.1.0.tar.gz"
     members = {
@@ -70,6 +83,7 @@ def _artifact(
             "pietto-0.1.0/README.md": (REPO_ROOT / contract.readme).read_bytes(),
         }
     )
+    members.update({f"pietto-0.1.0/{n}": c for n, c in licenses.items()})
     with tarfile.open(path, "w:gz") as archive:
         for name, data in members.items():
             info = tarfile.TarInfo(name)
@@ -91,7 +105,7 @@ def test_project_and_lock_select_exactly_one_optional_arrow_dependency():
         "0.1.0",
         ">=3.12",
     )
-    assert project["dependencies"] == ["antlr4-python3-runtime>=4.13.2"]
+    assert project["dependencies"] == ["antlr4-python3-runtime==4.13.2"]
     # The Arrow extra is unchanged; Phase68 S18 pins its route extras exactly.
     assert project["optional-dependencies"]["arrow"] == ["pyarrow==25.0.1"]
     assert project["scripts"] == {"pietto": "pietto.cli:main"}
@@ -104,7 +118,7 @@ def test_project_and_lock_select_exactly_one_optional_arrow_dependency():
     assert package["metadata"]["provides-extras"][0] == "arrow"
     requires = package["metadata"]["requires-dist"]
     assert [r for r in requires if "marker" not in r] == [
-        {"name": "antlr4-python3-runtime", "specifier": ">=4.13.2"}
+        {"name": "antlr4-python3-runtime", "specifier": "==4.13.2"}
     ]
     assert [r for r in requires if r.get("marker") == "extra == 'arrow'"] == [
         {"name": "pyarrow", "marker": "extra == 'arrow'", "specifier": "==25.0.1"},
@@ -196,7 +210,16 @@ def test_artifact_metadata_accepts_equivalent_serialization(
             b"Requires-Dist: pyarrow==25.0.1; extra == 'arrow'\n",
             b"Requires-Dist: pyarrow==25.0.1; extra == 'arrow'\nRequires-Dist: pyarrow==26.0.0; extra == 'arrow'\n",
         ),
-        (b"Requires-Dist: antlr4-python3-runtime>=4.13.2\n", b""),
+        (b"Requires-Dist: antlr4-python3-runtime==4.13.2\n", b""),
+        (b"Metadata-Version: 2.4", b"Metadata-Version: 2.3"),
+        (b"License-Expression: MIT\n", b""),
+        (b"License-Expression: MIT", b"License-Expression: Apache-2.0"),
+        (b"License-File: LICENSE\n", b""),
+        (b"License-Expression: MIT\n", b"License-Expression: MIT\nLicense: MIT\n"),
+        (
+            b"License-Expression: MIT\n",
+            b"License-Expression: MIT\nClassifier: License :: OSI Approved :: MIT License\n",
+        ),
         (b"Version: 0.1.0", b"Version: 0.2.0"),
         (b"Requires-Python: >=3.12", b"Requires-Python: >=3.13"),
         (
@@ -213,6 +236,19 @@ def test_metadata_damage_fails_each_artifact(
     assert before in original
     with pytest.raises(smoke.SmokeFailure):
         _inspect(_artifact(tmp_path, kind, original.replace(before, after, 1)), kind)
+
+
+@pytest.mark.parametrize("kind", ("wheel", "sdist"))
+@pytest.mark.parametrize(
+    "damage,message",
+    (("missing", "missing required files"), ("altered", "license file differs")),
+)
+def test_license_members_are_required_and_byte_exact(
+    tmp_path: Path, kind: str, damage: str, message: str
+):
+    artifact = _artifact(tmp_path, kind, _metadata_bytes(), license_damage=damage)
+    with pytest.raises(smoke.SmokeFailure, match=message):
+        _inspect(artifact, kind)
 
 
 @pytest.mark.parametrize("kind", ("wheel", "sdist"))
@@ -317,6 +353,8 @@ else:
         b"Version: 0.1.0",
         b"Requires-Python: >=3.12",
         b"Description-Content-Type: text/markdown",
+        b"Metadata-Version: 2.4",
+        b"License-Expression: MIT",
     ),
 )
 @pytest.mark.parametrize("kind", ("wheel", "sdist"))

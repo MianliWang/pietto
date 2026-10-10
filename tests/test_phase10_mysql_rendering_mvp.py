@@ -67,7 +67,7 @@ def test_mysql_renderer_has_no_sqlglot_or_runtime_dependencies() -> None:
         )
     ).lower()
 
-    assert project["project"]["dependencies"] == ["antlr4-python3-runtime>=4.13.2"]
+    assert project["project"]["dependencies"] == ["antlr4-python3-runtime==4.13.2"]
     assert "sqlglot" not in _read("pyproject.toml").lower()
     assert 'name = "sqlglot"' not in _read("uv.lock")
     for forbidden in (

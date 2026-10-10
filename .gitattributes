@@ -1,1 +1,3 @@
 src/pietto/generated/*.py whitespace=-trailing-space
+LICENSES/TreeLayout-1.0.3.txt whitespace=-trailing-space
+LICENSES/TreeLayout-1.0.3-abego-apl-v10.html -text whitespace=cr-at-eol

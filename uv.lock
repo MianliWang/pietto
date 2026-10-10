@@ -269,7 +269,7 @@ target-conformance = [
 requires-dist = [
     { name = "adbc-driver-manager", marker = "extra == 'execute-postgres-adbc'", specifier = "==1.12.0" },
     { name = "adbc-driver-postgresql", marker = "extra == 'execute-postgres-adbc'", specifier = "==1.12.0" },
-    { name = "antlr4-python3-runtime", specifier = ">=4.13.2" },
+    { name = "antlr4-python3-runtime", specifier = "==4.13.2" },
     { name = "mysql-connector-python", marker = "extra == 'execute-mysql'", specifier = "==26.7.0" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'execute-postgres'", specifier = "==3.3.5" },
     { name = "pyarrow", marker = "extra == 'arrow'", specifier = "==25.0.1" },

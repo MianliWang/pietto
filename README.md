@@ -12,6 +12,11 @@ selected PostgreSQL or MySQL SQL. It does not connect to a database or execute
 SQL. PostgreSQL is the public Python SQL emitter; MySQL is available through
 explicit CLI lowering with a private emitter surface.
 
+**Status: 0.1.0 public preview.** Pietto 0.1.0 is published as a
+[GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.1.0),
+not on PyPI. The compiler and CLI described below are the public surface;
+database execution and result APIs are not public yet.
+
 ## What Pietto provides
 
 - Typed shapes, sources, tables, queries, computed fields, aggregates,
@@ -30,6 +35,30 @@ explicit CLI lowering with a private emitter surface.
 
 The compiler has no runtime evaluation, database connection, transaction
 management, scheduler, or arbitrary I/O language features.
+
+## Install the 0.1.0 preview
+
+Install the wheel attached to the
+[v0.1.0 release](https://github.com/MianliWang/pietto/releases/tag/v0.1.0)
+into a fresh environment with CPython 3.12 or later (replace `python3.12` with
+your interpreter):
+
+```bash
+python3.12 -m venv pietto-env
+pietto-env/bin/python -m pip install "https://github.com/MianliWang/pietto/releases/download/v0.1.0/pietto-0.1.0-py3-none-any.whl"
+pietto-env/bin/pietto --version
+```
+
+The release lists the SHA-256 of the wheel and the sdist in `SHA256SUMS`. To
+check manually downloaded files, keep their names and run
+`sha256sum --ignore-missing -c SHA256SUMS` in the download directory. GitHub
+also offers automatic "Source code" archives; the tar.gz one downloads under the
+same name, `pietto-0.1.0.tar.gz`, but it is a snapshot of the repository, not
+the sdist, and it is not listed in `SHA256SUMS`. This
+preview was verified with CPython 3.12 and 3.13 on Linux x86-64; other
+platforms and Python versions are not covered by this evidence. With the
+release installed, run the commands below with `pietto-env/bin/pietto` (or
+activate the environment) instead of `uv run pietto`.
 
 ## Install from a checkout
 
@@ -298,3 +327,10 @@ uv run python scripts/validate.py
 
 The normal implementation loop is focused tests, Ruff, and targeted type
 checking. Natural CI runs the final Python 3.12 and 3.13 validation coverage.
+
+## License
+
+Pietto is released under the [MIT License](LICENSE). Third-party material in
+the wheel, the sdist and the source archive is listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), with the original license
+texts in [LICENSES/](LICENSES/).
