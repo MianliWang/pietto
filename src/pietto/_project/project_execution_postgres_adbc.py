@@ -23,6 +23,7 @@ from pietto._project.project_execution_postgres_adbc_native import (
     read_control,
     NativeStatement,
     CONTEXT_SQL,
+    JIT_OFF_SQL,
     failure,
 )
 from pietto._project.project_execution_postgres_adbc_context import (
@@ -404,6 +405,11 @@ class PostgresADBCExecution:
             ("Text",),
             maximum=1,
         )
+        if purpose == "page":
+            # The setting lasts until the transaction ends; it is read back
+            # before each page is submitted, never assumed.
+            if read_control(self, JIT_OFF_SQL, maximum=1)[1] != (("off",),):
+                raise ExecutionError("POSTGRES_ADBC_NATIVE_CONTEXT")
         sql, arguments, tags = self._parameters(purpose)
         self._statement = NativeStatement(
             self, sql, arguments, tags, purpose, copy=True

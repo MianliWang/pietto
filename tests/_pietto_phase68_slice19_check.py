@@ -2013,7 +2013,7 @@ def campaign_check(directory, wheel, house, install) -> dict:
         consumer["provenance"] == "LOCAL"
         # The archived receipts replay under their original identity, which
         # the local checkout must still be at (before the next commit).
-        and consumer["head"] == "381376fba59868cfed70fc09a21c4cd6a8be4309"
+        and consumer["head"] == "4b87b6a728d9abee4bc08c31736997ce31d04314"
         and [s["step"] for s in consumer["steps"]]
         == [
             "package_smoke",

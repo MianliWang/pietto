@@ -120,3 +120,17 @@ S18 派发选定三个路线 extra：`execute-postgres`（`pyarrow==25.0.1`、`p
 `LICENSES/`，不作法律结论。core 依赖固定为 `antlr4-python3-runtime==4.13.2`。包与 CLI 版本保持 0.1.0，tag `v0.1.0`，在
 GitHub 上标为 pre-release；不上传 PyPI/TestPyPI。只构建一次，验收过的确切 wheel/sdist 即发布字节，独立验证构建不替换它们。0.1.0 与 tag v0.1.0 由此绑定本次验收字节；Phase69 的发行须使用新的版本号与 tag，不得以不同字节复用 0.1.0。
 Phase69 规划的顺序、范围与所有者已作出的决定不因此改变；Phase69 重新绑定时扣除已完成的许可与元数据工作。
+
+## PostgreSQL refinement-page JIT — owner decisions (2026-10-10)
+
+所有者批准 Phase69 路线锁定前的第一个前置：私有 `postgres_rows` 与 `postgres_adbc` 在每个生成的细化页提交前，于来源资格认证之后、
+同一只读事务内单独发出事务局部的 `SELECT pg_catalog.set_config('jit','off',true)` 并读回 `off`，读回不符即以该路线既有的
+context 错误码失败关闭；设置持续到该 attempt 的事务结束，不持久化，`CONTEXT_SQL` 的 17 列不变。范围是两条路线上的全部细化页
+（REFINED 捕获、R2 捕获与恢复、普通 refined/guarded 执行）；refined guard 语句与来源准入扫描仍按服务端默认 JIT，legacy `''`
+路线、MySQL、细化生成器与独立验证器不变。这不是全局 JIT 策略：不用 ALTER SYSTEM/DATABASE/ROLE，不加连接启动参数，不改测试
+容器命令；10 s 单语句上限与 20 s 默认 attempt 期限不变。仓库外对基线代码手动关闭 JIT 的机制测量（固定 18.6 镜像、1 CPU 容器、
+矩阵 fixtures）中，234 个不同页面逐页回放最慢 0.017 s，结果与默认 JIT 逐行相同；c3-full01 越线的两页在 1/6/8 路负载下最慢
+0.027 s；关闭 JIT 不改变细化 SQL 的体积增长，宽 key 与大数据量下的成本不作承诺；依 PostgreSQL 18.6 源码，没有 LLVM provider
+的服务端仍接受该设置，只是空操作（未实测）。候选在目标负载下的原生证据在本次派发的外部证据实例。本节闭合
+[插段记录](spec/post-phase68-performance-interlude-v1.md)“Rejected or deferred”中生成细化页 JIT 设置的延期项；R2 窗口 SQL
+形态与 10 s 上限仍由下一个并行插段决定。

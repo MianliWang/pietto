@@ -2110,11 +2110,11 @@ def tuning(directory, ledger, *, target, interpreters, wheel, routes=None):
 
 RECEIPT_RUN = (
     Path.home()
-    / ".local/state/pietto/evidence/pietto-post-phase68-performance-20261008T060017Z"
-    / "pietto-post-phase68-performance-ci-37823793256-attempt1"
+    / ".local/state/pietto/evidence/pietto-preview-release-v0.1.0-20261010T010055Z"
+    / "pietto-preview-release-ci-38017706870-attempt1"
 )
-RECEIPTS = RECEIPT_RUN / "pietto-post-phase68-performance-artifacts"
-RECEIPT_IDENTITY = ("381376fba59868cfed70fc09a21c4cd6a8be4309", "37823793256", 1)
+RECEIPTS = RECEIPT_RUN / "pietto-preview-release-artifacts"
+RECEIPT_IDENTITY = ("4b87b6a728d9abee4bc08c31736997ce31d04314", "38017706870", 1)
 
 
 def consumer(directory, ledger, *, label, uv_cache=None):
@@ -2124,9 +2124,7 @@ def consumer(directory, ledger, *, label, uv_cache=None):
     from _pietto_phase68_slice8_probe import event
 
     directory.mkdir(mode=0o700)
-    audit = json.loads(
-        (RECEIPT_RUN / "pietto-post-phase68-performance-audit.json").read_text()
-    )
+    audit = json.loads((RECEIPT_RUN / "pietto-preview-release-audit.json").read_text())
     receipts = directory / (PREFIX + "receipts")
     receipts.mkdir(mode=0o700)
     copied = {}

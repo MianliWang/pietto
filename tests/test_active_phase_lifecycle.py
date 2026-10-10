@@ -378,7 +378,8 @@ EXPECTED_STATUS = (
     ("Interlude V S2 performance outcome", "`MEASURED_GAIN`"),
     ("Interlude V Slice 3", "`COMPLETED / PUBLISHED`"),
     ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
-    ("Next", "`a separately dispatched Phase69 FULL Phase Start`"),
+    ("PostgreSQL refinement-page JIT predecessor", "`COMPLETED / PUBLISHED`"),
+    ("Next", "`a separately dispatched parallelism interlude`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (

@@ -93,9 +93,10 @@ def test_no_gain_closure_restores_exact_two_stage_typing_authority() -> None:
     # The post-Phase68 performance interlude adds one production file (the
     # call-scoped verification module) and five test files (the scheduler
     # conftest and the scheduling, split-placement, matrix-queue and
-    # verification-scope principals). Both complete typing roots remain exact.
+    # verification-scope principals); the PostgreSQL refinement-page JIT
+    # predecessor adds its principal. Both complete typing roots remain exact.
     assert len(production_files) == 284
-    assert len(test_files) == 606
+    assert len(test_files) == 607
     assert set(production_files).isdisjoint(test_files)
 
 

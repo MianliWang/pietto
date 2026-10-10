@@ -766,6 +766,17 @@ class PostgresExecution:
                         "SELECT pg_catalog.set_config('statement_timeout',$1,true)",
                         (str(max(1, min(10000, math.ceil(remaining * 1000)))),),
                     )
+                if self.request.route == "postgres_rows":
+                    from pietto._project.project_execution_postgres_adbc_native import (
+                        JIT_OFF_SQL,
+                    )
+
+                    # The setting lasts until the transaction ends; it is read
+                    # back before each page is submitted, never assumed.
+                    with self._connection.cursor() as control:
+                        control.execute(JIT_OFF_SQL)
+                        if control.fetchall() != [("off",)]:
+                            raise ExecutionError("EXECUTION_CONTEXT")
                 self._cursor = self._connection.cursor()
                 self._owned_cursor = self._cursor
                 self._source = "EXECUTING"
