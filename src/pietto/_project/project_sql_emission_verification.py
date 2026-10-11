@@ -1923,7 +1923,13 @@ def _verify_aggregate_projection(
             raise ValueError("aggregate projection helper carry")
         state["symbols"].append(column.symbol)
     for position, (column, projection, export, terminal) in enumerate(
-        zip(body.columns[: len(exports)], projections, exports, terminals, strict=True)
+        zip(
+            body.columns[: len(exports)],
+            projections,
+            exports,
+            terminals[: len(exports)],
+            strict=True,
+        )
     ):
         read = columns.get(projection.input)
         label = export.identity.name if body.final else f"c{position}"

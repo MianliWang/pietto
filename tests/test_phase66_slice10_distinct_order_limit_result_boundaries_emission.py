@@ -243,6 +243,130 @@ def test_a_hidden_order_helper_never_reaches_the_public_tuple(target):
     assert [bool(i["premises"]) for i in items] == [True, False]
 
 
+GROUPED_ORDER = """query result:
+    from rows
+    group by:
+        id
+    select:
+        k = id
+        total = count()
+    order by:
+        {key}
+{limit}"""
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("limit", ["", "    limit 2\n"])
+@pytest.mark.parametrize(
+    "key,ports,directions",
+    [
+        ("total desc", ["c1"], ["DESC"]),
+        ("k", ["c0"], ["ASC"]),
+        ("total desc\n        k", ["c1", "c0"], ["DESC", "ASC"]),
+    ],
+    ids=["aggregate", "group_key", "two_keys"],
+)
+def test_a_grouped_body_orders_its_own_output_through_a_hidden_helper(
+    target, limit, key, ports, directions
+):
+    """Each grouped ORDER key is a closed-stage carry of its aggregate stage port."""
+    outcome = emit(target, GROUPED_ORDER.format(key=key, limit=limit))
+    assert outcome.status == "VERIFIED", blockers(outcome)
+    sql = sql_of(outcome)
+    q = Q[target]
+    # One helper per key after the two visible columns: c2, then c3.
+    helpers = [f"c{2 + index}" for index in range(len(ports))]
+    names = "".join(f", {q}{helper}{q}" for helper in helpers)
+    carries = "".join(
+        f", {col(target, 't1', port)} AS {q}{helper}{q}"
+        for port, helper in zip(ports, helpers, strict=True)
+    )
+    assert (
+        f"{q}p1{q} ({q}c0{q}, {q}c1{q}{names}) AS (SELECT"
+        f" {col(target, 't1', 'c0')} AS {q}c0{q}, {col(target, 't1', 'c1')} AS {q}c1{q}"
+        f"{carries} FROM {q}p0{q} AS {q}t1{q})"
+    ) in sql
+    order = ", ".join(
+        f"{col(target, 't0', helper)} {direction}"
+        for helper, direction in zip(helpers, directions, strict=True)
+    )
+    assert final_select(sql) == (
+        f"SELECT {col(target, 't0', 'c0')} AS {q}k{q},"
+        f" {col(target, 't0', 'c1')} AS {q}total{q} FROM {q}p1{q} AS {q}t0{q}"
+        f" ORDER BY {order}" + (" LIMIT 2" if limit else "")
+    )
+    document = public(outcome)
+    assert [c["label"] for c in document["columns"]] == ["k", "total"]
+    items = generated(document, "order_item")
+    assert [i["evidence"][0]["direction"] for i in items] == [
+        direction.lower() for direction in directions
+    ]
+    assert len(generated(document, "static_limit")) == (1 if limit else 0)
+
+
+GROUPED_PRODUCER = """table top:
+    from rows
+    group by:
+        id
+    select:
+        k = id
+        total = count()
+    order by:
+        total desc
+    limit 2
+query result:
+    from top
+    where total > 1
+    select:
+        k
+        total
+"""
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_grouped_producer_orders_and_limits_inside_its_own_cte(target):
+    """C13: a later filter reads the producer's limited output; LIMIT never moves."""
+    outcome = emit(target, GROUPED_PRODUCER)
+    assert outcome.status == "VERIFIED", blockers(outcome)
+    sql = sql_of(outcome)
+    q = Q[target]
+    assert f"{col(target, 't1', 'c1')} AS {q}c2{q} FROM {q}p0{q} AS {q}t1{q})" in sql
+    assert (
+        f"{q}p2{q} ({q}c0{q}, {q}c1{q}) AS (SELECT {col(target, 't0', 'c0')} AS"
+        f" {q}c0{q}, {col(target, 't0', 'c1')} AS {q}c1{q} FROM {q}p1{q} AS {q}t0{q}"
+        f" ORDER BY {col(target, 't0', 'c2')} DESC LIMIT 2)"
+    ) in sql
+    assert f" FROM {q}p2{q} AS {q}s1{q} WHERE " in sql
+    assert final_select(sql) == (
+        f"SELECT {col(target, 't3', 'c0')} AS {q}k{q},"
+        f" {col(target, 't3', 'c1')} AS {q}total{q} FROM {q}p3{q} AS {q}t3{q}"
+    )
+    document = public(outcome)
+    assert [c["label"] for c in document["columns"]] == ["k", "total"]
+    assert [r["rule"] for r in generated(document, "inner_result_boundary")] == ["R21"]
+
+
+@pytest.mark.parametrize("mutation", [None, "helper_reads_the_key", "total_is_helper"])
+def test_grouped_order_helper_drift_is_rejected_independently(mutation):
+    """A helper carrying another port, or a visible column on the helper, is refused."""
+    artifact = _artifact("postgres", GROUPED_ORDER.format(key="total desc", limit=""))
+    aggregate, stage, result = artifact.ast.bodies
+    key, total, helper = stage.columns
+    if mutation == "helper_reads_the_key":
+        helper = replace(helper, input_port=key.input_port, read=key.read)
+    elif mutation == "total_is_helper":
+        total = replace(total, column=replace(total.column, terminal=helper.export.ref))
+    stage = replace(stage, columns=(key, total, helper))
+    result = replace(result, scan=replace(result.scan, body=stage))
+    ast = replace(artifact.ast, bodies=(aggregate, stage, result))
+    # The unchanged rebuild is the control: only the drift itself is refused.
+    assert verify_row_query(artifact.request, ast) is (mutation is None)
+    if mutation is not None:
+        forged = replace(artifact, ast=ast)
+        checked = verify_project_sql_emission(forged, artifact.request)
+        assert "plan_ast_correspondence" in checked.issues
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_float_distinct_stays_an_upstream_typed_error(target):
     """R18/D07: Float row equivalence is refused upstream; no SQL is built."""
