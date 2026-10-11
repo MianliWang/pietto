@@ -53,7 +53,7 @@ class WindowTargetEvidenceKind(StrEnum):
     USE_KIND = "use_kind"
     DECLARATION_GRAPH = "declaration_graph"
     FORWARD_REFERENCE = "forward_reference"
-    FRAMED_BASE = "framed_base"
+    FRAMED_BASE = "framed_base"  # every copied-base rule, not only frames
     EFFECTIVE_DEFAULT = "effective_default"
 
 
@@ -339,15 +339,16 @@ def decide_named_window_lowering(
             ),
         )
     )
-    framed_base_supported, framed_base_detail = _framed_bases_are_supported(
+    copied_base_supported, copied_base_detail = _copied_bases_are_supported(
         reachable,
+        calls,
         dialect,
     )
     evidence.append(
         _shape_evidence(
             WindowTargetEvidenceKind.FRAMED_BASE,
-            framed_base_supported,
-            framed_base_detail,
+            copied_base_supported,
+            copied_base_detail,
         )
     )
     for call in calls:
@@ -370,7 +371,9 @@ def decide_named_window_lowering(
         )
 
     inline_supported = all(item.supported for item in inline_decisions)
-    native_supported = graph_supported and framed_base_supported and inline_supported
+    # ponytail: one uncopyable reference inlines every named use of the relation;
+    # inline per reference only if mixed native and inline SQL is ever wanted.
+    native_supported = graph_supported and copied_base_supported and inline_supported
     if native_supported and dialect is WindowTargetDialect.MYSQL:
         strategy = NamedWindowLoweringStrategy.NATIVE_PRESERVE
         emission = reachable
@@ -532,32 +535,58 @@ def _native_graph_is_supported(
     )
 
 
-def _framed_bases_are_supported(
+def _copied_bases_are_supported(
     declarations: tuple[NamedWindowDeclarationIR, ...],
+    calls: tuple[WindowCallIR, ...],
     dialect: WindowTargetDialect,
 ) -> tuple[bool, str]:
-    if dialect is WindowTargetDialect.MYSQL:
-        return True, "mysql native inheritance admits the resolved graph"
+    """Apply the PostgreSQL/MySQL rules for a window that copies a named base.
+
+    A copying window may not add PARTITION BY, may add ORDER BY only when the
+    base has none, and may not copy a base carrying a frame. Declarations with
+    a base and extended uses copy; a direct use names its base, or adds only
+    the effective default frame to a frame-free base.
+    """
+
     by_occurrence = {item.occurrence: item for item in declarations}
 
-    def carries_frame(declaration: NamedWindowDeclarationIR) -> bool:
-        if declaration.local_spec.frame is not None:
-            return True
-        if declaration.base is None:
-            return False
-        return carries_frame(by_occurrence[declaration.base.target])
+    def ordered(occurrence: NamedWindowOccurrenceIR) -> bool:
+        seen: set[NamedWindowOccurrenceIR] = set()
+        while not by_occurrence[occurrence].local_spec.order_by:
+            seen.add(occurrence)
+            base = by_occurrence[occurrence].base
+            if base is None:
+                return False
+            if base.target in seen:
+                raise ValueError("named declaration graph has no topological order")
+            occurrence = base.target
+        return True
 
-    blocked = tuple(
-        item
+    copies = [
+        (item.base.target, item.local_spec)
         for item in declarations
-        if item.base is not None and carries_frame(by_occurrence[item.base.target])
-    )
+        if item.base is not None
+    ] + [
+        (call.named_use.target, call.named_use.local_spec)
+        for call in calls
+        if call.named_use is not None and call.named_use.local_spec.has_components
+    ]
+    target = dialect.value
+    for base, local in copies:
+        if local.partition_by:
+            return False, f"{target} cannot add PARTITION BY to a copied named base"
+        if local.order_by and ordered(base):
+            return False, f"{target} cannot add ORDER BY to an ordered named base"
+        # Only the direct base can matter: a declaration copying a framed base
+        # fails here itself, so no admitted copy inherits a frame.
+        if by_occurrence[base].local_spec.frame is not None:
+            return False, f"{target} cannot copy a named base carrying a frame"
     return (
-        not blocked,
+        True,
         (
-            "postgresql copied bases are frame-free"
-            if not blocked
-            else "postgresql cannot copy a named base carrying a frame"
+            "mysql native inheritance admits the resolved graph"
+            if dialect is WindowTargetDialect.MYSQL
+            else "postgresql copied bases are frame-free"
         ),
     )
 

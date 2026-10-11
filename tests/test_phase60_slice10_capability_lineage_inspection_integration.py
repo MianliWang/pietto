@@ -22,7 +22,7 @@ from pietto._project.window_semantics import (
 )
 from pietto.ast_nodes import QueryDef, WindowExpr, WindowUseKind
 from pietto.ir import build_ir
-from pietto.ir.model import RelationIR, ScriptIR, WindowCallIR
+from pietto.ir.model import NamedWindowBaseIR, RelationIR, ScriptIR, WindowCallIR
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic.window_semantics import (
@@ -297,6 +297,322 @@ def test_direct_framed_reference_and_effective_default_remain_distinct() -> None
         item.kind is WindowTargetEvidenceKind.EFFECTIVE_DEFAULT
         and "use-local" in item.detail
         for item in default_decision.evidence
+    )
+
+
+_DIALECTS = (
+    ("postgres.table", WindowTargetDialect.POSTGRESQL),
+    ("mysql.table", WindowTargetDialect.MYSQL),
+)
+
+
+def _emit(script_ir: ScriptIR, dialect: WindowTargetDialect) -> str:
+    emitted = (
+        emit_postgres_sql(script_ir)
+        if dialect is WindowTargetDialect.POSTGRESQL
+        else emit_mysql_sql(script_ir)
+    )
+    assert emitted.diagnostics == () and len(emitted.artifacts) == 1
+    return emitted.artifacts[0].sql
+
+
+def _unsupported_details(
+    relation: RelationIR,
+    dialect: WindowTargetDialect,
+) -> tuple[NamedWindowLoweringStrategy, list[str]]:
+    decision = decide_named_window_lowering(relation, dialect)
+    assert decision is not None
+    return decision.strategy, [
+        item.detail
+        for item in decision.evidence
+        if item.outcome is WindowTargetEvidenceOutcome.UNSUPPORTED
+    ]
+
+
+@pytest.mark.parametrize(("connector", "dialect"), _DIALECTS)
+def test_language_named_window_example_falls_back_to_exact_inline_sql(
+    connector: str,
+    dialect: WindowTargetDialect,
+) -> None:
+    _definition, script_ir, relation = _compile(
+        _source(
+            connector=connector,
+            selections=(
+                "        a = row_number() window ordered\n"
+                "        b = row_number() window ordered:\n"
+                "            partition by:\n"
+                "                category\n"
+                "        c = row_number() window per_category\n"
+            ),
+            declarations=(
+                "    window ordered:\n"
+                "        order by:\n"
+                "            id\n"
+                "    window per_category = ordered:\n"
+                "        partition by:\n"
+                "            category\n"
+            ),
+        )
+    )
+    assert _unsupported_details(relation, dialect) == (
+        NamedWindowLoweringStrategy.INLINE_EXACT,
+        [f"{dialect.value} cannot add PARTITION BY to a copied named base"],
+    )
+    sql = (
+        "SELECT\n"
+        '    ROW_NUMBER() OVER (ORDER BY "id" ASC) AS "a",\n'
+        '    ROW_NUMBER() OVER (PARTITION BY "category" ORDER BY "id" ASC) AS "b",\n'
+        '    ROW_NUMBER() OVER (PARTITION BY "category" ORDER BY "id" ASC) AS "c"\n'
+        'FROM "rows"'
+    )
+    if dialect is WindowTargetDialect.MYSQL:
+        sql = sql.replace('"', "`")
+    assert _emit(script_ir, dialect) == sql
+
+
+@pytest.mark.parametrize(("connector", "dialect"), _DIALECTS)
+@pytest.mark.parametrize(
+    ("selections", "declarations", "inline", "detail"),
+    (
+        (
+            "        b = row_number() window ordered:\n"
+            "            partition by:\n"
+            "                category\n",
+            "    window ordered:\n        order by:\n            id\n",
+            "        b = row_number() window:\n"
+            "            partition by:\n"
+            "                category\n"
+            "            order by:\n"
+            "                id\n",
+            "cannot add PARTITION BY to a copied named base",
+        ),
+        (
+            "        a = row_number() window c\n",
+            "    window a0:\n"
+            "        order by:\n"
+            "            id\n"
+            "    window b = a0\n"
+            "    window c = b:\n"
+            "        partition by:\n"
+            "            category\n",
+            "        a = row_number() window:\n"
+            "            partition by:\n"
+            "                category\n"
+            "            order by:\n"
+            "                id\n",
+            "cannot add PARTITION BY to a copied named base",
+        ),
+        (
+            "        a = first_value(value) window framed:\n"
+            "            order by:\n"
+            "                id\n",
+            "    window framed:\n"
+            "        partition by:\n"
+            "            category\n"
+            "        rows between 1 preceding and current row\n",
+            "        a = first_value(value) window:\n"
+            "            partition by:\n"
+            "                category\n"
+            "            order by:\n"
+            "                id\n"
+            "            rows between 1 preceding and current row\n",
+            "cannot copy a named base carrying a frame",
+        ),
+        (
+            "        a = first_value(value) window alias\n",
+            "    window alias = framed\n"
+            "    window framed:\n"
+            "        order by:\n"
+            "            id\n"
+            "        rows between 1 preceding and current row\n",
+            "        a = first_value(value) window:\n"
+            "            order by:\n"
+            "                id\n"
+            "            rows between 1 preceding and current row\n",
+            "cannot copy a named base carrying a frame",
+        ),
+    ),
+    ids=("use-partition", "chain-partition", "use-copies-frame", "alias-copies-frame"),
+)
+def test_uncopyable_named_references_fall_back_to_exact_inline_sql(
+    connector: str,
+    dialect: WindowTargetDialect,
+    selections: str,
+    declarations: str,
+    inline: str,
+    detail: str,
+) -> None:
+    _definition, script_ir, relation = _compile(
+        _source(connector=connector, selections=selections, declarations=declarations)
+    )
+    assert _unsupported_details(relation, dialect) == (
+        NamedWindowLoweringStrategy.INLINE_EXACT,
+        [f"{dialect.value} {detail}"],
+    )
+    _definition, inline_ir, _relation = _compile(
+        _source(connector=connector, selections=inline, declarations="")
+    )
+    assert _emit(script_ir, dialect) == _emit(inline_ir, dialect)
+
+
+@pytest.mark.parametrize(("connector", "dialect"), _DIALECTS)
+def test_copyable_named_refinements_and_chains_stay_native(
+    connector: str,
+    dialect: WindowTargetDialect,
+) -> None:
+    _definition, script_ir, relation = _compile(
+        _source(
+            connector=connector,
+            selections=(
+                "        a = row_number() window ordered\n"
+                "        b = first_value(value) window ordered:\n"
+                "            rows between 1 preceding and current row\n"
+                "        c = row_number() window parted:\n"
+                "            order by:\n"
+                "                id\n"
+                "        d = last_value(value) window framed\n"
+                "        e = rank() window alias\n"
+            ),
+            declarations=(
+                "    window ordered:\n"
+                "        order by:\n"
+                "            id\n"
+                "    window parted:\n"
+                "        partition by:\n"
+                "            category\n"
+                "    window child = parted:\n"
+                "        order by:\n"
+                "            id desc\n"
+                "    window alias = child\n"
+                "    window framed = ordered:\n"
+                "        rows current row\n"
+                "    window unused = ordered:\n"
+                "        partition by:\n"
+                "            category\n"
+            ),
+        )
+    )
+    native, exclusion, quote = (
+        (NamedWindowLoweringStrategy.NATIVE_REORDER, " EXCLUDE NO OTHERS", '"')
+        if dialect is WindowTargetDialect.POSTGRESQL
+        else (NamedWindowLoweringStrategy.NATIVE_PRESERVE, "", "`")
+    )
+    assert _unsupported_details(relation, dialect) == (native, [])
+    sql = (
+        "SELECT\n"
+        '    ROW_NUMBER() OVER "ordered" AS "a",\n'
+        '    FIRST_VALUE("value") OVER ("ordered" ROWS BETWEEN 1 PRECEDING AND '
+        f'CURRENT ROW{exclusion}) AS "b",\n'
+        '    ROW_NUMBER() OVER ("parted" ORDER BY "id" ASC) AS "c",\n'
+        '    LAST_VALUE("value") OVER "framed" AS "d",\n'
+        '    RANK() OVER "alias" AS "e"\n'
+        'FROM "rows"\n'
+        "WINDOW\n"
+        '    "ordered" AS (ORDER BY "id" ASC),\n'
+        '    "parted" AS (PARTITION BY "category"),\n'
+        '    "child" AS ("parted" ORDER BY "id" DESC),\n'
+        '    "alias" AS ("child"),\n'
+        f'    "framed" AS ("ordered" ROWS CURRENT ROW{exclusion})'
+    )
+    assert _emit(script_ir, dialect) == sql.replace('"', quote)
+
+
+@pytest.mark.parametrize(("connector", "dialect"), _DIALECTS)
+@pytest.mark.parametrize(
+    "copies",
+    (
+        "    window child = base\n",
+        "    window child = mid\n    window mid = base\n",
+    ),
+    ids=("direct", "through-alias"),
+)
+def test_copy_adding_order_to_an_ordered_base_falls_back_inline(
+    connector: str,
+    dialect: WindowTargetDialect,
+    copies: str,
+) -> None:
+    # Semantic composition rejects this shape; the target rule holds for any IR,
+    # including a copied alias whose ORDER BY comes only from its own base.
+    _definition, _script_ir, relation = _compile(
+        _source(
+            connector=connector,
+            selections="        result = row_number() window child\n",
+            declarations=(
+                f"{copies}    window base:\n        order by:\n            id\n"
+            ),
+        )
+    )
+    child, *rest = relation.named_windows
+    ordered_child = replace(
+        child,
+        local_spec=replace(child.local_spec, order_by=rest[-1].local_spec.order_by),
+    )
+    assert _unsupported_details(
+        replace(relation, named_windows=(ordered_child, *rest)),
+        dialect,
+    ) == (
+        NamedWindowLoweringStrategy.INLINE_EXACT,
+        [f"{dialect.value} cannot add ORDER BY to an ordered named base"],
+    )
+
+
+@pytest.mark.parametrize(("connector", "dialect"), _DIALECTS)
+def test_an_unordered_base_cycle_fails_closed(
+    connector: str,
+    dialect: WindowTargetDialect,
+) -> None:
+    # Semantic composition rejects cycles, but relation IR admits a two-node one;
+    # the ORDER lookup through its bases must raise instead of looping.
+    _definition, _script_ir, relation = _compile(
+        _source(
+            connector=connector,
+            selections=(
+                "        result = row_number() window a:\n"
+                "            order by:\n"
+                "                id\n"
+            ),
+            declarations=(
+                "    window a = b\n"
+                "    window b:\n"
+                "        partition by:\n"
+                "            category\n"
+            ),
+        )
+    )
+    a, b = relation.named_windows
+    cyclic_b = replace(
+        b,
+        base=NamedWindowBaseIR("a", a.occurrence),
+        local_spec=replace(b.local_spec, partition_by=()),
+    )
+    with pytest.raises(ValueError, match="no topological order"):
+        decide_named_window_lowering(
+            replace(relation, named_windows=(a, cyclic_b)), dialect
+        )
+
+
+@pytest.mark.parametrize(("connector", "dialect"), _DIALECTS)
+def test_alias_chain_deeper_than_the_recursion_limit_stays_native(
+    connector: str,
+    dialect: WindowTargetDialect,
+) -> None:
+    depth = 1200
+    _definition, script_ir, relation = _compile(
+        _source(
+            connector=connector,
+            selections=f"        result = row_number() window w{depth}\n",
+            declarations="    window w0:\n        order by:\n            id\n"
+            + "".join(f"    window w{i} = w{i - 1}\n" for i in range(1, depth + 1)),
+        )
+    )
+    native, quote = (
+        (NamedWindowLoweringStrategy.NATIVE_REORDER, '"')
+        if dialect is WindowTargetDialect.POSTGRESQL
+        else (NamedWindowLoweringStrategy.NATIVE_PRESERVE, "`")
+    )
+    assert _unsupported_details(relation, dialect) == (native, [])
+    assert _emit(script_ir, dialect).endswith(
+        f'\n    "w{depth}" AS ("w{depth - 1}")'.replace('"', quote)
     )
 
 
