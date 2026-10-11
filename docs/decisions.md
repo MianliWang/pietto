@@ -159,3 +159,19 @@ Compiler/Package 拆分、按成本发牌或第四个 general-runtime 分片都�
 批内提交没有自己的 CI 结果，以其结果为准。本插段的 `COMPLETED` 与规则的生效都以发布关闭条文的已推送 head（关闭提交本身，或在批次中推送时的批次头）
 的自然 exact-head CI 为准：普通提交、FF push 与全部 job 成功后成立，此前是 candidate。下一步是另行派发的 Phase69
 重新绑定。
+
+## 0.1.1 PyPI packaging release — owner decisions (2026-10-11)
+
+所有者授权把只改打包信息的 0.1.1 发布到 PyPI。0.1.0 不能上传：它打包的 README 写明不在 PyPI、从 GitHub wheel URL 安装，23 个链接中
+16 个是仓库相对链接，METADATA 也没有 Project-URL、classifier 与 keyword；PyPI 不允许替换一个版本的文件，而改动这些内容就会改变 0.1.0
+已绑定的字节，因此 0.1.0 仍只在 GitHub。0.1.1 不改变编译器与 CLI 行为；除版本号（含 `cli.py` 的回退版本字面量）外，相对 0.1.0 的
+唯一源码差异是已发布的私有执行 JIT 关闭调整（dd2148b4）。README 兼作 PyPI 描述：状态写 public preview，以 `pip install pietto` 安装，
+GitHub release 作为备选；仓库相对链接改为固定到 tag `v0.1.1` 的绝对地址（徽章、CI 与 release 链接本来就是绝对地址），只有 Direction 一节的 roadmap
+链接指向 main；quick start 删除描述性 header 行，并把生成单个带点标识符 `"public.users"` 的 `postgres.table("public.users")` 换成普通表名；
+新增只列目标、不写 phase 与日期的 Direction 一节，只列 roadmap 已有 owner 的目标（尚无 owner 的 SQL 到 Pietto 转换不列入），详细计划仍在
+roadmap。`pyproject.toml` 增加 project URLs、classifiers（`Development Status :: 2 - Pre-Alpha`，不加
+License classifier，PEP 639 `License-Expression` 不变）与 keywords，版本经登记的版本 owner 升到 0.1.1。tag `v0.1.1` 在 GitHub 上标为
+pre-release 并附 `SHA256SUMS`；不使用 TestPyPI；所有者以自己的 token 上传。与 0.1.0 一样只构建一次，验收过的确切 wheel/sdist 即
+GitHub 与 PyPI 的发布字节，0.1.1 与 tag v0.1.1 由此绑定这些字节。升版按功能支持而定的原则与 Phase69 规划都不因此改变。同一授权中，
+所有者同意在 Phase69 之后插入一期，负责常用表达式、函数与 project 模式 SQL emission 骨干；roadmap 只登记这一 owner，不授权实现，
+Phase70 及以后的编号不变。

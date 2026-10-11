@@ -189,6 +189,7 @@ def test_artifact_metadata_accepts_equivalent_serialization(
 EXTRAS_DIFFER = "artifact Provides-Extra declarations differ"
 REQUIREMENTS_DIFFER = "artifact runtime dependency/extra declarations differ"
 LICENSE_DIFFERS = "artifact license metadata differs"
+INDEX_METADATA_DIFFERS = "artifact URL, classifier or keyword metadata differs"
 # Each (before, after) damage and the package_smoke failure that must reject it.
 METADATA_DAMAGE = {
     (b"Provides-Extra: arrow\n", b""): EXTRAS_DIFFER,
@@ -227,6 +228,11 @@ METADATA_DAMAGE = {
         b"License-Expression: MIT\n",
         b"License-Expression: MIT\nClassifier: License :: OSI Approved :: MIT License\n",
     ): LICENSE_DIFFERS,
+    (b"Classifier: Topic :: Database\n", b""): INDEX_METADATA_DIFFERS,
+    (b"Project-URL: Issues, ", b"Project-URL: Bugs, "): INDEX_METADATA_DIFFERS,
+    (b"Keywords: sql,", b"Keywords: orm,sql,"): INDEX_METADATA_DIFFERS,
+    # Keywords is single-use: the same list split over two headers is invalid.
+    (b"Keywords: sql,dsl,", b"Keywords: sql,dsl\nKeywords: "): INDEX_METADATA_DIFFERS,
     # Any current version becomes another one: "9" prefixes its value.
     (b"\nVersion: ", b"\nVersion: 9"): "artifact metadata Version is",
     (

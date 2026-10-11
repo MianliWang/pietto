@@ -94,7 +94,7 @@ def test_selections_are_exactly_the_dispatch_extras_and_core_is_unchanged():
     project = document["project"]
     assert (project["name"], project["version"], project["requires-python"]) == (
         "pietto",
-        "0.1.0",
+        "0.1.1",
         ">=3.12",
     )
     assert project["dependencies"] == ["antlr4-python3-runtime==4.13.2"]

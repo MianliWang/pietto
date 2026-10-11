@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/MianliWang/pietto/actions/workflows/ci.yml/badge.svg)](https://github.com/MianliWang/pietto/actions/workflows/ci.yml)
 ![Python 3.12 and 3.13](https://img.shields.io/badge/Python-3.12%20%7C%203.13-3776AB?logo=python&logoColor=white)
-![Package version 0.1.0](https://img.shields.io/badge/package-0.1.0-6f42c1)
+![Package version 0.1.1](https://img.shields.io/badge/package-0.1.1-6f42c1)
 
 Readable, typed SQL authoring with deterministic compilation.
 
@@ -12,10 +12,12 @@ selected PostgreSQL or MySQL SQL. It does not connect to a database or execute
 SQL. PostgreSQL is the public Python SQL emitter; MySQL is available through
 explicit CLI lowering with a private emitter surface.
 
-**Status: 0.1.0 public preview.** Pietto 0.1.0 is published as a
-[GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.1.0),
-not on PyPI. The compiler and CLI described below are the public surface;
-database execution and result APIs are not public yet.
+**Status: 0.1.1 public preview.** Pietto 0.1.1 can be installed from PyPI with
+`pip install pietto` and is also attached to a
+[GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.1.1).
+It has the same compiler and CLI as 0.1.0 and adds PyPI packaging information.
+The compiler and CLI described below are the public surface; database execution
+and result APIs are not public yet.
 
 ## What Pietto provides
 
@@ -36,29 +38,38 @@ database execution and result APIs are not public yet.
 The compiler has no runtime evaluation, database connection, transaction
 management, scheduler, or arbitrary I/O language features.
 
-## Install the 0.1.0 preview
+## Install
 
-Install the wheel attached to the
-[v0.1.0 release](https://github.com/MianliWang/pietto/releases/tag/v0.1.0)
-into a fresh environment with CPython 3.12 or later (replace `python3.12` with
-your interpreter):
+Install Pietto from PyPI into a virtual environment with CPython 3.12 or later
+(replace `python3.12` with your interpreter):
 
 ```bash
 python3.12 -m venv pietto-env
-pietto-env/bin/python -m pip install "https://github.com/MianliWang/pietto/releases/download/v0.1.0/pietto-0.1.0-py3-none-any.whl"
+pietto-env/bin/python -m pip install pietto
 pietto-env/bin/pietto --version
+```
+
+The optional extras described below install the same way, for example
+`pietto-env/bin/python -m pip install "pietto[arrow]"`.
+
+The wheel and the sdist are also attached to the
+[v0.1.1 release](https://github.com/MianliWang/pietto/releases/tag/v0.1.1). To
+install the wheel from there instead:
+
+```bash
+pietto-env/bin/python -m pip install "https://github.com/MianliWang/pietto/releases/download/v0.1.1/pietto-0.1.1-py3-none-any.whl"
 ```
 
 The release lists the SHA-256 of the wheel and the sdist in `SHA256SUMS`. To
 check manually downloaded files, keep their names and run
 `sha256sum --ignore-missing -c SHA256SUMS` in the download directory. GitHub
 also offers automatic "Source code" archives; the tar.gz one downloads under the
-same name, `pietto-0.1.0.tar.gz`, but it is a snapshot of the repository, not
+same name, `pietto-0.1.1.tar.gz`, but it is a snapshot of the repository, not
 the sdist, and it is not listed in `SHA256SUMS`. This
 preview was verified with CPython 3.12 and 3.13 on Linux x86-64; other
-platforms and Python versions are not covered by this evidence. With the
-release installed, run the commands below with `pietto-env/bin/pietto` (or
-activate the environment) instead of `uv run pietto`.
+platforms and Python versions are not covered by this evidence. With Pietto
+installed, run the commands below with `pietto-env/bin/pietto` (or activate the
+environment) instead of `uv run pietto`.
 
 ## Install from a checkout
 
@@ -73,7 +84,7 @@ uv run pietto --help
 ### Optional Arrow interoperability
 
 The core compiler and CLI need no PyArrow. The `pietto[arrow]` selector
-selects exactly `pyarrow==25.0.1`; the [execution extras](#execution-extras)
+selects exactly `pyarrow==25.0.1`; the execution extras
 below add one database route's pinned drivers.
 From this checkout, install it into a separate environment:
 
@@ -86,18 +97,19 @@ Or build and select the extra on that exact local wheel:
 
 ```bash
 uv build --wheel
-uv pip install --python /tmp/pietto-arrow/bin/python "./dist/pietto-0.1.0-py3-none-any.whl[arrow]"
+uv pip install --python /tmp/pietto-arrow/bin/python "./dist/pietto-0.1.1-py3-none-any.whl[arrow]"
 ```
 
 For a core-only wheel install, omit `[arrow]` and use a fresh environment.
-These are checkout/local-wheel instructions, not a claim of a PyPI release.
-Package and CLI version remain **0.1.0**. The verified optional-extra matrix
+These are checkout/local-wheel instructions; from PyPI, install
+`"pietto[arrow]"` as shown above.
+Package and CLI version are **0.1.1**. The verified optional-extra matrix
 is **CPython 3.12 and 3.13, Linux x86-64, PyArrow 25.0.1**; other platforms,
 interpreters and Arrow versions are not covered by this evidence.
 Phase67 result APIs remain private under `pietto._project`; installing the
 extra only makes the dependency available. Public result APIs belong to
 Phase69, and the extra does not enable database execution.
-The [Phase67 audit and handoff](docs/phases/phase-67/completion-audit.md) records
+The [Phase67 audit and handoff](https://github.com/MianliWang/pietto/blob/v0.1.1/docs/phases/phase-67/completion-audit.md) records
 the evidence layers, supported boundaries and remaining execution obligations.
 
 ### Execution extras
@@ -113,7 +125,7 @@ because captured results are Arrow IPC:
 
 Saved-result use without any database driver needs only `pietto[arrow]`.
 Selectors combine, for example
-`"./dist/pietto-0.1.0-py3-none-any.whl[execute-postgres,execute-mysql]"`.
+`"pietto[execute-postgres,execute-mysql]"`.
 Installing an extra never selects a route, grants execution, opens a source or
 qualifies storage. A selected route whose pinned driver is absent refuses with
 `EXECUTION_DEPENDENCY_MISSING` before any connection, another version refuses
@@ -127,18 +139,13 @@ versions are not covered. Execution APIs remain private under `pietto._project`.
 Create `active_users.pietto`:
 
 ```pietto
-pietto 0.9
-mode checked
-dialect postgres
-encoding utf8
-
 shape User:
     id: UUID not null
     email: Text nullable
     email_norm: Text nullable
     deleted_at: Timestamp nullable
 
-source users: User is postgres.table("public.users")
+source users: User is postgres.table("users")
 
 table active_users:
     from users
@@ -298,24 +305,24 @@ output errors); failures carry no candidate SQL. A `--literal-policy bind-safe`
 artifact must be consumed together with its `fixed_values` and
 `parameter_uses`; its SQL alone is not a complete statement. The complete
 contract is the
-[Slice13 specification](docs/spec/phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md).
+[Slice13 specification](https://github.com/MianliWang/pietto/blob/v0.1.1/docs/spec/phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md).
 
 ## Documentation
 
-- [Language](docs/language.md)
-- [Project and package](docs/project-package.md)
-- [Development](docs/development.md)
-- [Roadmap](docs/roadmap.md)
-- [Status](docs/status.md)
+- [Language](https://github.com/MianliWang/pietto/blob/v0.1.1/docs/language.md)
+- [Project and package](https://github.com/MianliWang/pietto/blob/v0.1.1/docs/project-package.md)
+- [Development](https://github.com/MianliWang/pietto/blob/v0.1.1/docs/development.md)
+- [Roadmap](https://github.com/MianliWang/pietto/blob/v0.1.1/docs/roadmap.md)
+- [Status](https://github.com/MianliWang/pietto/blob/v0.1.1/docs/status.md)
 
 Public contracts:
 
-- [CLI JSON v1](docs/spec/cli-json-v1.md)
-- [Diagnostics](docs/spec/diagnostics.md)
-- [Project JSON v2](docs/spec/project-cli-json-v2.md)
-- [Semantic metadata artifact v1](docs/spec/semantic-metadata-artifact-v1.md)
-- [Configuration](docs/spec/pietto-config-v1.md)
-- [Golden fixture policy](docs/spec/golden-fixture-policy-v1.md)
+- [CLI JSON v1](https://github.com/MianliWang/pietto/blob/v0.1.1/docs/spec/cli-json-v1.md)
+- [Diagnostics](https://github.com/MianliWang/pietto/blob/v0.1.1/docs/spec/diagnostics.md)
+- [Project JSON v2](https://github.com/MianliWang/pietto/blob/v0.1.1/docs/spec/project-cli-json-v2.md)
+- [Semantic metadata artifact v1](https://github.com/MianliWang/pietto/blob/v0.1.1/docs/spec/semantic-metadata-artifact-v1.md)
+- [Configuration](https://github.com/MianliWang/pietto/blob/v0.1.1/docs/spec/pietto-config-v1.md)
+- [Golden fixture policy](https://github.com/MianliWang/pietto/blob/v0.1.1/docs/spec/golden-fixture-policy-v1.md)
 
 ## Development
 
@@ -328,9 +335,32 @@ uv run python scripts/validate.py
 The normal implementation loop is focused tests, Ruff, and targeted type
 checking. Natural CI runs the final Python 3.12 and 3.13 validation coverage.
 
+## Direction
+
+Pietto is an early preview. These are the goals it is working toward; they are
+not promises or dates, and the detailed plan lives in the
+[roadmap](https://github.com/MianliWang/pietto/blob/main/docs/roadmap.md).
+
+- **Everyday SQL**: CASE, CAST, COALESCE/NULLIF, IN lists, NOT, LIKE, and common
+  string, number and date functions.
+- **Real-world column types end to end**: timestamps, UUIDs, decimals, dates and
+  times, then arrays and nested records.
+- **Richer queries**: subqueries and `WITH`, EXISTS/IN, VALUES and table functions.
+- **Richer aggregation**: SUM and AVG in project SQL emission, FILTER,
+  statistical aggregates, grouping extensions and aggregates as window
+  functions.
+- **Run queries safely from Python**: compile, execute through an explicit
+  database driver, and get typed Arrow results.
+- **Data tools**: pandas, Polars and NumPy interoperability.
+- **More databases**: deeper PostgreSQL and MySQL support, then SQLite and DuckDB.
+- **Tooling**: a formatter, language-server and editor support, clearer diagnostics.
+- **Stability**: a 1.0 release with frozen syntax, CLI and APIs.
+
 ## License
 
-Pietto is released under the [MIT License](LICENSE). Third-party material in
-the wheel, the sdist and the source archive is listed in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), with the original license
-texts in [LICENSES/](LICENSES/).
+Pietto is released under the
+[MIT License](https://github.com/MianliWang/pietto/blob/v0.1.1/LICENSE).
+Third-party material in the wheel, the sdist and the source archive is listed
+in [THIRD_PARTY_NOTICES.md](https://github.com/MianliWang/pietto/blob/v0.1.1/THIRD_PARTY_NOTICES.md),
+with the original license texts in
+[LICENSES/](https://github.com/MianliWang/pietto/tree/v0.1.1/LICENSES).

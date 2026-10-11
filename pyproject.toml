@@ -1,6 +1,6 @@
 [project]
 name = "pietto"
-version = "0.1.0"
+version = "0.1.1"
 description = "A gradual, semantic SQL authoring DSL"
 readme = "README.md"
 license = "MIT"
@@ -15,6 +15,18 @@ license-files = [
 ]
 authors = [
     { name = "Mianli Wang", email = "mianli.wang@mail.utoronto.ca" }
+]
+keywords = ["sql", "dsl", "compiler", "postgresql", "mysql"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Software Development :: Compilers",
 ]
 requires-python = ">=3.12"
 dependencies = [
@@ -41,6 +53,13 @@ execute-postgres-adbc = [
 
 [project.scripts]
 pietto = "pietto.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/MianliWang/pietto"
+Repository = "https://github.com/MianliWang/pietto"
+Documentation = "https://github.com/MianliWang/pietto/tree/v0.1.1/docs"
+Issues = "https://github.com/MianliWang/pietto/issues"
+Releases = "https://github.com/MianliWang/pietto/releases"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]

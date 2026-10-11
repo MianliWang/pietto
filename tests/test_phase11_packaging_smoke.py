@@ -262,14 +262,24 @@ def _metadata_bytes() -> bytes:
     license_metadata = b"".join(
         f"License-File: {path}\n".encode("utf-8") for path in _license_members()
     )
+    contract = smoke._project_contract()
+    classifier_metadata = b"".join(
+        f"Classifier: {value}\n".encode("utf-8") for value in contract.classifiers
+    )
+    url_metadata = b"".join(
+        f"Project-URL: {label}, {url}\n".encode("utf-8") for label, url in contract.urls
+    )
     return b"".join(
         (
             b"Metadata-Version: 2.4\n",
             b"Name: pietto\n",
-            f"Version: {smoke._project_contract().version}\n".encode("utf-8"),
+            f"Version: {contract.version}\n".encode("utf-8"),
+            f"Keywords: {','.join(contract.keywords)}\n".encode("utf-8"),
             b"License-Expression: MIT\n",
             license_metadata,
+            classifier_metadata,
             b"Requires-Python: >=3.12\n",
+            url_metadata,
             dependency_metadata,
             b"Provides-Extra: arrow\n",
             b"Requires-Dist: pyarrow==25.0.1; extra == 'arrow'\n",
@@ -309,6 +319,31 @@ def _license_members() -> dict[str, bytes]:
 def test_project_declares_mit_and_the_reviewed_license_files() -> None:
     contract = smoke._project_contract()
     assert (contract.license, contract.license_files) == ("MIT", LICENSE_FILES)
+
+
+def test_project_declares_the_reviewed_classifiers_urls_and_keywords() -> None:
+    contract = smoke._project_contract()
+    repository = "https://github.com/MianliWang/pietto"
+    assert contract.classifiers == (
+        "Development Status :: 2 - Pre-Alpha",
+        "Intended Audience :: Developers",
+        "Operating System :: OS Independent",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3 :: Only",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
+        "Topic :: Database",
+        "Topic :: Software Development :: Compilers",
+    )
+    # The documentation link is pinned to the tag of the declared version.
+    assert contract.urls == (
+        ("Homepage", repository),
+        ("Repository", repository),
+        ("Documentation", f"{repository}/tree/v{contract.version}/docs"),
+        ("Issues", f"{repository}/issues"),
+        ("Releases", f"{repository}/releases"),
+    )
+    assert contract.keywords == ("sql", "dsl", "compiler", "postgresql", "mysql")
 
 
 def _runtime_dependency_specifiers() -> tuple[str, ...]:

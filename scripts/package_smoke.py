@@ -124,6 +124,9 @@ class ProjectContract:
     extras: tuple[tuple[str, tuple[str, ...]], ...]
     license: str | None
     license_files: tuple[str, ...]
+    classifiers: tuple[str, ...]
+    urls: tuple[tuple[str, str], ...]
+    keywords: tuple[str, ...]
 
 
 class SmokeFailure(Exception):
@@ -156,6 +159,9 @@ def _project_contract(project_text: str | None = None) -> ProjectContract:
             ),
             license=project.get("license"),
             license_files=tuple(project.get("license-files", ())),
+            classifiers=tuple(project.get("classifiers", ())),
+            urls=tuple(project.get("urls", {}).items()),
+            keywords=tuple(project.get("keywords", ())),
         )
     except (OSError, KeyError, TypeError, tomllib.TOMLDecodeError) as error:
         raise SmokeFailure(f"cannot read packaging contract: {error}") from error
@@ -340,6 +346,21 @@ def _validate_core_metadata(metadata_bytes: bytes, contract: ProjectContract) ->
         )
     ):
         raise SmokeFailure("artifact license metadata differs")
+    if (
+        Counter(metadata.get_all("Classifier", ())) != Counter(contract.classifiers)
+        or Counter(
+            tuple(part.strip() for part in str(value).split(",", 1))
+            for value in metadata.get_all("Project-URL", ())
+        )
+        != Counter(contract.urls)
+        # Keywords is a single-use field: one header carries the whole list.
+        or [
+            [part.strip() for part in str(value).split(",")]
+            for value in metadata.get_all("Keywords", ())
+        ]
+        != ([list(contract.keywords)] if contract.keywords else [])
+    ):
+        raise SmokeFailure("artifact URL, classifier or keyword metadata differs")
 
     if contract.readme is not None:
         if metadata.get_all("Description-Content-Type") != ["text/markdown"]:
