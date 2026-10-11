@@ -48,7 +48,7 @@ def test_example_fixture_parses() -> None:
 
     assert result.diagnostics == ()
     assert result.ast is not None
-    assert result.ast.header is not None
+    assert result.ast.header is None
     assert [type(item) for item in result.ast.definitions] == [
         TypeDef,
         TypeDef,

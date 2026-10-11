@@ -15,17 +15,19 @@ Unsupported combinations fail closed with deterministic diagnostics.
 Blocks use a trailing colon and spaces-only indentation. Braces are not block
 delimiters, and tabs must not be mixed with spaces.
 
-An optional header may declare, in order:
+The single-file `check`, `explain`, and `emit-sql` commands choose the check
+mode with `--check-mode loose`, `checked`, or `strict`; the default is
+`checked`. The mode sets the severity of three diagnostics: implicit
+nullability (PIE-S2005), a source without a shape (PIE-S2303), and a computed
+projection without an alias (PIE-S2304). `loose` omits them, `checked` reports
+them as warnings, and `strict` reports them as errors. Project commands reject
+`--check-mode`. SQL emission always takes its dialect from `--dialect`;
+PostgreSQL and MySQL are the current backends.
 
-```pietto
-pietto 0.9
-mode checked
-dialect postgres
-encoding utf8
-```
-
-`mode` accepts `loose`, `checked`, or `strict`. A dialect is always selected
-explicitly for SQL emission; PostgreSQL and MySQL are the current backends.
+A file may still begin with the older header lines `pietto`, `mode`,
+`dialect`, and `encoding`, in that order. They are accepted for now and will
+be retired later. Only `mode` has an effect, and only in single-file commands,
+where `--check-mode` overrides it.
 
 Top-level declarations are `type`, `enum`, `constraint`, `derive`, `shape`,
 `source`, `table`, and `query`. Relationship metadata and module `import` /

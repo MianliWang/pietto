@@ -57,6 +57,8 @@ _EXIT_USAGE_ERROR = 2
 _FORMAT_TEXT = "text"
 _FORMAT_JSON = "json"
 _ENABLED_SQL_DIALECTS = ("postgres", "mysql")
+_CHECK_MODES = tuple(mode.value for mode in semantic_api.CheckMode)
+_CHECK_MODE_HELP = "check mode; overrides a source header mode (default: checked)"
 _PROJECT_EMIT_SQL_USAGE = (
     "project mode: pietto emit-sql --project PATH --module LOGICAL_MODULE"
     " --kind {table,query} --name NAME --dialect {postgres,mysql}"
@@ -114,7 +116,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _EXIT_USAGE_ERROR
         except SystemExit as error:
             return _system_exit_code(error)
-        return _run_check(namespace.path, output_format=_FORMAT_JSON)
+        return _run_check(
+            namespace.path,
+            output_format=_FORMAT_JSON,
+            check_mode=_check_mode(namespace.check_mode),
+        )
 
     if arguments[0] == "emit-sql" and project_mode_requested(arguments[1:]):
         return _run_project_emit_sql(arguments[1:])
@@ -133,6 +139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             namespace.path,
             dialect=namespace.dialect,
             output_path=namespace.output,
+            check_mode=_check_mode(namespace.check_mode),
         )
     if namespace.command == "explain":
         return _run_explain_command(namespace)
@@ -186,6 +193,7 @@ def _configure_check_parser(parser: argparse.ArgumentParser) -> None:
         default=_FORMAT_TEXT,
         help="output format",
     )
+    parser.add_argument("--check-mode", choices=_CHECK_MODES, help=_CHECK_MODE_HELP)
 
 
 def _configure_emit_sql_parser(parser: argparse.ArgumentParser) -> None:
@@ -209,6 +217,7 @@ def _configure_emit_sql_parser(parser: argparse.ArgumentParser) -> None:
         default=_FORMAT_TEXT,
         help="output format",
     )
+    parser.add_argument("--check-mode", choices=_CHECK_MODES, help=_CHECK_MODE_HELP)
 
 
 def _configure_explain_parser(parser: argparse.ArgumentParser) -> None:
@@ -226,6 +235,7 @@ def _configure_explain_parser(parser: argparse.ArgumentParser) -> None:
         default=_FORMAT_TEXT,
         help="output format",
     )
+    parser.add_argument("--check-mode", choices=_CHECK_MODES, help=_CHECK_MODE_HELP)
 
 
 def _build_check_json_parser() -> argparse.ArgumentParser:
@@ -242,6 +252,7 @@ def _build_check_json_parser() -> argparse.ArgumentParser:
         default=_FORMAT_JSON,
         help="output format",
     )
+    parser.add_argument("--check-mode", choices=_CHECK_MODES, help=_CHECK_MODE_HELP)
     return parser
 
 
@@ -265,6 +276,7 @@ def _build_emit_sql_json_parser() -> argparse.ArgumentParser:
         default=_FORMAT_JSON,
         help="output format",
     )
+    parser.add_argument("--check-mode", choices=_CHECK_MODES, help=_CHECK_MODE_HELP)
     return parser
 
 
@@ -406,7 +418,14 @@ def _run_emit_sql_json_command(arguments: Sequence[str]) -> int:
         dialect=dialect,
         emitter=selected_emitter,
         output_path=output_path,
+        check_mode=_check_mode(namespace.check_mode),
     )
+
+
+def _check_mode(value: str | None) -> semantic_api.CheckMode | None:
+    """Return the explicit --check-mode; None keeps the header or the default."""
+
+    return None if value is None else semantic_api.CheckMode(value)
 
 
 def _select_sql_emitter(dialect: str) -> _SqlEmitter | None:
@@ -427,6 +446,7 @@ def _run_check_command(namespace: argparse.Namespace) -> int:
     path: Path | None = namespace.path
     project_root: Path | None = namespace.project
     output_format: str = namespace.format
+    check_mode = _check_mode(namespace.check_mode)
 
     if path is None and project_root is None:
         _print_check_usage_error("the following arguments are required: path")
@@ -434,11 +454,14 @@ def _run_check_command(namespace: argparse.Namespace) -> int:
     if path is not None and project_root is not None:
         _print_check_usage_error("path and --project are mutually exclusive")
         return _EXIT_USAGE_ERROR
+    if project_root is not None and check_mode is not None:
+        _print_check_usage_error("--check-mode and --project are mutually exclusive")
+        return _EXIT_USAGE_ERROR
     if project_root is not None:
         return _run_project_check(project_root, output_format=output_format)
     if path is None:
         raise AssertionError("check path was required before single-file mode")
-    return _run_check(path, output_format=output_format)
+    return _run_check(path, output_format=output_format, check_mode=check_mode)
 
 
 def _run_project_check(root: Path, *, output_format: str) -> int:
@@ -516,7 +539,8 @@ def _print_check_usage_error(message: str) -> None:
     """Render one check usage error after cross-argument validation."""
 
     print(
-        "usage: pietto check [-h] [--project PROJECT] [--format {text,json}] [path]",
+        "usage: pietto check [-h] [--project PROJECT] [--format {text,json}]"
+        " [--check-mode {loose,checked,strict}] [path]",
         file=sys.stderr,
     )
     print(f"pietto check: error: {_escape_cli_text(message)}", file=sys.stderr)
@@ -531,7 +555,12 @@ def _print_project_error(error: ProjectDiscoveryError) -> None:
     print(message, file=sys.stderr)
 
 
-def _run_check(path: Path, *, output_format: str = _FORMAT_TEXT) -> int:
+def _run_check(
+    path: Path,
+    *,
+    output_format: str = _FORMAT_TEXT,
+    check_mode: semantic_api.CheckMode | None = None,
+) -> int:
     """Parse and semantically analyze one Pietto source file."""
 
     try:
@@ -553,7 +582,7 @@ def _run_check(path: Path, *, output_format: str = _FORMAT_TEXT) -> int:
         return _EXIT_USAGE_ERROR
 
     if output_format == _FORMAT_JSON:
-        return _run_check_json(path, parse_result)
+        return _run_check_json(path, parse_result, check_mode)
 
     _render_diagnostics(parse_result.diagnostics, fallback_path=path)
     if _has_errors(parse_result.diagnostics):
@@ -563,7 +592,7 @@ def _run_check(path: Path, *, output_format: str = _FORMAT_TEXT) -> int:
         _print_cli_error(path, "parser produced no AST")
         return _EXIT_DIAGNOSTIC_ERROR
 
-    semantic_result = semantic_api.analyze(parse_result.ast)
+    semantic_result = semantic_api.analyze(parse_result.ast, mode_override=check_mode)
     _render_diagnostics(semantic_result.diagnostics, fallback_path=path)
     if _has_errors(semantic_result.diagnostics):
         return _EXIT_DIAGNOSTIC_ERROR
@@ -572,7 +601,11 @@ def _run_check(path: Path, *, output_format: str = _FORMAT_TEXT) -> int:
     return 0
 
 
-def _run_check_json(path: Path, parse_result: parser_api.ParseResult) -> int:
+def _run_check_json(
+    path: Path,
+    parse_result: parser_api.ParseResult,
+    check_mode: semantic_api.CheckMode | None,
+) -> int:
     """Complete check and render one JSON result without human output."""
 
     diagnostics = parse_result.diagnostics
@@ -593,7 +626,7 @@ def _run_check_json(path: Path, parse_result: parser_api.ParseResult) -> int:
         )
         return _EXIT_DIAGNOSTIC_ERROR
 
-    semantic_result = semantic_api.analyze(parse_result.ast)
+    semantic_result = semantic_api.analyze(parse_result.ast, mode_override=check_mode)
     diagnostics = (*diagnostics, *semantic_result.diagnostics)
     _print_check_json(path=path, diagnostics=diagnostics)
     if _has_errors(semantic_result.diagnostics):
@@ -617,7 +650,12 @@ def _print_check_json(
     print(cli_json.render_json_document(document), end="")
 
 
-def _run_explain(path: Path, *, output_format: str = _FORMAT_TEXT) -> int:
+def _run_explain(
+    path: Path,
+    *,
+    output_format: str = _FORMAT_TEXT,
+    check_mode: semantic_api.CheckMode | None = None,
+) -> int:
     """Build and render Semantic Metadata Artifact v1 for one Pietto file."""
 
     try:
@@ -655,7 +693,7 @@ def _run_explain(path: Path, *, output_format: str = _FORMAT_TEXT) -> int:
             fallback_message="parser produced no AST",
         )
 
-    semantic_result = semantic_api.analyze(parse_result.ast)
+    semantic_result = semantic_api.analyze(parse_result.ast, mode_override=check_mode)
     diagnostics = (*diagnostics, *semantic_result.diagnostics)
     if _has_errors(semantic_result.diagnostics):
         return _render_explain_failure(
@@ -706,22 +744,27 @@ def _run_explain_command(namespace: argparse.Namespace) -> int:
     path: Path | None = namespace.path
     project_root: Path | None = namespace.project
     output_format: str = namespace.format
+    check_mode = _check_mode(namespace.check_mode)
     if path is None and project_root is None:
         _print_explain_usage_error("the following arguments are required: path")
         return _EXIT_USAGE_ERROR
     if path is not None and project_root is not None:
         _print_explain_usage_error("path and --project are mutually exclusive")
         return _EXIT_USAGE_ERROR
+    if project_root is not None and check_mode is not None:
+        _print_explain_usage_error("--check-mode and --project are mutually exclusive")
+        return _EXIT_USAGE_ERROR
     if project_root is not None:
         return _run_project_explain(project_root, output_format=output_format)
     if path is None:
         raise AssertionError("explain path was required before file mode")
-    return _run_explain(path, output_format=output_format)
+    return _run_explain(path, output_format=output_format, check_mode=check_mode)
 
 
 def _print_explain_usage_error(message: str) -> None:
     print(
-        "usage: pietto explain [-h] [--project PROJECT] [--format {text,json}] [path]",
+        "usage: pietto explain [-h] [--project PROJECT] [--format {text,json}]"
+        " [--check-mode {loose,checked,strict}] [path]",
         file=sys.stderr,
     )
     print(f"pietto explain: error: {_escape_cli_text(message)}", file=sys.stderr)
@@ -800,6 +843,7 @@ def _run_emit_sql_json(
     dialect: str,
     emitter: _SqlEmitter,
     output_path: Path | None,
+    check_mode: semantic_api.CheckMode | None,
 ) -> int:
     """Compile one file and render the ordered emit-sql JSON result."""
 
@@ -864,7 +908,7 @@ def _run_emit_sql_json(
         )
         return _EXIT_USAGE_ERROR
 
-    semantic_result = semantic_api.analyze(parse_result.ast)
+    semantic_result = semantic_api.analyze(parse_result.ast, mode_override=check_mode)
     diagnostics = (*diagnostics, *semantic_result.diagnostics)
     if _has_errors(semantic_result.diagnostics):
         _print_emit_sql_json(
@@ -1008,6 +1052,7 @@ def _run_emit_sql(
     *,
     dialect: str,
     output_path: Path | None,
+    check_mode: semantic_api.CheckMode | None,
 ) -> int:
     """Compile one Pietto file with the explicitly selected SQL backend."""
 
@@ -1037,7 +1082,7 @@ def _run_emit_sql(
         _print_cli_error(path, "parser produced no AST")
         return _EXIT_DIAGNOSTIC_ERROR
 
-    semantic_result = semantic_api.analyze(parse_result.ast)
+    semantic_result = semantic_api.analyze(parse_result.ast, mode_override=check_mode)
     _render_diagnostics(semantic_result.diagnostics, fallback_path=path)
     if _has_errors(semantic_result.diagnostics):
         return _EXIT_DIAGNOSTIC_ERROR

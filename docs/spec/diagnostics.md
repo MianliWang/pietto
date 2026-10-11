@@ -38,7 +38,7 @@ stored separately and is never encoded in the code.
 | `PIE-S2002` | Unknown local or explicit-module type reference |
 | `PIE-S2003` | Local type alias cycle, including within one acyclic schema-v2 module |
 | `PIE-S2004` | Invalid Decimal precision-scale type arguments |
-| `PIE-S2005` | Implicit nullability |
+| `PIE-S2005` | Implicit nullability; single-file severity follows `--check-mode` (else a header `mode`, else CHECKED): omitted in LOOSE, WARNING in CHECKED, ERROR in STRICT |
 | `PIE-S2006` | Semantic analysis recursion limit exceeded |
 | `PIE-S2102` | Unknown field, including a schema-v2 minimal direct row-fact projection |
 | `PIE-S2103` | Unknown function |
@@ -51,8 +51,8 @@ stored separately and is never encoded in the code.
 | `PIE-S2202` | Known non-Bool expression in a predicate context |
 | `PIE-S2301` | Unknown local or explicit-module relation |
 | `PIE-S2302` | Local relation dependency cycle, including within one acyclic schema-v2 module |
-| `PIE-S2303` | Invalid, missing, or untyped direct local/imported source shape |
-| `PIE-S2304` | Computed projection without an explicit alias |
+| `PIE-S2303` | Invalid, missing, or untyped direct local/imported source shape; for a source without a shape, single-file severity follows `--check-mode` (else a header `mode`, else CHECKED): omitted in LOOSE, WARNING in CHECKED, ERROR in STRICT |
+| `PIE-S2304` | Computed projection without an explicit alias; single-file severity follows `--check-mode` (else a header `mode`, else CHECKED): omitted in LOOSE, WARNING in CHECKED, ERROR in STRICT. Project checks do not follow `--check-mode` or a header `mode`; where they report it, it is an ERROR. |
 | `PIE-S2305` | Duplicate projection output name |
 | `PIE-S2306` | Invalid source connector or connector arguments |
 | `PIE-S2307` | Static relation LIMIT operand is invalid; emits error message `Limit must be a static integer from 0 to 9223372036854775807` |

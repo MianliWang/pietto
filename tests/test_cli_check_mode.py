@@ -1,0 +1,265 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+import pietto.cli as cli
+
+# The implicit-nullability field is the only mode-dependent diagnostic here.
+BODY = (
+    "shape User:\n"
+    "    id: Int\n"
+    'source users: User is postgres.table("users")\n'
+    "table all_users:\n"
+    "    from users\n"
+    "    select:\n"
+    "        id\n"
+)
+MESSAGE = "Implicit nullability for type Int; use `nullable` or `not null`"
+SQL = 'SELECT\n    "id" AS "id"\nFROM "users"'
+USAGE = (
+    "usage: pietto {command} [-h] [--project PROJECT] [--format {{text,json}}]"
+    " [--check-mode {{loose,checked,strict}}] [path]\n"
+    "pietto {command}: error: --check-mode and --project are mutually exclusive\n"
+)
+
+
+def _write(tmp_path: Path, header: str = "") -> Path:
+    path = tmp_path / "users.pietto"
+    path.write_text(header + BODY, encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize(
+    ("header", "options", "severity"),
+    [
+        ("", (), "warning"),
+        ("", ("--check-mode", "loose"), None),
+        ("", ("--check-mode", "checked"), "warning"),
+        ("", ("--check-mode=strict",), "error"),
+        ("mode strict\n", (), "error"),
+        ("mode strict\n", ("--check-mode", "loose"), None),
+        ("mode strict\n", ("--check-mode", "checked"), "warning"),
+        ("mode loose\n", ("--check-mode", "strict"), "error"),
+    ],
+)
+def test_check_mode_overrides_the_header_and_defaults_to_checked(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    header: str,
+    options: tuple[str, ...],
+    severity: str | None,
+) -> None:
+    path = _write(tmp_path, header)
+    line = 3 if header else 2
+
+    code = cli.main(["check", str(path), *options])
+
+    captured = capsys.readouterr()
+    assert code == (1 if severity == "error" else 0)
+    assert captured.out == ("" if severity == "error" else f"OK: {path}\n")
+    assert captured.err == (
+        "" if severity is None else f"{path}:{line}:9 PIE-S2005 {severity}: {MESSAGE}\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "severities", "code"),
+    [("loose", [], 0), ("checked", ["warning"], 0), ("strict", ["error"], 1)],
+)
+def test_check_and_emit_json_keep_their_shapes_in_every_mode(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    mode: str,
+    severities: list[str],
+    code: int,
+) -> None:
+    path = _write(tmp_path, "mode strict\n")
+
+    assert (
+        cli.main(["check", str(path), "--format", "json", "--check-mode", mode]) == code
+    )
+    captured = capsys.readouterr()
+    checked = json.loads(captured.out)
+    assert captured.err == ""
+    assert list(checked) == [
+        "schema_version",
+        "command",
+        "ok",
+        "path",
+        "diagnostics",
+        "cli_errors",
+    ]
+    assert [item["severity"] for item in checked["diagnostics"]] == severities
+    assert checked["ok"] is (code == 0)
+
+    emit = ["emit-sql", str(path), "--dialect", "postgres", "--format", "json"]
+    assert cli.main([*emit, "--check-mode", mode]) == code
+    captured = capsys.readouterr()
+    emitted = json.loads(captured.out)
+    assert captured.err == ""
+    assert list(emitted) == [
+        "schema_version",
+        "command",
+        "ok",
+        "path",
+        "dialect",
+        "diagnostics",
+        "cli_errors",
+        "artifacts",
+        "output",
+    ]
+    assert [item["severity"] for item in emitted["diagnostics"]] == severities
+    assert [item["sql"] for item in emitted["artifacts"]] == ([] if code else [SQL])
+
+
+def test_emit_sql_and_explain_text_follow_the_selected_mode(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path)
+    error = f"{path}:2:9 PIE-S2005 error: {MESSAGE}\n"
+
+    assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 0
+    assert capsys.readouterr().out == f"{SQL}\n"
+    assert (
+        cli.main(
+            ["emit-sql", str(path), "--dialect", "postgres", "--check-mode", "strict"]
+        )
+        == 1
+    )
+    assert capsys.readouterr() == ("", error)
+    assert cli.main(["explain", str(path), "--check-mode", "strict"]) == 1
+    assert capsys.readouterr() == ("", error)
+    assert cli.main(["explain", str(path), "--check-mode", "loose"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out.startswith("Semantic Metadata Artifact v1\n")
+    assert captured.err == ""
+
+    assert (
+        cli.main(["explain", str(path), "--format", "json", "--check-mode", "strict"])
+        == 1
+    )
+    failed = json.loads(capsys.readouterr().out)
+    assert failed["ok"] is False and "metadata" not in failed
+    assert failed["error"]["stage"] == "semantic"
+    assert (
+        cli.main(["explain", str(path), "--format", "json", "--check-mode", "loose"])
+        == 0
+    )
+    explained = json.loads(capsys.readouterr().out)
+    assert explained["ok"] is True and explained["diagnostics"] == []
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ("check", "{path}"),
+        ("emit-sql", "{path}", "--dialect", "postgres"),
+        ("explain", "{path}"),
+        ("explain", "{path}", "--format", "json"),
+    ],
+)
+def test_invalid_check_mode_is_a_text_usage_error(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    arguments: tuple[str, ...],
+) -> None:
+    path = _write(tmp_path)
+    argv = [item.format(path=path) for item in arguments]
+
+    assert cli.main([*argv, "--check-mode", "lenient"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "error: argument --check-mode: invalid choice: 'lenient'" in captured.err
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ("check", "{path}", "--format", "json"),
+        ("emit-sql", "{path}", "--dialect", "postgres", "--format", "json"),
+    ],
+)
+def test_invalid_check_mode_is_a_json_usage_error(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    arguments: tuple[str, ...],
+) -> None:
+    path = _write(tmp_path)
+    argv = [item.format(path=path) for item in arguments]
+
+    assert cli.main([*argv, "--check-mode", "lenient"]) == 2
+
+    captured = capsys.readouterr()
+    document = json.loads(captured.out)
+    assert captured.err == ""
+    assert document["ok"] is False and document["diagnostics"] == []
+    assert [error["kind"] for error in document["cli_errors"]] == ["usage"]
+    assert "invalid choice: 'lenient'" in document["cli_errors"][0]["message"]
+
+
+@pytest.mark.parametrize(
+    ("command", "options"),
+    [
+        ("check", ()),
+        ("check", ("--format", "json")),
+        ("explain", ()),
+        ("explain", ("--format", "json")),
+    ],
+)
+def test_check_mode_with_project_is_a_usage_error(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
+    options: tuple[str, ...],
+) -> None:
+    argv = [command, "--project", str(tmp_path), *options, "--check-mode", "strict"]
+
+    assert cli.main(argv) == 2
+
+    assert capsys.readouterr() == ("", USAGE.format(command=command))
+
+
+@pytest.mark.parametrize("presentation", ["text", "json"])
+def test_project_emit_sql_rejects_check_mode(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    presentation: str,
+) -> None:
+    argv = [
+        "emit-sql",
+        "--project",
+        str(tmp_path),
+        "--module",
+        "main.pietto",
+        "--kind",
+        "table",
+        "--name",
+        "all_users",
+        "--dialect",
+        "postgres",
+        "--emission-contract",
+        "contract.json",
+        "--format",
+        presentation,
+        "--check-mode=strict",
+    ]
+
+    assert cli.main(argv) == 2
+
+    captured = capsys.readouterr()
+    message = "unrecognized arguments: --check-mode=strict"
+    if presentation == "text":
+        assert captured.out == ""
+        assert captured.err.endswith(f"pietto emit-sql: error: {message}\n")
+    else:
+        document = json.loads(captured.out)
+        assert captured.err == ""
+        assert document["status"] == "INPUT_REJECTED"
+        assert document["cli_errors"] == [
+            {"kind": "usage", "message": message, "path": None}
+        ]

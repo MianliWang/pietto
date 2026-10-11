@@ -15,7 +15,7 @@ EXPECTED_WARNINGS = {
         (
             "PIE-S2303",
             Severity.WARNING,
-            11,
+            6,
             1,
             "Source raw_events has no bound shape; row schema is unknown",
         ),

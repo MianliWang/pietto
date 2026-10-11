@@ -54,6 +54,13 @@ pietto emit-sql file.pietto --dialect mysql --format json --output out.sql
 
 `--format` is command-local. Text remains the default format.
 
+`--check-mode {loose,checked,strict}` is also command-local and available in
+both formats; it selects the check mode described in the
+[language guide](../language.md#source-structure). It adds no JSON field; the
+mode can omit (`loose`) or change the severity of (`checked` warning, `strict`
+error) the three mode-dependent diagnostics, and thereby `ok`, `artifacts`,
+and the exit code. An invalid value is a `usage` error.
+
 ## Stream And Encoding Contract
 
 After a recognized command and JSON format have been identified, handled

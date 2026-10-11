@@ -3,10 +3,12 @@
 ## 1. Status
 
 This document is the normative contract for Semantic Metadata Artifact v1.
-`pietto explain <file> [--format text|json]` implements the artifact without
-changing parser, semantic, IR, SQL, CLI JSON v1, package, runtime, or database
-behavior. Text and JSON are derived from the same normalized metadata fact
-boundary.
+`pietto explain <file> [--format text|json] [--check-mode loose|checked|strict]`
+implements the artifact without changing parser, semantic, IR, SQL, CLI JSON v1,
+package, runtime, or database behavior. Text and JSON are derived from the same
+normalized metadata fact boundary. The check mode adds no field; under `strict`
+a mode-dependent diagnostic is an error and yields the semantic failure
+envelope.
 
 ## 2. Artifact Identity And Version Domain
 
@@ -29,16 +31,15 @@ separate from existing single-file CLI JSON v1 for `check` and `emit-sql`, and
 separate from future project-level JSON v2. Semantic Metadata Artifact v1 is not
 a mutation of CLI JSON v1 and is not the future project JSON v2 contract.
 
-The approved future CLI direction remains:
+The approved CLI direction is implemented as §1 describes:
 
 ```text
-pietto explain <file> [--format text|json]
+pietto explain <file> [--format text|json] [--check-mode loose|checked|strict]
 ```
 
-Text is the default future format. JSON is the normative future
-machine-readable presentation and text output must be derived from the same
-normalized artifact. Slice 2 does not implement the command or define the final
-text layout.
+Text is the default format. JSON is the normative machine-readable
+presentation and text output must be derived from the same normalized artifact.
+Slice 2 itself did not implement the command or define the final text layout.
 
 ## 3. Pipeline And Fail-closed Policy
 

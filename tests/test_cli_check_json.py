@@ -298,7 +298,7 @@ def test_check_json_preserves_parser_then_semantic_diagnostic_order(
     monkeypatch.setattr(
         cli.semantic_api,
         "analyze",
-        lambda script: SemanticResult(
+        lambda script, mode_override: SemanticResult(
             model=SemanticModel(mode=CheckMode.CHECKED),
             diagnostics=(semantic_warning,),
         ),

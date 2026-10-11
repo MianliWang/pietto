@@ -178,6 +178,11 @@ uv run pietto emit-sql active_users.pietto --dialect postgres
 
 `check` does not generate or execute SQL. `emit-sql` writes SQL to stdout by
 default and can atomically replace an explicitly selected regular output file.
+From a checkout, `check`, `explain`, and `emit-sql` also take
+`--check-mode loose`, `checked` (the default), or `strict` for one file; the
+0.1.1 release does not have this option. The
+[language guide](https://github.com/MianliWang/pietto/blob/main/docs/language.md#source-structure)
+describes the modes.
 
 From a checkout, a single-file `postgres.table` or `mysql.table` string may be
 one table name or `<schema>.<table>` (for MySQL, `<database>.<table>`); each

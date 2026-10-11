@@ -1,8 +1,3 @@
-pietto 0.9
-mode checked
-dialect postgres
-encoding utf8
-
 type UserId = UUID not null
 type Percent = Float not null ensure self between 0 and 1
 

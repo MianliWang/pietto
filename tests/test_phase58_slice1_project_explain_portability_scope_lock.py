@@ -274,6 +274,7 @@ def test_existing_single_file_explain_identity_and_envelopes_are_zero_delta() ->
         "path",
         "--project",
         "--format",
+        "--check-mode",
     )
     assert "return _run_explain_command(namespace)" in cli_source
 

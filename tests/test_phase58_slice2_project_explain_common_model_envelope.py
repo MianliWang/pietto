@@ -686,6 +686,7 @@ def test_existing_artifacts_project_json_and_private_authorities_are_zero_delta(
         "path",
         "--project",
         "--format",
+        "--check-mode",
     )
     for required in (
         "pietto._project_explain.json_v1",
