@@ -495,7 +495,7 @@ def _comparison_evidence(kind: str) -> tuple[CapabilityEvidence, ...]:
         )
         semantic_path = "tests/test_phase30_operator_comparison_matrix_contract.py"
         semantic_test = (
-            "test_comparison_between_and_is_null_boundaries_are_generic_only"
+            "test_comparison_between_and_is_null_boundaries_check_operand_families"
         )
         ir_test = "test_comparison_lowers_recursively"
         postgres_test = (

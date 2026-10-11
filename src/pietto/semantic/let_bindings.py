@@ -22,6 +22,7 @@ from pietto.ast_nodes import (
     SetRelationDef,
     SourceDef,
     TableDef,
+    TypeExpr,
     UnaryExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
@@ -32,6 +33,7 @@ from pietto.semantic.aggregates import (
 from pietto.semantic.expressions import infer_row_expression
 from pietto.semantic.model import (
     LetScopeSemanticInfo,
+    ResolvedType,
     RowSchema,
     ValueType,
 )
@@ -51,6 +53,7 @@ def analyze_relation_let_bindings(
     source_row_schemas: Mapping[SourceDef, RowSchema],
     relation_row_schemas: RelationInputSchemas,
     allow_unaliased_selected_let_outputs: bool = False,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
 ) -> tuple[
     dict[DerivedRelation, LetScopeSemanticInfo],
     dict[Expression, ValueType],
@@ -77,6 +80,7 @@ def analyze_relation_let_bindings(
             definition,
             input_schema,
             allow_unaliased_selected_let_outputs=(allow_unaliased_selected_let_outputs),
+            type_expansions=type_expansions,
         )
         scopes[definition] = scope
         value_types.update(relation_values)
@@ -131,6 +135,7 @@ def _analyze_relation_let_clause(
     input_schema: RowSchema,
     *,
     allow_unaliased_selected_let_outputs: bool = False,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
 ) -> tuple[LetScopeSemanticInfo, dict[Expression, ValueType], list[Diagnostic]]:
     assert definition.let_clause is not None
 
@@ -167,6 +172,7 @@ def _analyze_relation_let_clause(
             field_qualifier=definition.from_clause.source_name,
             bare_value_types=scope_values,
             suppressed_unknown_names=suppressed_unknown_names,
+            type_expansions=type_expansions,
         )
         if binding.name not in invalid_binding_names and binding.name not in seen_names:
             scope_values[binding.name] = value_type

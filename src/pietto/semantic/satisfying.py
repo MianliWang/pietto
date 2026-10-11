@@ -21,6 +21,7 @@ from pietto.ast_nodes import (
     SelectItem,
     SourceDef,
     TableDef,
+    TypeExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
@@ -31,6 +32,7 @@ from pietto.semantic.aggregates import (
     is_semantic_aggregate_call,
     semantic_aggregate_call_name,
 )
+from pietto.semantic.expressions import resolved_comparison_value_type
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
@@ -77,6 +79,7 @@ def check_satisfying_clauses(
         Mapping[str, Expression],
     ]
     | None = None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
 ) -> tuple[dict[DerivedRelation, SatisfyingResultPredicateInfo], list[Diagnostic]]:
     """Validate parsed satisfying clauses and collect lowering facts."""
 
@@ -126,6 +129,7 @@ def check_satisfying_clauses(
             let_expansions=let_expansions,
             diagnostics=relation_diagnostics,
             value_types=expression_value_types,
+            type_expansions=type_expansions,
         )
         if relation_diagnostics:
             diagnostics.extend(relation_diagnostics)
@@ -262,6 +266,7 @@ def _infer_predicate(
     let_expansions: Mapping[str, Expression],
     diagnostics: list[Diagnostic],
     value_types: dict[Expression, ValueType],
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> ValueType:
     if isinstance(expression, (NameExpr, LiteralExpr, CallExpr)):
         value_type = _infer_value(
@@ -307,8 +312,13 @@ def _infer_predicate(
         ):
             value_types[expression] = _UNKNOWN_VALUE_TYPE
             return _UNKNOWN_VALUE_TYPE
-        value_types[expression] = _BOOL_VALUE_TYPE
-        return _BOOL_VALUE_TYPE
+        value_type, expected = resolved_comparison_value_type(
+            left_type, right_type, type_expansions
+        )
+        if expected is not None:
+            diagnostics.append(_invalid_operands_diagnostic(expression, expected))
+        value_types[expression] = value_type
+        return value_type
 
     if isinstance(expression, BinaryExpr) and expression.operator in {"and", "or"}:
         left_type = _infer_predicate(
@@ -318,6 +328,7 @@ def _infer_predicate(
             let_expansions=let_expansions,
             diagnostics=diagnostics,
             value_types=value_types,
+            type_expansions=type_expansions,
         )
         right_type = _infer_predicate(
             expression.right,
@@ -326,6 +337,7 @@ def _infer_predicate(
             let_expansions=let_expansions,
             diagnostics=diagnostics,
             value_types=value_types,
+            type_expansions=type_expansions,
         )
         if (
             left_type.kind is ValueTypeKind.UNKNOWN
@@ -336,7 +348,7 @@ def _infer_predicate(
         if _is_bool(left_type) and _is_bool(right_type):
             value_types[expression] = _BOOL_VALUE_TYPE
             return _BOOL_VALUE_TYPE
-        diagnostics.append(_invalid_bool_operands_diagnostic(expression))
+        diagnostics.append(_invalid_operands_diagnostic(expression, "Bool operands"))
         value_types[expression] = _UNKNOWN_VALUE_TYPE
         return _UNKNOWN_VALUE_TYPE
 
@@ -588,11 +600,13 @@ def _bool_predicate_diagnostic(
     )
 
 
-def _invalid_bool_operands_diagnostic(expression: BinaryExpr) -> Diagnostic:
+def _invalid_operands_diagnostic(
+    expression: BinaryExpr | ComparisonExpr, expected: str
+) -> Diagnostic:
     return _diagnostic(
         expression,
         code="PIE-S2105",
-        message=f"Invalid operands for operator {expression.operator}: expected Bool operands",
+        message=f"Invalid operands for operator {expression.operator}: expected {expected}",
     )
 
 

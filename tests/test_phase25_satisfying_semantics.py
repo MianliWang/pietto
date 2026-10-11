@@ -329,6 +329,31 @@ def test_invalid_and_or_operands_reuse_operator_diagnostic() -> None:
     ]
 
 
+def test_comparison_operands_of_different_families_reuse_operator_diagnostic() -> None:
+    result = analyze(
+        _parse(
+            _grouped_relation(
+                projections=(
+                    "region",
+                    "total_amount = sum(amount)",
+                ),
+                satisfying='total_amount > "1000" and region != 1',
+            )
+        )
+    )
+
+    assert _errors(result) == [
+        (
+            "PIE-S2105",
+            "Invalid operands for operator >: expected comparable operands",
+        ),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator !=: expected comparable operands",
+        ),
+    ]
+
+
 def test_emit_sql_text_invalid_satisfying_fails_before_ir_and_sql(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

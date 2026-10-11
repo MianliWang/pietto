@@ -116,8 +116,8 @@ The current v0.2 nullability rules are:
 | Unary numeric `+` / `-` | Preserves operand type and operand nullability |
 | Binary arithmetic `+`, `-`, `*`, `%` | Uses the current result type rules and returns conservative `EffectiveNullability.UNKNOWN` |
 | Bool `and` / `or` expression | Requires known Bool operands and returns `Bool UNKNOWN` |
-| Comparison expression | Types children and returns `Bool UNKNOWN` when children are known |
-| `between` expression | Types children and returns `Bool UNKNOWN` when children are known |
+| Comparison expression | Types children and returns `Bool UNKNOWN` when children are known, except that known operands rejected by the comparison family check (see `operator-comparison-matrix-contract-v1.md`) report `PIE-S2105` and produce unknown value type |
+| `between` expression | Types children and returns `Bool UNKNOWN` when children are known, except that a known bound rejected by the comparison family check reports `PIE-S2105` and produces unknown value type |
 | `is null` / `is not null` expression | Returns `Bool NON_NULL` |
 | Scalar function call | Uses the current exact built-in signature and returns conservative `EffectiveNullability.UNKNOWN` |
 | Computed projection alias | Preserves known expression `ValueType` nullability or publishes unknown output field facts |

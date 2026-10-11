@@ -375,6 +375,18 @@ query satisfying_invalid_bool_operands:
         total = sum(accounts.metric)
     satisfying:
         key and total
+query satisfying_cross_family_comparison:
+    from accounts
+    inner join events as event:
+        from accounts
+        via account_events: account -> event
+    group by:
+        event.id
+    select:
+        key = event.id
+        total = sum(accounts.metric)
+    satisfying:
+        total > "0"
 query satisfying_unsupported_output:
     from accounts
     inner join events as event:
@@ -920,6 +932,7 @@ def test_satisfying_approved_aggregate_let_call_reuses_one_retained_occurrence(
         ("satisfying_unknown_output", "PIE-S2324"),
         ("satisfying_non_bool", "PIE-S2202"),
         ("satisfying_invalid_bool_operands", "PIE-S2105"),
+        ("satisfying_cross_family_comparison", "PIE-S2105"),
         ("satisfying_unsupported_output", "PIE-S2326"),
         ("satisfying_unmatched_aggregate", "PIE-S2308"),
         ("global_satisfying", "PIE-S2323"),
@@ -949,6 +962,25 @@ def test_satisfying_failures_keep_existing_diagnostics_and_no_namespace(
         assert result.reason is (
             aggregation.ProjectJoinedAggregationNonConcreteReason.SATISFYING_NON_CONCRETE
         )
+    elif name == "satisfying_cross_family_comparison":
+        line = PROJECT_SOURCE.splitlines().index('        total > "0"') + 1
+        assert [
+            (
+                diagnostic.code,
+                diagnostic.message,
+                diagnostic.location.line,
+                diagnostic.location.column,
+            )
+            for diagnostic in result.diagnostics
+            if diagnostic.severity is Severity.ERROR
+        ] == [
+            (
+                "PIE-S2105",
+                "Invalid operands for operator >: expected comparable operands",
+                line,
+                9,
+            )
+        ]
 
 
 def test_collection_preserves_exact_slice8_order_membership_and_slice7_ledger(

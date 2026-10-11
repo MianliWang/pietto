@@ -105,26 +105,36 @@ semantics.
 
 ## Comparison And Predicate Matrix
 
-Current comparison behavior is generic known-child typing:
+Slice 7 recorded generic known-child comparison typing. A later defect fix
+replaced it with an operand family check:
 
 - a `ComparisonExpr` types its left and right child expressions;
-- when child value types are known, current semantic typing records
-  `Bool UNKNOWN`;
-- known child value types currently produce `Bool UNKNOWN`;
-- this is a current compiler behavior fact, not a final pair-specific
-  semantic compatibility guarantee;
-- Slice 7 does not add new comparison validation, casts, collation, temporal
-  comparison rules, UUID comparison guarantees, Enum comparison behavior,
-  Bytes/Json comparison behavior, or SQL lowering changes.
+- a type alias operand, including an alias chain, is checked as the type it
+  expands to;
+- known built-in operands of one registry family record `Bool UNKNOWN`:
+  numeric (`Int`, `Float`, `Decimal`), `Text`, `Bool`, temporal (`Date`,
+  `Timestamp`), or `UUID`;
+- known built-in operands of two of those families report `PIE-S2105`
+  (`expected comparable operands`) and record `ValueTypeKind.UNKNOWN`, in
+  every check mode;
+- `Text` against `Date`, `Timestamp`, or `UUID` stays accepted until typed
+  constants are decided, because a text literal is the only constant form for
+  those types; the deferral also accepts non-literal `Text` operands (fields,
+  calls, and `let` values) against those types, which are not yet checked;
+- unknown children and `Any`, `Bytes`, `Json`, Enum, and shape operands are
+  not checked and record `Bool UNKNOWN`;
+- the check adds no casts, collation, temporal comparison rules, UUID
+  comparison guarantees, Enum comparison behavior, Bytes/Json comparison
+  behavior, or SQL lowering changes.
 
-`BetweenExpr` has the same generic posture:
+`BetweenExpr` applies the same check to its value and each bound:
 
 - it types value, lower, and upper child expressions;
-- if all child value types are known, current semantic typing records
-  `Bool UNKNOWN`;
 - if any child value type is unknown, current semantic typing records
   `ValueTypeKind.UNKNOWN`;
-- this is not a final pair-specific compatibility guarantee.
+- a known bound from another family reports `PIE-S2105` for operator
+  `between` and records `ValueTypeKind.UNKNOWN`;
+- otherwise it records `Bool UNKNOWN`.
 
 `is null` and `is not null` type the operand expression and currently return
 `Bool NON_NULL`.

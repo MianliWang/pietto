@@ -134,6 +134,30 @@ def test_emit_sql_semantic_error_stops_before_ir(
     assert "PIE-S2002 error: Unknown type: MissingType" in captured.err
 
 
+def test_emit_sql_rejects_comparison_between_type_families(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(
+        tmp_path,
+        "mismatch.pietto",
+        SOURCE + "table active_users:\n"
+        "    from users\n"
+        "    where active == 1\n"
+        "    select:\n"
+        "        id\n",
+    )
+
+    assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        f"{path}:8:11 PIE-S2105 error: Invalid operands for operator ==: "
+        "expected comparable operands\n"
+    )
+
+
 def test_emit_sql_deep_expression_stops_before_ir_without_traceback(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

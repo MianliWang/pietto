@@ -214,11 +214,13 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
         from_resolutions=from_resolutions,
         source_row_schemas=source_row_schemas,
         cyclic_relations=cyclic_relations,
+        type_expansions=type_expansions,
     )
     diagnostics.extend(schema_diagnostics)
     expression_value_types, expression_diagnostics = type_shape_predicates(
         script,
         type_resolutions=type_resolutions,
+        type_expansions=type_expansions,
         type_nullability=type_nullability,
     )
     connector_value_types, connector_expression_diagnostics = (
@@ -254,6 +256,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
         relation_let_expressions=_relation_let_expressions_for_satisfying(
             let_scopes,
         ),
+        type_expansions=type_expansions,
     )
     diagnostics.extend(satisfying_diagnostics)
     diagnostics.extend(
@@ -500,6 +503,7 @@ def _analyze_relation_schema_expressions(
     from_resolutions: Mapping[FromClause, RelationDefinition],
     source_row_schemas: Mapping[SourceDef, RowSchema],
     cyclic_relations: set[DerivedRelation],
+    type_expansions: Mapping[TypeExpr, ResolvedType],
 ) -> tuple[
     dict[DerivedRelation, RowSchema],
     list[Diagnostic],
@@ -532,6 +536,7 @@ def _analyze_relation_schema_expressions(
                 from_resolutions=from_resolutions,
                 source_row_schemas=source_row_schemas,
                 relation_row_schemas=relation_row_schemas,
+                type_expansions=type_expansions,
             )
         )
         temporary_value_types, _, _, _ = type_relation_expressions(
@@ -543,6 +548,7 @@ def _analyze_relation_schema_expressions(
                 definition: scope.value_types
                 for definition, scope in temporary_let_scopes.items()
             },
+            type_expansions=type_expansions,
         )
         temporary_value_types.update(temporary_let_value_types)
         refined_schemas, _ = propagate_relation_schemas(
@@ -566,6 +572,7 @@ def _analyze_relation_schema_expressions(
         from_resolutions=from_resolutions,
         source_row_schemas=source_row_schemas,
         relation_row_schemas=relation_row_schemas,
+        type_expansions=type_expansions,
     )
     (
         relation_value_types,
@@ -580,6 +587,7 @@ def _analyze_relation_schema_expressions(
         relation_let_value_types={
             definition: scope.value_types for definition, scope in let_scopes.items()
         },
+        type_expansions=type_expansions,
     )
     relation_value_types.update(let_value_types)
     relation_expression_diagnostics.extend(let_diagnostics)

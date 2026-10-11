@@ -910,6 +910,7 @@ def derive_compiled_semantics(root, values):
         resolved_literal_value_type,
         resolved_unary_value_type,
         resolved_binary_value_type,
+        resolved_comparison_value_type,
     )
     from pietto.semantic.model import (
         EffectiveNullability,
@@ -1297,10 +1298,7 @@ def derive_compiled_semantics(root, values):
                     and token in ("==", "!=", "<", "<=", ">", ">=")
                     and len(arguments) == 2
                 ):
-                    typed = ValueType(
-                        ResolvedType("Bool", TypeKind.BUILTIN),
-                        EffectiveNullability.UNKNOWN,
-                    )
+                    typed, error = resolved_comparison_value_type(*arguments)
                 elif (
                     role == "null_test"
                     and token in ("is_null", "is_not_null")
@@ -1415,6 +1413,7 @@ def verify_compiled_semantics(value):
         resolved_literal_value_type,
         resolved_unary_value_type,
         resolved_binary_value_type,
+        resolved_comparison_value_type,
     )
     from pietto.semantic.model import (
         EffectiveNullability,
@@ -1848,13 +1847,15 @@ def verify_compiled_semantics(value):
                     typed, problem = resolved_binary_value_type(
                         token, *(i.value_type for i in inputs)
                     )
+                elif role == "comparison":
+                    typed, problem = resolved_comparison_value_type(
+                        *(i.value_type for i in inputs)
+                    )
                 else:
                     problem = None
                     typed = ValueType(
                         ResolvedType("Bool", TypeKind.BUILTIN),
-                        EffectiveNullability.NON_NULL
-                        if role == "null_test"
-                        else EffectiveNullability.UNKNOWN,
+                        EffectiveNullability.NON_NULL,
                     )
                 need(problem is None, "SEMANTIC_TYPE")
                 if role == "unary" and type(inputs[0].value) in (int, float):

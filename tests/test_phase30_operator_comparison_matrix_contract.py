@@ -401,18 +401,18 @@ def test_bool_operator_matrix_and_predicate_boundary_are_locked() -> None:
         assert required in satisfying_tests
 
 
-def test_comparison_between_and_is_null_boundaries_are_generic_only() -> None:
+def test_comparison_between_and_is_null_boundaries_check_operand_families() -> None:
     spec = _normalized(SPEC_PATH)
     expressions = _read(EXPRESSIONS_PATH)
     semantic_expression_tests = _read(SEMANTIC_EXPRESSION_TEST_PATH)
     phase17_tests = _read(PHASE17_EXPRESSION_TEST_PATH)
 
     for required in (
-        "Current comparison behavior is generic known-child typing",
-        "known child value types currently produce `Bool UNKNOWN`",
-        "current compiler behavior fact, not a final pair-specific semantic "
-        "compatibility guarantee",
-        "does not add new comparison validation",
+        "Slice 7 recorded generic known-child comparison typing",
+        "known built-in operands of one registry family record `Bool UNKNOWN`",
+        "known built-in operands of two of those families report `PIE-S2105`",
+        "`Text` against `Date`, `Timestamp`, or `UUID` stays accepted until "
+        "typed constants are decided",
         "casts",
         "collation",
         "temporal comparison rules",
@@ -420,20 +420,57 @@ def test_comparison_between_and_is_null_boundaries_are_generic_only() -> None:
         "Enum comparison behavior",
         "Bytes/Json comparison behavior",
         "SQL lowering changes",
-        "`BetweenExpr` has the same generic posture",
-        "if all child value types are known",
+        "`BetweenExpr` applies the same check to its value and each bound",
+        "if any child value type is unknown",
         "`is null` and `is not null` type the operand expression and currently "
         "return `Bool NON_NULL`",
     ):
         assert required in spec
+
+    for expression in (
+        "amount == tax",
+        "amount < score",
+        "price >= amount",
+        "price > score",
+        'status == "x"',
+        "active != active",
+        "order_date <= created_at",
+        'created_at >= "2024-01-01"',
+        "(amount / tax) == status",
+        "amount between tax and score",
+    ):
+        value, diagnostics = _expression_facts(expression)
+        assert value.resolved_type.name == "Bool"
+        assert value.nullability is EffectiveNullability.UNKNOWN
+        assert diagnostics == ()
+    for expression, operator in (
+        ('amount == "x"', "=="),
+        ("active < amount", "<"),
+        ("created_at != 1", "!="),
+        ('amount between 1 and "z"', "between"),
+    ):
+        value, diagnostics = _expression_facts(expression)
+        assert value.kind is ValueTypeKind.UNKNOWN
+        assert diagnostics == (
+            (
+                "PIE-S2105",
+                f"Invalid operands for operator {operator}: expected comparable "
+                "operands",
+            ),
+        )
+    value, diagnostics = _expression_facts("amount between (amount / tax) and 5")
+    assert value.kind is ValueTypeKind.UNKNOWN
+    assert diagnostics == ()
+    value, diagnostics = _expression_facts("created_at is null")
+    assert value.resolved_type.name == "Bool"
+    assert value.nullability is EffectiveNullability.NON_NULL
+    assert diagnostics == ()
 
     infer_body = _function_body(expressions, "def _infer(")
     for required in (
         "elif isinstance(expression, ComparisonExpr):",
         "expression.left",
         "expression.right",
-        '"Bool"',
-        "EffectiveNullability.UNKNOWN",
         "elif isinstance(expression, BetweenExpr):",
         "elif isinstance(expression, IsNullExpr):",
         "EffectiveNullability.NON_NULL",
@@ -452,7 +489,7 @@ def test_comparison_between_and_is_null_boundaries_are_generic_only() -> None:
 
     for required in (
         "test_simple_comparison_maps_to_bool_and_types_operands",
-        "where id >= 1",
+        'where email >= "m"',
         'value_type.resolved_type.name == "Bool"',
         "test_is_null_expression_maps_to_non_null_bool",
         "EffectiveNullability.NON_NULL",
@@ -535,7 +572,7 @@ def test_registry_temporal_decimal_uuid_enum_bytes_json_boundaries_are_preserved
         assert required in registry_contract
 
     for required in (
-        "Current comparison handling is generic and not Date/Timestamp-specific",
+        "Current comparison handling is not Date/Timestamp-specific",
         "Slice 5 does not define a Date/Timestamp-specific comparison "
         "compatibility matrix",
     ):
@@ -580,7 +617,7 @@ def test_diagnostics_and_unknown_propagation_are_current_behavior_only() -> None
     for required in (
         'code="PIE-S2105"',
         "message=(",
-        "Invalid operands for operator {expression.operator}: expected {expected}",
+        "Invalid operands for operator {operator}: expected {expected}",
     ):
         assert required in expressions
 

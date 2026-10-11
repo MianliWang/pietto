@@ -43,7 +43,7 @@ stored separately and is never encoded in the code.
 | `PIE-S2102` | Unknown field, including a schema-v2 minimal direct row-fact projection |
 | `PIE-S2103` | Unknown function |
 | `PIE-S2104` | Invalid built-in function arguments |
-| `PIE-S2105` | Invalid operator operands |
+| `PIE-S2105` | Invalid operator operands, including known comparison or `between` operands from different comparable type families; ERROR in LOOSE/CHECKED/STRICT. `Text` against `Date`, `Timestamp` or `UUID` is not checked yet (see `operator-comparison-matrix-contract-v1.md`). |
 | `PIE-S2110` | Duplicate query-local named-window declaration |
 | `PIE-S2111` | Dangling query-local named-window declaration or use reference |
 | `PIE-S2112` | Query-local named-window dependency cycle |

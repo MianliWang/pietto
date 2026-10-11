@@ -735,6 +735,97 @@ def test_explicit_project_cli_renders_completed_failure_in_text_and_json(
     }
 
 
+def test_explicit_project_cli_shares_the_comparison_family_check(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = _project(
+        tmp_path / "cli-comparison",
+        "shape Row:\n"
+        "    id: Int not null\n"
+        'source rows: Row is postgres.table("app.rows")\n'
+        "query result:\n"
+        "    from rows\n"
+        '    where id == "x"\n'
+        "    select:\n"
+        "        id\n",
+    )
+
+    assert cli.main(["check", "--project", str(root)]) == 1
+    text = capsys.readouterr()
+    assert text.out == ""
+    assert text.err == (
+        "main.pietto:6:11 PIE-S2105 error: Invalid operands for operator ==: "
+        "expected comparable operands\n"
+    )
+
+
+def test_project_and_single_file_checks_agree_on_alias_comparison_operands(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = _project(
+        tmp_path / "alias-comparison",
+        "type Age = Int not null\n"
+        "type Years = Age not null\n"
+        "type Tag = Text not null\n"
+        "shape Row:\n"
+        "    id: Int not null\n"
+        "    age: Age not null\n"
+        "    years: Years not null\n"
+        "    tag: Tag not null\n"
+        'source rows: Row is postgres.table("app.rows")\n'
+        "query by_where:\n"
+        "    from rows\n"
+        '    where years == "x"\n'
+        "    select:\n"
+        "        id\n"
+        "query by_select:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        '        flag = age == "x"\n'
+        "query by_let:\n"
+        "    from rows\n"
+        "    let:\n"
+        "        bad = tag > 5\n"
+        "    where bad\n"
+        "    select:\n"
+        "        id\n"
+        "query same_family:\n"
+        "    from rows\n"
+        '    where years >= age and tag == "x"\n'
+        "    select:\n"
+        "        id\n",
+    )
+
+    def facts(document: dict[str, object]) -> list[tuple[object, ...]]:
+        diagnostics = cast(list[dict[str, object]], document["diagnostics"])
+        return [
+            (
+                item["code"],
+                item["severity"],
+                item["message"],
+                cast(dict[str, object], item["location"])["line"],
+                cast(dict[str, object], item["location"])["column"],
+            )
+            for item in diagnostics
+        ]
+
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    project = facts(_read_json(capsys))
+    assert cli.main(["check", str(root / "main.pietto"), "--format", "json"]) == 1
+    single_file = facts(_read_json(capsys))
+    message = "Invalid operands for operator {}: expected comparable operands"
+    expected = [
+        ("PIE-S2105", "error", message.format("=="), 12, 11),
+        ("PIE-S2105", "error", message.format("=="), 19, 16),
+        ("PIE-S2105", "error", message.format(">"), 23, 15),
+    ]
+    assert project == expected
+    assert single_file == expected
+
+
 def test_parse_failure_runs_neither_semantic_builder(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

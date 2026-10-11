@@ -865,6 +865,91 @@ def test_repinned_slot_and_requirement_damage_refuses(tmp_path):
             )
 
 
+def test_repinned_cross_family_comparison_refuses_derivation_and_verification(
+    tmp_path, monkeypatch
+):
+    from dataclasses import replace
+    from _pietto_phase68_slice4_probe import template
+    from pietto._project import project_sql_emission_rows as physical
+    from pietto._project.project_completed_semantics import (
+        derive_compiled_semantics,
+        verify_compiled_semantics,
+    )
+    from pietto._project.project_compiled_schema import (
+        FIELDS,
+        CompiledError,
+        Record,
+        Scalar,
+        content_pin,
+        encode,
+    )
+    from pietto.semantic import expressions
+    from pietto.semantic.model import (
+        EffectiveNullability,
+        ResolvedType,
+        TypeKind,
+        ValueType,
+    )
+
+    # The default template filters `id > 1` with the literal bound to an Int slot.
+    built = build_compiled(template(tmp_path / "comparison-source").artifact)
+    records = built.root.description.records
+    slot = next(r for r in records if r.address.kind == "slot")
+    literal = built.root.records[slot.get("literal")]
+
+    def altered(record, **changes):
+        values = list(record.values)
+        for name, value in changes.items():
+            values[FIELDS[record.address.kind].index(name)] = value
+        return Record(record.address, tuple(values))
+
+    damaged = {
+        r.address: r
+        for r in (
+            altered(literal, tag="Text", value=Scalar("Text", "1")),
+            altered(slot, tag="Text"),
+        )
+    }
+    description = replace(
+        built.root.description,
+        members=tuple(
+            (name, tuple(damaged.get(r.address, r) for r in members))
+            for name, members in built.root.description.members
+        ),
+    )
+    raw = encode(description)
+    root = load_compiled(
+        raw,
+        expected_pin=content_pin(raw),
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    # The shared comparison law refuses Int > Text before any physical check.
+    with pytest.raises(CompiledError, match="^COMPILED_OPERATOR_TYPE$"):
+        derive_compiled_semantics(root, ("1",))
+
+    # A derivation forged past the law and the physical comparison check is
+    # still refused by the independent verifier.
+    with monkeypatch.context() as patch:
+        unchecked = (
+            ValueType(
+                ResolvedType("Bool", TypeKind.BUILTIN), EffectiveNullability.UNKNOWN
+            ),
+            None,
+        )
+        patch.setattr(
+            expressions, "resolved_comparison_value_type", lambda *_: unchecked
+        )
+        patch.setattr(
+            physical,
+            "resolved_comparison_realization",
+            lambda family, *_: (physical._bool(family, False), None),
+        )
+        forged = derive_compiled_semantics(root, ("1",))
+    with pytest.raises(CompiledError, match="^COMPILED_SEMANTIC_TYPE$"):
+        verify_compiled_semantics(forged)
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_compiled_premises_preserve_original_admission(tmp_path, target):
     """A correct external test pin must not hide invalid semantic premises."""

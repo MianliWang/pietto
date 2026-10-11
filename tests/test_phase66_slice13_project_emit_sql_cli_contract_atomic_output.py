@@ -578,13 +578,25 @@ def test_compiler_outcomes_keep_complete_diagnostics_without_candidate_sql(
     assert out == api_bytes(root.parent / "full-api", item)
     assert code == (0 if target == "postgres" else 1)
     # A whole-project parse or semantic ERROR blocks emission with every
-    # diagnostic in order and no cli_errors.
+    # diagnostic in order and no cli_errors. A cross-family comparison is such
+    # an ERROR rather than an emission blocker, also for a sibling declaration.
     for name, body, prefix in (
         ("parse", "table result:\n    from rows\n    select\n        id\n", "PIE-P"),
         (
             "semantic",
             "table result:\n    from rows\n    select:\n        missing\n",
             "PIE-S",
+        ),
+        (
+            "comparison",
+            'table result:\n    from rows\n    where id == "x"\n    select:\n        id\n',
+            "PIE-S2105",
+        ),
+        (
+            "sibling_comparison",
+            "table result:\n    from rows\n    select:\n        id\n"
+            'query other:\n    from rows\n    where id == "x"\n    select:\n        id\n',
+            "PIE-S2105",
         ),
     ):
         root, item = project(tmp_path, target, name=name)
@@ -597,6 +609,8 @@ def test_compiler_outcomes_keep_complete_diagnostics_without_candidate_sql(
             d["code"].startswith(prefix) and d["severity"] == "error"
             for d in document["diagnostics"]
         )
+        if prefix == "PIE-S2105":
+            assert len(document["diagnostics"]) == 1
         assert probe.decode_public(out)["blockers"] == []
         code, out, err = run(argv(root, target, format="text"))
         assert (code, out) == (1, b"")

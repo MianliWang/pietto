@@ -72,6 +72,7 @@ from pietto.errors import Diagnostic, Severity
 from pietto.semantic import group_by as semantic_group_by
 from pietto.semantic import satisfying as semantic_satisfying
 from pietto.semantic import aggregates as semantic_aggregates
+from pietto.semantic.expressions import resolved_comparison_value_type
 from pietto.semantic.model import ValueType, ValueTypeKind
 
 __all__: tuple[str, ...] = ()
@@ -2046,11 +2047,16 @@ def _infer_satisfying_predicate(
             value_types=value_types,
             references=references,
         )
-        value_type = (
-            semantic_satisfying._UNKNOWN_VALUE_TYPE
-            if left.kind is ValueTypeKind.UNKNOWN or right.kind is ValueTypeKind.UNKNOWN
-            else semantic_satisfying._BOOL_VALUE_TYPE
-        )
+        if left.kind is ValueTypeKind.UNKNOWN or right.kind is ValueTypeKind.UNKNOWN:
+            value_type = semantic_satisfying._UNKNOWN_VALUE_TYPE
+        else:
+            value_type, expected = resolved_comparison_value_type(left, right)
+            if expected is not None:
+                diagnostics.append(
+                    semantic_satisfying._invalid_operands_diagnostic(
+                        expression, expected
+                    )
+                )
         value_types[expression] = value_type
         return value_type
     if type(expression) is BinaryExpr and expression.operator in {"and", "or"}:
@@ -2080,7 +2086,9 @@ def _infer_satisfying_predicate(
             value_type = semantic_satisfying._BOOL_VALUE_TYPE
         else:
             diagnostics.append(
-                semantic_satisfying._invalid_bool_operands_diagnostic(expression)
+                semantic_satisfying._invalid_operands_diagnostic(
+                    expression, "Bool operands"
+                )
             )
             value_type = semantic_satisfying._UNKNOWN_VALUE_TYPE
         value_types[expression] = value_type

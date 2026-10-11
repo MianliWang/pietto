@@ -27,6 +27,7 @@ from pietto.ast_nodes import (
     ShapeDef,
     SourceDef,
     TableDef,
+    TypeDef,
     TypeExpr,
     UnaryExpr,
     WindowExpr,
@@ -112,6 +113,7 @@ def type_shape_predicates(
     script: Script,
     *,
     type_resolutions: Mapping[TypeExpr, ResolvedType],
+    type_expansions: Mapping[TypeExpr, ResolvedType],
     type_nullability: Mapping[TypeExpr, EffectiveNullability],
 ) -> tuple[dict[Expression, ValueType], list[Diagnostic]]:
     """Type shape check bodies and index predicates against shape fields."""
@@ -147,6 +149,7 @@ def type_shape_predicates(
                 value_types,
                 diagnostics,
                 report_unknown_name=True,
+                type_expansions=type_expansions,
             )
 
     return value_types, diagnostics
@@ -232,6 +235,7 @@ def type_relation_expressions(
     | None = None,
     relation_let_expressions: Mapping[DerivedRelation, Mapping[str, Expression]]
     | None = None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
 ) -> tuple[
     dict[Expression, ValueType],
     list[Diagnostic],
@@ -315,6 +319,7 @@ def type_relation_expressions(
                 report_unknown_name=True,
                 field_qualifier=definition.from_clause.source_name,
                 bare_value_types=let_value_types,
+                type_expansions=type_expansions,
             )
         for selected_output_ordinal, item in enumerate(definition.select_items):
             if type(item.expression) is WindowExpr:
@@ -376,6 +381,7 @@ def type_relation_expressions(
                 allow_aggregate_projection=_is_direct_aggregate_projection(item),
                 bare_value_types=select_let_value_types,
                 bare_value_expressions=let_expressions,
+                type_expansions=type_expansions,
             )
         if (
             definition.order_by_clause is not None
@@ -411,6 +417,7 @@ def type_relation_expressions(
                     field_qualifier=definition.from_clause.source_name,
                     bare_value_types=order_bare_value_types,
                     bare_value_expressions=let_expressions,
+                    type_expansions=type_expansions,
                 )
 
     return value_types, diagnostics, window_analyses, named_window_namespaces
@@ -427,6 +434,7 @@ def infer_row_expression(
     bare_value_types: Mapping[str, ValueType] | None = None,
     bare_value_expressions: Mapping[str, Expression] | None = None,
     suppressed_unknown_names: set[str] | None = None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
 ) -> ValueType:
     """Infer one row-level expression with optional bare-only local bindings."""
 
@@ -440,6 +448,7 @@ def infer_row_expression(
         bare_value_types=bare_value_types,
         bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
+        type_expansions=type_expansions,
     )
 
 
@@ -555,6 +564,7 @@ def _infer(
     bare_value_types: Mapping[str, ValueType] | None = None,
     bare_value_expressions: Mapping[str, Expression] | None = None,
     suppressed_unknown_names: set[str] | None = None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
 ) -> ValueType:
     """Infer only the expression forms supported by this scaffold."""
 
@@ -602,6 +612,7 @@ def _infer(
             bare_value_types=bare_value_types,
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
+            type_expansions=type_expansions,
         )
     elif isinstance(expression, IsNullExpr):
         _infer(
@@ -614,6 +625,7 @@ def _infer(
             bare_value_types=bare_value_types,
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
+            type_expansions=type_expansions,
         )
         value_type = _builtin_value_type(
             "Bool",
@@ -630,6 +642,7 @@ def _infer(
             bare_value_types=bare_value_types,
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
+            type_expansions=type_expansions,
         )
     elif isinstance(expression, BinaryExpr):
         value_type = _binary_value_type(
@@ -642,9 +655,10 @@ def _infer(
             bare_value_types=bare_value_types,
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
+            type_expansions=type_expansions,
         )
     elif isinstance(expression, ComparisonExpr):
-        _infer(
+        left_type = _infer(
             expression.left,
             row_schema,
             value_types,
@@ -654,8 +668,9 @@ def _infer(
             bare_value_types=bare_value_types,
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
+            type_expansions=type_expansions,
         )
-        _infer(
+        right_type = _infer(
             expression.right,
             row_schema,
             value_types,
@@ -665,11 +680,15 @@ def _infer(
             bare_value_types=bare_value_types,
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
+            type_expansions=type_expansions,
         )
-        value_type = _builtin_value_type(
-            "Bool",
-            EffectiveNullability.UNKNOWN,
+        value_type, expected = resolved_comparison_value_type(
+            left_type, right_type, type_expansions
         )
+        if expected is not None:
+            diagnostics.append(
+                _invalid_operator_operands_diagnostic(expression, expected=expected)
+            )
     elif isinstance(expression, BetweenExpr):
         value_type = _between_value_type(
             expression,
@@ -681,6 +700,7 @@ def _infer(
             bare_value_types=bare_value_types,
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
+            type_expansions=type_expansions,
         )
     else:
         # Unsupported forms remain opaque so calls and arithmetic are not
@@ -702,6 +722,7 @@ def _unary_value_type(
     bare_value_types: Mapping[str, ValueType] | None,
     bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> ValueType:
     """Type one prefix arithmetic expression."""
 
@@ -715,6 +736,7 @@ def _unary_value_type(
         bare_value_types=bare_value_types,
         bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
+        type_expansions=type_expansions,
     )
     result, expected = resolved_unary_value_type(operand_type)
     if expected is not None:
@@ -747,6 +769,7 @@ def _binary_value_type(
     bare_value_types: Mapping[str, ValueType] | None,
     bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> ValueType:
     """Type one arithmetic or Boolean binary expression."""
 
@@ -760,6 +783,7 @@ def _binary_value_type(
         bare_value_types=bare_value_types,
         bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
+        type_expansions=type_expansions,
     )
     right_type = _infer(
         expression.right,
@@ -771,6 +795,7 @@ def _binary_value_type(
         bare_value_types=bare_value_types,
         bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
+        type_expansions=type_expansions,
     )
     result, expected = resolved_binary_value_type(
         expression.operator, left_type, right_type
@@ -807,6 +832,59 @@ def resolved_binary_value_type(
     return _UNKNOWN_VALUE_TYPE, None
 
 
+# Builtin families from the canonical scalar type registry trait vocabulary.
+# Any, Bytes, Json, enums and shapes stay unchecked (deferred).
+_COMPARISON_FAMILIES = {
+    "Int": "numeric",
+    "Float": "numeric",
+    "Decimal": "numeric",
+    "Text": "text",
+    "Bool": "boolean",
+    "Date": "temporal",
+    "Timestamp": "temporal",
+    "UUID": "identifier",
+}
+# Text against types without literal syntax awaits a typed-constant decision.
+_DEFERRED_COMPARISON_FAMILY_PAIRS = ({"text", "temporal"}, {"text", "identifier"})
+
+
+def resolved_comparison_value_type(
+    left_type: ValueType,
+    right_type: ValueType,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+) -> tuple[ValueType, str | None]:
+    """Comparison rule over resolved operands; no implicit cross-family conversion."""
+    families = {
+        _comparison_family(left_type, type_expansions),
+        _comparison_family(right_type, type_expansions),
+    }
+    if (
+        None in families
+        or len(families) == 1
+        or families in _DEFERRED_COMPARISON_FAMILY_PAIRS
+    ):
+        return _builtin_value_type("Bool", EffectiveNullability.UNKNOWN), None
+    return _UNKNOWN_VALUE_TYPE, "comparable operands"
+
+
+def _comparison_family(
+    value_type: ValueType,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> str | None:
+    resolved_type = value_type.resolved_type
+    if type_expansions is not None and resolved_type.kind is TypeKind.TYPE_ALIAS:
+        # Single-file row fields keep alias names; compare the canonical expansion.
+        definition = resolved_type.definition
+        assert isinstance(definition, TypeDef)
+        resolved_type = type_expansions[definition.base]
+    if (
+        value_type.kind is not ValueTypeKind.KNOWN
+        or resolved_type.kind is not TypeKind.BUILTIN
+    ):
+        return None
+    return _COMPARISON_FAMILIES.get(resolved_type.name)
+
+
 def _between_value_type(
     expression: BetweenExpr,
     row_schema: RowSchema,
@@ -818,8 +896,9 @@ def _between_value_type(
     bare_value_types: Mapping[str, ValueType] | None,
     bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> ValueType:
-    """Type an inclusive between predicate without compatibility checks."""
+    """Type an inclusive between predicate as two bound comparisons."""
 
     child_types = tuple(
         _infer(
@@ -832,11 +911,21 @@ def _between_value_type(
             bare_value_types=bare_value_types,
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
+            type_expansions=type_expansions,
         )
         for child in (expression.value, expression.lower, expression.upper)
     )
     if any(child_type.kind is ValueTypeKind.UNKNOWN for child_type in child_types):
         return _UNKNOWN_VALUE_TYPE
+    for bound_type in child_types[1:]:
+        _, expected = resolved_comparison_value_type(
+            child_types[0], bound_type, type_expansions
+        )
+        if expected is not None:
+            diagnostics.append(
+                _invalid_operator_operands_diagnostic(expression, expected=expected)
+            )
+            return _UNKNOWN_VALUE_TYPE
     return _builtin_value_type("Bool", EffectiveNullability.UNKNOWN)
 
 
@@ -852,6 +941,7 @@ def _call_value_type(
     bare_value_types: Mapping[str, ValueType] | None,
     bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> ValueType:
     """Type one exact built-in call while suppressing Unknown cascades."""
 
@@ -867,6 +957,7 @@ def _call_value_type(
         bare_value_types=bare_value_types,
         bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
+        type_expansions=type_expansions,
     )
     if any(
         argument_type.kind is ValueTypeKind.UNKNOWN for argument_type in argument_types
@@ -930,6 +1021,7 @@ def _call_argument_types(
     bare_value_types: Mapping[str, ValueType] | None,
     bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> tuple[ValueType, ...]:
     if (
         allow_aggregate_projection
@@ -959,6 +1051,7 @@ def _call_argument_types(
             bare_value_types=argument_bare_value_types,
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
+            type_expansions=type_expansions,
         )
         if is_supported_semantic_aggregate_argument_expression(
             function_name,
@@ -980,6 +1073,7 @@ def _call_argument_types(
             bare_value_types=bare_value_types,
             bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
+            type_expansions=type_expansions,
         )
         for argument in expression.arguments
     )
@@ -1176,19 +1270,18 @@ def _builtin_value_type(
 
 
 def _invalid_operator_operands_diagnostic(
-    expression: UnaryExpr | BinaryExpr,
+    expression: UnaryExpr | BinaryExpr | ComparisonExpr | BetweenExpr,
     *,
     expected: str,
 ) -> Diagnostic:
     """Report incompatible known operands at the full operator expression span."""
 
     span = expression.span
+    operator = "between" if isinstance(expression, BetweenExpr) else expression.operator
     return Diagnostic(
         code="PIE-S2105",
         severity=Severity.ERROR,
-        message=(
-            f"Invalid operands for operator {expression.operator}: expected {expected}"
-        ),
+        message=f"Invalid operands for operator {operator}: expected {expected}",
         location=SourceLocation(
             path=span.path,
             line=span.line,

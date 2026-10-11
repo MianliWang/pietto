@@ -283,6 +283,17 @@ unary `+`/`-`, arithmetic `+ - * / %`, comparisons, `between`, `is null`,
 than parsing for some type/operator pairs; rejected pairs use diagnostics
 rather than implicit conversions.
 
+Comparisons and `between` require operands from one family: numeric (`Int`,
+`Float`, `Decimal`), `Text`, `Bool`, temporal (`Date`, `Timestamp`), or
+`UUID`. A type alias operand is checked as the type it expands to. Other known
+pairs, such as an `Int` field compared with `"x"` or a `Bool` field compared
+with `1`, report `PIE-S2105` in every check mode. `Text` against `Date`,
+`Timestamp` or `UUID` stays accepted until typed constants are decided, because
+a text literal is the only constant form for those types; non-literal `Text`
+operands such as fields, calls and `let` values are not yet checked against
+those types either. Operands typed `Any`, `Bytes`, `Json`, an enum, or a shape
+are not checked.
+
 Current scalar builtins have one explicit signature each:
 
 ```text

@@ -10,6 +10,7 @@ from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
 from pietto.ast_nodes import (
+    BetweenExpr,
     CallExpr,
     ComparisonExpr,
     Expression,
@@ -148,7 +149,7 @@ def test_simple_comparison_maps_to_bool_and_types_operands() -> None:
         _parse(
             SOURCE + "table projected:\n"
             "    from users\n"
-            "    where id >= 1\n"
+            '    where email >= "m"\n'
             "    select:\n"
             "        id\n"
         )
@@ -161,11 +162,299 @@ def test_simple_comparison_maps_to_bool_and_types_operands() -> None:
     assert value_type.resolved_type.name == "Bool"
     assert value_type.kind is ValueTypeKind.KNOWN
     assert result.model.expression_value_types[expression.left].resolved_type.name == (
-        "UUID"
+        "Text"
     )
     assert result.model.expression_value_types[expression.right].resolved_type.name == (
-        "Int"
+        "Text"
     )
+
+
+COMPARISON_SOURCE = (
+    "type Age = Int not null\n"
+    "enum Status:\n"
+    "    active\n"
+    "shape Item:\n"
+    "    count: Int not null\n"
+    "    ratio: Float not null\n"
+    "    amount: Decimal not null\n"
+    "    name: Text not null\n"
+    "    email: Text nullable\n"
+    "    active: Bool not null\n"
+    "    born: Date not null\n"
+    "    created_at: Timestamp not null\n"
+    "    token: UUID not null\n"
+    "    payload: Json nullable\n"
+    "    status: Status not null\n"
+    "    age: Age not null\n"
+    'source items: Item is postgres.table("items")\n'
+    "table projected:\n"
+    "    from items\n"
+)
+COMPARISON_WHERE_LINE = COMPARISON_SOURCE.count("\n") + 1
+
+
+@pytest.mark.parametrize(
+    ("predicate", "operator", "column"),
+    [
+        ('count == "x"', "==", 11),
+        ("active == 1", "==", 11),
+        ('active != "true"', "!=", 11),
+        ("token == 1", "==", 11),
+        ("created_at == 5", "==", 11),
+        ("born < 5", "<", 11),
+        ("ratio > active", ">", 11),
+        ("amount <= created_at", "<=", 11),
+        ("token >= born", ">=", 11),
+        ('email is null or count == "x"', "==", 28),
+        ('count between 1 and "z"', "between", 11),
+    ],
+)
+def test_comparison_operands_of_different_families_report_s2105(
+    predicate: str,
+    operator: str,
+    column: int,
+) -> None:
+    for mode in CheckMode:
+        result = analyze(_parse(_comparison_source(predicate)), mode_override=mode)
+
+        assert [
+            (
+                diagnostic.code,
+                diagnostic.severity,
+                diagnostic.message,
+                diagnostic.location.line,
+                diagnostic.location.column,
+            )
+            for diagnostic in result.diagnostics
+        ] == [
+            (
+                "PIE-S2105",
+                Severity.ERROR,
+                f"Invalid operands for operator {operator}: "
+                "expected comparable operands",
+                COMPARISON_WHERE_LINE,
+                column,
+            )
+        ], mode
+        assert result.model.expression_value_types[_where_expression(result)].kind is (
+            ValueTypeKind.UNKNOWN
+        )
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "count == 1",
+        "ratio > 1",
+        "amount > 10.5",
+        "amount >= count",
+        'name == "x"',
+        "name < email",
+        "active == false",
+        "born <= created_at",
+        'created_at >= "2024-01-01"',
+        'token == "00000000-0000-0000-0000-000000000000"',
+        "token != token",
+        "payload == 1",
+        'status == "active"',
+        "age > 18",
+        "email == null",
+        'email is null or email == "x"',
+        "count between 1 and 10",
+    ],
+)
+def test_comparable_or_unchecked_operands_keep_bool(predicate: str) -> None:
+    result = analyze(
+        _parse(_comparison_source(predicate)), mode_override=CheckMode.STRICT
+    )
+
+    value_type = result.model.expression_value_types[_where_expression(result)]
+
+    assert result.diagnostics == ()
+    assert value_type.resolved_type.name == "Bool"
+    assert value_type.nullability is EffectiveNullability.UNKNOWN
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    ["email is null", "token is not null", "created_at is null", "payload is not null"],
+)
+def test_null_tests_have_no_operand_pair_to_check(predicate: str) -> None:
+    result = analyze(
+        _parse(_comparison_source(predicate)), mode_override=CheckMode.STRICT
+    )
+
+    value_type = result.model.expression_value_types[_where_expression(result)]
+
+    assert result.diagnostics == ()
+    assert value_type.resolved_type.name == "Bool"
+    assert value_type.nullability is EffectiveNullability.NON_NULL
+
+
+# Single-file row fields keep alias names; `years` is a two-step alias chain.
+ALIAS_COMPARISON_SOURCE = (
+    "type Age = Int not null\n"
+    "type Years = Age not null\n"
+    "type Tag = Text not null\n"
+    "shape Person:\n"
+    "    id: Int not null\n"
+    "    age: Age not null\n"
+    "    years: Years not null\n"
+    "    tag: Tag not null\n"
+    "{check}"
+    'source people: Person is postgres.table("people")\n'
+    "table projected:\n"
+    "    from people\n"
+    "{clauses}"
+)
+
+
+@pytest.mark.parametrize(
+    ("check", "clauses", "operator", "line", "column"),
+    [
+        ("", '    where years == "x"\n    select:\n        id\n', "==", 12, 11),
+        ("", '    select:\n        id\n        flag = age == "x"\n', "==", 14, 16),
+        (
+            "",
+            "    let:\n        bad = tag > 5\n    where bad\n    select:\n        id\n",
+            ">",
+            13,
+            15,
+        ),
+        (
+            '    check named:\n        age == "x"\n',
+            "    select:\n        id\n",
+            "==",
+            10,
+            9,
+        ),
+        (
+            "",
+            '    select:\n        id\n    order by:\n        years == "x"\n',
+            "==",
+            15,
+            9,
+        ),
+        (
+            "",
+            '    where years between "a" and "b"\n    select:\n        id\n',
+            "between",
+            12,
+            11,
+        ),
+    ],
+)
+def test_alias_operands_are_compared_as_their_expansion(
+    check: str,
+    clauses: str,
+    operator: str,
+    line: int,
+    column: int,
+) -> None:
+    result = analyze(
+        _parse(ALIAS_COMPARISON_SOURCE.format(check=check, clauses=clauses))
+    )
+
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in result.diagnostics
+    ] == [
+        (
+            "PIE-S2105",
+            f"Invalid operands for operator {operator}: expected comparable operands",
+            line,
+            column,
+        )
+    ]
+    assert [
+        value_type.kind
+        for expression, value_type in result.model.expression_value_types.items()
+        if isinstance(expression, (ComparisonExpr, BetweenExpr))
+    ] == [ValueTypeKind.UNKNOWN]
+
+
+@pytest.mark.parametrize(
+    ("check", "clauses"),
+    [
+        ("", '    where years >= age and tag == "x"\n    select:\n        id\n'),
+        ("", "    select:\n        id\n        flag = years == 18\n"),
+        (
+            "",
+            '    let:\n        ok = tag < "m"\n    where ok\n    select:\n        id\n',
+        ),
+        ("    check named:\n        age >= 18\n", "    select:\n        id\n"),
+        ("", "    select:\n        id\n    order by:\n        years >= 18\n"),
+        ("", "    where years between age and 10\n    select:\n        id\n"),
+    ],
+)
+def test_alias_operands_of_one_family_keep_bool(check: str, clauses: str) -> None:
+    result = analyze(
+        _parse(ALIAS_COMPARISON_SOURCE.format(check=check, clauses=clauses)),
+        mode_override=CheckMode.STRICT,
+    )
+
+    assert result.diagnostics == ()
+    assert {
+        (value_type.resolved_type.name, value_type.nullability)
+        for expression, value_type in result.model.expression_value_types.items()
+        if isinstance(expression, (ComparisonExpr, BetweenExpr))
+    } == {("Bool", EffectiveNullability.UNKNOWN)}
+
+
+ALIAS_SATISFYING_CLAUSES = (
+    "    group by:\n"
+    "        age\n"
+    "    select:\n"
+    "        age\n"
+    "        n = count()\n"
+    "    satisfying:\n"
+    "        {predicate}\n"
+)
+
+
+def test_alias_group_keys_in_satisfying_are_compared_as_their_expansion() -> None:
+    rejected, accepted = (
+        analyze(
+            _parse(
+                ALIAS_COMPARISON_SOURCE.format(
+                    check="",
+                    clauses=ALIAS_SATISFYING_CLAUSES.format(predicate=predicate),
+                )
+            ),
+            mode_override=CheckMode.STRICT,
+        )
+        for predicate in ('age == "x"', "age > 1")
+    )
+
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in rejected.diagnostics
+    ] == [
+        (
+            "PIE-S2105",
+            "Invalid operands for operator ==: expected comparable operands",
+            18,
+            9,
+        )
+    ]
+    assert rejected.model.result_predicates == {}
+    assert accepted.diagnostics == ()
+    (predicate,) = accepted.model.result_predicates.values()
+    assert {
+        (value_type.resolved_type.name, value_type.nullability)
+        for expression, value_type in predicate.expression_value_types.items()
+        if isinstance(expression, ComparisonExpr)
+    } == {("Bool", EffectiveNullability.UNKNOWN)}
 
 
 def test_unknown_call_argument_suppresses_dependent_call_diagnostic() -> None:
@@ -259,6 +548,10 @@ def _parse(source: str) -> Script:
     assert result.diagnostics == ()
     assert result.ast is not None
     return result.ast
+
+
+def _comparison_source(predicate: str) -> str:
+    return f"{COMPARISON_SOURCE}    where {predicate}\n    select:\n        count\n"
 
 
 def _table(result: SemanticResult) -> TableDef:

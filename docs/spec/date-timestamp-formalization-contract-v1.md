@@ -98,12 +98,15 @@ goldens.
 
 ## Comparison Posture
 
-Current comparison handling is generic and not Date/Timestamp-specific.
+Current comparison handling is not Date/Timestamp-specific.
 
-Date/Timestamp comparisons are accepted only where current generic expression
-typing already accepts known typed operands and returns `Bool UNKNOWN`.
-Current `between` handling likewise returns `Bool UNKNOWN` when all child
-value types are known.
+The comparison family check in `operator-comparison-matrix-contract-v1.md`
+places `Date` and `Timestamp` in one temporal family. Known temporal operands
+compared with each other or with `Text` return `Bool UNKNOWN`; known temporal
+operands compared with numeric, `Bool`, or `UUID` operands report `PIE-S2105`
+and produce unknown value type. Current `between` handling applies the same
+check to each bound and returns `Bool UNKNOWN` when all child value types are
+known and accepted.
 
 `Bool UNKNOWN` is Pietto `EffectiveNullability.UNKNOWN`: the value type is
 known to be `Bool`, but compile-time nullability is not proven. It is not SQL
