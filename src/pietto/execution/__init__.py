@@ -8,9 +8,14 @@ PostgreSQL 18.6 through the PostgreSQL rows route and read typed Arrow batches.
         for batch in result:
             ...
 
+export_bundle() turns a compiled query into bytes and three trust records;
+load_bundle() loads such bytes only under the records you pass, and
+execute(..., values=...) binds explicit values to a bind-safe query's slots.
+
 This is an alpha interface: names, fields and PIE-R codes may change with
 documented notes. Importing it loads no database driver and no PyArrow;
-compiling and execute() make no connection. See docs/execution.md.
+compiling, exporting, loading and execute() make no connection. See
+docs/execution.md.
 
 Managed operator compliance: NOT_INDEPENDENTLY_VERIFIED
 Native all-definition lifetime exclusion: NOT_DEMONSTRATED / NOT CLAIMED
@@ -36,7 +41,13 @@ from pietto.execution._handle import (
     UnclosedHandleWarning,
     execute,
 )
-from pietto.execution._query import CompiledQuery, compile_query
+from pietto.execution._query import (
+    CompiledQuery,
+    QueryBundle,
+    compile_query,
+    export_bundle,
+    load_bundle,
+)
 
 __all__ = [
     "AttemptFailed",
@@ -49,10 +60,13 @@ __all__ = [
     "Outcome",
     "PostgresAccess",
     "PostgresDeploymentPremise",
+    "QueryBundle",
     "RequestRejected",
     "ResultBatch",
     "ResultHandle",
     "UnclosedHandleWarning",
     "compile_query",
     "execute",
+    "export_bundle",
+    "load_bundle",
 ]

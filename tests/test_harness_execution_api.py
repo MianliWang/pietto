@@ -1,8 +1,8 @@
 """The public execution witnesses' own laws: the probe's database-free consumer
 cases run against the checkout and satisfy the independent checker, the
 checker accepts the facts a passing family records and refuses each damaged
-fact, and the PostgreSQL fixture is the documented setup the oracles
-describe. No database, Docker, network or installation."""
+fact, and the PostgreSQL fixture and the bundle oracles are the documented
+setup and output. No database, Docker, network or installation."""
 
 from __future__ import annotations
 
@@ -67,7 +67,15 @@ def test_checkout_consumer_cases_satisfy_the_checker(checkout_facts):
             *checkout_facts["ambient"].values(),
             checkout_facts["shadow"],
             checkout_facts["psycopg_c"],
+            checkout_facts["bundles"],
+            checkout_facts["code_change"],
         )
+    )
+    # The code change touched a copy only: the checkout's code is unchanged.
+    run = checkout_facts["code_change"]["run"]["result"]
+    assert run["imported"] != str(ROOT / "src/pietto/__init__.py")
+    assert checkout_facts["code_change"]["export"]["result"]["imported"] == str(
+        ROOT / "src/pietto/__init__.py"
     )
 
 
@@ -134,6 +142,156 @@ def test_checkout_consumer_cases_satisfy_the_checker(checkout_facts):
         ),
         (lambda f: f["psycopg_c"].update(copy_imported=True), "PSYCOPG_C_IMPORTED"),
         (lambda f: f["psycopg_c"].update(copy_received=True), "PSYCOPG_C_IMPORTED"),
+        (
+            lambda f: f["identity"]["stray"]["result"].update(records=["0" * 64] * 3),
+            "IDENTITY_BUNDLE",
+        ),
+        (
+            lambda f: [
+                f["identity"][where]["result"]["records"].__setitem__(2, "0" * 64)
+                for where in ("clean", "stray")
+            ],
+            "IDENTITY_BUNDLE",
+        ),
+        (
+            lambda f: f["identity"]["clean"]["result"].update(origin="live"),
+            "IDENTITY_BUNDLE",
+        ),
+        (lambda f: f["identity"]["stray"]["result"].pop("records"), "IDENTITY_BUNDLE"),
+        (
+            lambda f: [
+                f["identity"][where]["result"].pop("records")
+                for where in ("clean", "stray")
+            ],
+            "IDENTITY_BUNDLE",
+        ),
+        (
+            lambda f: [
+                f["identity"][where]["result"].update(
+                    records=[
+                        "X" * 64,
+                        "Y" * 64,
+                        f["identity"][where]["result"]["identity"],
+                    ]
+                )
+                for where in ("clean", "stray")
+            ],
+            "IDENTITY_BUNDLE",
+        ),
+        (lambda f: f["bundles"].update(returncode=1), "BUNDLES"),
+        (
+            lambda f: f["bundles"]["result"].update(after_import=["psycopg"]),
+            "IMPORT_LOADED_DRIVER",
+        ),
+        (
+            lambda f: f["bundles"]["result"]["records"].__setitem__(0, "X" * 64),
+            "BUNDLE_RECORDS",
+        ),
+        (
+            lambda f: f["bundles"]["result"].update(payload_sha256=None),
+            "BUNDLE_RECORDS",
+        ),
+        (lambda f: f["bundles"]["result"]["records"].pop(), "BUNDLE_RECORDS"),
+        (
+            lambda f: f["bundles"]["result"].update(equal=[True, False, True]),
+            "BUNDLE_RECORDS",
+        ),
+        (
+            lambda f: f["bundles"]["result"]["loaded"].update(emission="{}"),
+            "BUNDLE_LOADED",
+        ),
+        (
+            lambda f: f["bundles"]["result"]["loaded"].update(origin="live"),
+            "BUNDLE_LOADED",
+        ),
+        (
+            lambda f: f["bundles"]["result"]["refusals"].update(
+                tampered=["PIE-R1008", "COMPILED_JSON", False, False]
+            ),
+            "BUNDLE_REFUSALS",
+        ),
+        (
+            lambda f: f["bundles"]["result"]["refusals"]["value_bool"].__setitem__(
+                2, True
+            ),
+            "BUNDLE_REFUSALS",
+        ),
+        (
+            lambda f: f["bundles"]["result"]["refusals"]["mixed_records"].__setitem__(
+                3, True
+            ),
+            "BUNDLE_REFUSALS",
+        ),
+        (
+            lambda f: f["bundles"]["result"]["refusals"].update(
+                foreign_compatibility=None
+            ),
+            "BUNDLE_REFUSALS",
+        ),
+        (
+            lambda f: f["bundles"]["result"]["refusals"].pop("pin_none"),
+            "BUNDLE_REFUSALS",
+        ),
+        (
+            lambda f: f["bundles"]["result"].update(attempts=["a", "a"]),
+            "BUNDLE_EFFECTS",
+        ),
+        (
+            lambda f: f["bundles"]["result"].update(ends=["NOT_STARTED", "OPEN"]),
+            "BUNDLE_EFFECTS",
+        ),
+        (
+            lambda f: f["bundles"]["result"].update(password_in_payload=True),
+            "BUNDLE_EFFECTS",
+        ),
+        (
+            lambda f: f["bundles"]["result"].update(after=["pyarrow"]),
+            "BUNDLE_EFFECTS",
+        ),
+        (lambda f: f["bundles"].update(connected=True), "BUNDLE_EFFECTS"),
+        (lambda f: f["code_change"]["export"].update(returncode=1), "CODE_CHANGE"),
+        (lambda f: f["code_change"]["run"].update(result=None), "CODE_CHANGE"),
+        (
+            lambda f: f["code_change"]["export"]["result"]["records"].update(
+                expected_pin="x"
+            ),
+            "CODE_CHANGE",
+        ),
+        (
+            lambda f: f["code_change"]["run"]["result"].update(
+                imported=f["code_change"]["export"]["result"]["imported"]
+            ),
+            "CODE_CHANGE_COPY",
+        ),
+        (
+            lambda f: f["code_change"]["export"]["result"].update(
+                imported=f["code_change"]["copy"]
+            ),
+            "CODE_CHANGE_COPY",
+        ),
+        (
+            lambda f: f["code_change"]["run"]["result"].update(
+                compatibility_changed=False
+            ),
+            "CODE_CHANGE",
+        ),
+        (
+            lambda f: f["code_change"]["run"]["result"].update(own_load="live"),
+            "CODE_CHANGE",
+        ),
+        (
+            lambda f: f["code_change"]["run"]["result"]["refusals"].update(
+                relabeled=["PIE-R1005", "PUBLIC_BUNDLE_CODE_IDENTITY", False, False]
+            ),
+            "CODE_CHANGE",
+        ),
+        (
+            lambda f: f["code_change"]["run"]["result"]["refusals"].update(
+                execute_loaded=None
+            ),
+            "CODE_CHANGE",
+        ),
+        (lambda f: f["code_change"].update(connected=True), "CODE_CHANGE"),
     ),
 )
 def test_the_checker_refuses_each_damaged_consumer_fact(checkout_facts, damage, reason):
@@ -148,6 +306,28 @@ def _install(*recipes):
     return {recipe: {**steps, "python": list(check.INTERPRETER)} for recipe in recipes}
 
 
+def _core(origin):
+    return {
+        "returncode": 0,
+        "connected": False,
+        "result": {
+            "after_import": [],
+            "origin": origin,
+            "unopened": [[], "NOT_STARTED", False],
+            "code": "PIE-R2001",
+            "detail": "EXECUTION_DEPENDENCY_MISSING",
+            "shown": False,
+            "chained": False,
+            "outcome": {
+                "end": "FAILED",
+                "transaction": "NOT_STARTED",
+                "cleanup": "CLOSED",
+            },
+            "after_open": [],
+        },
+    }
+
+
 def consumer_report(cases):
     """A report with the facts a passing consumer family records around the
     checkout's consumer cases."""
@@ -155,24 +335,8 @@ def consumer_report(cases):
         "format": check.FORMAT,
         "family": "consumer",
         "install": _install("core", "execute-postgres"),
-        "core": {
-            "returncode": 0,
-            "connected": False,
-            "result": {
-                "after_import": [],
-                "unopened": [[], "NOT_STARTED", False],
-                "code": "PIE-R2001",
-                "detail": "EXECUTION_DEPENDENCY_MISSING",
-                "shown": False,
-                "chained": False,
-                "outcome": {
-                    "end": "FAILED",
-                    "transaction": "NOT_STARTED",
-                    "cleanup": "CLOSED",
-                },
-                "after_open": [],
-            },
-        },
+        "core": _core("live"),
+        "core_bundle": _core("bundle"),
         "cases": copy.deepcopy(cases),
     }
 
@@ -216,6 +380,20 @@ def test_the_checker_accepts_the_consumer_facts(checkout_facts):
         (
             lambda r: r["core"]["result"]["outcome"].update(end="OPEN"),
             "CORE_FALLBACK",
+        ),
+        (
+            lambda r: r["core_bundle"]["result"].update(origin="live"),
+            "CORE_BUNDLE_FALLBACK",
+        ),
+        (
+            lambda r: r["core_bundle"]["result"].update(code="PIE-R2002"),
+            "CORE_BUNDLE_FALLBACK",
+        ),
+        (lambda r: r["core_bundle"].update(connected=True), "CORE_BUNDLE_FALLBACK"),
+        (lambda r: r.pop("core_bundle"), "CORE_BUNDLE_FALLBACK"),
+        (
+            lambda r: r["core_bundle"]["result"].update(after_open=["psycopg"]),
+            "CORE_LOADED_DRIVER",
         ),
     ),
 )
@@ -276,6 +454,28 @@ def _effects():
         "before": {"threads": ["MainThread"], "jobs": [], "files": files},
         "after": {"threads": ["MainThread"], "jobs": [], "files": copy.deepcopy(files)},
     }
+
+
+def _step(name, attempt, *, rows=None, code=None, sqlstate=None, end="COMPLETE"):
+    """One completed or failed step of the loaded bundle."""
+    transaction = {
+        "COMPLETE": "COMMIT_ACK",
+        "PIE-R2004": "NOT_STARTED",
+        "PIE-R3003": "UNKNOWN",
+    }[code or end]
+    primary = None if code is None else [code, None, "check", sqlstate]
+    record: dict = {
+        "step": name,
+        "attempt": attempt,
+        "outcome": {"end": end, "transaction": transaction, "primary": primary},
+    }
+    if rows is not None:
+        record["rows"] = rows
+    if code is not None:
+        record.update(
+            code=code, detail=None, sqlstate=sqlstate, shown=False, chained=False
+        )
+    return record
 
 
 def postgres_report():
@@ -361,6 +561,48 @@ def postgres_report():
             "tls": [[True, "TLSv1.3"]],
             "exit_delay": 3.4,
             "after": 0,
+        },
+        "bundle_export": _ok(
+            {
+                "records": {
+                    "expected_pin": "a" * 64,
+                    "accepted_producer": "b" * 64,
+                    "accepted_compatibility": "c" * 64,
+                }
+            }
+        ),
+        "bundle_steps": {
+            "returncode": 0,
+            "records": [
+                {"loaded": dict(check.BUNDLE_LOADED), "source_present": False},
+                _step("first", "a1", rows=sorted(check.ROWS)),
+                _step("other_role", "a2", code="PIE-R2004", end="FAILED"),
+                _step(
+                    "revoked", "a3", code="PIE-R3003", sqlstate="42501", end="FAILED"
+                ),
+                _step("granted", "a4", rows=[[5, "five"]]),
+                {
+                    "step": "refused_value",
+                    "attempt": None,
+                    "code": "PIE-R1006",
+                    "detail": "BINDING_VALUE:0:Int",
+                    "sqlstate": None,
+                    "shown": False,
+                    "chained": False,
+                },
+                _step("again", "a5", rows=sorted(check.ROWS)),
+                {
+                    "threads": ["MainThread"],
+                    "jobs": [],
+                    "files": {"cwd": [], "home": [], "tmp": []},
+                },
+            ],
+            "stderr": "",
+        },
+        "bundle_example": {
+            "returncode": 0,
+            "stdout": "\n".join(check.BUNDLE_EXAMPLE) + "\n",
+            "shown": False,
         },
         "cleanup": {"status": "success"},
     }
@@ -583,6 +825,147 @@ def test_the_checker_accepts_the_postgres_oracle_facts():
         (lambda r: r["dropped"].update(exit_delay=0.1), "DROPPED_EXIT_DELAY"),
         (lambda r: r["dropped"].update(after=1), "DROPPED_SESSION_LEFT"),
         (lambda r: r["cleanup"].update(status="failed"), "RESOURCE_CLEANUP"),
+        (
+            lambda r: r["example"].update(
+                stdout=r["example"]["stdout"].replace(", origin='live'", "")
+            ),
+            "EXAMPLE_COMPILE",
+        ),
+        (lambda r: r["bundle_export"].update(returncode=1), "BUNDLE_EXPORT"),
+        (
+            lambda r: r["bundle_export"]["result"]["records"].update(
+                expected_pin="A" * 64
+            ),
+            "BUNDLE_EXPORT",
+        ),
+        (
+            lambda r: r["bundle_export"]["result"]["records"].pop("accepted_producer"),
+            "BUNDLE_EXPORT",
+        ),
+        (lambda r: r["bundle_steps"].update(returncode=1), "BUNDLE_STEPS"),
+        (lambda r: r["bundle_steps"]["records"].pop(3), "BUNDLE_STEPS"),
+        (
+            lambda r: r["bundle_steps"]["records"][1].update(step="again"),
+            "BUNDLE_STEPS",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][0].update(source_present=True),
+            "BUNDLE_STEPS_LOADED",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][0]["loaded"].update(origin="live"),
+            "BUNDLE_STEPS_LOADED",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][1].update(
+                rows=sorted(check.ROWS)[:3]
+            ),
+            "BUNDLE_STEPS_FIRST",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][1]["outcome"].update(
+                transaction="ROLLBACK_ACK"
+            ),
+            "BUNDLE_STEPS_FIRST",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][2].update(code="PIE-R2007"),
+            "BUNDLE_STEPS_OTHER_ROLE",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][2]["outcome"].update(
+                transaction="ROLLBACK_ACK"
+            ),
+            "BUNDLE_STEPS_OTHER_ROLE",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][3].update(sqlstate="42P01"),
+            "BUNDLE_STEPS_REVOKED",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][3].update(code="PIE-R2007"),
+            "BUNDLE_STEPS_REVOKED",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][3]["outcome"].update(end="COMPLETE"),
+            "BUNDLE_STEPS_REVOKED",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][4]["outcome"].update(end="FAILED"),
+            "BUNDLE_STEPS_GRANTED",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][4].update(rows=sorted(check.ROWS)),
+            "BUNDLE_STEPS_GRANTED",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][5].update(attempt="a6"),
+            "BUNDLE_STEPS_REFUSED_VALUE",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][5].update(detail="BINDING_SLOTS"),
+            "BUNDLE_STEPS_REFUSED_VALUE",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][5].update(
+                outcome=r["bundle_steps"]["records"][1]["outcome"]
+            ),
+            "BUNDLE_STEPS_REFUSED_VALUE",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][6].update(code="PIE-R3003"),
+            "BUNDLE_STEPS_AGAIN",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][3].update(shown=True),
+            "CREDENTIAL",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][5].update(chained=True),
+            "CREDENTIAL",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][6].update(attempt="a1"),
+            "BUNDLE_STEPS_ATTEMPTS",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][7].update(
+                threads=["MainThread", "pietto-deadline-x"]
+            ),
+            "BUNDLE_STEPS_THREADS",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][7].update(
+                jobs=["pietto._project.project_job_store"]
+            ),
+            "BUNDLE_STEPS_WORKSPACE",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][7]["files"]["cwd"].append(
+                "active_items.bundle"
+            ),
+            "BUNDLE_STEPS_FILES",
+        ),
+        (
+            lambda r: r["bundle_steps"]["records"][7]["files"]["home"].append(
+                ".pietto"
+            ),
+            "BUNDLE_STEPS_FILES",
+        ),
+        (lambda r: r["bundle_example"].update(returncode=1), "BUNDLE_EXAMPLE"),
+        (
+            lambda r: r["bundle_example"].update(
+                stdout=r["bundle_example"]["stdout"].replace("3 [5]", "3 [5, 5]")
+            ),
+            "BUNDLE_EXAMPLE",
+        ),
+        (
+            lambda r: r["bundle_example"].update(
+                stdout=r["bundle_example"]["stdout"].replace("bundle", "live")
+            ),
+            "BUNDLE_EXAMPLE",
+        ),
+        (lambda r: r["bundle_example"].update(shown=True), "CREDENTIAL"),
     ),
 )
 def test_the_checker_refuses_each_damaged_postgres_fact(damage, reason):
@@ -624,6 +1007,35 @@ def test_the_fixture_is_the_documented_setup_and_hides_every_password():
     ]
     assert {m[2]: m[-1] for m in lines if m[2] in probe.ROLES} == probe.ROLES
     assert json.loads(json.dumps(postgres_report())) == postgres_report()
+    # The bundle steps revoke and grant again exactly the documented grant,
+    # with roles of the fixture.
+    assert probe.PRIVILEGE["granted"] in api.statements(api.setup_blocks()["sql"])
+    assert probe.PRIVILEGE["revoked"] == probe.PRIVILEGE["granted"].replace(
+        "GRANT", "REVOKE"
+    ).replace(" TO ", " FROM ")
+    assert [s["name"] for s in probe.BUNDLE_STEPS] == list(check.STEPS)
+    assert {s["user"] for s in probe.BUNDLE_STEPS} <= set(probe.ROLES)
+
+
+def test_the_bundle_oracles_are_the_documented_output():
+    """The documented bundle script's printed lines are the checker's oracle,
+    computed from the fixture's rows for the values 1 and 3."""
+    docs = (ROOT / "docs/execution.md").read_text(encoding="utf-8")
+    section = docs.split("\n## Query bundles\n", 1)[1].split("\n## ", 1)[0]
+    printed = " ".join(section.split("It prints", 1)[1].split("\n\n", 1)[0].split())
+    assert printed == (
+        "`"
+        + check.BUNDLE_EXAMPLE[0]
+        + "`, then `"
+        + check.BUNDLE_EXAMPLE[1]
+        + "` and `"
+        + check.BUNDLE_EXAMPLE[2]
+        + "`."
+    )
+    for line, value in zip(check.BUNDLE_EXAMPLE[1:], (1, 3), strict=True):
+        ids = sorted(i for i, _label in probe.ROWS if i > value)
+        assert line == f"{value} {ids} COMPLETE"
+    assert [[i, label] for i, label in probe.ROWS if i > 3] == [[5, "five"]]
 
 
 class _Cursor:

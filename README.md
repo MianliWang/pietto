@@ -142,9 +142,10 @@ This source checkout also contains a public alpha for the PostgreSQL rows route:
 It is available from this checkout or a wheel built from it with
 `execute-postgres`; it is not exposed by the released 0.1.1 PyPI package or its
 v0.1.1 release assets, so installing `pietto[execute-postgres]` from PyPI does
-not provide it. The alpha accepts a compiled project query and explicit
-connection and deployment-premise inputs; it does not accept SQL text. It
-supports PostgreSQL 18.6 only, reached over TCP and authenticated with
+not provide it. The alpha accepts a compiled project query, or a compiled
+query bundle under the caller's own trust records, explicit parameter values,
+and explicit connection and deployment-premise inputs; it does not accept SQL
+text. It supports PostgreSQL 18.6 only, reached over TCP and authenticated with
 SCRAM-SHA-256 only, and sources with `Timestamp` or `UUID` fields are blocked
 when compiled. A wheel built from this checkout still declares version 0.1.1,
 so `pip show` cannot tell it from the released package. The MySQL and

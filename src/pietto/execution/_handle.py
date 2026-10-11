@@ -351,18 +351,23 @@ def execute(
     premise: PostgresDeploymentPremise,
     limits: ExecutionLimits = ExecutionLimits(),
     isolation: str = "stable",
+    values: tuple | None = None,
 ) -> ResultHandle:
     """Prepare one attempt of ``query`` and return its unopened ResultHandle.
 
     ``route``, ``access`` and ``premise`` have no default; ``None`` is refused
     (PIE-R1001). ``route`` must be ``postgres_rows`` and the query compiled
     for ``postgres``. ``isolation`` is ``stable`` (REPEATABLE READ READ ONLY)
-    or ``serializable``. Every request check runs here, before any
-    connection: first query, route, access, premise and limits are given and
-    of the right type and isolation is given, in that order, with the route's
-    availability for the query checked right after its type (PIE-R1003);
-    then the query is bound afresh (reading the installed code identity
-    again); then the values of premise, access, isolation (its type
+    or ``serializable``. ``values`` is None, which binds the values the query
+    was compiled with, or a tuple with exactly one value of its slot's exact
+    type for each of ``query.slots``; nothing is converted. Every request
+    check runs here, before any connection: first query, route, access,
+    premise and limits are given and of the right type and isolation is
+    given, in that order, with the route's availability for the query
+    checked right after its type (PIE-R1003); then ``values`` is None or a
+    tuple (PIE-R1002); then the query is bound afresh to the values
+    (PIE-R1006, PIE-R1004) and the installed code identity is read again
+    (PIE-R1005); then the values of premise, access, isolation (its type
     included) and limits, in that order. The first failure is raised as
     RequestRejected. The driver and environment are checked when the attempt
     opens. Each call is a new attempt.
@@ -391,6 +396,8 @@ def execute(
         raise _refuse("PIE-R1002", "PUBLIC_LIMITS_TYPE")
     if isolation is None:
         raise _refuse("PIE-R1001", "PUBLIC_ISOLATION_REQUIRED")
+    if values is not None and type(values) is not tuple:
+        raise _refuse("PIE-R1002", "PUBLIC_VALUES_TYPE")
     try:
         owner = composition.prepare_attempt(
             query._template,
@@ -412,6 +419,7 @@ def execute(
                 limits.seconds,
             ),
             isolation=isolation,
+            values=values,
         )
     except Exception as caught:
         refusal = request_failure(caught)

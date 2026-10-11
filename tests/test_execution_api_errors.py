@@ -56,7 +56,10 @@ def test_documented_runtime_codes_are_exactly_the_implemented_codes():
         (ex.ExecutionError("POSTGRES_DEPLOYMENT_PREMISE_SCOPE"), "PIE-R1002"),
         (ex.ExecutionError("COMPILED_FRESH_PROFILE_REQUIRED"), "PIE-R1003"),
         (ex.ExecutionError("UNFULFILLED_RUNTIME_OBLIGATION"), "PIE-R1004"),
-        (BindingError("BINDING_VALUE:0:Int"), "PIE-R1004"),
+        (BindingError("BINDING_VALUE:0:Int"), "PIE-R1006"),
+        (BindingError("BINDING_VALUE:1:Text"), "PIE-R1006"),
+        (BindingError("BINDING_SLOTS"), "PIE-R1006"),
+        (BindingError("BINDING_INVALID"), "PIE-R1004"),
         (CompiledError("COMPILED_EXPORT_SHAPE"), "PIE-R1004"),
         (ResultError("PRODUCER_UNSUPPORTED"), "PIE-R1004"),
         (ex.ExecutionError("COMPILED_COMPATIBILITY"), "PIE-R1005"),
@@ -70,6 +73,51 @@ def test_request_refusals_are_classified_by_their_category_word(error, code):
     refusal = errors.request_failure(error)
     assert refusal.code == code
     assert refusal.category == errors.CODES[code][0]
+
+
+@pytest.mark.parametrize(
+    "error,code",
+    (
+        (CompiledError("PUBLIC_BUNDLE_CODE_IDENTITY"), "PIE-R1005"),
+        (CompiledError("COMPILED_CODE_ORIGIN"), "PIE-R1005"),
+        (CompiledError("COMPILED_HANDOFF"), "PIE-R1008"),
+        (CompiledError("PUBLIC_BUNDLE_SIZE"), "PIE-R1002"),
+        (CompiledError("COMPILED_BYTE_LIMIT"), "PIE-R1008"),
+        (CompiledError("COMPILED_CONTENT_PIN"), "PIE-R1007"),
+        (CompiledError("PUBLIC_BUNDLE_UNSUPPORTED"), "PIE-R1004"),
+        (CompiledError("COMPILED_COMPATIBILITY"), "PIE-R1008"),
+        (CompiledError("COMPILED_JSON"), "PIE-R1008"),
+        (CompiledError("COMPILED_DEPTH_LIMIT"), "PIE-R1008"),
+        (CompiledError("COMPILED_CANONICAL"), "PIE-R1008"),
+        (BindingError("COMPILED_COMPATIBILITY"), "PIE-R1999"),
+        (ValueError("COMPILED_JSON"), "PIE-R1999"),
+        (CompiledError("lower case is no category"), "PIE-R1999"),
+        (DriverError("x"), "PIE-R1999"),
+    ),
+)
+def test_bundle_refusals_are_classified_by_their_category_word(error, code):
+    """load_bundle's acceptance stage: the code identity, the payload's size,
+    the pin, then any other loader refusal of the bytes."""
+    refusal = errors.bundle_failure(error)
+    assert (refusal.code, refusal.category) == (code, errors.CODES[code][0])
+    assert refusal.cause == type(error).__name__
+
+
+def test_value_and_bundle_refusal_text_is_fixed_vocabulary():
+    for refusal, text in (
+        (
+            errors.request_failure(BindingError("BINDING_VALUE:0:Int")),
+            "PIE-R1006 VALUE_REFUSED: the values do not fit the query's slots:"
+            " their number differs, or a value's exact type or range is not its"
+            " slot's (detail=BINDING_VALUE:0:Int, cause=BindingError)",
+        ),
+        (
+            errors.bundle_failure(CompiledError("COMPILED_CONTENT_PIN")),
+            "PIE-R1007 BUNDLE_CONTENT: the bundle bytes are not the bytes the"
+            " expected pin names (detail=COMPILED_CONTENT_PIN, cause=CompiledError)",
+        ),
+    ):
+        assert str(refusal) == text
 
 
 @pytest.mark.parametrize(
@@ -240,12 +288,15 @@ def test_public_surface_is_exactly_the_alpha_names():
         "Outcome",
         "PostgresAccess",
         "PostgresDeploymentPremise",
+        "QueryBundle",
         "RequestRejected",
         "ResultBatch",
         "ResultHandle",
         "UnclosedHandleWarning",
         "compile_query",
         "execute",
+        "export_bundle",
+        "load_bundle",
     }
     for name in execution.__all__:
         assert getattr(execution, name).__module__.startswith("pietto.execution.")

@@ -1,6 +1,6 @@
 """Offline fixtures of the public execution tests; importing acquires nothing.
 
-- The documented example project, relation and script and the documented
+- The documented example project, relation and scripts and the documented
   server setup, read from docs/execution.md.
 - A protocol-level PostgreSQL stub on loopback: it answers an SSLRequest,
   reads the startup packet, asks for one authentication method and records
@@ -43,6 +43,11 @@ def example_blocks():
     return _blocks("Example", ("text", "toml", "pietto", "json", "sql", "python"))
 
 
+def bundle_blocks():
+    """The documented bundle script."""
+    return _blocks("Query bundles", ("python",))
+
+
 def setup_blocks():
     """The documented server setup: role statements, the psql password
     commands and the pg_hba.conf lines."""
@@ -55,8 +60,9 @@ def statements(block):
 
 
 def write_example(directory, *, relation="items"):
-    """Write the documented `demo-exec` project and `run_query.py` into
-    `directory`; `relation` renames the physical relation only."""
+    """Write the documented `demo-exec` project, `run_query.py` and
+    `bundle_query.py` into `directory`; `relation` renames the physical
+    relation only."""
     blocks = example_blocks()
     project = Path(directory) / "demo-exec"
     project.mkdir(parents=True)
@@ -69,6 +75,9 @@ def write_example(directory, *, relation="items"):
     )
     (project / "contract.json").write_text(contract, encoding="utf-8")
     (Path(directory) / "run_query.py").write_text(blocks["python"], encoding="utf-8")
+    (Path(directory) / "bundle_query.py").write_text(
+        bundle_blocks()["python"], encoding="utf-8"
+    )
     return project
 
 

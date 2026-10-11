@@ -1054,8 +1054,16 @@ sent, and inotify shows that `require` opens no `~/.postgresql` file and a
 GSSAPI request no Kerberos input; each law has an unpinned control that proves
 the observation sees the unpinned behavior. A stand-in owner drives the
 handle's lifecycle: terminal outcomes that stay as reached, finalization and
-cleanup failures (`PIE-R3006`, `PIE-R5001`) and dropped handles. These tests
-need loopback TCP and Linux inotify, which the integration host and hosted CI
+cleanup failures (`PIE-R3006`, `PIE-R5001`) and dropped handles.
+`tests/test_execution_api_queries.py` covers query bundles and values: export
+and load under the caller's own records (each record required, the installed
+code compared before the bytes are read, changed bytes, mixed records and SQL
+text refused, guarded or refined bundles refused, the honest limit of a pin
+computed from changed bytes), exact values per slot, repeated calls that share
+only the template, invalidation by a patched code identity and the snapshot of
+a compiled project, and a fresh `-I` process that loads a bundle whose project
+is gone without reading a project file or connecting. These tests need
+loopback TCP and Linux inotify, which the integration host and hosted CI
 provide. `tests/test_harness_execution_api.py` runs the probe's database-free
 consumer cases against the checkout and gives every law of the checker a
 damaged fact that it must refuse with that law's reason.
@@ -1064,7 +1072,10 @@ Real evidence runs explicitly through `tests/_pietto_execution_api_probe.py`;
 its independent checker `_pietto_execution_api_check` judges the raw facts
 against literal oracles. `consumer` (Validation Runner Acceptance R4 row 7)
 materializes a core and an `execute-postgres` prefix of the candidate wheel from
-the S18 wheelhouse and runs the database-free cases installed. `postgres` (row
+the S18 wheelhouse and runs the database-free cases installed: among them the
+bundle records, loaded facts and refusals, the export and load under a stray
+`*.dist-info`, a code change through a copied and edited `pietto` package, and
+a loaded bundle refused in the core prefix. `postgres` (row
 4: Docker and the pinned PostgreSQL 18.6 image) sets up the server as
 documented (the relation, the reader role and its `\password` verifier, TLS
 on, the `hostssl` and loopback `host` lines first), adds one role per refused
@@ -1075,14 +1086,19 @@ the trust, password and md5 refusals, the 10 second statement limit while
 another session holds a lock (a 60 second deadline and no server-side limit for
 the role, so only Pietto's limit can end it; the exact 10 000 ms is pinned
 offline) and a dropped handle (its TLS session while the worker runs, the exit
-delay of the deadline timer, no session afterwards). Natural CI runs the offline
+delay of the deadline timer, no session afterwards). It also exports a bundle
+from a project copy that it then deletes, loads it once in an empty working
+directory and runs it step by step (values 1 and 3, a refused role, the
+reader's `SELECT` revoked and granted again, a refused value), and runs the
+documented `bundle_query.py`. Natural CI runs the offline
 tests only. Both families run on the exact candidate wheel before the Slice's
 Gate 2 seal, and again whenever any of their inputs changes:
 `src/pietto/execution`, `project_public_execution`, the PostgreSQL rows owner,
 the shared request and environment checks in `project_execution` (including
 `pinned_modules`, `refuse_ambient` and `verify_postgres_deployment`),
-`project_compiled_loading.owner_versions`, `project_arrow_result`, the Example
-and server-setup blocks of [Execution](execution.md), or
-`tests/_pietto_execution_api*.py`. Each `report.json` records the probe, docs
-and wheel digests and is archived with the checker's verdict. Production edits
-change the semantic build identity, so installed witnesses use the final code.
+`project_compiled_loading`, `project_execution_template`,
+`project_arrow_result`, the Example, Query bundles and server-setup blocks of
+[Execution](execution.md), or `tests/_pietto_execution_api*.py`. Each
+`report.json` records the probe, docs and wheel digests and is archived with
+the checker's verdict. Production edits change the semantic build identity, so
+installed witnesses use the final code.

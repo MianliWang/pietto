@@ -2,9 +2,11 @@
 
 It judges the raw facts `_pietto_execution_api_probe` wrote against literal
 oracles: the interpreter, the server's TLS and pg_hba.conf rules, the
-fixture's rows, the documented example's output over TLS and on loopback, the
+fixture's rows, the documented examples' output over TLS and on loopback, the
 PIE-R codes and terminal states each case must reach, the 10 second statement
-limit, the effects an attempt leaves, and the absence of every password.
+limit, the effects an attempt leaves, query bundles and their records, the
+refusals of changed bytes, foreign records, values and a code change, the
+steps of one loaded bundle, and the absence of every password.
 """
 
 from __future__ import annotations
@@ -48,8 +50,52 @@ HBA = [
 TLS = ("TLSv1.2", "TLSv1.3")
 EXAMPLE_REPR = (
     "CompiledQuery(module='main.pietto', kind='table', name='active_items',"
-    " dialect='postgres', release='18.6', literal_policy='preserve')"
+    " dialect='postgres', release='18.6', literal_policy='preserve',"
+    " origin='live')"
 )
+# The documented bundle script: the loaded query's origin and slots, then the
+# ids with id > 1 and with id > 3, each attempt complete.
+BUNDLE_EXAMPLE = ["bundle ('Int',)", "1 [2, 2, 3, 5] COMPLETE", "3 [5] COMPLETE"]
+# The documented table compiled bind-safe and loaded from its bundle.
+BUNDLE_LOADED = {
+    "origin": "bundle",
+    "module": "main.pietto",
+    "kind": "table",
+    "name": "active_items",
+    "dialect": "postgres",
+    "release": "18.6",
+    "literal_policy": "bind-safe",
+    "slots": ["Int"],
+    "emission": None,
+}
+# [code, detail, password shown, chained] of each refused bundle input.
+BUNDLE_REFUSALS = {
+    "tampered": ["PIE-R1007", "COMPILED_CONTENT_PIN", False, False],
+    "truncated": ["PIE-R1007", "COMPILED_CONTENT_PIN", False, False],
+    "sql_self_pinned": ["PIE-R1008", "COMPILED_JSON", False, False],
+    "mixed_records": ["PIE-R1008", "COMPILED_COMPATIBILITY", False, False],
+    "foreign_compatibility": ["PIE-R1005", "PUBLIC_BUNDLE_CODE_IDENTITY", False, False],
+    "pin_none": ["PIE-R1001", "PUBLIC_TRUST_INPUT_REQUIRED", False, False],
+    "bundle_as_pin": ["PIE-R1002", "PUBLIC_TRUST_INPUT_TYPE", False, False],
+    "upper_pin": ["PIE-R1002", "PUBLIC_TRUST_INPUT_TYPE", False, False],
+    "payload_text": ["PIE-R1002", "PUBLIC_PAYLOAD_TYPE", False, False],
+    "payload_bytearray": ["PIE-R1002", "PUBLIC_PAYLOAD_TYPE", False, False],
+    "payload_empty": ["PIE-R1002", "PUBLIC_BUNDLE_SIZE", False, False],
+    "export_bytes": ["PIE-R1002", "PUBLIC_QUERY_TYPE", False, False],
+    "value_bool": ["PIE-R1006", "BINDING_VALUE:0:Int", False, False],
+    "value_count": ["PIE-R1006", "BINDING_SLOTS", False, False],
+    "values_list": ["PIE-R1002", "PUBLIC_VALUES_TYPE", False, False],
+}
+# Worker 2 of the code change, on its copied and then changed package.
+CODE_CHANGE = {
+    "old_records": ["PIE-R1005", "PUBLIC_BUNDLE_CODE_IDENTITY", False, False],
+    "relabeled": ["PIE-R1008", "COMPILED_COMPATIBILITY", False, False],
+    "execute_live": ["PIE-R1005", "COMPILED_COMPATIBILITY", False, False],
+    "execute_loaded": ["PIE-R1005", "COMPILED_COMPATIBILITY", False, False],
+    "records_after_change": ["PIE-R1005", "PUBLIC_BUNDLE_CODE_IDENTITY", False, False],
+}
+RECORD_NAMES = ["accepted_compatibility", "accepted_producer", "expected_pin"]
+STEPS = ("first", "other_role", "revoked", "granted", "refused_value", "again")
 
 
 class Rejected(ValueError):
@@ -66,6 +112,19 @@ def result(record: Any, reason: Any) -> Any:
     value = record.get("result")
     need(type(value) is dict, reason)
     return value
+
+
+def hex64(value: Any) -> bool:
+    return (
+        type(value) is str
+        and len(value) == 64
+        and all(c in "0123456789abcdef" for c in value)
+    )
+
+
+def check_records(records: Any, reason: str) -> None:
+    need(type(records) is dict and sorted(records) == RECORD_NAMES, reason)
+    need(all(hex64(v) for v in records.values()), reason)
 
 
 def check_install(install: Any, recipes: Any) -> None:
@@ -136,6 +195,51 @@ def check_consumer_cases(cases: Any) -> None:
     need(clean.get("identity") == stray.get("identity"), "IDENTITY_FOLLOWS_CWD")
     need(stray.get("metadata") == "9.9.9", "IDENTITY_CONTROL")
     need(clean.get("metadata") != "9.9.9", "IDENTITY_CONTROL")
+    # The stray dist-info changes neither the records an export returns nor
+    # what a load accepts; the compatibility is the installed identity.
+    exported = clean.get("records")
+    need(type(exported) is list and len(exported) == 3, "IDENTITY_BUNDLE")
+    need(all(hex64(r) for r in exported), "IDENTITY_BUNDLE")
+    need(stray.get("records") == exported, "IDENTITY_BUNDLE")
+    need(exported[2] == clean.get("identity"), "IDENTITY_BUNDLE")
+    need(clean.get("origin") == stray.get("origin") == "bundle", "IDENTITY_BUNDLE")
+    check_bundles(cases.get("bundles"))
+    check_code_change(cases.get("code_change") or {})
+
+
+def check_bundles(record: Any) -> None:
+    """Export, load and re-export of one query; unopened attempts with values;
+    the refused bundle inputs; nothing loaded, connected or exposed."""
+    value = result(record, "BUNDLES")
+    unopened(value)
+    records = value.get("records")
+    need(type(records) is list and len(records) == 3, "BUNDLE_RECORDS")
+    need(
+        all(hex64(r) for r in [*records, value.get("payload_sha256")]), "BUNDLE_RECORDS"
+    )
+    need(value.get("equal") == [True, True, True], "BUNDLE_RECORDS")
+    need(value.get("loaded") == BUNDLE_LOADED, "BUNDLE_LOADED")
+    need(value.get("refusals") == BUNDLE_REFUSALS, "BUNDLE_REFUSALS")
+    attempts = value.get("attempts") or []
+    need(len(attempts) == 2 and len(set(attempts)) == 2, "BUNDLE_EFFECTS")
+    need(value.get("ends") == ["NOT_STARTED", "NOT_STARTED"], "BUNDLE_EFFECTS")
+    need(value.get("password_in_payload") is False, "BUNDLE_EFFECTS")
+    need(value.get("after") == [], "BUNDLE_EFFECTS")
+    need(record.get("connected") is False, "BUNDLE_EFFECTS")
+
+
+def check_code_change(change: Any) -> None:
+    """Worker 2 imported the changed copy; old records, relabeled bytes and,
+    after one more change, every earlier query and record are refused."""
+    exported = result(change.get("export"), "CODE_CHANGE")
+    changed = result(change.get("run"), "CODE_CHANGE")
+    check_records(exported.get("records"), "CODE_CHANGE")
+    need(changed.get("imported") == change.get("copy"), "CODE_CHANGE_COPY")
+    need(exported.get("imported") != change.get("copy"), "CODE_CHANGE_COPY")
+    need(changed.get("compatibility_changed") is True, "CODE_CHANGE")
+    need(changed.get("own_load") == "bundle", "CODE_CHANGE")
+    need(changed.get("refusals") == CODE_CHANGE, "CODE_CHANGE")
+    need(change.get("connected") is False, "CODE_CHANGE")
 
 
 def check_consumer(report: Any) -> Any:
@@ -147,6 +251,14 @@ def check_consumer(report: Any) -> Any:
         "CORE_FALLBACK",
     )
     need(core.get("after_open") == [], "CORE_LOADED_DRIVER")
+    bundle = refused(
+        report.get("core_bundle"),
+        "PIE-R2001",
+        "EXECUTION_DEPENDENCY_MISSING",
+        "CORE_BUNDLE_FALLBACK",
+    )
+    need(bundle.get("origin") == "bundle", "CORE_BUNDLE_FALLBACK")
+    need(bundle.get("after_open") == [], "CORE_LOADED_DRIVER")
     check_consumer_cases(report.get("cases") or {})
     return {"family": "consumer", "verdict": "ACCEPTED"}
 
@@ -207,6 +319,76 @@ def check_example(record: Any) -> None:
         need(type(batch) is list and batch, "EXAMPLE_BATCH")
         found.extend([row["id"], row["label"]] for row in batch)
     need(Counter(map(tuple, found)) == Counter(map(tuple, ROWS)), "EXAMPLE_ROWS")
+
+
+def check_bundle_example(record: Any) -> None:
+    need(type(record) is dict and record.get("returncode") == 0, "BUNDLE_EXAMPLE")
+    need(record.get("shown") is False, "CREDENTIAL")
+    lines = record.get("stdout", "").strip().splitlines()
+    need(lines == BUNDLE_EXAMPLE, "BUNDLE_EXAMPLE")
+
+
+def completed(record: Any, rows: Any, reason: str) -> None:
+    outcome = record.get("outcome") or {}
+    need("code" not in record and record.get("rows") == rows, reason)
+    need(
+        (outcome.get("end"), outcome.get("transaction")) == ("COMPLETE", "COMMIT_ACK"),
+        reason,
+    )
+
+
+def check_steps(steps: Any) -> None:
+    """One bundle loaded once without its source, then each step on it: the
+    reader with values 1, 3 and 1 again, a refused role, the revoked and
+    granted privilege, a refused value; distinct attempts and no effects."""
+    need(steps.get("returncode") == 0, "BUNDLE_STEPS")
+    records = steps.get("records") or []
+    need(len(records) == len(STEPS) + 2, "BUNDLE_STEPS")
+    first, *done, after = records
+    need(
+        first == {"loaded": BUNDLE_LOADED, "source_present": False},
+        "BUNDLE_STEPS_LOADED",
+    )
+    need([r.get("step") for r in done] == list(STEPS), "BUNDLE_STEPS")
+    by = {r["step"]: r for r in done}
+    completed(by["first"], sorted(ROWS), "BUNDLE_STEPS_FIRST")
+    completed(by["granted"], [[5, "five"]], "BUNDLE_STEPS_GRANTED")
+    completed(by["again"], sorted(ROWS), "BUNDLE_STEPS_AGAIN")
+    role = by["other_role"]
+    outcome = role.get("outcome") or {}
+    need(
+        (role.get("code"), outcome.get("end"), outcome.get("transaction"))
+        == ("PIE-R2004", "FAILED", "NOT_STARTED"),
+        "BUNDLE_STEPS_OTHER_ROLE",
+    )
+    revoked = by["revoked"]
+    need(
+        (
+            revoked.get("code"),
+            revoked.get("sqlstate"),
+            (revoked.get("outcome") or {}).get("end"),
+        )
+        == ("PIE-R3003", "42501", "FAILED"),
+        "BUNDLE_STEPS_REVOKED",
+    )
+    value = by["refused_value"]
+    need(
+        (value.get("code"), value.get("detail"), value.get("attempt"))
+        == ("PIE-R1006", "BINDING_VALUE:0:Int", None)
+        and "outcome" not in value,
+        "BUNDLE_STEPS_REFUSED_VALUE",
+    )
+    for record in done:
+        need(
+            record.get("shown", False) is False
+            and record.get("chained", False) is False,
+            "CREDENTIAL",
+        )
+    attempts = [r.get("attempt") for r in done if r.get("attempt") is not None]
+    need(len(attempts) == 5 and len(set(attempts)) == 5, "BUNDLE_STEPS_ATTEMPTS")
+    need(after.get("threads") == ["MainThread"], "BUNDLE_STEPS_THREADS")
+    need(after.get("jobs") == [], "BUNDLE_STEPS_WORKSPACE")
+    need(after.get("files") == {"cwd": [], "home": [], "tmp": []}, "BUNDLE_STEPS_FILES")
 
 
 def check_postgres(report: Any) -> Any:
@@ -289,6 +471,10 @@ def check_postgres(report: Any) -> Any:
     need(len(tls) == 1 and tls[0][0] is True and tls[0][1] in TLS, "ACTUAL_TLS")
     need(2.0 <= (drop.get("exit_delay") or 0) < 30.0, "DROPPED_EXIT_DELAY")
     need(drop.get("after") == 0, "DROPPED_SESSION_LEFT")
+    exported = result(report.get("bundle_export"), "BUNDLE_EXPORT")
+    check_records(exported.get("records"), "BUNDLE_EXPORT")
+    check_steps(report.get("bundle_steps") or {})
+    check_bundle_example(report.get("bundle_example"))
     need((report.get("cleanup") or {}).get("status") == "success", "RESOURCE_CLEANUP")
     return {"family": "postgres", "verdict": "ACCEPTED"}
 

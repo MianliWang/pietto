@@ -1,11 +1,13 @@
 """Private composition behind the public execution alpha (`pietto.execution`).
 
 Each public call composes the existing owners once and reinterprets nothing:
-the shared project emission and live compiled template for a compile, and for
-an attempt a fresh binding of the source's own literal values, the caller's
-explicit access and deployment premise for exactly that binding's sources, and
-the PostgreSQL rows owner. Nothing but the template outlives a call; no
-binding, request, qualification or failure is cached.
+the shared project emission and live compiled template for a compile; the
+original compiled loader under the caller's own trust records, then the
+compiled template, for a bundle; and for an attempt a fresh binding of the
+caller's values (or the compiled literals), the caller's explicit access and
+deployment premise for exactly that binding's sources, and the PostgreSQL rows
+owner. Nothing but the template outlives a call; no binding, request,
+qualification, accepted bundle or failure is cached.
 """
 
 from __future__ import annotations
@@ -29,18 +31,102 @@ def compile_live(project, module, kind, name, dialect, contract, policy):
     return outcome, prepare_live_template(outcome.artifact)
 
 
+def accept_bundle(payload, pin, producer, compatibility):
+    """The original loader under the caller's three records. The installed
+    code identity is compared with the accepted one and the payload's size is
+    checked before the bytes are read; only the shapes compile_query produces
+    are accepted."""
+    from pietto._project.project_compiled_loading import (
+        load_compiled,
+        supported_compatibility,
+    )
+    from pietto._project.project_compiled_schema import (
+        MAX_BYTES,
+        VERSIONS,
+        Address,
+        CompiledError,
+    )
+
+    accepted = (*VERSIONS, compatibility)
+    if accepted != supported_compatibility():
+        raise CompiledError("PUBLIC_BUNDLE_CODE_IDENTITY")
+    if not 0 < len(payload) <= MAX_BYTES:
+        raise CompiledError("PUBLIC_BUNDLE_SIZE")
+    root = load_compiled(
+        payload,
+        expected_pin=pin,
+        accepted_producer=producer,
+        accepted_compatibility=accepted,
+    )
+    policy = root.records[Address("policy", 0)]
+    if policy.get("guarded") or policy.get("refinement") is not None:
+        raise CompiledError("PUBLIC_BUNDLE_UNSUPPORTED")
+    return root
+
+
+def bundle_template(root):
+    """The compiled template of an accepted root (its own failure stage)."""
+    from pietto._project.project_execution_template import prepare_compiled_template
+
+    return prepare_compiled_template(root)
+
+
+def query_facts(template):
+    """Module, kind, name, family, release, literal policy and slot tags of a
+    compiled template, read from its root's own records."""
+    from pietto._project.project_compiled_schema import Address
+    from pietto._project.project_sql_emission_cli import POLICIES
+
+    request = template.artifact.request
+    root = request.verification.completed.root
+    declaration = root.records[root.records[root.description.query].get("declaration")]
+    policy = root.records[Address("policy", 0)].get("literal_policy")
+    return (
+        declaration.get("module"),
+        declaration.get("kind"),
+        declaration.get("label"),
+        request.family,
+        request.release,
+        {value: name for name, value in POLICIES.items()}[policy],
+        tuple(slot.tag for slot in template.slots),
+    )
+
+
+def export_facts(template):
+    """The verified compiled root's exact bytes and its own pin, producer and
+    code identity; no I/O."""
+    from pietto._project.project_compiled_schema import encode
+
+    root = template.artifact.request.verification.completed.root
+    root.verify()
+    return (
+        encode(root.description),
+        root.expected_pin,
+        root.accepted_producer,
+        root.accepted_compatibility[-1],
+    )
+
+
 @entry
-def prepare_attempt(template, access, *, route, schemas, limits, isolation):
+def prepare_attempt(
+    template, access, *, route, schemas, limits, isolation, values=None
+):
     """One fresh, unopened PostgreSQL rows owner; no I/O. One scope verifies
-    the template's compiled root once for the binding and the request."""
+    the template's compiled root once for the binding and the request.
+    `values` None binds the template's own literals; a tuple of another
+    length is handed to the binder whole, which refuses it."""
     from pietto._project.project_execution_postgres import PostgresExecution
     from pietto._project.project_execution_template import bind_values
 
+    if values is None:
+        values = tuple(
+            slot.original.site.position.literal.value for slot in template.slots
+        )
     binding = bind_values(
         template,
-        tuple(
-            (slot, slot.original.site.position.literal.value) for slot in template.slots
-        ),
+        tuple(zip(template.slots, values))
+        if len(values) == len(template.slots)
+        else values,
     )
     premise = ex.PostgresDeploymentPremise(
         access, binding.artifact.request.sources, schemas, route

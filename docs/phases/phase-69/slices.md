@@ -1,15 +1,16 @@
 # Phase69 route — 21 rows
 
 Phase69 负责公开 alpha 发行工程与统一安全入口（[路线图](../../roadmap.md) Future Roadmap v6 中 Phase 69 一行）。
-本路线随路线锁定批发布：路线锁定与 Phase69 开始都只在该批的批次头的普通提交、FF push 与自然 exact-head CI 全部 job 成功后成立，此前是 candidate。
+本路线随路线锁定批发布：路线锁定 COMPLETED / PUBLISHED，head `f93dfc23d9c372146fb48e791e7c9c13f7c53531`，CI38140918564/push/main/attempt1，Phase69 已开始。
 下表是覆盖与依赖基准，不授权任何 Slice 开工、合入、验证或发布；每个 Slice 在自己的 Gate 0/1 展开时绑定精确输入、写集、命令、验收与成本。所有者决定见[决定记录](../../decisions.md)。
 
 ## 授权组与依赖顺序
 
 依赖顺序是 S01；S02–S07 一组；S08–S14 在 S07 之后的现实检查之后；S15–S19 在中点之后；S20 与 S21 各自单独派发（所有者 2026-10-11 决定）。
 
-- S01 先合入：在路线锁定发布之后合入（单独成批，或与 S02 同批），把 S19 consumer 与 check 的回执目录、审计记录与身份三元组改为显式参数；它的 `COMPLETED / PUBLISHED` 仅在包含它的批次头的普通提交、FF push 与自然 exact-head CI 全部 job 成功后成立，此前是 candidate。
-- S02 在 S01 之后合入（与 S01 同批，或在 S01 发布之后单独成批），提供公开 PostgreSQL rows 执行 alpha（`pietto.execution`）；它的 `COMPLETED / PUBLISHED` 仅在包含它的批次头的普通提交、FF push 与自然 exact-head CI 全部 job 成功后成立，此前是 candidate。下一个可合入的是 S03，经它自己的 Gate 0。
+- S01 COMPLETED / PUBLISHED，与 S02 同批，head `a7bcb2d7ed4a4c688ce84a68182e70d166a60f4a`，CI38144178777/push/main/attempt1：把 S19 consumer 与 check 的回执目录、审计记录与身份三元组改为显式参数。
+- S02 COMPLETED / PUBLISHED，与 S01 同批，head `a7bcb2d7ed4a4c688ce84a68182e70d166a60f4a`，CI38144178777/push/main/attempt1：公开 PostgreSQL rows 执行 alpha（`pietto.execution`）。
+- S03 在 S02 之后合入，提供调用方自有信任记录下的查询 bundle（`export_bundle`、`load_bundle`）、显式值与重复调用；它是集成 candidate，它的 `COMPLETED / PUBLISHED` 仅在它自己的已推送 head 的普通提交、FF push 与自然 exact-head CI 全部 job 成功后成立，此前是 candidate。下一个可合入的是 S04，经它自己的 Gate 0。
 - S02–S07 与 S01 同属所有者对第 1–7 片的常设授权，连续进行；遇到 BLOCKER、拆片，或新的公共、信任、预算决定即停。
 - S08–S14 HOLD，直到 S07 之后的现实检查（三条路线当前的资格与支持 profile）。
 - S15–S19 HOLD，直到中点：S11 之后按 S/H/L/K/Q 重估，并复核当时 CI health 的适用样本与 alerts。

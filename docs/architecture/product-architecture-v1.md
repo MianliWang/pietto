@@ -89,7 +89,7 @@ interchange mechanism. In particular:
 | Target-neutral SQL requirements and lowering plan | ProjectSQLPlan |
 | Selected backend SQL representation | dialect SQL AST |
 | Connections, statements, streaming, and cancellation | optional execution plane |
-| Public Python execution entry points (alpha): request checks, explicit route selection, attempt handles, result batches, terminal outcomes and error projection | public entry layer (`pietto.execution`); composes the compiler, compiled-template, execution and result owners, keeps trust, access and premise inputs caller-supplied, and never re-interprets syntax, schemas, identity, guards, source qualification or results |
+| Public Python execution entry points (alpha): request checks, explicit route selection, attempt handles, result batches, terminal outcomes and error projection | public entry layer (`pietto.execution`); composes the compiler, compiled-bundle, compiled-template, execution and result owners, keeps trust, access and premise inputs caller-supplied, and never re-interprets syntax, schemas, identity, guards, source qualification or results |
 | Completed-result shape and transport | PiettoResultContract / Arrow |
 | pandas, Polars, NumPy, SciPy, plotting, domain, and device integration | explicit adapter planes |
 

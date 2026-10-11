@@ -12,7 +12,7 @@ for both families; row 4, Docker with the pinned image, for `postgres`):
 
 Each family materializes fresh prefixes of the exact wheel from the verified
 wheelhouse of the lock's artifacts (the S18 recipe; `--house` reuses an
-existing one), runs the documented example and the case workers there as
+existing one), runs the documented examples and the case workers there as
 fresh `-I -B` interpreters with a clean environment (no forced
 `PSYCOPG_IMPL`), the configuration and passwords on standard input and an
 unrelated working directory, writes raw facts to `report.json` and exits
@@ -21,8 +21,11 @@ them. The `postgres` fixture follows the documented server setup: the
 documented relation, reader role and `\\password` exchange, TLS on, and the
 documented `hostssl`/`host` pg_hba.conf lines (database and client address
 replaced, since Docker's gateway rather than 127.0.0.1 reaches the server).
-Ordinary pytest never runs a family; it runs the consumer cases against the
-checkout and the checker.
+Query bundles are exported, loaded, refused and re-run under a changed copy
+of the code in `consumer`, and in `postgres` one bundle whose project is
+deleted is loaded once and run step by step while the reader's privilege is
+revoked and granted again. Ordinary pytest never runs a family; it runs the
+consumer cases against the checkout and the checker.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
@@ -93,11 +97,21 @@ for entry in reversed(config.get("path", ())):
     sys.path.insert(0, entry)
 case = config["case"]
 result = {"case": case}
+def records(bundle):
+    return dict(expected_pin=bundle.pin, accepted_producer=bundle.producer,
+        accepted_compatibility=bundle.compatibility)
 if case == "identity":
     from importlib.metadata import version
     from pietto._project.project_compiled_loading import semantic_build_identity
+    import pietto.execution as pe
+    exported = pe.export_bundle(pe.compile_query(config["project"],
+        module="main.pietto", kind="table", name="active_items", dialect="postgres",
+        emission_contract="contract.json", literal_policy="bind-safe"))
+    bundled = pe.load_bundle(exported.payload, **records(exported))
     result.update(identity=semantic_build_identity(),
-        metadata=version("antlr4-python3-runtime"))
+        metadata=version("antlr4-python3-runtime"),
+        records=[exported.pin, exported.producer, exported.compatibility],
+        origin=bundled.origin)
     print(json.dumps(result))
     raise SystemExit(0)
 DRIVERS = {"psycopg", "psycopg_binary", "pyarrow"}
@@ -126,9 +140,20 @@ def refusal(error):
         "sqlstate": error.failure.sqlstate, "shown": password in str(error),
         "chained": error.__cause__ is not None or error.__context__ is not None,
         "outcome": None if error.outcome is None else facts(error.outcome)}
+def rejected(call):
+    try:
+        call()
+    except pe.RequestRejected as error:
+        return [error.code, error.detail, password in str(error) + repr(error),
+            error.__cause__ is not None or error.__context__ is not None]
+    return None
 query = pe.compile_query(config["project"], module="main.pietto", kind="table",
     name="active_items", dialect="postgres", emission_contract="contract.json",
     literal_policy=config.get("policy", "preserve"))
+if config.get("load_bundle"):
+    exported = pe.export_bundle(query)
+    query = pe.load_bundle(exported.payload, **records(exported))
+result["origin"] = query.origin
 access = pe.PostgresAccess(config.get("host", "127.0.0.1"), config["port"],
     config.get("database", "phase66"), config.get("user", "pietto_reader"),
     password, config.get("sslmode", "require"))
@@ -208,8 +233,158 @@ elif case == "dropped":
         w.message.outcome.attempt == attempt_id] for w in caught
         if isinstance(w.message, pe.UnclosedHandleWarning)]
     result["dropped_at"] = time.monotonic()
+elif case == "bundles":
+    import hashlib
+    from pietto._project.project_compiled_schema import content_pin
+    first, second = pe.export_bundle(query), pe.export_bundle(query)
+    bundled = pe.load_bundle(first.payload, **records(first))
+    again = pe.export_bundle(bundled)
+    handles = [pe.execute(bundled, route="postgres_rows", access=access,
+        premise=premise, values=(3,)) for _ in range(2)]
+    other = pe.export_bundle(pe.compile_query(config["other"], module="main.pietto",
+        kind="table", name="active_items", dialect="postgres",
+        emission_contract="contract.json", literal_policy="bind-safe"))
+    tampered = first.payload.replace(b'"1"]', b'"7"]', 1)
+    sql = b"SELECT * FROM fixture.items"
+    def loading(payload, **changes):
+        return lambda: pe.load_bundle(payload, **{**records(first), **changes})
+    def running(values):
+        return lambda: pe.execute(bundled, route="postgres_rows", access=access,
+            premise=premise, values=values)
+    refusals = {name: rejected(call) for name, call in (
+        ("tampered", loading(tampered)),
+        ("truncated", loading(first.payload[:-1])),
+        ("sql_self_pinned", loading(sql, expected_pin=content_pin(sql))),
+        ("mixed_records", loading(first.payload, accepted_producer=other.producer)),
+        ("foreign_compatibility", loading(first.payload,
+            accepted_compatibility="0" * 64)),
+        ("pin_none", loading(first.payload, expected_pin=None)),
+        ("bundle_as_pin", loading(first.payload, expected_pin=first)),
+        ("upper_pin", loading(first.payload, expected_pin=first.pin.upper())),
+        ("payload_text", loading(first.payload.decode())),
+        ("payload_bytearray", loading(bytearray(first.payload))),
+        ("payload_empty", loading(b"")),
+        ("export_bytes", lambda: pe.export_bundle(first.payload)),
+        ("value_bool", running((True,))),
+        ("value_count", running((3, 4))),
+        ("values_list", running([3])))}
+    after = pe.export_bundle(bundled)
+    result.update(records=[first.pin, first.producer, first.compatibility],
+        payload_sha256=hashlib.sha256(first.payload).hexdigest(),
+        equal=[first == second, first == again, first == after],
+        loaded={"origin": bundled.origin, "module": bundled.module,
+            "kind": bundled.kind, "name": bundled.name, "dialect": bundled.dialect,
+            "release": bundled.release, "literal_policy": bundled.literal_policy,
+            "slots": list(bundled.slots), "emission": bundled.emission},
+        attempts=[h.attempt for h in handles], ends=[h.outcome.end for h in handles],
+        password_in_payload=password.encode() in after.payload,
+        refusals=refusals, after=loaded())
+elif case == "export":
+    exported = pe.export_bundle(query)
+    Path(config["bundle_path"]).write_bytes(exported.payload)
+    result["records"] = records(exported)
+elif case == "code_export":
+    import shutil
+    import pietto
+    exported = pe.export_bundle(query)
+    Path(config["bundle_path"]).write_bytes(exported.payload)
+    copy = Path(config["changed"]) / "pietto"
+    shutil.copytree(Path(pietto.__file__).parent, copy,
+        ignore=shutil.ignore_patterns("__pycache__"))
+    with open(copy / "__init__.py", "a", encoding="utf-8") as stream:
+        stream.write("# changed by the code_change witness\n")
+    result.update(records=records(exported), imported=pietto.__file__)
+elif case == "code_run":
+    import pietto
+    result["imported"] = pietto.__file__
+    # Only ever edit the copy: refuse before touching any file otherwise.
+    if not Path(pietto.__file__).resolve().is_relative_to(
+            Path(config["path"][0]).resolve()):
+        raise SystemExit("CODE_RUN_NOT_THE_COPY")
+    old, accepted = Path(config["bundle_path"]).read_bytes(), config["records"]
+    own = pe.export_bundle(query)
+    bundled = pe.load_bundle(own.payload, **records(own))
+    refusals = {
+        "old_records": rejected(lambda: pe.load_bundle(old, **accepted)),
+        "relabeled": rejected(lambda: pe.load_bundle(old,
+            **{**accepted, "accepted_compatibility": own.compatibility}))}
+    with open(pietto.__file__, "a", encoding="utf-8") as stream:
+        stream.write("# changed again by the code_change witness\n")
+    refusals.update(execute_live=rejected(attempt),
+        execute_loaded=rejected(lambda: pe.execute(bundled, route="postgres_rows",
+            access=access, premise=premise)),
+        records_after_change=rejected(lambda: pe.load_bundle(own.payload,
+            **records(own))))
+    result.update(refusals=refusals, own_load=bundled.origin,
+        compatibility_changed=own.compatibility != accepted["accepted_compatibility"])
 print(json.dumps(result), flush=True)
 """
+
+# One worker loads the exported bundle once, then runs each step on that same
+# loaded query when the harness sends `go`.
+STEPS = r"""
+import json, os, sys, threading
+from pathlib import Path
+config = json.loads(sys.stdin.readline())
+import pietto.execution as pe
+query = pe.load_bundle(Path(config["payload"]).read_bytes(), **config["records"])
+print(json.dumps({"loaded": {"origin": query.origin, "module": query.module,
+    "kind": query.kind, "name": query.name, "dialect": query.dialect,
+    "release": query.release, "literal_policy": query.literal_policy,
+    "slots": list(query.slots), "emission": query.emission},
+    "source_present": os.path.exists(config["source"])}), flush=True)
+import pyarrow as pa
+passwords = config["passwords"]
+premise = pe.PostgresDeploymentPremise(schemas=("fixture", "pg_catalog"))
+def facts(outcome):
+    p = outcome.primary
+    return {"end": outcome.end, "transaction": outcome.transaction,
+        "primary": None if p is None else [p.code, p.detail, p.phase, p.sqlstate]}
+for step in config["steps"]:
+    if sys.stdin.readline() != "go\n":
+        raise SystemExit("STEP_GATE")
+    record = {"step": step["name"], "attempt": None}
+    access = pe.PostgresAccess("127.0.0.1", config["port"], "phase66", step["user"],
+        passwords[step["user"]], "require")
+    try:
+        handle = pe.execute(query, route="postgres_rows", access=access,
+            premise=premise, values=(step["value"],))
+        record["attempt"] = handle.attempt
+        rows = []
+        with handle:
+            for batch in handle:
+                with batch:
+                    rows.extend(pa.record_batch(batch).to_pylist())
+        record["rows"] = sorted([r["id"], r["label"]] for r in rows)
+    except pe.ExecutionError as error:
+        record.update(code=error.code, detail=error.detail,
+            sqlstate=error.failure.sqlstate,
+            shown=any(p in str(error) + repr(error) for p in passwords.values()),
+            chained=error.__cause__ is not None or error.__context__ is not None)
+    if record["attempt"] is not None:
+        record["outcome"] = facts(handle.outcome)
+    print(json.dumps(record), flush=True)
+roots = {"cwd": os.getcwd(), "home": os.environ.get("HOME", ""),
+    "tmp": os.environ.get("TMPDIR", "")}
+print(json.dumps({"threads": sorted(t.name for t in threading.enumerate()),
+    "jobs": sorted(m for m in sys.modules if m.startswith("pietto._project.project_job")),
+    "files": {name: sorted(str(p.relative_to(root)) for p in Path(root).rglob("*"))
+        for name, root in roots.items() if root}}), flush=True)
+"""
+# Steps of the loaded bundle: values, a refused role, the reader's privilege
+# revoked and granted again by the manager before the step, a refused value.
+BUNDLE_STEPS = (
+    {"name": "first", "user": "pietto_reader", "value": 1},
+    {"name": "other_role", "user": "pietto_md5", "value": 1},
+    {"name": "revoked", "user": "pietto_reader", "value": 1},
+    {"name": "granted", "user": "pietto_reader", "value": 3},
+    {"name": "refused_value", "user": "pietto_reader", "value": True},
+    {"name": "again", "user": "pietto_reader", "value": 1},
+)
+PRIVILEGE = {
+    "revoked": "REVOKE SELECT ON fixture.items FROM pietto_reader",
+    "granted": "GRANT SELECT ON fixture.items TO pietto_reader",
+}
 
 SHADOW = """
 import pathlib
@@ -298,12 +473,19 @@ def consumer_cases(python, work, *, path=()):
     unopened execute load nothing and connect nowhere; request refusals;
     refused environment before the driver (and before PyArrow can open the
     key log); a shadowing psycopg copy; a psycopg_c copy that calls itself
-    binary, refused before psycopg is imported; the ANTLR label under a stray
-    dist-info in the working directory. `path` puts a checkout first."""
+    binary, refused before psycopg is imported; the ANTLR label, the export records
+    and a load under a stray dist-info in the working directory; query
+    bundles, their records and refusals and explicit values; a code change
+    between an export and a load. `path` puts a checkout first."""
     from _pietto_execution_api import write_example, write_psycopg_c
 
     work.mkdir(parents=True)
     project = write_example(work)
+    other = write_example(work / "other")
+    source = (other / "main.pietto").read_text(encoding="utf-8")
+    (other / "main.pietto").write_text(
+        source.replace("where id > 1", "where id > 2"), encoding="utf-8"
+    )
     password = secrets.token_hex(12)
     base = {"project": str(project), "password": password, "path": list(path)}
     facts = {}
@@ -383,7 +565,58 @@ def consumer_cases(python, work, *, path=()):
         )
         for where, cwd in (("clean", work), ("stray", stray))
     }
+    with sentinel() as listener:
+        facts["bundles"] = case(
+            python,
+            work,
+            {
+                **base,
+                "case": "bundles",
+                "policy": "bind-safe",
+                "other": str(other),
+                "port": listener["port"],
+            },
+        )
+        facts["bundles"]["connected"] = listener["connected"]()
+        facts["code_change"] = code_change(python, work, base, listener["port"])
+        facts["code_change"]["connected"] = listener["connected"]()
     return facts
+
+
+def code_change(python, work, base, port):
+    """Worker 1 exports with the code it imports and copies that `pietto`
+    package, one comment line appended; worker 2 imports the copy first,
+    exports and loads under it, and changes it once more. A copy, never the
+    installed or checkout files."""
+    root = work / "code-change"
+    root.mkdir()
+    shared = {
+        **base,
+        "policy": "bind-safe",
+        "bundle_path": str(root / "old.bundle"),
+        "port": port,
+    }
+    exported = case(
+        python,
+        work,
+        {**shared, "case": "code_export", "changed": str(root / "changed")},
+    )
+    accepted = (exported.get("result") or {}).get("records")
+    changed = case(
+        python,
+        work,
+        {
+            **shared,
+            "case": "code_run",
+            "records": accepted,
+            "path": [str(root / "changed")],
+        },
+    )
+    return {
+        "export": exported,
+        "run": changed,
+        "copy": str(root / "changed" / "pietto" / "__init__.py"),
+    }
 
 
 def context(wheel):
@@ -457,6 +690,21 @@ def consumer(directory, *, wheel, interpreter, house_root=None, cache=None):
             },
         )
         report["core"]["connected"] = listener["connected"]()
+    # The same refusal for a query loaded from its bundle in the core prefix.
+    with sentinel() as listener:
+        report["core_bundle"] = case(
+            pythons["core"],
+            core,
+            {
+                "case": "refused",
+                "project": str(project),
+                "password": secrets.token_hex(12),
+                "port": listener["port"],
+                "policy": "bind-safe",
+                "load_bundle": True,
+            },
+        )
+        report["core_bundle"]["connected"] = listener["connected"]()
     report["cases"] = consumer_cases(pythons["execute-postgres"], directory / "cases")
     report["seconds"] = time.monotonic() - started
     return finish(directory, report)
@@ -711,22 +959,103 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
             {**reader, "case": "dropped", "limits": {"seconds": 4}},
             manager,
         )
+        # A bundle exported from a fresh copy that is then deleted, loaded
+        # once in an empty working directory and run step by step.
+        exported = work / "bundle"
+        source = write_example(exported / "copy")
+        report["bundle_export"] = case(
+            python,
+            exported,
+            {
+                **reader,
+                "project": str(source),
+                "case": "export",
+                "policy": "bind-safe",
+                "bundle_path": str(exported / "active_items.bundle"),
+            },
+        )
+        shutil.rmtree(source.parent)
+        steps = work / "steps"
+        steps.mkdir()
+        report["bundle_steps"] = stepped(
+            python,
+            steps,
+            {
+                "payload": str(exported / "active_items.bundle"),
+                "records": (report["bundle_export"].get("result") or {}).get("records"),
+                "source": str(source),
+                "port": port,
+                "passwords": {
+                    role: passwords[role] for role in ("pietto_reader", "pietto_md5")
+                },
+                "steps": BUNDLE_STEPS,
+            },
+            manager,
+            quiet,
+        )
+        report["bundle_example"] = example(
+            python, work, port, secret, script="bundle_query.py"
+        )
     finally:
         report["cleanup"] = resources.cleanup()
     report["seconds"] = time.monotonic() - started
     return finish(directory, report)
 
 
-def example(python, cwd, port, password, *sslmode):
-    """The documented script, run from the directory that holds the project."""
+def example(python, cwd, port, password, *sslmode, script="run_query.py"):
+    """A documented script, run from the directory that holds the project."""
     record = run(
         python,
-        ["run_query.py", "127.0.0.1", str(port), "phase66", "pietto_reader", *sslmode],
+        [script, "127.0.0.1", str(port), "phase66", "pietto_reader", *sslmode],
         cwd=cwd,
         stdin=password + "\n",
     )
     record["shown"] = password in record["stdout"]
     return record
+
+
+def stepped(python, cwd, config, manager, quiet):
+    """The bundle steps worker: one `go` line per step, the manager's
+    privilege change before the steps that name one, and the reader's
+    privilege granted again whatever happens."""
+    process = subprocess.Popen(
+        [str(python), "-I", "-B", "-c", STEPS],
+        cwd=cwd,
+        env=environment(quiet),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    watchdog = threading.Timer(300, process.kill)
+    watchdog.start()
+    lines: list[str] = []
+    try:
+        assert process.stdin is not None and process.stdout is not None
+        try:
+            process.stdin.write(json.dumps(config) + "\n")
+            process.stdin.flush()
+            lines.append(process.stdout.readline())
+            for step in config["steps"]:
+                if step["name"] in PRIVILEGE:
+                    with manager.cursor() as cursor:
+                        cursor.execute(PRIVILEGE[step["name"]])
+                process.stdin.write("go\n")
+                process.stdin.flush()
+                lines.append(process.stdout.readline())
+        except BrokenPipeError:
+            pass  # the worker ended early; its stderr says why
+        rest, stderr = process.communicate()
+        lines.extend(rest.splitlines())
+    finally:
+        watchdog.cancel()
+        with manager.cursor() as cursor:
+            cursor.execute(PRIVILEGE["granted"])
+    return {
+        "returncode": process.returncode,
+        "records": [json.loads(line) for line in lines if line.strip()],
+        "stderr": stderr[-16384:],
+    }
 
 
 def finish(directory, report):

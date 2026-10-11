@@ -261,10 +261,15 @@ def test_import_compile_and_unopened_execute_load_no_driver_and_connect_nowhere(
     assert not sentinel.connected()
 
 
-def test_the_documented_script_uses_only_public_imports():
-    """The external user's script needs no checkout or test helper: it
-    imports the standard library, PyArrow and `pietto.execution` only."""
-    tree = ast.parse(api.example_blocks()["python"])
+@pytest.mark.parametrize(
+    "blocks",
+    (api.example_blocks, api.bundle_blocks),
+    ids=("run_query", "bundle_query"),
+)
+def test_the_documented_script_uses_only_public_imports(blocks):
+    """The external user's scripts need no checkout or test helper: they
+    import the standard library, PyArrow and `pietto.execution` only."""
+    tree = ast.parse(blocks()["python"])
     imported = {
         alias.name
         for node in ast.walk(tree)
@@ -292,7 +297,7 @@ def test_compile_query_produces_the_project_command_artifact(example, policy):
     query = compiled(example, literal_policy=policy)
     command = emit(example, policy)
     assert command.exit_code == 0 and query.emission == command.stdout
-    document = json.loads(query.emission)
+    document = json.loads(query.emission or b"")
     assert document["status"] == "VERIFIED"
     assert ("$1" in document["sql"]) is (policy == "bind-safe")
     assert (query.module, query.kind, query.name, query.dialect) == (
@@ -304,7 +309,8 @@ def test_compile_query_produces_the_project_command_artifact(example, policy):
     assert (query.release, query.literal_policy) == ("18.6", policy)
     assert repr(query) == (
         "CompiledQuery(module='main.pietto', kind='table', name='active_items',"
-        f" dialect='postgres', release='18.6', literal_policy='{policy}')"
+        f" dialect='postgres', release='18.6', literal_policy='{policy}',"
+        " origin='live')"
     )
 
 
@@ -362,8 +368,8 @@ def test_compile_arguments_are_checked_before_the_project_is_read(
         )
 
 
-def test_compiled_query_is_created_only_by_compile_query(query):
-    with pytest.raises(TypeError, match="compile_query"):
+def test_compiled_query_is_created_only_by_compile_query_or_load_bundle(query):
+    with pytest.raises(TypeError, match=r"compile_query\(\) or load_bundle\(\)"):
         execution.CompiledQuery()
     with pytest.raises(AttributeError):
         query.dialect = "mysql"  # type: ignore[misc]

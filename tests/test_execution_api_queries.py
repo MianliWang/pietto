@@ -1,0 +1,1040 @@
+"""Query bundles, explicit values and repeated calls of the public execution
+alpha, without a database.
+
+export_bundle and load_bundle under the caller's own trust records, exact
+value binding to a bind-safe query's slots, repeated calls that share only the
+immutable template, and invalidation by a code change, through the real
+public layer and private owners. The real-database and installed-consumer
+witnesses are tests/_pietto_execution_api_probe.py.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import inspect
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import traceback
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+import _pietto_execution_api as api
+import pietto.execution as execution
+from pietto._project import project_arrow_result
+from pietto._project import project_compiled_loading as loading
+from pietto._project import project_execution as ex
+from pietto._project import project_execution_postgres as pg
+from pietto._project import project_public_execution as composition
+from pietto._project.project_compiled_build import build_compiled
+from pietto._project.project_compiled_schema import (
+    FIELDS,
+    VERSIONS,
+    Address,
+    CompiledError,
+    Record,
+    content_pin,
+    decode,
+    encode,
+)
+from pietto._project.project_execution_template import (
+    bind_values,
+    compatible_compiled_values,
+)
+from pietto._project.project_sql_emission_cli import POLICIES, emit_project
+from pietto.execution import _errors as errors
+
+ROOT = Path(__file__).resolve().parents[1]
+PASSWORD = "pw-8c41d2-never-shown"
+MARKER = "secret-7c1e"
+PREMISE = execution.PostgresDeploymentPremise(schemas=("fixture", "pg_catalog"))
+RECORD = re.compile("[0-9a-f]{64}")
+NAMES = ("expected_pin", "accepted_producer", "accepted_compatibility")
+CHANGED = "0" * 64  # the identity a patched code change reports
+
+
+def compiled(project, policy="bind-safe", kind="table"):
+    return execution.compile_query(
+        project,
+        module="main.pietto",
+        kind=kind,
+        name="active_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+        literal_policy=policy,
+    )
+
+
+def variant(directory, where, extra="", kind="table"):
+    """The documented project with another condition, an appended clause or
+    the other declaration kind."""
+    project = api.write_example(directory)
+    path = project / "main.pietto"
+    text = path.read_text(encoding="utf-8")
+    assert text.count("    where id > 1\n") == 1
+    text = text.replace("    where id > 1\n", "    where " + where + "\n")
+    path.write_text(
+        text.replace("table active_items", kind + " active_items") + extra,
+        encoding="utf-8",
+    )
+    return project
+
+
+def records(bundle):
+    return dict(
+        expected_pin=bundle.pin,
+        accepted_producer=bundle.producer,
+        accepted_compatibility=bundle.compatibility,
+    )
+
+
+def load(bundle, payload=None, **changes):
+    """load_bundle with `bundle`'s own records, `changes` replacing some."""
+    return execution.load_bundle(
+        bundle.payload if payload is None else payload, **(records(bundle) | changes)
+    )
+
+
+def project_with(directory, body):
+    """The documented project with `body` after its shape and source; returns
+    the project and its main.pietto text."""
+    project = api.write_example(directory)
+    path = project / "main.pietto"
+    text = path.read_text(encoding="utf-8").split("table active_items:")[0] + body
+    path.write_text(text, encoding="utf-8")
+    return project, text
+
+
+def literals(query, text):
+    """The source text of each slot's literal, in slot order, found as the
+    documentation says: slot i is fixed_values[i] of the bind-safe emission,
+    and the `parameter` range of its literal site locates it."""
+    document = json.loads(query.emission or b"")
+    places = {
+        r["subject"]["position"]: r["origins"][0]["sources"][0]["location"]
+        for r in document["ranges"]
+        if r["kind"] == "parameter"
+    }
+    lines = text.splitlines()
+    found = []
+    for slot, value in enumerate(document["fixed_values"]):
+        assert value["slot"] == slot
+        at = places[value["site"]["position"]]
+        found.append(lines[at["line"] - 1][at["column"] - 1 : at["end_column"] - 1])
+    return found
+
+
+def rewritten(payload, kind, field, value):
+    """The bundle with `field` of every `kind` record replaced, encoded
+    again: a sender who pins changed bytes himself."""
+    description = decode(payload)
+    at = FIELDS[kind].index(field)
+    members = tuple(
+        (
+            name,
+            tuple(
+                Record(r.address, (*r.values[:at], value, *r.values[at + 1 :]))
+                if r.address.kind == kind
+                else r
+                for r in records
+            ),
+        )
+        for name, records in description.members
+    )
+    return encode(dataclasses.replace(description, members=members))
+
+
+def access(user="reader", password=PASSWORD, port=5432):
+    return execution.PostgresAccess("127.0.0.1", port, "app", user, password, "disable")
+
+
+def run(query, values=None, **changes):
+    arguments: dict[str, Any] = dict(
+        route="postgres_rows", access=access(), premise=PREMISE, values=values
+    )
+    arguments.update(changes)
+    return execution.execute(query, **arguments)
+
+
+def refused(call, *arguments, **keywords):
+    """(code, detail) of the RequestRejected that `call` raises; it carries no
+    attempt and is chained to nothing."""
+    with pytest.raises(execution.RequestRejected) as error:
+        call(*arguments, **keywords)
+    assert error.value.__cause__ is None and error.value.__context__ is None
+    assert error.value.attempt is None and error.value.outcome is None
+    return error.value.code, error.value.detail
+
+
+def bound(handle):
+    """The SQL text and native arguments an unopened attempt prepared."""
+    request = handle._owner.request
+    return request.artifact.rendered.sql, request.binding.arguments
+
+
+def facts(query):
+    return (
+        query.module,
+        query.kind,
+        query.name,
+        query.dialect,
+        query.release,
+        query.literal_policy,
+        query.slots,
+    )
+
+
+def root_of(query):
+    return query._template.artifact.request.verification.completed.root
+
+
+@pytest.fixture(scope="module")
+def example(tmp_path_factory):
+    return api.write_example(tmp_path_factory.mktemp("execution-queries"))
+
+
+@pytest.fixture(scope="module")
+def live(example):
+    return compiled(example)
+
+
+@pytest.fixture(scope="module")
+def bundle(live):
+    return execution.export_bundle(live)
+
+
+@pytest.fixture(scope="module")
+def other(tmp_path_factory):
+    """The export of another project: same layout, another condition."""
+    return execution.export_bundle(
+        compiled(variant(tmp_path_factory.mktemp("other-export"), "id > 2"))
+    )
+
+
+@pytest.fixture
+def unconnected(monkeypatch):
+    """Nothing may reach the driver or a socket."""
+
+    def forbidden(*arguments, **keywords):
+        raise AssertionError("a refused or unopened request reached the driver")
+
+    monkeypatch.setattr(pg, "_connect", forbidden)
+    monkeypatch.setattr(pg, "drivers", forbidden)
+    monkeypatch.setattr(socket.socket, "connect", forbidden)
+
+
+@pytest.fixture
+def clean(monkeypatch):
+    """No ambient connection input and no PSYCOPG_IMPL, for an attempt that
+    opens."""
+    for name in tuple(os.environ):
+        if name.startswith("PG") or name in (*ex.AMBIENT_TLS, "PSYCOPG_IMPL"):
+            monkeypatch.delenv(name)
+    return monkeypatch
+
+
+@pytest.fixture
+def code(monkeypatch):
+    """The installed code identity, changed or restored as a code change and
+    its reversal would change it."""
+    real = loading.semantic_build_identity
+
+    def change(identity=CHANGED):
+        monkeypatch.setattr(loading, "semantic_build_identity", lambda: identity)
+
+    def restore():
+        monkeypatch.setattr(loading, "semantic_build_identity", real)
+
+    return SimpleNamespace(change=change, restore=restore)
+
+
+def test_export_returns_the_live_query_own_bundle_and_its_records(
+    example, live, bundle
+):
+    """The payload and records are the private build of the same emission;
+    the pin names exactly these bytes and the compatibility is the
+    installed code. repr() shows the payload's length only."""
+    outcome, _ = emit_project(
+        example,
+        "main.pietto",
+        "table",
+        "active_items",
+        "postgres",
+        "contract.json",
+        POLICIES["bind-safe"],
+    )
+    built = build_compiled(outcome.artifact)
+    assert (bundle.payload, bundle.pin, bundle.producer) == (
+        built.payload,
+        built.pin,
+        built.producer,
+    )
+    assert (*VERSIONS, bundle.compatibility) == built.compatibility
+    assert built.compatibility == loading.supported_compatibility()
+    assert content_pin(bundle.payload) == bundle.pin
+    assert all(
+        RECORD.fullmatch(r) for r in (bundle.pin, bundle.producer, bundle.compatibility)
+    )
+    assert repr(bundle) == (
+        f"QueryBundle(payload=<{len(bundle.payload)} bytes>, pin={bundle.pin!r},"
+        f" producer={bundle.producer!r}, compatibility={bundle.compatibility!r})"
+    )
+    with pytest.raises(AttributeError):
+        bundle.pin = CHANGED  # type: ignore[misc]
+    assert refused(execution.export_bundle, None) == (
+        "PIE-R1001",
+        "PUBLIC_QUERY_REQUIRED",
+    )
+    for wrong in (bundle, bundle.payload, "SELECT 1"):
+        assert refused(execution.export_bundle, wrong) == (
+            "PIE-R1002",
+            "PUBLIC_QUERY_TYPE",
+        )
+
+
+def test_compiling_the_same_project_gives_the_same_bundle_anywhere(
+    example, bundle, tmp_path
+):
+    again = execution.export_bundle(compiled(example))
+    moved = tmp_path / "elsewhere" / "copied-project"
+    shutil.copytree(example, moved)
+    there = execution.export_bundle(compiled(moved))
+    assert again == bundle == there and again is not bundle
+
+
+def test_a_loaded_bundle_is_the_live_query_template(live, bundle, unconnected):
+    """A loaded query has the live query's facts and template: equal SQL
+    bytes and native arguments for equal values, and the owner's
+    same-template law holds exactly for equal values."""
+    loaded = load(bundle)
+    assert (live.origin, loaded.origin) == ("live", "bundle")
+    expected = (
+        "main.pietto",
+        "table",
+        "active_items",
+        "postgres",
+        "18.6",
+        "bind-safe",
+        ("Int",),
+    )
+    assert facts(loaded) == facts(live) == expected
+    assert composition.query_facts(live._template) == expected
+    assert loaded.emission is None
+    assert json.loads(live.emission or b"")["status"] == "VERIFIED"
+    assert repr(loaded) == repr(live).replace("origin='live'", "origin='bundle'")
+    assert repr(loaded).endswith(", literal_policy='bind-safe', origin='bundle')")
+    for values in (None, (3,)):
+        assert bound(run(live, values)) == bound(run(loaded, values))
+    (slot,) = live._template.slots
+    (loaded_slot,) = loaded._template.slots
+    left = bind_values(live._template, ((slot, 3),))
+    same = bind_values(loaded._template, ((loaded_slot, 3),))
+    different = bind_values(loaded._template, ((loaded_slot, 4),))
+    assert compatible_compiled_values(left, same, route="postgres_rows")
+    assert not compatible_compiled_values(left, different, route="postgres_rows")
+
+
+def test_each_load_is_a_new_query_and_nothing_is_remembered(bundle):
+    first, second = load(bundle), load(bundle)
+    assert first is not second and first._template is not second._template
+    assert root_of(first) is not root_of(second)
+    assert root_of(first).scope is not root_of(second).scope
+    # An accepted load does not let a later wrong pin through, and a refusal
+    # does not stop a later load with the right records.
+    assert refused(load, bundle, expected_pin="f" * 64) == (
+        "PIE-R1007",
+        "COMPILED_CONTENT_PIN",
+    )
+    assert load(bundle).origin == "bundle"
+    assert execution.export_bundle(second) == bundle
+
+
+def test_load_bundle_takes_every_trust_record_from_the_caller(bundle):
+    """Keyword-only records without defaults; None is missing, anything but
+    64 lowercase hexadecimal characters is invalid, each argument checked
+    given then type in signature order, the payload first."""
+    parameters = inspect.signature(execution.load_bundle).parameters
+    assert [(n, p.kind.name, p.default is p.empty) for n, p in parameters.items()] == [
+        ("payload", "POSITIONAL_OR_KEYWORD", True),
+        ("expected_pin", "KEYWORD_ONLY", True),
+        ("accepted_producer", "KEYWORD_ONLY", True),
+        ("accepted_compatibility", "KEYWORD_ONLY", True),
+    ]
+    for missing in NAMES:
+        given = records(bundle)
+        del given[missing]
+        with pytest.raises(TypeError, match=missing):
+            execution.load_bundle(bundle.payload, **given)
+    with pytest.raises(TypeError):
+        execution.load_bundle(bundle.payload, *records(bundle).values())  # type: ignore[misc]
+    assert refused(
+        execution.load_bundle,
+        None,
+        **dict.fromkeys(NAMES),  # type: ignore[arg-type]
+    ) == ("PIE-R1001", "PUBLIC_PAYLOAD_REQUIRED")
+    for position in range(len(NAMES)):
+        assert refused(load, bundle, **dict.fromkeys(NAMES[position:])) == (
+            "PIE-R1001",
+            "PUBLIC_TRUST_INPUT_REQUIRED",
+        )
+
+    class Hex(str):
+        pass
+
+    private = (*VERSIONS, bundle.compatibility)
+    for name, record in records(bundle).items():
+        assert record.upper() != record
+        for value in (
+            bundle,
+            bundle.payload,
+            private,
+            record.upper(),
+            record[:63],
+            record + "0",
+            "g" * 64,
+            record.encode(),
+            Hex(record),
+        ):
+            assert refused(load, bundle, **{name: value}) == (
+                "PIE-R1002",
+                "PUBLIC_TRUST_INPUT_TYPE",
+            )
+    assert refused(
+        load, bundle, expected_pin=bundle.pin.upper(), accepted_producer=None
+    ) == ("PIE-R1002", "PUBLIC_TRUST_INPUT_TYPE")
+    assert refused(load, bundle, bytearray(bundle.payload), expected_pin=None) == (
+        "PIE-R1002",
+        "PUBLIC_PAYLOAD_TYPE",
+    )
+
+
+def test_the_accepted_compatibility_must_name_the_installed_code_first(
+    bundle, code, monkeypatch
+):
+    """The accepted code is compared with the installed code before the
+    bytes are read, so a foreign compatibility is a code-identity refusal
+    whatever the bytes."""
+    tampered = bundle.payload.replace(b'"1"]', b'"7"]', 1)
+    assert tampered != bundle.payload
+    assert refused(load, bundle, tampered) == ("PIE-R1007", "COMPILED_CONTENT_PIN")
+    for payload in (tampered, b"", b"SELECT 1"):
+        assert refused(load, bundle, payload, accepted_compatibility=CHANGED) == (
+            "PIE-R1005",
+            "PUBLIC_BUNDLE_CODE_IDENTITY",
+        )
+    code.change()
+    assert refused(load, bundle) == ("PIE-R1005", "PUBLIC_BUNDLE_CODE_IDENTITY")
+
+    def unknown():
+        raise CompiledError("COMPILED_CODE_ORIGIN")
+
+    monkeypatch.setattr(loading, "semantic_build_identity", unknown)
+    assert refused(load, bundle) == ("PIE-R1005", "COMPILED_CODE_ORIGIN")
+    code.restore()
+    assert load(bundle).origin == "bundle"
+
+
+def test_bundle_bytes_must_be_exactly_the_pinned_bytes(bundle):
+    payload = bundle.payload
+    at = payload.index(b"active_items")
+    flipped = payload[:at] + b"b" + payload[at + 1 :]
+    for changed in (
+        flipped,
+        payload + b" ",
+        payload[:-1],
+        payload[: len(payload) // 2],
+        payload.replace(b'"1"]', b'"7"]', 1),
+    ):
+        assert changed != payload
+        assert refused(load, bundle, changed) == ("PIE-R1007", "COMPILED_CONTENT_PIN")
+    # A change that breaks the bracket nesting is refused as malformed by
+    # the bounded reader before the bytes are hashed.
+    assert refused(load, bundle, payload + b"]") == ("PIE-R1008", "COMPILED_JSON")
+    for size in (b"", b" " * (32 * 1024 * 1024 + 1)):
+        assert refused(load, bundle, size) == ("PIE-R1002", "PUBLIC_BUNDLE_SIZE")
+    for wrong in (bytearray(payload), payload.decode(), memoryview(payload)):
+        assert refused(load, bundle, wrong) == ("PIE-R1002", "PUBLIC_PAYLOAD_TYPE")
+    # Pinned bytes whose embedded contract or premise value is empty fail
+    # verification (R1008), however their limit word reads; only the payload's
+    # own size is an input error.
+    for kind, field in (("target", "contract"), ("premise", "value")):
+        crafted = rewritten(payload, kind, field, "")
+        assert 0 < len(crafted) < len(payload)
+        assert refused(load, bundle, crafted, expected_pin=content_pin(crafted)) == (
+            "PIE-R1008",
+            "COMPILED_BYTE_LIMIT",
+        )
+    assert load(bundle).origin == "bundle"
+
+
+def test_a_bundle_never_vouches_for_itself(bundle, other, unconnected):
+    """Embedded producer and compatibility are compared, never adopted; SQL
+    text is no bundle even under its own pin; and the honest limit: changed
+    bytes are accepted under a pin computed from them, so only a pin from the
+    caller's own records protects the content."""
+    assert other.producer != bundle.producer and other.pin != bundle.pin
+    assert other.compatibility == bundle.compatibility
+    assert refused(load, bundle, accepted_producer=other.producer) == (
+        "PIE-R1008",
+        "COMPILED_COMPATIBILITY",
+    )
+    assert refused(load, bundle, expected_pin=other.pin) == (
+        "PIE-R1007",
+        "COMPILED_CONTENT_PIN",
+    )
+    assert refused(load, bundle, other.payload) == (
+        "PIE-R1007",
+        "COMPILED_CONTENT_PIN",
+    )
+    sql = b"SELECT * FROM fixture.items"
+    assert refused(load, bundle, sql, expected_pin=content_pin(sql)) == (
+        "PIE-R1008",
+        "COMPILED_JSON",
+    )
+    tampered = bundle.payload.replace(b'"1"]', b'"7"]', 1)
+    forged = load(bundle, tampered, expected_pin=content_pin(tampered))
+    assert bound(run(forged))[1] == (7,)
+    # No public name computes a record from bytes or from the installed code.
+    functions = sorted(
+        name
+        for name in execution.__all__
+        if inspect.isfunction(getattr(execution, name))
+    )
+    assert functions == ["compile_query", "execute", "export_bundle", "load_bundle"]
+    assert [n for n in dir(execution.QueryBundle) if not n.startswith("_")] == [
+        "compatibility",
+        "payload",
+        "pin",
+        "producer",
+    ]
+
+
+def test_bundles_with_a_guard_program_or_refinement_are_not_executable_here(
+    tmp_path, bundle, monkeypatch
+):
+    """Only what compile_query can produce is executable through the public
+    entry: a guarded bundle with its own records, and a root whose policy
+    names a refinement, are refused."""
+    from _pietto_phase68_slice7_cases import case_preparation, manifest
+
+    case = next(c for c in manifest() if c["name"] == "bag_one")
+    guarded = case_preparation(tmp_path / "guarded", "postgres", case)
+    built = build_compiled(guarded.artifact, guarded=guarded)
+    policy = built.root.records[Address("policy", 0)]
+    assert (policy.get("guarded"), policy.get("refinement")) == (True, None)
+    assert refused(
+        execution.load_bundle,
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility[-1],
+    ) == ("PIE-R1004", "PUBLIC_BUNDLE_UNSUPPORTED")
+    real = loading.load_compiled
+
+    def refined(*arguments, **keywords):
+        root = real(*arguments, **keywords)
+        policy = root.records[Address("policy", 0)]
+        values = list(policy.values)
+        values[2] = Address("refinement", 0)
+        changed = dict(root.records)
+        changed[policy.address] = Record(policy.address, tuple(values))
+        return SimpleNamespace(records=changed)
+
+    monkeypatch.setattr(loading, "load_compiled", refined)
+    assert refused(load, bundle) == ("PIE-R1004", "PUBLIC_BUNDLE_UNSUPPORTED")
+
+
+def test_a_loaded_bundle_that_cannot_become_a_template_has_the_query_codes(
+    bundle, code, monkeypatch
+):
+    """After acceptance, the template stage reports the query's own codes:
+    PIE-R1005 when the installed code changed in between and PIE-R1004 for a
+    refusal of the accepted structure, never the acceptance stage's R1008."""
+    real = composition.bundle_template
+
+    def changed_in_between(root):
+        code.change()
+        return real(root)
+
+    monkeypatch.setattr(composition, "bundle_template", changed_in_between)
+    assert refused(load, bundle) == ("PIE-R1005", "COMPILED_COMPATIBILITY")
+    code.restore()
+
+    def refused_structure(root):
+        raise CompiledError("COMPILED_INPUT_CHANGED")
+
+    monkeypatch.setattr(composition, "bundle_template", refused_structure)
+    assert refused(load, bundle) == ("PIE-R1004", "COMPILED_INPUT_CHANGED")
+    # The acceptance stage calls the same word R1008.
+    word = CompiledError("COMPILED_INPUT_CHANGED")
+    assert errors.bundle_failure(word).code == "PIE-R1008"
+    monkeypatch.setattr(composition, "bundle_template", real)
+    assert load(bundle).origin == "bundle"
+
+
+def test_a_stray_distribution_never_changes_what_is_accepted(
+    tmp_path, example, live, bundle, monkeypatch, unconnected
+):
+    """A stray ANTLR runtime *.dist-info on sys.path changes neither the code
+    identity nor what a load accepts: one whose RECORD claims the imported
+    runtime file leaves two owners, so every compile, load and execute is
+    refused; one that claims no imported file changes nothing."""
+    import antlr4
+
+    info = tmp_path / "antlr4_python3_runtime-9.9.9.dist-info"
+    info.mkdir()
+    (info / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: antlr4-python3-runtime\nVersion: 9.9.9\n"
+    )
+    (info / "RECORD").write_text(antlr4.__file__ + ",,\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    for call in (lambda: compiled(example), lambda: load(bundle), lambda: run(live)):
+        assert refused(call) == ("PIE-R1005", "COMPILED_CODE_ORIGIN")
+    (info / "RECORD").write_text("antlr4/__init__.py,,\n")
+    assert execution.export_bundle(compiled(example)) == bundle
+    assert load(bundle).origin == "bundle" and run(live).outcome.end == "NOT_STARTED"
+
+
+def test_a_code_change_invalidates_compiled_and_loaded_queries(
+    example, live, bundle, code, unconnected
+):
+    """Every query compiled or loaded before a code change, and every load
+    under the old records, is refused; restoring the code restores them."""
+    loaded = load(bundle)
+    code.change()
+    for query in (live, loaded):
+        for values in (None, (3,)):
+            assert refused(run, query, values) == (
+                "PIE-R1005",
+                "COMPILED_COMPATIBILITY",
+            )
+    assert refused(load, bundle) == ("PIE-R1005", "PUBLIC_BUNDLE_CODE_IDENTITY")
+    # The old bytes relabeled with the new code's compatibility.
+    assert refused(load, bundle, accepted_compatibility=CHANGED) == (
+        "PIE-R1008",
+        "COMPILED_COMPATIBILITY",
+    )
+    renewed = execution.export_bundle(compiled(example))
+    assert renewed.compatibility == CHANGED
+    assert renewed.producer != bundle.producer and renewed.pin != bundle.pin
+    assert load(renewed).origin == "bundle"
+    code.restore()
+    for query in (live, loaded):
+        assert run(query, (3,)).outcome.end == "NOT_STARTED"
+    assert load(bundle).origin == "bundle"
+    assert refused(load, renewed) == ("PIE-R1005", "PUBLIC_BUNDLE_CODE_IDENTITY")
+
+
+SOURCE_FREE = r"""
+import json, sys
+sys.path.insert(0, sys.argv[1])
+events = []
+WATCHED = ("open", "socket.connect", "socket.getaddrinfo", "subprocess.Popen")
+sys.addaudithook(
+    lambda name, args: events.append([name, str(args[0]) if args else ""])
+    if name in WATCHED else None
+)
+config = json.loads(sys.stdin.readline())
+from pathlib import Path
+import pietto.ast_nodes as nodes
+import pietto.parser_api as parser
+from pietto._project import model, project_completed_semantics
+from pietto._project import project_execution_template
+def forbidden(*args, **kwargs):
+    raise AssertionError("source-language entry used")
+parser.parse_source = forbidden
+model.build_empty_project_semantic_result = forbidden
+project_completed_semantics.build_project_completed_semantic_result = forbidden
+project_execution_template._syntax_image = forbidden
+project_execution_template._specialize = forbidden
+for name in ("Script", "QueryDef", "TableDef", "SourceDef", "LiteralExpr", "NameExpr"):
+    getattr(nodes, name).__new__ = forbidden
+model.ProjectParseCheckResult.__new__ = forbidden
+import pietto.execution as pe
+payload = Path(config["payload"]).read_bytes()
+start = len(events)
+query = pe.load_bundle(payload, **config["records"])
+handle = pe.execute(query, route="postgres_rows",
+    access=pe.PostgresAccess("127.0.0.1", config["port"], "app", "reader", "pw", "disable"),
+    premise=pe.PostgresDeploymentPremise(schemas=("fixture", "pg_catalog")), values=(3,))
+after = events[start:]
+mark = len(events)
+exported = pe.export_bundle(query)
+print(json.dumps({
+    "origin": query.origin,
+    "export_opens": [p for n, p in events[mark:] if n == "open"],
+    "exported": exported.payload == payload,
+    "end": handle.outcome.end,
+    "arguments": list(handle._owner.request.binding.arguments),
+    "project_reads": [p for n, p in after if n == "open"
+        and p.endswith((".pietto", "pietto.toml", "contract.json"))],
+    "network": [n for n, p in events if n != "open"],
+    "loaded": sorted({m.split(".")[0] for m in sys.modules}
+        & {"psycopg", "psycopg_binary", "pyarrow"}),
+    "jobs": sorted(m for m in sys.modules if m.startswith("pietto._project.project_job")),
+    "helpers": sorted(m for m in sys.modules if m.startswith(("_pietto_", "test_"))),
+}))
+# Control: the same observation sees a project file that is read.
+Path("demo-exec/main.pietto").read_bytes()
+print(json.dumps([p for n, p in events if n == "open" and p.endswith(".pietto")]))
+"""
+
+
+def test_loading_and_running_a_bundle_reads_no_project_and_connects_nowhere(
+    tmp_path,
+):
+    """A fresh `-I` process loads and prepares a bundle whose project is gone,
+    with the source-language entries forbidden and a decoy project in its
+    working directory: it reads no project file, connects nowhere and loads
+    no driver, PyArrow or workspace module."""
+    project = api.write_example(tmp_path / "build")
+    exported = execution.export_bundle(compiled(project))
+    shutil.rmtree(project)
+    payload = tmp_path / "active_items.bundle"
+    payload.write_bytes(exported.payload)
+    decoy = tmp_path / "runtime"
+    api.write_example(decoy)
+    listener = socket.create_server(("127.0.0.1", 0))
+    listener.setblocking(False)
+    environment = {
+        k: v for k, v in os.environ.items() if not k.startswith(("PG", "PYTHON"))
+    }
+    config = {
+        "payload": str(payload),
+        "records": records(exported),
+        "port": listener.getsockname()[1],
+    }
+    try:
+        result = subprocess.run(
+            [sys.executable, "-I", "-B", "-c", SOURCE_FREE, str(ROOT / "src")],
+            input=json.dumps(config) + "\n",
+            capture_output=True,
+            text=True,
+            env=environment,
+            cwd=decoy,
+            timeout=120,
+        )
+        with pytest.raises(BlockingIOError):
+            listener.accept()
+    finally:
+        listener.close()
+    assert result.returncode == 0, result.stderr[-6000:]
+    observed, control = result.stdout.splitlines()
+    assert json.loads(control) == ["demo-exec/main.pietto"]
+    assert json.loads(observed) == {
+        "origin": "bundle",
+        "export_opens": [],
+        "exported": True,
+        "end": "NOT_STARTED",
+        "arguments": [3],
+        "project_reads": [],
+        "network": [],
+        "loaded": [],
+        "jobs": [],
+        "helpers": [],
+    }
+
+
+def test_bundles_and_errors_never_show_query_literals_or_credentials(
+    tmp_path, unconnected
+):
+    """The bytes hold the query's literals in clear text; no repr, error,
+    error chain or traceback shows a literal, a value or the password."""
+    project = variant(
+        tmp_path / "marker", f'id > 1 and label != "{MARKER}"', kind="query"
+    )
+    query = compiled(project, kind="query")
+    assert (query.kind, query.slots) == ("query", ("Int", "Text"))
+    exported = execution.export_bundle(query)
+    assert MARKER.encode() in exported.payload
+    loaded = load(exported)
+    secret = access(password=PASSWORD)
+    uncovered = execution.PostgresDeploymentPremise(schemas=("public", "pg_catalog"))
+    calls = (
+        lambda: load(exported, exported.payload.replace(MARKER.encode(), b"x")),
+        lambda: load(exported, expected_pin=content_pin(MARKER.encode())),
+        lambda: run(loaded, (1, MARKER + "\0"), access=secret),
+        lambda: run(loaded, (True, MARKER), access=secret),
+        lambda: run(loaded, [1, MARKER], access=secret),
+        lambda: run(loaded, (1, MARKER), access=secret, premise=uncovered),
+        lambda: execution.export_bundle(MARKER),  # type: ignore[arg-type]
+        lambda: execution.load_bundle(MARKER.encode(), **records(exported)),
+    )
+    for call in calls:
+        with pytest.raises(execution.RequestRejected) as caught:
+            call()
+        error = caught.value
+        assert error.__cause__ is None and error.__context__ is None
+        shown = "".join(traceback.format_exception(error)) + repr(error)
+        assert MARKER not in shown and PASSWORD not in shown, shown
+    handle = run(loaded, (1, MARKER), access=secret)
+    for text in (
+        repr(exported),
+        str(exported),
+        repr(query),
+        repr(loaded),
+        repr(handle),
+    ):
+        assert MARKER not in text and PASSWORD not in text
+
+
+def test_a_bundle_carries_no_access_or_attempt_state(live, bundle, clean):
+    """Exports before and after refused, unopened and failed attempts with a
+    marker password are byte-identical and hold no password."""
+    loaded = load(bundle)
+    listener = socket.create_server(("127.0.0.1", 0))
+    port = listener.getsockname()[1]
+    listener.close()
+    clean.setattr(project_arrow_result, "_arrow", lambda: None)
+    for query in (live, loaded):
+        run(query, (5,))
+        refused(run, query, (True,))
+        handle = run(query, (3,), access=access(port=port))
+        with pytest.raises(execution.AttemptFailed):
+            with handle:
+                pass
+    for query in (live, loaded):
+        after = execution.export_bundle(query)
+        assert after == bundle and PASSWORD.encode() not in after.payload
+
+
+def test_the_premise_bounds_what_a_bundle_reads(bundle, unconnected):
+    loaded = load(bundle)
+    for schemas in (("public", "pg_catalog"), ("fixture",), ("pg_catalog",)):
+        premise = execution.PostgresDeploymentPremise(schemas=schemas)
+        assert refused(run, loaded, premise=premise) == (
+            "PIE-R1002",
+            "POSTGRES_DEPLOYMENT_PREMISE_SCOPE",
+        )
+    assert run(loaded).outcome.end == "NOT_STARTED"
+
+
+def test_a_mysql_bundle_loads_and_its_route_is_refused(tmp_path, unconnected):
+    from _pietto_phase68_slice4_probe import template
+
+    built = build_compiled(template(tmp_path / "mysql", target="mysql").artifact)
+    query = execution.load_bundle(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility[-1],
+    )
+    assert (query.origin, query.dialect, query.emission) == ("bundle", "mysql", None)
+    for route in ("postgres_rows", "mysql_rows", "postgres_adbc"):
+        assert refused(run, query, route=route) == (
+            "PIE-R1003",
+            "PUBLIC_ROUTE_UNAVAILABLE",
+        )
+    assert execution.export_bundle(query).payload == built.payload
+
+
+def test_values_replace_the_bind_safe_fixed_values_slot_by_slot(
+    live, bundle, unconnected
+):
+    """The native arguments are exactly the supplied values, the SQL text is
+    the template's, and None binds the compiled values."""
+    loaded = load(bundle)
+    assert live.slots == loaded.slots == ("Int",)
+    document = json.loads(live.emission or b"")
+    assert [v["value"] for v in document["fixed_values"]] == ["1"]
+    for query in (live, loaded):
+        sql, arguments = bound(run(query))
+        assert arguments == (1,) and "$1" in sql.decode()
+        for value in (3, 0, -7, 2**63 - 1, -(2**63)):
+            assert bound(run(query, (value,))) == (sql, (value,))
+
+
+def test_each_value_must_exactly_fit_its_slot(tmp_path, live, unconnected):
+    """Nothing is converted: each value has its slot's exact type and range,
+    the tuple has one value per slot, and only a tuple is accepted. The
+    refusal names the slot, never the value."""
+
+    class Number(int):
+        pass
+
+    for value in (True, 3.0, 2**63, -(2**63) - 1, "3", Number(3), None):
+        assert refused(run, live, (value,)) == ("PIE-R1006", "BINDING_VALUE:0:Int")
+    for values in ((), (1, 2)):
+        assert refused(run, live, values) == ("PIE-R1006", "BINDING_SLOTS")
+
+    class Values(tuple):
+        pass
+
+    for values in ([3], Values((3,)), {3}, 3, "3"):
+        assert refused(run, live, values) == ("PIE-R1002", "PUBLIC_VALUES_TYPE")
+    text = compiled(
+        variant(tmp_path / "text", f'id > 1 and label != "{MARKER}"', kind="query"),
+        kind="query",
+    )
+    assert text.slots == ("Int", "Text")
+    for value in ("nul\0inside", "\ud800", b"x", 1):
+        assert refused(run, text, (1, value)) == ("PIE-R1006", "BINDING_VALUE:1:Text")
+    assert bound(run(text, (1, "雪é")))[1] == (1, "雪é")
+
+
+def test_a_preserve_query_has_no_slots(example, unconnected):
+    query = compiled(example, "preserve")
+    assert query.slots == () and query.literal_policy == "preserve"
+    for values in (None, ()):
+        sql, arguments = bound(run(query, values))
+        assert arguments == () and "$1" not in sql.decode()
+    assert refused(run, query, (1,)) == ("PIE-R1006", "BINDING_SLOTS")
+    exported = execution.export_bundle(query)
+    assert load(exported).slots == ()
+
+
+def test_a_slot_is_one_literal_and_its_sign_stays_in_the_query(tmp_path, unconnected):
+    """In `id > -1` the slot holds 1 and the minus stays SQL structure; a
+    LIMIT count is no slot."""
+    signed = compiled(variant(tmp_path / "sign", "id > -1"))
+    assert signed.slots == ("Int",)
+    sql, arguments = bound(run(signed))
+    assert arguments == (1,) and "(-CAST($1" in sql.decode()
+    assert bound(run(signed, (5,))) == (sql, (5,))
+    # A value of the right type that cannot be prepared under the minus.
+    assert refused(run, signed, (-(2**63),)) == ("PIE-R1004", "BINDING_INVALID")
+    limited = compiled(
+        variant(
+            tmp_path / "limit", "id > 1", "    order by:\n        id\n    limit 3\n"
+        )
+    )
+    assert limited.slots == ("Int",)
+    sql, arguments = bound(run(limited, (3,)))
+    assert arguments == (3,) and sql.decode().endswith("LIMIT 3")
+
+
+def test_each_slot_is_one_literal_in_the_compiler_order(tmp_path, unconnected):
+    """The definitions a query reads come first, in the compiler's schedule
+    rather than the order the query names them; within one definition, let
+    before where before select, each expression left to right; a definition
+    read twice has its literals once. A loaded bundle keeps the order."""
+    stages, text = project_with(
+        tmp_path / "stages",
+        "table active_items:\n    from items\n    let:\n        bonus = id + 30\n"
+        '    where id > 1 and label != "x"\n    select:\n        id\n'
+        "        more = bonus + 7\n",
+    )
+    query = compiled(stages)
+    assert query.slots == ("Int", "Int", "Text", "Int")
+    assert literals(query, text) == ["30", "1", '"x"', "7"]
+    # Inside arithmetic a slot takes only values whose results stay
+    # representable for every id the contract allows (0 to 100): bonus = id + v
+    # and more = bonus + 7 must stay below 2**63.
+    largest = 2**63 - 1 - 100 - 7
+    assert bound(run(query, (largest, 1, "x", 7)))[1] == (largest, 1, "x", 7)
+    assert refused(run, query, (largest + 1, 1, "x", 7)) == (
+        "PIE-R1004",
+        "BINDING_INVALID",
+    )
+    reading = (
+        "table b:\n    from items\n    where id > 2\n    select:\n        id\n"
+        "table a:\n    from items\n    where id > 1\n    select:\n        id\n"
+        "query active_items:\n    union all:\n        from a\n        from b\n"
+    )
+    union, text = project_with(tmp_path / "union", reading)
+    query = compiled(union, kind="query")
+    assert query.slots == ("Int", "Int") and literals(query, text) == ["2", "1"]
+    loaded = load(execution.export_bundle(query))
+    assert loaded.slots == query.slots
+    assert bound(run(loaded, (10, 20))) == bound(run(query, (10, 20)))
+    twice, text = project_with(
+        tmp_path / "twice",
+        "table a:\n    from items\n    where id > 3\n    select:\n        id\n"
+        "query active_items:\n    union all:\n        from a\n        from a\n",
+    )
+    query = compiled(twice, kind="query")
+    assert query.slots == ("Int",) and literals(query, text) == ["3"]
+
+
+def test_repeated_calls_share_only_the_template(live, bundle, unconnected):
+    """A/B/A: each call is a new binding, request, owner and attempt with its
+    own values and access; only the immutable template is shared."""
+    loaded = load(bundle)
+    for query in (live, loaded):
+        calls = (("a", (1,)), ("b", (3,)), ("a", (1,)))
+        handles = [
+            run(query, values, access=access(user=user)) for user, values in calls
+        ]
+        requests = [h._owner.request for h in handles]
+        assert len({h.attempt for h in handles}) == 3
+        assert len({r.binding.instance_reference for r in requests}) == 3
+        assert (
+            len({id(r) for r in requests}) == len({id(h._owner) for h in handles}) == 3
+        )
+        assert all(r.binding.template is query._template for r in requests)
+        assert [r.binding.arguments for r in requests] == [(1,), (3,), (1,)]
+        assert [r.access.user for r in requests] == ["a", "b", "a"]
+        assert all(h.outcome.end == "NOT_STARTED" for h in handles)
+
+
+def test_a_refused_call_changes_nothing_for_the_next_call(
+    live, bundle, code, tmp_path, unconnected
+):
+    loaded = load(bundle)
+    for query in (live, loaded):
+        first = bound(run(query, (3,)))
+        assert refused(run, query, (True,)) == ("PIE-R1006", "BINDING_VALUE:0:Int")
+        assert refused(run, query, (3,), premise=None) == (
+            "PIE-R1001",
+            "PUBLIC_PREMISE_REQUIRED",
+        )
+        code.change()
+        assert refused(run, query, (3,)) == ("PIE-R1005", "COMPILED_COMPATIBILITY")
+        code.restore()
+        assert bound(run(query, (3,))) == first
+    signed = compiled(variant(tmp_path / "sign", "id > -1"))
+    assert refused(run, signed, (-(2**63),)) == ("PIE-R1004", "BINDING_INVALID")
+    assert bound(run(signed, (5,)))[1] == (5,)
+
+
+def test_values_are_checked_in_the_documented_order(live, code, unconnected):
+    """`values` type after every presence and type check; binding (R1006)
+    before the code identity (R1005); both before the premise, access,
+    isolation and limits values."""
+    uncovered = execution.PostgresDeploymentPremise(schemas=("public",))
+    wide = execution.ExecutionLimits(batch_rows=5000)
+    pairs = (
+        (dict(isolation=None, values=[3]), "PUBLIC_ISOLATION_REQUIRED"),
+        (dict(limits={"seconds": 1}, values=[3]), "PUBLIC_LIMITS_TYPE"),
+        (dict(values=[3], premise=uncovered), "PUBLIC_VALUES_TYPE"),
+        (dict(values=[3], isolation="read committed"), "PUBLIC_VALUES_TYPE"),
+        (dict(values=(True,), premise=uncovered), "BINDING_VALUE:0:Int"),
+        (dict(values=(1, 2), access=access(user="")), "BINDING_SLOTS"),
+        (dict(values=(True,), limits=wide), "BINDING_VALUE:0:Int"),
+    )
+    for changes, detail in pairs:
+        assert refused(run, live, **changes)[1] == detail, changes
+    code.change()
+    assert refused(run, live, (True,)) == ("PIE-R1006", "BINDING_VALUE:0:Int")
+    assert refused(run, live, (3,), premise=uncovered) == (
+        "PIE-R1005",
+        "COMPILED_COMPATIBILITY",
+    )
+
+
+def test_a_compiled_query_keeps_the_project_it_was_compiled_from(tmp_path, unconnected):
+    """A compiled query is a snapshot: edits after compile_query change
+    nothing until the next compile, even with the project gone."""
+    project = api.write_example(tmp_path / "snapshot")
+    query = compiled(project)
+    before = bound(run(query))
+    exported = execution.export_bundle(query)
+    path = project / "main.pietto"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace("id > 1", "id > 2"), encoding="utf-8"
+    )
+    assert bound(run(query)) == before and before[1] == (1,)
+    again = compiled(project)
+    assert bound(run(again))[1] == (2,)
+    renewed = execution.export_bundle(again)
+    assert renewed.pin != exported.pin and renewed.producer != exported.producer
+    assert execution.export_bundle(query) == exported
+    shutil.rmtree(project)
+    assert bound(run(query)) == before

@@ -54,8 +54,22 @@ CODES = {
     ),
     "PIE-R1005": (
         "CODE_IDENTITY",
-        "the installed Pietto or ANTLR runtime code changed since compile_query,"
-        " or its identity cannot be established",
+        "the installed Pietto or ANTLR runtime code is not the code the query was"
+        " compiled or accepted for, or its identity cannot be established",
+    ),
+    "PIE-R1006": (
+        "VALUE_REFUSED",
+        "the values do not fit the query's slots: their number differs, or a"
+        " value's exact type or range is not its slot's",
+    ),
+    "PIE-R1007": (
+        "BUNDLE_CONTENT",
+        "the bundle bytes are not the bytes the expected pin names",
+    ),
+    "PIE-R1008": (
+        "BUNDLE_NOT_ACCEPTED",
+        "the bundle bytes are malformed, fail verification, or name a producer or"
+        " compatibility other than the accepted ones",
     ),
     "PIE-R1999": (
         "REQUEST_UNCLASSIFIED",
@@ -185,6 +199,15 @@ _REQUEST = {
     "EXECUTION_REALIZATION_NOT_DELIVERED": "PIE-R1004",
     "COMPILED_COMPATIBILITY": "PIE-R1005",
     "COMPILED_CODE_ORIGIN": "PIE-R1005",
+    "BINDING_SLOTS": "PIE-R1006",
+}
+# load_bundle's acceptance stage: the caller's records and the bundle bytes.
+_BUNDLE = {
+    "PUBLIC_BUNDLE_CODE_IDENTITY": "PIE-R1005",
+    "COMPILED_CODE_ORIGIN": "PIE-R1005",
+    "PUBLIC_BUNDLE_SIZE": "PIE-R1002",
+    "COMPILED_CONTENT_PIN": "PIE-R1007",
+    "PUBLIC_BUNDLE_UNSUPPORTED": "PIE-R1004",
 }
 _ATTEMPT = {
     "EXECUTION_DEPENDENCY_MISSING": "PIE-R2001",
@@ -332,8 +355,22 @@ def request_failure(error):
     word = category_word(error)
     if word in _REQUEST:
         code = _REQUEST[word]
+    elif word is not None and word.startswith("BINDING_VALUE:"):
+        code = "PIE-R1006"
     elif word is not None and type(error) in _QUERY_ERRORS:
         code = "PIE-R1004"
+    else:
+        code = "PIE-R1999"
+    return failure(code, word, cause=type(error).__name__)
+
+
+def bundle_failure(error):
+    """Classify a refusal of the caller's records or the bundle bytes (no I/O)."""
+    word = category_word(error)
+    if word in _BUNDLE:
+        code = _BUNDLE[word]
+    elif word is not None and type(error) is CompiledError:
+        code = "PIE-R1008"
     else:
         code = "PIE-R1999"
     return failure(code, word, cause=type(error).__name__)

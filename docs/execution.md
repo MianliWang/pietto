@@ -2,7 +2,9 @@
 
 `pietto.execution` compiles one query of your project, runs it explicitly on
 PostgreSQL 18.6 through the PostgreSQL rows route, and hands you typed Arrow
-batches and the attempt's real terminal state.
+batches and the attempt's real terminal state. A compiled query can also be
+exported as a query bundle and loaded elsewhere under your own trust records,
+and a `bind-safe` query can run with explicit parameter values.
 
 This is an **alpha interface**. It is separate from the public contracts listed
 in the README: its names, fields, error codes and behavior may change in later
@@ -19,9 +21,8 @@ for the attempt's whole lifetime.
 
 The alpha covers one route, `postgres_rows`, against PostgreSQL 18.6, reached
 over TCP and authenticated with SCRAM-SHA-256. The MySQL and PostgreSQL ADBC
-routes, compiled query bundles, explicit parameter values, cancellation and
-saved results remain private. There is no CLI command that connects to a
-database.
+routes, cancellation and saved results remain private. There is no CLI command
+that connects to a database.
 
 ## Install
 
@@ -32,9 +33,10 @@ with `uv build --wheel`, then install it with the `execute-postgres` extra in a
 fresh virtual environment, for example
 `python -m pip install "dist/pietto-0.1.1-py3-none-any.whl[execute-postgres]"`.
 The extra adds the pinned `psycopg[binary]==3.3.5` and `pyarrow==25.0.1` (see
-the README's execution extras). Without them, opening an attempt is refused with
-`PIE-R2001` before any connection, and no other installed driver is used
-instead.
+the README's execution extras). Compiling, exporting and loading a bundle and
+an unopened `execute()` need neither. Without them, opening an attempt is
+refused with `PIE-R2001` before any connection, and no other installed driver
+is used instead.
 
 ## Example
 
@@ -179,10 +181,20 @@ except RequestRejected as error:
   instead for an argument that is `None` (`PIE-R1001`) or invalid (`PIE-R1002`),
   checked before the project is read (where the command prints its usage
   error), and when a verified query cannot become an execution (`PIE-R1004`,
-  `PIE-R1005`). A `CompiledQuery` exposes `module`, `kind`, `name`, `dialect`,
-  `release`, `literal_policy` and `emission`, the same `pietto.sql-emission.v1`
-  artifact the command prints. Only `compile_query` creates one, and it cannot
-  be pickled.
+  `PIE-R1005`).
+- A `CompiledQuery` exposes `origin` (`"live"` from `compile_query`, `"bundle"`
+  from `load_bundle`), `module`, `kind`, `name`, `dialect`, `release`,
+  `literal_policy`, `slots` (the tag of each value slot, see [Values](#values))
+  and `emission`, the same `pietto.sql-emission.v1` artifact the command prints
+  (`None` for a loaded bundle). Only `compile_query` and `load_bundle` create
+  one, and it cannot be pickled or copied. It is a snapshot of what was
+  compiled; see [Repeated calls and
+  invalidation](#repeated-calls-and-invalidation).
+- `export_bundle(query) -> QueryBundle` returns the query as bundle bytes,
+  `payload`, and three records that name them, `pin`, `producer` and
+  `compatibility`. `load_bundle(payload, *, expected_pin, accepted_producer,
+  accepted_compatibility) -> CompiledQuery` loads exactly the bytes your
+  records name. See [Query bundles](#query-bundles).
 - `PostgresAccess(host, port, database, user, password, sslmode="require")` is
   the explicit connection input; `repr()` and `str()` show `password=<redacted>`,
   and it cannot be pickled or copied.
@@ -198,12 +210,13 @@ except RequestRejected as error:
   deadline, and each statement runs with a server-side timeout of at most 10
   seconds that Pietto sets itself.
 - `execute(query, *, route, access, premise, limits=ExecutionLimits(),
-  isolation="stable") -> ResultHandle` checks the request before any
-  connection and returns an unopened handle; the driver and the environment
+  isolation="stable", values=None) -> ResultHandle` checks the request before
+  any connection and returns an unopened handle; the driver and the environment
   are checked when the attempt opens. `route`, `access` and `premise` have no
   default. There is no parameter that takes SQL text. Each call binds afresh and
   is a new attempt with its own `attempt` identifier. `isolation` is `stable`
   (REPEATABLE READ READ ONLY) or `serializable` (SERIALIZABLE READ ONLY).
+  `values` gives one value per slot of the query (see [Values](#values)).
 - `ResultHandle` runs that one attempt. Use it in a `with` block or iterate it:
   entering, or the first `next()`, connects; each `next()` returns a
   `ResultBatch`; the end of the result commits and closes it; `close()` before
@@ -268,17 +281,243 @@ carries its `outcome`; `HandleMisuse` (PIE-R4xxx) leaves the attempt unchanged.
 `limits` are given and have the right type and that `isolation` is given, in
 this order; right after the route's type it checks that the route is
 `postgres_rows` and the query was compiled for `postgres` (`PIE-R1003`). It
-then binds the query (`PIE-R1004`, `PIE-R1005`) and checks the values of
-`premise`, `access`, `isolation` (its type included) and `limits`, in this
-order, and raises the first refusal. The driver and environment checks
-(`PIE-R2001` to `PIE-R2003`) run when the attempt opens. Error text never
-contains a password, driver message, SQL text or value, and a public error is
-not chained to the driver's exception. A
+then checks that `values` is `None` or a tuple (`PIE-R1002`), binds the query
+to the values (`PIE-R1006`, `PIE-R1004`), reads the installed code identity
+again (`PIE-R1005`) and checks the values of `premise`, `access`, `isolation`
+(its type included) and `limits`, in this order, and raises the first refusal.
+The driver and environment checks (`PIE-R2001` to `PIE-R2003`) run when the
+attempt opens.
+
+`load_bundle()` checks `payload`, `expected_pin`, `accepted_producer` and
+`accepted_compatibility` in this order, each given (`PIE-R1001`) and then of
+the right type (`PIE-R1002`). It then checks that the installed code is the
+code `accepted_compatibility` names (`PIE-R1005`), before it reads the bytes;
+that the bytes are not empty and at most 32 MiB (`PIE-R1002`); that they are
+the bytes `expected_pin` names (`PIE-R1007`); that they decode, verify and name
+the accepted producer and compatibility (`PIE-R1008`); that the query is one
+`compile_query` can produce (`PIE-R1004`); and that it becomes an execution
+template (`PIE-R1004`, or `PIE-R1005` when the code changed in between). Bytes
+whose bracket nesting the bounded reader refuses before it hashes them are
+malformed (`PIE-R1008`), whatever the pin. `export_bundle()` checks that
+`query` is given (`PIE-R1001`) and is a `CompiledQuery` (`PIE-R1002`).
+
+Error text never contains a password, driver message, SQL text, value or bundle
+content, and a public error is not chained to the private or driver exception
+it classifies. A
 `KeyboardInterrupt` or another `BaseException` that is not an `Exception`
 passes through unchanged and is recorded as `PIE-R3008`; in this alpha one that
 arrives while the attempt commits, rolls back or closes its connection is
 recorded as that step's failure (`PIE-R3006`, or a `PIE-R5001` cleanup failure)
 and does not propagate.
+
+## Values
+
+With `literal_policy="bind-safe"`, the literals that Pietto sends to the server
+as parameters of the prepared statement are the query's slots; the SQL text is
+the same for every value. `query.slots` gives the tag of each slot, `Bool`,
+`Int`, `Float` or `Text`, in slot order, the order in which `execute()` takes
+their values. Compiled with `bind-safe`, the example's `1` in `where id > 1` is
+its only slot: `query.slots` is `('Int',)`, and `values=(3,)` returns the rows
+with `id > 3`. A `preserve` query writes its literals into the SQL text and has
+no slots.
+
+Slot order is the compiler's order of the literals:
+
+- The tables and queries that the query reads come first, each after the ones
+  it reads, then the query itself. This is the compiler's schedule, not the
+  order in which the query names its inputs: in a `union all` of `from a` and
+  `from b`, the literals of `b` come first when `b` is declared before `a`. A
+  table that the query reads twice contributes its literals once.
+- Within one table or query, the literals of `let` come before those of
+  `where`, and those before the ones of `select`; each expression is read from
+  left to right. With `let: bonus = id + 30`, `where id > 1 and label != "x"`
+  and `select: more = bonus + 7`, the slots are `30`, `1`, `"x"` and `7`.
+- The live query's `emission` shows every slot: `fixed_values[i]` is slot `i`
+  with its tag and compiled value, and the `ranges` entry of kind `parameter`
+  whose `subject` is that record's `site` locates the literal in your source
+  file through its origin's `location` (`path`, `line` and `column`). A loaded
+  bundle has no `emission` but keeps the slot order of the query it was
+  exported from, so keep this mapping with your records if you need it.
+
+The values:
+
+- `values=None`, the default, binds the values the query was compiled with
+  (for a loaded bundle, the values recorded in it).
+- Otherwise `values` is a tuple with exactly one value per slot, in slot order,
+  each of its slot's exact type; nothing is converted. `Bool` takes a `bool`;
+  `Int` an `int` that is not a `bool`, from `-2**63` to `2**63 - 1`; `Float` a
+  finite `float`, never an `int`; `Text` a `str` that UTF-8 can encode and that
+  contains no NUL character. A list or any other type is refused with
+  `PIE-R1002` (`PUBLIC_VALUES_TYPE`). A tuple of another length is refused with
+  `PIE-R1006` and `detail` `BINDING_SLOTS`, and a value outside its slot's type
+  or range with `PIE-R1006` and `detail` `BINDING_VALUE:<ordinal>:<tag>`, where
+  `<ordinal>` is the 0-based slot number; neither shows the value.
+- A slot is one literal. In `where id > -1` the slot holds `1` and the minus
+  stays part of the query, so `values=(5,)` means `id > -5`. `LIMIT` counts and
+  window frames are part of the query, never slots.
+- A value of the right type can still make the query impossible to prepare:
+  under a sign or inside arithmetic, a slot accepts only values whose result
+  stays representable for every value that the contract's domains allow, so
+  `-2**63` under that minus is refused. That is `PIE-R1004` with `detail`
+  `BINDING_INVALID`, which does not name the slot.
+
+## Query bundles
+
+`export_bundle(query)` returns a `QueryBundle`: `payload`, the bundle bytes,
+and three records of 64 lowercase hexadecimal characters each:
+
+- `pin`, the content identity of exactly these bytes;
+- `producer`, the identity of the project's source files and emission contract
+  and of the code that built the bytes;
+- `compatibility`, the identity of the Pietto and ANTLR runtime files that were
+  installed when the query was compiled; only installed code with that identity
+  loads and runs the bytes.
+
+`load_bundle(payload, *, expected_pin, accepted_producer,
+accepted_compatibility)` returns a `CompiledQuery` with `origin` `"bundle"`
+that runs exactly like the query it was exported from: the same SQL, the same
+slots and, for `values=None`, the same values. It reads no project file. Each
+load is a new query, and nothing about an accepted bundle is remembered.
+
+`bundle_query.py` sits next to `run_query.py` in the example. It builds the
+bundle from `demo-exec` with `bind-safe` literals, then loads it and runs it
+with two values. Run it like `run_query.py`, with the password on standard
+input:
+
+```python
+import sys
+
+import pyarrow as pa
+
+from pietto.execution import (
+    PostgresAccess,
+    PostgresDeploymentPremise,
+    compile_query,
+    execute,
+    export_bundle,
+    load_bundle,
+)
+
+# Build: compile, export and write the bundle bytes.
+bundle = export_bundle(
+    compile_query(
+        "demo-exec",
+        module="main.pietto",
+        kind="table",
+        name="active_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+        literal_policy="bind-safe",
+    )
+)
+with open("active_items.bundle", "wb") as file:
+    file.write(bundle.payload)
+# Keep these three records in your own records, not next to the bundle file.
+records = dict(
+    expected_pin=bundle.pin,
+    accepted_producer=bundle.producer,
+    accepted_compatibility=bundle.compatibility,
+)
+
+# Run: load exactly the bytes the records name, then run them twice.
+with open("active_items.bundle", "rb") as file:
+    query = load_bundle(file.read(), **records)
+print(query.origin, query.slots)
+access = PostgresAccess(
+    host=sys.argv[1],
+    port=int(sys.argv[2]),
+    database=sys.argv[3],
+    user=sys.argv[4],
+    password=sys.stdin.readline().rstrip("\n"),
+    sslmode=sys.argv[5] if len(sys.argv) > 5 else "require",
+)
+premise = PostgresDeploymentPremise(schemas=("fixture", "pg_catalog"))
+for value in (1, 3):
+    ids = []
+    with execute(
+        query, route="postgres_rows", access=access, premise=premise, values=(value,)
+    ) as result:
+        for batch in result:
+            with batch:
+                ids.extend(pa.record_batch(batch).column("id").to_pylist())
+    print(value, sorted(ids), result.outcome.end)
+```
+
+It prints `bundle ('Int',)`, then `1 [2, 2, 3, 5] COMPLETE` and
+`3 [5] COMPLETE`.
+
+A bundle never vouches for itself. Each entry has its own trust basis:
+
+| Entry | What it trusts | Where that comes from |
+| --- | --- | --- |
+| `compile_query` | the project files under the root you name, read once when compiling, and the installed code | your own project |
+| `load_bundle` | exactly the bytes `expected_pin` names, built from the inputs `accepted_producer` names, for the code `accepted_compatibility` names | your own records, typically taken from `export_bundle` when you build the bundle and kept apart from where the bytes travel |
+
+- The three records are required keyword arguments without a default. Pietto
+  never takes them from the bytes, a file beside them or the environment, and
+  it has no function that turns bytes you pass, or the installed code alone,
+  into a record: records come only from `export_bundle` of a query that you
+  compiled or loaded yourself. The bundle's own producer and compatibility are
+  compared with yours, never adopted.
+- The pin is a content identity, not a signature. It protects the bytes only
+  when it comes from your own records: whoever can change the bytes can also
+  compute a pin for the changed bytes, and changed bytes loaded with such a pin
+  are accepted. Keep the records where the sender of the bytes cannot change
+  them. This alpha has no signing, registry or revocation. The records are
+  deterministic identities of the content, not secrets: they confirm a guess
+  of the query's literals and names, so where the literals matter, keep the
+  records as confidential as the bundle.
+- A bundle holds the query's literal values, names and emission contract in
+  clear text, but never an access, a premise, a credential or the state of an
+  attempt: exporting before and after attempts gives the same bytes. Treat a
+  bundle like the query's source. Pietto never shows its content: errors carry
+  category words only, and `repr()` of a `QueryBundle` shows only the length of
+  its payload.
+- A loaded query is an ordinary direct query: every `execute()` takes its own
+  access and premise, the premise's `schemas` must cover the bundle's own
+  sources (`PIE-R1002` otherwise), and the sources are requalified in every
+  attempt. No SQL text enters through a bundle: bytes that are not a bundle,
+  SQL text included, are refused with `PIE-R1008` even under their own pin.
+- Only queries that `compile_query` can produce are loaded; a bundle with a
+  guard program or a refinement is refused with `PIE-R1004`.
+- The same query of the same project files, contract and literal policy,
+  compiled by the same installed code, gives byte-identical bundles wherever
+  the project directory is.
+- A bundle loads only while the installed code has the identity that its
+  compatibility names: changing any installed Pietto `.py` file or the ANTLR
+  runtime, which includes every Pietto release, refuses its records with
+  `PIE-R1005`. Export the bundle again from the project with the new code, or
+  keep the environment that built it to run it; there is no migration and no
+  compatibility between versions.
+
+## Repeated calls and invalidation
+
+A `CompiledQuery` can be executed any number of times, one call after another.
+Each `execute()` binds the query afresh and is a new attempt; the calls share
+only the immutable compiled query. Values, access, role, premise, limits and
+isolation come from that call, and each attempt qualifies the sources and meets
+the server's privilege checks itself. A refused call creates nothing and
+changes nothing, and a failed attempt does not affect the next one. Pietto
+caches no binding, request, qualification, accepted bundle or failure.
+
+The code identity is that of the installed Pietto and ANTLR runtime files at
+the moment of each call, not that of the modules a running process has already
+imported. After the installed code changes, for example by an upgrade, restart
+every process that imported Pietto before it compiles, exports, loads or
+executes again. A process that keeps running refuses what it compiled or
+loaded before the change (`PIE-R1005`), but a query it compiles afterwards, and
+a bundle it exports from it, carries the new identity although its old modules
+built them; such a bundle may differ from the bundle the new code builds, or be
+refused by it.
+
+| What changes after `compile_query` or `load_bundle` | A later `execute()` | A later `load_bundle()` |
+| --- | --- | --- |
+| The values | Each call binds its own. | Not applicable. |
+| The access, role, password or premise | Each call uses its own; the server authorizes each attempt. | Not applicable. |
+| Database definitions, privileges or rows | Requalified and authorized in each attempt (`PIE-R2007`, `PIE-R3003`). | Not applicable. |
+| An installed Pietto `.py` file or the ANTLR runtime, including any upgrade | `PIE-R1005` for every query compiled or loaded before; it works again when the code is restored. | The old records: `PIE-R1005`. The old bytes relabeled with the new compatibility: `PIE-R1008`. |
+| The bundle bytes | Nothing for a query already loaded; it keeps what it loaded. | Changed bytes under the old pin: `PIE-R1007` (`PIE-R1008` when the change breaks the bracket nesting that is checked before hashing). |
+| The project's source files or contract | Nothing for a query already compiled: it is a snapshot, and the edits take effect with the next `compile_query`. | A new export has another producer and pin; records of two exports mixed together are refused (`PIE-R1007`, `PIE-R1008`). |
 
 ## Connection and trust requirements
 
@@ -334,10 +573,16 @@ file or certificate supplies a connection setting.
   code anyway. Run scripts with `python -I` to keep the working directory and
   `PYTHONPATH` out of the import path. PyArrow only has to be importable: this
   alpha checks neither its version nor the files it is imported from.
-- **Code identity.** Each compile and attempt identifies the installed Pietto
-  and ANTLR runtime code; the ANTLR version comes from the distribution that
-  owns the imported runtime files, so a stray `*.dist-info` in the working
-  directory cannot change it.
+- **Code identity.** Each compile, bundle load and attempt identifies the
+  installed Pietto and ANTLR runtime code from the installed files at that
+  moment; restart a running process after they change (see [Repeated calls and
+  invalidation](#repeated-calls-and-invalidation)). The ANTLR version comes from
+  the distribution that owns the imported runtime files, so a stray
+  `*.dist-info` in the working directory changes neither the identity, nor the
+  `compatibility` that `export_bundle` returns, nor what `load_bundle` accepts:
+  one whose `RECORD` claims the imported runtime files makes every compile,
+  load and attempt refuse with `PIE-R1005` (`COMPILED_CODE_ORIGIN`). Run scripts
+  with `python -I`.
 
 ### Setting up the server
 
@@ -401,8 +646,10 @@ authentication is `PIE-R2004`.
 | --- | --- | --- | --- | --- |
 | `import pietto.execution` | none | Python modules; importing `hashlib` lets CPython's OpenSSL read `OPENSSL_CONF` or the system `openssl.cnf` | none | no driver, no PyArrow |
 | `compile_query(...)` | none; no schema is read | `pietto.toml`, the selected sources and the contract under the project root; the installed Pietto and ANTLR runtime `.py` files; the ANTLR distribution's `METADATA` and `RECORD` | none | none |
-| attributes, `repr()` of the value objects, `CompiledQuery` and an unopened handle | none | none | none | none |
-| `execute(...)` | none | the installed code and ANTLR metadata again, to bind afresh | none | none |
+| attributes, `repr()` of the value objects, `CompiledQuery`, `QueryBundle` and an unopened handle | none | none | none | none |
+| `export_bundle(...)` | none | none; the bytes are encoded in memory | none | none |
+| `load_bundle(...)` | none | the installed Pietto and ANTLR runtime `.py` files and the `METADATA` and `RECORD` of each ANTLR runtime distribution on `sys.path`, for the code identity; no project file, nothing looked up next to the bytes and no environment variable | none | none |
+| `execute(...)`, with or without `values` | none | the installed code and ANTLR metadata again, to bind afresh | none | none |
 | entering, or the first `next()` | one TCP connection: TLS with channel binding unless `disable`, SCRAM-SHA-256; `BEGIN ... READ ONLY`; a settings read; catalog reads that qualify the sources, between two reads of the session context | environment variable names and the value of `PSYCOPG_IMPL`; with it unset, whether a `psycopg_c` module is loaded or can be found on the import path (it is not imported); the `METADATA` and `RECORD` of psycopg and psycopg-binary; the type of `/dev/null` | one non-daemon `pietto-deadline-<attempt>` timer | psycopg 3.3.5 and PyArrow |
 | the first `next()` | a read of the session context, the statement timeout (`set_config`), then one prepared statement of at most 10 s; the whole result is read into client memory | none | as above | none |
 | each later `next()` | a read of the session context before the batch is returned | none | as above | none |
@@ -440,8 +687,22 @@ still running. Interpreter exit waits for the deadline timer, up to
   and UUID results are not part of this alpha.
 - A query whose single-match requirements need runtime enforcement is blocked
   when compiled (`PIE-B1006`), as with `pietto emit-sql --project`.
-- A query always runs with the literal values of its source; a `bind-safe`
-  query binds them as parameters.
+- Only the literals of a `bind-safe` query can take other values (see
+  [Values](#values)); a `preserve` query always runs with the literal values of
+  its source.
+- A compiled query is a snapshot of the project files `compile_query` read;
+  edits take effect with the next `compile_query`, and a bundle keeps the query
+  it was exported from.
+- A bundle loads only while the installed code has the identity that its
+  compatibility names, so every Pietto release needs a new export (or the
+  environment that built it); there is no migration between versions. The
+  identity is read from the installed files at each call, so restart running
+  processes after the installed code changes.
+- The pin of a bundle is a content identity, not a signature, and protects the
+  bytes only when it comes from your own records. There is no signing,
+  registry or revocation.
+- Bundles with a guard program or a refinement, which `compile_query` does not
+  produce, are refused (`PIE-R1004`).
 - There is no `cancel()` yet. The deadline cancels a running statement and the
   server's 10 second statement limit ends one; neither bounds a wait on a server
   or network that stops responding, and neither ends an idle session. When both
