@@ -179,6 +179,14 @@ uv run pietto emit-sql active_users.pietto --dialect postgres
 `check` does not generate or execute SQL. `emit-sql` writes SQL to stdout by
 default and can atomically replace an explicitly selected regular output file.
 
+From a checkout, a single-file `postgres.table` or `mysql.table` string may be
+one table name or `<schema>.<table>` (for MySQL, `<database>.<table>`); each
+part is quoted separately, so `"public.users"` emits `FROM "public"."users"`,
+and more than one dot or an empty part fails `check` with `PIE-S2306`. The
+0.1.1 release quotes the whole string as one identifier (`FROM "public.users"`).
+Project SQL emission takes physical schema and relation names from its emission
+contract.
+
 ## Projects
 
 Project commands use an explicit root containing `pietto.toml`:

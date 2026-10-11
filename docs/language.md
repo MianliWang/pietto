@@ -55,6 +55,7 @@ shape User:
     id: UUID not null
     age: Age nullable
     status: Status not null
+    email: Text nullable
 ```
 
 Shape items may include fields, named `check` blocks, `unique` declarations,
@@ -104,15 +105,22 @@ limit (optional)
 table active_users:
     from users
     let:
-        normalized = lower(trim(status))
-    where status is not null
+        normalized = lower(trim(email))
+    where email is not null
     select:
         id
-        normalized
+        normalized_email = normalized
     order by:
         id asc
     limit 100
 ```
+
+Single-file checks require a selected `let` binding to take a new output name,
+as `normalized_email = normalized` does. Single-file `emit-sql` produces SQL
+for this table. Project SQL emission does not admit builtin calls such as
+`lower` and `trim` yet, so in an explicit-module project the table checks but
+`emit-sql --project` reports
+`PIE-B1003 UNSUPPORTED_RULE: call_authority_unavailable`.
 
 `from` names the base relation. Authored relationship traversal may then add
 `inner join` or `left join` clauses with mandatory target bindings:
@@ -126,8 +134,12 @@ query enriched:
         from customer
         via customer_region: customer -> region
     select:
-        id
+        order_id = orders.id
 ```
+
+When all three relations have an `id` field, a bare `id` is ambiguous and the
+project check reports `PIE-S2333`; the selection therefore qualifies it as
+`orders.id`.
 
 Zero `via` lines use exact direct-relationship shorthand. One or more lines
 name an explicit ordered path as `via relationship: source_role -> target_role`.
@@ -344,10 +356,9 @@ Direct selected window expressions use an indented `window` specification:
 query ranked:
     from users
     select:
-        position = row_number():
-            window:
-                order by:
-                    id asc
+        position = row_number() window:
+            order by:
+                id asc
 ```
 
 The bounded window identities are `row_number`, `rank`, `dense_rank`,
