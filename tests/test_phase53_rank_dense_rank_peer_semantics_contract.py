@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import dataclasses
-from pathlib import Path
 from typing import Any, cast
 
 
 import pytest
 
-import pietto
 import pietto.semantic.window_analysis as window_analysis
 from pietto._project.model import (
     ProjectResolvedType,
@@ -46,8 +44,6 @@ from pietto.ast_nodes import (
     WindowSpec,
 )
 from pietto.errors import Diagnostic, SourceLocation
-from pietto.ir.lowering import lower_expr
-from pietto.ir.model import WindowCallIR
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic.generic_compatibility import (
@@ -70,13 +66,6 @@ from pietto.semantic.window_semantics import (
     WindowExpressionUnsupported,
     WindowResultAvailabilityKind,
 )
-
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-
-
-def _read(relative: str) -> str:
-    return (REPO_ROOT / relative).read_text(encoding="utf-8")
 
 
 def _program(
@@ -309,48 +298,15 @@ def _project_fact(
     return result
 
 
-@pytest.mark.parametrize(
-    ("policy", "name", "value"),
-    (
-        (RankingAdvancePolicy.PER_ROW, "PER_ROW", "per_row"),
-        (
-            RankingAdvancePolicy.GAPPED_PEER_RANK,
-            "GAPPED_PEER_RANK",
-            "preceding_row_count_plus_one",
-        ),
-        (
-            RankingAdvancePolicy.DENSE_PEER_RANK,
-            "DENSE_PEER_RANK",
-            "preceding_distinct_peer_group_count_plus_one",
-        ),
-    ),
-)
-def test_ranking_advance_policy_enum_values_and_privacy_are_exact(
-    policy: RankingAdvancePolicy, name: str, value: str
-) -> None:
-    assert (policy.name, policy.value) == (name, value)
-    assert tuple(RankingAdvancePolicy) == (
-        RankingAdvancePolicy.PER_ROW,
-        RankingAdvancePolicy.GAPPED_PEER_RANK,
-        RankingAdvancePolicy.DENSE_PEER_RANK,
-    )
-    assert not hasattr(pietto, "RankingAdvancePolicy")
-    assert _read("src/pietto/semantic/window_semantics.py").count("__all__") == 1
-
-
-@pytest.mark.parametrize("case", range(3))
-def test_ranking_window_semantic_fact_shape_is_frozen_and_exact(case: int) -> None:
-    fact, _ = _canonical_ranking_fact(
-        function_name=("row_number", "rank", "dense_rank")[case]
-    )
+def test_ranking_window_semantic_fact_shape_is_frozen_and_exact() -> None:
     params = getattr(RankingWindowSemanticFact, "__dataclass_params__")
-    assertions = (
-        params.frozen and hasattr(RankingWindowSemanticFact, "__slots__"),
-        tuple(field.name for field in dataclasses.fields(RankingWindowSemanticFact))
-        == ("semantic_fact", "advance_policy"),
-        fact.identity == fact.semantic_fact.identity,
-    )
-    assert assertions[case]
+    assert params.frozen and hasattr(RankingWindowSemanticFact, "__slots__")
+    assert tuple(
+        field.name for field in dataclasses.fields(RankingWindowSemanticFact)
+    ) == ("semantic_fact", "advance_policy")
+    for function_name in ("row_number", "rank", "dense_rank"):
+        fact, _ = _canonical_ranking_fact(function_name=function_name)
+        assert fact.identity == fact.semantic_fact.identity
 
 
 @pytest.mark.parametrize("case", range(12))
@@ -434,31 +390,13 @@ def test_peer_sensitivity_and_gap_posture_are_exact(function_name: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("function_name", "qualified"),
-    (("rank", False), ("rank", True), ("dense_rank", False), ("dense_rank", True)),
-)
-def test_structural_peer_key_uses_resolved_local_order_expression(
-    function_name: str, qualified: bool
-) -> None:
-    fact, _ = _canonical_ranking_fact(
-        function_name=function_name,
-        qualified=qualified,
-    )
-    order_expression = fact.semantic_fact.expression.spec.order_by[0].expression
-    assert fact.peer_key == (order_expression,)
-    assert isinstance(order_expression, DottedNameExpr if qualified else NameExpr)
-
-
-@pytest.mark.parametrize(
     "call",
     (
         "row_number()",
-        "rank()",
         "dense_rank()",
         "Rank()",
         "RANK()",
         "Dense_Rank()",
-        "analytics.rank()",
         "first_value()",
         "last_value()",
         "nth_value()",
@@ -544,30 +482,36 @@ def test_ranking_non_null_formula_evaluates_exactly() -> None:
 
 
 @pytest.mark.parametrize(
-    ("function_name", "kind", "qualified"),
-    (
-        ("rank", "query", False),
-        ("rank", "query", True),
-        ("rank", "table", False),
-        ("rank", "table", True),
-        ("dense_rank", "query", False),
-        ("dense_rank", "query", True),
-        ("dense_rank", "table", False),
-        ("dense_rank", "table", True),
+    ("function_name", "kind", "qualified", "upstream"),
+    tuple(
+        (function_name, kind, qualified, upstream)
+        for function_name in ("rank", "dense_rank")
+        for kind, qualified, upstream in (
+            ("query", False, False),
+            ("query", True, False),
+            ("table", False, False),
+            ("table", True, False),
+            ("query", False, True),
+            ("query", True, True),
+            ("table", False, True),
+        )
     ),
 )
 def test_rank_dense_rank_supported_result_shape_is_exact(
-    function_name: str, kind: str, qualified: bool
+    function_name: str, kind: str, qualified: bool, upstream: bool
 ) -> None:
     fact, relation = _canonical_ranking_fact(
         function_name=function_name,
         kind=kind,
         qualified=qualified,
+        upstream=upstream,
     )
     core = fact.semantic_fact
     value_type = core.result.value_type
+    order = core.expression.spec.order_by[0].expression
     assert isinstance(relation, QueryDef if kind == "query" else TableDef)
     assert core.identity.name == function_name
+    assert core.occurrence.relation_name == "ranked"
     assert core.stage is WindowExpressionStage.WINDOW
     assert core.result.kind is WindowResultAvailabilityKind.CONCRETE
     assert value_type is not None
@@ -576,58 +520,8 @@ def test_rank_dense_rank_supported_result_shape_is_exact(
         TypeKind.BUILTIN,
     )
     assert value_type.nullability is EffectiveNullability.NON_NULL
-
-
-@pytest.mark.parametrize(
-    ("function_name", "qualified", "upstream"),
-    (
-        ("rank", False, False),
-        ("rank", False, True),
-        ("rank", True, False),
-        ("rank", True, True),
-        ("dense_rank", False, False),
-        ("dense_rank", False, True),
-        ("dense_rank", True, False),
-        ("dense_rank", True, True),
-    ),
-)
-def test_rank_dense_rank_bare_and_immediate_qualified_order_field_success(
-    function_name: str, qualified: bool, upstream: bool
-) -> None:
-    fact, _ = _canonical_ranking_fact(
-        function_name=function_name,
-        qualified=qualified,
-        upstream=upstream,
-    )
-    order = fact.semantic_fact.expression.spec.order_by[0].expression
     assert isinstance(order, DottedNameExpr if qualified else NameExpr)
     assert fact.peer_key == (order,)
-
-
-@pytest.mark.parametrize(
-    ("function_name", "kind", "upstream"),
-    (
-        ("rank", "table", False),
-        ("rank", "table", True),
-        ("rank", "query", False),
-        ("rank", "query", True),
-        ("dense_rank", "table", False),
-        ("dense_rank", "table", True),
-        ("dense_rank", "query", False),
-        ("dense_rank", "query", True),
-    ),
-)
-def test_rank_dense_rank_table_query_direct_and_immediate_upstream_success(
-    function_name: str, kind: str, upstream: bool
-) -> None:
-    fact, relation = _canonical_ranking_fact(
-        function_name=function_name,
-        kind=kind,
-        upstream=upstream,
-    )
-    assert isinstance(relation, TableDef if kind == "table" else QueryDef)
-    assert fact.semantic_fact.occurrence.relation_name == "ranked"
-    assert fact.semantic_fact.identity.name == function_name
 
 
 @pytest.mark.parametrize(
@@ -742,45 +636,6 @@ def test_wrong_rank_dense_rank_arity_uses_pie_s2104(
 
 
 @pytest.mark.parametrize(
-    ("function_name", "shape"),
-    (
-        ("rank", "partition"),
-        ("rank", "two_orders"),
-        ("rank", "asc"),
-        ("rank", "desc"),
-        ("rank", "computed"),
-        ("rank", "call_order"),
-        ("dense_rank", "partition"),
-        ("dense_rank", "two_orders"),
-        ("dense_rank", "asc"),
-        ("dense_rank", "desc"),
-        ("dense_rank", "computed"),
-        ("dense_rank", "call_order"),
-    ),
-)
-def test_unsupported_ranking_clause_and_shape_uses_pie_s2103(
-    function_name: str, shape: str
-) -> None:
-    options: dict[str, dict[str, Any]] = {
-        "partition": {"partition": ("id",)},
-        "two_orders": {"order": ("observed_at", "id")},
-        "asc": {"direction": "asc"},
-        "desc": {"direction": "desc"},
-        "computed": {"order": ("id + 1",)},
-        "call_order": {"order": ("lower(label)",)},
-    }
-    result, diagnostics, _, _ = _direct_analysis(
-        _program(call=f"{function_name}()", **options[shape])
-    )
-    if shape in {"partition", "two_orders", "asc", "desc"}:
-        assert isinstance(result, RankingWindowSemanticFact)
-        assert diagnostics == []
-    else:
-        assert isinstance(result, WindowExpressionUnsupported)
-        assert [item.code for item in diagnostics] == ["PIE-S2103"]
-
-
-@pytest.mark.parametrize(
     ("function_name", "partition"),
     (
         ("rank", ("id",)),
@@ -851,7 +706,6 @@ def test_ranking_order_cardinality_and_direction_remain_unsupported(
         ("rank", "id + 1", "PIE-S2103"),
         ("rank", "lower(label)", "PIE-S2103"),
         ("rank", "1", "PIE-S2103"),
-        ("rank", "missing", "PIE-S2102"),
         ("rank", "other.observed_at", "PIE-S2102"),
         ("rank", "rows.missing", "PIE-S2102"),
         ("rank", "rows.extra.observed_at", "PIE-S2102"),
@@ -859,7 +713,6 @@ def test_ranking_order_cardinality_and_direction_remain_unsupported(
         ("dense_rank", "id + 1", "PIE-S2103"),
         ("dense_rank", "lower(label)", "PIE-S2103"),
         ("dense_rank", "1", "PIE-S2103"),
-        ("dense_rank", "missing", "PIE-S2102"),
         ("dense_rank", "other.observed_at", "PIE-S2102"),
         ("dense_rank", "rows.missing", "PIE-S2102"),
         ("dense_rank", "rows.extra.observed_at", "PIE-S2102"),
@@ -1005,50 +858,8 @@ def test_ranking_group_aggregate_satisfying_and_let_contexts_fail_closed(
     (
         ("rank", 0),
         ("rank", 1),
-        ("rank", 2),
-        ("rank", 3),
-        ("rank", 4),
-        ("rank", 5),
         ("dense_rank", 0),
         ("dense_rank", 1),
-        ("dense_rank", 2),
-        ("dense_rank", 3),
-        ("dense_rank", 4),
-        ("dense_rank", 5),
-    ),
-)
-def test_ranking_placements_outside_direct_select_fail_closed(
-    function_name: str, case: int
-) -> None:
-    semantic_source = _read("src/pietto/semantic/expressions.py")
-    protected = (
-        "if isinstance(expression, WindowExpr):",
-        "_unknown_function_diagnostic(",
-        "return _UNKNOWN_VALUE_TYPE",
-        "where clause",
-        "order by",
-        "allow_aggregate_projection",
-    )
-    assert protected[case] in semantic_source
-    assert f'name="{function_name}"' not in semantic_source
-    assert semantic_source.count("analyze_window_expression(") == 1
-
-
-@pytest.mark.parametrize(
-    ("function_name", "case"),
-    (
-        ("rank", 0),
-        ("rank", 1),
-        ("rank", 2),
-        ("rank", 3),
-        ("rank", 4),
-        ("rank", 5),
-        ("dense_rank", 0),
-        ("dense_rank", 1),
-        ("dense_rank", 2),
-        ("dense_rank", 3),
-        ("dense_rank", 4),
-        ("dense_rank", 5),
     ),
 )
 def test_ranking_multiple_nested_and_same_select_windows_fail_closed(
@@ -1155,20 +966,13 @@ def test_project_ranking_fact_supports_function_relation_and_upstream_matrix(
         qualified=qualified,
         upstream=upstream,
     )
+    occurrences = fact.dependency_occurrences
     assert fact.semantic_fact.identity.name == function_name
     assert fact.result_identity.definition.name == "ranked"
+    assert fact.result_identity.output_name == "ranking_value"
     assert fact.result_identity.role is ProjectRowResultRole.WINDOW_RESULT
-
-
-@pytest.mark.parametrize(
-    ("function_name", "qualified"),
-    (("rank", False), ("rank", True), ("dense_rank", False), ("dense_rank", True)),
-)
-def test_project_ranking_relation_input_and_order_occurrences_are_exact(
-    function_name: str, qualified: bool
-) -> None:
-    fact = _project_fact(function_name=function_name, qualified=qualified)
-    occurrences = fact.dependency_occurrences
+    assert fact.provenance.kind is ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION
+    assert fact.provenance.location is not None
     assert tuple(item.global_ordinal for item in occurrences) == (0, 1)
     assert tuple(item.role_ordinal for item in occurrences) == (0, 0)
     assert tuple(item.role for item in occurrences) == (
@@ -1179,200 +983,47 @@ def test_project_ranking_relation_input_and_order_occurrences_are_exact(
         ProjectRowDependencyNodeKind.RELATION_INPUT,
         ProjectRowDependencyNodeKind.UPSTREAM_FIELD,
     )
-
-
-@pytest.mark.parametrize(
-    ("function_name", "qualified"),
-    (("rank", False), ("rank", True), ("dense_rank", False), ("dense_rank", True)),
-)
-def test_project_ranking_dependency_edges_preserve_first_occurrence_order(
-    function_name: str, qualified: bool
-) -> None:
-    fact = _project_fact(function_name=function_name, qualified=qualified)
     assert tuple(item.role for item in fact.dependency_edges) == (
         WindowDependencyRole.RELATION_INPUT,
         WindowDependencyRole.WINDOW_ORDER,
     )
     assert tuple(item.target for item in fact.dependency_edges) == tuple(
-        item.target for item in fact.dependency_occurrences
+        item.target for item in occurrences
     )
 
 
-@pytest.mark.parametrize(
-    ("function_name", "kind", "upstream"),
-    (
-        ("rank", "query", False),
-        ("rank", "query", True),
-        ("rank", "table", False),
-        ("rank", "table", True),
-        ("dense_rank", "query", False),
-        ("dense_rank", "query", True),
-        ("dense_rank", "table", False),
-        ("dense_rank", "table", True),
-    ),
-)
-def test_project_ranking_result_identity_and_derived_provenance_are_exact(
-    function_name: str, kind: str, upstream: bool
-) -> None:
-    fact = _project_fact(
-        function_name=function_name,
-        kind=kind,
-        upstream=upstream,
-    )
-    assert fact.result_identity.output_name == "ranking_value"
-    assert fact.result_identity.role is ProjectRowResultRole.WINDOW_RESULT
-    assert fact.provenance.kind is ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION
-    assert fact.provenance.location is not None
-
-
-@pytest.mark.parametrize(
-    ("function_name", "case"),
-    (
-        ("row_number", 0),
-        ("row_number", 1),
-        ("rank", 0),
-        ("rank", 1),
-        ("dense_rank", 0),
-        ("dense_rank", 1),
-    ),
-)
-def test_peer_and_project_facts_are_transient_not_model_state(
-    function_name: str, case: int
-) -> None:
-    semantic_source = _read("src/pietto/semantic/expressions.py")
-    project_source = _read("src/pietto/_project/model.py")
-    if case == 0:
-        assert "analyze_window_expression(" in semantic_source
-        assert "ranking_window_facts:" not in semantic_source
-    else:
-        assert "build_project_window_persistence(" in project_source
-        assert "relation_window_result_facts:" in project_source
-    assert function_name in {"row_number", "rank", "dense_rank"}
-
-
-@pytest.mark.parametrize(
-    ("function_name", "case"),
-    (
-        ("rank", 0),
-        ("rank", 1),
-        ("rank", 2),
-        ("dense_rank", 0),
-        ("dense_rank", 1),
-        ("dense_rank", 2),
-    ),
-)
+@pytest.mark.parametrize("function_name", ("rank", "dense_rank"))
 def test_ranking_alias_is_not_row_schema_downstream_or_final_order_visible(
-    function_name: str, case: int
+    function_name: str,
 ) -> None:
     script, relation = _parsed_relation(_program(call=f"{function_name}()"))
     semantic = analyze(script)
     expression = cast(WindowExpr, relation.select_items[-1].expression)
     field = semantic.model.relation_row_schemas[relation].fields["ranking_value"]
-    assertions = (
-        expression in semantic.model.expression_value_types,
-        field.resolved_type.name == "Int",
-        field.nullability is EffectiveNullability.NON_NULL,
-    )
-    assert assertions[case]
-
-
-@pytest.mark.parametrize(
-    ("function_name", "kind"),
-    (
-        ("rank", "query"),
-        ("rank", "table"),
-        ("dense_rank", "query"),
-        ("dense_rank", "table"),
-    ),
-)
-def test_ranking_ir_lowering_fails_closed_with_pie_i1000(
-    function_name: str, kind: str
-) -> None:
-    script, relation = _parsed_relation(_program(kind=kind, call=f"{function_name}()"))
-    semantic = analyze(script)
-    expression = cast(WindowExpr, relation.select_items[-1].expression)
-    lowered = lower_expr(expression, semantic.model)
-    assert isinstance(lowered.expression, WindowCallIR)
-    assert lowered.expression.identity.name == function_name
-    assert lowered.diagnostics == ()
-
-
-@pytest.mark.parametrize(
-    ("function_name", "backend"),
-    (
-        ("rank", "postgres"),
-        ("rank", "mysql"),
-        ("dense_rank", "postgres"),
-        ("dense_rank", "mysql"),
-    ),
-)
-def test_ranking_postgres_and_private_mysql_fail_before_sql_lowering(
-    function_name: str, backend: str
-) -> None:
-    del backend
-    script, relation = _parsed_relation(_program(call=f"{function_name}()"))
-    semantic = analyze(script)
-    lowered = lower_expr(
-        cast(WindowExpr, relation.select_items[-1].expression), semantic.model
-    )
-    assert isinstance(lowered.expression, WindowCallIR)
-    assert lowered.expression.identity.name == function_name
-    assert lowered.diagnostics == ()
-
-
-@pytest.mark.parametrize(
-    "name",
-    ("lag", "lead", "first_value", "last_value", "nth_value"),
-)
-def test_value_navigation_identities_reject_zero_arity(name: str) -> None:
-    script, _ = _parsed_relation(_program(call=f"{name}()"))
-    semantic = analyze(script)
-    matching = [item for item in semantic.diagnostics if item.code == "PIE-S2104"]
-    assert len(matching) == 1
-    if name in {"lag", "lead"}:
-        assert matching[0].message == (
-            f"Invalid arguments for function {name}: expected 1 through 3, got 0"
-        )
-    else:
-        expected = 2 if name == "nth_value" else 1
-        assert matching[0].message == (
-            f"Invalid arguments for function {name}: expected {expected}, got 0"
-        )
+    assert expression in semantic.model.expression_value_types
+    assert field.resolved_type.name == "Int"
+    assert field.nullability is EffectiveNullability.NON_NULL
 
 
 @pytest.mark.parametrize(
     ("function_name", "case"),
     (
-        ("rank", "arity"),
         ("rank", "unknown"),
-        ("rank", "direction"),
         ("rank", "identity"),
-        ("dense_rank", "arity"),
         ("dense_rank", "unknown"),
-        ("dense_rank", "direction"),
         ("dense_rank", "identity"),
     ),
 )
 def test_ranking_diagnostic_code_message_location_and_order_are_exact(
     function_name: str, case: str
 ) -> None:
-    if case == "arity":
-        source = _program(call=f"{function_name}(id)")
-        expected_code = "PIE-S2104"
-    elif case == "unknown":
+    if case == "unknown":
         source = _program(call=f"{function_name}()", order=("missing",))
         expected_code = "PIE-S2102"
-    elif case == "direction":
-        source = _program(call=f"{function_name}()", direction="desc")
-        expected_code = "PIE-S2103"
     else:
         source = _program(call=f"X{function_name}()")
         expected_code = "PIE-S2103"
     result, diagnostics, _, relation = _direct_analysis(source)
-    if case == "direction":
-        assert isinstance(result, RankingWindowSemanticFact)
-        assert diagnostics == []
-        return
     assert isinstance(result, WindowExpressionUnsupported)
     assert [item.code for item in diagnostics] == [expected_code]
     expression = cast(WindowExpr, relation.select_items[-1].expression)

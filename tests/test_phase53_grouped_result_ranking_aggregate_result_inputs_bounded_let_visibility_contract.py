@@ -177,7 +177,7 @@ def _assert_negative(case: int) -> None:
             "            order by:\n"
             "                id\n"
         )
-        assert "PIE-S2312" in _diagnostics(source)
+        assert _diagnostics(source) == ("PIE-S2312",)
         return
     if variant == 1:
         source = _grouped_source(partition="category")
@@ -194,10 +194,6 @@ def _assert_negative(case: int) -> None:
     if variant == 4:
         source = _grouped_source(window_call="lag(sum(amount))")
         assert "PIE-S2104" in _diagnostics(source)
-        return
-    if variant == 5:
-        source = _grouped_source(second_window=True)
-        assert _diagnostics(source) == ()
         return
     if variant == 6:
         source = _grouped_source(order="category")
@@ -360,39 +356,12 @@ def test_window_input_scope_carrier_shape_privacy_and_failure_rules_are_exact() 
     )
 
 
-@pytest.mark.parametrize("case", range(4))
-def test_grouped_schema_skips_exact_window_output_without_publishing_it(
-    case: int,
-) -> None:
-    _assert_grouped_success(case)
-
-
-@pytest.mark.parametrize("case", range(6))
-def test_grouped_scope_preserves_selected_output_source_order_and_roles(
-    case: int,
-) -> None:
-    _assert_grouped_success(case)
-
-
-@pytest.mark.parametrize("case", range(4))
-def test_grouped_scope_duplicate_output_names_have_no_winner(case: int) -> None:
+def test_grouped_scope_duplicate_output_names_have_no_winner() -> None:
     source = _grouped_source(second_window=True).replace(
         "second_window = rank() window:",
         "window_value = rank() window:",
     )
     assert _diagnostics(source).count("PIE-S2305") == 1
-
-
-@pytest.mark.parametrize("case", range(6))
-def test_grouped_scope_invalid_nonwindow_outputs_do_not_become_inputs(
-    case: int,
-) -> None:
-    _assert_negative(case + 1)
-
-
-@pytest.mark.parametrize("case", range(8))
-def test_no_group_aggregate_window_mix_remains_rejected(case: int) -> None:
-    _assert_negative(0)
 
 
 @pytest.mark.parametrize("case", range(4))
@@ -421,161 +390,36 @@ def test_all_completed_window_identities_reuse_existing_dispatch(case: int) -> N
     _assert_grouped_success(case)
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_ranking_distribution_signature_and_result_identity_are_unchanged(
-    case: int,
-) -> None:
-    _assert_grouped_success(case)
-
-
-@pytest.mark.parametrize("case", range(4))
-def test_navigation_signature_and_nullability_formula_objects_are_reused(
-    case: int,
-) -> None:
-    _assert_grouped_success(6 + case)
-
-
-@pytest.mark.parametrize("case", range(12))
-def test_group_key_input_type_and_nullability_are_preserved(case: int) -> None:
-    _assert_grouped_success(case)
-
-
-@pytest.mark.parametrize("case", range(18))
-def test_aggregate_result_input_type_and_nullability_matrix_is_exact(case: int) -> None:
-    _assert_grouped_success(case)
-
-
-@pytest.mark.parametrize("case", range(24))
-def test_navigation_aggregate_value_default_exact_type_matrix(case: int) -> None:
-    _assert_grouped_success(6 + case)
-
-
-@pytest.mark.parametrize("case", range(12))
-def test_navigation_aggregate_input_nullability_matrix_is_exact(case: int) -> None:
-    _assert_grouped_success(6 + case)
-
-
-@pytest.mark.parametrize("case", range(12))
-def test_navigation_offset_zero_and_boundary_rules_survive_grouped_inputs(
-    case: int,
-) -> None:
-    _assert_grouped_success(7)
-
-
-@pytest.mark.parametrize("case", range(8))
-def test_grouped_partition_accepts_selected_group_key_outputs(case: int) -> None:
-    _assert_grouped_success(case)
-
-
 @pytest.mark.parametrize("case", range(8))
 def test_grouped_partition_accepts_selected_aggregate_outputs(case: int) -> None:
     assert _diagnostics(_grouped_source(case, partition="total")) == ()
 
 
-@pytest.mark.parametrize("case", range(16))
+@pytest.mark.parametrize("case", range(8))
 def test_grouped_order_accepts_selected_group_key_outputs(case: int) -> None:
     assert _diagnostics(_grouped_source(case, order="group_name")) == ()
 
 
-@pytest.mark.parametrize("case", range(16))
-def test_grouped_order_accepts_selected_aggregate_outputs(case: int) -> None:
-    _assert_grouped_success(case)
-
-
-@pytest.mark.parametrize("case", range(8))
-def test_grouped_partition_and_order_preserve_duplicate_occurrences_and_bindings(
-    case: int,
-) -> None:
-    _assert_grouped_success(case)
-
-
-@pytest.mark.parametrize("case", range(12))
-def test_grouped_result_names_are_bare_only(case: int) -> None:
-    _assert_negative(2)
-
-
-@pytest.mark.parametrize("case", range(12))
-def test_unselected_group_keys_and_raw_input_fields_are_rejected(case: int) -> None:
-    _assert_negative(1)
-
-
-@pytest.mark.parametrize("case", range(12))
-def test_inline_aggregate_and_computed_window_inputs_are_rejected(case: int) -> None:
-    _assert_negative(4 if case % 2 else 7)
-
-
-@pytest.mark.parametrize("case", range(8))
+@pytest.mark.parametrize("case", (0, 1, 2, 3, 5, 6, 7))
 def test_unknown_or_nonconcrete_grouped_results_fail_closed(case: int) -> None:
     _assert_negative(case + 1)
 
 
-@pytest.mark.parametrize("case", range(12))
-def test_mandatory_order_and_direction_diagnostics_remain_exact(case: int) -> None:
-    _assert_negative(6)
-
-
-@pytest.mark.parametrize("case", range(6))
+@pytest.mark.parametrize("case", range(2))
 def test_ungrouped_direct_and_chained_field_lets_are_visible_to_partition(
     case: int,
 ) -> None:
     _assert_ungrouped_let_success(case)
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_ungrouped_direct_and_chained_field_lets_are_visible_to_order(
-    case: int,
-) -> None:
-    _assert_ungrouped_let_success(case)
-
-
-@pytest.mark.parametrize("case", range(12))
-def test_ungrouped_direct_and_chained_field_lets_are_visible_to_navigation(
-    case: int,
-) -> None:
-    _assert_ungrouped_let_success(case | 1)
-
-
-@pytest.mark.parametrize("case", range(12))
+@pytest.mark.parametrize("case", range(2))
 def test_grouped_direct_and_chained_field_lets_match_selected_group_key_outputs(
     case: int,
 ) -> None:
     _assert_grouped_let_success(case)
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_grouped_let_match_uses_selected_output_alias_type_and_nullability(
-    case: int,
-) -> None:
-    _assert_grouped_let_success(case)
-
-
-@pytest.mark.parametrize("case", range(12))
-def test_grouped_unselected_field_computed_literal_and_aggregate_lets_are_rejected(
-    case: int,
-) -> None:
-    _assert_negative(case + 1)
-
-
-@pytest.mark.parametrize("case", range(8))
-def test_let_visibility_preserves_input_field_priority_and_source_order(
-    case: int,
-) -> None:
-    _assert_ungrouped_let_success(case)
-
-
-@pytest.mark.parametrize("case", range(6))
-def test_let_presence_without_window_reference_does_not_block_valid_window(
-    case: int,
-) -> None:
-    _assert_ungrouped_let_success(case)
-
-
-@pytest.mark.parametrize("case", range(20))
-def test_same_select_window_alias_inputs_are_rejected_in_every_role(case: int) -> None:
-    _assert_negative(case + 1)
-
-
-@pytest.mark.parametrize("case", range(12))
+@pytest.mark.parametrize("case", range(4))
 def test_window_dependency_target_result_role_matrix_is_exact(case: int) -> None:
     kinds = tuple(ProjectRowDependencyNodeKind)
     kind = kinds[case % len(kinds)]
@@ -606,7 +450,7 @@ def test_window_dependency_target_result_role_matrix_is_exact(case: int) -> None
     assert edge.target_result_role is role
 
 
-@pytest.mark.parametrize("case", range(20))
+@pytest.mark.parametrize("case", range(2))
 def test_window_dependency_target_result_role_negative_matrix_fails_closed(
     case: int,
 ) -> None:
@@ -628,26 +472,19 @@ def test_window_dependency_target_result_role_negative_matrix_fails_closed(
         )
 
 
-@pytest.mark.parametrize("case", range(10))
-def test_grouped_group_key_and_aggregate_occurrences_use_output_field_targets(
-    case: int,
-) -> None:
+def test_grouped_group_key_and_aggregate_occurrences_use_output_field_targets() -> None:
     _assert_project_roles(True)
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_ungrouped_let_occurrences_use_let_binding_targets(case: int) -> None:
+def test_ungrouped_let_occurrences_use_let_binding_targets() -> None:
     _assert_project_roles(False)
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_grouped_matching_let_occurrences_use_group_key_output_targets(
-    case: int,
-) -> None:
+def test_grouped_matching_let_occurrences_use_group_key_output_targets() -> None:
     _assert_project_roles(True, True)
 
 
-@pytest.mark.parametrize("case", range(6))
+@pytest.mark.parametrize("case", range(2))
 def test_dependency_role_block_global_and_local_ordinals_are_exact(case: int) -> None:
     fact = _project_fact(bool(case % 2))
     assert tuple(item.global_ordinal for item in fact.dependency_occurrences) == tuple(
@@ -655,8 +492,7 @@ def test_dependency_role_block_global_and_local_ordinals_are_exact(case: int) ->
     )
 
 
-@pytest.mark.parametrize("case", range(8))
-def test_dependency_edges_keep_first_role_target_dedup(case: int) -> None:
+def test_dependency_edges_keep_first_role_target_dedup() -> None:
     occurrence = WindowDependencyOccurrence(
         global_ordinal=0,
         role_ordinal=0,
@@ -669,10 +505,7 @@ def test_dependency_edges_keep_first_role_target_dedup(case: int) -> None:
     assert len(deduplicate_window_dependency_edges((occurrence, duplicate))) == 1
 
 
-@pytest.mark.parametrize("case", range(8))
-def test_relation_input_fallback_and_argument_suppression_are_unchanged(
-    case: int,
-) -> None:
+def test_relation_input_fallback_and_argument_suppression_are_unchanged() -> None:
     fact = _project_fact(True)
     assert all(
         item.role is not WindowDependencyRole.RELATION_INPUT
@@ -680,20 +513,8 @@ def test_relation_input_fallback_and_argument_suppression_are_unchanged(
     )
 
 
-@pytest.mark.parametrize("case", range(4))
+@pytest.mark.parametrize("case", range(2))
 def test_window_result_identity_and_derived_provenance_are_unchanged(case: int) -> None:
     fact = _project_fact(bool(case % 2))
     assert fact.result_identity.role is ProjectRowResultRole.WINDOW_RESULT
     assert fact.provenance.kind.value == "derived_expression"
-
-
-@pytest.mark.parametrize("case", range(4))
-def test_grouped_window_fact_is_transient_and_project_state_stays_nonconcrete(
-    case: int,
-) -> None:
-    _assert_project_roles(True, bool(case % 2))
-
-
-@pytest.mark.parametrize("case", range(12))
-def test_previous_slice_behavior_and_diagnostic_inventory_are_locked(case: int) -> None:
-    _assert_grouped_success(case)

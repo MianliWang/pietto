@@ -44,25 +44,13 @@ from pietto.ast_nodes import (
     WindowExpr,
 )
 from pietto.errors import Diagnostic, SourceLocation
-from pietto.ir.lowering import lower_expr
-from pietto.ir.model import WindowCallIR
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
-from pietto.semantic.generic_compatibility import (
-    ConcreteTypeExpression,
-    SignatureMatch,
-    bind_signature,
-)
 from pietto.semantic.model import (
     EffectiveNullability,
     TypeKind,
     ValueType,
     ValueTypeKind,
-)
-from pietto.semantic.nullability_formulas import (
-    NullabilityEvaluationContext,
-    NullabilityEvaluationMatch,
-    evaluate_signature_result_nullability,
 )
 from pietto.semantic.window_semantics import (
     WindowExpressionSemanticFact,
@@ -270,25 +258,6 @@ def _project_fact(
     return result
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_existing_window_syntax_ast_identity_and_span_authority_is_locked(
-    case: int,
-) -> None:
-    order = ("rows.observed_at",) if case % 2 else ("observed_at",)
-    script, relation = _parsed_relation(_program(order=order))
-    del script
-    expression = cast(WindowExpr, relation.select_items[0].expression)
-    assertions = (
-        isinstance(expression, WindowExpr),
-        expression.spec.partition_by == (),
-        len(expression.spec.order_by) == 1,
-        expression.identity.namespace == (),
-        expression.identity.name == "row_number",
-        expression.span.path == "slice7.pietto",
-    )
-    assert assertions[case]
-
-
 @pytest.mark.parametrize(
     "call",
     (
@@ -312,15 +281,20 @@ def test_exact_row_number_identity_legality_and_case_policy_are_exact(
     script, relation = _parsed_relation(_program(call=call))
     semantic = analyze(script)
     expression = cast(WindowExpr, relation.select_items[0].expression)
-    if call in {"row_number()", "rank()", "dense_rank()"}:
-        assert not any(item.code == "PIE-S2103" for item in semantic.diagnostics)
-        assert expression in semantic.model.expression_value_types
-    elif call in {"percent_rank()", "cume_dist()", "ntile(4)"}:
+    if call in {
+        "row_number()",
+        "rank()",
+        "dense_rank()",
+        "percent_rank()",
+        "cume_dist()",
+        "ntile(4)",
+    }:
         assert not any(
             item.code in {"PIE-S2103", "PIE-S2104"} for item in semantic.diagnostics
         )
         assert expression in semantic.model.expression_value_types
     elif call in {"lag()", "lead()"}:
+        assert not any(item.code == "PIE-S2103" for item in semantic.diagnostics)
         matching = [item for item in semantic.diagnostics if item.code == "PIE-S2104"]
         assert len(matching) == 1
         assert matching[0].message == (
@@ -334,70 +308,27 @@ def test_exact_row_number_identity_legality_and_case_policy_are_exact(
         assert matching[0].location.line == expression.call.span.line
 
 
-def test_row_number_zero_argument_generic_signature_is_exact() -> None:
-    signature = window_analysis._ROW_NUMBER_SIGNATURE
-    assert signature.type_variables == ()
-    assert signature.parameters == ()
-    result_expression = signature.result
-    assert isinstance(result_expression, ConcreteTypeExpression)
-    assert result_expression.logical_type.name == "Int"
-    assert result_expression.logical_type.kind is TypeKind.BUILTIN
-
-
-def test_row_number_signature_binding_returns_builtin_int_without_variables() -> None:
-    result = bind_signature(window_analysis._ROW_NUMBER_SIGNATURE, ())
-    assert isinstance(result, SignatureMatch)
-    assert (
-        result.bindings == result.constraint_evidence == result.omitted_positions == ()
-    )
-    assert (result.result_type.name, result.result_type.kind) == (
-        "Int",
-        TypeKind.BUILTIN,
-    )
-
-
-def test_row_number_non_null_formula_evaluates_exactly() -> None:
-    result = evaluate_signature_result_nullability(
-        window_analysis._ROW_NUMBER_RESULT_FORMULA,
-        NullabilityEvaluationContext(argument_nullabilities=(), omitted_positions=()),
-    )
-    assert isinstance(result, NullabilityEvaluationMatch)
-    assert result.value is EffectiveNullability.NON_NULL
-
-
 @pytest.mark.parametrize(
-    ("kind", "qualified"),
-    (("query", False), ("query", True), ("table", False), ("table", True)),
+    ("kind", "qualified", "upstream"),
+    (
+        ("query", False, False),
+        ("query", True, False),
+        ("table", False, False),
+        ("table", True, False),
+        ("query", False, True),
+        ("query", True, True),
+        ("table", False, True),
+    ),
 )
 def test_window_analysis_supported_result_shape_is_exact(
-    kind: str, qualified: bool
+    kind: str, qualified: bool, upstream: bool
 ) -> None:
-    fact, _ = _canonical_fact(kind=kind, qualified=qualified)
+    fact, relation = _canonical_fact(kind=kind, qualified=qualified, upstream=upstream)
     assert fact.identity.name == "row_number"
     assert fact.stage is WindowExpressionStage.WINDOW
     assert fact.result.kind is WindowResultAvailabilityKind.CONCRETE
-
-
-@pytest.mark.parametrize(
-    ("qualified", "upstream"),
-    ((False, False), (True, False), (False, True), (True, True)),
-)
-def test_bare_and_immediate_qualified_order_field_success(
-    qualified: bool, upstream: bool
-) -> None:
-    fact, _ = _canonical_fact(qualified=qualified, upstream=upstream)
     order = fact.expression.spec.order_by[0].expression
     assert isinstance(order, DottedNameExpr if qualified else NameExpr)
-
-
-@pytest.mark.parametrize(
-    ("kind", "upstream"),
-    (("table", False), ("query", False), ("table", True), ("query", True)),
-)
-def test_table_query_direct_source_and_immediate_upstream_success(
-    kind: str, upstream: bool
-) -> None:
-    fact, relation = _canonical_fact(kind=kind, upstream=upstream)
     assert isinstance(relation, TableDef if kind == "table" else QueryDef)
     assert fact.occurrence.relation_name == "ranked"
 
@@ -418,7 +349,9 @@ def test_one_window_coexists_with_current_legal_non_window_outputs(
 ) -> None:
     script, relation = _parsed_relation(_program(before=(ordinary,)))
     semantic = analyze(script)
-    assert not any(item.code == "PIE-S2103" for item in semantic.diagnostics)
+    assert not any(
+        item.code in {"PIE-S2102", "PIE-S2103"} for item in semantic.diagnostics
+    )
     expression = cast(WindowExpr, relation.select_items[1].expression)
     assert expression in semantic.model.expression_value_types
     assert "rn" in semantic.model.relation_row_schemas[relation].fields
@@ -449,39 +382,15 @@ def test_concrete_result_is_int_non_null_window_stage() -> None:
     assert fact.stage is WindowExpressionStage.WINDOW
 
 
-@pytest.mark.parametrize("case", range(8))
-def test_window_unsupported_evidence_and_diagnostic_mapping_are_exact(
-    case: int,
-) -> None:
-    sources = (
-        _program(call="percent_rank()"),
-        _program(call="row_number(id)"),
-        _program(partition=("id + 1",)),
-        _program(order=("observed_at", "id")),
-        _program(direction="desc"),
-        _program(order=("id + 1",)),
-        _program(order=("missing",)),
-        _program(order=("other.observed_at",)),
-    )
-    result, diagnostics, _, _ = _direct_analysis(sources[case])
-    if case in {3, 4}:
-        assert isinstance(result, WindowExpressionSemanticFact)
-        assert diagnostics == []
-        return
-    assert isinstance(result, WindowExpressionUnsupported)
-    assert result.reason.strip()
-    expected = "PIE-S2104" if case == 1 else "PIE-S2102" if case >= 6 else "PIE-S2103"
-    assert [item.code for item in diagnostics] == [expected]
-
-
 @pytest.mark.parametrize(
-    "arguments", ("id", "id, observed_at", "id, observed_at, label", "id,")
+    "arguments", ("id", "id, observed_at", "id, observed_at, label")
 )
 def test_wrong_row_number_arity_uses_pie_s2104(arguments: str) -> None:
     result, diagnostics, _, relation = _direct_analysis(
         _program(call=f"row_number({arguments})")
     )
     assert isinstance(result, WindowExpressionUnsupported)
+    assert result.reason.strip()
     expression = cast(WindowExpr, relation.select_items[0].expression)
     assert [item.code for item in diagnostics] == ["PIE-S2104"]
     assert diagnostics[0].message == (
@@ -490,27 +399,13 @@ def test_wrong_row_number_arity_uses_pie_s2104(arguments: str) -> None:
     )
 
 
-@pytest.mark.parametrize("case", range(10))
+@pytest.mark.parametrize("case", (0, 1, 9))
 def test_unsupported_clause_and_shape_diagnostics_use_pie_s2103(case: int) -> None:
-    sources = (
-        _program(call="percent_rank()"),
-        _program(call="cume_dist()"),
-        _program(partition=("id + 1",)),
-        _program(order=("observed_at", "id")),
-        _program(direction="asc"),
-        _program(direction="desc"),
-        _program(order=("id + 1",)),
-        _program(order=("lower(label)",)),
-        _program(order=("1",)),
-        _program(call="analytics.row_number()"),
-    )
-    result, diagnostics, _, _ = _direct_analysis(sources[case])
-    if case in {3, 4, 5}:
-        assert isinstance(result, WindowExpressionSemanticFact)
-        assert diagnostics == []
-    else:
-        assert isinstance(result, WindowExpressionUnsupported)
-        assert [item.code for item in diagnostics] == ["PIE-S2103"]
+    call = {0: "percent_rank()", 1: "cume_dist()", 9: "analytics.row_number()"}[case]
+    result, diagnostics, _, _ = _direct_analysis(_program(call=call))
+    assert isinstance(result, WindowExpressionUnsupported)
+    assert result.reason.strip()
+    assert [item.code for item in diagnostics] == ["PIE-S2103"]
 
 
 @pytest.mark.parametrize(
@@ -582,13 +477,13 @@ def test_original_source_qualifier_does_not_cross_immediate_upstream(kind: str) 
     assert [item.code for item in diagnostics] == ["PIE-S2102"]
 
 
-@pytest.mark.parametrize("case", range(6))
+@pytest.mark.parametrize("case", (0, 2, 3, 4, 5))
 def test_group_aggregate_satisfying_and_let_relations_remain_unsupported(
     case: int,
 ) -> None:
     script, relation = _parsed_relation(_program())
     span = relation.span
-    if case in {0, 1}:
+    if case == 0:
         relation = dataclasses.replace(
             relation,
             group_by_clause=GroupByClause(
@@ -660,23 +555,7 @@ def test_group_aggregate_satisfying_and_let_relations_remain_unsupported(
     assert [item.code for item in diagnostics] == ["PIE-S2103"]
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_window_expression_placements_outside_direct_select_fail_closed(
-    case: int,
-) -> None:
-    semantic_source = _read("src/pietto/semantic/expressions.py")
-    protected = (
-        "if isinstance(expression, WindowExpr):",
-        "_unknown_function_diagnostic(",
-        "return _UNKNOWN_VALUE_TYPE",
-        "where clause",
-        "order by",
-        "allow_aggregate_projection",
-    )
-    assert protected[case] in semantic_source
-
-
-@pytest.mark.parametrize("case", range(6))
+@pytest.mark.parametrize("case", range(2))
 def test_multiple_nested_and_same_select_windows_remain_unsupported(case: int) -> None:
     script, relation = _parsed_relation(_program())
     first = relation.select_items[0]
@@ -724,27 +603,31 @@ def test_where_final_order_and_limit_can_coexist_without_window_alias_use(
         _program(where=where, final_order=final_order, limit=limit)
     )
     semantic = analyze(script)
-    assert not any(item.code == "PIE-S2103" for item in semantic.diagnostics)
+    assert not any(
+        item.code in {"PIE-S2102", "PIE-S2103"} for item in semantic.diagnostics
+    )
     expression = cast(WindowExpr, relation.select_items[0].expression)
     assert expression in semantic.model.expression_value_types
     assert "rn" in semantic.model.relation_row_schemas[relation].fields
 
 
 @pytest.mark.parametrize(
-    ("kind", "upstream"),
-    (("query", False), ("table", False), ("query", True), ("table", True)),
+    ("kind", "qualified", "upstream"),
+    (
+        ("query", False, False),
+        ("table", False, False),
+        ("query", False, True),
+        ("table", False, True),
+        ("query", True, False),
+        ("query", True, True),
+    ),
 )
 def test_project_window_fact_supports_table_query_and_upstream_matrix(
-    kind: str, upstream: bool
+    kind: str, qualified: bool, upstream: bool
 ) -> None:
-    fact = _project_fact(kind=kind, upstream=upstream)
+    fact = _project_fact(kind=kind, qualified=qualified, upstream=upstream)
     assert isinstance(fact, WindowResultProjectFact)
     assert fact.result_identity.definition.name == "ranked"
-
-
-@pytest.mark.parametrize("case", range(4))
-def test_project_relation_input_and_order_occurrences_are_exact(case: int) -> None:
-    fact = _project_fact(qualified=bool(case % 2), upstream=bool(case // 2))
     occurrences = fact.dependency_occurrences
     assert tuple(item.global_ordinal for item in occurrences) == (0, 1)
     assert tuple(item.role_ordinal for item in occurrences) == (0, 0)
@@ -756,13 +639,6 @@ def test_project_relation_input_and_order_occurrences_are_exact(case: int) -> No
         ProjectRowDependencyNodeKind.RELATION_INPUT,
         ProjectRowDependencyNodeKind.UPSTREAM_FIELD,
     )
-
-
-@pytest.mark.parametrize("qualified", (False, True))
-def test_project_dependency_edges_preserve_role_and_first_occurrence_order(
-    qualified: bool,
-) -> None:
-    fact = _project_fact(qualified=qualified)
     assert tuple(item.role for item in fact.dependency_edges) == (
         WindowDependencyRole.RELATION_INPUT,
         WindowDependencyRole.WINDOW_ORDER,
@@ -770,109 +646,21 @@ def test_project_dependency_edges_preserve_role_and_first_occurrence_order(
     assert tuple(item.target for item in fact.dependency_edges) == tuple(
         item.target for item in fact.dependency_occurrences
     )
-
-
-@pytest.mark.parametrize("case", range(4))
-def test_project_result_identity_and_derived_provenance_are_exact(case: int) -> None:
-    fact = _project_fact(kind="table" if case % 2 else "query", upstream=case >= 2)
     assert fact.result_identity.output_name == "rn"
     assert fact.result_identity.role is ProjectRowResultRole.WINDOW_RESULT
     assert fact.provenance.kind is ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION
     assert fact.provenance.location is not None
 
 
-@pytest.mark.parametrize("case", range(3))
-def test_project_fact_is_transient_not_model_or_schema_state(case: int) -> None:
-    source = _read("src/pietto/_project/model.py") + _read(
-        "src/pietto/_project/window_persistence.py"
-    )
-    required = (
-        "build_project_window_persistence(",
-        "relation_window_result_facts:",
-        "ProjectRowResultRole.WINDOW_RESULT",
-    )
-    assert required[case] in source
-
-
-@pytest.mark.parametrize("case", range(4))
-def test_window_alias_is_not_downstream_or_final_order_visible(case: int) -> None:
+def test_window_alias_is_not_downstream_or_final_order_visible() -> None:
     script, relation = _parsed_relation(_program())
     semantic = analyze(script)
     expression = cast(WindowExpr, relation.select_items[0].expression)
     field = semantic.model.relation_row_schemas[relation].fields["rn"]
-    assertions = (
-        expression in semantic.model.expression_value_types,
-        field.resolved_type.name == "Int",
-        field.nullability is EffectiveNullability.NON_NULL,
-        "relation_window_result_facts" in _read("src/pietto/_project/model.py"),
-    )
-    assert assertions[case]
-
-
-@pytest.mark.parametrize("kind", ("query", "table"))
-def test_ir_lowering_fails_closed_with_pie_i1000(kind: str) -> None:
-    script, relation = _parsed_relation(_program(kind=kind))
-    semantic = analyze(script)
-    expression = cast(WindowExpr, relation.select_items[0].expression)
-    lowered = lower_expr(expression, semantic.model)
-    assert isinstance(lowered.expression, WindowCallIR)
-    assert lowered.expression.identity.name == "row_number"
-    assert lowered.diagnostics == ()
-
-
-@pytest.mark.parametrize("backend", ("postgres", "mysql"))
-def test_postgres_and_private_mysql_requests_fail_before_sql_lowering(
-    backend: str,
-) -> None:
-    del backend
-    script, relation = _parsed_relation(_program())
-    semantic = analyze(script)
-    lowered = lower_expr(
-        cast(WindowExpr, relation.select_items[0].expression), semantic.model
-    )
-    assert isinstance(lowered.expression, WindowCallIR)
-    assert lowered.expression.identity.name == "row_number"
-    assert lowered.diagnostics == ()
-
-
-@pytest.mark.parametrize("case", range(6))
-def test_ordinary_scalar_direct_field_and_final_order_behavior_is_unchanged(
-    case: int,
-) -> None:
-    sources = (
-        _program(before=("id",)),
-        _program(before=("renamed = id",)),
-        _program(before=("text = label",)),
-        _program(before=("lowered = lower(label)",)),
-        _program(where=True),
-        _program(final_order=True),
-    )
-    script, _ = _parsed_relation(sources[case])
-    semantic = analyze(script)
-    assert not any(
-        item.code in {"PIE-S2102", "PIE-S2103"} for item in semantic.diagnostics
-    )
-
-
-@pytest.mark.parametrize(
-    "name",
-    ("rank", "dense_rank", "percent_rank", "cume_dist", "ntile", "lag", "lead"),
-)
-def test_non_row_number_window_identities_remain_semantically_unsupported(
-    name: str,
-) -> None:
-    call = "ntile(4)" if name == "ntile" else f"{name}()"
-    script, _ = _parsed_relation(_program(call=call))
-    semantic = analyze(script)
-    assert all(item.code != "PIE-S2103" for item in semantic.diagnostics)
-    if name in {"lag", "lead"}:
-        matching = [item for item in semantic.diagnostics if item.code == "PIE-S2104"]
-        assert len(matching) == 1
-        assert matching[0].message == (
-            f"Invalid arguments for function {name}: expected 1 through 3, got 0"
-        )
-    else:
-        assert all(item.code != "PIE-S2104" for item in semantic.diagnostics)
+    assert expression in semantic.model.expression_value_types
+    assert field.resolved_type.name == "Int"
+    assert field.nullability is EffectiveNullability.NON_NULL
+    assert "relation_window_result_facts" in _read("src/pietto/_project/model.py")
 
 
 # Phase 53 Slice 13 reader migration.

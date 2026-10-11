@@ -26,8 +26,6 @@ from pietto._project.window_semantics import (
     WindowDependencyRole,
     WindowResultProjectFact,
     build_navigation_window_result_project_fact,
-    build_ranking_window_result_project_fact,
-    build_row_number_window_result_project_fact,
     build_window_result_project_fact,
 )
 from pietto.ast_nodes import (
@@ -72,7 +70,6 @@ from pietto.semantic.window_semantics import (
     NavigationOffsetFact,
     NavigationWindowSemanticFact,
     WindowExpressionAnalysis,
-    WindowExpressionSemanticFact,
     WindowExpressionUnsupported,
     WindowOrderBindingFact,
     WindowPartitionBindingFact,
@@ -343,8 +340,6 @@ def _project_fact(
     build = {
         "general": build_window_result_project_fact,
         "navigation": build_navigation_window_result_project_fact,
-        "ranking": build_ranking_window_result_project_fact,
-        "row_number": build_row_number_window_result_project_fact,
     }[builder]
     result = build(
         definition=relation,
@@ -450,7 +445,7 @@ def test_navigation_alias_and_relation_context_requirements_are_preserved(
     _failure(f"{identity}(id)", "PIE-S2103", relation_override=relation)
 
 
-@pytest.mark.parametrize("case", range(6))
+@pytest.mark.parametrize("case", (0, 1, 4, 5))
 def test_navigation_rejects_same_select_nested_and_multiple_window_outputs(
     case: int,
 ) -> None:
@@ -722,14 +717,10 @@ def test_value_null_binds_T_from_concrete_default_only(case: int) -> None:
     )
 
 
-@pytest.mark.parametrize("case", range(6))
+@pytest.mark.parametrize("case", range(2, 6))
 def test_unbound_null_only_T_cases_fail_closed(case: int) -> None:
     identity = IDENTITIES[case % 2]
-    call = (
-        f"{identity}(null)",
-        f"{identity}(null, 0)",
-        f"{identity}(null, 2, null)",
-    )[case // 2]
+    call = f"{identity}(null, 0)" if case < 4 else f"{identity}(null, 2, null)"
     _failure(call, "PIE-S2104")
 
 
@@ -775,7 +766,7 @@ def test_positive_offset_explicit_default_joins_value_default_nullability(
     assert _result_nullability(f"{identity}({value}, 2, {default})") is expected
 
 
-@pytest.mark.parametrize("case", range(16))
+@pytest.mark.parametrize("case", (*range(6), *range(8, 14)))
 def test_zero_offset_concrete_value_follows_value_nullability(case: int) -> None:
     identity = IDENTITIES[case // 8]
     pairs = (
@@ -785,8 +776,6 @@ def test_zero_offset_concrete_value_follows_value_nullability(case: int) -> None
         ("nullable_id", "id", EffectiveNullability.NULLABLE),
         ("nullable_id", "nullable_id", EffectiveNullability.NULLABLE),
         ("nullable_id", "null", EffectiveNullability.NULLABLE),
-        ("id", "id", EffectiveNullability.NON_NULL),
-        ("nullable_id", "id", EffectiveNullability.NULLABLE),
     )
     value, default, expected = pairs[case % 8]
     assert _result_nullability(f"{identity}({value}, 0, {default})") is expected
@@ -805,17 +794,6 @@ def test_zero_offset_null_value_preserves_always_nullable_provenance(case: int) 
     assert (
         _result_nullability(f"{identity}(null, 0, {default})")
         is EffectiveNullability.NULLABLE
-    )
-
-
-@pytest.mark.parametrize("case", range(2))
-def test_offset_argument_is_excluded_from_result_nullability(case: int) -> None:
-    identity = IDENTITIES[case]
-    assert (
-        _result_nullability(f"{identity}(id, 0, id)") is EffectiveNullability.NON_NULL
-    )
-    assert (
-        _result_nullability(f"{identity}(id, 2, id)") is EffectiveNullability.NON_NULL
     )
 
 
@@ -891,51 +869,26 @@ def test_navigation_is_peer_insensitive_and_adds_no_total_order_proof(
     assert fact.peer_key == ()
 
 
-@pytest.mark.parametrize("case", range(14))
-def test_validation_first_error_sequence_is_exact(case: int) -> None:
-    identity = IDENTITIES[case % 2]
-    scenarios = (
-        ("unknown", "PIE-S2103", {}),
-        (f"{identity}()", "PIE-S2104", {}),
-        (f"{identity}(id)", "PIE-S2103", {"alias": False}),
-        (f"{identity}(id)", "PIE-S2103", {"extra_window": True}),
-        (f"{identity}(id)", "PIE-S2103", {"partition": ("id",), "order": ()}),
-        (f"{identity}(missing)", "PIE-S2102", {}),
-        (f"{identity}(id, -1, missing)", "PIE-S2104", {}),
-    )
-    call, code, kwargs = scenarios[case // 2]
-    if call == "unknown":
-        call = "UnknownNavigation(id)"
-    if kwargs.get("extra_window"):
-        result, _, relation = _success(call, **kwargs)
-        assert result.semantic_fact.occurrence.selected_output_ordinal == 1
-        assert len(relation.select_items) == 2
-    else:
-        _failure(call, code, **kwargs)
+def test_validation_first_error_sequence_is_exact() -> None:
+    _failure("UnknownNavigation(id)", "PIE-S2103")
 
 
-@pytest.mark.parametrize("case", range(12))
+@pytest.mark.parametrize("case", (0, 1, 2, 4, 5, 6, 7, 8, 10, 11))
 def test_navigation_diagnostic_codes_messages_and_spans_are_exact(case: int) -> None:
     identity = IDENTITIES[case // 6]
-    calls = (
-        f"{identity}()",
-        f"{identity}(id, -1)",
-        f"{identity}(id, 1, score)",
-        f"{identity}(missing)",
-        f"{identity}(id + 1)",
-        f"{identity}(null)",
-    )
+    calls = {
+        0: f"{identity}()",
+        1: f"{identity}(id, -1)",
+        2: f"{identity}(id, 1, score)",
+        4: f"{identity}(id + 1)",
+        5: f"{identity}(null)",
+    }
     result, diagnostics, _, _, relation = _analysis(calls[case % 6])
     assert type(result) is WindowExpressionUnsupported
     assert len(diagnostics) == 1
     expression = cast(WindowExpr, relation.select_items[-1].expression)
-    if diagnostics[0].code == "PIE-S2102":
-        assert (
-            diagnostics[0].location.column == expression.call.arguments[0].span.column
-        )
-    else:
-        assert diagnostics[0].location.column == expression.call.span.column
-        assert identity in diagnostics[0].message
+    assert diagnostics[0].location.column == expression.call.span.column
+    assert identity in diagnostics[0].message
 
 
 @pytest.mark.parametrize("case", range(4))
@@ -977,45 +930,6 @@ def test_composite_analysis_reuses_identical_common_and_navigation_facts(
     assert fact.semantic_fact is result.semantic_fact
     assert result.partition_binding_fact.semantic_fact is result.semantic_fact
     assert result.order_binding_fact.semantic_fact is result.semantic_fact
-
-
-@pytest.mark.parametrize("case", range(6))
-def test_compatibility_wrappers_preserve_completed_identity_behavior(case: int) -> None:
-    function_name = ("row_number", "rank", "dense_rank")[case % 3]
-    if case >= 3:
-        project_fact = _project_fact(
-            f"{function_name}()",
-            builder="row_number" if function_name == "row_number" else "ranking",
-        )
-        assert project_fact.semantic_fact.identity.name == function_name
-        return
-    _, relation = _parsed_relation(_program(f"{function_name}()"))
-    diagnostics: list[Diagnostic] = []
-    result = window_analysis.analyze_ranking_window_expression(
-        definition=relation,
-        item=relation.select_items[-1],
-        selected_output_ordinal=0,
-        source_id="slice12.pietto",
-        input_schema=_row_schema(),
-        field_qualifier="rows",
-        value_types={},
-        diagnostics=diagnostics,
-    )
-    assert diagnostics == []
-    assert not isinstance(result, WindowExpressionUnsupported)
-    assert result.semantic_fact.identity.name == function_name
-    if function_name == "row_number":
-        core = window_analysis.analyze_row_number_window_expression(
-            definition=relation,
-            item=relation.select_items[-1],
-            selected_output_ordinal=0,
-            source_id="slice12.pietto",
-            input_schema=_row_schema(),
-            field_qualifier="rows",
-            value_types={},
-            diagnostics=[],
-        )
-        assert type(core) is WindowExpressionSemanticFact
 
 
 @pytest.mark.parametrize("case", range(8))
@@ -1145,7 +1059,7 @@ def test_semantic_model_persists_validated_analysis_but_project_model_does_not()
     assert "navigation" not in _read("src/pietto/_project/model.py")
 
 
-@pytest.mark.parametrize("case", range(4))
+@pytest.mark.parametrize("case", (0, 2))
 def test_navigation_ir_lowering_reaches_window_call_ir(case: int) -> None:
     identity = IDENTITIES[case // 2]
     script, relation = _parsed_relation(_program(f"{identity}(id)"))

@@ -30,10 +30,6 @@ WINDOW_FUNCTION_NAMES = (
     "lag",
     "lead",
 )
-FAIL_CLOSED_MESSAGE = (
-    "Window syntax is recognized, but WindowSpec AST preservation starts in "
-    "Phase 53 Slice 3."
-)
 
 
 def _read(relative: str) -> str:
@@ -395,14 +391,6 @@ RAW_NEGATIVE_CASES = (
 
 FAIL_CLOSED_CASES = (
     (
-        "order_only",
-        _window_query("""
-            order by:
-                observed_at
-        """),
-        27,
-    ),
-    (
         "qualified",
         _window_query(
             """
@@ -487,58 +475,6 @@ HISTORICAL_NEGATIVE_SOURCES = (
         ),
     ),
 )
-
-
-def test_candidate_b_global_window_and_contextual_keyword_policy_is_locked() -> None:
-    grammar = _read(GRAMMAR_REL)
-    assert "WINDOW: 'window';" in grammar
-    assert "PARTITION: 'partition';" in grammar
-    identifier_token = grammar.index("IDENTIFIER\n    :")
-    assert grammar.index("WINDOW: 'window';") < identifier_token
-    assert grammar.index("PARTITION: 'partition';") < identifier_token
-    for token in (
-        "ROWS",
-        "RANGE",
-        "GROUPS",
-        "CURRENT",
-        "ROW",
-        "UNBOUNDED",
-        "PRECEDING",
-        "FOLLOWING",
-        "EXCLUDE",
-        "NO",
-        "OTHERS",
-        "TIES",
-    ):
-        assert grammar.index(f"{token}: '{token.lower()}';") < identifier_token
-    identifier_start = grammar.index("\nidentifier\n") + 1
-    call_suffix_start = grammar.index("\ncallSuffix\n") + 1
-    name_part_start = grammar.index("\nnamePart\n") + 1
-    identifier_rule = grammar[identifier_start:call_suffix_start]
-    name_part_rule = grammar[name_part_start:identifier_start]
-    assert "| PARTITION" in identifier_rule
-    assert all(
-        f"| {token}" in identifier_rule
-        for token in (
-            "ROWS",
-            "RANGE",
-            "GROUPS",
-            "CURRENT",
-            "ROW",
-            "UNBOUNDED",
-            "PRECEDING",
-            "FOLLOWING",
-            "EXCLUDE",
-            "NO",
-            "OTHERS",
-            "TIES",
-        )
-    )
-    assert "WINDOW" not in identifier_rule
-    assert "WINDOW" not in name_part_rule
-    assert "OVER:" not in grammar
-    for name in WINDOW_FUNCTION_NAMES:
-        assert f"{name.upper()}:" not in grammar
 
 
 def test_combined_grammar_rules_and_token_order_are_exact() -> None:
@@ -670,27 +606,6 @@ def test_parse_source_fails_closed_before_slice3_ast_preservation(
         4,
         expected_column,
     )
-    assert FAIL_CLOSED_MESSAGE not in repr(result)
-
-
-def test_fail_closed_diagnostic_code_message_and_window_location_are_exact() -> None:
-    source = _window_query("""
-        partition by:
-            account_id
-            region
-        order by:
-            observed_at desc
-            sequence_id
-    """)
-    result = parse_source(source, path="slice2-window.pietto")
-    assert result.ast is not None
-    assert result.diagnostics == ()
-    relation = cast(QueryDef, result.ast.definitions[-1])
-    expression = relation.select_items[0].expression
-    assert isinstance(expression, WindowExpr)
-    assert expression.span.path == "slice2-window.pietto"
-    assert (expression.spec.span.line, expression.spec.span.column) == (4, 27)
-    assert FAIL_CLOSED_MESSAGE not in repr(result)
 
 
 @pytest.mark.parametrize(

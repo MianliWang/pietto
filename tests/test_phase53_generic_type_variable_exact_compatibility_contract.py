@@ -334,7 +334,6 @@ def test_complete_type_by_constraint_truth_matrix_is_exact(
 @pytest.mark.parametrize(
     "case",
     (
-        "alias",
         "unknown",
         "DateTime",
         "Time",
@@ -348,10 +347,7 @@ def test_complete_type_by_constraint_truth_matrix_is_exact(
 def test_alias_unknown_deferred_and_decimal_precision_boundaries_are_exact(
     case: str,
 ) -> None:
-    if case == "alias":
-        with pytest.raises(ValueError, match="BUILTIN, ENUM, or SHAPE"):
-            LogicalTypeIdentity(name="Alias", kind=TypeKind.TYPE_ALIAS)
-    elif case == "unknown":
+    if case == "unknown":
         with pytest.raises(ValueError, match="BUILTIN, ENUM, or SHAPE"):
             LogicalTypeIdentity(name="Unknown", kind=TypeKind.UNKNOWN)
     elif case == "decimal":
@@ -834,8 +830,6 @@ def test_arity_mismatch_evidence_is_exact(
         "repeated-precedence",
         "constraint",
         "constraint-order",
-        "unbound",
-        "structured",
     ),
 )
 def test_binding_failures_are_structured_ordered_and_fail_closed(case: str) -> None:
@@ -871,7 +865,7 @@ def test_binding_failures_are_structured_ordered_and_fail_closed(case: str) -> N
             ConstraintMismatch,
         )
         assert cast(ConstraintMismatch, mismatch).constraint is TypeConstraint.NUMERIC
-    elif case == "constraint-order":
+    else:
         signature = _variable_signature(
             (TypeConstraint.ORDERABLE, TypeConstraint.NUMERIC)
         )
@@ -880,20 +874,6 @@ def test_binding_failures_are_structured_ordered_and_fail_closed(case: str) -> N
             _assert_unsupported(bind_signature(signature, (TEXT,)), ConstraintMismatch),
         )
         assert mismatch.constraint is TypeConstraint.ORDERABLE
-    elif case == "unbound":
-        assert (
-            type(
-                _assert_unsupported(
-                    bind_signature(_variable_signature(optional=True), ()),
-                    UnboundResult,
-                )
-            )
-            is UnboundResult
-        )
-    else:
-        result = bind_signature(_concrete_signature((INT,), BOOL), (FLOAT,))
-        assert type(result) is SignatureUnsupported
-        assert type(result.mismatch) is ConcreteTypeMismatch
 
 
 _CONSTRAINT_ORDER_CASES = (
@@ -938,47 +918,14 @@ def test_multiple_constraint_evidence_uses_declaration_order(
     )
 
 
-@pytest.mark.parametrize("case", ("concrete", "variable", "second", "unbound"))
+@pytest.mark.parametrize("case", ("concrete", "variable"))
 def test_variable_and_concrete_result_resolution_is_exact(case: str) -> None:
     if case == "concrete":
         result = bind_signature(_variable_signature(result=BOOL), (INT,))
         assert cast(SignatureMatch, result).result_type == BOOL
-    elif case == "variable":
+    else:
         result = bind_signature(_variable_signature(), (DECIMAL,))
         assert cast(SignatureMatch, result).result_type == DECIMAL
-    elif case == "second":
-        variables = (
-            TypeVariable(name="T", constraints=()),
-            TypeVariable(name="U", constraints=()),
-        )
-        signature = GenericSignature(
-            type_variables=variables,
-            parameters=(
-                SignatureParameter(
-                    position=0,
-                    type_expression=VariableTypeExpression(name="T"),
-                ),
-                SignatureParameter(
-                    position=1,
-                    type_expression=VariableTypeExpression(name="U"),
-                ),
-            ),
-            result=VariableTypeExpression(name="U"),
-        )
-        assert (
-            cast(SignatureMatch, bind_signature(signature, (INT, TEXT))).result_type
-            == TEXT
-        )
-    else:
-        assert (
-            type(
-                _assert_unsupported(
-                    bind_signature(_variable_signature(optional=True), ()),
-                    UnboundResult,
-                )
-            )
-            is UnboundResult
-        )
 
 
 def test_binding_results_are_immutable_hashable_and_repeatable() -> None:

@@ -1379,59 +1379,49 @@ def test_slice7_and_slice12_construction_readiness_matrix_is_exact(
     assert fact.semantic_fact.result is result
 
 
-@pytest.mark.parametrize(
-    "relative",
-    ANALYZER_CATALOG_DIAGNOSTIC_PATHS,
-)
-def test_current_analyzer_catalog_and_diagnostic_nonintegration_is_exact(
-    relative: str,
-) -> None:
-    path = REPO_ROOT / relative
-    source = path.read_text()
-    if relative == "src/pietto/semantic/expressions.py":
-        assert "semantic.window_semantics" in source
-        assert "WindowExpressionAnalysis" in source
-        assert "WindowResultAvailabilityKind" in source
-        assert "analyze_window_expression(" in source
-        window_analysis = (
-            REPO_ROOT / "src/pietto/semantic/window_analysis.py"
-        ).read_text()
-        assert "def analyze_row_number_window_expression(" in window_analysis
-        assert "WindowExpressionSemanticFact" in window_analysis
-        assert "WindowExpressionUnsupported" in window_analysis
-    elif relative == "src/pietto/semantic/analyzer.py":
-        assert "if TYPE_CHECKING:" in source
-        assert "semantic.window_semantics import (" in source
-        assert "WindowExpressionAnalysis" in source
-        assert "ResolvedNamedWindowNamespace" in source
-        assert "WindowExpressionUnsupported" not in source
-    else:
-        assert "semantic.window_semantics" not in source
-        assert "WindowExpressionSemanticFact" not in source
-        assert "WindowExpressionUnsupported" not in source
+def test_current_analyzer_catalog_and_diagnostic_nonintegration_is_exact() -> None:
+    for relative in ANALYZER_CATALOG_DIAGNOSTIC_PATHS:
+        path = REPO_ROOT / relative
+        source = path.read_text()
+        if relative == "src/pietto/semantic/expressions.py":
+            assert "semantic.window_semantics" in source
+            assert "WindowExpressionAnalysis" in source
+            assert "WindowResultAvailabilityKind" in source
+            assert "analyze_window_expression(" in source
+            window_analysis = (
+                REPO_ROOT / "src/pietto/semantic/window_analysis.py"
+            ).read_text()
+            assert "def analyze_row_number_window_expression(" in window_analysis
+            assert "WindowExpressionSemanticFact" in window_analysis
+            assert "WindowExpressionUnsupported" in window_analysis
+        elif relative == "src/pietto/semantic/analyzer.py":
+            assert "if TYPE_CHECKING:" in source
+            assert "semantic.window_semantics import (" in source
+            assert "WindowExpressionAnalysis" in source
+            assert "ResolvedNamedWindowNamespace" in source
+            assert "WindowExpressionUnsupported" not in source
+        else:
+            assert "semantic.window_semantics" not in source
+            assert "WindowExpressionSemanticFact" not in source
+            assert "WindowExpressionUnsupported" not in source
 
 
-@pytest.mark.parametrize(
-    "relative",
-    (
+def test_project_model_checker_and_serializers_have_no_window_population() -> None:
+    for relative in (
         "src/pietto/_project/model.py",
         "src/pietto/_project/check.py",
         "src/pietto/_project/json_v2.py",
         "src/pietto/_project/__init__.py",
-    ),
-)
-def test_project_model_checker_and_serializers_have_no_window_population(
-    relative: str,
-) -> None:
-    path = REPO_ROOT / relative
-    source = path.read_text()
-    if relative == "src/pietto/_project/model.py":
-        assert "WindowResultProjectFact" in source
-        assert "relation_window_result_facts" in source
-        assert "_validate_project_window_result_facts(" in source
-        assert "build_window_result_project_fact(" not in source
-    else:
-        assert "WindowResultProjectFact" not in source
-        assert "relation_window_result_facts" not in source
-        assert "window_semantics" not in source
+    ):
+        path = REPO_ROOT / relative
+        source = path.read_text()
+        if relative == "src/pietto/_project/model.py":
+            assert "WindowResultProjectFact" in source
+            assert "relation_window_result_facts" in source
+            assert "_validate_project_window_result_facts(" in source
+            assert "build_window_result_project_fact(" not in source
+        else:
+            assert "WindowResultProjectFact" not in source
+            assert "relation_window_result_facts" not in source
+            assert "window_semantics" not in source
     assert not hasattr(project_package, "WindowResultProjectFact")

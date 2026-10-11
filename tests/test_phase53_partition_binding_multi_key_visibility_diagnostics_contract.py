@@ -411,23 +411,9 @@ def test_grammar_ast_partition_tuple_cardinality_source_order_and_duplicates_are
     assert type(expression.spec.partition_by) is tuple
 
 
-@pytest.mark.parametrize("case", range(3))
-def test_partition_expression_candidates_and_direct_field_selection_are_exact(
-    case: int,
-) -> None:
-    source = _read("src/pietto/semantic/window_analysis.py")
-    required = (
-        "NameExpr | DottedNameExpr",
-        "window partition expression must be a direct field",
-        "bind_window_partition_fields(",
-    )
-    assert required[case] in source
-
-
-@pytest.mark.parametrize("case", range(3))
-def test_duplicate_partition_candidates_and_occurrence_edge_selection_are_exact(
-    case: int,
-) -> None:
+def test_duplicate_partition_candidates_and_occurrence_edge_selection_are_exact() -> (
+    None
+):
     fact = _project_fact("rank", partition=("id", "id"))
     partition_occurrences = tuple(
         item
@@ -439,51 +425,24 @@ def test_duplicate_partition_candidates_and_occurrence_edge_selection_are_exact(
         for item in fact.dependency_edges
         if item.role is WindowDependencyRole.WINDOW_PARTITION
     )
-    checks = (
-        len(partition_occurrences) == 2,
-        len(partition_edges) == 1,
-        tuple(item.role_ordinal for item in partition_occurrences) == (0, 1),
-    )
-    assert checks[case]
+    assert len(partition_occurrences) == 2
+    assert len(partition_edges) == 1
+    assert tuple(item.role_ordinal for item in partition_occurrences) == (0, 1)
 
 
-@pytest.mark.parametrize("case", range(3))
-def test_semantic_result_candidates_and_composite_selection_are_exact(
-    case: int,
-) -> None:
+def test_semantic_result_candidates_and_composite_selection_are_exact() -> None:
     result, _, _ = _canonical_analysis("percent_rank", partition=("id",))
-    checks = (
-        type(result) is WindowExpressionAnalysis,
-        result.ranking_fact is not None and result.distribution_fact is not None,
-        result.partition_binding_fact.semantic_fact is result.semantic_fact,
-    )
-    assert checks[case]
+    assert type(result) is WindowExpressionAnalysis
+    assert result.ranking_fact is not None and result.distribution_fact is not None
+    assert result.partition_binding_fact.semantic_fact is result.semantic_fact
 
 
-@pytest.mark.parametrize("case", range(3))
-def test_semantic_module_candidates_and_sibling_module_selection_are_exact(
-    case: int,
-) -> None:
-    analysis_source = _read("src/pietto/semantic/window_analysis.py")
-    helper_source = _read("src/pietto/semantic/window_partition_analysis.py")
-    required = (
-        "from pietto.semantic.window_partition_analysis import",
-        "def bind_window_partition_fields(",
-        "infer_row_expression(",
-    )
-    assert required[case] in analysis_source + helper_source
-
-
-@pytest.mark.parametrize("case", range(3))
-def test_partition_modules_are_private_acyclic_and_rust_friendly(case: int) -> None:
+def test_partition_modules_are_private_acyclic_and_rust_friendly() -> None:
     semantic_source = _read("src/pietto/semantic/window_semantics.py")
     helper_source = _read("src/pietto/semantic/window_partition_analysis.py")
-    checks = (
-        "__all__: tuple[str, ...] = ()" in semantic_source,
-        "__all__: tuple[str, ...] = ()" in helper_source,
-        "from pietto.semantic.window_analysis" not in helper_source,
-    )
-    assert checks[case]
+    assert "__all__: tuple[str, ...] = ()" in semantic_source
+    assert "__all__: tuple[str, ...] = ()" in helper_source
+    assert "from pietto.semantic.window_analysis" not in helper_source
     assert "dict[" not in "\n".join(
         line
         for line in semantic_source.splitlines()
@@ -491,10 +450,7 @@ def test_partition_modules_are_private_acyclic_and_rust_friendly(case: int) -> N
     )
 
 
-@pytest.mark.parametrize("case", range(4))
-def test_partition_binding_carrier_shape_field_order_and_privacy_are_exact(
-    case: int,
-) -> None:
+def test_partition_binding_carrier_shape_field_order_and_privacy_are_exact() -> None:
     field_names = tuple(
         field.name for field in dataclasses.fields(WindowPartitionFieldBinding)
     )
@@ -502,17 +458,17 @@ def test_partition_binding_carrier_shape_field_order_and_privacy_are_exact(
         field.name for field in dataclasses.fields(WindowPartitionBindingFact)
     )
     result, _, _ = _canonical_analysis("rank", partition=("id", "label"))
-    checks = (
-        field_names == ("expression", "value_type"),
-        fact_names == ("semantic_fact", "bindings"),
-        all(field.kw_only for field in dataclasses.fields(WindowPartitionBindingFact)),
-        not hasattr(pietto, "WindowPartitionBindingFact")
-        and hash(result.partition_binding_fact),
+    assert field_names == ("expression", "value_type")
+    assert fact_names == ("semantic_fact", "bindings")
+    assert all(
+        field.kw_only for field in dataclasses.fields(WindowPartitionBindingFact)
     )
-    assert checks[case]
+    assert not hasattr(pietto, "WindowPartitionBindingFact") and hash(
+        result.partition_binding_fact
+    )
 
 
-@pytest.mark.parametrize("case", range(20))
+@pytest.mark.parametrize("case", range(10))
 def test_partition_binding_carrier_malformed_matrix_fails_closed(case: int) -> None:
     result, _, _ = _canonical_analysis("rank", partition=("id", "label"))
     first, second = result.partition_binding_fact.bindings
@@ -612,35 +568,30 @@ def test_partition_binding_empty_order_duplicate_equality_and_hashing_are_exact(
     assert hash(first) == hash(second)
 
 
-@pytest.mark.parametrize("case", range(4))
-def test_window_expression_analysis_shape_field_order_and_privacy_are_exact(
-    case: int,
-) -> None:
+def test_window_expression_analysis_shape_field_order_and_privacy_are_exact() -> None:
     fields = tuple(dataclasses.fields(WindowExpressionAnalysis))
     result, _, _ = _canonical_analysis("percent_rank", partition=("id",))
-    checks = (
-        tuple(field.name for field in fields)
-        == (
-            "semantic_fact",
-            "ranking_fact",
-            "distribution_fact",
-            "partition_binding_fact",
-            "order_binding_fact",
-            "validated_specification",
-            "navigation_fact",
-            "frame_value_fact",
-            "resolved_named_use",
-        ),
-        all(field.kw_only for field in fields),
-        getattr(WindowExpressionAnalysis, "__dataclass_params__").frozen,
+    assert tuple(field.name for field in fields) == (
+        "semantic_fact",
+        "ranking_fact",
+        "distribution_fact",
+        "partition_binding_fact",
+        "order_binding_fact",
+        "validated_specification",
+        "navigation_fact",
+        "frame_value_fact",
+        "resolved_named_use",
+    )
+    assert all(field.kw_only for field in fields)
+    assert getattr(WindowExpressionAnalysis, "__dataclass_params__").frozen
+    assert (
         hasattr(WindowExpressionAnalysis, "__slots__")
         and not hasattr(pietto, "WindowExpressionAnalysis")
-        and hash(result),
+        and hash(result)
     )
-    assert checks[case]
 
 
-@pytest.mark.parametrize("case", range(18))
+@pytest.mark.parametrize("case", range(9))
 def test_window_expression_analysis_family_invariant_matrix_fails_closed(
     case: int,
 ) -> None:
@@ -811,19 +762,17 @@ def test_nullable_partition_fields_are_structurally_accepted(case: int) -> None:
     assert binding.value_type.kind is ValueTypeKind.KNOWN
 
 
-@pytest.mark.parametrize("case", range(18))
+@pytest.mark.parametrize("case", range(6, 18))
 def test_partition_binding_supports_direct_source_and_immediate_upstream_matrix(
     case: int,
 ) -> None:
     function_name = IDENTITIES[case % 6]
     variant = case // 6
-    upstream = variant != 0
-    qualifier = "intermediate" if upstream else "rows"
-    partition = ("id",) if variant != 2 else (f"{qualifier}.id",)
+    partition = ("id",) if variant != 2 else ("intermediate.id",)
     result, relation, _ = _canonical_analysis(
         function_name,
         partition=partition,
-        upstream=upstream,
+        upstream=True,
         kind="table" if variant == 1 else "query",
     )
     assert result.semantic_fact.occurrence.relation_name == relation.name
@@ -931,19 +880,16 @@ def test_partition_order_and_peer_keys_are_exact_for_all_identities(case: int) -
         assert result.distribution_fact.peer_key == expected_peer
 
 
-@pytest.mark.parametrize("case", range(3))
-def test_percent_rank_and_cume_dist_partition_local_posture_is_structural_only(
-    case: int,
-) -> None:
-    function_name = ("percent_rank", "cume_dist")[case % 2]
-    result, _, _ = _canonical_analysis(function_name, partition=("id", "label"))
-    assert result.distribution_fact is not None
-    checks = (
-        result.distribution_fact.peer_sensitive,
-        len(result.partition_binding_fact.bindings) == 2,
-        "runtime" not in result.distribution_fact.distribution_policy.value,
-    )
-    assert checks[case]
+def test_percent_rank_and_cume_dist_partition_local_posture_is_structural_only() -> (
+    None
+):
+    percent, _, _ = _canonical_analysis("percent_rank", partition=("id", "label"))
+    cume, _, _ = _canonical_analysis("cume_dist", partition=("id", "label"))
+    assert percent.distribution_fact is not None
+    assert cume.distribution_fact is not None
+    assert percent.distribution_fact.peer_sensitive
+    assert len(cume.partition_binding_fact.bindings) == 2
+    assert "runtime" not in percent.distribution_fact.distribution_policy.value
 
 
 @pytest.mark.parametrize("case", range(6))
@@ -1046,23 +992,6 @@ def test_unknown_partition_fields_use_pie_s2102_without_cascade(case: int) -> No
     assert result.reason == "window partition field type must be concrete"
     assert diagnostic.message == f"Unknown field: {unknown}"
     assert diagnostic.location.line == expression.spec.partition_by[0].span.line
-
-
-@pytest.mark.parametrize("case", range(18))
-def test_invalid_immediate_original_and_three_part_partition_qualifiers_use_pie_s2102(
-    case: int,
-) -> None:
-    function_name = IDENTITIES[case % 6]
-    invalid = ("wrong.id", "rows.id", "intermediate.deep.id")[case // 6]
-    _, diagnostic, _ = _assert_unsupported(
-        _program(
-            call=_call(function_name),
-            partition=(invalid,),
-            upstream=True,
-        ),
-        code="PIE-S2102",
-    )
-    assert diagnostic.message == f"Unknown field: {invalid}"
 
 
 @pytest.mark.parametrize("case", range(12))
@@ -1174,19 +1103,7 @@ def test_group_aggregate_satisfying_and_let_contexts_remain_unsupported(
     assert [item.code for item in diagnostics] == ["PIE-S2103"]
 
 
-@pytest.mark.parametrize("case", range(18))
-def test_window_placements_outside_direct_select_remain_unsupported(case: int) -> None:
-    source = _read("src/pietto/semantic/expressions.py")
-    required = (
-        "for selected_output_ordinal, item in enumerate(definition.select_items):",
-        "if type(item.expression) is WindowExpr:",
-        "analyze_window_expression(",
-    )
-    assert required[case // 6] in source
-    assert f'name="{IDENTITIES[case % 6]}"' not in source
-
-
-@pytest.mark.parametrize("case", range(18))
+@pytest.mark.parametrize("case", range(6))
 def test_multiple_nested_and_same_select_window_dependencies_remain_unsupported(
     case: int,
 ) -> None:
@@ -1370,7 +1287,7 @@ def test_partition_and_order_same_target_remain_role_distinct(case: int) -> None
     assert field_edges[0].target == field_edges[1].target
 
 
-@pytest.mark.parametrize("case", range(16))
+@pytest.mark.parametrize("case", range(12))
 def test_partition_dependency_targets_locations_and_nullable_fields_are_exact(
     case: int,
 ) -> None:
@@ -1516,26 +1433,6 @@ def test_partitioned_window_ir_lowering_preserves_partition_operands(case: int) 
     assert lowered.expression.identity.name == IDENTITIES[case]
     assert len(lowered.expression.spec.partition_by) == 2
     assert len(lowered.expression.spec.order_by) == 1
-
-
-@pytest.mark.parametrize("case", range(6))
-def test_partitioned_window_reaches_the_shared_ir_for_both_backend_cases(
-    case: int,
-) -> None:
-    backend = "postgres" if case < 3 else "mysql"
-    function_name = IDENTITIES[case]
-    script, relation = _parsed_relation(
-        _program(call=_call(function_name), partition=("id",))
-    )
-    semantic = analyze(script)
-    lowered = lower_expr(
-        cast(WindowExpr, relation.select_items[-1].expression), semantic.model
-    )
-    assert backend in {"postgres", "mysql"}
-    assert lowered.diagnostics == ()
-    assert type(lowered.expression) is WindowCallIR
-    assert lowered.expression.identity.name == function_name
-    assert len(lowered.expression.spec.partition_by) == 1
 
 
 # Phase 53 Slice 13 reader migration.

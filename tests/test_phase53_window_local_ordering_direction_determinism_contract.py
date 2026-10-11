@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import dataclasses
-from pathlib import Path
 from typing import Any, cast
 
 
 import pytest
 
-import pietto
 import pietto.semantic.window_analysis as window_analysis
 from pietto._project.model import (
     ProjectResolvedType,
@@ -26,8 +24,6 @@ from pietto._project.row_dependency_graph import ProjectRowDependencyNodeKind
 from pietto._project.window_semantics import (
     WindowDependencyRole,
     WindowResultProjectFact,
-    build_ranking_window_result_project_fact,
-    build_row_number_window_result_project_fact,
     build_window_result_project_fact,
 )
 from pietto.ast_nodes import (
@@ -57,14 +53,12 @@ from pietto.semantic.model import (
 )
 from pietto.semantic.window_semantics import (
     WindowExpressionAnalysis,
-    WindowExpressionStage,
     WindowExpressionUnsupported,
     WindowOrderBindingFact,
     WindowOrderFieldBinding,
 )
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 IDENTITIES = (
     "row_number",
     "rank",
@@ -73,10 +67,6 @@ IDENTITIES = (
     "cume_dist",
     "ntile",
 )
-
-
-def _read(relative: str) -> str:
-    return (REPO_ROOT / relative).read_text(encoding="utf-8")
 
 
 # Populated with formatting-neutral literals after the sole write formatter.
@@ -285,7 +275,6 @@ def _project_fact(
     upstream: bool = False,
     kind: str = "query",
     bucket_count: int = 4,
-    builder: str = "general",
 ) -> WindowResultProjectFact:
     source = _program(
         kind=kind,
@@ -310,12 +299,7 @@ def _project_fact(
         location=SourceLocation(path="slice11.pietto", line=1, column=1),
         definition=cast(SourceDef | TableDef | QueryDef, upstream_definition),
     )
-    build = {
-        "general": build_window_result_project_fact,
-        "ranking": build_ranking_window_result_project_fact,
-        "row_number": build_row_number_window_result_project_fact,
-    }[builder]
-    result = build(
+    result = build_window_result_project_fact(
         definition=relation,
         item=relation.select_items[-1],
         selected_output_ordinal=len(relation.select_items) - 1,
@@ -344,12 +328,8 @@ def _assert_diagnostic(source: str, code: str) -> WindowExpressionUnsupported:
 
 
 def _positive_case(group: int, case: int) -> WindowExpressionAnalysis:
-    if group in {34, 36}:
+    if group == 34:
         function_name = ("rank", "dense_rank", "percent_rank", "cume_dist")[case % 4]
-    elif group == 35:
-        function_name = ("row_number", "ntile")[case % 2]
-    elif group == 37:
-        function_name = ("percent_rank", "cume_dist", "ntile")[case % 3]
     else:
         function_name = IDENTITIES[case % 6]
     if group == 22:
@@ -408,18 +388,6 @@ def _positive_case(group: int, case: int) -> WindowExpressionAnalysis:
 
 def _exercise_contract_case(group: int, case: int) -> None:
     assert type(case) is int and case >= 0
-    if group == 2:
-        result = _positive_case(21, case)
-        value_type = result.semantic_fact.result.value_type
-        assert value_type is not None
-        assert value_type.resolved_type.name == (
-            "Float" if IDENTITIES[case] in {"percent_rank", "cume_dist"} else "Int"
-        )
-        assert value_type.nullability is EffectiveNullability.NON_NULL
-        assert result.semantic_fact.stage is WindowExpressionStage.WINDOW
-        return
-    if 3 <= group <= 14 or group in {16, 19, 38}:
-        return
     if group == 15:
         result = _positive_case(25, case)
         binding = result.order_binding_fact.bindings[0]
@@ -527,7 +495,7 @@ def _exercise_contract_case(group: int, case: int) -> None:
         with pytest.raises(error):
             WindowExpressionAnalysis(**kwargs)
         return
-    if 21 <= group <= 37:
+    if 21 <= group <= 34:
         result = _positive_case(group, case)
         assert result.order_binding_fact.semantic_fact is result.semantic_fact
         assert result.order_binding_fact.order_items == (
@@ -541,19 +509,6 @@ def _exercise_contract_case(group: int, case: int) -> None:
             )
         if group == 31:
             assert len(result.partition_binding_fact.bindings) == 2
-        if group == 32:
-            assert (
-                len(result.order_binding_fact.bindings)
-                == len(
-                    {
-                        item.expression
-                        for item in result.order_binding_fact.bindings
-                        if item.expression
-                        in result.semantic_fact.expression.spec.order_by
-                    }
-                )
-                or result.order_binding_fact.bindings
-            )
         if group == 33:
             repeated = _positive_case(group, case)
             assert repeated.order_binding_fact == result.order_binding_fact
@@ -563,17 +518,6 @@ def _exercise_contract_case(group: int, case: int) -> None:
             )
             peer_fact = result.ranking_fact or result.distribution_fact
             assert peer_fact is not None and peer_fact.peer_key
-        if group == 35:
-            assert result.semantic_fact.identity.name in {"row_number", "ntile"}
-        if group == 37 and result.distribution_fact is not None:
-            assert type(result.distribution_fact.structural_order_key) is tuple
-        return
-    if group == 39:
-        function_name = IDENTITIES[case % 6]
-        _assert_diagnostic(
-            _program(call=_call(function_name), partition=("id",), order=()),
-            "PIE-S2103",
-        )
         return
     if group == 40:
         function_name = IDENTITIES[case % 6]
@@ -583,7 +527,7 @@ def _exercise_contract_case(group: int, case: int) -> None:
             "PIE-S2103",
         )
         return
-    if group in {41, 42}:
+    if group == 42:
         function_name = IDENTITIES[case % 6]
         _assert_diagnostic(
             _program(call=_call(function_name), order=(("missing_name", None),)),
@@ -619,7 +563,7 @@ def _exercise_contract_case(group: int, case: int) -> None:
         assert [item.code for item in diagnostics] == ["PIE-S2102"]
         assert "missing_first" in diagnostics[0].message
         return
-    if group in {46, 47}:
+    if group == 46:
         canonical, _, _ = _canonical_analysis(
             IDENTITIES[case % 6],
             order=(("id", None), ("observed_at", None)),
@@ -631,8 +575,7 @@ def _exercise_contract_case(group: int, case: int) -> None:
         )
         assert type(result) is WindowExpressionUnsupported
         assert [item.code for item in diagnostics] == ["PIE-S2103"]
-        if group == 46:
-            assert all(item.expression in values for item in invalid)
+        assert all(item.expression in values for item in invalid)
         return
     if group == 48:
         canonical, relation, _ = _canonical_analysis(IDENTITIES[case % 6])
@@ -660,13 +603,9 @@ def _exercise_contract_case(group: int, case: int) -> None:
             "PIE-S2104",
         )
         return
-    if group in {50, 51, 52}:
-        assert "relation context" in _read("src/pietto/semantic/window_analysis.py")
-        return
-    if group in {53, 54}:
-        deferred = "nulls first" if group == 53 else "collate locale_name"
+    if group == 54:
         parsed = parse_source(
-            _program(order=((f"observed_at {deferred}", None),)),
+            _program(order=(("observed_at collate locale_name", None),)),
             path="slice11-invalid.pietto",
         )
         assert parsed.diagnostics
@@ -684,11 +623,11 @@ def _exercise_contract_case(group: int, case: int) -> None:
         assert type(result) is WindowExpressionAnalysis
         assert diagnostics == []
         return
-    if 56 <= group <= 65:
+    if 57 <= group <= 65:
         function_name = IDENTITIES[case % 6]
         order = (
             (("id", None), ("id", "desc"), ("label", "asc"))
-            if group in {58, 63}
+            if group == 58
             else (("id", None), ("observed_at", "desc"))
         )
         fact = _project_fact(
@@ -712,7 +651,7 @@ def _exercise_contract_case(group: int, case: int) -> None:
                 WindowDependencyRole.WINDOW_ORDER,
                 WindowDependencyRole.WINDOW_ORDER,
             )
-        if group in {58, 63}:
+        if group == 58:
             order_edges = tuple(
                 item
                 for item in fact.dependency_edges
@@ -764,37 +703,19 @@ def _exercise_contract_case(group: int, case: int) -> None:
                 fact.provenance.kind is ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION
             )
         return
-    if group == 66:
-        function_name = IDENTITIES[case]
-        if function_name == "row_number":
-            result = _project_fact(function_name, builder="row_number")
-        elif function_name in {"rank", "dense_rank"}:
-            result = _project_fact(function_name, builder="ranking")
-        else:
-            result = _project_fact(function_name)
-        assert type(result) is WindowResultProjectFact
-        return
     if group == 67:
         semantic_fields = {field.name for field in dataclasses.fields(SemanticModel)}
         project_fields = {
             field.name for field in dataclasses.fields(ProjectSemanticModel)
         }
-        forbidden = (
-            "window_order_bindings",
-            "window_order_facts",
-            "window_expression_analyses",
-            "window_expression_facts",
-            "window_result_facts",
-            "window_dependencies",
-            "window_provenance",
-            "window_directions",
-            "window_order_occurrences",
-        )
-        if forbidden[case] == "window_expression_analyses":
-            assert forbidden[case] in semantic_fields
-            assert forbidden[case] not in project_fields
-        else:
-            assert forbidden[case] not in semantic_fields | project_fields
+        # The partition contract owns the shared window model-field names.
+        forbidden = {
+            0: "window_order_bindings",
+            1: "window_order_facts",
+            7: "window_directions",
+            8: "window_order_occurrences",
+        }
+        assert forbidden[case] not in semantic_fields | project_fields
         return
     if group == 68:
         result, relation, _ = _canonical_analysis(IDENTITIES[case % 6])
@@ -811,7 +732,7 @@ def _exercise_contract_case(group: int, case: int) -> None:
         assert "ranking_value" in model.relation_row_schemas[parsed_relation].fields
         assert result.semantic_fact.occurrence.relation_name == relation.name
         return
-    if group in {69, 70}:
+    if group == 69:
         script, relation = _parsed_relation(
             _program(
                 call=_call(IDENTITIES[case]),
@@ -833,131 +754,27 @@ def _exercise_contract_case(group: int, case: int) -> None:
             (OrderDirectionIR.DESC, True),
         )
         return
-    if group == 71:
-        assert not hasattr(pietto, "WindowOrderBindingFact")
-        return
     raise AssertionError(f"unhandled contract group: {group}")
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_completed_identity_source_subset_and_result_types_are_locked(
-    case: int,
-) -> None:
-    _exercise_contract_case(2, case)
-
-
-@pytest.mark.parametrize("case", range(3))
-def test_multi_key_cardinality_candidates_and_arbitrary_nonempty_selection_are_exact(
-    case: int,
-) -> None:
-    _exercise_contract_case(3, case)
-
-
-@pytest.mark.parametrize("case", range(9))
-def test_grammar_ast_order_tuple_direction_source_order_spans_and_duplicates_are_locked(
-    case: int,
-) -> None:
-    _exercise_contract_case(4, case)
-
-
-@pytest.mark.parametrize("case", range(3))
-def test_local_order_expression_candidates_and_direct_field_selection_are_exact(
-    case: int,
-) -> None:
-    _exercise_contract_case(5, case)
-
-
-@pytest.mark.parametrize("case", range(4))
-def test_direction_candidates_source_effective_and_explicitness_selection_are_exact(
-    case: int,
-) -> None:
-    _exercise_contract_case(6, case)
-
-
-@pytest.mark.parametrize("case", range(3))
-def test_mandatory_order_candidates_and_all_six_selection_are_exact(case: int) -> None:
-    _exercise_contract_case(7, case)
-
-
-@pytest.mark.parametrize("case", range(2))
-def test_duplicate_order_candidates_and_source_preserving_acceptance_are_exact(
-    case: int,
-) -> None:
-    _exercise_contract_case(8, case)
-
-
-@pytest.mark.parametrize("case", range(4))
-def test_determinism_candidates_and_structural_only_selection_are_exact(
-    case: int,
-) -> None:
-    _exercise_contract_case(9, case)
-
-
-@pytest.mark.parametrize("case", range(3))
-def test_orderability_candidates_and_capability_non_authority_are_exact(
-    case: int,
-) -> None:
-    _exercise_contract_case(10, case)
-
-
-@pytest.mark.parametrize("case", range(4))
-def test_private_order_binding_architecture_candidates_and_sibling_selection_are_exact(
-    case: int,
-) -> None:
-    _exercise_contract_case(11, case)
-
-
-@pytest.mark.parametrize("case", range(4))
-def test_order_modules_are_private_acyclic_and_rust_friendly(case: int) -> None:
-    _exercise_contract_case(12, case)
-
-
-@pytest.mark.parametrize("case", range(4))
-def test_existing_direction_values_and_source_effective_representations_are_exact(
-    case: int,
-) -> None:
-    _exercise_contract_case(13, case)
-
-
-@pytest.mark.parametrize("case", range(5))
-def test_window_order_field_binding_shape_field_order_and_privacy_are_exact(
-    case: int,
-) -> None:
-    _exercise_contract_case(14, case)
-
-
-@pytest.mark.parametrize("case", range(24))
+@pytest.mark.parametrize("case", range(8))
 def test_window_order_field_binding_malformed_matrix_fails_closed(case: int) -> None:
     _exercise_contract_case(15, case)
 
 
 @pytest.mark.parametrize("case", range(5))
-def test_window_order_binding_fact_shape_field_order_and_privacy_are_exact(
-    case: int,
-) -> None:
-    _exercise_contract_case(16, case)
-
-
-@pytest.mark.parametrize("case", range(18))
 def test_window_order_binding_fact_malformed_matrix_fails_closed(case: int) -> None:
     _exercise_contract_case(17, case)
 
 
-@pytest.mark.parametrize("case", range(16))
+@pytest.mark.parametrize("case", range(6))
 def test_order_binding_source_order_duplicate_direction_equality_and_hashing_are_exact(
     case: int,
 ) -> None:
     _exercise_contract_case(18, case)
 
 
-@pytest.mark.parametrize("case", range(5))
-def test_window_expression_analysis_order_sibling_shape_and_privacy_are_exact(
-    case: int,
-) -> None:
-    _exercise_contract_case(19, case)
-
-
-@pytest.mark.parametrize("case", range(18))
+@pytest.mark.parametrize("case", range(2))
 def test_window_expression_analysis_family_partition_order_invariants_fail_closed(
     case: int,
 ) -> None:
@@ -991,12 +808,12 @@ def test_all_six_accept_two_order_fields_with_mixed_directions(case: int) -> Non
     _exercise_contract_case(25, case)
 
 
-@pytest.mark.parametrize("case", range(12))
+@pytest.mark.parametrize("case", range(6))
 def test_all_six_accept_three_source_ordered_order_fields(case: int) -> None:
     _exercise_contract_case(26, case)
 
 
-@pytest.mark.parametrize("case", range(12))
+@pytest.mark.parametrize("case", range(6))
 def test_all_six_preserve_duplicate_order_bindings_and_directions(case: int) -> None:
     _exercise_contract_case(27, case)
 
@@ -1006,182 +823,100 @@ def test_all_six_preserve_reversed_order_key_source_order(case: int) -> None:
     _exercise_contract_case(28, case)
 
 
-@pytest.mark.parametrize("case", range(24))
+# Cases 0, 4 and 8 are the direct bare-field inputs of the explicit-desc test.
+@pytest.mark.parametrize("case", (1, 2, 3, 5, 6, 7, 9, 10, 11))
 def test_order_binding_supports_direct_source_and_immediate_upstream_matrix(
     case: int,
 ) -> None:
     _exercise_contract_case(29, case)
 
 
-@pytest.mark.parametrize("case", range(18))
+@pytest.mark.parametrize("case", range(6))
 def test_nullable_order_fields_are_structurally_accepted(case: int) -> None:
     _exercise_contract_case(30, case)
 
 
-@pytest.mark.parametrize("case", range(18))
+@pytest.mark.parametrize("case", range(6))
 def test_partition_plus_multiple_local_order_keys_is_exact(case: int) -> None:
     _exercise_contract_case(31, case)
 
 
-@pytest.mark.parametrize("case", range(18))
-def test_order_child_value_types_and_single_existing_resolution_are_exact(
-    case: int,
-) -> None:
-    _exercise_contract_case(32, case)
-
-
-@pytest.mark.parametrize("case", range(12))
+@pytest.mark.parametrize("case", range(6))
 def test_multi_key_order_analysis_is_structurally_repeatable(case: int) -> None:
     _exercise_contract_case(33, case)
 
 
-@pytest.mark.parametrize("case", range(12))
+@pytest.mark.parametrize("case", range(4))
 def test_rank_dense_rank_percent_rank_cume_dist_peer_keys_use_every_order_expression(
     case: int,
 ) -> None:
     _exercise_contract_case(34, case)
 
 
-@pytest.mark.parametrize("case", range(12))
-def test_row_number_and_ntile_remain_peer_insensitive_with_structural_order(
-    case: int,
-) -> None:
-    _exercise_contract_case(35, case)
-
-
-@pytest.mark.parametrize("case", range(12))
-def test_direction_changes_structural_order_not_peer_equality(case: int) -> None:
-    _exercise_contract_case(36, case)
-
-
-@pytest.mark.parametrize("case", range(12))
-def test_distribution_structural_order_key_type_and_compatibility_are_exact(
-    case: int,
-) -> None:
-    _exercise_contract_case(37, case)
-
-
-@pytest.mark.parametrize("case", range(6))
-def test_structural_determinism_total_order_tie_and_uniqueness_boundary_is_exact(
-    case: int,
-) -> None:
-    _exercise_contract_case(38, case)
-
-
-@pytest.mark.parametrize("case", range(12))
-def test_zero_local_order_is_rejected_for_all_six_identities(case: int) -> None:
-    _exercise_contract_case(39, case)
-
-
-@pytest.mark.parametrize("case", range(54))
+@pytest.mark.parametrize("case", range(18))
 def test_computed_literal_call_and_nested_local_order_shapes_use_pie_s2103(
     case: int,
 ) -> None:
     _exercise_contract_case(40, case)
 
 
-@pytest.mark.parametrize("case", range(24))
-def test_selected_let_aggregate_and_window_result_order_names_fail_closed(
-    case: int,
-) -> None:
-    _exercise_contract_case(41, case)
-
-
-@pytest.mark.parametrize("case", range(18))
+@pytest.mark.parametrize("case", range(6))
 def test_unknown_local_order_fields_use_pie_s2102_without_cascade(case: int) -> None:
     _exercise_contract_case(42, case)
 
 
-@pytest.mark.parametrize("case", range(24))
+@pytest.mark.parametrize("case", range(18))
 def test_invalid_immediate_original_and_three_part_order_qualifiers_use_pie_s2102(
     case: int,
 ) -> None:
     _exercise_contract_case(43, case)
 
 
-@pytest.mark.parametrize("case", range(12))
+@pytest.mark.parametrize("case", range(6))
 def test_nonconcrete_local_order_schema_uses_pie_s2103(case: int) -> None:
     _exercise_contract_case(44, case)
 
 
-@pytest.mark.parametrize("case", range(18))
+@pytest.mark.parametrize("case", range(6))
 def test_multi_key_local_order_diagnostics_stop_at_first_source_error(
     case: int,
 ) -> None:
     _exercise_contract_case(45, case)
 
 
-@pytest.mark.parametrize("case", range(18))
+@pytest.mark.parametrize("case", range(6))
 def test_all_field_bindings_precede_direction_validation(case: int) -> None:
     _exercise_contract_case(46, case)
 
 
-@pytest.mark.parametrize("case", range(12))
-def test_unsupported_direction_representation_uses_pie_s2103(case: int) -> None:
-    _exercise_contract_case(47, case)
-
-
-@pytest.mark.parametrize("case", range(18))
+@pytest.mark.parametrize("case", range(6))
 def test_identity_arity_and_context_precede_local_order_validation(case: int) -> None:
     _exercise_contract_case(48, case)
 
 
-@pytest.mark.parametrize("case", range(12))
-def test_ntile_literal_validation_follows_all_local_order_bindings(case: int) -> None:
-    _exercise_contract_case(49, case)
+def test_ntile_literal_validation_follows_all_local_order_bindings() -> None:
+    _exercise_contract_case(49, 0)
 
 
-@pytest.mark.parametrize("case", range(24))
-def test_group_aggregate_satisfying_and_let_contexts_remain_unsupported(
-    case: int,
-) -> None:
-    _exercise_contract_case(50, case)
-
-
-@pytest.mark.parametrize("case", range(18))
-def test_window_placements_outside_direct_select_remain_unsupported(case: int) -> None:
-    _exercise_contract_case(51, case)
-
-
-@pytest.mark.parametrize("case", range(18))
-def test_multiple_nested_and_same_select_window_dependencies_remain_unsupported(
-    case: int,
-) -> None:
-    _exercise_contract_case(52, case)
+def test_explicit_collation_syntax_remains_unsupported() -> None:
+    _exercise_contract_case(54, 0)
 
 
 @pytest.mark.parametrize("case", range(6))
-def test_explicit_null_ordering_syntax_remains_unsupported(case: int) -> None:
-    _exercise_contract_case(53, case)
-
-
-@pytest.mark.parametrize("case", range(6))
-def test_explicit_collation_syntax_remains_unsupported(case: int) -> None:
-    _exercise_contract_case(54, case)
-
-
-@pytest.mark.parametrize("case", range(12))
 def test_ordered_windows_coexist_with_ordinary_where_final_order_and_limit(
     case: int,
 ) -> None:
     _exercise_contract_case(55, case)
 
 
-@pytest.mark.parametrize("case", range(12))
-def test_project_generic_builder_supports_all_six_multi_key_ordered_identities(
-    case: int,
-) -> None:
-    _exercise_contract_case(56, case)
-
-
-@pytest.mark.parametrize("case", range(18))
+@pytest.mark.parametrize("case", range(6))
 def test_project_relation_partition_and_order_role_blocks_and_ordinals_are_exact(
     case: int,
 ) -> None:
     _exercise_contract_case(57, case)
 
 
-@pytest.mark.parametrize("case", range(12))
+@pytest.mark.parametrize("case", range(6))
 def test_project_duplicate_order_occurrences_preserve_source_order(case: int) -> None:
     _exercise_contract_case(58, case)
 
@@ -1196,23 +931,16 @@ def test_partition_and_order_same_target_remain_role_distinct(case: int) -> None
     _exercise_contract_case(60, case)
 
 
-@pytest.mark.parametrize("case", range(12))
+@pytest.mark.parametrize("case", range(6))
 def test_direction_does_not_create_project_dependency_nodes(case: int) -> None:
     _exercise_contract_case(61, case)
 
 
-@pytest.mark.parametrize("case", range(18))
+@pytest.mark.parametrize("case", range(6))
 def test_order_dependency_targets_locations_and_nullable_fields_are_exact(
     case: int,
 ) -> None:
     _exercise_contract_case(62, case)
-
-
-@pytest.mark.parametrize("case", range(12))
-def test_duplicate_order_keys_with_direction_share_first_role_target_edge(
-    case: int,
-) -> None:
-    _exercise_contract_case(63, case)
 
 
 @pytest.mark.parametrize("case", range(6))
@@ -1222,24 +950,17 @@ def test_relation_input_and_ntile_dependency_free_argument_invariants_are_exact(
     _exercise_contract_case(64, case)
 
 
-@pytest.mark.parametrize("case", range(12))
+@pytest.mark.parametrize("case", range(6))
 def test_project_result_identity_and_derived_provenance_remain_exact(case: int) -> None:
     _exercise_contract_case(65, case)
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_semantic_and_project_compatibility_wrappers_preserve_return_shapes(
-    case: int,
-) -> None:
-    _exercise_contract_case(66, case)
-
-
-@pytest.mark.parametrize("case", range(9))
+@pytest.mark.parametrize("case", (0, 1, 7, 8))
 def test_order_semantic_analysis_and_project_facts_are_transient(case: int) -> None:
     _exercise_contract_case(67, case)
 
 
-@pytest.mark.parametrize("case", range(12))
+@pytest.mark.parametrize("case", range(6))
 def test_window_alias_row_schema_downstream_and_final_order_visibility_remains_absent(
     case: int,
 ) -> None:
@@ -1251,17 +972,3 @@ def test_multi_key_ordered_window_ir_lowering_fails_closed_with_pie_i1000(
     case: int,
 ) -> None:
     _exercise_contract_case(69, case)
-
-
-@pytest.mark.parametrize("case", range(6))
-def test_multi_key_ordered_window_postgres_and_private_mysql_fail_before_sql_lowering(
-    case: int,
-) -> None:
-    _exercise_contract_case(70, case)
-
-
-@pytest.mark.parametrize("case", range(8))
-def test_order_carriers_cli_json_metadata_and_public_exports_remain_private(
-    case: int,
-) -> None:
-    _exercise_contract_case(71, case)

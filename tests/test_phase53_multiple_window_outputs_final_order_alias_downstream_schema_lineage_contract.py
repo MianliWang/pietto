@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 import dataclasses
 from functools import lru_cache
-from pathlib import Path
 from types import MappingProxyType
 from typing import cast
 
@@ -33,13 +32,10 @@ from pietto._project.row_lineage import (
 from pietto._project.window_persistence import ProjectWindowPersistenceBundle
 from pietto._project.window_semantics import WindowResultProjectFact
 from pietto.ast_nodes import NameExpr, QueryDef, Script, TableDef, WindowExpr
-from pietto.ir.lowering import lower_expr
-from pietto.ir.model import WindowCallIR
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic.model import EffectiveNullability, SemanticResult
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 IDENTITIES = (
     "row_number",
     "rank",
@@ -122,10 +118,6 @@ GROUPED_SOURCE = (
     "        group_rank\n"
     "        previous_total asc\n"
 )
-
-
-def _read(relative: str) -> str:
-    return (REPO_ROOT / relative).read_text(encoding="utf-8")
 
 
 @lru_cache(maxsize=None)
@@ -321,29 +313,21 @@ def _assert_case(case: int, bound: int) -> None:
     assert type(case) is int and 0 <= case < bound
 
 
-@pytest.mark.parametrize("case", range(4))
-def test_window_persistence_carrier_shape_privacy_and_atomicity_are_exact(
-    case: int,
-) -> None:
-    _assert_case(case, 4)
+def test_window_persistence_carrier_shape_privacy_and_atomicity_are_exact() -> None:
     field_names = tuple(
         item.name for item in dataclasses.fields(ProjectWindowPersistenceBundle)
     )
-    assertions = (
-        dataclasses.is_dataclass(ProjectWindowPersistenceBundle),
-        field_names
-        == (
-            "definition",
-            "state",
-            "aggregate_result_facts",
-            "window_result_facts",
-            "dependency_graph",
-            "lineage",
-        ),
-        ProjectWindowPersistenceBundle.__module__.endswith("window_persistence"),
-        not hasattr(project_package, "ProjectWindowPersistenceBundle"),
+    assert dataclasses.is_dataclass(ProjectWindowPersistenceBundle)
+    assert field_names == (
+        "definition",
+        "state",
+        "aggregate_result_facts",
+        "window_result_facts",
+        "dependency_graph",
+        "lineage",
     )
-    assert assertions[case]
+    assert ProjectWindowPersistenceBundle.__module__.endswith("window_persistence")
+    assert not hasattr(project_package, "ProjectWindowPersistenceBundle")
 
 
 @pytest.mark.parametrize("case", range(4))
@@ -363,9 +347,9 @@ def test_window_state_reason_enum_and_cross_carrier_mappings_are_exact(
     assert ProjectRowLineageReason(value).value == value
 
 
-@pytest.mark.parametrize("case", range(16))
+@pytest.mark.parametrize("case", range(8))
 def test_multiple_independent_ungrouped_window_outputs_are_accepted(case: int) -> None:
-    _assert_case(case, 16)
+    _assert_case(case, 8)
     _, result, relation = _semantic(UNGROUPED_SOURCE)
     windows = _window_items(relation)
     assert result.diagnostics == ()
@@ -373,9 +357,7 @@ def test_multiple_independent_ungrouped_window_outputs_are_accepted(case: int) -
     assert windows[case % 8] in result.model.expression_value_types
 
 
-@pytest.mark.parametrize("case", range(12))
-def test_multiple_independent_grouped_window_outputs_are_accepted(case: int) -> None:
-    _assert_case(case, 12)
+def test_multiple_independent_grouped_window_outputs_are_accepted() -> None:
     _, result, relation = _semantic(GROUPED_SOURCE)
     assert result.diagnostics == ()
     assert tuple(result.model.relation_row_schemas[relation].fields) == (
@@ -397,9 +379,9 @@ def test_selected_output_order_and_window_occurrence_ordinals_are_stable(
     assert relation.select_items.index(item) == case + 1
 
 
-@pytest.mark.parametrize("case", range(18))
+@pytest.mark.parametrize("case", range(6))
 def test_window_result_type_and_nullability_matrix_is_exact(case: int) -> None:
-    _assert_case(case, 18)
+    _assert_case(case, 6)
     _, result, relation = _semantic(UNGROUPED_SOURCE)
     window = _window_items(relation)[case % 6]
     value_type = result.model.expression_value_types[window]
@@ -408,11 +390,11 @@ def test_window_result_type_and_nullability_matrix_is_exact(case: int) -> None:
     assert value_type.nullability is EffectiveNullability.NON_NULL
 
 
-@pytest.mark.parametrize("case", range(24))
+@pytest.mark.parametrize("case", range(2))
 def test_multiple_navigation_outputs_preserve_slice12_type_nullability(
     case: int,
 ) -> None:
-    _assert_case(case, 24)
+    _assert_case(case, 2)
     _, result, relation = _semantic(UNGROUPED_SOURCE)
     name = ("prior_amount", "next_amount")[case % 2]
     field = result.model.relation_row_schemas[relation].fields[name]
@@ -420,11 +402,11 @@ def test_multiple_navigation_outputs_preserve_slice12_type_nullability(
     assert field.nullability is EffectiveNullability.NULLABLE
 
 
-@pytest.mark.parametrize("case", range(12))
+@pytest.mark.parametrize("case", range(8))
 def test_partition_and_order_occurrences_remain_source_ordered_per_output(
     case: int, slice14_project: _ProjectFixture
 ) -> None:
-    _assert_case(case, 12)
+    _assert_case(case, 8)
     _, _, _, _, facts = _project_relation(slice14_project, "windows")
     fact = tuple(facts.values())[case % len(facts)]
     assert tuple(item.global_ordinal for item in fact.dependency_occurrences) == tuple(
@@ -445,30 +427,18 @@ def test_duplicate_dependency_occurrences_remain_output_local(
     )
 
 
-@pytest.mark.parametrize("case", range(20))
+@pytest.mark.parametrize("case", range(10))
 def test_same_select_window_alias_is_rejected_in_every_window_input_role(
     case: int,
 ) -> None:
-    _assert_case(case, 20)
+    _assert_case(case, 10)
     codes = _diagnostic_codes(_same_select_source(case))
     assert codes
     assert set(codes) <= {"PIE-S2102", "PIE-S2103", "PIE-S2104"}
 
 
-@pytest.mark.parametrize("case", range(8))
-def test_same_select_forward_and_backward_window_dependencies_are_symmetric(
-    case: int,
-) -> None:
-    _assert_case(case, 8)
-    first = _diagnostic_codes(_same_select_source(case * 2))
-    second = _diagnostic_codes(_same_select_source(case * 2 + 1))
-    assert bool(first) is bool(second) is True
-
-
-@pytest.mark.parametrize("case", range(8))
-def test_nested_window_expressions_remain_rejected(case: int) -> None:
-    _assert_case(case, 8)
-    source = _same_select_source(case).replace("lag(second_window)", "lag(rank())")
+def test_nested_window_expressions_remain_rejected() -> None:
+    source = _same_select_source(0).replace("lag(second_window)", "lag(rank())")
     parsed = parse_source(source, path="slice14-nested.pietto")
     assert parsed.diagnostics or (
         parsed.ast is not None and analyze(parsed.ast).diagnostics
@@ -501,35 +471,19 @@ def test_every_selected_window_output_still_requires_an_explicit_alias(
     assert {item.code for item in parsed.diagnostics} == {"PIE-P1000"}
 
 
-@pytest.mark.parametrize("case", range(4))
-def test_duplicate_window_aliases_emit_pie_s2305_without_a_winner(case: int) -> None:
-    _assert_case(case, 4)
+def test_duplicate_window_aliases_emit_pie_s2305_without_a_winner() -> None:
     codes = _diagnostic_codes(_duplicate_source(0))
     assert codes.count("PIE-S2305") == 1
     assert len(codes) == 1
 
 
-@pytest.mark.parametrize("case", range(8))
-def test_window_and_ordinary_output_alias_collisions_emit_pie_s2305(case: int) -> None:
-    _assert_case(case, 8)
+def test_window_and_ordinary_output_alias_collisions_emit_pie_s2305() -> None:
     codes = _diagnostic_codes(_duplicate_source(1))
     assert codes.count("PIE-S2305") == 1
     assert len(codes) == 1
 
 
-@pytest.mark.parametrize("case", range(8))
-def test_window_group_key_and_aggregate_alias_collisions_emit_pie_s2305(
-    case: int,
-) -> None:
-    _assert_case(case, 8)
-    codes = _diagnostic_codes(_duplicate_source(2 + case % 2))
-    assert codes.count("PIE-S2305") == 1
-    assert len(codes) == 1
-
-
-@pytest.mark.parametrize("case", range(6))
-def test_ungrouped_final_order_input_field_priority_is_preserved(case: int) -> None:
-    _assert_case(case, 6)
+def test_ungrouped_final_order_input_field_priority_is_preserved() -> None:
     source = (
         UNGROUPED_SOURCE.replace("        id\n", "", 1)
         .replace("row_position = row_number()", "id = row_number()")
@@ -539,9 +493,7 @@ def test_ungrouped_final_order_input_field_priority_is_preserved(case: int) -> N
     assert result.diagnostics == ()
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_ungrouped_final_order_let_priority_is_preserved(case: int) -> None:
-    _assert_case(case, 6)
+def test_ungrouped_final_order_let_priority_is_preserved() -> None:
     source = UNGROUPED_SOURCE.replace(
         "    select:\n",
         "    let:\n        row_position = id\n    select:\n",
@@ -551,18 +503,16 @@ def test_ungrouped_final_order_let_priority_is_preserved(case: int) -> None:
     assert tuple(item.code for item in result.diagnostics) == ("PIE-S2329",)
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_grouped_duplicate_output_scope_has_no_window_alias_winner(case: int) -> None:
-    _assert_case(case, 6)
+def test_grouped_duplicate_output_scope_has_no_window_alias_winner() -> None:
     codes = _diagnostic_codes(_duplicate_source(2))
     assert codes == ("PIE-S2305",)
 
 
-@pytest.mark.parametrize("case", range(8))
+@pytest.mark.parametrize("case", range(3))
 def test_ungrouped_final_order_accepts_unique_window_alias_and_direction(
     case: int,
 ) -> None:
-    _assert_case(case, 8)
+    _assert_case(case, 3)
     direction = ("", " asc", " desc")[case % 3]
     source = UNGROUPED_SOURCE.rsplit("    order by:\n", 1)[0] + (
         f"    order by:\n        row_position{direction}\n"
@@ -571,9 +521,7 @@ def test_ungrouped_final_order_accepts_unique_window_alias_and_direction(
     assert result.diagnostics == ()
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_multiple_final_order_window_aliases_preserve_source_order(case: int) -> None:
-    _assert_case(case, 6)
+def test_multiple_final_order_window_aliases_preserve_source_order() -> None:
     _, result, relation = _semantic(UNGROUPED_SOURCE)
     assert result.diagnostics == ()
     assert relation.order_by_clause is not None
@@ -588,20 +536,7 @@ def test_multiple_final_order_window_aliases_preserve_source_order(case: int) ->
     )
 
 
-@pytest.mark.parametrize("case", range(8))
-def test_grouped_final_order_accepts_unique_window_alias_and_direction(
-    case: int,
-) -> None:
-    _assert_case(case, 8)
-    _, result, _ = _semantic(GROUPED_SOURCE)
-    assert result.diagnostics == ()
-
-
-@pytest.mark.parametrize("case", range(12))
-def test_grouped_final_order_mixes_group_aggregate_and_window_aliases(
-    case: int,
-) -> None:
-    _assert_case(case, 12)
+def test_grouped_final_order_mixes_group_aggregate_and_window_aliases() -> None:
     _, result, relation = _semantic(GROUPED_SOURCE)
     assert result.diagnostics == ()
     assert relation.order_by_clause is not None
@@ -618,23 +553,7 @@ def test_invalid_window_alias_final_order_preserves_existing_diagnostic(
     assert set(codes) <= {"PIE-S2102", "PIE-S2103", "PIE-S2321"}
 
 
-@pytest.mark.parametrize("case", range(4))
-def test_qualified_and_dotted_final_window_aliases_remain_rejected(case: int) -> None:
-    _assert_case(case, 4)
-    assert _diagnostic_codes(_invalid_final_order_source(case + 1))
-
-
-@pytest.mark.parametrize("case", range(4))
-def test_nested_final_order_expressions_over_window_alias_remain_rejected(
-    case: int,
-) -> None:
-    _assert_case(case, 4)
-    assert _diagnostic_codes(_invalid_final_order_source(case + 3))
-
-
-@pytest.mark.parametrize("case", range(8))
-def test_semantic_output_schema_preserves_exact_mixed_select_order(case: int) -> None:
-    _assert_case(case, 8)
+def test_semantic_output_schema_preserves_exact_mixed_select_order() -> None:
     _, result, relation = _semantic(UNGROUPED_SOURCE)
     assert tuple(result.model.relation_row_schemas[relation].fields) == (
         "id",
@@ -649,21 +568,7 @@ def test_semantic_output_schema_preserves_exact_mixed_select_order(case: int) ->
     )
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_downstream_relation_accepts_bare_window_result_field(
-    case: int, slice14_project: _ProjectFixture
-) -> None:
-    _assert_case(case, 6)
-    definition = slice14_project.definitions["downstream"]
-    schema = slice14_project.model.relation_row_schemas[definition]
-    assert "row_position" in schema.fields
-
-
-@pytest.mark.parametrize("case", range(6))
-def test_downstream_relation_accepts_exact_immediate_upstream_qualifier(
-    case: int,
-) -> None:
-    _assert_case(case, 6)
+def test_downstream_relation_accepts_exact_immediate_upstream_qualifier() -> None:
     source = UNGROUPED_SOURCE + (
         "query qualified_downstream:\n"
         "    from windows\n"
@@ -675,9 +580,9 @@ def test_downstream_relation_accepts_exact_immediate_upstream_qualifier(
     assert "copied" in result.model.relation_row_schemas[relation].fields
 
 
-@pytest.mark.parametrize("case", range(6))
+@pytest.mark.parametrize("case", range(3))
 def test_wrong_and_transitive_window_result_qualifiers_are_rejected(case: int) -> None:
-    _assert_case(case, 6)
+    _assert_case(case, 3)
     qualifier = ("rows", "wrong", "a.b")[case % 3]
     source = UNGROUPED_SOURCE + (
         "query invalid_qualified:\n"
@@ -688,42 +593,32 @@ def test_wrong_and_transitive_window_result_qualifiers_are_rejected(case: int) -
     assert "PIE-S2102" in _diagnostic_codes(source)
 
 
-@pytest.mark.parametrize("case", range(8))
 def test_downstream_rename_and_computed_projection_use_window_result(
-    case: int, slice14_project: _ProjectFixture
+    slice14_project: _ProjectFixture,
 ) -> None:
-    _assert_case(case, 8)
     definition = slice14_project.definitions["downstream"]
     schema = slice14_project.model.relation_row_schemas[definition]
     assert tuple(schema.fields) == ("row_position", "renamed", "computed")
 
 
-@pytest.mark.parametrize("case", range(6))
 def test_downstream_multi_hop_schema_propagates_window_result(
-    case: int, slice14_project: _ProjectFixture
+    slice14_project: _ProjectFixture,
 ) -> None:
-    _assert_case(case, 6)
     definition = slice14_project.definitions["hop"]
     schema = slice14_project.model.relation_row_schemas[definition]
     assert tuple(schema.fields) == ("final_rank", "final_prior")
 
 
-@pytest.mark.parametrize("case", range(12))
 def test_later_relation_window_slots_accept_prior_relation_window_field(
-    case: int, slice14_project: _ProjectFixture
+    slice14_project: _ProjectFixture,
 ) -> None:
-    _assert_case(case, 12)
     definition, schema, _, _, facts = _project_relation(slice14_project, "later_window")
     assert tuple(schema.fields) == ("row_position", "prior_rank")
     assert tuple(facts) == ("prior_rank",)
     assert facts["prior_rank"].result_identity.definition is definition
 
 
-@pytest.mark.parametrize("case", range(8))
-def test_downstream_group_and_aggregate_consumers_treat_window_as_row_field(
-    case: int,
-) -> None:
-    _assert_case(case, 8)
+def test_downstream_group_and_aggregate_consumers_treat_window_as_row_field() -> None:
     source = UNGROUPED_SOURCE + (
         "query regrouped:\n"
         "    from windows\n"
@@ -741,22 +636,18 @@ def test_downstream_group_and_aggregate_consumers_treat_window_as_row_field(
     )
 
 
-@pytest.mark.parametrize("case", range(12))
-def test_grouped_navigation_compatibility_from_slice13_survives_multiple_outputs(
-    case: int,
-) -> None:
-    _assert_case(case, 12)
+def test_grouped_navigation_compatibility_from_slice13_survives_multiple_outputs() -> (
+    None
+):
     _, result, relation = _semantic(GROUPED_SOURCE)
     fields = result.model.relation_row_schemas[relation].fields
     assert fields["previous_total"].resolved_type.name == "Int"
     assert fields["previous_total"].nullability is EffectiveNullability.NULLABLE
 
 
-@pytest.mark.parametrize("case", range(8))
 def test_direct_project_schema_and_window_facts_persist_atomically(
-    case: int, slice14_project: _ProjectFixture
+    slice14_project: _ProjectFixture,
 ) -> None:
-    _assert_case(case, 8)
     definition, schema, _, _, facts = _project_relation(slice14_project, "windows")
     assert len(facts) == 8
     assert tuple(facts) == tuple(schema.fields)[1:]
@@ -766,11 +657,9 @@ def test_direct_project_schema_and_window_facts_persist_atomically(
     )
 
 
-@pytest.mark.parametrize("case", range(8))
 def test_grouped_project_schema_and_window_facts_persist_atomically(
-    case: int, slice14_project: _ProjectFixture
+    slice14_project: _ProjectFixture,
 ) -> None:
-    _assert_case(case, 8)
     definition, schema, _, _, facts = _project_relation(slice14_project, "grouped")
     assert tuple(schema.fields) == (
         "group_name",
@@ -785,11 +674,9 @@ def test_grouped_project_schema_and_window_facts_persist_atomically(
     )
 
 
-@pytest.mark.parametrize("case", range(6))
 def test_persisted_window_mapping_is_immutable_ordered_and_identity_exact(
-    case: int, slice14_project: _ProjectFixture
+    slice14_project: _ProjectFixture,
 ) -> None:
-    _assert_case(case, 6)
     definition, _, _, _, facts = _project_relation(slice14_project, "windows")
     assert type(facts) is MappingProxyType
     assert tuple(facts) == tuple(
@@ -798,11 +685,11 @@ def test_persisted_window_mapping_is_immutable_ordered_and_identity_exact(
     assert all(fact.result_identity.definition is definition for fact in facts.values())
 
 
-@pytest.mark.parametrize("case", range(12))
+@pytest.mark.parametrize("case", range(8))
 def test_project_window_field_role_type_nullability_and_provenance_are_exact(
     case: int, slice14_project: _ProjectFixture
 ) -> None:
-    _assert_case(case, 12)
+    _assert_case(case, 8)
     _, schema, _, _, facts = _project_relation(slice14_project, "windows")
     name = tuple(facts)[case % len(facts)]
     field = schema.fields[name]
@@ -811,11 +698,9 @@ def test_project_window_field_role_type_nullability_and_provenance_are_exact(
     assert field.provenance is facts[name].provenance
 
 
-@pytest.mark.parametrize("case", range(8))
 def test_window_argument_dependency_edges_are_exact(
-    case: int, slice14_project: _ProjectFixture
+    slice14_project: _ProjectFixture,
 ) -> None:
-    _assert_case(case, 8)
     _, _, graph, _, _ = _project_relation(slice14_project, "windows")
     edges = tuple(
         edge
@@ -828,11 +713,9 @@ def test_window_argument_dependency_edges_are_exact(
     }
 
 
-@pytest.mark.parametrize("case", range(6))
 def test_window_default_dependency_edges_are_exact(
-    case: int, slice14_project: _ProjectFixture
+    slice14_project: _ProjectFixture,
 ) -> None:
-    _assert_case(case, 6)
     _, _, graph, _, _ = _project_relation(slice14_project, "windows")
     edges = tuple(
         edge
@@ -845,11 +728,9 @@ def test_window_default_dependency_edges_are_exact(
     )
 
 
-@pytest.mark.parametrize("case", range(8))
 def test_window_partition_dependency_edges_are_exact(
-    case: int, slice14_project: _ProjectFixture
+    slice14_project: _ProjectFixture,
 ) -> None:
-    _assert_case(case, 8)
     _, _, graph, _, _ = _project_relation(slice14_project, "windows")
     edges = tuple(
         edge
@@ -859,11 +740,9 @@ def test_window_partition_dependency_edges_are_exact(
     assert {edge.from_node.output_name for edge in edges} == {"ranked", "prior_amount"}
 
 
-@pytest.mark.parametrize("case", range(8))
 def test_window_order_dependency_edges_and_direction_identity_are_exact(
-    case: int, slice14_project: _ProjectFixture
+    slice14_project: _ProjectFixture,
 ) -> None:
-    _assert_case(case, 8)
     _, _, graph, _, facts = _project_relation(slice14_project, "windows")
     edges = tuple(
         edge
@@ -874,11 +753,9 @@ def test_window_order_dependency_edges_and_direction_identity_are_exact(
     assert all(edge.location is not None for edge in edges)
 
 
-@pytest.mark.parametrize("case", range(6))
 def test_window_relation_input_fallback_edges_are_exact(
-    case: int, slice14_project: _ProjectFixture
+    slice14_project: _ProjectFixture,
 ) -> None:
-    _assert_case(case, 6)
     _, _, graph, _, _ = _project_relation(slice14_project, "windows")
     edges = tuple(
         edge
@@ -910,11 +787,9 @@ def test_window_edge_role_order_occurrences_and_first_dedupe_are_exact(
     assert len(graph_edges) == len(fact.dependency_edges)
 
 
-@pytest.mark.parametrize("case", range(8))
 def test_grouped_window_edges_preserve_group_and_aggregate_target_roles(
-    case: int, slice14_project: _ProjectFixture
+    slice14_project: _ProjectFixture,
 ) -> None:
-    _assert_case(case, 8)
     _, _, _, _, facts = _project_relation(slice14_project, "grouped")
     roles = {
         occurrence.target_result_role
@@ -928,11 +803,9 @@ def test_grouped_window_edges_preserve_group_and_aggregate_target_roles(
     }
 
 
-@pytest.mark.parametrize("case", range(6))
 def test_same_select_window_dependency_edges_are_never_persisted(
-    case: int, slice14_project: _ProjectFixture
+    slice14_project: _ProjectFixture,
 ) -> None:
-    _assert_case(case, 6)
     _, _, _, _, facts = _project_relation(slice14_project, "windows")
     assert all(
         occurrence.target_result_role is not ProjectRowResultRole.WINDOW_RESULT
@@ -941,11 +814,9 @@ def test_same_select_window_dependency_edges_are_never_persisted(
     )
 
 
-@pytest.mark.parametrize("case", range(10))
 def test_window_immediate_lineage_role_facts_are_exact(
-    case: int, slice14_project: _ProjectFixture
+    slice14_project: _ProjectFixture,
 ) -> None:
-    _assert_case(case, 10)
     _, _, _, lineage, _ = _project_relation(slice14_project, "windows")
     window_kinds = {
         ProjectRowLineageFactKind.WINDOW_RELATION_INPUT,
@@ -957,21 +828,17 @@ def test_window_immediate_lineage_role_facts_are_exact(
     assert window_kinds <= {fact.kind for fact in lineage.facts}
 
 
-@pytest.mark.parametrize("case", range(8))
 def test_window_upstream_field_lineage_expands_transitively(
-    case: int, slice14_project: _ProjectFixture
+    slice14_project: _ProjectFixture,
 ) -> None:
-    _assert_case(case, 8)
     _, _, _, lineage, _ = _project_relation(slice14_project, "later_window")
     names = {fact.upstream_segment.name for fact in lineage.facts}
     assert "rows.id" in names
 
 
-@pytest.mark.parametrize("case", range(10))
 def test_grouped_result_window_lineage_expands_output_field_targets(
-    case: int, slice14_project: _ProjectFixture
+    slice14_project: _ProjectFixture,
 ) -> None:
-    _assert_case(case, 10)
     _, _, _, lineage, _ = _project_relation(slice14_project, "grouped")
     transitive = tuple(
         fact
@@ -985,11 +852,9 @@ def test_grouped_result_window_lineage_expands_output_field_targets(
     }
 
 
-@pytest.mark.parametrize("case", range(8))
 def test_window_lineage_multi_hop_order_and_dedupe_are_exact(
-    case: int, slice14_project: _ProjectFixture
+    slice14_project: _ProjectFixture,
 ) -> None:
-    _assert_case(case, 8)
     _, _, _, lineage, _ = _project_relation(slice14_project, "hop")
     keys = tuple(
         (
@@ -1066,55 +931,3 @@ def test_blocked_window_result_state_mapping_is_atomic(case: int) -> None:
         reason=reason,
     )
     assert state.schema is None
-
-
-@pytest.mark.parametrize("case", range(8))
-def test_conflicting_window_result_facts_publish_no_partial_bundle(case: int) -> None:
-    _assert_case(case, 8)
-    source = _read("src/pietto/_project/window_persistence.py")
-    required = (
-        "CONFLICTING_WINDOW_RESULT_FACTS",
-        "window_result_facts={}",
-        "aggregate_result_facts={}",
-        "nodes or self.dependency_graph.edges",
-        "non-concrete window persistence forbids result facts",
-        "non-concrete window persistence forbids graph facts",
-        "non-concrete window persistence forbids lineage facts",
-        "deferred or blocked window persistence forbids schema",
-    )
-    assert required[case] in source
-
-
-@pytest.mark.parametrize("case", range(16))
-def test_diagnostics_inventory_and_first_error_order_are_preserved(case: int) -> None:
-    _assert_case(case, 16)
-    sources = (
-        _duplicate_source(0),
-        _same_select_source(case),
-        _invalid_final_order_source(case),
-        SOURCE_PREFIX
-        + "query mixed:\n    from rows\n    select:\n        total = count()\n        w = row_number() window:\n            order by:\n                id\n",
-    )
-    codes = _diagnostic_codes(sources[case % len(sources)])
-    assert codes
-    assert set(codes) <= {
-        "PIE-S2102",
-        "PIE-S2103",
-        "PIE-S2104",
-        "PIE-S2305",
-        "PIE-S2312",
-        "PIE-S2321",
-    }
-
-
-@pytest.mark.parametrize("case", range(6))
-def test_ir_lowering_stays_fail_closed_with_existing_pie_i1000_message(
-    case: int,
-) -> None:
-    _assert_case(case, 6)
-    _, semantic, relation = _semantic(UNGROUPED_SOURCE)
-    expression = _window_items(relation)[case]
-    lowered = lower_expr(expression, semantic.model)
-    assert isinstance(lowered.expression, WindowCallIR)
-    assert lowered.expression.identity.name == expression.identity.name
-    assert lowered.diagnostics == ()

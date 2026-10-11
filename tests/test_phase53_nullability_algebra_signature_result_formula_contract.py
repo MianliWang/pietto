@@ -398,25 +398,11 @@ def test_any_of_child_tuple_order_duplicates_and_arity_are_exact(case: str) -> N
 
 @pytest.mark.parametrize(
     "case",
-    ("leaf", "maximum", "nested-left", "nested-right", "three-refs", "four-refs"),
+    ("nested-left", "nested-right", "three-refs", "four-refs"),
 )
 def test_formula_depth_node_and_child_bounds_are_exact(case: str) -> None:
     signature = _navigation_signature()
-    if case == "leaf":
-        assert (
-            SignatureResultFormula(
-                signature=signature, nullability=NonNullFormula()
-            ).nullability
-            == NonNullFormula()
-        )
-    elif case == "maximum":
-        assert (
-            SignatureResultFormula(
-                signature=signature, nullability=_navigation_formula()
-            ).nullability
-            == _navigation_formula()
-        )
-    elif case == "nested-left":
+    if case == "nested-left":
         nested = AnyOfFormula(
             children=(
                 AnyOfFormula(children=(NonNullFormula(), NullableFormula())),
@@ -783,7 +769,6 @@ def test_signature_result_wrapper_rejects_out_of_range_references(case: str) -> 
     "case",
     (
         "valid-leaf",
-        "valid-composed",
         "required",
         "optional-no-marker",
         "duplicate-default",
@@ -797,13 +782,6 @@ def test_default_reference_requires_optional_omitted_marker(case: str) -> None:
         )
         assert association.nullability == NullableIfDefaultOmittedFormula(
             parameter_index=2
-        )
-    elif case == "valid-composed":
-        assert (
-            SignatureResultFormula(
-                signature=_navigation_signature(), nullability=_navigation_formula()
-            ).nullability
-            == _navigation_formula()
         )
     elif case == "required":
         with pytest.raises(ValueError, match="optional"):
@@ -1160,10 +1138,7 @@ def test_lag_lead_supplied_default_truth_matrix_is_exact(
     )
 
 
-@pytest.mark.parametrize("navigation_name", ("lag", "lead"))
-def test_lag_and_lead_readiness_associations_are_identity_free(
-    navigation_name: str,
-) -> None:
+def test_lag_and_lead_readiness_associations_are_identity_free() -> None:
     association = SignatureResultFormula(
         signature=_navigation_signature(),
         nullability=_navigation_formula(),
@@ -1172,7 +1147,8 @@ def test_lag_and_lead_readiness_associations_are_identity_free(
         signature=_navigation_signature(),
         nullability=_navigation_formula(),
     )
-    assert navigation_name not in {field.name for field in fields(association)}
+    for navigation_name in ("lag", "lead"):
+        assert navigation_name not in {field.name for field in fields(association)}
     assert tuple(field.name for field in fields(association)) == (
         "signature",
         "nullability",

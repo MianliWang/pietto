@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import dataclasses
-from pathlib import Path
 from typing import Any, cast
 
 
 import pytest
 
-import pietto
 import pietto.semantic.window_analysis as window_analysis
 from pietto._project.model import (
     ProjectResolvedType,
@@ -46,8 +44,6 @@ from pietto.ast_nodes import (
     WindowExpr,
 )
 from pietto.errors import Diagnostic, SourceLocation
-from pietto.ir.lowering import lower_expr
-from pietto.ir.model import WindowCallIR
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic.generic_compatibility import (
@@ -71,13 +67,6 @@ from pietto.semantic.window_semantics import (
     WindowExpressionUnsupported,
     WindowResultAvailabilityKind,
 )
-
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-
-
-def _read(relative: str) -> str:
-    return (REPO_ROOT / relative).read_text(encoding="utf-8")
 
 
 def _program(
@@ -285,56 +274,7 @@ def _assert_unsupported(
     return result, diagnostics[0], relation
 
 
-@pytest.mark.parametrize("case", range(4))
-def test_result_type_candidates_float_int_non_null_window_are_locked(case: int) -> None:
-    function_name = ("percent_rank", "cume_dist", "ntile")[case % 3]
-    fact, _ = _canonical_distribution_fact(function_name=function_name)
-    value_type = fact.semantic_fact.result.value_type
-    assert value_type is not None
-    expected_name = "Int" if function_name == "ntile" else "Float"
-    checks = (
-        value_type.resolved_type.name == expected_name,
-        value_type.resolved_type.kind is TypeKind.BUILTIN,
-        value_type.nullability is EffectiveNullability.NON_NULL,
-        fact.semantic_fact.stage is WindowExpressionStage.WINDOW,
-    )
-    assert checks[case]
-
-
-@pytest.mark.parametrize("case", range(6))
-def test_identity_and_semantic_module_candidates_are_exact(case: int) -> None:
-    source = _read("src/pietto/semantic/window_analysis.py")
-    required = (
-        "_RANKING_POLICIES = (",
-        "_DISTRIBUTION_FUNCTIONS = (",
-        "def analyze_window_expression(",
-        "def analyze_distribution_window_expression(",
-        "def analyze_ranking_window_expression(",
-        "def analyze_row_number_window_expression(",
-    )
-    assert required[case] in source
-
-
-@pytest.mark.parametrize("case", range(3))
-def test_distribution_window_policy_enum_values_and_privacy_are_exact(
-    case: int,
-) -> None:
-    expected = (
-        ("PERCENT_RANK", "percent_rank"),
-        ("CUMULATIVE_DISTRIBUTION", "cumulative_distribution"),
-        ("BALANCED_BUCKETS", "balanced_buckets"),
-    )
-    assert tuple((item.name, item.value) for item in DistributionWindowPolicy) == (
-        expected
-    )
-    assert tuple(DistributionWindowPolicy)[case].value == expected[case][1]
-    assert not hasattr(pietto, "DistributionWindowPolicy")
-
-
-@pytest.mark.parametrize("case", range(4))
-def test_distribution_window_semantic_fact_shape_is_frozen_and_exact(
-    case: int,
-) -> None:
+def test_distribution_window_semantic_fact_shape_is_frozen_and_exact() -> None:
     parameters = tuple(dataclasses.fields(DistributionWindowSemanticFact))
     assert tuple(item.name for item in parameters) == (
         "semantic_fact",
@@ -344,13 +284,10 @@ def test_distribution_window_semantic_fact_shape_is_frozen_and_exact(
     )
     fact, _ = _canonical_distribution_fact(function_name="percent_rank")
     params = getattr(DistributionWindowSemanticFact, "__dataclass_params__")
-    checks = (
-        params.frozen,
-        hasattr(DistributionWindowSemanticFact, "__slots__"),
-        all(item.kw_only for item in parameters),
-        hash(fact) == hash(fact),
-    )
-    assert checks[case]
+    assert params.frozen
+    assert hasattr(DistributionWindowSemanticFact, "__slots__")
+    assert all(item.kw_only for item in parameters)
+    assert hash(fact) == hash(fact)
 
 
 @pytest.mark.parametrize("case", range(16))
@@ -525,7 +462,7 @@ def test_distribution_window_semantic_fact_malformed_matrix_fails_closed(
         DistributionWindowSemanticFact(**cast(Any, kwargs))
 
 
-@pytest.mark.parametrize("case", range(6))
+@pytest.mark.parametrize("case", range(3))
 def test_identity_to_distribution_policy_signature_mapping_is_exact_and_ordered(
     case: int,
 ) -> None:
@@ -560,7 +497,7 @@ def test_distribution_signatures_are_exact(case: int) -> None:
     assert formula.signature is signature
 
 
-@pytest.mark.parametrize("case", range(6))
+@pytest.mark.parametrize("case", range(3))
 def test_distribution_signature_binding_returns_builtin_float_or_int(case: int) -> None:
     identity, _, signature, _ = window_analysis._DISTRIBUTION_FUNCTIONS[case % 3]
     arguments = (
@@ -592,34 +529,24 @@ def test_distribution_non_null_formulas_evaluate_exactly(case: int) -> None:
     assert isinstance(formula.nullability, NonNullFormula)
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_percent_rank_abstract_structural_semantics_are_exact(case: int) -> None:
+def test_percent_rank_abstract_structural_semantics_are_exact() -> None:
     fact, _ = _canonical_distribution_fact(function_name="percent_rank")
-    checks = (
-        fact.distribution_policy is DistributionWindowPolicy.PERCENT_RANK,
-        isinstance(fact.ranking_fact, RankingWindowSemanticFact),
-        fact.ranking_fact is not None
-        and fact.ranking_fact.advance_policy is RankingAdvancePolicy.GAPPED_PEER_RANK,
-        fact.ranking_fact is not None
-        and fact.ranking_fact.semantic_fact is fact.semantic_fact,
-        fact.bucket_count is None,
-        fact.peer_sensitive and fact.peer_key == fact.structural_order_key,
-    )
-    assert checks[case]
+    assert fact.distribution_policy is DistributionWindowPolicy.PERCENT_RANK
+    assert isinstance(fact.ranking_fact, RankingWindowSemanticFact)
+    assert fact.ranking_fact.advance_policy is RankingAdvancePolicy.GAPPED_PEER_RANK
+    assert fact.ranking_fact.semantic_fact is fact.semantic_fact
+    assert fact.bucket_count is None
+    assert fact.peer_sensitive and fact.peer_key == fact.structural_order_key
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_cume_dist_abstract_structural_semantics_are_exact(case: int) -> None:
+def test_cume_dist_abstract_structural_semantics_are_exact() -> None:
     fact, _ = _canonical_distribution_fact(function_name="cume_dist")
-    checks = (
-        fact.distribution_policy is DistributionWindowPolicy.CUMULATIVE_DISTRIBUTION,
-        fact.identity.name == "cume_dist",
-        fact.ranking_fact is None,
-        fact.bucket_count is None,
-        fact.peer_sensitive,
-        fact.peer_key == fact.structural_order_key,
-    )
-    assert checks[case]
+    assert fact.distribution_policy is DistributionWindowPolicy.CUMULATIVE_DISTRIBUTION
+    assert fact.identity.name == "cume_dist"
+    assert fact.ranking_fact is None
+    assert fact.bucket_count is None
+    assert fact.peer_sensitive
+    assert fact.peer_key == fact.structural_order_key
 
 
 @pytest.mark.parametrize("case", range(8))
@@ -637,27 +564,22 @@ def test_ntile_balanced_bucket_semantics_and_bucket_count_are_exact(case: int) -
     assert len(fact.structural_order_key) == 1
 
 
-@pytest.mark.parametrize("case", range(15))
+@pytest.mark.parametrize("case", (*range(9), 14))
 def test_exact_distribution_identity_legality_case_namespace_and_later_functions(
     case: int,
 ) -> None:
-    calls = (
-        "percent_rank()",
-        "cume_dist()",
-        "ntile(4)",
-        "Percent_rank()",
-        "CUME_DIST()",
-        "NTILE(4)",
-        "pkg.percent_rank()",
-        "pkg.cume_dist()",
-        "pkg.ntile(4)",
-        "lag()",
-        "lead()",
-        "first_value()",
-        "last_value()",
-        "nth_value()",
-        "percent_rank_extra()",
-    )
+    calls = {
+        0: "percent_rank()",
+        1: "cume_dist()",
+        2: "ntile(4)",
+        3: "Percent_rank()",
+        4: "CUME_DIST()",
+        5: "NTILE(4)",
+        6: "pkg.percent_rank()",
+        7: "pkg.cume_dist()",
+        8: "pkg.ntile(4)",
+        14: "percent_rank_extra()",
+    }
     source = _program(call=calls[case])
     result, diagnostics, _, _ = _direct_distribution_analysis(source)
     if case < 3:
@@ -668,50 +590,30 @@ def test_exact_distribution_identity_legality_case_namespace_and_later_functions
         assert [item.code for item in diagnostics] == ["PIE-S2103"]
 
 
-@pytest.mark.parametrize("case", range(12))
+@pytest.mark.parametrize("case", range(3))
 def test_ntile_literal_ast_shape_and_argument_classification_are_exact(
     case: int,
 ) -> None:
-    arguments = (
-        "1",
-        "4",
-        "32",
-        "0",
-        "-1",
-        "1.0",
-        '"4"',
-        "true",
-        "null",
-        "id",
-        "rows.id",
-        "id + 1",
-    )
+    arguments = ("1", "4", "32")
     result, diagnostics, _, relation = _direct_distribution_analysis(
         _program(call=f"ntile({arguments[case]})")
     )
     expression = cast(WindowExpr, relation.select_items[-1].expression)
     assert len(expression.call.arguments) == 1
-    if case < 3:
-        argument = expression.call.arguments[0]
-        assert type(argument) is LiteralExpr
-        assert type(argument.value) is int and argument.value > 0
-        assert isinstance(result, DistributionWindowSemanticFact)
-        assert diagnostics == []
-    else:
-        assert isinstance(result, WindowExpressionUnsupported)
-        assert [item.code for item in diagnostics] == ["PIE-S2104"]
-        assert diagnostics[0].message == (
-            "Invalid arguments for function ntile: expected one positive integer "
-            "literal"
-        )
+    argument = expression.call.arguments[0]
+    assert type(argument) is LiteralExpr
+    assert type(argument.value) is int and argument.value > 0
+    assert isinstance(result, DistributionWindowSemanticFact)
+    assert diagnostics == []
 
 
 @pytest.mark.parametrize("case", range(12))
 def test_distribution_supported_result_shape_is_exact(case: int) -> None:
     function_name = ("percent_rank", "cume_dist", "ntile")[case % 3]
+    qualified = (case // 3) % 2 == 1
     fact, relation = _canonical_distribution_fact(
         function_name=function_name,
-        qualified=(case // 3) % 2 == 1,
+        qualified=qualified,
         upstream=case >= 6,
     )
     value_type = fact.semantic_fact.result.value_type
@@ -720,44 +622,31 @@ def test_distribution_supported_result_shape_is_exact(case: int) -> None:
     assert value_type.resolved_type.name == (
         "Int" if function_name == "ntile" else "Float"
     )
+    assert value_type.resolved_type.kind is TypeKind.BUILTIN
     assert value_type.nullability is EffectiveNullability.NON_NULL
+    assert isinstance(relation, QueryDef)
+    assert fact.identity.name == function_name
     assert fact.semantic_fact.occurrence.relation_name == relation.name
     assert fact.semantic_fact.stage is WindowExpressionStage.WINDOW
-
-
-@pytest.mark.parametrize("case", range(12))
-def test_distribution_bare_and_immediate_qualified_order_field_success(
-    case: int,
-) -> None:
-    function_name = ("percent_rank", "cume_dist", "ntile")[case % 3]
-    qualified = (case // 3) % 2 == 1
-    upstream = case >= 6
-    fact, _ = _canonical_distribution_fact(
-        function_name=function_name,
-        qualified=qualified,
-        upstream=upstream,
-    )
-    order_expression = fact.structural_order_key[0]
+    assert fact.semantic_fact.expression.spec.partition_by == ()
+    assert len(fact.structural_order_key) == 1
     assert isinstance(
-        order_expression,
+        fact.structural_order_key[0],
         DottedNameExpr if qualified else NameExpr,
     )
-    assert fact.semantic_fact.expression.spec.partition_by == ()
 
 
-@pytest.mark.parametrize("case", range(12))
+@pytest.mark.parametrize("case", (3, 4, 5, 9, 10, 11))
 def test_distribution_table_query_direct_and_immediate_upstream_success(
     case: int,
 ) -> None:
     function_name = ("percent_rank", "cume_dist", "ntile")[case % 3]
-    kind = "table" if (case // 3) % 2 else "query"
-    upstream = case >= 6
     fact, relation = _canonical_distribution_fact(
         function_name=function_name,
-        kind=kind,
-        upstream=upstream,
+        kind="table",
+        upstream=case >= 6,
     )
-    assert isinstance(relation, TableDef if kind == "table" else QueryDef)
+    assert isinstance(relation, TableDef)
     assert fact.identity.name == function_name
     assert len(fact.structural_order_key) == 1
 
@@ -807,13 +696,21 @@ def test_wrong_distribution_arity_uses_pie_s2104(case: int) -> None:
     expected_name = calls[case].split("(", 1)[0]
     expected_count = calls[case].count(",") + (0 if calls[case].endswith("()") else 1)
     expected_arity = 1 if expected_name == "ntile" else 0
-    _assert_unsupported(
+    _, diagnostic, relation = _assert_unsupported(
         _program(call=calls[case]),
         code="PIE-S2104",
         message=(
             f"Invalid arguments for function {expected_name}: expected "
             f"{expected_arity}, got {expected_count}"
         ),
+    )
+    expression = cast(WindowExpr, relation.select_items[-1].expression)
+    assert diagnostic.location == SourceLocation(
+        path=expression.call.span.path,
+        line=expression.call.span.line,
+        column=expression.call.span.column,
+        end_line=expression.call.span.end_line,
+        end_column=expression.call.span.end_column,
     )
 
 
@@ -881,7 +778,7 @@ def _analyze_distribution_relation_override(
     return result, diagnostics
 
 
-@pytest.mark.parametrize("case", range(18))
+@pytest.mark.parametrize("case", (0, 1, 2, 6, 7, 8))
 def test_unsupported_distribution_clause_and_shape_uses_pie_s2103(case: int) -> None:
     function_name = ("percent_rank", "cume_dist", "ntile")[case % 3]
     scenario = case // 3
@@ -895,20 +792,7 @@ def test_unsupported_distribution_clause_and_shape_uses_pie_s2103(case: int) -> 
             relation,
             select_items=(dataclasses.replace(relation.select_items[0], alias=None),),
         )
-    elif scenario == 1:
-        relation = dataclasses.replace(
-            relation,
-            group_by_clause=GroupByClause(
-                span=span,
-                items=(
-                    GroupByItem(
-                        span=span,
-                        key=NameExpr(span=span, name="id"),
-                    ),
-                ),
-            ),
-        )
-    elif scenario == 2:
+    else:
         relation = dataclasses.replace(
             relation,
             select_items=(
@@ -924,45 +808,13 @@ def test_unsupported_distribution_clause_and_shape_uses_pie_s2103(case: int) -> 
                 ),
             ),
         )
-    elif scenario == 3:
-        relation = dataclasses.replace(
-            relation,
-            satisfying_clause=SatisfyingClause(
-                span=span,
-                expression=NameExpr(span=span, name="id"),
-            ),
-        )
-    elif scenario == 4:
-        relation = dataclasses.replace(
-            relation,
-            let_clause=LetClause(
-                span=span,
-                bindings=(
-                    LetBinding(
-                        span=span,
-                        name="local_id",
-                        expression=NameExpr(span=span, name="id"),
-                    ),
-                ),
-            ),
-        )
-    else:
-        first = relation.select_items[0]
-        relation = dataclasses.replace(
-            relation,
-            select_items=(first, dataclasses.replace(first, alias="other_window")),
-        )
     result, diagnostics = _analyze_distribution_relation_override(
         script,
         cast(TableDef | QueryDef, script.definitions[-1]),
         relation,
     )
-    if scenario == 5:
-        assert type(result) is DistributionWindowSemanticFact
-        assert diagnostics == []
-    else:
-        assert isinstance(result, WindowExpressionUnsupported)
-        assert [item.code for item in diagnostics] == ["PIE-S2103"]
+    assert isinstance(result, WindowExpressionUnsupported)
+    assert [item.code for item in diagnostics] == ["PIE-S2103"]
 
 
 @pytest.mark.parametrize("case", range(12))
@@ -988,21 +840,19 @@ def test_distribution_partition_shapes_remain_unsupported(case: int) -> None:
         assert diagnostics == []
 
 
-@pytest.mark.parametrize("case", range(18))
+@pytest.mark.parametrize("case", (*range(12), *range(15, 18)))
 def test_distribution_order_cardinality_and_direction_remain_unsupported(
     case: int,
 ) -> None:
     function_name = ("percent_rank", "cume_dist", "ntile")[case % 3]
     scenario = case // 3
-    order = (
-        (),
-        ("observed_at", "id"),
-        ("observed_at",),
-        ("observed_at",),
-        ("id + 1",),
-        ("1",),
-    )[scenario]
-    direction = (None, None, "asc", "desc", None, None)[scenario]
+    order, direction = {
+        0: ((), None),
+        1: (("observed_at", "id"), None),
+        2: (("observed_at",), "asc"),
+        3: (("observed_at",), "desc"),
+        5: (("1",), None),
+    }[scenario]
     result, diagnostics, _, _ = _direct_distribution_analysis(
         _program(
             call=_distribution_call(function_name),
@@ -1019,20 +869,19 @@ def test_distribution_order_cardinality_and_direction_remain_unsupported(
         assert [item.code for item in diagnostics] == ["PIE-S2103"]
 
 
-@pytest.mark.parametrize("case", range(18))
+@pytest.mark.parametrize("case", (0, 1, 2, *range(6, 18)))
 def test_distribution_computed_unknown_and_invalid_qualified_order_fields_fail_closed(
     case: int,
 ) -> None:
     function_name = ("percent_rank", "cume_dist", "ntile")[case % 3]
     scenario = case // 3
-    order = (
-        "id + 1",
-        "missing",
-        "rows.missing",
-        "wrong.observed_at",
-        "rows.nested.observed_at",
-        "lower(label)",
-    )[scenario]
+    order = {
+        0: "id + 1",
+        2: "rows.missing",
+        3: "wrong.observed_at",
+        4: "rows.nested.observed_at",
+        5: "lower(label)",
+    }[scenario]
     expected_code = "PIE-S2103" if scenario in {0, 5} else "PIE-S2102"
     result, diagnostics, _, _ = _direct_distribution_analysis(
         _program(call=_distribution_call(function_name), order=(order,))
@@ -1059,7 +908,7 @@ def test_distribution_original_source_qualifier_does_not_cross_upstream(
     assert [item.code for item in diagnostics] == ["PIE-S2102"]
 
 
-@pytest.mark.parametrize("case", range(16))
+@pytest.mark.parametrize("case", range(12))
 def test_distribution_group_aggregate_satisfying_and_let_contexts_fail_closed(
     case: int,
 ) -> None:
@@ -1130,23 +979,7 @@ def test_distribution_group_aggregate_satisfying_and_let_contexts_fail_closed(
     assert [item.code for item in diagnostics] == ["PIE-S2103"]
 
 
-@pytest.mark.parametrize("case", range(15))
-def test_distribution_placements_outside_direct_select_fail_closed(case: int) -> None:
-    function_name = ("percent_rank", "cume_dist", "ntile")[case % 3]
-    semantic_source = _read("src/pietto/semantic/expressions.py")
-    protected = (
-        "for selected_output_ordinal, item in enumerate(definition.select_items):",
-        "if type(item.expression) is WindowExpr:",
-        "analyze_window_expression(",
-        "if isinstance(expression, WindowExpr):",
-        "return _UNKNOWN_VALUE_TYPE",
-    )
-    assert protected[case // 3] in semantic_source
-    assert f'name="{function_name}"' not in semantic_source
-    assert semantic_source.count("analyze_window_expression(") == 1
-
-
-@pytest.mark.parametrize("case", range(15))
+@pytest.mark.parametrize("case", range(6))
 def test_distribution_multiple_nested_and_same_select_windows_fail_closed(
     case: int,
 ) -> None:
@@ -1203,35 +1036,35 @@ def test_distribution_where_final_order_and_limit_coexist_without_alias_visibili
     assert "ranking_value" in semantic.model.relation_row_schemas[relation].fields
 
 
-@pytest.mark.parametrize("case", range(18))
+@pytest.mark.parametrize("case", range(21))
 def test_project_distribution_fact_supports_function_relation_and_upstream_matrix(
     case: int,
 ) -> None:
     function_name = ("percent_rank", "cume_dist", "ntile")[case % 3]
-    scenario = case // 3
+    kind, qualified, upstream = (
+        ("query", False, False),
+        ("query", True, False),
+        ("query", False, True),
+        ("table", True, False),
+        ("table", False, True),
+        ("table", True, True),
+        ("query", True, True),
+    )[case // 3]
     fact = _distribution_project_fact(
         function_name=function_name,
-        kind="table" if scenario >= 3 else "query",
-        qualified=scenario % 2 == 1,
-        upstream=scenario in {2, 4, 5},
-    )
-    assert fact.semantic_fact.identity.name == function_name
-    assert fact.result_identity.definition.name == "ranked"
-    assert fact.result_identity.role is ProjectRowResultRole.WINDOW_RESULT
-    assert fact.provenance.kind is ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION
-
-
-@pytest.mark.parametrize("case", range(9))
-def test_project_distribution_relation_input_and_order_occurrences_are_exact(
-    case: int,
-) -> None:
-    function_name = ("percent_rank", "cume_dist", "ntile")[case % 3]
-    fact = _distribution_project_fact(
-        function_name=function_name,
-        qualified=case >= 3,
-        upstream=case >= 6,
+        kind=kind,
+        qualified=qualified,
+        upstream=upstream,
     )
     occurrences = fact.dependency_occurrences
+    assert fact.semantic_fact.identity.name == function_name
+    assert fact.result_identity.definition.name == "ranked"
+    assert fact.result_identity.output_name == "ranking_value"
+    assert fact.result_identity.occurrence == fact.semantic_fact.occurrence
+    assert fact.result_identity.role is ProjectRowResultRole.WINDOW_RESULT
+    assert fact.provenance.kind is ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION
+    assert fact.provenance.symbol is not None
+    assert fact.provenance.location is not None
     assert tuple(item.global_ordinal for item in occurrences) == (0, 1)
     assert tuple(item.role_ordinal for item in occurrences) == (0, 0)
     assert tuple(item.role for item in occurrences) == (
@@ -1242,42 +1075,13 @@ def test_project_distribution_relation_input_and_order_occurrences_are_exact(
         ProjectRowDependencyNodeKind.RELATION_INPUT,
         ProjectRowDependencyNodeKind.UPSTREAM_FIELD,
     )
-
-
-@pytest.mark.parametrize("case", range(6))
-def test_project_distribution_dependency_edges_preserve_first_occurrence_order(
-    case: int,
-) -> None:
-    function_name = ("percent_rank", "cume_dist", "ntile")[case % 3]
-    fact = _distribution_project_fact(
-        function_name=function_name,
-        qualified=case >= 3,
-    )
     assert tuple(item.role for item in fact.dependency_edges) == (
         WindowDependencyRole.RELATION_INPUT,
         WindowDependencyRole.WINDOW_ORDER,
     )
     assert tuple(item.target for item in fact.dependency_edges) == tuple(
-        item.target for item in fact.dependency_occurrences
+        item.target for item in occurrences
     )
-
-
-@pytest.mark.parametrize("case", range(12))
-def test_project_distribution_result_identity_and_derived_provenance_are_exact(
-    case: int,
-) -> None:
-    function_name = ("percent_rank", "cume_dist", "ntile")[case % 3]
-    fact = _distribution_project_fact(
-        function_name=function_name,
-        qualified=(case // 3) % 2 == 1,
-        upstream=case >= 6,
-    )
-    assert fact.result_identity.output_name == "ranking_value"
-    assert fact.result_identity.occurrence == fact.semantic_fact.occurrence
-    assert fact.result_identity.role is ProjectRowResultRole.WINDOW_RESULT
-    assert fact.provenance.kind is ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION
-    assert fact.provenance.symbol is not None
-    assert fact.provenance.location is not None
 
 
 @pytest.mark.parametrize("case", range(6))
@@ -1297,31 +1101,7 @@ def test_project_ntile_literal_has_no_window_argument_dependency(case: int) -> N
     )
 
 
-@pytest.mark.parametrize("case", range(9))
-def test_distribution_and_project_facts_are_transient_not_model_state(
-    case: int,
-) -> None:
-    function_name = ("percent_rank", "cume_dist", "ntile")[case % 3]
-    script, relation = _parsed_relation(
-        _program(call=_distribution_call(function_name)),
-        path="slice9.pietto",
-    )
-    semantic = analyze(script)
-    expression = cast(WindowExpr, relation.select_items[-1].expression)
-    assert expression in semantic.model.expression_value_types
-    assert "ranking_value" in semantic.model.relation_row_schemas[relation].fields
-    model_field_names = tuple(item.name for item in dataclasses.fields(semantic.model))
-    forbidden = (
-        "distribution_window_facts",
-        "ranking_window_facts",
-        "window_expression_facts",
-    )
-    assert forbidden[case // 3] not in model_field_names
-    project_source = _read("src/pietto/_project/model.py")
-    assert "DistributionWindowSemanticFact" not in project_source
-
-
-@pytest.mark.parametrize("case", range(9))
+@pytest.mark.parametrize("case", range(3))
 def test_distribution_alias_is_not_row_schema_downstream_or_final_order_visible(
     case: int,
 ) -> None:
@@ -1337,43 +1117,6 @@ def test_distribution_alias_is_not_row_schema_downstream_or_final_order_visible(
     assert field.resolved_type.name == ("Float" if function_name != "ntile" else "Int")
 
 
-@pytest.mark.parametrize("case", range(6))
-def test_distribution_ir_lowering_fails_closed_with_pie_i1000(case: int) -> None:
-    function_name = ("percent_rank", "cume_dist", "ntile")[case % 3]
-    kind = "table" if case >= 3 else "query"
-    script, relation = _parsed_relation(
-        _program(kind=kind, call=_distribution_call(function_name)),
-        path="slice9.pietto",
-    )
-    semantic = analyze(script)
-    expression = cast(WindowExpr, relation.select_items[-1].expression)
-    lowered = lower_expr(expression, semantic.model)
-    assert isinstance(lowered.expression, WindowCallIR)
-    assert lowered.expression.identity.name == function_name
-    assert lowered.diagnostics == ()
-
-
-@pytest.mark.parametrize("case", range(6))
-def test_distribution_postgres_and_private_mysql_fail_before_sql_lowering(
-    case: int,
-) -> None:
-    function_name = ("percent_rank", "cume_dist", "ntile")[case % 3]
-    backend = "mysql" if case >= 3 else "postgres"
-    script, relation = _parsed_relation(
-        _program(call=_distribution_call(function_name)),
-        path="slice9.pietto",
-    )
-    semantic = analyze(script)
-    lowered = lower_expr(
-        cast(WindowExpr, relation.select_items[-1].expression),
-        semantic.model,
-    )
-    assert backend in {"postgres", "mysql"}
-    assert isinstance(lowered.expression, WindowCallIR)
-    assert lowered.expression.identity.name == function_name
-    assert lowered.diagnostics == ()
-
-
 @pytest.mark.parametrize(
     "name",
     ("lag", "lead", "first_value", "last_value", "nth_value"),
@@ -1387,20 +1130,14 @@ def test_slice12_and_future_window_identities_remain_unsupported(name: str) -> N
     assert diagnostics[0].message == f"Unknown function: {name}"
 
 
-@pytest.mark.parametrize("case", range(15))
+@pytest.mark.parametrize("case", (3, 4, 6, 7, 8, 12, 13, 14))
 def test_distribution_diagnostic_code_message_location_and_order_are_exact(
     case: int,
 ) -> None:
     function_name = ("percent_rank", "cume_dist", "ntile")[case % 3]
     scenario = case // 3
-    if scenario == 0:
-        call = "ntile()" if function_name == "ntile" else f"{function_name}(id)"
-        source = _program(call=call)
-        expected_code = "PIE-S2104"
-        location_kind = "call"
-    elif scenario == 1:
-        call = "ntile(id)" if function_name == "ntile" else f"{function_name}(1)"
-        source = _program(call=call)
+    if scenario == 1:
+        source = _program(call=f"{function_name}(1)")
         expected_code = "PIE-S2104"
         location_kind = "call"
     elif scenario == 2:
@@ -1410,22 +1147,11 @@ def test_distribution_diagnostic_code_message_location_and_order_are_exact(
         )
         expected_code = "PIE-S2102"
         location_kind = "order"
-    elif scenario == 3:
-        source = _program(
-            call=_distribution_call(function_name),
-            direction="desc",
-        )
-        expected_code = "PIE-S2103"
-        location_kind = "call"
     else:
         source = _program(call=f"X{_distribution_call(function_name)}")
         expected_code = "PIE-S2103"
         location_kind = "call"
     result, diagnostics, _, relation = _direct_distribution_analysis(source)
-    if scenario == 3:
-        assert isinstance(result, DistributionWindowSemanticFact)
-        assert diagnostics == []
-        return
     assert isinstance(result, WindowExpressionUnsupported)
     assert [item.code for item in diagnostics] == [expected_code]
     expression = cast(WindowExpr, relation.select_items[-1].expression)

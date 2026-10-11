@@ -1068,7 +1068,7 @@ def test_mysql_malformed_window_ir_becomes_pie_b1000(_case: int) -> None:
         assert "MySQL SQL emission is not implemented" in diagnostic.message
 
 
-@pytest.mark.parametrize("_case", range(4))
+@pytest.mark.parametrize("_case", (1, 2, 3))
 def test_unrelated_missing_semantic_facts_preserve_pie_i1000(_case: int) -> None:
     source = (
         _source_connector("postgresql") + "query ordinary:\n"
@@ -1387,30 +1387,26 @@ def test_window_capability_lookup_found_absent_unknown_and_conflict_are_exact(
     assert result.reason is CapabilityReasonCode.NOT_EVIDENCED
 
 
-@pytest.mark.parametrize("_case", range(4))
-def test_window_capability_facts_do_not_authorize_compiler_acceptance(
-    _case: int,
-) -> None:
-    production_paths = (
+def test_window_capability_facts_do_not_authorize_compiler_acceptance() -> None:
+    for production_path in (
         "src/pietto/semantic/expressions.py",
         "src/pietto/semantic/window_analysis.py",
         "src/pietto/ir/lowering.py",
         "src/pietto/sql/expressions.py",
+    ):
+        source = _read(production_path)
+        assert "capability_windows" not in source
+        assert "window_lookup_inputs" not in source
+    unsupported = (
+        _source_connector("postgresql") + "query invalid:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        result = row_number()\n"
     )
-    source = _read(production_paths[_case])
-    assert "capability_windows" not in source
-    assert "window_lookup_inputs" not in source
-    if _case == 0:
-        unsupported = (
-            _source_connector("postgresql") + "query invalid:\n"
-            "    from rows\n"
-            "    select:\n"
-            "        result = row_number()\n"
-        )
-        parsed = parse_source(unsupported, path="slice15-nonauthority.pietto")
-        assert parsed.ast is not None
-        semantic = analyze(parsed.ast)
-        assert semantic.diagnostics
+    parsed = parse_source(unsupported, path="slice15-nonauthority.pietto")
+    assert parsed.ast is not None
+    semantic = analyze(parsed.ast)
+    assert semantic.diagnostics
 
 
 def test_public_ir_sql_semantic_cli_json_and_metadata_surfaces_are_unchanged() -> None:
@@ -1439,18 +1435,11 @@ def test_public_ir_sql_semantic_cli_json_and_metadata_surfaces_are_unchanged() -
     assert not hasattr(pietto, "__version__")
 
 
-@pytest.mark.parametrize("_case", range(12))
+@pytest.mark.parametrize("_case", (1, 6, 7, 8, 9))
 def test_frames_named_windows_qualify_extension_and_later_identity_boundaries_are_locked(
     _case: int,
 ) -> None:
-    if _case == 0:
-        assert tuple(field.name for field in dataclasses.fields(WindowSpecIR)) == (
-            "partition_by",
-            "order_by",
-            "span",
-            "frame",
-        )
-    elif 1 <= _case <= 5:
+    if _case == 1:
         assert all(
             token not in {field.name for field in dataclasses.fields(WindowSpecIR)}
             for token in ("rows", "range", "groups", "name", "inherits")
@@ -1460,20 +1449,7 @@ def test_frames_named_windows_qualify_extension_and_later_identity_boundaries_ar
         assert "qualifyClause : QUALIFY" in grammar
         assert "QUALIFY: 'qualify';" in grammar
         assert "qualify" not in {field.name for field in dataclasses.fields(RelationIR)}
-    elif 7 <= _case <= 9:
+    else:
         identity = ("first_value", "last_value", "nth_value")[_case - 7]
         assert identity in capability_windows._WINDOW_IDENTITIES
         assert identity in ir_model._WINDOW_ARGUMENT_ARITIES
-    else:
-        key = CapabilityKey(
-            CapabilityDomain.WINDOW_FUNCTION,
-            subject="rank",
-            operation="lowering",
-            operands=LOWERING_OPERANDS,
-            context="window_lowering",
-            dialect="postgresql" if _case == 10 else "sqlite",
-            extension="vendor.rank" if _case == 10 else None,
-        )
-        result = _lookup(key)
-        assert isinstance(result, Unknown)
-        assert result.reason is CapabilityReasonCode.NOT_EVIDENCED

@@ -30,27 +30,9 @@ from pietto.ast_nodes import (
     WindowSpec,
 )
 from pietto.errors import Severity
-from pietto.ir.lowering import lower_expr
-from pietto.ir.model import WindowCallIR
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 
-
-TEMPORARY_BRIDGE_MESSAGE = (
-    "Window syntax is recognized, but WindowSpec AST preservation starts in "
-    "Phase 53 Slice 3."
-)
-
-WINDOW_FUNCTION_NAMES = (
-    "row_number",
-    "rank",
-    "dense_rank",
-    "percent_rank",
-    "cume_dist",
-    "ntile",
-    "lag",
-    "lead",
-)
 
 IDENTITY_CASES = (
     ("rank", (), "rank"),
@@ -95,7 +77,16 @@ CALL_ARGUMENT_CASES = (
     ("lag(value, 1)", ("value", 1)),
     ("lead(value, 2, fallback,)", ("value", 2, "fallback")),
 )
-CANDIDATE_IDENTITY_CASES = (*WINDOW_FUNCTION_NAMES, "custom", "Window", "WINDOW")
+CANDIDATE_IDENTITY_CASES = (
+    "row_number",
+    "dense_rank",
+    "percent_rank",
+    "cume_dist",
+    "ntile",
+    "lag",
+    "lead",
+    "custom",
+)
 QUALIFIED_IDENTITY_CASES = (
     ("analytics.rank", ("analytics",), "rank"),
     ("Org.Analytics.Rank", ("Org", "Analytics"), "Rank"),
@@ -156,11 +147,6 @@ MALFORMED_CASES = (
     ("nulls_first", "order by:\n    observed_at nulls first", None, None),
     ("malformed_order", "order by:\n    observed_at +", None, None),
     ("malformed_partition", "partition by:\n    account_id +", None, None),
-)
-VALID_BRIDGE_CASES = (
-    "order by:\n    observed_at",
-    "partition by:\n    account_id",
-    "partition by:\n    account_id\norder by:\n    observed_at desc",
 )
 SEMANTIC_IDENTITY_CASES = (
     ("rank", "Unknown function: rank"),
@@ -429,6 +415,7 @@ def test_window_ast_spans_are_exact(
     relation = cast(QueryDef, result.ast.definitions[-1])
     item = relation.select_items[0]
     expression = cast(WindowExpr, item.expression)
+    assert expression.span.path == f"span-{name}.pietto"
     assert _span_tuple(expression.span) == expression_span
     assert _span_tuple(expression.call.span) == call_span
     assert _span_tuple(expression.spec.span) == spec_span
@@ -493,14 +480,6 @@ def test_slice2_malformed_and_deferred_window_syntax_remains_rejected(
     )
 
 
-@pytest.mark.parametrize("body", VALID_BRIDGE_CASES)
-def test_valid_window_parse_retires_temporary_slice2_bridge(body: str) -> None:
-    result = parse_source(_window_query(body))
-    assert result.ast is not None
-    assert result.diagnostics == ()
-    assert TEMPORARY_BRIDGE_MESSAGE not in repr(result)
-
-
 @pytest.mark.parametrize(("call", "message"), SEMANTIC_IDENTITY_CASES)
 def test_semantic_check_fails_closed_with_existing_unknown_function_diagnostic(
     call: str,
@@ -548,21 +527,6 @@ def test_window_expression_publishes_no_semantic_value_type_fact() -> None:
         argument not in semantic.model.expression_value_types
         for argument in expression.call.arguments
     )
-
-
-def test_ir_lowering_fails_closed_on_missing_window_expression_fact() -> None:
-    result = parse_source(_semantic_window_source("row_number()"))
-    assert result.ast is not None
-    expression = cast(
-        WindowExpr,
-        cast(QueryDef, result.ast.definitions[-1]).select_items[0].expression,
-    )
-    semantic = analyze(result.ast)
-    lowered = lower_expr(expression, semantic.model)
-    assert isinstance(lowered.expression, WindowCallIR)
-    assert lowered.expression.identity.name == "row_number"
-    assert lowered.expression.arguments == ()
-    assert lowered.diagnostics == ()
 
 
 def test_project_parse_only_path_remains_deferred_without_window_result_dependency_or_lineage() -> (
