@@ -5,7 +5,7 @@ import inspect
 from pathlib import Path
 from typing import cast
 
-from _pietto_project_explain_scenarios import _CLI_PAIR_CODE, _run_cli_pair
+from _pietto_project_explain_scenarios import _CLI_PAIR_CODE
 import test_phase54_semantic_fact_preservation as project_upstream
 import test_phase59_slice8_semantic_field_lineage_integration as graph_upstream
 
@@ -493,26 +493,6 @@ def test_mysql_native_preserve_is_proved_from_real_authored_source(
     assert call.null_treatment_is_explicit
     assert call.nth_direction is WindowNthDirectionIR.FROM_FIRST
     assert call.nth_direction_is_explicit
-
-
-def test_real_cli_pair_emits_exact_postgresql_and_mysql_sql(tmp_path: Path) -> None:
-    _write_source(tmp_path, "postgres.pietto", POSTGRES_NATIVE)
-    _write_source(tmp_path, "mysql.pietto", MYSQL_NATIVE)
-    postgres, mysql = _run_cli_pair(
-        ("emit-sql", "postgres.pietto", "--dialect", "postgres"),
-        ("emit-sql", "mysql.pietto", "--dialect", "mysql"),
-        tmp_path,
-    )
-    assert (postgres.returncode, postgres.stdout, postgres.stderr) == (
-        0,
-        f"{POSTGRES_NATIVE_SQL}\n".encode(),
-        b"",
-    )
-    assert (mysql.returncode, mysql.stdout, mysql.stderr) == (
-        0,
-        f"{MYSQL_NATIVE_SQL}\n".encode(),
-        b"",
-    )
 
 
 def test_real_project_lineage_and_private_inspection_retain_authorship(

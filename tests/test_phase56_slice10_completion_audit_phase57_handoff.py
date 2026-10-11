@@ -532,15 +532,3 @@ def test_phase56_completion_and_phase57_handoff_remain_exact() -> None:
     assert "Phase 57 owns the PostgreSQL Extension Signature Catalog" in scope
     assert "Completion audit and Phase 58 handoff" in scope
     assert "`pietto.capability-inspection.v1`" in scope
-
-
-def test_version_and_public_compatibility_documents_remain_unchanged() -> None:
-    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'version = "0.1.0"' in pyproject
-    public_contracts = (
-        "docs/spec/cli-json-v1.md",
-        "docs/spec/project-cli-json-v2.md",
-        "docs/spec/semantic-metadata-artifact-v1.md",
-        "docs/spec/diagnostics.md",
-    )
-    assert all((REPO_ROOT / path).is_file() for path in public_contracts)

@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import tomllib
 from typing import cast
 
 import pytest
@@ -26,7 +27,9 @@ SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
 # 3.12, Python 3.13, every seed, both relocation forms, and the installed wheel.
 EXPECTED_SURFACE_SHA256: dict[str, object] = {
     "observation_format": "pietto.project-explain-differential.v1",
-    "package_version": "0.1.0",
+    "package_version": tomllib.loads(
+        (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["version"],
     "scenarios": {
         "matrix": {
             "runtime_outcome": "success",

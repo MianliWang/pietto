@@ -30,6 +30,7 @@ import os
 from pathlib import Path
 import shutil
 import time
+import tomllib
 from typing import Any
 
 from _pietto_phase68_slice14_probe import _write_private
@@ -2152,6 +2153,10 @@ def consumer(directory, ledger, *, label, uv_cache=None):
     dist = directory / (PREFIX + "result-dist")
     extra = directory / (PREFIX + "consumer-extra")
     extra_dist = directory / (PREFIX + "consumer-dist")
+    # The consumer wheel is the candidate's own build: a path input, named from
+    # the checkout's declared version (the probe's checks keep their own).
+    version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    consumer_wheel = extra_dist / ("pietto-%s-py3-none-any.whl" % version)
     reports = directory / (PREFIX + "reports")
     reports.mkdir(mode=0o700)
     readiness = reports / ("arrow-readiness-%s-1-3.13.json" % label)
@@ -2257,7 +2262,7 @@ def consumer(directory, ledger, *, label, uv_cache=None):
                 "--receipts",
                 str(receipts),
                 "--wheel",
-                str(extra_dist / "pietto-0.1.0-py3-none-any.whl"),
+                str(consumer_wheel),
                 "--report",
                 str(integration),
                 *replay_identity,
@@ -2276,7 +2281,7 @@ def consumer(directory, ledger, *, label, uv_cache=None):
                 "--receipts",
                 str(receipts),
                 "--wheel",
-                str(extra_dist / "pietto-0.1.0-py3-none-any.whl"),
+                str(consumer_wheel),
                 "--report",
                 str(integration),
                 *replay_identity,

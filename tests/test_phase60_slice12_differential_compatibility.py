@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import tomllib
 from typing import cast
 
 import pytest
@@ -27,7 +28,9 @@ SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
 # consume this unchanged rather than regenerating an environment-local oracle.
 EXPECTED_COMMON_MANIFEST: dict[str, object] = {
     "observation_format": "pietto.phase60-window-differential.v1",
-    "package_version": "0.1.0",
+    "package_version": tomllib.loads(
+        (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["version"],
     "runtime_identities_distinct": True,
     "targets": [
         [
@@ -428,8 +431,8 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
             "",
         ],
     ],
-    "observation_sha256": "84f08fb8349134e1d4a55cc8f02378a3921b3982829359d84a09630140674f75",
-    "observation_size": 46895,
+    "observation_sha256": "c6cec55f171e7b16435564dbbfe0a08d949f5e0deb02ae5cdc5b88915052f5d7",
+    "observation_size": 46892,
 }
 
 
@@ -508,6 +511,10 @@ def _common_manifest(document: bytes) -> dict[str, object]:
     targets = cast(dict[str, dict[str, object]], observation["targets"])
     graph = cast(dict[str, object], observation["graph"])
     cli = cast(dict[str, list[object]], observation["cli"])
+    # The reviewed bytes leave the version out; "package_version" pins it.
+    field = b'"package_version":' + json.dumps(observation["package_version"]).encode()
+    assert document.count(field) == 1
+    unversioned = document.replace(field, b'"package_version":null')
     return {
         "observation_format": observation["observation_format"],
         "package_version": observation["package_version"],
@@ -546,8 +553,8 @@ def _common_manifest(document: bytes) -> dict[str, object]:
             ]
             for target, values in cli.items()
         ],
-        "observation_sha256": hashlib.sha256(document).hexdigest(),
-        "observation_size": len(document),
+        "observation_sha256": hashlib.sha256(unversioned).hexdigest(),
+        "observation_size": len(unversioned),
     }
 
 

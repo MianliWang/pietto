@@ -66,7 +66,9 @@ def test_version_falls_back_when_package_metadata_is_missing(
     assert cli.main(["--version"]) == 0
 
     captured = capsys.readouterr()
-    assert captured.out == "pietto 0.1.0\n"
+    # The fallback literal must follow the declared package version.
+    project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    assert captured.out == f"pietto {project['project']['version']}\n"
     assert captured.err == ""
 
 

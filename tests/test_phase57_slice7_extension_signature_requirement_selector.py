@@ -562,9 +562,6 @@ def test_predecessor_artifact_selection_inspection_and_corpus_remain_frozen() ->
     )
     assert (len(corpus), len(accepted), len(corpus) - len(accepted)) == (125, 16, 109)
     assert _corpus_digest() == EXPECTED_CORPUS_DIGEST
-    assert 'version = "0.1.0"' in (REPO_ROOT / "pyproject.toml").read_text(
-        encoding="utf-8"
-    )
 
 
 def test_selector_carriers_are_private_frozen_slotted_and_packaged() -> None:

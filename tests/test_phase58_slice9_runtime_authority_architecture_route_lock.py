@@ -323,7 +323,6 @@ def test_slice9_historical_docs_static_scope_and_retained_public_zero_delta() ->
         assert forbidden_change in compatibility
     for release_boundary in ("tags", "Releases", "package publication"):
         assert release_boundary in compatibility
-    assert 'version = "0.1.0"' in _read(REPO_ROOT / "pyproject.toml")
 
 
 def test_self_owned_open_and_slice10_handoff_are_closed() -> None:

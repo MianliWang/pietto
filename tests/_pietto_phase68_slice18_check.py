@@ -205,7 +205,7 @@ def _declarations(metadata: bytes) -> dict:
 def _same_declarations(found: dict) -> None:
     need(
         (found["name"], found["version"], found["requires_python"])
-        == (["pietto"], ["0.1.0"], [">=3.12"]),
+        == (["pietto"], [CORE["pietto"]], [">=3.12"]),
         "METADATA_IDENTITY",
     )
     need(
@@ -234,7 +234,7 @@ def wheel_members(wheel: bytes) -> dict[str, bytes]:
 def check_artifacts(wheel: bytes, sdist: bytes) -> dict:
     """Wheel METADATA/entry/RECORD and sdist PKG-INFO/members from the bytes."""
     members = wheel_members(wheel)
-    info = "pietto-0.1.0.dist-info/"
+    info = f"pietto-{CORE['pietto']}.dist-info/"
     need(all(o in members for o in OWNERS), "WHEEL_MEMBERS")
     _same_declarations(_declarations(members[info + "METADATA"]))
     entry = members[info + "entry_points.txt"].decode()
@@ -258,7 +258,7 @@ def check_artifacts(wheel: bytes, sdist: bytes) -> dict:
         )
     with tarfile.open(fileobj=io.BytesIO(sdist), mode="r:gz") as archive:
         names = archive.getnames()
-        prefix = "pietto-0.1.0/"
+        prefix = f"pietto-{CORE['pietto']}/"
         pkg = archive.extractfile(prefix + "PKG-INFO")
         need(pkg is not None, "SDIST_MEMBERS")
         assert pkg is not None
@@ -604,7 +604,7 @@ def check_inventory(report: dict, requested) -> None:
 def _rewrite_wheel(wheel: bytes, metadata_edit) -> bytes:
     """A coordinated damage: METADATA changed and RECORD recomputed to match."""
     members = wheel_members(wheel)
-    info = "pietto-0.1.0.dist-info/"
+    info = f"pietto-{CORE['pietto']}.dist-info/"
     members[info + "METADATA"] = metadata_edit(members[info + "METADATA"])
     rows = []
     for name, data in members.items():
@@ -671,7 +671,7 @@ def _laundered(e):
         load="LOADED",
         binding_s17="BOUND",
         binding_current="BOUND",
-        package_versions=["0.1.0", "0.1.0"],
+        package_versions=[CORE["pietto"]] * 2,
     )
 
 

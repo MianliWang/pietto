@@ -687,7 +687,7 @@ def valid_receipts(
             },
             "console_sha256": "c" * 64,
             "isolated": 1,
-            "version": "0.1.0",
+            "version": facility.CANDIDATE_VERSION,
             "runtime_version": "4.13.2",
             "wheel_sha256": "d" * 64,
             "wheel_members": members,
@@ -1859,7 +1859,6 @@ def test_test_dependency_group_preserves_runtime_metadata() -> None:
     import tomllib
 
     project = tomllib.loads((facility.ROOT / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.1.0"
     assert project["project"]["dependencies"] == ["antlr4-python3-runtime==4.13.2"]
     assert project["dependency-groups"]["target-conformance"] == [
         "psycopg[binary]==3.3.5",

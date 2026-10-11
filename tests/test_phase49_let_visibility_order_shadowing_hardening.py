@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import tomllib
 
 import pytest
 
@@ -34,8 +33,6 @@ from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import SemanticResult, analyze
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 PRIVATE_JSON_FACTS = (
     "relation_let_scope_facts",
@@ -516,11 +513,6 @@ def test_project_json_v2_keeps_slice8_private_facts_private(
     )
     for private_fact in PRIVATE_JSON_FACTS:
         assert private_fact not in serialized
-
-
-def test_package_version_remains_010() -> None:
-    project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
-    assert project["version"] == "0.1.0"
 
 
 def _analyze_single_file(source: str) -> SemanticResult:

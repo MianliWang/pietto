@@ -805,9 +805,6 @@ def test_slice2_through_slice5_and_phase56_authorities_remain_unchanged() -> Non
     )
     assert (len(corpus), len(accepted), len(corpus) - len(accepted)) == (125, 16, 109)
     assert _corpus_digest() == EXPECTED_CORPUS_DIGEST
-    assert 'version = "0.1.0"' in (REPO_ROOT / "pyproject.toml").read_text(
-        encoding="utf-8"
-    )
 
     source = inspect.getsource(catalog_availability).lower()
     assert all(

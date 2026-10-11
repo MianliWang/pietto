@@ -41,10 +41,14 @@ commands, diagnostics, and commit messages in English.
 - Do not edit generated parser files by hand. Change the grammar and run the
   documented generation and reproducibility checks.
 - Use focused tests and Ruff while implementing. Before a normal Gate 2 seal,
-  run the authoritative Python 3.13 validation. Run generated, golden, and
-  package checks when their actual input closure changes; current CI may own
-  independent auxiliary checks as specified by the active dispatch. Publication/Git infrastructure needs
-  a depth-one validation. Natural CI owns final Python 3.12 and 3.13 coverage.
+  run the authoritative Python 3.13 validation exactly once, each part on a
+  runner whose environment record qualifies for the domains that part executes
+  ([validation runner acceptance](docs/development.md#validation-runner-acceptance)).
+  Run generated, golden, and package checks when their actual input closure
+  changes; current CI may own independent auxiliary checks as specified by the
+  active dispatch. Publication/Git infrastructure needs a depth-one validation.
+  Natural CI owns final Python 3.12 and 3.13 coverage; no runner report stands
+  in for it.
 
 ## Decisions and authority
 
@@ -69,12 +73,17 @@ abstraction needs a current caller or invariant.
 - Gate 2: implement the minimum change, run focused checks, review the complete
   finding set, consolidate repairs by root cause, run appropriate final
   validation, and seal the Git tree. Slice dispatches own cumulative repair
-  budgets. Closed Phase68 S01–S20, C01 and post-Phase68 performance
-  interlude counts stay closed. Diagnosed in-scope repairs and qualified
-  mechanical reader-reserve updates proceed under the active dispatch.
+  budgets. Closed Phase68 S01–S20, C01, post-Phase68 performance interlude and
+  parallelism interlude counts stay closed. Diagnosed in-scope repairs and
+  qualified mechanical reader-reserve updates proceed under the active dispatch.
 - Gate 3: rebind the baseline, stage exactly the sealed tree, make one ordinary
   commit, fast-forward push, and require natural exact-head CI. A failed head
   is preserved; repair a new child and push it normally. Do not rerun it.
+  Ready slices may also publish as one batch: each slice stays one commit, the
+  batch's final tree gets the one authoritative validation, one fast-forward
+  push publishes the commits together, and natural CI runs only on the batch
+  head; commits inside the batch have no CI result of their own and take its
+  result.
 
 Default records are a concise decision note when needed, Gate 2 baseline/tree/
 validation facts, and Git plus natural CI for Gate 3. Mechanical counts,
@@ -84,7 +93,11 @@ paths, formatting, and ordinary hashes do not require new authority.
 
 - Never commit, push, tag, publish, sign, attest, or trigger external CI unless
   explicitly authorized. Before publication verify `HEAD`, tracked tree,
-  staging, remote, and fast-forward status.
+  staging, remote, and fast-forward status. Outside natural CI, validation jobs
+  on runners other than the integration host are explicit external execution
+  under the active dispatch; such runners hold no GitHub write credentials or
+  model tokens anywhere, keep private keys out of their work directories and
+  job environments, and never write the canonical worktree.
 - `origin/HEAD` is not publication authority. The published branch and natural
   exact-head CI are.
 - Use the installed Ponytail runtime: `FULL` for normal work, `ULTRA` for

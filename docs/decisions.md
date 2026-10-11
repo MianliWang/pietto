@@ -134,3 +134,28 @@ context 错误码失败关闭；设置持续到该 attempt 的事务结束，不
 的服务端仍接受该设置，只是空操作（未实测）。候选在目标负载下的原生证据在本次派发的外部证据实例。本节闭合
 [插段记录](spec/post-phase68-performance-interlude-v1.md)“Rejected or deferred”中生成细化页 JIT 设置的延期项；R2 窗口 SQL
 形态与 10 s 上限仍由下一个并行插段决定。
+
+## Parallelism interlude — owner decisions and closure (2026-10-10)
+
+所有者批准 Phase69 路线锁定前的第二个前置，即并行插段，并选择只发布按前提表述的接收规则核心 R1、R4、R10、R12
+（[验证 runner 接收规则](spec/validation-runner-acceptance-v1.md)）：仓库内不加入接收工具、补集报告、环境记录格式或 runner 脚本，
+也不做资格运行；接收与补集由以后的派发决定，存储正例的补集随之暂缓（派生记录，不是另一项决定），存储正例照旧在集成主机的完整
+权威验证内运行。Teach 只做通道、首闭环与非权威开发循环，脚本留在仓库外，结果不算验证证据；托管 CI 按前提不执行 Gate 2 验证的
+任何部分，自然 CI 的 Gate 3 角色不变。I1 使存储环境类显式（`hosted-refusal`、
+`qualified`、`report`）；I2 发布规则 spec 与单次调用内的工作守恒获取认领（跨调用等待是已知残余）；I3 拆为 I3a（版本单一 owner、负向打包测试的 `match=`、CI 中
+wheel 文件名的唯一匹配、只改测试的重复获取）与 I3b（phase53 整合并入按功能重组，其计划获批后才开始），关闭条文随 I3a 发布。
+
+R2 窗口细化页的 SQL 形态与 10 s 单语句上限（U2）关闭：10 s 上限不变，本插段与 Phase69 都不改该 SQL 形态。残余是细化 SQL
+的体积增长不变、refined guard 与来源准入扫描仍按服务端默认 JIT、宽 key 与大数据量下的成本不作承诺，在 Phase69 重新绑定时写入
+R2 的支持说明。关闭 JIT 后单个细化页仍 ≥1 s、数据放大测量 ≥5 s、出现 57014（语句超时取消），或 Phase69 提出更宽 key 的支持
+要求时，U2 重新交所有者决定。本节闭合[插段记录](spec/post-phase68-performance-interlude-v1.md)“Rejected or deferred”中生成
+细化页延期项的窗口 SQL 形态与 10 s 上限部分；JIT 设置部分已由[上一节](#postgresql-refinement-page-jit--owner-decisions-2026-10-10)
+闭合。同一延期项列出的并行化路线处置如下：单次调用内的工作守恒获取认领随 I2 发布；source-free 不再拆分；把不用存储的测试移出共享获取分片、
+Compiler/Package 拆分、按成本发牌或第四个 general-runtime 分片都不做；托管字节码预编译不采用，只作测量，采用须另行授权；
+`[[file_costs]]` 的完整四 worker 测量转入按功能重组。
+
+关闭记录：规则已发布，目前只有集成主机满足其前提。按只发布规则核心的选择，多 runner 组合验证暂缓，留给以后提供接收工具的派发决定。所有者批准的批量合入写入
+`AGENTS.md` 与[开发文档](development.md#lean-gate-v2)：每片一个提交，批次最终树一次权威验证，一次快进推送，自然 CI 只跑批次头，
+批内提交没有自己的 CI 结果，以其结果为准。本插段的 `COMPLETED` 与规则的生效都以发布关闭条文的已推送 head（关闭提交本身，或在批次中推送时的批次头）
+的自然 exact-head CI 为准：普通提交、FF push 与全部 job 成功后成立，此前是 candidate。下一步是另行派发的 Phase69
+重新绑定。

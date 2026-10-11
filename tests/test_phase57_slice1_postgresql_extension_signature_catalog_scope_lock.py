@@ -475,7 +475,6 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
     ):
         assert "server installation" not in source.lower()
         assert "database connection" not in source.lower()
-    assert 'version = "0.1.0"' in _read(REPO_ROOT / "pyproject.toml")
 
 
 @pytest.mark.parametrize(

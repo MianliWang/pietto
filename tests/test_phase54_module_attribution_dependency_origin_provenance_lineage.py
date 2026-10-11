@@ -2699,7 +2699,6 @@ def test_schema_v2_cli_json_public_exports_dependencies_version_and_generated_su
     )
     assert all("module_attribution" not in source for source in public_sources)
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'version = "0.1.0"' in pyproject
     assert "module-attribution" not in pyproject
     assert "module_attribution" not in (REPO_ROOT / "uv.lock").read_text(
         encoding="utf-8"

@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError, is_dataclass
 import json
 from pathlib import Path
-import tomllib
 
 import pytest
 
@@ -26,8 +25,6 @@ from pietto._project.row_lineage import (
 )
 from pietto.ast_nodes import QueryDef, TableDef
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 PRIVATE_JSON_FACTS = (
     "relation_row_lineages",
@@ -603,11 +600,6 @@ def test_project_json_v2_keeps_computed_let_multi_hop_lineage_private(
     )
     for private_fact in PRIVATE_JSON_FACTS:
         assert private_fact not in serialized
-
-
-def test_package_version_remains_010() -> None:
-    project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
-    assert project["version"] == "0.1.0"
 
 
 def _fact_values(

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import tomllib
 
 from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
@@ -19,7 +18,6 @@ from pietto._project.model import (
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 PRIVATE_JSON_FACTS = (
     "source_row_schemas",
@@ -297,11 +295,6 @@ def test_slice4_helper_uses_narrow_private_inference_only() -> None:
     assert "infer_row_expression" in helper
     assert "semantic_api" not in helper
     assert "semantic_api" not in model
-
-
-def test_package_version_remains_010() -> None:
-    project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
-    assert project["version"] == "0.1.0"
 
 
 def _assert_direct_field_preserves_source_field_def(

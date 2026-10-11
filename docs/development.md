@@ -42,6 +42,12 @@ one ordinary fast-forward commit and push, then require natural exact-head CI.
 If CI fails, preserve that head and repair in a child commit; never rerun the
 failed head as a substitute for a repair.
 
+**Batched publication.** Several ready slices may publish as one batch. Each
+slice stays its own commit; the batch's final tree gets one authoritative
+validation; one fast-forward push publishes the commits together; and natural
+exact-head CI runs on the batch head only. Commits inside the batch have no CI
+result of their own and take the batch head's result.
+
 Git is the publication mechanism. The conceptual states are
 `DIRTY_LOCAL_CANDIDATE`, `CLEAN_PRE_PUSH`, and `SHALLOW_PUSHED_HEAD`; no
 repository simulator is required. `origin/HEAD` is not publication authority.
@@ -119,6 +125,24 @@ entry or memoized verifier adds its route there; a second complete check inside
 one call needs a written allowance. Hot verifier loops are bounded by
 count laws, never by wall-time thresholds.
 
+## Validation runner acceptance
+
+[Validation Runner Acceptance v1](spec/validation-runner-acceptance-v1.md)
+judges every runner, the integration host included, by the same premises: a
+runner executes a domain as part of a Gate 2 validation only when its
+environment record satisfies that domain's premises. These rules take effect
+once natural exact-head CI passes on the head that publishes the parallelism
+interlude closure, or on the batch head when the closure is pushed in a batch.
+Until an acceptance tool and a qualified environment record exist for another
+runner, only the integration host qualifies, so every part of a Gate 2
+validation still runs there as this document describes; providing that tool
+needs a later dispatch. A non-authoritative run on another runner, such as a
+development loop, never counts toward or stands in for any part of a Gate 2
+validation, and the specification's credential and trust rules still apply to
+it. Under these premises hosted CI currently runs no part of a Gate 2
+validation and keeps its Gate 3 role as natural exact-head CI. Where this
+document calls validation work or its reports local, it means the integration
+host.
 
 ## Phase-end acquisition consolidation
 

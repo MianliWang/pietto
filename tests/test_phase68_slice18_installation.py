@@ -29,7 +29,12 @@ import _pietto_phase68_slice12_probe as s12
 import _pietto_phase68_slice17_probe as s17
 from _pietto_phase68_slice11_probe import compiled_template, qualified
 from test_phase11_packaging_smoke import REPO_ROOT, _metadata_bytes, smoke
-from test_phase67_slice13_optional_arrow_extra import _artifact, _inspect
+from test_phase67_slice13_optional_arrow_extra import (
+    EXTRAS_DIFFER,
+    REQUIREMENTS_DIFFER,
+    _artifact,
+    _inspect,
+)
 from pietto._project import project_execution as ex
 from pietto._project import project_execution_mysql_native as mysql
 from pietto._project import project_execution_postgres as postgres
@@ -98,6 +103,7 @@ def test_selections_are_exactly_the_dispatch_extras_and_core_is_unchanged():
     lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text())
     packages = {p["name"]: p for p in lock["package"]}
     package = packages["pietto"]
+    assert package["version"] == project["version"]
     assert package["dependencies"] == [{"name": "antlr4-python3-runtime"}]
     assert package["optional-dependencies"] == {
         "arrow": [{"name": "pyarrow"}],
@@ -223,44 +229,46 @@ def test_dropped_or_malformed_requirement_extras_never_match():
             smoke._dependency(bad)
 
 
-@pytest.mark.parametrize("kind", ("wheel", "sdist"))
-@pytest.mark.parametrize(
-    "before,after",
+# Each (before, after) route damage and the package_smoke failure that must
+# reject it.
+ROUTE_DAMAGE = {
+    # A route dependency loses its own requirement extra.
     (
-        # A route dependency loses its own requirement extra.
-        (
-            b"Requires-Dist: psycopg[binary]==3.3.5;",
-            b"Requires-Dist: psycopg==3.3.5;",
-        ),
-        # A required route dependency is removed.
-        (
-            b"Requires-Dist: mysql-connector-python==26.7.0; extra == 'execute-mysql'\n",
-            b"",
-        ),
-        # An optional dependency is moved into the unconditional core.
-        (
-            b"Requires-Dist: pyarrow==25.0.1; extra == 'execute-mysql'\n",
-            b"Requires-Dist: pyarrow==25.0.1\n",
-        ),
-        (
-            b"Requires-Dist: adbc-driver-manager==1.12.0;",
-            b"Requires-Dist: adbc-driver-manager==1.11.0;",
-        ),
-        (
-            b"adbc-driver-postgresql==1.12.0; extra == 'execute-postgres-adbc'",
-            b"adbc-driver-postgresql==1.12.0; extra == 'execute-postgres'",
-        ),
-        (b"Provides-Extra: execute-postgres-adbc\n", b""),
-        (
-            b"Provides-Extra: execute-mysql\n",
-            b"Provides-Extra: execute-mysql\nProvides-Extra: execute-all\n",
-        ),
-    ),
-)
+        b"Requires-Dist: psycopg[binary]==3.3.5;",
+        b"Requires-Dist: psycopg==3.3.5;",
+    ): REQUIREMENTS_DIFFER,
+    # A required route dependency is removed.
+    (
+        b"Requires-Dist: mysql-connector-python==26.7.0; extra == 'execute-mysql'\n",
+        b"",
+    ): REQUIREMENTS_DIFFER,
+    # An optional dependency is moved into the unconditional core.
+    (
+        b"Requires-Dist: pyarrow==25.0.1; extra == 'execute-mysql'\n",
+        b"Requires-Dist: pyarrow==25.0.1\n",
+    ): REQUIREMENTS_DIFFER,
+    (
+        b"Requires-Dist: adbc-driver-manager==1.12.0;",
+        b"Requires-Dist: adbc-driver-manager==1.11.0;",
+    ): REQUIREMENTS_DIFFER,
+    (
+        b"adbc-driver-postgresql==1.12.0; extra == 'execute-postgres-adbc'",
+        b"adbc-driver-postgresql==1.12.0; extra == 'execute-postgres'",
+    ): REQUIREMENTS_DIFFER,
+    (b"Provides-Extra: execute-postgres-adbc\n", b""): EXTRAS_DIFFER,
+    (
+        b"Provides-Extra: execute-mysql\n",
+        b"Provides-Extra: execute-mysql\nProvides-Extra: execute-all\n",
+    ): EXTRAS_DIFFER,
+}
+
+
+@pytest.mark.parametrize("kind", ("wheel", "sdist"))
+@pytest.mark.parametrize("before,after", tuple(ROUTE_DAMAGE))
 def test_route_extra_metadata_damage_fails_each_artifact(tmp_path, kind, before, after):
     original = _metadata_bytes()
     assert original.count(before) == 1
-    with pytest.raises(smoke.SmokeFailure):
+    with pytest.raises(smoke.SmokeFailure, match=ROUTE_DAMAGE[before, after]):
         _inspect(_artifact(tmp_path, kind, original.replace(before, after)), kind)
 
 

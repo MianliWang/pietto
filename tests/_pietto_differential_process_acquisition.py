@@ -387,7 +387,7 @@ class DifferentialAcquisition:
             capture_output=True,
             env=self.environment(None, "0", "wheel-build"),
         )
-        wheels = tuple(dist.glob("pietto-0.1.0-*.whl"))
+        wheels = tuple(dist.glob("pietto-*-py3-none-any.whl"))
         assert len(wheels) == 1
         install_environment = self.environment(None, "0", "wheel-install")
         install_environment["UV_CACHE_DIR"] = str(empty_cache)

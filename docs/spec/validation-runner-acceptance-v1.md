@@ -1,9 +1,8 @@
 # Validation Runner Acceptance v1
 
-Not yet in effect. It takes effect once the parallelism interlude closure
-publication passes natural CI. Until an acceptance tool and a qualified
-environment record exist for another runner, only the integration host
-qualifies.
+It takes effect once the parallelism interlude closure publication passes
+natural CI. Until an acceptance tool and a qualified environment record exist
+for another runner, only the integration host qualifies.
 
 ## Scope
 
@@ -98,7 +97,7 @@ because rows 0 and 0b are not satisfied.
 
 | Row | Domain or premise | Premise | Integration host (WSL2 laptop) | Allocated compute node (SciNet Teach cluster) | Hosted CI runner |
 | --- | --- | --- | --- | --- | --- |
-| 0 | Gate 2 candidate reach | Runs the exact candidate tree before the seal, without publishing it or triggering external CI, and returns every result with its digest to the integration host | Satisfied | Not established: no candidate transfer or acceptance tool exists | Not satisfied: runs only on pushed commits |
+| 0 | Gate 2 candidate reach | Runs the exact candidate tree before the seal, without publishing it or triggering external CI, and returns every result with its digest to the integration host | Satisfied | Not established: no acceptance tool exists; development-loop candidate runs are non-authoritative | Not satisfied: runs only on pushed commits |
 | 0b | Same interpreter patch | Runs the same interpreter patch as the integration host's report checker; report contexts are compared by strict equality, full `python_version` included | Satisfied: CPython 3.13.13 | Satisfied: CPython 3.13.13 in the preflight and the report contexts | Not satisfied: CPython 3.12.14 and 3.13.15 |
 | 1 | Static gates | Locked environment, CPython 3.13.13, Node availability recorded (Pyright needs it), the same candidate tree | Satisfied | Not verified; not planned | — |
 | 2 | General pytest | CPython 3.13.13 with CPython 3.12.13 on `PATH` (domain `[[3,12],[3,13]]`), Java 21, complete Git history, basetemp and acquisition roots on runner-local storage, a worker plan within the runner's resource limit (a job's allocation, or the validator worker count approved for the integration host) | Satisfied | Not qualified: no acceptance tool or qualified environment record; the preflight found CPython 3.12.13 on `PATH`, Java 21 and complete Git history | — |

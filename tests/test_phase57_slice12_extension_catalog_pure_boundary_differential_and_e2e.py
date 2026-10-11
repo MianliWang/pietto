@@ -277,10 +277,11 @@ def _build_witness_matrix(
         for seed in _SEEDS
     }
     for version, executable in interpreters.items():
-        observed[f"python{version[0]}.{version[1]}:0"] = _subprocess_witness(
-            executable,
-            "0",
-            REPO_ROOT,
+        # The current interpreter's seed-0 cell is exactly current:0.
+        observed[f"python{version[0]}.{version[1]}:0"] = (
+            observed["current:0"]
+            if version == sys.version_info[:2]
+            else _subprocess_witness(executable, "0", REPO_ROOT)
         )
     observed["relocated-one:default"] = _subprocess_witness(
         sys.executable,
@@ -684,6 +685,8 @@ def test_semantic_operand_equal_to_node_label_has_no_hidden_grammar() -> None:
 def test_python_312_313_witnesses_are_byte_identical(
     witness_matrix: dict[str, str],
 ) -> None:
+    """The matrix's only consumer, so each runtime builds it once: interpreters,
+    hash seeds, both relocated roots and the combined branches."""
     current = sys.version_info[:2]
     assert current in _SUPPORTED_INTERPRETERS
     assert witness_matrix["current:default"] == EXPECTED_WITNESS
@@ -694,6 +697,22 @@ def test_python_312_313_witnesses_are_byte_identical(
             assert witness_matrix[key] == EXPECTED_WITNESS
     if "python3.12:0" in witness_matrix and "python3.13:0" in witness_matrix:
         assert witness_matrix["python3.12:0"] == witness_matrix["python3.13:0"]
+    assert {
+        witness_matrix[f"current:{seed if seed is not None else 'default'}"]
+        for seed in _SEEDS
+    } == {EXPECTED_WITNESS}
+    assert witness_matrix["relocated-one:default"] == EXPECTED_WITNESS
+    assert witness_matrix["relocated-two:default"] == EXPECTED_WITNESS
+    for direct_key, combined_key in (
+        ("python3.12:0", "combined:python3.12:seed1:relocated-one"),
+        (
+            "python3.13:0",
+            "combined:python3.13:seed4294967295:relocated-two",
+        ),
+    ):
+        assert (combined_key in witness_matrix) == (direct_key in witness_matrix)
+        if combined_key in witness_matrix:
+            assert witness_matrix[combined_key] == EXPECTED_WITNESS
 
 
 def test_missing_opposite_interpreter_keeps_current_proof(
@@ -746,35 +765,6 @@ def test_discovered_interpreter_must_report_claimed_version(
     assert _available_supported_interpreters() == {current: sys.executable}
 
 
-def test_hash_seed_matrix_is_invariant(witness_matrix: dict[str, str]) -> None:
-    assert {
-        witness_matrix[f"current:{seed if seed is not None else 'default'}"]
-        for seed in _SEEDS
-    } == {EXPECTED_WITNESS}
-
-
-def test_two_relocated_source_runtime_roots_are_invariant(
-    witness_matrix: dict[str, str],
-) -> None:
-    assert witness_matrix["relocated-one:default"] == EXPECTED_WITNESS
-    assert witness_matrix["relocated-two:default"] == EXPECTED_WITNESS
-
-
-def test_combined_version_seed_and_relocation_branches_are_invariant(
-    witness_matrix: dict[str, str],
-) -> None:
-    for direct_key, combined_key in (
-        ("python3.12:0", "combined:python3.12:seed1:relocated-one"),
-        (
-            "python3.13:0",
-            "combined:python3.13:seed4294967295:relocated-two",
-        ),
-    ):
-        assert (combined_key in witness_matrix) == (direct_key in witness_matrix)
-        if combined_key in witness_matrix:
-            assert witness_matrix[combined_key] == EXPECTED_WITNESS
-
-
 def test_predecessor_pure_catalog_inspection_and_version_contracts_are_zero_delta() -> (
     None
 ):
@@ -806,9 +796,6 @@ def test_predecessor_pure_catalog_inspection_and_version_contracts_are_zero_delt
         "catalogs",
         "provider_occurrences",
         "context",
-    )
-    assert 'version = "0.1.0"' in (REPO_ROOT / "pyproject.toml").read_text(
-        encoding="utf-8"
     )
 
 

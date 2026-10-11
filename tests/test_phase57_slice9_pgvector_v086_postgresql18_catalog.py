@@ -603,9 +603,6 @@ def test_predecessor_inspection_corpus_legacy_provider_and_version_are_unchanged
         domain_complete=inputs.domain_complete,
         unknown_reason=inputs.unknown_reason,
     ) == Unknown(CapabilityReasonCode.NOT_EVIDENCED)
-    assert 'version = "0.1.0"' in (REPO_ROOT / "pyproject.toml").read_text(
-        encoding="utf-8"
-    )
 
 
 def test_spec_upstream_inventory_and_package_smoke_are_exact() -> None:

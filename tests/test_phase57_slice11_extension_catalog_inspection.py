@@ -1457,9 +1457,6 @@ def test_private_isolation_predecessor_bytes_and_readiness_boundaries_are_exact(
     assert inspected_names == {"vector", "pg_trgm"}
     assert not (REPO_ROOT / "src/pietto/semantic/extension_catalog_ltree.py").exists()
     assert not (REPO_ROOT / "src/pietto/semantic/extension_catalog_postgis.py").exists()
-    assert 'version = "0.1.0"' in (REPO_ROOT / "pyproject.toml").read_text(
-        encoding="utf-8"
-    )
 
 
 def test_spec_and_package_smoke_are_exact() -> None:

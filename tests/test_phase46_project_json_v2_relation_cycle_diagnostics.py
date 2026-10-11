@@ -8,8 +8,6 @@ import pytest
 
 import pietto.cli as cli
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 PROJECT_JSON_TOP_LEVEL_KEYS = (
     "schema_version",
@@ -169,13 +167,6 @@ def test_project_text_and_json_cycle_diagnostics_align(
     assert [
         (diagnostic["code"], diagnostic["message"]) for diagnostic in diagnostics
     ] == [("PIE-S2302", message)]
-
-
-def test_package_version_is_locked() -> None:
-    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
-
-    assert 'version = "0.1.0"' in pyproject
-    assert 'version = "0.2.0"' not in pyproject
 
 
 def _assert_cycle_diagnostic_json(

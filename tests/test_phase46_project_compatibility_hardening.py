@@ -9,7 +9,6 @@ import pytest
 import pietto.cli as cli
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 PROJECT_JSON_V2_PATH = REPO_ROOT / "src/pietto/_project/json_v2.py"
 PROJECT_CHECK_PATH = REPO_ROOT / "src/pietto/_project/check.py"
 CLI_PATH = REPO_ROOT / "src/pietto/cli.py"
@@ -178,13 +177,6 @@ def test_public_project_paths_do_not_serialize_private_cycle_internals() -> None
     )
 
     _assert_private_cycle_facts_absent(public_surface_source)
-
-
-def test_package_version_is_locked() -> None:
-    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
-
-    assert 'version = "0.1.0"' in pyproject
-    assert 'version = "0.2.0"' not in pyproject
 
 
 def _forbid_project_output_pipelines(monkeypatch: pytest.MonkeyPatch) -> None:

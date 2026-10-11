@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
-from importlib.metadata import version
 import json
 from pathlib import Path
 from typing import cast
@@ -1060,5 +1059,4 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
         assert f"PIE-S270{number}" in graph_source
         assert f"PIE-S270{number}" not in public
     assert "ProjectModuleExport" not in public
-    assert version("pietto") == "0.1.0"
     assert not (REPO_ROOT / "Cargo.toml").exists()

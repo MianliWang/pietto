@@ -774,28 +774,25 @@ def test_pure_evaluation_is_total_and_deterministic_for_admitted_inputs() -> Non
         assert first == second
         assert first.status is second.status
         assert first.canonical_bytes == second.canonical_bytes
-    assert harness.run_corpus(corpus).failed == ()
-    assert harness.run_corpus(corpus).summary() == (
-        harness.run_corpus(corpus).summary()
-    )
+    report = harness.run_corpus(corpus)
+    assert report.failed == ()
+    assert report.summary() == harness.run_corpus(corpus).summary()
 
 
 def test_repeated_processes_and_hash_seeds_produce_identical_corpus_digests() -> None:
-    """The corpus digest is invariant across processes and hash seeds."""
+    """The corpus digest is invariant across processes, hash seeds and every
+    other discoverable supported interpreter (the current one's seed 0 is
+    already among the processes)."""
 
+    assert sys.version_info[:2] in _SUPPORTED_INTERPRETERS
     expected = _corpus_digest()
     observed = {
         _subprocess_digest(sys.executable, seed) for seed in ("0", "1", "4294967295")
     }
     assert observed == {expected}
-
-
-def test_available_supported_interpreters_agree_on_the_corpus_digest() -> None:
-    """Every discoverable supported interpreter reports the same digest."""
-
-    assert sys.version_info[:2] in _SUPPORTED_INTERPRETERS
-    digests = {_corpus_digest(), _subprocess_digest(sys.executable)}
     for major, minor in _SUPPORTED_INTERPRETERS:
+        if (major, minor) == sys.version_info[:2]:
+            continue
         candidate = shutil.which(f"python{major}.{minor}")
         if candidate is None:
             continue
@@ -807,8 +804,7 @@ def test_available_supported_interpreters_agree_on_the_corpus_digest() -> None:
         )
         if probe.returncode != 0:
             continue
-        digests.add(_subprocess_digest(candidate))
-    assert len(digests) == 1
+        assert _subprocess_digest(candidate) == expected
 
 
 def test_pure_evaluation_ignores_working_directory_and_environment(
@@ -1544,7 +1540,6 @@ def test_no_public_api_cli_json_package_ir_sql_rust_or_build_expansion_occurs(
     ):
         assert forbidden not in encoded
     pyproject = tomllib.loads(_read("pyproject.toml"))
-    assert pyproject["project"]["version"] == "0.1.0"
     assert pyproject["project"]["dependencies"] == ["antlr4-python3-runtime==4.13.2"]
     assert "build-dependencies" not in pyproject
     generated = tuple(

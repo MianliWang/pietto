@@ -74,7 +74,9 @@ UV_PYTHON=3.13 uv run python scripts/validate.py --timings
 
 This is the comprehensive local release gate. Do not place a redundant broad
 pseudo-full validation immediately before it. A failure after the validator
-starts is terminal for that candidate.
+starts is terminal for that candidate. The heading's Local, like local
+elsewhere in this policy, refers to the integration host and its entry command
+(see [validation runner acceptance](../development.md#validation-runner-acceptance)).
 
 ## Risk-gated Auxiliary Audits
 

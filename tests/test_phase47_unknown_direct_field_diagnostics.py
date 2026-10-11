@@ -17,9 +17,6 @@ from pietto._project.model import (
 from pietto.ast_nodes import QueryDef, TableDef
 from pietto.errors import Severity
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
 
 def test_unknown_bare_field_emits_pie_s2102_and_unknown_schema(
     tmp_path: Path,
@@ -293,13 +290,6 @@ def test_project_text_check_reports_unknown_direct_field_diagnostic_through_exis
     assert "text.pietto" in captured.err
     assert "PIE-S2102 error" in captured.err
     assert "Unknown field: missing" in captured.err
-
-
-def test_package_version_is_locked() -> None:
-    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
-
-    assert 'version = "0.1.0"' in pyproject
-    assert 'version = "0.2.0"' not in pyproject
 
 
 def _assert_unknown_direct_field(

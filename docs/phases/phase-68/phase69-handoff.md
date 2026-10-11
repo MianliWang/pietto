@@ -80,3 +80,8 @@ S19 运行中最长的 job 为 Runtime 3.12 / general-runtime 1733 s；重复源
 
 SciNet 仍是用户独立副本上的 HPC 课程练习；当前正式验证所需的本地 ext4 与 Docker 容器域在那里未获资格，本文不迁移正式验证，
 也不对 SciNet 的其他用途下全局结论。
+
+2026-10-10 现行处置（并行插段关闭时追加，上文不改写）：按所有者陈述，课程教授许可把 SciNet Teach 用于开发；那里只跑非权威运行，
+不算验证证据。正式验证的执行位置按前提而不按地点判定，runner 结果按[验证 runner 接收规则](../../spec/validation-runner-acceptance-v1.md)
+逐域按资格采用；规则已发布，目前只有集成主机满足前提，合格 ext4 存储、Docker 与原生 campaign 也只在满足前提的 runner 上运行。上文“权威全量独占且至多 4 个 worker”中的 4 已由 8 取代，集成主机常设显式 8 个 worker（见[开发文档](../../development.md#validation-tiers)）；
+上一段对 SciNet 的限制由该规则取代（见[验证 runner 接收](../../development.md#validation-runner-acceptance)）。

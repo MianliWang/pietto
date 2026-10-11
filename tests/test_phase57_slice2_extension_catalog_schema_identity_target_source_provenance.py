@@ -614,7 +614,6 @@ def test_no_public_export_package_asset_concrete_fact_or_version_change() -> Non
     assert all(
         name not in source for name in ("pgvector", "pg_trgm", "postgis", "timescaledb")
     )
-    assert 'version = "0.1.0"' in _read(REPO_ROOT / "pyproject.toml")
 
 
 def test_spec_retained_route_and_installed_package_smoke_are_exact() -> None:

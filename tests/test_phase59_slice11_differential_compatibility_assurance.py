@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import tomllib
 from typing import cast
 
 import pytest
@@ -28,7 +29,9 @@ SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
 # project/source relocation, repeated construction, and installed-wheel run.
 EXPECTED_COMMON_MANIFEST: dict[str, object] = {
     "observation_format": "pietto.package-graph-differential.v1",
-    "package_version": "0.1.0",
+    "package_version": tomllib.loads(
+        (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["version"],
     "runtime_refs_distinct": True,
     "integrity": "ok",
     "pure_status": "ok",

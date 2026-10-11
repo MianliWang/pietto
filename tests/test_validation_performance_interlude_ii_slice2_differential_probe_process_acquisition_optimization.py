@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 from threading import Barrier, Thread
+import tomllib
 from types import ModuleType
 from typing import Any, cast
 
@@ -491,7 +492,8 @@ def test_cli_worker_session_keeps_separate_main_calls_and_order(
     assert result(one_shot_bad) == result(forward_bad) == result(reverse_bad)
     assert result(elsewhere) == result(one_shot_good)
     assert forward_good.returncode == 0
-    assert forward_good.stdout == b"pietto 0.1.0\n"
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert forward_good.stdout == f"pietto {project['project']['version']}\n".encode()
     assert forward_good.stderr == b""
     assert forward_bad.returncode != 0
     assert forward_bad.stdout == b""

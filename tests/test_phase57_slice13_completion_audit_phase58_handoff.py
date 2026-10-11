@@ -772,9 +772,6 @@ def test_candidate_version_future_owner_and_history_are_exact() -> None:
     assert "Phase 57 Completion Audit And Phase 58 Handoff v1" in document
     assert "Release-aware PostgreSQL core builtin signature catalog" in document
     assert "generated/multi-source extension catalog assembly" in document
-    assert 'version = "0.1.0"' in (REPO_ROOT / "pyproject.toml").read_text(
-        encoding="utf-8"
-    )
     for retained in (
         "32667331766",
         "77ce1c6967956f35cee33704330b99d2cd0a4dd3",

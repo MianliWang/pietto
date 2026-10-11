@@ -1411,7 +1411,10 @@ def native_manifest(target):
 
 
 def build_native_reference(directory, target, cell, providers):
-    """Build-only acquisition through original source/case/requirement owners."""
+    """Build-only acquisition through original source/case/requirement owners.
+
+    ``providers`` may instead be a function of the unbound artifact, so fixture
+    labels derived from its sources need no second build."""
     from _pietto_phase68_slice6_cases import original, source_requirements
     from _pietto_phase68_slice7_cases import manifest, case_preparation
     from pietto._project.project_guard_preparation import (
@@ -1432,6 +1435,8 @@ def build_native_reference(directory, target, cell, providers):
         case = next(c for c in manifest() if c["name"] == cell["case"])
         options = case["options"]
         preparation = case_preparation(directory, target, case)
+        if callable(providers):
+            providers = providers(preparation.artifact)
         if "binding_values" in options:
             template = prepare_guarded_template(preparation)
             binding = bind_values(
@@ -1447,6 +1452,8 @@ def build_native_reference(directory, target, cell, providers):
             if not cell["excluded"]:
                 raise ValueError("S10_UNEXPECTED_ORIGINAL_EXCLUSION")
             return None
+        if callable(providers):
+            providers = providers(artifact)
         if cell["case"] == "R2_bound":
             template = prepare_template(artifact)
             values = (1, 2) if cell["variant"] == "B" else (0, 1)

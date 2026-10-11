@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 from dataclasses import fields
-from importlib.metadata import version
 from pathlib import Path
 import subprocess
 
@@ -672,7 +671,6 @@ def test_phase51_60_checkpoint_uses_live_distinct_authorities() -> None:
         "diagnostics",
         "payload",
     )
-    assert version("pietto") == "0.1.0"
     assert project_explain_package.__all__ == project_package.__all__ == ()
     for name in ("NamedWindowLoweringStrategy", "WindowSemanticProvenance"):
         assert not hasattr(pietto, name)

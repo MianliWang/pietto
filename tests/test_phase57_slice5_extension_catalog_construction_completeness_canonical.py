@@ -1068,9 +1068,6 @@ def test_slice5_remains_private_and_preserves_phase56_and_package_boundaries() -
     )
     assert (len(corpus), len(accepted), len(corpus) - len(accepted)) == (125, 16, 109)
     assert _corpus_digest() == EXPECTED_CORPUS_DIGEST
-    assert 'version = "0.1.0"' in (REPO_ROOT / "pyproject.toml").read_text(
-        encoding="utf-8"
-    )
     package_smoke = PACKAGE_SMOKE.read_text(encoding="utf-8")
     assert 'f"{prefix}/semantic/extension_catalog.py"' in package_smoke
     assert '"import pietto.semantic.extension_catalog"' in package_smoke

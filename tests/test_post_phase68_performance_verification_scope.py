@@ -741,22 +741,6 @@ MEMOIZED = {
 }
 
 
-def test_memo_inventory_is_exact(trees):
-    """Exactly the seven pure structural checks consult the call-scoped marks,
-    each at one call site that names its private body."""
-    found = []
-    for name, tree in trees:
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id == "once"
-            ):
-                assert node.args and isinstance(node.args[0], ast.Name), name
-                found.append((name, node.args[0].id))
-    assert sorted(found) == sorted(MEMOIZED)
-
-
 DECORATED = {
     ("project_compiled_lowering.py", "emit_compiled", "entry"),
     ("project_execution.py", "compiled_output", "entry"),
@@ -797,9 +781,24 @@ DECORATED = {
 
 
 def test_scope_entry_inventory_is_exact(trees):
-    """Scopes open only at the declared public calls and owner attempts. No entry
-    runs caller-supplied code: none lives in the job, Arrow or store layers (their
-    providers, sinks, fences and commit re-checks) or takes a callable."""
+    """Exactly the seven pure structural checks consult the call-scoped marks,
+    each at one call site that names its private body. Scopes open only at the
+    declared public calls and owner attempts. No entry runs caller-supplied code:
+    none lives in the job, Arrow or store layers (their providers, sinks, fences
+    and commit re-checks) or takes a callable. One node, so the module's parsed
+    trees are built once."""
+    memoized = []
+    for name, tree in trees:
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "once"
+            ):
+                assert node.args and isinstance(node.args[0], ast.Name), name
+                memoized.append((name, node.args[0].id))
+    assert sorted(memoized) == sorted(MEMOIZED)
+
     found, parameters, decorated = set(), {}, 0
     for module, tree in trees:
         for node in ast.walk(tree):
@@ -827,11 +826,17 @@ def test_scope_entry_inventory_is_exact(trees):
         assert not names & {"provider", "sink", "callback", "consumer"}, name
 
 
-def test_every_scope_entry_is_reached_by_a_route(request):
+def test_every_scope_entry_is_reached_by_a_route(request, monkeypatch):
     """Each declared entry runs inside at least one budget route, as the route's
-    public call or nested in it, so the budget law covers every scope it opens."""
+    public call or nested in it, so the budget law covers every scope it opens.
+    Marks keep their subjects alive until the call ends, so they must never
+    hold a job-layer authority object that the runtime tracks by weak reference.
+    Every memoized check refuses a foreign object, so no mark can record one.
+    One pass over the routes observes both."""
     import importlib
     import inspect
+
+    from pietto._project import project_verification_scope as scope
 
     codes = {}
     for module, name, kind in DECORATED:
@@ -843,6 +848,18 @@ def test_every_scope_entry_is_reached_by_a_route(request):
     assert len(codes) == sum(
         kind == "entry" and name not in OWNER_ONLY for _m, name, kind in DECORATED
     )
+    real, seen = scope.once, []
+
+    def recording(check, *subjects):
+        seen.extend(subjects)
+        return real(check, *subjects)
+
+    for module in list(sys.modules.values()):
+        if (
+            getattr(module, "__name__", "").startswith("pietto._project.")
+            and getattr(module, "once", None) is real
+        ):
+            monkeypatch.setattr(module, "once", recording)
     # Every route is built before monitoring starts, so only the public calls count.
     calls = [_route(route, _world(request, route))[0] for route in ROUTES]
     reached = set()
@@ -862,30 +879,8 @@ def test_every_scope_entry_is_reached_by_a_route(request):
             MON.set_local_events(tool, code, 0)
         MON.register_callback(tool, MON.events.PY_START, None)
         MON.free_tool_id(tool)
-    assert sorted(set(codes.values()) - reached) == []
-
-
-def test_marks_never_hold_job_layer_authority(request, monkeypatch):
-    """Marks keep their subjects alive until the call ends, so they must never
-    hold a job-layer authority object that the runtime tracks by weak reference.
-    Every memoized check refuses a foreign object, so no mark can record one."""
-    from pietto._project import project_verification_scope as scope
-
-    real, seen = scope.once, []
-
-    def recording(check, *subjects):
-        seen.extend(subjects)
-        return real(check, *subjects)
-
-    for module in list(sys.modules.values()):
-        if (
-            getattr(module, "__name__", "").startswith("pietto._project.")
-            and getattr(module, "once", None) is real
-        ):
-            monkeypatch.setattr(module, "once", recording)
-    for route in ROUTES:
-        _route(route, _world(request, route))[0]()
     monkeypatch.undo()
+    assert sorted(set(codes.values()) - reached) == []
     assert seen
     for subject in seen:
         assert not type(subject).__module__.startswith("pietto._project.project_job")

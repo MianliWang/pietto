@@ -21,9 +21,6 @@ from pietto._project.model import (
 )
 from pietto.ast_nodes import QueryDef, ShapeDef, SourceDef, TableDef
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
 
 def test_source_row_schema_populates_from_resolved_shape_fields_in_order(
     tmp_path: Path,
@@ -235,13 +232,6 @@ def test_source_row_schema_missing_direct_projection_stays_private_without_diagn
         (diagnostic.code, diagnostic.message)
         for diagnostic in semantic_result.diagnostics
     ] == [("PIE-S2102", "Unknown field: missing_field")]
-
-
-def test_package_version_is_locked() -> None:
-    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
-
-    assert 'version = "0.1.0"' in pyproject
-    assert 'version = "0.2.0"' not in pyproject
 
 
 def _project_semantic_result(

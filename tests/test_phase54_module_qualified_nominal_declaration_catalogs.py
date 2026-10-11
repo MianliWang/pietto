@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
-from importlib.metadata import version
 import json
 from pathlib import Path
 from typing import Any, cast
@@ -895,4 +894,3 @@ def test_private_catalog_surface_and_package_version_remain_exact() -> None:
     ):
         assert not hasattr(pietto, name)
     assert not hasattr(pietto, "__version__")
-    assert version("pietto") == "0.1.0"

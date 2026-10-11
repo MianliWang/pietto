@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import subprocess
+import tomllib
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -245,8 +246,12 @@ INTERLUDE_COMPLETION = (
     "Complete validation performance interlude",
 )
 
+# The status row follows the declared package version.
+PACKAGE_VERSION = tomllib.loads(
+    (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+)["project"]["version"]
 EXPECTED_STATUS = (
-    ("Package and CLI", "`0.1.0`"),
+    ("Package and CLI", f"`{PACKAGE_VERSION}`"),
     ("Phase 55", "`COMPLETED`"),
     ("Phase 56", "`COMPLETED`"),
     ("Phase 57", "`COMPLETED`"),
@@ -379,11 +384,8 @@ EXPECTED_STATUS = (
     ("Interlude V Slice 3", "`COMPLETED / PUBLISHED`"),
     ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
     ("PostgreSQL refinement-page JIT predecessor", "`COMPLETED / PUBLISHED`"),
-    ("Parallelism interlude", "`ACTIVE`"),
-    (
-        "Next",
-        "`parallelism interlude closure; then a separately dispatched Phase69 rebind`",
-    ),
+    ("Parallelism interlude", "`COMPLETED`"),
+    ("Next", "`a separately dispatched Phase69 rebind`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (

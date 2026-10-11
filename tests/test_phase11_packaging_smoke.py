@@ -83,10 +83,10 @@ def test_wheel_and_sdist_inventory_metadata_and_entry_point_are_checked(
     tmp_path: Path,
 ) -> None:
     contract = smoke._project_contract()
-    wheel = tmp_path / "pietto-0.1.0-py3-none-any.whl"
-    sdist = tmp_path / "pietto-0.1.0.tar.gz"
-    wheel_prefix = "pietto-0.1.0.dist-info"
-    sdist_prefix = "pietto-0.1.0"
+    sdist_prefix = f"{contract.name}-{contract.version}"
+    wheel = tmp_path / f"{sdist_prefix}-py3-none-any.whl"
+    sdist = tmp_path / f"{sdist_prefix}.tar.gz"
+    wheel_prefix = f"{sdist_prefix}.dist-info"
     metadata = _metadata_bytes()
 
     with zipfile.ZipFile(wheel, mode="w") as archive:
@@ -127,8 +127,8 @@ def test_wheel_and_sdist_inventory_metadata_and_entry_point_are_checked(
 
 def test_missing_generated_module_fails_artifact_inspection(tmp_path: Path) -> None:
     contract = smoke._project_contract()
-    wheel = tmp_path / "pietto-0.1.0-py3-none-any.whl"
-    prefix = "pietto-0.1.0.dist-info"
+    wheel = tmp_path / f"{contract.name}-{contract.version}-py3-none-any.whl"
+    prefix = f"{contract.name}-{contract.version}.dist-info"
     required = smoke._required_runtime_files("pietto") - {
         "pietto/generated/PiettoParser.py"
     }
@@ -266,7 +266,7 @@ def _metadata_bytes() -> bytes:
         (
             b"Metadata-Version: 2.4\n",
             b"Name: pietto\n",
-            b"Version: 0.1.0\n",
+            f"Version: {smoke._project_contract().version}\n".encode("utf-8"),
             b"License-Expression: MIT\n",
             license_metadata,
             b"Requires-Python: >=3.12\n",

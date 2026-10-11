@@ -82,35 +82,31 @@ def fixture_reference(directory, target, cell):
     """S10's build-only reference with fixture provider declarations (no database).
 
     The provider declarations are labels for the compiled requirement vector
-    only; native admission of them is execution-profile evidence.
+    only; native admission of them is execution-profile evidence. They are
+    labelled from the reference's own unbound artifact, so the source is built
+    once.
     """
     import _pietto_phase68_slice10_probe as s10
-    from _pietto_phase68_slice6_cases import original
-    from _pietto_phase68_slice7_cases import case_preparation, manifest
 
-    directory = Path(directory)
-    if cell["group"] == "guarded":
-        case = next(c for c in manifest() if c["name"] == cell["case"])
-        first = case_preparation(directory / "sources", target, case).artifact
-    else:
-        first = original(directory / "sources", target, cell["case"], cell["variant"])
-    if first is None:
-        return None
-    relations = sorted({(s.namespace, s.name) for s in first.request.sources})
-    providers = [
-        dict(
-            namespace=n,
-            name=m,
-            provider="fixture-" + str(i),
-            version="v1",
-            revision="r1",
-            registry="registry",
-            definition="fixture view definition",
-            tokens=["key0"],
-        )
-        for i, (n, m) in enumerate(relations)
-    ]
-    return s10.build_native_reference(directory / "reference", target, cell, providers)
+    def providers(first):
+        relations = sorted({(s.namespace, s.name) for s in first.request.sources})
+        return [
+            dict(
+                namespace=n,
+                name=m,
+                provider="fixture-" + str(i),
+                version="v1",
+                revision="r1",
+                registry="registry",
+                definition="fixture view definition",
+                tokens=["key0"],
+            )
+            for i, (n, m) in enumerate(relations)
+        ]
+
+    return s10.build_native_reference(
+        Path(directory) / "reference", target, cell, providers
+    )
 
 
 def r2_families(target):

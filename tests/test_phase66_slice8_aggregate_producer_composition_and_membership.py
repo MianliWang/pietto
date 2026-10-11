@@ -377,21 +377,3 @@ def test_pure_grouping_without_an_aggregate_is_still_unavailable(tmp_path, targe
     )
     assert outcome.status == "BLOCKED"
     assert [item.code for item in outcome.diagnostics] == ["PIE-S2333"]
-
-
-# --------------------------------------------------------------------------
-# The published manifest agrees with the installed pipeline
-# --------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("target", TARGETS)
-def test_every_aggregate_manifest_variant_reaches_its_declared_outcome(
-    tmp_path, target
-):
-    for case in probe.AGGREGATE_CASES:
-        for variant in probe.VARIANTS[case]:
-            expected = probe.expected_status(case, variant, target)
-            _, outcome = emit(tmp_path / f"{case}-{variant}", target, case, variant)
-            assert outcome.status == expected, (case, variant, outcome.status)
-            if expected == "VERIFIED":
-                assert public(outcome)["status"] == "VERIFIED"

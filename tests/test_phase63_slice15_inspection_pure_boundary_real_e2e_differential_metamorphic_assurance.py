@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import tomllib
 from typing import cast
 
 import pytest
@@ -55,7 +56,9 @@ SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
 # records, and canonical bytes are compared directly; digests are review aids.
 EXPECTED_REVIEW_SUMMARY: dict[str, object] = {
     "observation_format": "pietto.phase63-query-block-ir-differential.v1",
-    "package_version": "0.1.0",
+    "package_version": tomllib.loads(
+        (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["version"],
     "owner_count": 35,
     "record_count": 2118,
     "canonical_size": 351210,

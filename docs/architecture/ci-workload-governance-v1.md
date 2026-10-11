@@ -37,10 +37,12 @@ v1只作历史，不允许宽松fallback。coverage仍≤8MiB，所有旧semanti
 placement以`shards`列出目标；列出多个shard时，该需求的节点按排序后的序号轮流分配（第i个到`shards[i % n]`），
 同一文件可分在两个job，每个job内仍按loadfile；有acquisition group的需求只能有一个shard，旧单值`shard`字段拒绝。
 
-每job资源选择≤4workers，无嵌套池。checks/runtime/targets独立启动；共19realized jobs（每个Python六个runtime分片）；保留两个Python
+托管CI每job资源选择≤4workers，无嵌套池。checks/runtime/targets独立启动；共19realized jobs（每个Python六个runtime分片）；保留两个Python
 completion contexts与strict target aggregate。共享lock/Ruff、双Pyright/generated/golden/installed和pins不变；
 两个Pyright gate各以`--threads 4`运行，仍是两个独立权威。
 小Arrow实验是两compiler/package jobs中的required隔离step，core全量测试不靠缺依赖skip。
+集成主机的权威validator至多8workers（`PYTEST_MAX_RESOURCE_WORKERS`；显式worker数绕过该上限与内存估算，须经批准，
+现行常设批准为显式8，见[开发文档](../development.md#validation-tiers)）。改动上述任一上限都需单独授权。
 
 loadfile的发放顺序由`tests/conftest.py`的`pytest_xdist_make_scheduler`决定，覆盖本地validator与两个loadfile分片：
 文件单元与stock loadfile相同，只先发registry中经review的`[[file_costs]]`估计（一次完整本地session里该文件
@@ -71,7 +73,8 @@ slow正确结果不失败。current mandatory report畸形/缺失是report failu
 REVIEW_RECOMMENDED/INSUFFICIENT_EVIDENCE、reason codes和review actions，不产生可执行YAML。
 
 最终aggregate以job级contents:read/actions:read读取最多30日内10候选run、最多3eligible同repo、push/main、
-completed success、attempt1的health。PR不入trusted history。raw长度/digest/schema/context先验证；不执行、
+completed success、attempt1的health。PR不入trusted history；集成主机与其他runner产生的报告同样不入。
+raw长度/digest/schema/context先验证；不执行、
 不加载其配置；过期/失败则记录不足证据，不循环抓取。首轮无history正常；R1仅标记旧reference，不伪造v1health。
 数值历史建议至少最近3个可比样本中2个；structural observation可立即建议review。policy/topology/runner/
 patch/child-domain差异与test-set/group drift显式呈现，不能虚构按节点数归一化。

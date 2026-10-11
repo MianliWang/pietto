@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from importlib.metadata import version
 from pathlib import Path
 import subprocess
 
@@ -874,7 +873,6 @@ def test_product_symbols_principal_tests_and_private_boundaries_are_live() -> No
         assert "project_multifact" not in text
         assert "project_ir_joins" not in text
     assert not hasattr(pietto, "__version__")
-    assert version("pietto") == "0.1.0"
 
 
 def test_architecture_laws_exit_ledger_and_later_owners_are_closed() -> None:

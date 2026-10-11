@@ -1594,7 +1594,6 @@ def test_schema_v2_public_api_cli_json_ir_sql_dependencies_and_generated_surface
     pyproject = tomllib.loads(
         (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     )
-    assert pyproject["project"]["version"] == "0.1.0"
     assert pyproject["project"]["dependencies"] == ["antlr4-python3-runtime==4.13.2"]
     generated = tuple(
         path

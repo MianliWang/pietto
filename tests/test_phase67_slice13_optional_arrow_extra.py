@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tarfile
@@ -54,36 +55,38 @@ def _artifact(
         licenses.pop("LICENSE")
     elif license_damage == "altered":
         licenses["LICENSE"] += b"\n"
+    stem = f"{contract.name}-{contract.version}"
     if kind == "wheel":
-        path = tmp_path / "pietto-0.1.0-py3-none-any.whl"
+        path = tmp_path / f"{stem}-py3-none-any.whl"
+        info = f"{stem}.dist-info/"
         with zipfile.ZipFile(path, "w") as archive:
             for name in smoke._required_runtime_files("pietto"):
                 if not name.endswith(missing) or not missing:
                     archive.writestr(name, b"")
-            archive.writestr("pietto-0.1.0.dist-info/METADATA", metadata)
-            archive.writestr("pietto-0.1.0.dist-info/WHEEL", "Wheel-Version: 1.0\n")
+            archive.writestr(info + "METADATA", metadata)
+            archive.writestr(info + "WHEEL", "Wheel-Version: 1.0\n")
             archive.writestr(
-                "pietto-0.1.0.dist-info/entry_points.txt",
+                info + "entry_points.txt",
                 entry or b"[console_scripts]\npietto = pietto.cli:main\n",
             )
             for name, content in licenses.items():
-                archive.writestr(f"pietto-0.1.0.dist-info/licenses/{name}", content)
+                archive.writestr(f"{info}licenses/{name}", content)
         return path
-    path = tmp_path / "pietto-0.1.0.tar.gz"
+    path = tmp_path / f"{stem}.tar.gz"
     members = {
         name: b""
-        for name in smoke._required_runtime_files("pietto-0.1.0/src/pietto")
+        for name in smoke._required_runtime_files(f"{stem}/src/pietto")
         if not missing or not name.endswith(missing)
     }
     members.update(
         {
-            "pietto-0.1.0/PKG-INFO": metadata,
-            "pietto-0.1.0/pyproject.toml": project
+            f"{stem}/PKG-INFO": metadata,
+            f"{stem}/pyproject.toml": project
             or (REPO_ROOT / "pyproject.toml").read_bytes(),
-            "pietto-0.1.0/README.md": (REPO_ROOT / contract.readme).read_bytes(),
+            f"{stem}/README.md": (REPO_ROOT / contract.readme).read_bytes(),
         }
     )
-    members.update({f"pietto-0.1.0/{n}": c for n, c in licenses.items()})
+    members.update({f"{stem}/{n}": c for n, c in licenses.items()})
     with tarfile.open(path, "w:gz") as archive:
         for name, data in members.items():
             info = tarfile.TarInfo(name)
@@ -100,11 +103,6 @@ def _inspect(path: Path, kind: str) -> None:
 def test_project_and_lock_select_exactly_one_optional_arrow_dependency():
     document = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
     project = document["project"]
-    assert (project["name"], project["version"], project["requires-python"]) == (
-        "pietto",
-        "0.1.0",
-        ">=3.12",
-    )
     assert project["dependencies"] == ["antlr4-python3-runtime==4.13.2"]
     # The Arrow extra is unchanged; Phase68 S18 pins its route extras exactly.
     assert project["optional-dependencies"]["arrow"] == ["pyarrow==25.0.1"]
@@ -112,7 +110,6 @@ def test_project_and_lock_select_exactly_one_optional_arrow_dependency():
     assert "pyarrow" not in json.dumps(document["dependency-groups"]).lower()
     lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text())
     (package,) = [p for p in lock["package"] if p["name"] == "pietto"]
-    assert package["version"] == "0.1.0"
     assert package["dependencies"] == [{"name": "antlr4-python3-runtime"}]
     assert package["optional-dependencies"]["arrow"] == [{"name": "pyarrow"}]
     assert package["metadata"]["provides-extras"][0] == "arrow"
@@ -189,52 +186,72 @@ def test_artifact_metadata_accepts_equivalent_serialization(
     _inspect(_artifact(tmp_path, kind, metadata), kind)
 
 
-@pytest.mark.parametrize("kind", ("wheel", "sdist"))
-@pytest.mark.parametrize(
-    "before,after",
+EXTRAS_DIFFER = "artifact Provides-Extra declarations differ"
+REQUIREMENTS_DIFFER = "artifact runtime dependency/extra declarations differ"
+LICENSE_DIFFERS = "artifact license metadata differs"
+# Each (before, after) damage and the package_smoke failure that must reject it.
+METADATA_DAMAGE = {
+    (b"Provides-Extra: arrow\n", b""): EXTRAS_DIFFER,
+    (b"Provides-Extra: arrow", b"Provides-Extra: results"): EXTRAS_DIFFER,
     (
-        (b"Provides-Extra: arrow\n", b""),
-        (b"Provides-Extra: arrow", b"Provides-Extra: results"),
-        (
-            b"Provides-Extra: arrow\n",
-            b"Provides-Extra: arrow\nProvides-Extra: unknown\n",
-        ),
-        (b"Provides-Extra: arrow\n", b"Provides-Extra: arrow\nProvides-Extra: arrow\n"),
-        (b"pyarrow==25.0.1", b"pyarrow==25.0.0"),
-        (b"pyarrow==25.0.1", b"pyarrow>=25.0.1"),
-        (b"; extra == 'arrow'", b""),
-        (b"; extra == 'arrow'", b"; extra == 'unknown'"),
-        (b"; extra == 'arrow'", b"; extra == 'ar row'"),
-        (b"Requires-Dist: pyarrow==25.0.1; extra == 'arrow'\n", b""),
-        (
-            b"Requires-Dist: pyarrow==25.0.1; extra == 'arrow'\n",
-            b"Requires-Dist: pyarrow==25.0.1; extra == 'arrow'\nRequires-Dist: pyarrow==26.0.0; extra == 'arrow'\n",
-        ),
-        (b"Requires-Dist: antlr4-python3-runtime==4.13.2\n", b""),
-        (b"Metadata-Version: 2.4", b"Metadata-Version: 2.3"),
-        (b"License-Expression: MIT\n", b""),
-        (b"License-Expression: MIT", b"License-Expression: Apache-2.0"),
-        (b"License-File: LICENSE\n", b""),
-        (b"License-Expression: MIT\n", b"License-Expression: MIT\nLicense: MIT\n"),
-        (
-            b"License-Expression: MIT\n",
-            b"License-Expression: MIT\nClassifier: License :: OSI Approved :: MIT License\n",
-        ),
-        (b"Version: 0.1.0", b"Version: 0.2.0"),
-        (b"Requires-Python: >=3.12", b"Requires-Python: >=3.13"),
-        (
-            b"Description-Content-Type: text/markdown",
-            b"Description-Content-Type: text/plain",
-        ),
-        (b"# Pietto\n", b"# Wrong README\n"),
-    ),
-)
+        b"Provides-Extra: arrow\n",
+        b"Provides-Extra: arrow\nProvides-Extra: unknown\n",
+    ): EXTRAS_DIFFER,
+    (
+        b"Provides-Extra: arrow\n",
+        b"Provides-Extra: arrow\nProvides-Extra: arrow\n",
+    ): EXTRAS_DIFFER,
+    (b"pyarrow==25.0.1", b"pyarrow==25.0.0"): REQUIREMENTS_DIFFER,
+    (b"pyarrow==25.0.1", b"pyarrow>=25.0.1"): REQUIREMENTS_DIFFER,
+    (b"; extra == 'arrow'", b""): REQUIREMENTS_DIFFER,
+    (b"; extra == 'arrow'", b"; extra == 'unknown'"): REQUIREMENTS_DIFFER,
+    (
+        b"; extra == 'arrow'",
+        b"; extra == 'ar row'",
+    ): "unsupported artifact extra condition",
+    (b"Requires-Dist: pyarrow==25.0.1; extra == 'arrow'\n", b""): REQUIREMENTS_DIFFER,
+    (
+        b"Requires-Dist: pyarrow==25.0.1; extra == 'arrow'\n",
+        b"Requires-Dist: pyarrow==25.0.1; extra == 'arrow'\nRequires-Dist: pyarrow==26.0.0; extra == 'arrow'\n",
+    ): REQUIREMENTS_DIFFER,
+    (b"Requires-Dist: antlr4-python3-runtime==4.13.2\n", b""): REQUIREMENTS_DIFFER,
+    (b"Metadata-Version: 2.4", b"Metadata-Version: 2.3"): LICENSE_DIFFERS,
+    (b"License-Expression: MIT\n", b""): LICENSE_DIFFERS,
+    (b"License-Expression: MIT", b"License-Expression: Apache-2.0"): LICENSE_DIFFERS,
+    (b"License-File: LICENSE\n", b""): LICENSE_DIFFERS,
+    (
+        b"License-Expression: MIT\n",
+        b"License-Expression: MIT\nLicense: MIT\n",
+    ): LICENSE_DIFFERS,
+    (
+        b"License-Expression: MIT\n",
+        b"License-Expression: MIT\nClassifier: License :: OSI Approved :: MIT License\n",
+    ): LICENSE_DIFFERS,
+    # Any current version becomes another one: "9" prefixes its value.
+    (b"\nVersion: ", b"\nVersion: 9"): "artifact metadata Version is",
+    (
+        b"Requires-Python: >=3.12",
+        b"Requires-Python: >=3.13",
+    ): "artifact metadata Requires-Python is",
+    (
+        b"Description-Content-Type: text/markdown",
+        b"Description-Content-Type: text/plain",
+    ): "artifact metadata is missing Markdown README metadata",
+    (
+        b"# Pietto\n",
+        b"# Wrong README\n",
+    ): "artifact metadata is missing the declared README body",
+}
+
+
+@pytest.mark.parametrize("kind", ("wheel", "sdist"))
+@pytest.mark.parametrize("before,after", tuple(METADATA_DAMAGE))
 def test_metadata_damage_fails_each_artifact(
     tmp_path: Path, kind: str, before: bytes, after: bytes
 ):
     original = _metadata_bytes()
     assert before in original
-    with pytest.raises(smoke.SmokeFailure):
+    with pytest.raises(smoke.SmokeFailure, match=METADATA_DAMAGE[before, after]):
         _inspect(_artifact(tmp_path, kind, original.replace(before, after, 1)), kind)
 
 
@@ -247,7 +264,8 @@ def test_license_members_are_required_and_byte_exact(
     tmp_path: Path, kind: str, damage: str, message: str
 ):
     artifact = _artifact(tmp_path, kind, _metadata_bytes(), license_damage=damage)
-    with pytest.raises(smoke.SmokeFailure, match=message):
+    # Exactly the LICENSE member is named, whatever the artifact's prefix.
+    with pytest.raises(smoke.SmokeFailure, match=rf"{message}: \S*LICENSE$"):
         _inspect(artifact, kind)
 
 
@@ -256,7 +274,11 @@ def test_license_members_are_required_and_byte_exact(
 def test_all_current_private_result_owners_are_required(
     tmp_path: Path, kind: str, owner: str
 ):
-    with pytest.raises(smoke.SmokeFailure, match=owner):
+    # Exactly this one owner is missing, whatever the artifact's prefix.
+    with pytest.raises(
+        smoke.SmokeFailure,
+        match=rf"missing required files: \S*pietto/_project/{owner}\.py$",
+    ):
         _inspect(
             _artifact(tmp_path, kind, _metadata_bytes(), missing=owner + ".py"), kind
         )
@@ -346,25 +368,33 @@ else:
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize(
-    "field",
-    (
-        b"Name: pietto",
-        b"Version: 0.1.0",
-        b"Requires-Python: >=3.12",
-        b"Description-Content-Type: text/markdown",
-        b"Metadata-Version: 2.4",
-        b"License-Expression: MIT",
+# Each duplicated singleton line (named by how it starts; Version by its header
+# alone, so any version) and the package_smoke failure that must reject it.
+SINGLETON_DAMAGE = {
+    b"Name: pietto": "artifact metadata Name is",
+    b"Version": "artifact metadata Version is",
+    b"Requires-Python: >=3.12": "artifact metadata Requires-Python is",
+    b"Description-Content-Type: text/markdown": (
+        "artifact metadata is missing Markdown README metadata"
     ),
-)
+    b"Metadata-Version: 2.4": LICENSE_DIFFERS,
+    b"License-Expression: MIT": LICENSE_DIFFERS,
+}
+
+
+@pytest.mark.parametrize("field", tuple(SINGLETON_DAMAGE))
 @pytest.mark.parametrize("kind", ("wheel", "sdist"))
 def test_duplicate_singleton_metadata_is_rejected(
     tmp_path: Path, field: bytes, kind: str
 ):
-    metadata = _metadata_bytes().replace(
-        field + b"\n", field + b"\n" + field + b"\n", 1
+    metadata, count = re.subn(
+        rb"(?m)^(" + re.escape(field) + rb"[^\n]*\n)",
+        rb"\1\1",
+        _metadata_bytes(),
+        count=1,
     )
-    with pytest.raises(smoke.SmokeFailure):
+    assert count == 1
+    with pytest.raises(smoke.SmokeFailure, match=SINGLETON_DAMAGE[field]):
         _inspect(_artifact(tmp_path, kind, metadata), kind)
 
 

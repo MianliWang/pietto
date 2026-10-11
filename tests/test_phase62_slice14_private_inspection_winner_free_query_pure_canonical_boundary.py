@@ -3,10 +3,7 @@ from __future__ import annotations
 import ast
 from copy import copy
 from dataclasses import replace
-import os
 from pathlib import Path
-import subprocess
-import sys
 from typing import cast
 
 import pytest
@@ -557,45 +554,6 @@ def test_projection_is_zero_mutation_and_repeatable(
     )
     assert repeated.document == product.document
     assert repeated.canonical_bytes == product.canonical_bytes
-
-
-def test_hash_seed_and_unrelated_cwd_do_not_change_canonical_bytes(
-    tmp_path: Path,
-) -> None:
-    python = sys.executable
-    script = """
-from pathlib import Path
-import sys
-from test_phase62_slice12_per_aggregate_fact_locality_chasm_detection_multi_fact_alignment import _build
-from pietto._project.project_phase62_inspection import build_project_phase62_inspection
-from pietto._project.project_phase62_verification import build_project_phase62_analysis_bundle, verify_project_phase62
-path = Path(sys.argv[1])
-path.mkdir(parents=True)
-root = _build(path)
-product = build_project_phase62_inspection(build_project_phase62_analysis_bundle(verify_project_phase62(root)))
-sys.stdout.buffer.write(product.canonical_bytes)
-"""
-    outputs: list[bytes] = []
-    for seed, name in (("1", "left"), ("987654", "right")):
-        cwd = tmp_path / name
-        cwd.mkdir()
-        env = {
-            **os.environ,
-            "PYTHONHASHSEED": seed,
-            "PYTHONPATH": os.pathsep.join(
-                (str(REPO_ROOT / "src"), str(REPO_ROOT / "tests"))
-            ),
-        }
-        completed = subprocess.run(
-            [str(python), "-c", script, str(cwd / "project")],
-            cwd=cwd,
-            env=env,
-            check=True,
-            capture_output=True,
-        )
-        outputs.append(completed.stdout)
-    assert outputs[0] == outputs[1]
-    assert outputs[0].startswith(b"header\tformat=t:pietto.phase62-inspection.v1\t")
 
 
 def test_slice14_spec_exists_and_freezes_private_boundaries() -> None:

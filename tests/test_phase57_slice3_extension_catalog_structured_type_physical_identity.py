@@ -567,7 +567,6 @@ def test_slice2_and_phase56_predecessor_contracts_remain_exact() -> None:
         109,
     )
     assert _corpus_digest() == EXPECTED_CORPUS_DIGEST
-    assert 'version = "0.1.0"' in _read(REPO_ROOT / "pyproject.toml")
 
 
 def test_spec_retained_route_deferred_shapes_and_package_smoke_are_exact() -> None:

@@ -4134,5 +4134,3 @@ def test_schema_v2_public_api_cli_json_metadata_ir_sql_dependencies_version_and_
         encoding="utf-8"
     )
     assert "module_semantic_fact_preservation" not in project_init
-    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'version = "0.1.0"' in pyproject

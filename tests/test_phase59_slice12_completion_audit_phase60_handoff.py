@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 from dataclasses import fields
-from importlib.metadata import version
 from pathlib import Path
 import subprocess
 
@@ -504,7 +503,6 @@ def test_compatibility_public_behavior_and_central_assurance_remain_zero_delta()
         SEMANTIC_METADATA_SCHEMA_VERSION,
         SEMANTIC_METADATA_COMMAND,
     ) == ("Semantic Metadata Artifact v1", 1, "explain")
-    assert version("pietto") == "0.1.0"
     assert project_explain_package.__all__ == ()
     smoke = (REPO_ROOT / "scripts/package_smoke.py").read_text(encoding="utf-8")
     for required in (

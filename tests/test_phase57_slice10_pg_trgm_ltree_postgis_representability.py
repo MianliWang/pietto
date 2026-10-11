@@ -573,9 +573,6 @@ def test_private_offline_boundaries_package_and_predecessors_are_unchanged() -> 
     )
     assert (len(corpus), len(accepted), len(corpus) - len(accepted)) == (125, 16, 109)
     assert slice5._corpus_digest() == EXPECTED_CORPUS_DIGEST
-    assert 'version = "0.1.0"' in (REPO_ROOT / "pyproject.toml").read_text(
-        encoding="utf-8"
-    )
 
 
 def test_spec_and_package_smoke_are_exact() -> None:

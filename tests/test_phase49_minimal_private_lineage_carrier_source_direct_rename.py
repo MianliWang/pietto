@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError, is_dataclass
 import json
 from pathlib import Path
-import tomllib
 
 import pytest
 
@@ -27,7 +26,6 @@ from pietto._project.row_lineage import (
 from pietto.ast_nodes import QueryDef, TableDef
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 PRIVATE_JSON_FACTS = (
     "relation_row_lineages",
@@ -398,11 +396,6 @@ def test_row_lineage_module_does_not_call_full_semantic_analyze() -> None:
     assert "semantic_api.analyze" not in module
     assert "from pietto.semantic import analyze" not in module
     assert "import pietto.semantic as semantic_api" not in module
-
-
-def test_package_version_remains_010() -> None:
-    project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
-    assert project["version"] == "0.1.0"
 
 
 def _fact_values(

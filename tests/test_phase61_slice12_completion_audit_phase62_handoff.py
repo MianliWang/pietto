@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 from dataclasses import fields
-from importlib.metadata import version
 from pathlib import Path
 import subprocess
 
@@ -723,7 +722,6 @@ def test_real_e2e_differential_negative_and_order_assurance_are_published() -> N
 
 
 def test_public_compatibility_is_zero_delta_and_project_ir_remains_private() -> None:
-    assert version("pietto") == "0.1.0"
     assert project_package.__all__ == ()
     for name in (
         "ProjectIRProjectPlan",

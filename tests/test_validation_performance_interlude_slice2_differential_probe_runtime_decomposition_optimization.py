@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 import subprocess
+import tomllib
 
 import _pietto_differential_process_acquisition as acquisition_owner
 import _pietto_phase59_graph_differential_probe as phase59_probe
@@ -54,7 +55,8 @@ def test_cli_pair_preserves_order_failures_and_has_no_observation_cache() -> Non
     assert _result(forward_good) == _result(reverse_good)
     assert _result(forward_bad) == _result(reverse_bad)
     assert forward_good.returncode == 0
-    assert forward_good.stdout == b"pietto 0.1.0\n"
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert forward_good.stdout == f"pietto {project['project']['version']}\n".encode()
     assert forward_good.stderr == b""
     assert forward_bad.returncode != 0
     assert forward_bad.stdout == b""

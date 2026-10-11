@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import tomllib
 
 from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
@@ -22,7 +21,6 @@ from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 from pietto.semantic.model import EffectiveNullability, ValueTypeKind
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 PRIVATE_JSON_FACTS = (
     "relation_let_scope_facts",
@@ -311,11 +309,6 @@ def test_slice6_helper_uses_narrow_private_let_analysis_only() -> None:
     assert "from pietto.semantic import analyze" not in helper
     assert "import pietto.semantic as semantic_api" not in helper
     assert "infer_row_expression" not in helper
-
-
-def test_package_version_remains_010() -> None:
-    project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
-    assert project["version"] == "0.1.0"
 
 
 def _assert_let_state(

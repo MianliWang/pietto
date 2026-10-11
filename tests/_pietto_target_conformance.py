@@ -37,6 +37,9 @@ from _pietto_target_conformance_resources import (
 ROOT = Path(__file__).resolve().parents[1]
 PINS = Path(__file__).with_name("phase66_target_pins.json")
 FORMAT = "pietto.target-conformance-receipt.v2"
+# The installed candidate's version: this harness's own literal, never read from
+# the checkout it judges.
+CANDIDATE_VERSION = "0.1.0"
 MAX_RECEIPT = 33 * 1024 * 1024
 HELPERS = tuple(
     Path(__file__).with_name("_pietto_target_conformance" + suffix + ".py")
@@ -370,7 +373,7 @@ def verify_generation(
         generation.get("exit_code") != 0
         or generation.get("stderr") != ""
         or generation.get("isolated") != 1
-        or generation.get("version") != "0.1.0"
+        or generation.get("version") != CANDIDATE_VERSION
         or generation.get("runtime_version") != "4.13.2"
     ):
         raise ValueError("installed compiler generation failed")

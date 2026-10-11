@@ -1279,6 +1279,3 @@ def test_slice8_spec_and_package_smoke_are_exact() -> None:
     package_smoke = PACKAGE_SMOKE.read_text(encoding="utf-8")
     assert 'f"{prefix}/_project/extension_signature_provider.py"' in package_smoke
     assert '"import pietto._project.extension_signature_provider"' in package_smoke
-    assert 'version = "0.1.0"' in (REPO_ROOT / "pyproject.toml").read_text(
-        encoding="utf-8"
-    )

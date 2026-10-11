@@ -18,8 +18,6 @@ from pietto._project.model import (
 from pietto.ast_nodes import QueryDef, TableDef
 from pietto.errors import Severity
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 PROJECT_JSON_TOP_LEVEL_KEYS = (
     "schema_version",
@@ -272,13 +270,6 @@ def test_project_json_v2_does_not_expose_relation_dependency_edges(
         "dependency_source",
     ):
         assert private_fact not in serialized
-
-
-def test_package_version_is_locked() -> None:
-    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
-
-    assert 'version = "0.1.0"' in pyproject
-    assert 'version = "0.2.0"' not in pyproject
 
 
 def _project_semantic_result(

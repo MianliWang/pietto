@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import tomllib
 from typing import cast
 
 import pytest
@@ -28,7 +29,9 @@ SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
 # canonical bytes are compared directly; these digests are review aids only.
 EXPECTED_COMMON_MANIFEST: dict[str, object] = {
     "observation_format": "pietto.phase62-join-differential.v1",
-    "package_version": "0.1.0",
+    "package_version": tomllib.loads(
+        (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["version"],
     "runtime_identities_distinct": True,
     "relation_count": 32,
     "relations": [
@@ -976,8 +979,8 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
         "first_coordinates": [7, 11, 5, 5],
         "verification": "verified",
     },
-    "observation_sha256": "47626a84997b57b1fbd3309b60bc62f6752dba1be48e84052f89422c0a3e1eea",
-    "observation_size": 2897719,
+    "observation_sha256": "2cbc4abaf1f1ec2c94b755563707a9ad71fa9d2cc948dfc483663cc98a249d1f",
+    "observation_size": 2897716,
 }
 
 
@@ -1120,6 +1123,10 @@ def _common_manifest(document: bytes) -> dict[str, object]:
     relations = cast(list[list[object]], primary["relations"])
     analysis_products = cast(list[object], primary["analysis_products"])
     binaries = _binary_manifest(cast(list[list[object]], primary["join_regions"]))
+    # The reviewed bytes leave the version out; "package_version" pins it.
+    field = b'"package_version":' + json.dumps(observation["package_version"]).encode()
+    assert document.count(field) == 1
+    unversioned = document.replace(field, b'"package_version":null')
     return {
         "observation_format": observation["observation_format"],
         "package_version": observation["package_version"],
@@ -1252,8 +1259,8 @@ def _common_manifest(document: bytes) -> dict[str, object]:
             "first_coordinates": shifted["first_coordinates"],
             "verification": shifted["verification"],
         },
-        "observation_sha256": hashlib.sha256(document).hexdigest(),
-        "observation_size": len(document),
+        "observation_sha256": hashlib.sha256(unversioned).hexdigest(),
+        "observation_size": len(unversioned),
     }
 
 

@@ -399,12 +399,13 @@ def test_output_fd_masks_support_more_than_seventy_value_classes(
     )
     assert all_classes.mask.bit_count() == 72
 
+    # Source grain factors follow source identity, not width: one field each.
     sources = "".join(
-        f'source rows_{position}: Wide is postgres.table("rows_{position}")\n'
+        f'source rows_{position}: One is postgres.table("rows_{position}")\n'
         for position in range(72)
     )
     comparison_stage = _stage(
-        tmp_path / "comparison", "shape Wide:\n" + fields_source + sources
+        tmp_path / "comparison", "shape One:\n    id: Int not null\n" + sources
     )
     grains = tuple(
         _outputs(comparison_stage, f"rows_{position}")[0].grain

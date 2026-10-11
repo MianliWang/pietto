@@ -636,6 +636,8 @@ def test_corpus_is_hash_seed_and_interpreter_stable() -> None:
     assert observed == {EXPECTED_CORPUS_DIGEST}
     assert sys.version_info[:2] in _SUPPORTED_INTERPRETERS
     for major, minor in _SUPPORTED_INTERPRETERS:
+        if (major, minor) == sys.version_info[:2]:
+            continue  # its seed 0 is already among the processes above
         executable = shutil.which(f"python{major}.{minor}")
         if executable is not None:
             assert _subprocess_digest(executable, "0") == EXPECTED_CORPUS_DIGEST

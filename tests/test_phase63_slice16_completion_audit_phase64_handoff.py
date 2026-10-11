@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from importlib.metadata import version
 from pathlib import Path
 import subprocess
 
@@ -1033,7 +1032,6 @@ def test_product_symbols_and_private_runtime_boundaries_are_live() -> None:
         == 3
     )
     assert not hasattr(pietto, "__version__")
-    assert version("pietto") == "0.1.0"
 
 
 def test_public_cli_json_sql_and_package_compatibility_exit_is_exact() -> None:

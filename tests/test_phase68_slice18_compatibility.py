@@ -29,7 +29,11 @@ from _pietto_phase68_slice11_probe import qualified
 from test_phase11_packaging_smoke import _metadata_bytes
 
 ROOT = Path(__file__).resolve().parents[1]
-INFO = "pietto-0.1.0.dist-info/"
+# Fixture names follow the independent checker's own literal, never pyproject.
+VERSION = check.CORE["pietto"]
+INFO = f"pietto-{VERSION}.dist-info/"
+SDIST = f"pietto-{VERSION}/"
+WHEEL = f"/owned/pietto-{VERSION}-py3-none-any.whl"
 PREFIX = "/owned/prefix"
 SITE = PREFIX + "/lib/python3.13/site-packages/"
 
@@ -60,12 +64,12 @@ def _wheel(metadata: bytes | None = None, salt: bytes = b"") -> bytes:
 
 def _sdist(wheel: bytes) -> bytes:
     members = {
-        "pietto-0.1.0/PKG-INFO": _metadata_bytes(),
-        "pietto-0.1.0/pyproject.toml": (ROOT / "pyproject.toml").read_bytes(),
+        SDIST + "PKG-INFO": _metadata_bytes(),
+        SDIST + "pyproject.toml": (ROOT / "pyproject.toml").read_bytes(),
     }
     for name, data in check.wheel_members(wheel).items():
         if name.startswith("pietto/") and name.endswith(".py"):
-            members["pietto-0.1.0/src/" + name] = data
+            members[SDIST + "src/" + name] = data
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
         for name, data in members.items():
@@ -129,8 +133,8 @@ def _facts(wheel: bytes) -> dict:
             }
     return {
         "prefix": PREFIX,
-        "distributions": {"pietto": "0.1.0", "antlr4_python3_runtime": "4.13.2"},
-        "direct_url": {"url": "file:///owned/pietto-0.1.0-py3-none-any.whl"},
+        "distributions": {"pietto": VERSION, "antlr4_python3_runtime": "4.13.2"},
+        "direct_url": {"url": "file://" + WHEEL},
         "wheel_sha256": hashlib.sha256(wheel).hexdigest(),
         "origins": origins,
         "lazy": [],
@@ -144,12 +148,11 @@ def _facts(wheel: bytes) -> dict:
 
 
 def _cell(wheel: bytes) -> dict:
-    path = "/owned/pietto-0.1.0-py3-none-any.whl"
     return {
         "recipe": "core",
         "extras": [],
         "prefix": PREFIX,
-        "wheel": path,
+        "wheel": WHEEL,
         "install": {
             "argv": [
                 "uv",
@@ -165,7 +168,7 @@ def _cell(wheel: bytes) -> dict:
                 "--link-mode",
                 "copy",
                 "--strict",
-                path,
+                WHEEL,
             ],
             "returncode": 0,
         },
