@@ -2,8 +2,8 @@
 
 Core (no Arrow, no database, no network): exact extras, lock and per-selection
 closures, artifact METADATA with requirement extras, the pinned-driver decision
-table (CONTROLLED: the distribution/version and module lookups are replaced per
-case), the runtime refusing an unavailable selected route before any admission
+table (CONTROLLED: the distribution/version, module and recorded-owner lookups
+are replaced per case), the runtime refusing an unavailable selected route before any admission
 or worker, a direct owner refusing before it connects, and lazy imports. Real
 clean resolver installations, installed origins, archived runtimes and the
 native handoff come from scripts/phase68_slice18_probe.py.
@@ -272,8 +272,10 @@ def test_route_extra_metadata_damage_fails_each_artifact(tmp_path, kind, before,
         _inspect(_artifact(tmp_path, kind, original.replace(before, after)), kind)
 
 
-def _controlled(monkeypatch, versions, modules):
-    """CONTROLLED distribution/version and module lookups for one case."""
+def _controlled(monkeypatch, versions, modules, owners=None):
+    """CONTROLLED distribution/version, module and recorded-owner lookups for
+    one case; by default each imported module is recorded by its own pin."""
+    from pietto._project import project_compiled_loading as loading
 
     def version(name):
         if name not in versions:
@@ -286,8 +288,14 @@ def _controlled(monkeypatch, versions, modules):
             raise found
         return found
 
+    def recorded(distribution, module):
+        if owners is not None and distribution in owners:
+            return frozenset(owners[distribution])
+        return frozenset({versions[distribution]})
+
     monkeypatch.setattr(importlib.metadata, "version", version)
     monkeypatch.setattr(importlib, "import_module", load)
+    monkeypatch.setattr(loading, "owner_versions", recorded)
 
 
 PINS = (
@@ -336,6 +344,23 @@ def test_absent_or_other_version_is_a_named_refusal(
         },
     )
     with pytest.raises(ex.ExecutionError, match="^" + code + "$"):
+        ex.pinned_modules(PINS, "VERSION_CODE")
+
+
+@pytest.mark.parametrize("owners", ((), ("3.1",), ("3.0", "2.9")))
+def test_a_module_not_recorded_by_exactly_its_pin_is_the_version_refusal(
+    monkeypatch, owners
+):
+    """A shadowing copy (PYTHONPATH, working directory) whose file no installed
+    pinned distribution records, or records under another or a second version,
+    is refused before the route can hand it any connection value."""
+    _controlled(
+        monkeypatch,
+        {"dist-a": "1.0", "dist-b": "2.0", "dist-c": "3.0"},
+        {"pkg_a": object(), "pkg_c.sub.mod": object()},
+        owners={"dist-c": owners},
+    )
+    with pytest.raises(ex.ExecutionError, match="^VERSION_CODE$"):
         ex.pinned_modules(PINS, "VERSION_CODE")
 
 
@@ -415,37 +440,39 @@ def test_each_route_checks_exactly_its_declared_selection():
 def test_postgres_rows_refuses_a_non_selected_libpq_implementation(monkeypatch):
     for impl in ("python", "c"):
         fake = SimpleNamespace(pq=SimpleNamespace(__impl__=impl))
-        monkeypatch.setattr(postgres, "pinned_modules", lambda pins, code: [fake])
+        monkeypatch.setattr(postgres, "pinned_modules", lambda pins, code, **_: [fake])
         with pytest.raises(ex.ExecutionError, match="^POSTGRES_DRIVER_LIBRARY$"):
             postgres.drivers()
 
 
 def test_ambient_psycopg_implementation_override_is_refused(tmp_path: Path):
-    """PSYCOPG_IMPL would silently load a system libpq instead of the pinned one."""
+    """PSYCOPG_IMPL would silently load a system libpq instead of the pinned
+    one; it is refused before psycopg is imported, so the pure Python
+    implementation never searches for a system libpq."""
     code = """
-import ctypes.util
+import sys
 from pietto._project import project_execution_postgres as p
 try:
     p.drivers()
 except Exception as error:
-    print(type(error).__name__, str(error), bool(ctypes.util.find_library("pq")))
+    print(type(error).__name__, str(error), "psycopg" in sys.modules)
 else:
     print("ACCEPTED")
 """
-    result = subprocess.run(
-        [sys.executable, "-I", "-c", code],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-        env={**os.environ, "PSYCOPG_IMPL": "python"},
-    )
-    assert result.returncode == 0, result.stderr
-    kind, *rest = result.stdout.split()
-    system = rest[-1] == "True"
-    if system:
-        assert (kind, rest[0]) == ("ExecutionError", "POSTGRES_DRIVER_LIBRARY")
-    else:
-        assert kind == "ImportError"
+    for impl in ("python", "c"):
+        result = subprocess.run(
+            [sys.executable, "-I", "-c", code],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PSYCOPG_IMPL": impl},
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.split() == [
+            "ExecutionError",
+            "POSTGRES_DRIVER_LIBRARY",
+            "False",
+        ]
 
 
 @pytest.fixture(scope="module")
@@ -598,7 +625,7 @@ def test_direct_owner_refuses_before_any_connection(built, monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", connect)
     monkeypatch.setattr(postgres, "drivers", absent)
     for key in tuple(os.environ):
-        if key.startswith("PG") or key == "SSLKEYLOGFILE":
+        if key.startswith("PG") or key in ex.AMBIENT_TLS:
             monkeypatch.delenv(key)
     with pytest.raises(ex.ExecutionError, match="^EXECUTION_DEPENDENCY_MISSING$"):
         owner.open()

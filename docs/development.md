@@ -1033,3 +1033,52 @@ Package, generated and golden auxiliaries are not required locally while the sdi
 everything it packages: `README.md`, its `license-files`, `src/**`) and generator inputs are unchanged; natural CI still runs every hosted consumer on the exact
 publication. The S19 native-qualified profile (importlib-resources 6.5.2, typing-extensions 4.15.0) and the current
 locked profile (7.1.0, 4.16.0) stay separate, and a real PostgreSQL ADBC query under the updated pair is NOT_OBSERVED.
+
+
+## Public execution alpha witnesses
+
+The [execution alpha](execution.md) keeps ordinary pytest offline: no database,
+Docker, network or installation. `tests/test_execution_api_postgres_rows.py` and
+`tests/test_execution_api_errors.py` drive the real public layer and private
+owners through request refusals and their order, refused environment and
+`PSYCOPG_IMPL`, a missing PyArrow or driver, shadowing psycopg and
+psycopg_binary copies, the exact libpq options (channel binding with TLS) and
+the 10 second statement limit of the startup options and of each statement.
+Against a loopback protocol stub, the core profile's pinned psycopg shows that
+only SCRAM-SHA-256 reaches authentication and no password, hash or token is
+sent, and inotify shows that `require` opens no `~/.postgresql` file and a
+GSSAPI request no Kerberos input; each law has an unpinned control that proves
+the observation sees the unpinned behavior. A stand-in owner drives the
+handle's lifecycle: terminal outcomes that stay as reached, finalization and
+cleanup failures (`PIE-R3006`, `PIE-R5001`) and dropped handles. These tests
+need loopback TCP and Linux inotify, which the integration host and hosted CI
+provide. `tests/test_harness_execution_api.py` runs the probe's database-free
+consumer cases against the checkout and gives every law of the checker a
+damaged fact that it must refuse with that law's reason.
+
+Real evidence runs explicitly through `tests/_pietto_execution_api_probe.py`;
+its independent checker `_pietto_execution_api_check` judges the raw facts
+against literal oracles. `consumer` (Validation Runner Acceptance R4 row 7)
+materializes a core and an `execute-postgres` prefix of the candidate wheel from
+the S18 wheelhouse and runs the database-free cases installed. `postgres` (row
+4: Docker and the pinned PostgreSQL 18.6 image) sets up the server as
+documented (the relation, the reader role and its `\password` verifier, TLS
+on, the `hostssl` and loopback `host` lines first), adds one role per refused
+authentication method, then runs the documented example as written (TLS,
+channel binding, SCRAM) and on loopback with `disable`, a bind-safe query and an
+early stop (no thread, workspace module or file left), an out-of-domain result,
+the trust, password and md5 refusals, the 10 second statement limit while
+another session holds a lock (a 60 second deadline and no server-side limit for
+the role, so only Pietto's limit can end it; the exact 10 000 ms is pinned
+offline) and a dropped handle (its TLS session while the worker runs, the exit
+delay of the deadline timer, no session afterwards). Natural CI runs the offline
+tests only. Both families run on the exact candidate wheel before the Slice's
+Gate 2 seal, and again whenever any of their inputs changes:
+`src/pietto/execution`, `project_public_execution`, the PostgreSQL rows owner,
+the shared request and environment checks in `project_execution` (including
+`pinned_modules`, `refuse_ambient` and `verify_postgres_deployment`),
+`project_compiled_loading.owner_versions`, `project_arrow_result`, the Example
+and server-setup blocks of [Execution](execution.md), or
+`tests/_pietto_execution_api*.py`. Each `report.json` records the probe, docs
+and wheel digests and is archived with the checker's verdict. Production edits
+change the semantic build identity, so installed witnesses use the final code.

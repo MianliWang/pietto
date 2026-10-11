@@ -1884,6 +1884,8 @@ def test_database_environment_is_not_ambient(monkeypatch: pytest.MonkeyPatch) ->
         "DOCKER_CONTEXT",
         "DOCKER_HOST",
         "SSLKEYLOGFILE",
+        "OPENSSL_CONF",
+        "OPENSSL_MODULES",
     ):
         monkeypatch.setenv(key, "unrelated")
     environment = resources.clean_environment()
@@ -1893,7 +1895,7 @@ def test_database_environment_is_not_ambient(monkeypatch: pytest.MonkeyPatch) ->
         & environment.keys()
     )
     assert environment["PSYCOPG_IMPL"] == "binary"
-    assert "SSLKEYLOGFILE" not in environment
+    assert not {"SSLKEYLOGFILE", "OPENSSL_CONF", "OPENSSL_MODULES"} & environment.keys()
 
 
 @pytest.mark.parametrize(

@@ -171,7 +171,7 @@ def test_failures_are_not_eof_success(request_, monkeypatch, fail, phase, transa
     conn = Connection(fail)
     install(monkeypatch, conn)
     stream = pg.PostgresExecution(request_)
-    with pytest.raises((OSError, execution.ExecutionError)):
+    with pytest.raises((OSError, execution.ExecutionError)) as raised:
         with stream:
             list(stream)
     out = stream.outcome
@@ -182,6 +182,11 @@ def test_failures_are_not_eof_success(request_, monkeypatch, fail, phase, transa
         and out.delivery == "FAILED"
     )
     assert conn.closed and stream.control_joined
+    if fail in ("commit", "cleanup"):
+        # A failed end of result surfaces as this one wrapper; the public
+        # layer projects the recorded primary behind it as PIE-R3006.
+        assert type(raised.value) is execution.ExecutionError
+        assert raised.value.args == ("EXECUTION_FINALIZATION",)
     if fail == "cleanup":
         assert out.cleanup_failures and out.cleanup == "FAILED"
 

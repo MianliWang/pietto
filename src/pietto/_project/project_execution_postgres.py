@@ -6,11 +6,14 @@ import importlib
 from dataclasses import dataclass, field
 import math
 import os
+from pathlib import Path
+import stat
 import threading
 import time
 import uuid
 from typing import Any, cast
 
+from pietto._project import project_arrow_result as arrow
 from pietto._project.project_execution import (
     ExecutionError,
     ExecutionRequest,
@@ -18,6 +21,7 @@ from pietto._project.project_execution import (
     ExecutionOutcome,
     PostgresAccess,
     pinned_modules,
+    refuse_ambient,
     request_state,
     execution_arguments,
     verify_execution_request,
@@ -49,21 +53,47 @@ from pietto._project.project_verification_scope import boundary
 __all__: tuple[str, ...] = ()
 # The pinned driver closure of `pietto[execute-postgres]`.
 DRIVERS = (("psycopg", "3.3.5", "psycopg"), ("psycopg-binary", "3.3.5", None))
+DRIVER_ORIGINS = (("psycopg-binary", "3.3.5", "psycopg_binary"),)
 
 
 def drivers():
-    (pg,) = pinned_modules(DRIVERS, "EXECUTION_DRIVER_VERSION")
+    # psycopg selects its implementation from PSYCOPG_IMPL when it is first
+    # imported; any other one than "binary" would load a system libpq (the
+    # pure Python one searches for it with ldconfig), so it is refused before
+    # the import.
+    if os.environ.get("PSYCOPG_IMPL", "binary") != "binary":
+        raise ExecutionError("POSTGRES_DRIVER_LIBRARY")
+    (pg,) = pinned_modules(
+        DRIVERS, "EXECUTION_DRIVER_VERSION", required_origins=DRIVER_ORIGINS
+    )
     # Only the selected binary implementation carries the pinned libpq; a broken
-    # one or PSYCOPG_IMPL would otherwise silently load a system library.
+    # one or one imported earlier would otherwise silently use a system library.
     if pg.pq.__impl__ != "binary":
         raise ExecutionError("POSTGRES_DRIVER_LIBRARY")
     return (pg,)
 
 
+def driver_error(error):
+    """Whether one of psycopg's own exception classes raised `error`; its
+    message is never read."""
+    return type(error).__module__.partition(".")[0] == "psycopg"
+
+
 def _connect(request):
-    if any(name.startswith("PG") or name == "SSLKEYLOGFILE" for name in os.environ):
-        raise ExecutionError("EXECUTION_AMBIENT_CONNECTION_PROFILE")
+    refuse_ambient(("PG",))
     (pg,) = drivers()
+    # The Arrow owner loads before the connection: without PyArrow the
+    # attempt is refused here, never after the server ran its statement.
+    arrow._arrow()
+    # As on the ADBC route, a child of the null character device names no CA,
+    # CRL, client certificate or key, so libpq never falls back to the
+    # ~/.postgresql defaults: `require` encrypts without verifying the server.
+    try:
+        device = Path("/dev/null").stat().st_mode
+    except OSError:
+        device = 0
+    if not stat.S_ISCHR(device):
+        raise ExecutionError("EXECUTION_NULL_DEVICE")
     a = request.access
     return pg.connect(
         host=a.host,
@@ -72,6 +102,18 @@ def _connect(request):
         user=a.user,
         password=a.password,
         sslmode=a.sslmode,
+        # Over TLS, SCRAM binds the login to the TLS channel
+        # (SCRAM-SHA-256-PLUS), so an active attacker who terminates the
+        # unverified TLS cannot relay it to the server.
+        channel_binding="require" if a.sslmode == "require" else "disable",
+        sslrootcert="/dev/null/pietto-ca",
+        sslcrl="/dev/null/pietto-crl",
+        sslcrldir="/dev/null/pietto-crl-directory",
+        sslcert="/dev/null/pietto-cert",
+        sslkey="/dev/null/pietto-key",
+        # Only SCRAM-SHA-256: libpq refuses a server asking for trust,
+        # password, md5, GSSAPI or SSPI before any password is sent.
+        require_auth="scram-sha-256",
         gssencmode="disable",
         sslcertmode="disable",
         passfile="/dev/null",

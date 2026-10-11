@@ -221,6 +221,11 @@ def _required_runtime_files(prefix: str) -> frozenset[str]:
         f"{prefix}/__init__.py",
         f"{prefix}/cli.py",
         f"{prefix}/parser_api.py",
+        f"{prefix}/execution/__init__.py",
+        f"{prefix}/execution/_access.py",
+        f"{prefix}/execution/_errors.py",
+        f"{prefix}/execution/_handle.py",
+        f"{prefix}/execution/_query.py",
         f"{prefix}/_project_explain/__init__.py",
         f"{prefix}/_project_explain/compatibility_matrix_projection.py",
         f"{prefix}/_project_explain/composition.py",
@@ -236,6 +241,7 @@ def _required_runtime_files(prefix: str) -> frozenset[str]:
         f"{prefix}/_project/package_graph.py",
         f"{prefix}/_project/project_result_contract.py",
         f"{prefix}/_project/project_result_binding.py",
+        f"{prefix}/_project/project_public_execution.py",
         f"{prefix}/_project/project_arrow_result.py",
         f"{prefix}/_project/project_result_contract_pure_boundary.py",
         f"{prefix}/_project/project_result_contract_portable.py",
@@ -1243,6 +1249,12 @@ def _installed_check(wheel: Path, extra: str) -> None:
         raise SmokeFailure("installed candidate wheel location differs")
     importlib.import_module("pietto")
     cli = importlib.import_module("pietto.cli")
+    importlib.import_module("pietto.execution")
+    if any(
+        name.split(".", 1)[0] in {"psycopg", "psycopg_binary", "pyarrow"}
+        for name in sys.modules
+    ):
+        raise SmokeFailure("public execution import eagerly loaded a route dependency")
     for arguments in (
         ("--version",),
         ("--help",),

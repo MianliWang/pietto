@@ -82,6 +82,8 @@ def clean_environment() -> dict[str, str]:
             "PYTHONHOME",
             "PSYCOPG_IMPL",
             "SSLKEYLOGFILE",
+            "OPENSSL_CONF",
+            "OPENSSL_MODULES",
         }
     } | {"PSYCOPG_IMPL": "binary", "PYTHONNOUSERSITE": "1"}
 

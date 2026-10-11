@@ -362,6 +362,7 @@ def test_explicit_tls_files_cannot_fall_back_to_user_home(
     from types import SimpleNamespace
     from urllib.parse import urlparse, parse_qs
     from pathlib import Path
+    from pietto._project import project_compiled_loading as loading
     from pietto._project import project_execution_postgres_adbc_native as native
     import importlib
     import importlib.metadata
@@ -388,11 +389,18 @@ def test_explicit_tls_files_cannot_fall_back_to_user_home(
         ),
         "pyarrow": object(),
     }
+
+    def version(name):
+        return "25.0.1" if name == "pyarrow" else "1.12.0"
+
     monkeypatch.setattr(importlib, "import_module", modules.__getitem__)
+    monkeypatch.setattr(importlib.metadata, "version", version)
+    # CONTROLLED as in the S18 decision table: each fake module counts as
+    # recorded by its own pinned distribution for the shared owner check.
     monkeypatch.setattr(
-        importlib.metadata,
-        "version",
-        lambda name: "25.0.1" if name == "pyarrow" else "1.12.0",
+        loading,
+        "owner_versions",
+        lambda distribution, module: frozenset({version(distribution)}),
     )
     for key in tuple(os.environ):
         if key.startswith("PG") or key == "SSLKEYLOGFILE":

@@ -134,4 +134,44 @@ These additional codes are implemented by the private Phase66 Slice3 emission
 pipeline and its `pietto.sql-emission.v1` serialization. They do not expand the
 legacy emitter's `PIE-B1000` domain or implement later operator families.
 
-No runtime diagnostic codes are currently defined.
+## Runtime Diagnostics
+
+These codes belong to the public execution alpha (`pietto.execution`, see
+[Execution](../execution.md)). They are an alpha interface: a code may be split,
+merged or retired with a note in the release notes, but is never reused for
+another meaning. They appear only on that Python interface, never in a CLI or
+JSON output. Each error also carries an unstable private `detail` word. Every
+attempt outcome carries the alpha's two declarations:
+
+- `Managed operator compliance: NOT_INDEPENDENTLY_VERIFIED`
+- `Native all-definition lifetime exclusion: NOT_DEMONSTRATED / NOT CLAIMED`
+
+| Code | Meaning |
+|---|---|
+| `PIE-R1001` | INPUT_MISSING: a required argument of `compile_query` or `execute()` is `None`; no default is substituted |
+| `PIE-R1002` | INPUT_INVALID: an input has the wrong type or an unsupported value, including SQL text instead of a compiled query, a `None` field of an access, premise or limits value, a Unix-socket or multi-host `host`, a premise that does not cover the query's sources or omits `pg_catalog`, and invalid limits or isolation |
+| `PIE-R1003` | ROUTE_REFUSED: the route is not available in this alpha or does not fit the compiled query |
+| `PIE-R1004` | QUERY_NOT_EXECUTABLE: the verified query cannot be prepared for execution |
+| `PIE-R1005` | CODE_IDENTITY: the installed Pietto or ANTLR runtime code changed since compiling, or its identity cannot be established |
+| `PIE-R1999` | REQUEST_UNCLASSIFIED: a request refusal that the alpha does not classify yet |
+| `PIE-R2001` | DEPENDENCY_MISSING: a pinned dependency of the route (driver or PyArrow) is not installed; refused before connecting |
+| `PIE-R2002` | DRIVER_PROFILE: the importable driver is not the pinned distribution, version or binary implementation (`PSYCOPG_IMPL` other than `binary` is refused before the import), or the driver or PyArrow cannot be loaded |
+| `PIE-R2003` | AMBIENT_ENVIRONMENT: a refused environment variable (`PG*`, `SSLKEYLOGFILE`, `OPENSSL_CONF`, `OPENSSL_MODULES`) is set; refused before connecting |
+| `PIE-R2004` | CONNECTION_FAILED: the driver reported that the TCP connection or its SCRAM-SHA-256 authentication failed, with channel binding over TLS; other authentication methods are refused before the password is sent. `sslmode` `require` needs a server with TLS, reached directly, whose certificate is signed with RSA or ECDSA, and the first `pg_hba.conf` line that matches must be a `scram-sha-256` line: `hostssl` for remote clients, `host` only for 127.0.0.1 and ::1; see the server setup in [Execution](../execution.md) |
+| `PIE-R2005` | TARGET_VERSION: the server is not PostgreSQL 18.6 |
+| `PIE-R2006` | SESSION_CONTEXT: the session or its read-only transaction lacks the required settings |
+| `PIE-R2007` | SOURCE_QUALIFICATION: a source relation does not qualify under the declared deployment premise |
+| `PIE-R3001` | DEADLINE: the attempt's deadline expired |
+| `PIE-R3002` | STATEMENT_TIMEOUT: the server canceled a statement at the 10 second statement limit |
+| `PIE-R3003` | SERVER_ERROR: the server or the open connection reported an error |
+| `PIE-R3004` | RESOURCE_LIMIT: a row or byte limit would be exceeded; the whole batch is refused, never truncated |
+| `PIE-R3005` | RESULT_CHECK: returned metadata or values do not match the result contract |
+| `PIE-R3006` | FINALIZATION: the attempt could not commit or clean up at its end. The failure keeps what the attempt recorded: for a failed `COMMIT` or `ROLLBACK`, phase `transaction` with its SQLSTATE and exception class; when the result was read to the end and `COMMIT` acknowledged but a cleanup step then failed, phase `finalization` (cause `ExecutionError`), with the failed step as the `PIE-R5001` entry |
+| `PIE-R3007` | CONSUMER_ERROR: the caller's code raised inside the `with` block (outcome only) |
+| `PIE-R3008` | INTERRUPTED: a `BaseException` that is not an `Exception` ended the attempt (outcome only) |
+| `PIE-R3999` | ATTEMPT_UNCLASSIFIED: an attempt failure that the alpha does not classify yet, including an exception that is not the driver's before a session exists |
+| `PIE-R4001` | HANDLE_REUSED: a result handle was opened again; it runs one attempt once |
+| `PIE-R4002` | BATCH_CLOSED: a closed result batch was exported |
+| `PIE-R4003` | BATCH_TRANSFER: a result batch cannot be exported as requested |
+| `PIE-R5001` | CLEANUP_FAILED: a cleanup step failed (outcome only) |
+| `PIE-R5002` | DROPPED_UNCLOSED: an open result handle was garbage-collected, or was still open at interpreter exit (a `ResourceWarning`, hidden by default) |

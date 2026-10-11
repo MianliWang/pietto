@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import importlib
+import importlib.util
 import importlib.metadata
 import math
+import os
 import threading
 from typing import Any
 
@@ -34,13 +36,19 @@ class ExecutionError(ValueError):
     pass
 
 
-def pinned_modules(pins, version_error):
+def pinned_modules(pins, version_error, *, required_origins=()):
     """Import one selected route's own pinned (distribution, version, module or
     None) drivers, without I/O and never another route's. Every distribution is
     checked before any import: an absent one, or an absent module, is
     EXECUTION_DEPENDENCY_MISSING and another installed version is the route's own
     version refusal; any other import failure (a broken transitive dependency or
-    native library) propagates unchanged."""
+    native library) propagates unchanged. An imported module whose file is not
+    recorded by exactly the pinned distribution and version (a shadowing copy
+    on PYTHONPATH or in the working directory) is the version refusal too, so
+    no access value ever reaches it. `required_origins` performs the same check
+    before any import for a module that must be loaded by another pinned module."""
+    from pietto._project.project_compiled_loading import owner_versions
+
     for distribution, version, _module in pins:
         try:
             installed = importlib.metadata.version(distribution)
@@ -48,17 +56,41 @@ def pinned_modules(pins, version_error):
             raise ExecutionError("EXECUTION_DEPENDENCY_MISSING") from None
         if installed != version:
             raise ExecutionError(version_error)
+    for distribution, version, module in required_origins:
+        found = importlib.util.find_spec(module)
+        if found is None or type(found.origin) is not str:
+            raise ExecutionError("EXECUTION_DEPENDENCY_MISSING")
+        if owner_versions(distribution, found.origin) != {version}:
+            raise ExecutionError(version_error)
     modules = []
-    for _distribution, _version, module in pins:
+    for distribution, version, module in pins:
         if module is None:
             continue
         try:
-            modules.append(importlib.import_module(module))
+            imported = importlib.import_module(module)
         except ModuleNotFoundError as error:
             if error.name is None or not (module + ".").startswith(error.name + "."):
                 raise
             raise ExecutionError("EXECUTION_DEPENDENCY_MISSING") from error
+        if owner_versions(distribution, imported) != {version}:
+            raise ExecutionError(version_error)
+        modules.append(imported)
     return modules
+
+
+# Process-wide inputs that set the TLS policy or record session keys. The
+# PostgreSQL rows route refuses them by name before it connects (the ADBC and
+# MySQL routes still refuse only their older subset); an OpenSSL imported
+# earlier (CPython's own, through hashlib, or PyArrow's) has already read them.
+AMBIENT_TLS = ("SSLKEYLOGFILE", "OPENSSL_CONF", "OPENSSL_MODULES")
+
+
+def refuse_ambient(prefixes=()):
+    """Refuse a route's ambient connection inputs by name: variables starting
+    with one of the route's `prefixes` and the shared TLS inputs. Values are
+    never read."""
+    if any(name.startswith(prefixes) or name in AMBIENT_TLS for name in os.environ):
+        raise ExecutionError("EXECUTION_AMBIENT_CONNECTION_PROFILE")
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +139,8 @@ class PostgresDeploymentPremise:
 
     Its required lifetime includes discovery through the last possible remote
     use. Neither the bundle nor local close establishes operator compliance.
+    `schemas` must include pg_catalog: source qualification on both routes
+    reads the built-in types, functions and access methods there.
     """
 
     access: PostgresAccess = field(repr=False)
@@ -153,6 +187,7 @@ def verify_postgres_deployment(request):
         or not 0 < len(premise.schemas) <= 128
         or any(type(s) is not str or not s or "\0" in s for s in premise.schemas)
         or len(set(premise.schemas)) != len(premise.schemas)
+        or "pg_catalog" not in premise.schemas
         or any(s.namespace not in premise.schemas for s in sources)
         or any(
             (s.startswith("pg_") and s != "pg_catalog") or s == "information_schema"
@@ -423,8 +458,14 @@ def _verify_execution_structure(request, *, guarded=None) -> None:
     ):
         raise ExecutionError("EXECUTION_ACCESS")
     if type(a) is PostgresAccess:
-        if a.sslmode not in ("require", "disable") or (
-            a.sslmode == "disable" and a.host not in ("127.0.0.1", "::1")
+        if (
+            a.sslmode not in ("require", "disable")
+            or (a.sslmode == "disable" and a.host not in ("127.0.0.1", "::1"))
+            # libpq reads a leading "/" (a socket directory) or "@" (an
+            # abstract socket) as a Unix-domain socket, which bypasses TLS and
+            # may use peer authentication, and a comma as a list of hosts.
+            or a.host.startswith(("/", "@"))
+            or "," in a.host
         ):
             raise ExecutionError("EXECUTION_ACCESS_PROFILE")
     elif type(a) is MySQLAccess:
@@ -763,10 +804,17 @@ def compiled_attempt_outcome(owner):
         outcome.delivery,
         (outcome.cancel_requested, outcome.cancel_sent, outcome.cancel_observed),
         outcome.cleanup,
-        "TRANSACTION_ACK"
-        if outcome.transaction in ("COMMIT_ACK", "ROLLBACK_ACK")
-        else "REMOTE_QUIESCENCE_UNCONFIRMED",
+        remote_source_use_end(outcome.transaction),
     )
+
+
+def remote_source_use_end(transaction):
+    """Remote source use is known to have ended only when the server
+    acknowledged COMMIT or ROLLBACK; every other state, a never-opened attempt
+    included, leaves it unconfirmed."""
+    if transaction in ("COMMIT_ACK", "ROLLBACK_ACK"):
+        return "TRANSACTION_ACK"
+    return "REMOTE_QUIESCENCE_UNCONFIRMED"
 
 
 @dataclass(frozen=True, slots=True)

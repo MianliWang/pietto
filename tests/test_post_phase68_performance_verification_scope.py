@@ -263,6 +263,23 @@ def _route(name, world):
         )
     if name in GUARDED_ROUTES:
         return _guarded_route(name, root, values), [("verify(root)", root)], {}
+    if name == "public_attempt":
+        from pietto._project.project_public_execution import prepare_attempt
+
+        loaded = prepare_compiled_template(root)
+        access = _access()
+        return (
+            lambda: prepare_attempt(
+                loaded,
+                access,
+                route="postgres_rows",
+                schemas=("public", "pg_catalog"),
+                limits=execution.ExecutionLimits(),
+                isolation="stable",
+            ),
+            [("verify(root)", root)],
+            {},
+        )
     if name == "execution":
         loaded = prepare_compiled_template(root)
         binding = bind_values(loaded, tuple((slot, 2) for slot in loaded.slots))
@@ -343,6 +360,7 @@ ROUTES = (
     "describe",
     "compatible",
     "live",
+    "public_attempt",
     *GUARDED_ROUTES,
 )
 # Reached only inside an execution owner's attempt, which needs a live database;
@@ -771,6 +789,7 @@ DECORATED = {
     ("project_guard_verification.py", "verify_native_guard", "entry"),
     ("project_guard_verification.py", "verify_program", "entry"),
     ("project_guard_verification.py", "verify_statement", "entry"),
+    ("project_public_execution.py", "prepare_attempt", "entry"),
     ("project_refinement.py", "prepare_compiled_refinement", "entry"),
     ("project_refinement_verification.py", "verify_native", "entry"),
     ("project_refinement_verification.py", "verify_refinement", "entry"),

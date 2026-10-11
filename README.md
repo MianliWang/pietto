@@ -8,16 +8,16 @@ Readable, typed SQL authoring with deterministic compilation.
 
 Pietto is a gradual semantic SQL authoring DSL. It parses and checks readable,
 indentation-based source, builds immutable compiler facts, and emits explicitly
-selected PostgreSQL or MySQL SQL. It does not connect to a database or execute
-SQL. PostgreSQL is the public Python SQL emitter; MySQL is available through
-explicit CLI lowering with a private emitter surface.
+selected PostgreSQL or MySQL SQL. The released 0.1.1 package does not connect to
+a database or execute SQL. PostgreSQL is the public Python SQL emitter; MySQL is
+available through explicit CLI lowering with a private emitter surface.
 
 **Status: 0.1.1 public preview.** Pietto 0.1.1 can be installed from PyPI with
 `pip install pietto` and is also attached to a
 [GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.1.1).
 It has the same compiler and CLI as 0.1.0 and adds PyPI packaging information.
-The compiler and CLI described below are the public surface; database execution
-and result APIs are not public yet.
+The compiler and CLI described below are the public surface. Database execution
+and result APIs are not part of the released 0.1.1 package.
 
 ## What Pietto provides
 
@@ -114,8 +114,8 @@ the evidence layers, supported boundaries and remaining execution obligations.
 
 ### Execution extras
 
-Each private execution route has its own selector; each includes the Arrow pin
-because captured results are Arrow IPC:
+Each execution route has its own selector; each includes the Arrow pin because
+captured results are Arrow IPC:
 
 | Selector | Adds |
 | --- | --- |
@@ -132,7 +132,23 @@ qualifies storage. A selected route whose pinned driver is absent refuses with
 with that route's version error, and another route's installed driver is never
 used instead. These extras were verified on CPython 3.13.13, Linux x86-64,
 with the lock's exact artifacts; other platforms, interpreters and driver
-versions are not covered. Execution APIs remain private under `pietto._project`.
+versions are not covered. The MySQL and PostgreSQL ADBC execution APIs remain
+private under `pietto._project`; the PostgreSQL rows route has the alpha below.
+
+### PostgreSQL rows execution alpha (checkout only)
+
+This source checkout also contains a public alpha for the PostgreSQL rows route:
+[`pietto.execution`](https://github.com/MianliWang/pietto/blob/main/docs/execution.md).
+It is available from this checkout or a wheel built from it with
+`execute-postgres`; it is not exposed by the released 0.1.1 PyPI package or its
+v0.1.1 release assets, so installing `pietto[execute-postgres]` from PyPI does
+not provide it. The alpha accepts a compiled project query and explicit
+connection and deployment-premise inputs; it does not accept SQL text. It
+supports PostgreSQL 18.6 only, reached over TCP and authenticated with
+SCRAM-SHA-256 only, and sources with `Timestamp` or `UUID` fields are blocked
+when compiled. A wheel built from this checkout still declares version 0.1.1,
+so `pip show` cannot tell it from the released package. The MySQL and
+PostgreSQL ADBC routes remain private under `pietto._project`.
 
 ## Quick start
 

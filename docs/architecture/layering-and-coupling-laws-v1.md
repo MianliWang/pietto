@@ -201,6 +201,9 @@ compiler, CLI, workspace metadata and saved replay, publication and collection
 never import a source driver, and only the Arrow owner imports PyArrow. Each
 native route module owns its pinned driver closure (`DRIVERS`, `drivers()`);
 `project_execution.pinned_modules` is the single generic bridge and names no
-driver. The runtime loads a native unit's route drivers before admission and an
-owner loads them before connecting; nothing else consults packaging metadata.
+driver. It and the compiled code identity use
+`project_compiled_loading.owner_versions` to tie an imported module's file to
+the installed distribution that records it. The runtime loads a native unit's
+route drivers before admission and an owner loads them before connecting;
+nothing else consults packaging metadata.
 Extras exist only in `pyproject.toml` and the lock.

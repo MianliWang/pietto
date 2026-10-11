@@ -385,7 +385,7 @@ EXPECTED_STATUS = (
     ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
     ("PostgreSQL refinement-page JIT predecessor", "`COMPLETED / PUBLISHED`"),
     ("Parallelism interlude", "`COMPLETED`"),
-    ("Next", "`Phase69 S01 closure; S02 next through its own Gate 0`"),
+    ("Next", "`Phase69 S02 closure; S03 next through its own Gate 0`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (

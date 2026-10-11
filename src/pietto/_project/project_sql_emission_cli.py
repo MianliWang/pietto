@@ -175,19 +175,21 @@ def run_project_emit_sql(arguments: Sequence[str]) -> ProjectEmitResult | int:
     text = namespace.format == "text"
     policy = POLICIES[namespace.literal_policy or "preserve"]
     output = None if namespace.output is None else Path(namespace.output)
-    diagnostics: tuple[Any, ...] = ()
-    protected: list[tuple[Path, tuple[int, int]]] = []
-    written = False
 
-    def finish(outcome: EmissionOutcome) -> ProjectEmitResult:
-        nonlocal written
+    def finish(
+        outcome: EmissionOutcome,
+        protected: Sequence[tuple[Path, tuple[int, int]]] = (),
+    ) -> ProjectEmitResult:
         data = serialize_project_sql_emission(outcome)
         document = json.loads(data)
+        written = False
         if document["status"] == "VERIFIED" and output is not None:
             errors = _publish(output, data, protected)
             if errors:
                 return finish(
-                    EmissionOutcome("INPUT_REJECTED", diagnostics, cli_errors=errors)
+                    EmissionOutcome(
+                        "INPUT_REJECTED", outcome.diagnostics, cli_errors=errors
+                    )
                 )
             written = True
         code = EXITS[document["status"]]
@@ -199,15 +201,49 @@ def run_project_emit_sql(arguments: Sequence[str]) -> ProjectEmitResult | int:
             )
         return ProjectEmitResult(code, b"", _render_failure(document), written)
 
-    def rejected(*errors: InputError) -> ProjectEmitResult:
-        return finish(EmissionOutcome("INPUT_REJECTED", diagnostics, cli_errors=errors))
-
     if output is not None:
         problem = _validate_output(output)
         if problem is not None:
-            return rejected(problem)
+            return finish(EmissionOutcome("INPUT_REJECTED", (), cli_errors=(problem,)))
+    return finish(
+        *emit_project(
+            namespace.project,
+            namespace.module,
+            namespace.kind,
+            namespace.name,
+            namespace.dialect,
+            namespace.emission_contract,
+            policy,
+        )
+    )
+
+
+def emit_project(
+    project: str | os.PathLike[str],
+    module: str,
+    kind: str,
+    name: str,
+    dialect: str,
+    contract: str,
+    policy: ProjectSQLLiteralPolicy,
+) -> tuple[EmissionOutcome, tuple[tuple[Path, tuple[int, int]], ...]]:
+    """Run the verified emission pipeline once for one selected owner.
+
+    Returns the outcome and the identities of the configuration, sources and
+    contract that an output file must not replace. The CLI and the public
+    Python compile entry share it, so the same input reaches the same
+    artifact or the same failure document on both.
+    """
+    diagnostics: tuple[Any, ...] = ()
+    protected: list[tuple[Path, tuple[int, int]]] = []
+
+    def rejected(
+        *errors: InputError,
+    ) -> tuple[EmissionOutcome, tuple[tuple[Path, tuple[int, int]], ...]]:
+        return EmissionOutcome("INPUT_REJECTED", diagnostics, cli_errors=errors), ()
+
     try:
-        parsed = check_project_parse_only(Path(namespace.project))
+        parsed = check_project_parse_only(Path(project))
     except (OSError, ValueError):
         return rejected(InputError("project_root", "Project root could not be pinned."))
     diagnostics = parsed.diagnostics
@@ -229,10 +265,10 @@ def run_project_emit_sql(arguments: Sequence[str]) -> ProjectEmitResult | int:
         return rejected(
             InputError("project_resource", "Project trust facts are unavailable.")
         )
-    contract = _read_contract(pinned_root, namespace.emission_contract)
-    if isinstance(contract, InputError):
-        return rejected(contract)
-    contract_bytes, contract_path, contract_state = contract
+    read = _read_contract(pinned_root, contract)
+    if isinstance(read, InputError):
+        return rejected(read)
+    contract_bytes, contract_path, contract_state = read
     try:
         config_stat = os.stat(pinned_root.canonical_path / parsed.config_path.path)
     except OSError:
@@ -269,7 +305,7 @@ def run_project_emit_sql(arguments: Sequence[str]) -> ProjectEmitResult | int:
         )
     )
     if not parsed.ok:
-        return finish(EmissionOutcome("BLOCKED", diagnostics))
+        return EmissionOutcome("BLOCKED", diagnostics), ()
     completed = build_project_completed_semantic_result(
         build_empty_project_semantic_result(parsed)
     )
@@ -278,7 +314,7 @@ def run_project_emit_sql(arguments: Sequence[str]) -> ProjectEmitResult | int:
         type(completed) is not ProjectConcreteCompletedSemanticResult
         or not completed.ok
     ):
-        return finish(EmissionOutcome("BLOCKED", diagnostics))
+        return EmissionOutcome("BLOCKED", diagnostics), ()
     try:
         ir = build_project_query_block_ir(completed)
         bundle = build_project_query_block_ir_analysis_bundle(
@@ -289,9 +325,9 @@ def run_project_emit_sql(arguments: Sequence[str]) -> ProjectEmitResult | int:
         owners = [
             owner
             for owner in ir.owners
-            if modules[owner.module_position].path == namespace.module
-            and owner.identity.declaration_kind.value == namespace.kind
-            and owner.definition.name == namespace.name
+            if modules[owner.module_position].path == module
+            and owner.identity.declaration_kind.value == kind
+            and owner.definition.name == name
         ]
         if len(owners) != 1:
             return rejected(
@@ -311,15 +347,13 @@ def run_project_emit_sql(arguments: Sequence[str]) -> ProjectEmitResult | int:
         )
     prepared = prepare_project_sql_emission(checked, contract_bytes)
     if type(prepared) is PreparationFailure:
-        return finish(
-            EmissionOutcome(
-                "INPUT_REJECTED" if prepared.errors else "BLOCKED",
-                prepared.diagnostics,
-                blockers=prepared.blockers,
-                cli_errors=prepared.errors,
-            )
-        )
-    if prepared.family != namespace.dialect:
+        return EmissionOutcome(
+            "INPUT_REJECTED" if prepared.errors else "BLOCKED",
+            prepared.diagnostics,
+            blockers=prepared.blockers,
+            cli_errors=prepared.errors,
+        ), ()
+    if prepared.family != dialect:
         return rejected(
             InputError(
                 "emission_contract_schema",
@@ -327,7 +361,7 @@ def run_project_emit_sql(arguments: Sequence[str]) -> ProjectEmitResult | int:
                 "target/family",
             )
         )
-    return finish(realize_project_sql(prepared))
+    return realize_project_sql(prepared), tuple(protected)
 
 
 def _usage(message: str, text: bool) -> ProjectEmitResult:

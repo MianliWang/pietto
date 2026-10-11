@@ -267,8 +267,9 @@ Phase68 S18 adds three route selectors, each Arrow plus one route's exact pins:
 (`mysql-connector-python==26.7.0`) and `execute-postgres-adbc`
 (`adbc-driver-postgresql==1.12.0`, `adbc-driver-manager==1.12.0`); see the
 [execution extras](../README.md#execution-extras). Installation never chooses
-a route, grants execution or qualifies storage, and execution stays private;
-the [S18 contract](phases/phase-68/slice-18.md) records the verified domain.
+a route, grants execution or qualifies storage; the PostgreSQL rows route is
+an [alpha interface](execution.md) and the other routes stay private. The
+[S18 contract](phases/phase-68/slice-18.md) records the verified domain.
 
 The [Phase67 audit and handoff](phases/phase-67/completion-audit.md) identifies
 the existing private bindings, ownership and finite-completion prerequisites.

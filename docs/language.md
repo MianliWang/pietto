@@ -6,8 +6,9 @@ Pietto is a gradual semantic SQL authoring DSL. Its compiler pipeline is:
 source -> parse -> analyze -> immutable IR -> selected SQL dialect -> CLI text/JSON
 ```
 
-Pietto compiles SQL; it does not connect to a database or execute SQL. Syntax
-may be broader than the currently supported semantic and backend subsets.
+Pietto compiles SQL; its compiler and CLI do not connect to a database or
+execute SQL ([Execution](execution.md) describes the separate execution alpha).
+Syntax may be broader than the currently supported semantic and backend subsets.
 Unsupported combinations fail closed with deterministic diagnostics.
 
 ## Source structure

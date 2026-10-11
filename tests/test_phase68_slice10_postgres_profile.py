@@ -55,6 +55,17 @@ def test_live_and_loaded_require_the_same_fresh_profile(prepared, route):
     for binding in bindings:
         with pytest.raises(execution.ExecutionError, match="PREMISE_REQUIRED"):
             execution.prepare_compiled_execution(binding, a, route=route)
+        # Source qualification reads pg_catalog on both routes, so a premise
+        # that leaves it out is refused while the request is prepared.
+        without = execution.PostgresDeploymentPremise(
+            a, binding.artifact.request.sources, ("public",), route
+        )
+        with pytest.raises(
+            execution.ExecutionError, match="^POSTGRES_DEPLOYMENT_PREMISE_SCOPE$"
+        ):
+            execution.prepare_compiled_execution(
+                binding, a, route=route, postgres_deployment=without
+            )
         premise = execution.PostgresDeploymentPremise(
             a, binding.artifact.request.sources, ("public", "pg_catalog"), route
         )
@@ -137,7 +148,7 @@ def test_new_rows_validation_occurs_inside_the_attempt(prepared, monkeypatch):
     binding = prepared[1][0]
     a = access()
     p = execution.PostgresDeploymentPremise(
-        a, binding.artifact.request.sources, ("public",), "postgres_rows"
+        a, binding.artifact.request.sources, ("public", "pg_catalog"), "postgres_rows"
     )
     request = execution.prepare_compiled_execution(
         binding, a, route="postgres_rows", postgres_deployment=p
@@ -208,7 +219,7 @@ def test_required_refinement_cannot_be_unwrapped(prepared, monkeypatch):
     binding = bind_values(template, tuple((slot, 2) for slot in template.slots))
     a = access()
     p = execution.PostgresDeploymentPremise(
-        a, binding.artifact.request.sources, ("public",), "postgres_rows"
+        a, binding.artifact.request.sources, ("public", "pg_catalog"), "postgres_rows"
     )
     request = execution.prepare_compiled_execution(
         binding, a, route="postgres_rows", postgres_deployment=p
@@ -247,7 +258,10 @@ def test_guard_disabled_or_serializable_still_requires_the_profile(tmp_path):
                 allow_guard_sql=False,
             )
         p = execution.PostgresDeploymentPremise(
-            a, binding.artifact.request.sources, ("public",), "postgres_rows"
+            a,
+            binding.artifact.request.sources,
+            ("public", "pg_catalog"),
+            "postgres_rows",
         )
         request = execution.prepare_compiled_execution(
             binding,
@@ -371,7 +385,7 @@ def test_new_pg_metadata_shares_the_existing_result_budget(prepared, mode, monke
     binding = prepared[1][0]
     a = access()
     premise = execution.PostgresDeploymentPremise(
-        a, binding.artifact.request.sources, ("public",), "postgres_rows"
+        a, binding.artifact.request.sources, ("public", "pg_catalog"), "postgres_rows"
     )
     request = execution.prepare_compiled_execution(
         binding,
