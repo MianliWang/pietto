@@ -21,7 +21,7 @@ import socket
 import subprocess
 import sys
 import threading
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any
 import warnings
 
@@ -850,6 +850,156 @@ def test_a_non_binary_psycopg_implementation_is_refused_before_the_import(
     )
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == ["PIE-R2002", "POSTGRES_DRIVER_LIBRARY", False]
+
+
+SELECTION_CHILD = r"""
+import ctypes.util, glob, json, os, sys
+src, copy, project, scenario, client, port, password = sys.argv[1:]
+sys.path[:0] = [copy, src]
+if scenario == "fallback":
+    # psycopg-binary cannot be loaded, so psycopg falls back to its ctypes
+    # implementation; psycopg-binary's own libpq stands in for the system
+    # library that implementation searches for.
+    import importlib.util
+    package = os.path.dirname(importlib.util.find_spec("psycopg_binary").origin)
+    (libpq,) = glob.glob(package + ".libs/libpq-*")
+    search = ctypes.util.find_library
+    ctypes.util.find_library = lambda name: libpq if name == "pq" else search(name)
+    sys.modules["psycopg_binary.pq"] = None
+elif scenario == "imported":
+    import psycopg  # selects its implementation before PSYCOPG_IMPL is set
+    os.environ["PSYCOPG_IMPL"] = "binary"
+if client == "psycopg":
+    import psycopg
+    try:
+        psycopg.connect(host="127.0.0.1", port=int(port), dbname="app",
+            user="reader", password=password, sslmode="disable",
+            gssencmode="disable", connect_timeout=5)
+    except psycopg.OperationalError as error:
+        result = type(error).__name__
+else:
+    import pietto.execution as pe
+    from pietto._project import project_arrow_result
+    project_arrow_result._arrow = lambda: None  # no PyArrow in the core profile
+    query = pe.compile_query(project, module="main.pietto", kind="table",
+        name="active_items", dialect="postgres", emission_contract="contract.json")
+    handle = pe.execute(query, route="postgres_rows",
+        access=pe.PostgresAccess("127.0.0.1", int(port), "app", "reader",
+            password, "disable"),
+        premise=pe.PostgresDeploymentPremise(schemas=("fixture", "pg_catalog")))
+    try:
+        with handle:
+            pass
+    except pe.AttemptFailed as error:
+        result = [error.code, error.detail]
+pq = sys.modules.get("psycopg.pq")
+print(json.dumps([result, pq and [pq.__impl__, pq.PGconn.__module__]]))
+"""
+
+
+def _select(example, tmp_path, scenario, client, port, *, copy, impl=None):
+    """One fresh interpreter: psycopg's implementation selection in
+    `scenario`, then an attempt of the route (`client` "pietto") or a plain
+    psycopg.connect. Returns the attempt's code and detail (or the driver
+    error), the implementation psycopg selected (None if never imported) and
+    the directory of the psycopg_c copy (written first on the path if `copy`)."""
+    package = tmp_path / "copy" / "psycopg_c"
+    if copy:
+        api.write_psycopg_c(package.parent)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            "-c",
+            SELECTION_CHILD,
+            str(ROOT / "src"),
+            str(package.parent),
+            str(example),
+            scenario,
+            client,
+            str(port),
+            PASSWORD,
+        ],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        timeout=120,
+        env=child_environment(**({} if impl is None else {"PSYCOPG_IMPL": impl})),
+    )
+    assert result.returncode == 0, result.stderr
+    return (*json.loads(result.stdout), package)
+
+
+@pytest.mark.parametrize("impl", (None, "binary"))
+def test_the_binary_implementation_reaches_the_server(example, tmp_path, impl):
+    """With PSYCOPG_IMPL unset psycopg selects psycopg-binary's own module, and
+    PSYCOPG_IMPL=binary ignores a psycopg_c copy on the path (the remedy for an
+    installed psycopg-c); the attempt reaches the server under the route's
+    rules."""
+    with api.PostgresStub(auth="password") as stub:
+        outcome, selected, package = _select(
+            example, tmp_path, "binary", "pietto", stub.port, copy=bool(impl), impl=impl
+        )
+    assert outcome == ["PIE-R2004", None]
+    assert selected == ["binary", "psycopg_binary.pq"]
+    assert stub.events[0] == ("startup", "reader", "app") and not stub.replied
+    assert not (package / "imported").exists()
+
+
+# Whether a psycopg_c copy is first on the path, and the implementation
+# psycopg selects there.
+REFUSED_SELECTIONS = {
+    "copy": (True, ["binary", "psycopg_c"]),
+    "imported": (True, ["binary", "psycopg_c"]),
+    "fallback": (False, ["python", "psycopg.pq.pq_ctypes"]),
+}
+
+
+@pytest.mark.parametrize("scenario", sorted(REFUSED_SELECTIONS))
+def test_no_other_psycopg_implementation_receives_the_connection(
+    example, tmp_path, sentinel, scenario
+):
+    """Trust item 4: with PSYCOPG_IMPL unset psycopg imports a findable
+    psycopg_c first, so a copy that calls itself binary is refused before
+    psycopg is imported. Whatever it claims, the implementation psycopg
+    selected must be psycopg-binary's own module: the copy selected by an
+    import before PSYCOPG_IMPL=binary was set, or the ctypes fallback of a
+    binary that cannot be loaded, is refused before any connection value."""
+    copy, selected = REFUSED_SELECTIONS[scenario]
+    outcome, found, package = _select(
+        example, tmp_path, scenario, "pietto", sentinel.port, copy=copy
+    )
+    assert outcome == ["PIE-R2002", "POSTGRES_DRIVER_LIBRARY"]
+    assert found == (None if scenario == "copy" else selected)
+    assert (package / "imported").exists() is (scenario == "imported")
+    assert not (package / "received").exists() and not sentinel.connected()
+
+
+@pytest.mark.parametrize("scenario", sorted(REFUSED_SELECTIONS))
+def test_psycopg_itself_hands_those_implementations_the_password(
+    example, tmp_path, scenario
+):
+    """Control: in the same state a plain psycopg.connect gives the password
+    to the copy, or to the server through the ctypes implementation."""
+    copy, selected = REFUSED_SELECTIONS[scenario]
+    with api.PostgresStub(auth="password") as stub:
+        outcome, found, package = _select(
+            example, tmp_path, scenario, "psycopg", stub.port, copy=copy
+        )
+    assert (outcome, found) == ("OperationalError", selected) and stub.replied
+    if copy:
+        assert PASSWORD.encode() in (package / "received").read_bytes()
+
+
+def test_a_loaded_psycopg_c_without_a_spec_has_the_driver_refusal(
+    query, clean, sentinel
+):
+    clean.setitem(sys.modules, "psycopg_c", ModuleType("psycopg_c"))
+    error = _attempt(query, access(sentinel.port))
+    assert (error.code, error.detail) == ("PIE-R2002", "POSTGRES_DRIVER_LIBRARY")
+    assert ended(error).transaction == "NOT_STARTED"
+    assert PASSWORD not in str(error) and not sentinel.connected()
 
 
 def _connecting(monkeypatch):

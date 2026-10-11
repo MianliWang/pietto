@@ -6,6 +6,7 @@
   reads the startup packet, asks for one authentication method and records
   whether the client sends anything back (a password, a hash or a token).
 - A Linux inotify observer of the files a library opens in one directory.
+- A `psycopg_c` copy that calls itself psycopg's binary implementation.
 """
 
 from __future__ import annotations
@@ -69,6 +70,39 @@ def write_example(directory, *, relation="items"):
     (project / "contract.json").write_text(contract, encoding="utf-8")
     (Path(directory) / "run_query.py").write_text(blocks["python"], encoding="utf-8")
     return project
+
+
+# psycopg 3.3.5 hands every connection string, password included, to its
+# selected implementation's `Conninfo.parse`; this copy records each one.
+PSYCOPG_C = """
+import pathlib
+here = pathlib.Path(__file__).parent
+(here / "imported").write_text("yes")
+class pq:
+    __impl__ = "binary"
+    __build_version__ = 180006
+    def version():
+        return 180006
+    class Conninfo:
+        def parse(conninfo):
+            with open(here / "received", "ab") as stream:
+                stream.write(conninfo + b"\\n")
+            return []
+        def get_defaults():
+            return []
+    class PGconn:
+        pass
+    PGresult = Escaping = PGcancel = PGcancelConn = object
+"""
+
+
+def write_psycopg_c(directory):
+    """Write the copy as the package `psycopg_c` into `directory` and return
+    the package directory, where it records `imported` and `received`."""
+    package = Path(directory) / "psycopg_c"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text(PSYCOPG_C, encoding="utf-8")
+    return package
 
 
 class PostgresStub:

@@ -437,9 +437,15 @@ def test_each_route_checks_exactly_its_declared_selection():
     }
 
 
+class _PGconn:
+    """An implementation class from a file psycopg-binary does not record."""
+
+
 def test_postgres_rows_refuses_a_non_selected_libpq_implementation(monkeypatch):
-    for impl in ("python", "c"):
-        fake = SimpleNamespace(pq=SimpleNamespace(__impl__=impl))
+    """Not the binary implementation, or one that only says it is binary."""
+    monkeypatch.delenv("PSYCOPG_IMPL", raising=False)
+    for impl in ("python", "c", "binary"):
+        fake = SimpleNamespace(pq=SimpleNamespace(__impl__=impl, PGconn=_PGconn))
         monkeypatch.setattr(postgres, "pinned_modules", lambda pins, code, **_: [fake])
         with pytest.raises(ex.ExecutionError, match="^POSTGRES_DRIVER_LIBRARY$"):
             postgres.drivers()

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 from dataclasses import dataclass, field
 import math
 import os
 from pathlib import Path
 import stat
+import sys
 import threading
 import time
 import uuid
@@ -57,18 +59,36 @@ DRIVER_ORIGINS = (("psycopg-binary", "3.3.5", "psycopg_binary"),)
 
 
 def drivers():
-    # psycopg selects its implementation from PSYCOPG_IMPL when it is first
-    # imported; any other one than "binary" would load a system libpq (the
-    # pure Python one searches for it with ldconfig), so it is refused before
-    # the import.
-    if os.environ.get("PSYCOPG_IMPL", "binary") != "binary":
+    # psycopg selects its implementation when it is first imported: the one
+    # PSYCOPG_IMPL names or, while it is unset, a `psycopg_c` module whenever
+    # one is loaded or can be found, ahead of the binary one. Any other than
+    # "binary" would load a system libpq (the pure Python one searches for it
+    # with ldconfig), and a `psycopg_c` copy that calls itself binary would
+    # receive the connection values, so both are refused before the import;
+    # find_spec runs no module code.
+    requested = os.environ.get("PSYCOPG_IMPL")
+    if requested not in (None, "binary") or (
+        requested is None
+        and (
+            sys.modules.get("psycopg_c") is not None
+            or importlib.util.find_spec("psycopg_c") is not None
+        )
+    ):
         raise ExecutionError("POSTGRES_DRIVER_LIBRARY")
     (pg,) = pinned_modules(
         DRIVERS, "EXECUTION_DRIVER_VERSION", required_origins=DRIVER_ORIGINS
     )
-    # Only the selected binary implementation carries the pinned libpq; a broken
-    # one or one imported earlier would otherwise silently use a system library.
-    if pg.pq.__impl__ != "binary":
+    # Whatever it calls itself, the implementation psycopg selected must be
+    # psycopg-binary's own module: only it carries the pinned libpq, and its
+    # classes receive the connection values. A broken binary one falls back to
+    # the ctypes one over a system library, and an import before PSYCOPG_IMPL
+    # was set may have selected a copy.
+    from pietto._project.project_compiled_loading import owner_versions
+
+    ((binary, release, _module),) = DRIVER_ORIGINS
+    if pg.pq.__impl__ != "binary" or owner_versions(
+        binary, sys.modules.get(pg.pq.PGconn.__module__)
+    ) != {release}:
         raise ExecutionError("POSTGRES_DRIVER_LIBRARY")
     return (pg,)
 

@@ -297,9 +297,10 @@ def consumer_cases(python, work, *, path=()):
     """The installed-consumer laws that need no database: imports and an
     unopened execute load nothing and connect nowhere; request refusals;
     refused environment before the driver (and before PyArrow can open the
-    key log); a shadowing psycopg copy; the ANTLR label under a stray
+    key log); a shadowing psycopg copy; a psycopg_c copy that calls itself
+    binary, refused before psycopg is imported; the ANTLR label under a stray
     dist-info in the working directory. `path` puts a checkout first."""
-    from _pietto_execution_api import write_example
+    from _pietto_execution_api import write_example, write_psycopg_c
 
     work.mkdir(parents=True)
     project = write_example(work)
@@ -352,6 +353,22 @@ def consumer_cases(python, work, *, path=()):
     record["shadow_imported"] = (shadow / "imported").exists()
     record["shadow_connected"] = (shadow / "connected").exists()
     facts["shadow"] = record
+    copy = write_psycopg_c(work / "copy")
+    with sentinel() as listener:
+        record = case(
+            python,
+            work,
+            {
+                **base,
+                "case": "refused",
+                "port": listener["port"],
+                "path": [*path, str(copy.parent)],
+            },
+        )
+        record["connected"] = listener["connected"]()
+    record["copy_imported"] = (copy / "imported").exists()
+    record["copy_received"] = (copy / "received").exists()
+    facts["psycopg_c"] = record
     stray = work / "stray"
     info = stray / "antlr4_python3_runtime-9.9.9.dist-info"
     info.mkdir(parents=True)

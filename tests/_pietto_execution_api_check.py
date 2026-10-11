@@ -119,6 +119,16 @@ def check_consumer_cases(cases: Any) -> None:
     need(value.get("psycopg_file") == shadow.get("shadow"), "SHADOW_NOT_IMPORTED")
     need(shadow.get("shadow_imported") is True, "SHADOW_NOT_IMPORTED")
     need(shadow.get("shadow_connected") is False, "SHADOW_CONNECTED")
+    # A psycopg_c copy that calls itself binary is refused before psycopg is
+    # imported: psycopg never loads and the copy is never imported, so it
+    # never receives a connection string.
+    copy = cases.get("psycopg_c") or {}
+    value = refused(copy, "PIE-R2002", "POSTGRES_DRIVER_LIBRARY", "PSYCOPG_C")
+    need(value.get("after_open") == [], "PSYCOPG_C_LOADED")
+    need(
+        copy.get("copy_imported") is False and copy.get("copy_received") is False,
+        "PSYCOPG_C_IMPORTED",
+    )
     identity = cases.get("identity") or {}
     clean = result(identity.get("clean"), "IDENTITY")
     stray = result(identity.get("stray"), "IDENTITY")

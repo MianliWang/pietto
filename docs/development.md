@@ -1042,8 +1042,12 @@ Docker, network or installation. `tests/test_execution_api_postgres_rows.py` and
 `tests/test_execution_api_errors.py` drive the real public layer and private
 owners through request refusals and their order, refused environment and
 `PSYCOPG_IMPL`, a missing PyArrow or driver, shadowing psycopg and
-psycopg_binary copies, the exact libpq options (channel binding with TLS) and
-the 10 second statement limit of the startup options and of each statement.
+psycopg_binary copies, psycopg's own implementation choice (a `psycopg_c` copy
+that calls itself binary, whether findable before psycopg is imported or
+selected by an earlier import, and the ctypes fallback, each with a control in
+which plain psycopg hands it the password), the exact libpq options (channel
+binding with TLS) and the 10 second statement limit of the startup options and
+of each statement.
 Against a loopback protocol stub, the core profile's pinned psycopg shows that
 only SCRAM-SHA-256 reaches authentication and no password, hash or token is
 sent, and inotify shows that `require` opens no `~/.postgresql` file and a

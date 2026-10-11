@@ -319,14 +319,21 @@ file or certificate supplies a connection setting.
   accepted.
 - **Pinned driver files.** The imported `psycopg` and `psycopg_binary` must be
   files recorded by the installed `psycopg 3.3.5` and `psycopg-binary 3.3.5`
-  distributions, and the binary implementation must be the selected one; a
-  shadowing copy on `PYTHONPATH` or in the working directory is refused with
-  `PIE-R2002` before it receives any connection value. This stops accidental
-  shadowing, not a deliberately constructed environment, which can run
-  arbitrary code anyway. Run scripts with `python -I` to keep the working
-  directory and `PYTHONPATH` out of the import path. PyArrow only has to be
-  importable: this alpha checks neither its version nor the files it is
-  imported from.
+  distributions, and the implementation psycopg selected must be
+  psycopg-binary's own module, whatever it calls itself; a shadowing copy on
+  `PYTHONPATH` or in the working directory is refused with `PIE-R2002` before it
+  receives any connection value. While `PSYCOPG_IMPL` is unset, psycopg prefers
+  a `psycopg_c` module to its binary implementation whenever one can be found:
+  an installed psycopg-c, which loads a system libpq, or a copy next to your
+  script, which would receive the password. So, with `PSYCOPG_IMPL` unset,
+  opening an attempt is refused with `PIE-R2002` if a `psycopg_c` module is
+  loaded or can be found; Pietto checks this without importing it, before it
+  imports psycopg. To keep psycopg-c installed, set `PSYCOPG_IMPL=binary`:
+  psycopg then imports only its binary implementation. This stops accidental
+  shadowing, not a deliberately constructed environment, which can run arbitrary
+  code anyway. Run scripts with `python -I` to keep the working directory and
+  `PYTHONPATH` out of the import path. PyArrow only has to be importable: this
+  alpha checks neither its version nor the files it is imported from.
 - **Code identity.** Each compile and attempt identifies the installed Pietto
   and ANTLR runtime code; the ANTLR version comes from the distribution that
   owns the imported runtime files, so a stray `*.dist-info` in the working
@@ -396,7 +403,7 @@ authentication is `PIE-R2004`.
 | `compile_query(...)` | none; no schema is read | `pietto.toml`, the selected sources and the contract under the project root; the installed Pietto and ANTLR runtime `.py` files; the ANTLR distribution's `METADATA` and `RECORD` | none | none |
 | attributes, `repr()` of the value objects, `CompiledQuery` and an unopened handle | none | none | none | none |
 | `execute(...)` | none | the installed code and ANTLR metadata again, to bind afresh | none | none |
-| entering, or the first `next()` | one TCP connection: TLS with channel binding unless `disable`, SCRAM-SHA-256; `BEGIN ... READ ONLY`; a settings read; catalog reads that qualify the sources, between two reads of the session context | environment variable names and the value of `PSYCOPG_IMPL`; the `METADATA` and `RECORD` of psycopg and psycopg-binary; the type of `/dev/null` | one non-daemon `pietto-deadline-<attempt>` timer | psycopg 3.3.5 and PyArrow |
+| entering, or the first `next()` | one TCP connection: TLS with channel binding unless `disable`, SCRAM-SHA-256; `BEGIN ... READ ONLY`; a settings read; catalog reads that qualify the sources, between two reads of the session context | environment variable names and the value of `PSYCOPG_IMPL`; with it unset, whether a `psycopg_c` module is loaded or can be found on the import path (it is not imported); the `METADATA` and `RECORD` of psycopg and psycopg-binary; the type of `/dev/null` | one non-daemon `pietto-deadline-<attempt>` timer | psycopg 3.3.5 and PyArrow |
 | the first `next()` | a read of the session context, the statement timeout (`set_config`), then one prepared statement of at most 10 s; the whole result is read into client memory | none | as above | none |
 | each later `next()` | a read of the session context before the batch is returned | none | as above | none |
 | the end of the result, or `close()` | a read of the session context, then `COMMIT` at the end, `ROLLBACK` before it; the connection closes | none | the timer is joined (at most 3 s) | none |
@@ -423,6 +430,11 @@ still running. Interpreter exit waits for the deadline timer, up to
   the first `next()`; `max_rows` and `max_bytes` limit only what is delivered to
   you, and exceeding them refuses the whole batch (`PIE-R3004`) instead of
   truncating it.
+- With `PSYCOPG_IMPL` unset, a psycopg-binary that cannot be loaded makes
+  psycopg fall back to its ctypes implementation, which searches for a system
+  libpq (running `ldconfig`, then compiler and linker tools found on `PATH`) and
+  loads it before Pietto refuses that implementation with `PIE-R2002`;
+  `PSYCOPG_IMPL=binary` prevents the fallback.
 - Sources with `Timestamp` or `UUID` fields are blocked when compiled
   (`PIE-B1004`), even if the query does not select those fields; public Timestamp
   and UUID results are not part of this alpha.

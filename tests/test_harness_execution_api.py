@@ -63,7 +63,11 @@ def test_checkout_consumer_cases_satisfy_the_checker(checkout_facts):
     check.check_consumer_cases(checkout_facts)
     assert all(
         record.get("connected") is False
-        for record in (*checkout_facts["ambient"].values(), checkout_facts["shadow"])
+        for record in (
+            *checkout_facts["ambient"].values(),
+            checkout_facts["shadow"],
+            checkout_facts["psycopg_c"],
+        )
     )
 
 
@@ -117,6 +121,19 @@ def test_checkout_consumer_cases_satisfy_the_checker(checkout_facts):
             "IDENTITY",
         ),
         (lambda f: f["shadow"].update(shadow_imported=False), "SHADOW_NOT_IMPORTED"),
+        (lambda f: f.pop("psycopg_c"), "PSYCOPG_C"),
+        (
+            lambda f: f["psycopg_c"]["result"].update(
+                detail="EXECUTION_DRIVER_VERSION"
+            ),
+            "PSYCOPG_C",
+        ),
+        (
+            lambda f: f["psycopg_c"]["result"].update(after_open=["psycopg"]),
+            "PSYCOPG_C_LOADED",
+        ),
+        (lambda f: f["psycopg_c"].update(copy_imported=True), "PSYCOPG_C_IMPORTED"),
+        (lambda f: f["psycopg_c"].update(copy_received=True), "PSYCOPG_C_IMPORTED"),
     ),
 )
 def test_the_checker_refuses_each_damaged_consumer_fact(checkout_facts, damage, reason):
