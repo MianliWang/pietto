@@ -2104,38 +2104,46 @@ def tuning(directory, ledger, *, target, interpreters, wheel, routes=None):
 # ---------------------------------------------------------------------------
 # CI-shaped installed consumers, run locally with explicit LOCAL labels: the
 # Compiler/Package job's Arrow readiness and installed result-product consumers
-# and the aggregate's real-consumer prepare/replay/verify over this head's
-# archived native receipts with their ORIGINAL identity (local HEAD equals that
-# identity only before the next commit; nothing is rewritten). The receipts are
-# the latest published head's verified natural-CI artifacts.
-
-RECEIPT_RUN = (
-    Path.home()
-    / ".local/state/pietto/evidence/pietto-preview-release-v0.1.0-20261010T010055Z"
-    / "pietto-preview-release-ci-38017706870-attempt1"
-)
-RECEIPTS = RECEIPT_RUN / "pietto-preview-release-artifacts"
-RECEIPT_IDENTITY = ("4b87b6a728d9abee4bc08c31736997ce31d04314", "38017706870", 1)
+# and the aggregate's real-consumer prepare/replay/verify over archived native
+# receipts with their ORIGINAL identity (local HEAD equals that identity only
+# before the next commit; nothing is rewritten). The caller names the receipts
+# directory, that run's minimal audit record and its (commit, run id, attempt).
 
 
-def consumer(directory, ledger, *, label, uv_cache=None):
-    """Each step is the CI command shape; the checkers are the CI checkers."""
+def receipt_inputs(receipt_dir, audit_path, identity):
+    """The two target receipts of `identity`, bound to the run's minimal audit
+    record (same identity, same digests, no artifact name twice): (recorded audit
+    fields, {name: bytes})."""
+    _commit, run_id, attempt = identity
+    audit = json.loads(Path(audit_path).read_text())
+    if (audit["head"], str(audit["run"]), audit["attempt"]) != tuple(identity):
+        raise ValueError("S19_RECEIPT_AUDIT:identity")
+    digests = {a["name"]: a["digest"] for a in audit["artifacts"]}
+    if len(digests) != len(audit["artifacts"]):
+        raise ValueError("S19_RECEIPT_AUDIT:duplicate")
+    found = {}
+    for target in ("postgres", "mysql"):
+        name = "phase66-%s-%s-%d.json" % (target, run_id, attempt)
+        data = (Path(receipt_dir) / name).read_bytes()
+        if digests.get(name) != "sha256:" + hashlib.sha256(data).hexdigest():
+            raise ValueError("S19_RECEIPT_AUDIT:" + name)
+        found[name] = data
+    return {k: audit[k] for k in audit if k in ("verdict", "status")}, found
+
+
+def consumer(directory, ledger, *, label, receipt_dir, audit, identity, uv_cache=None):
+    """Each step is the CI command shape; the checkers are the CI checkers. The
+    explicit receipt inputs are bound before anything is written."""
     import subprocess
 
     from _pietto_phase68_slice8_probe import event
 
+    receipt_audit, found = receipt_inputs(receipt_dir, audit, identity)
     directory.mkdir(mode=0o700)
-    audit = json.loads((RECEIPT_RUN / "pietto-preview-release-audit.json").read_text())
     receipts = directory / (PREFIX + "receipts")
     receipts.mkdir(mode=0o700)
     copied = {}
-    for target in ("postgres", "mysql"):
-        name = "phase66-%s-%s-%d.json" % (
-            target,
-            RECEIPT_IDENTITY[1],
-            RECEIPT_IDENTITY[2],
-        )
-        data = (RECEIPTS / name).read_bytes()
+    for name, data in found.items():
         copied[name] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
         (receipts / name).write_bytes(data)
         (receipts / name).chmod(0o400)
@@ -2164,11 +2172,11 @@ def consumer(directory, ledger, *, label, uv_cache=None):
     integration = reports / ("phase67-consumer-integration-%s.json" % label)
     replay_identity = [
         "--expected-commit",
-        RECEIPT_IDENTITY[0],
+        identity[0],
         "--run-id",
-        RECEIPT_IDENTITY[1],
+        identity[1],
         "--run-attempt",
-        str(RECEIPT_IDENTITY[2]),
+        str(identity[2]),
     ]
     steps = [
         (
@@ -2294,7 +2302,7 @@ def consumer(directory, ledger, *, label, uv_cache=None):
         "provenance": "LOCAL",
         "label": label,
         "receipts": copied,
-        "receipt_audit": {k: audit[k] for k in audit if k in ("verdict", "status")},
+        "receipt_audit": receipt_audit,
         "head": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),

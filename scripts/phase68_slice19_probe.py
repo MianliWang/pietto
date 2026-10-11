@@ -58,7 +58,28 @@ def main():
         help="tuning: a subset of the targets' routes",
     )
     parser.add_argument("--label", help="consumer: the explicit LOCAL run label")
+    parser.add_argument("--receipts", type=Path, help="consumer: archived receipts")
+    parser.add_argument(
+        "--receipt-audit", type=Path, help="consumer: their run's minimal audit record"
+    )
+    parser.add_argument(
+        "--receipt-identity",
+        nargs=3,
+        metavar=("COMMIT", "RUN_ID", "ATTEMPT"),
+        help="consumer, check: the receipts' identity (consumer: COMMIT must be"
+        " local HEAD)",
+    )
     args = parser.parse_args()
+    needed = {
+        "consumer": ("label", "receipts", "receipt_audit", "receipt_identity"),
+        "check": ("receipt_identity",),
+    }.get(args.family, ())
+    if any(getattr(args, name) is None for name in needed):
+        parser.error(args.family + " needs --" + " --".join(needed).replace("_", "-"))
+    identity = None
+    if args.receipt_identity is not None:
+        commit, run_id, attempt = args.receipt_identity
+        identity = (commit, run_id, int(attempt))
     root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(root / "src"))
     sys.path.insert(0, str(root / "tests"))
@@ -167,7 +188,13 @@ def main():
         }
     elif args.family == "consumer":
         report = probe.consumer(
-            args.directory, args.ledger, label=args.label, uv_cache=args.cache
+            args.directory,
+            args.ledger,
+            label=args.label,
+            receipt_dir=args.receipts,
+            audit=args.receipt_audit,
+            identity=identity,
+            uv_cache=args.cache,
         )
     else:
         import _pietto_phase68_slice19_check as check
@@ -177,6 +204,7 @@ def main():
             args.wheel,
             args.house / (s18.PREFIX + "wheelhouse"),
             args.install,
+            identity,
         )
         args.ledger.write_text(json.dumps(report, indent=2, default=str) + "\n")
     print(json.dumps({"family": args.family, "seconds": report.get("seconds")}))

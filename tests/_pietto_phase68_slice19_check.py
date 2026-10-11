@@ -1910,9 +1910,10 @@ def tuning_pairs(c, target: str) -> dict:
     return pairs
 
 
-def campaign_check(directory, wheel, house, install) -> dict:
+def campaign_check(directory, wheel, house, install, identity) -> dict:
     """Re-consume every component of one campaign directory with the original
-    layer checkers and the S19 laws; returns the per-component verdicts."""
+    layer checkers and the S19 laws; returns the per-component verdicts.
+    `identity` is the replayed receipts' explicit (commit, run id, attempt)."""
     import hashlib
     import json as _json
     from pathlib import Path
@@ -2008,12 +2009,29 @@ def campaign_check(directory, wheel, house, install) -> dict:
     check08(found08["controls"], kinds)
     controls["s08"] = kinds
     verdict["controls"] = controls
-    consumer = report("consumer", "pietto-phase68-slice19-consumer.json")
+    verdict["consumer"] = consumer_verdict(
+        report("consumer", "pietto-phase68-slice19-consumer.json"),
+        identity,
+        hashlib.sha256(Path(wheel).read_bytes()).hexdigest(),
+    )
+    return verdict
+
+
+def consumer_verdict(consumer: dict, identity, wheel_sha256: str) -> dict:
+    """The CI-shaped consumer component: LOCAL, the receipts of the explicit
+    identity replayed at its commit, every CI step in order and successful, and
+    both CI-shaped builds the candidate wheel's exact bytes."""
+    commit, run_id, attempt = identity
     need(
         consumer["provenance"] == "LOCAL"
         # The archived receipts replay under their original identity, which
         # the local checkout must still be at (before the next commit).
-        and consumer["head"] == "4b87b6a728d9abee4bc08c31736997ce31d04314"
+        and consumer["head"] == commit
+        and sorted(consumer["receipts"])
+        == sorted(
+            "phase66-%s-%s-%d.json" % (target, run_id, attempt)
+            for target in ("postgres", "mysql")
+        )
         and [s["step"] for s in consumer["steps"]]
         == [
             "package_smoke",
@@ -2029,7 +2047,5 @@ def campaign_check(directory, wheel, house, install) -> dict:
         "CONSUMER",
     )
     # Both CI-shaped builds reproduce the candidate wheel's exact bytes.
-    current = hashlib.sha256(Path(wheel).read_bytes()).hexdigest()
-    need(set(consumer["wheels"].values()) == {current}, "CONSUMER")
-    verdict["consumer"] = {"label": consumer["label"], "wheel": current}
-    return verdict
+    need(set(consumer["wheels"].values()) == {wheel_sha256}, "CONSUMER")
+    return {"label": consumer["label"], "wheel": wheel_sha256}

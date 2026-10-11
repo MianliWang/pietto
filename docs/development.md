@@ -1010,7 +1010,11 @@ interlude's evidence instance.
 their `ci_validation.py` checks, and the real-consumer `prepare`/`replay`/`verify`.
 Replay consumes archived receipts only under their original identity, which equals
 local `HEAD` only before the next commit; nothing is rewritten and the reports are
-LOCAL provenance. Package metadata/extras changes must run it before a seal.
+LOCAL provenance. The caller names the receipts: `--receipts DIR`,
+`--receipt-audit FILE` (that run's minimal audit record: `head`, `run`, `attempt`
+and each artifact's `name`/`digest`) and `--receipt-identity COMMIT RUN_ID ATTEMPT`,
+refused before any write unless they agree; `check` judges the consumer under the
+same `--receipt-identity`. Package metadata/extras changes must run it before a seal.
 Production edits change the semantic build identity, so bundles and installed
 witnesses would use the final code.
 

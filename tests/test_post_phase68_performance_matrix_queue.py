@@ -1,8 +1,17 @@
 """The S19 matrix's shared claim queue (an R2-first walk, each declaration claimed
-exactly once) and the narrowed S14 no-basis law. Pure; no database or Arrow."""
+exactly once), the narrowed S14 no-basis law, the campaign check's matrix, tuning
+and consumer sections, and the consumer family's explicit archived receipts (a
+receipts directory, that run's minimal audit record and its identity, bound
+before anything is written). Pure; no database or Arrow."""
 
 from __future__ import annotations
 
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import subprocess
+import sys
 import threading
 from typing import Any
 
@@ -11,7 +20,7 @@ import pytest
 import _pietto_phase68_slice10_probe as s10
 import _pietto_phase68_slice14_probe as s14
 from _pietto_phase68_slice14_check import check_capture
-from _pietto_phase68_slice19_probe import claim, queue_work
+from _pietto_phase68_slice19_probe import claim, consumer, queue_work, receipt_inputs
 from _pietto_phase68_slice7_cases import manifest as guard_manifest
 
 
@@ -160,8 +169,6 @@ def test_a_cell_without_its_guard_case_is_not_a_guard_refusal():
 
 
 def _write_report(directory, name, report):
-    import json
-
     directory.mkdir(parents=True, exist_ok=True)
     (directory / name).write_text(json.dumps(report))
 
@@ -216,3 +223,184 @@ def test_tuning_pairs_come_only_from_runs_that_cleaned_up(tmp_path):
     _write_report(tmp_path / "twice/tuning-reused/postgres", name, good)
     with pytest.raises(AssertionError, match="^TUNING_ROUTES$"):
         tuning_pairs(tmp_path / "twice", "postgres")
+
+
+IDENTITY = ("a" * 40, "123", 1)
+STEPS = (
+    "package_smoke",
+    "arrow_readiness",
+    "check_arrow",
+    "result_product",
+    "check_product",
+    "consumer_prepare",
+    "consumer_replay",
+    "consumer_verify",
+)
+
+
+def _archive(tmp_path, **audit):
+    """IDENTITY's two receipts and that run's minimal audit record."""
+    bodies = {"postgres": b'{"pg": 1}\n', "mysql": b'{"my": 1}\n'}
+    names = {t: "phase66-%s-123-1.json" % t for t in bodies}
+    for target, body in bodies.items():
+        (tmp_path / names[target]).write_bytes(body)
+    record = {
+        "status": "PASS_EXACT_HEAD_ALL_CONSUMERS",
+        "head": IDENTITY[0],
+        "run": 123,
+        "attempt": 1,
+        "artifacts": [
+            {"name": names[t], "digest": "sha256:" + hashlib.sha256(b).hexdigest()}
+            for t, b in bodies.items()
+        ],
+        **audit,
+    }
+    (tmp_path / "audit.json").write_text(json.dumps(record))
+    return names, bodies
+
+
+def test_receipts_bind_to_the_audit_record_of_their_identity(tmp_path, monkeypatch):
+    names, bodies = _archive(tmp_path)
+    status, found = receipt_inputs(tmp_path, tmp_path / "audit.json", IDENTITY)
+    assert status == {"status": "PASS_EXACT_HEAD_ALL_CONSUMERS"}
+    assert found == {names[t]: bodies[t] for t in ("postgres", "mysql")}
+
+    def spawn(*_args, **_kwargs):
+        raise AssertionError("SPAWNED")
+
+    # The consumer family binds them before it writes or spawns anything.
+    monkeypatch.setattr(subprocess, "run", spawn)
+    monkeypatch.setattr(subprocess, "check_output", spawn)
+    for identity in (
+        ("b" * 40, "123", 1),
+        ("a" * 40, "124", 1),
+        ("a" * 40, "123", 2),
+    ):
+        with pytest.raises(ValueError, match="^S19_RECEIPT_AUDIT:identity$"):
+            receipt_inputs(tmp_path, tmp_path / "audit.json", identity)
+        with pytest.raises(ValueError, match="^S19_RECEIPT_AUDIT:identity$"):
+            consumer(
+                tmp_path / "run",
+                tmp_path / "ledger.json",
+                label="local-x",
+                receipt_dir=tmp_path,
+                audit=tmp_path / "audit.json",
+                identity=identity,
+            )
+        assert not (tmp_path / "run").exists()
+
+
+def test_a_receipt_the_audit_record_does_not_vouch_for_is_refused(tmp_path):
+    names, _bodies = _archive(tmp_path)
+    (tmp_path / names["mysql"]).write_bytes(b'{"my": 2}\n')
+    with pytest.raises(ValueError, match="^S19_RECEIPT_AUDIT:" + names["mysql"]):
+        receipt_inputs(tmp_path, tmp_path / "audit.json", IDENTITY)
+    names, _bodies = _archive(tmp_path, artifacts=[])
+    with pytest.raises(ValueError, match="^S19_RECEIPT_AUDIT:" + names["postgres"]):
+        receipt_inputs(tmp_path, tmp_path / "audit.json", IDENTITY)
+    names, _bodies = _archive(tmp_path)
+    vouched = json.loads((tmp_path / "audit.json").read_text())["artifacts"]
+    stray = {"name": names["mysql"], "digest": "sha256:" + "0" * 64}
+    # A name the record lists twice has no winner, whichever entry comes first.
+    for artifacts in ([stray, *vouched], [*vouched, stray]):
+        _archive(tmp_path, artifacts=artifacts)
+        with pytest.raises(ValueError, match="^S19_RECEIPT_AUDIT:duplicate$"):
+            receipt_inputs(tmp_path, tmp_path / "audit.json", IDENTITY)
+    names, _bodies = _archive(tmp_path)
+    (tmp_path / names["postgres"]).unlink()
+    with pytest.raises(FileNotFoundError):
+        receipt_inputs(tmp_path, tmp_path / "audit.json", IDENTITY)
+
+
+def _consumer(identity=IDENTITY, **changes):
+    """A consumer family report as `consumer` writes it for `identity`."""
+    _commit, run_id, attempt = identity
+    report = {
+        "provenance": "LOCAL",
+        "label": "local-x",
+        "receipts": {
+            "phase66-%s-%s-%d.json" % (t, run_id, attempt): {"bytes": 1}
+            for t in ("postgres", "mysql")
+        },
+        "receipt_audit": {"status": "PASS_EXACT_HEAD_ALL_CONSUMERS"},
+        "head": identity[0],
+        "steps": [{"step": s, "returncode": 0} for s in STEPS],
+        "wheels": {"result": "c" * 64, "consumer": "c" * 64},
+    }
+    report.update(changes)
+    return report
+
+
+def test_the_consumer_law_judges_the_explicit_identity():
+    from _pietto_phase68_slice19_check import consumer_verdict
+
+    expected = {"label": "local-x", "wheel": "c" * 64}
+    assert consumer_verdict(_consumer(), IDENTITY, "c" * 64) == expected
+    # Any explicit identity, not one literal head.
+    other = ("e" * 40, "9", 3)
+    assert consumer_verdict(_consumer(other), other, "c" * 64) == expected
+    failed = _consumer()
+    failed["steps"][6]["returncode"] = 1
+    one_receipt = _consumer()
+    one_receipt["receipts"].pop("phase66-mysql-123-1.json")
+    for report, identity, wheel in (
+        (_consumer(), ("b" * 40, "123", 1), "c" * 64),
+        (_consumer(), ("a" * 40, "124", 1), "c" * 64),
+        (_consumer(), ("a" * 40, "123", 2), "c" * 64),
+        (_consumer(head="b" * 40), IDENTITY, "c" * 64),
+        (one_receipt, IDENTITY, "c" * 64),
+        (_consumer(provenance="CI"), IDENTITY, "c" * 64),
+        (_consumer(), IDENTITY, "d" * 64),
+        (failed, IDENTITY, "c" * 64),
+    ):
+        with pytest.raises(AssertionError, match="^CONSUMER$"):
+            consumer_verdict(report, identity, wheel)
+
+
+# The inputs each family requires, in the order its refusal names them.
+NEEDS = {
+    "consumer": ("--label", "--receipts", "--receipt-audit", "--receipt-identity"),
+    "check": ("--receipt-identity",),
+}
+
+
+@pytest.mark.parametrize(
+    "family,omitted", [(f, o) for f, needed in NEEDS.items() for o in needed]
+)
+def test_the_families_refuse_each_missing_receipt_input(
+    tmp_path, monkeypatch, capsys, family, omitted
+):
+    path = Path(__file__).resolve().parents[1] / "scripts/phase68_slice19_probe.py"
+    spec = importlib.util.spec_from_file_location("s19_entry", path)
+    assert spec is not None and spec.loader is not None
+    entry = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(entry)
+    values = {
+        "--label": ["local-x"],
+        "--receipts": [str(tmp_path / "receipts")],
+        "--receipt-audit": [str(tmp_path / "audit.json")],
+        "--receipt-identity": [IDENTITY[0], IDENTITY[1], str(IDENTITY[2])],
+    }
+    given = [t for o in NEEDS[family] if o != omitted for t in (o, *values[o])]
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            path.name,
+            family,
+            *given,
+            "--directory",
+            str(tmp_path / "d"),
+            "--ledger",
+            str(tmp_path / "l.json"),
+        ],
+    )
+    with pytest.raises(SystemExit) as exit_:
+        entry.main()
+    assert exit_.value.code == 2
+    assert capsys.readouterr().err.splitlines()[-1] == "%s: error: %s needs %s" % (
+        path.name,
+        family,
+        " ".join(NEEDS[family]),
+    )
+    assert not (tmp_path / "d").exists()
