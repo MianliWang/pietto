@@ -144,4 +144,4 @@ paths, formatting, and ordinary hashes do not require new authority.
   and eligible health; use the macro process and technical checks in the phase-initiation gate.
   Routine phase-end acquisition consolidation does not require a health alert.
   Scheduler/topology/resource-policy maintenance still requires its existing
-  evidence and separate authority. Expand only the authorized next Slice.
+  evidence and separate authority. Expand only Slices inside the current authorization group.

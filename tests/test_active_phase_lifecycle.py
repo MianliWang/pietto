@@ -385,7 +385,7 @@ EXPECTED_STATUS = (
     ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
     ("PostgreSQL refinement-page JIT predecessor", "`COMPLETED / PUBLISHED`"),
     ("Parallelism interlude", "`COMPLETED`"),
-    ("Next", "`a separately dispatched Phase69 rebind`"),
+    ("Next", "`Phase69 S01 through its own Gate 0 after the route lock publishes`"),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
@@ -6235,7 +6235,7 @@ def test_phase68_initiation_keeps_completion_and_candidate_evidence_separate() -
             "PG ADBC 查询 NOT_OBSERVED",
             "performance interlude COMPLETED",
             "spec/post-phase68-performance-interlude-v1.md",
-            "Phase69 FULL Phase Start 未开始",
+            "phases/phase-69/slices.md",
             "S10 要求 fresh acceptance/qualification",
             "Route of twenty positions: S01–S20 COMPLETED / PUBLISHED",
             "phases/phase-68/slice-02.md",
