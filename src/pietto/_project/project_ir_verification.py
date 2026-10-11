@@ -689,12 +689,11 @@ def _independent_operator_kinds(
     if definition.limit_clause is not None:
         expression = definition.limit_clause.expression
         if (
-            type(expression) is not LiteralExpr
-            or type(expression.value) is not int
-            or not 0 <= expression.value <= MAX_RELATION_LIMIT
+            type(expression) is LiteralExpr
+            and type(expression.value) is int
+            and 0 <= expression.value <= MAX_RELATION_LIMIT
         ):
-            return None
-        kinds.append(ProjectIRLogicalOperatorKind.LIMIT)
+            kinds.append(ProjectIRLogicalOperatorKind.LIMIT)
     return tuple(kinds)
 
 

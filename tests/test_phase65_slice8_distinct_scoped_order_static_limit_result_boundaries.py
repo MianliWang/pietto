@@ -172,12 +172,14 @@ def test_static_limit_absence_and_bound(tmp_path, limit):
         assert view.limits[0].literal is definition.limit_clause.expression
 
 
+@pytest.mark.parametrize("joined", [True, False])
 @pytest.mark.parametrize(
     "literal", ["true", "1.5", "-1", "1 + 1", str(result.MAX_RELATION_LIMIT + 1)]
 )
-def test_invalid_limits_keep_actual_upstream_diagnostics(tmp_path, literal):
-    # This normal joined path reaches the existing completed LIMIT diagnostic.
-    roots = _roots(tmp_path, _join_source("true") + f"    limit {literal}\n")
+def test_invalid_limits_keep_actual_upstream_diagnostics(tmp_path, literal, joined):
+    # The joined and the historical no-JOIN paths reach the completed LIMIT diagnostic.
+    source = _join_source("true") if joined else _source("    select:\n        value\n")
+    roots = _roots(tmp_path, source + f"    limit {literal}\n")
     assert not roots[0].ok and any(d.code == "PIE-S2307" for d in roots[0].diagnostics)
     assert isinstance(build_project_sql_plan(*roots), ProjectSQLPlanUnavailable)
 

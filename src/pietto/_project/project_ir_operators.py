@@ -148,13 +148,14 @@ def _expected_operator_kinds(
         kinds.append(ProjectIRLogicalOperatorKind.RELATION_ORDERING)
     if definition.limit_clause is not None:
         expression = definition.limit_clause.expression
+        # Only a validated static limit is an operator; completed semantics owns
+        # an invalid one and its PIE-S2307.
         if (
-            type(expression) is not LiteralExpr
-            or type(expression.value) is not int
-            or not 0 <= expression.value <= MAX_RELATION_LIMIT
+            type(expression) is LiteralExpr
+            and type(expression.value) is int
+            and 0 <= expression.value <= MAX_RELATION_LIMIT
         ):
-            raise ValueError("Limit operator requires a validated static limit.")
-        kinds.append(ProjectIRLogicalOperatorKind.LIMIT)
+            kinds.append(ProjectIRLogicalOperatorKind.LIMIT)
     return tuple(kinds)
 
 

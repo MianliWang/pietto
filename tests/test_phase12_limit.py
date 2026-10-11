@@ -8,6 +8,7 @@ from typing import cast
 
 import pytest
 
+import _pietto_phase66_sql_emission_probe as probe
 import pietto.cli as cli
 import pietto.sql as sql_api
 from pietto.ast_nodes import LimitClause, LiteralExpr, QueryDef
@@ -27,6 +28,7 @@ POSTGRES_PREFIX = (
 MYSQL_PREFIX = (
     'shape User:\n    id: Int not null\nsource users: User is mysql.table("users")\n'
 )
+PROJECT_INVALID_LIMITS = ("n", "id", "-1", "1.5", '"5"', "1 + 1", "null")
 
 
 @pytest.mark.parametrize(
@@ -259,6 +261,80 @@ def test_cli_text_and_json_v1_carry_limit_without_new_options(
     assert document["artifacts"][0]["sql"].endswith("FROM `users`\nLIMIT 10")
 
 
+@pytest.mark.parametrize("target", ["postgres", "mysql"])
+@pytest.mark.parametrize("operand", PROJECT_INVALID_LIMITS)
+def test_project_check_and_emit_sql_report_one_limit_diagnostic(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    operand: str,
+    target: str,
+) -> None:
+    # The same single PIE-S2307 as single-file check, never a traceback; the
+    # no-JOIN downstream consumer of the invalid relation adds no cascade.
+    root, line = _limit_project(tmp_path / "project", target, operand)
+    rendered = f"main.pietto:{line}:11 PIE-S2307 error: {LIMIT_MESSAGE}\n"
+    diagnostic = {
+        "code": "PIE-S2307",
+        "severity": "error",
+        "message": LIMIT_MESSAGE,
+        "location": {
+            "path": "main.pietto",
+            "line": line,
+            "column": 11,
+            "end_line": line,
+            "end_column": 11 + len(operand),
+        },
+        "suggestion": None,
+    }
+
+    assert cli.main(["check", "--project", str(root)]) == 1
+    text = capsys.readouterr()
+    assert (text.out, text.err) == ("", rendered)
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    document = json.loads(capsys.readouterr().out)
+    assert (document["ok"], document["cli_errors"]) == (False, [])
+    assert document["diagnostics"] == [{**diagnostic, "related_locations": []}]
+
+    emit = _limit_emit_argv(root, target)
+    assert cli.main([*emit, "--format", "text"]) == 1
+    text = capsys.readouterr()
+    assert (text.out, text.err) == ("", "pietto.sql-emission.v1 BLOCKED\n" + rendered)
+    assert cli.main(emit) == 1
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert probe.decode_public(output.out.encode("utf-8")) == {
+        "artifact": None,
+        "blockers": [],
+        "cli_errors": [],
+        "diagnostics": [diagnostic],
+        "format": "pietto.sql-emission.v1",
+        "status": "BLOCKED",
+    }
+
+
+@pytest.mark.parametrize("target", ["postgres", "mysql"])
+def test_project_limit_boundaries_emit_valid_values_and_reject_overflow(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    target: str,
+) -> None:
+    for value in ("0", "10", str(MAX_LIMIT)):
+        root, _ = _limit_project(tmp_path / value, target, value)
+        assert cli.main(["check", "--project", str(root)]) == 0
+        assert capsys.readouterr().err == ""
+        assert cli.main(_limit_emit_argv(root, target)) == 0
+        document = probe.decode_public(capsys.readouterr().out.encode("utf-8"))
+        assert document["status"] == "VERIFIED"
+        assert document["sql"].endswith(f" LIMIT {value}")
+
+    overflow = str(MAX_LIMIT + 1)
+    root, line = _limit_project(tmp_path / "overflow", target, overflow)
+    assert cli.main(["check", "--project", str(root)]) == 1
+    assert capsys.readouterr().err == (
+        f"main.pietto:{line}:11 PIE-S2307 error: {LIMIT_MESSAGE}\n"
+    )
+
+
 def test_suffix_and_diagnostic_code_contracts_remain_canonical() -> None:
     repository_text = "\n".join(
         path.read_text(encoding="utf-8")
@@ -281,6 +357,41 @@ def _relation_source(prefix: str, limit: str | None) -> str:
         "    select:\n"
         "        id\n" + limit_clause
     )
+
+
+def _limit_project(root: Path, target: str, operand: str) -> tuple[Path, int]:
+    """One explicit-module project over the probe's LIMIT source and contract."""
+    fixture = probe.fixture(target, "O_result_limit", "zero")
+    let = "    let:\n        n = 10\n" if operand == "n" else ""
+    source = (
+        fixture["source"].split("query result:", 1)[0]
+        + f"query result:\n    from rows\n{let}    select:\n        record_id = id\n"
+        + f"    limit {operand}\n"
+        + "query downstream:\n    from result\n    select:\n        record_id\n"
+    )
+    root.mkdir(parents=True)
+    (root / "pietto.toml").write_text(probe.CONFIG, encoding="utf-8")
+    (root / "main.pietto").write_text(source, encoding="utf-8")
+    (root / "contract.json").write_text(fixture["contract"], encoding="utf-8")
+    return root, source.splitlines().index(f"    limit {operand}") + 1
+
+
+def _limit_emit_argv(root: Path, target: str) -> list[str]:
+    return [
+        "emit-sql",
+        "--project",
+        str(root),
+        "--module",
+        "main.pietto",
+        "--kind",
+        "query",
+        "--name",
+        "result",
+        "--dialect",
+        target,
+        "--emission-contract",
+        "contract.json",
+    ]
 
 
 def _parse(source: str, *, path: str = "limit.pietto"):

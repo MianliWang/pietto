@@ -6193,6 +6193,9 @@ def build_project_effective_output_completion(
                 is None
                 and not changed_upstream
                 and cast(_DerivedRelation, definition).distinct_clause is None
+                # An invalid LIMIT has no IR operator; the replay's LIMIT stage
+                # owns its PIE-S2307.
+                and type(_relation_limit(owner)) is not ProjectNonConcreteRelationLimit
             ):
                 promoted = (
                     _promoted_scalar_producer(
