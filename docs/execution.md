@@ -231,7 +231,8 @@ except RequestRejected as error:
 - `Outcome` carries `attempt`, `route`, `end`, the layered `source`,
   `transaction`, `delivery` and `cleanup` states, `remote_source_use_end`,
   `rows`, `batches`, `bytes`, `deadline_expired`, `primary`,
-  `cleanup_failures` and the two declarations above as `premise_compliance` and
+  `cleanup_failures`, `cancel_requested`, `cancel_sent`, `cancel_observed` and
+  the two declarations above as `premise_compliance` and
   `native_definition_lifetime_exclusion`.
 
 ### Terminal states
@@ -243,6 +244,7 @@ except RequestRejected as error:
 | `COMPLETE` | Read to the end of the result and committed (`transaction` is `COMMIT_ACK`), with no failure. |
 | `STOPPED_EARLY` | Closed before the end; the transaction was rolled back. |
 | `DEADLINE` | `limits.seconds` expired. |
+| `CANCELLED` | `cancel()` won before the attempt completed. |
 | `FAILED` | A failure ended it; `primary` says which. This includes a result read to the end and committed whose cleanup then failed (see below). |
 | `DROPPED` | Only in an `UnclosedHandleWarning`: the open handle was garbage-collected, or was still open at interpreter exit. |
 
@@ -254,6 +256,24 @@ when the server acknowledged it. Closing a handle is not an acknowledgement and
 does not make an early stop complete. Once an attempt is closed its outcome no
 longer changes; an exception raised afterwards inside the `with` block passes
 through without being recorded.
+
+`ResultHandle.cancel()` returns `None` and is the one handle operation a
+controller thread may call while another thread consumes the handle. It records
+whether manual cancellation was requested, sent to the driver and observed by
+the attempt in `outcome.cancel_requested`, `cancel_sent` and `cancel_observed`.
+The same facts also record a deadline's private cancellation request; they do
+not by themselves select a terminal. A request that loses to completion, close
+or another failure changes no settled terminal. A request without an observed
+cancellation does not claim remote quiescence.
+
+If manual cancellation wins, the later public operation reports `PIE-R3009`
+and the settled end is `CANCELLED`. Sending a request and observing it are
+separate facts; neither alone establishes a server acknowledgement. A cancel
+after another terminal has settled is a no-op and cannot change the outcome.
+When PostgreSQL reports a cancelled statement after it has entered an aborted
+transaction, the outcome retains `transaction=UNKNOWN`, failed cleanup and its
+`PIE-R5001` transaction failure; cancellation observation is not a rollback ACK
+or a remote-quiescence claim.
 
 When the server reports an error inside the transaction (a failing statement,
 the 10 second statement limit, or the cancel a deadline sends), the transaction
@@ -271,6 +291,10 @@ step then failed (closing the connection, for example), the attempt ends
 `cleanup_failures`. The same failure in `close()` before the end leaves
 `STOPPED_EARLY` with no `primary`, `cleanup` `FAILED` and that `PIE-R5001`
 entry.
+
+A `KeyboardInterrupt` or other `BaseException` during finalization records the
+terminal and cleanup facts reached by bounded cleanup, then propagates the
+original exception unchanged. It is never replaced by an execution error.
 
 ### Errors
 

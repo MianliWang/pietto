@@ -240,3 +240,7 @@ text, guess schema/connection or change legacy interpretation”，D66.13 的“
 and old behavior unchanged …”，以及请求合同（Concrete request, output and state contract）中 legacy single-file `emit-sql` 的默认 text、flags、exit/JSON/SQL“保持原状”
 一句。同一批次中所有者另行授权的两项单文件公开输出变化（命名窗口的 SQL 改变；以前能编译的类型不配比较现在失败）同样偏离后三条，也由该授权取代。项目模式不变：namespace
 与 name 仍取自 emission 合同，连接字符串不进入 SQL，也不猜 schema 或连接。历史合同原文不改。
+
+## Phase69 parallel implementation extension — owner decision (2026-10-11)
+
+所有者将按依赖并行实施的授权扩展到既定 S01–S21，允许隔离 worktree 开发、就绪片按既有批次规则每片一个普通提交，并以批次最终树的一次权威验证、一次 FF push 与自然 exact-head CI 发布。S07 三路线现实检查、S11 中点以及 S20/S21 独立检查点继续约束集成与验证；新的公开语义、信任和预算决定仍须所有者确认。这取代本日路线锁定记录中只授权 S01–S07 开发、其余组待检查点后授权的措辞。它不授权 tag、GitHub release 或 PyPI 上传。

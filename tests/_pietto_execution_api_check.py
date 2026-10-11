@@ -272,6 +272,20 @@ def check_consumer(report: Any) -> Any:
         and report["core_schema"].get("connected") is False,
         "CORE_SCHEMA",
     )
+    cancelled = result(report.get("core_cancel"), "CORE_CANCEL")
+    unopened(cancelled)
+    cancel_outcome = cancelled.get("outcome") or {}
+    need(
+        cancelled.get("cancel_return") is True
+        and (cancelled.get("code"), cancelled.get("detail")) == ("PIE-R3009", None)
+        and cancelled.get("shown") is False
+        and cancelled.get("chained") is False
+        and cancel_outcome.get("end") == "CANCELLED"
+        and cancel_outcome.get("transaction") == "NOT_STARTED"
+        and cancel_outcome.get("cancel") == [True, False, False]
+        and report["core_cancel"].get("connected") is False,
+        "CORE_CANCEL",
+    )
     bundle = refused(
         report.get("core_bundle"),
         "PIE-R2001",
@@ -291,6 +305,15 @@ def outcome_of(value: Any, reason: Any) -> Any:
     need(
         outcome.get("remote")
         == ("TRANSACTION_ACK" if ack else "REMOTE_QUIESCENCE_UNCONFIRMED"),
+        reason,
+    )
+    cancel = outcome.get("cancel")
+    need(
+        type(cancel) is list
+        and len(cancel) == 3
+        and all(type(value) is bool for value in cancel)
+        and (not cancel[1] or cancel[0])
+        and (not cancel[2] or cancel[0]),
         reason,
     )
     return outcome
@@ -464,6 +487,16 @@ def check_postgres(report: Any) -> Any:
         "EARLY_STOP_END",
     )
     check_effects(early, "EARLY_STOP")
+    interrupted = result(report.get("interrupt"), "INTERRUPT")
+    interrupted_outcome = outcome_of(interrupted, "INTERRUPT")
+    need(
+        interrupted.get("reraised") is True
+        and (interrupted_outcome.get("end"), interrupted_outcome.get("transaction"))
+        == ("FAILED", "ROLLBACK_ACK")
+        and (interrupted_outcome.get("primary") or [None])[0] == "PIE-R3008"
+        and interrupted_outcome.get("cancel") == [False, False, False],
+        "INTERRUPT",
+    )
     buffered = result(report.get("native_unlimited"), "NATIVE_BUFFERING")
     limited = result(report.get("native_limited"), "QUERY_LIMIT")
     need(
@@ -536,6 +569,29 @@ def check_postgres(report: Any) -> Any:
         (outcome["transaction"], outcome["cleanup"], outcome["cleanup_failures"])
         == ("UNKNOWN", "FAILED", [["PIE-R5001", "transaction", "ExecutionError"]]),
         "STATEMENT_TIMEOUT_END",
+    )
+    manual = report.get("manual_cancel") or {}
+    manual_result = manual.get("result") or {}
+    manual_outcome = manual_result.get("outcome") or {}
+    need(
+        manual.get("returncode") == 0
+        and manual.get("blocked") == [["active", "Lock"]]
+        and manual_result.get("cancel_return") is True
+        and (manual_result.get("code"), manual_result.get("detail"))
+        == ("PIE-R3009", None)
+        and manual_result.get("shown") is False
+        and manual_result.get("chained") is False
+        and (
+            manual_outcome.get("end"),
+            manual_outcome.get("transaction"),
+            manual_outcome.get("cleanup"),
+        )
+        == ("CANCELLED", "UNKNOWN", "FAILED")
+        and manual_outcome.get("remote") == "REMOTE_QUIESCENCE_UNCONFIRMED"
+        and manual_outcome.get("cancel") == [True, True, True]
+        and manual_outcome.get("cleanup_failures")
+        == [["PIE-R5001", "transaction", "ExecutionError"]],
+        "MANUAL_CANCEL",
     )
     drop: Any = report.get("dropped") or {}
     value: Any = drop.get("result")

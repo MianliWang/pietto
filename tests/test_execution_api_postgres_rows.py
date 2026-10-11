@@ -22,7 +22,7 @@ import subprocess
 import sys
 import threading
 from types import ModuleType, SimpleNamespace
-from typing import Any
+from typing import Any, cast
 import warnings
 
 import pytest
@@ -34,6 +34,7 @@ from pietto._project import project_execution as ex
 from pietto._project import project_execution_postgres as pg
 from pietto._project import project_public_execution as composition
 from pietto._project.project_result_contract import ResultError
+from pietto.execution import _handle
 from pietto._project.project_sql_emission_cli import run_project_emit_sql
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1358,8 +1359,140 @@ def _reduced_owner(remaining, log, *, refined):
         _source="NOT_STARTED",
         _submitted=False,
         _closed=False,
+        _finalizing=False,
+        _terminal=None,
+        _lock=threading.Lock(),
+        deadline_expired=False,
     )
     return owner
+
+
+class CleanupInterrupt(BaseException):
+    pass
+
+
+class _CleanupStep:
+    def __init__(self, log, name, error=None):
+        self.log = log
+        self.name = name
+        self.error = error
+
+    def close(self):
+        self.log.append(self.name)
+        if self.error is not None:
+            raise self.error
+
+
+class _CleanupControl:
+    def __init__(self, log, error=None):
+        self.log = log
+        self.error = error
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *arguments):
+        return False
+
+    def execute(self, statement):
+        self.log.append(statement)
+        if self.error is not None:
+            raise self.error
+
+
+class _CleanupConnection:
+    def __init__(
+        self, log, *, transaction_error=None, close_error=None, discard_error=None
+    ):
+        self.log = log
+        self.transaction_error = transaction_error
+        self.close_error = close_error
+        self.pgconn = SimpleNamespace(finish=self.finish)
+        self.discard_error = discard_error
+
+    def cursor(self):
+        return _CleanupControl(self.log, self.transaction_error)
+
+    def close(self):
+        self.log.append("connection_close")
+        if self.close_error is not None:
+            raise self.close_error
+
+    def finish(self):
+        self.log.append("connection_discard")
+        if self.discard_error is not None:
+            raise self.discard_error
+
+
+class _BlockingCancelConnection(_CleanupConnection):
+    def __init__(self, log, entered, released):
+        super().__init__(log)
+        self.entered = entered
+        self.released = released
+        self.cancel_calls = 0
+
+    def cancel_safe(self, *, timeout):
+        self.cancel_calls += 1
+        self.log.append(("cancel_safe", timeout))
+        self.entered.set()
+        assert self.released.wait(2)
+
+
+class _CleanupTimer:
+    def __init__(self, log, error=None):
+        self.log = log
+        self.error = error
+
+    def cancel(self):
+        self.log.append("timer_cancel")
+
+    def join(self, timeout):
+        self.log.append("timer_join")
+        if self.error is not None:
+            raise self.error
+
+    def is_alive(self):
+        return False
+
+
+def _terminal_owner(*, cursor=None, connection=None, guard=None, timer=None):
+    """A real rows owner at its existing finalization boundary."""
+    owner = object.__new__(pg.PostgresExecution)
+    vars(owner).update(
+        attempt="terminal-attempt",
+        request=SimpleNamespace(route=""),
+        _lock=threading.Lock(),
+        _closed=False,
+        _finalizing=False,
+        _terminal=None,
+        _manual_cancel=False,
+        _cancel=threading.Event(),
+        _cancel_sent=False,
+        _cancel_observed=False,
+        _source="EXECUTING",
+        _transaction="OPEN",
+        _delivery="OPEN",
+        _cleanup="OPEN",
+        _primary=None,
+        _cleanup_errors=[],
+        deadline_expired=False,
+        _owned_cursor=cursor,
+        _cursor=cursor,
+        _owned_connection=connection,
+        _connection=connection,
+        refined_request=None,
+        _guard_control=None,
+        guards=guard,
+        enumeration=None,
+        _timer=timer,
+        _payloads=None,
+        session_id=7,
+    )
+    return owner
+
+
+def _private_outcome(owner):
+    return _handle._outcome(owner, "postgres_rows", None)
 
 
 @pytest.mark.parametrize("seconds,limit", ((60, 10000), (20, 10000), (4, 4000)))
@@ -1379,6 +1512,526 @@ def test_each_statement_is_limited_to_exactly_10_seconds(query, clean, seconds, 
             next(_reduced_owner(float(seconds), log, refined=refined))
         assert log[0] == (STATEMENT_TIMEOUT, (str(limit),))
         assert log[-1][0] == submitted
+
+
+@pytest.mark.parametrize(
+    "commit,stage,expected_transaction",
+    (
+        (False, "guard_close", "ROLLBACK_ACK"),
+        (False, "statement_close", "ROLLBACK_ACK"),
+        (True, "transaction", "UNKNOWN"),
+        (False, "connection_close", "ROLLBACK_ACK"),
+        (False, "connection_discard", "ROLLBACK_ACK"),
+        (False, "control_join", "ROLLBACK_ACK"),
+    ),
+)
+def test_finalization_records_each_interrupt_then_reraises_it(
+    commit, stage, expected_transaction
+):
+    """T1: bounded cleanup finishes before the same BaseException escapes."""
+    log: list[str] = []
+    interrupt = CleanupInterrupt(stage)
+    cursor = _CleanupStep(
+        log, "statement_close", interrupt if stage == "statement_close" else None
+    )
+    guard = _CleanupStep(
+        log, "guard_close", interrupt if stage == "guard_close" else None
+    )
+    connection = _CleanupConnection(
+        log,
+        transaction_error=interrupt if stage == "transaction" else None,
+        close_error=(
+            interrupt
+            if stage == "connection_close"
+            else OSError("close")
+            if stage == "connection_discard"
+            else None
+        ),
+        discard_error=interrupt if stage == "connection_discard" else None,
+    )
+    timer = _CleanupTimer(log, interrupt if stage == "control_join" else None)
+    owner = _terminal_owner(
+        cursor=cursor, connection=connection, guard=guard, timer=timer
+    )
+
+    with pytest.raises(CleanupInterrupt) as raised:
+        owner._finish(commit)
+
+    assert raised.value is interrupt
+    outcome = _private_outcome(owner)
+    assert (owner._closed, outcome.transaction, outcome.cleanup) == (
+        True,
+        expected_transaction,
+        "CLOSED" if stage == "transaction" else "FAILED",
+    )
+    expected_cleanup = {
+        "transaction": [],
+        "connection_discard": [
+            ("connection_close", "OSError"),
+            ("connection_discard", "CleanupInterrupt"),
+        ],
+    }.get(stage, [(stage, "CleanupInterrupt")])
+    assert [
+        (failure.phase, failure.cause) for failure in outcome.cleanup_failures
+    ] == expected_cleanup
+    if stage == "transaction":
+        assert outcome.primary == execution.Failure(
+            "PIE-R3006", "FINALIZATION", None, "transaction", None, "CleanupInterrupt"
+        )
+    assert log[-2:] == ["timer_cancel", "timer_join"]
+
+
+def test_consumer_interrupt_survives_all_interrupting_cleanup_steps():
+    """A cleanup interrupt is recorded but cannot replace the caller's KBI."""
+    log: list[str] = []
+    cleanup = CleanupInterrupt("cleanup")
+    owner = _terminal_owner(
+        cursor=_CleanupStep(log, "statement_close", cleanup),
+        connection=_CleanupConnection(
+            log, transaction_error=cleanup, close_error=cleanup, discard_error=cleanup
+        ),
+        guard=_CleanupStep(log, "guard_close", cleanup),
+        timer=_CleanupTimer(log, cleanup),
+    )
+    original = KeyboardInterrupt("consumer")
+
+    with pytest.raises(KeyboardInterrupt) as raised:
+        try:
+            raise original
+        except KeyboardInterrupt as active:
+            owner.__exit__(type(active), active, active.__traceback__)
+            raise
+
+    assert raised.value is original
+    recorded = execution.Failure(
+        "PIE-R3008", "INTERRUPTED", None, "consumer", None, "KeyboardInterrupt"
+    )
+    outcome = _handle._outcome(owner, "postgres_rows", recorded)
+    assert outcome.primary == execution.Failure(
+        "PIE-R3008", "INTERRUPTED", None, "consumer", None, "KeyboardInterrupt"
+    )
+    assert outcome.transaction == "UNKNOWN" and outcome.cleanup == "FAILED"
+    assert [failure.phase for failure in outcome.cleanup_failures] == [
+        "guard_close",
+        "statement_close",
+        "transaction",
+        "connection_close",
+        "connection_discard",
+        "control_join",
+    ]
+    settled = outcome
+    assert _handle._outcome(owner, "postgres_rows", recorded) == settled
+
+
+def test_cancel_owns_the_active_statement_until_bounded_driver_cancel_returns():
+    """The sole cross-thread operation cannot overlap statement teardown."""
+    log: list[str] = []
+    cancel_entered = threading.Event()
+    cancel_release = threading.Event()
+    cursor_closed = threading.Event()
+
+    class Cursor(_CleanupStep):
+        def close(self):
+            super().close()
+            cursor_closed.set()
+
+    connection = _BlockingCancelConnection(log, cancel_entered, cancel_release)
+    owner = _terminal_owner(
+        cursor=Cursor(log, "statement_close"), connection=connection
+    )
+    canceller = threading.Thread(target=owner.cancel)
+    canceller.start()
+    assert cancel_entered.wait(2)
+
+    finish_called = threading.Event()
+
+    def finish():
+        finish_called.set()
+        owner._finish(False)
+
+    finalizer = threading.Thread(target=finish)
+    finalizer.start()
+    assert finish_called.wait(2)
+    assert not cursor_closed.is_set()
+    cancel_release.set()
+    canceller.join(2)
+    finalizer.join(2)
+    assert not canceller.is_alive() and not finalizer.is_alive()
+    outcome = _private_outcome(owner)
+    assert connection.cancel_calls == 1
+    assert (
+        outcome.end,
+        outcome.cancel_requested,
+        outcome.cancel_sent,
+        outcome.cancel_observed,
+    ) == (
+        "CANCELLED",
+        True,
+        True,
+        False,
+    )
+    assert (outcome.transaction, outcome.cleanup) == ("ROLLBACK_ACK", "CLOSED")
+
+
+def test_cancel_wins_before_a_blocked_read_can_publish_eof_completion():
+    """A read already at EOF cannot turn an earlier manual winner into COMPLETE."""
+    log: list[str] = []
+    entered = threading.Event()
+    release = threading.Event()
+
+    class Cursor(_CleanupStep):
+        def fetchmany(self, count):
+            assert count == 1
+            entered.set()
+            assert release.wait(2)
+            return []
+
+    connection = _BlockingCancelConnection(log, threading.Event(), threading.Event())
+    owner = _terminal_owner(
+        cursor=Cursor(log, "statement_close"), connection=connection
+    )
+    # This reduced owner reaches only route and batch_rows before the cursor boundary.
+    owner.request = cast(
+        ex.ExecutionRequest,
+        SimpleNamespace(route="", limits=SimpleNamespace(batch_rows=1)),
+    )
+    owner._verify = lambda: None
+    owner._remaining = lambda: 1
+    owner._submitted = True
+    owner._source = "READING"
+    received: list[BaseException] = []
+
+    def consume():
+        try:
+            next(owner)
+        except BaseException as error:
+            received.append(error)
+
+    consumer = threading.Thread(target=consume)
+    consumer.start()
+    assert entered.wait(2)
+    assert owner.cancel() == {
+        "requested": True,
+        "sent": False,
+        "observed": False,
+        "late": False,
+    }
+    release.set()
+    consumer.join(2)
+    assert not consumer.is_alive()
+    assert len(received) == 1 and isinstance(received[0], ex.ExecutionError)
+    outcome = _private_outcome(owner)
+    assert (outcome.end, outcome.transaction, connection.cancel_calls) == (
+        "CANCELLED",
+        "ROLLBACK_ACK",
+        0,
+    )
+
+
+def test_cancel_after_empty_fetch_before_eof_claim_never_commits():
+    """The terminal winner is checked again after an empty read becomes known."""
+    log: list[str] = []
+    entered = threading.Event()
+    release = threading.Event()
+
+    class EmptyRows(list):
+        def __bool__(self):
+            entered.set()
+            assert release.wait(2)
+            return False
+
+    class Cursor(_CleanupStep):
+        def fetchmany(self, count):
+            assert count == 1
+            return EmptyRows()
+
+    owner = _terminal_owner(
+        cursor=Cursor(log, "statement_close"), connection=_CleanupConnection(log)
+    )
+    owner.request = cast(
+        ex.ExecutionRequest,
+        SimpleNamespace(route="", limits=SimpleNamespace(batch_rows=1)),
+    )
+    owner._verify = lambda: None
+    owner._remaining = lambda: 1
+    owner._submitted = True
+    owner._source = "READING"
+    handle = object.__new__(execution.ResultHandle)
+    handle._owner = owner
+    handle._route = "postgres_rows"
+    handle._finalizer = None
+    handle._recorded = None
+    received: list[BaseException] = []
+
+    def consume():
+        try:
+            next(handle)
+        except BaseException as error:
+            received.append(error)
+
+    consumer = threading.Thread(target=consume)
+    consumer.start()
+    assert entered.wait(2)
+    assert handle.cancel() is None
+    release.set()
+    consumer.join(2)
+    assert not consumer.is_alive()
+    assert len(received) == 1 and isinstance(received[0], execution.AttemptFailed)
+    assert received[0].code == "PIE-R3009"
+    assert handle.outcome.end == "CANCELLED"
+    assert "COMMIT" not in log
+
+
+def test_primary_failure_claim_blocks_a_late_deadline_during_its_cleanup():
+    """The first primary claim survives a timer that reaches blocked cleanup."""
+    log: list[str] = []
+    entered = threading.Event()
+    release = threading.Event()
+
+    class Guard(_CleanupStep):
+        def close(self):
+            entered.set()
+            assert release.wait(2)
+            super().close()
+
+    class Cursor(_CleanupStep):
+        def fetchmany(self, count):
+            raise ValueError("read failure")
+
+    owner = _terminal_owner(
+        cursor=Cursor(log, "statement_close"),
+        connection=_CleanupConnection(log),
+        guard=Guard(log, "guard_close"),
+    )
+    owner.request = cast(
+        ex.ExecutionRequest,
+        SimpleNamespace(route="", limits=SimpleNamespace(batch_rows=1)),
+    )
+    owner._verify = lambda: None
+    owner._remaining = lambda: 1
+    owner._submitted = True
+    owner._source = "READING"
+    received: list[BaseException] = []
+
+    def consume():
+        try:
+            next(owner)
+        except BaseException as error:
+            received.append(error)
+
+    consumer = threading.Thread(target=consume)
+    consumer.start()
+    assert entered.wait(2)
+    owner._deadline()
+    release.set()
+    consumer.join(2)
+    assert not consumer.is_alive()
+    assert len(received) == 1 and isinstance(received[0], ValueError)
+    outcome = _private_outcome(owner)
+    assert outcome.primary is not None
+    assert (outcome.end, outcome.deadline_expired, outcome.primary.cause) == (
+        "FAILED",
+        False,
+        "ValueError",
+    )
+
+
+def test_locally_elapsed_deadline_claims_deadline_without_requesting_cancel(
+    monkeypatch,
+):
+    """Clock expiry is a deadline terminal even when no timer ever requested I/O."""
+    log: list[str] = []
+    owner = _terminal_owner(
+        cursor=_CleanupStep(log, "statement_close"), connection=_CleanupConnection(log)
+    )
+    owner.request = cast(
+        ex.ExecutionRequest,
+        SimpleNamespace(route="", limits=SimpleNamespace(seconds=1, batch_rows=1)),
+    )
+    owner._verify = lambda: None
+    owner._started = 0
+    owner._submitted = True
+    owner._source = "READING"
+    monkeypatch.setattr(pg.time, "monotonic", lambda: 1)
+    handle = object.__new__(execution.ResultHandle)
+    handle._owner = owner
+    handle._route = "postgres_rows"
+    handle._finalizer = None
+    handle._recorded = None
+
+    with pytest.raises(execution.AttemptFailed) as expired:
+        next(handle)
+
+    outcome = handle.outcome
+    assert owner.deadline_expired is False
+    assert (expired.value.code, outcome.end, outcome.deadline_expired) == (
+        "PIE-R3001",
+        "DEADLINE",
+        True,
+    )
+    assert (outcome.cancel_requested, outcome.cancel_sent, outcome.cancel_observed) == (
+        False,
+        False,
+        False,
+    )
+    assert outcome.transaction == "ROLLBACK_ACK"
+
+
+def test_execution_interrupt_survives_an_interrupting_cleanup_step():
+    """An executing KeyboardInterrupt remains the object the caller receives."""
+    log: list[str] = []
+    original = KeyboardInterrupt("statement")
+    cleanup = CleanupInterrupt("statement close")
+
+    class Cursor(_CleanupStep):
+        def fetchmany(self, count):
+            raise original
+
+    owner = _terminal_owner(
+        cursor=Cursor(log, "statement_close", cleanup),
+        connection=_CleanupConnection(log),
+    )
+    owner.request = cast(
+        ex.ExecutionRequest,
+        SimpleNamespace(route="", limits=SimpleNamespace(batch_rows=1)),
+    )
+    owner._verify = lambda: None
+    owner._remaining = lambda: 1
+    owner._submitted = True
+    owner._source = "READING"
+    received: list[BaseException] = []
+
+    def consume():
+        try:
+            next(owner)
+        except BaseException as error:
+            received.append(error)
+
+    consumer = threading.Thread(target=consume)
+    consumer.start()
+    consumer.join(2)
+    assert not consumer.is_alive() and received[0] is original
+    outcome = _handle._outcome(
+        owner,
+        "postgres_rows",
+        execution.Failure(
+            "PIE-R3008", "INTERRUPTED", None, "interrupt", None, "KeyboardInterrupt"
+        ),
+    )
+    assert outcome.primary is not None
+    assert outcome.primary.cause == "KeyboardInterrupt"
+    assert [(failure.phase, failure.cause) for failure in outcome.cleanup_failures] == [
+        ("statement_close", "CleanupInterrupt")
+    ]
+
+
+def test_control_winner_blocks_late_send_before_open_and_after_close_or_eof():
+    """Cancellation facts and the terminal winner freeze before any late control."""
+    unopened = _terminal_owner()
+    assert unopened.cancel() == {
+        "requested": True,
+        "sent": False,
+        "observed": False,
+        "late": False,
+    }
+    unopened._finish(False)
+    assert (unopened._connection, _private_outcome(unopened).end) == (None, "CANCELLED")
+
+    log: list[str] = []
+    closed_connection = _BlockingCancelConnection(
+        log, threading.Event(), threading.Event()
+    )
+    closed = _terminal_owner(
+        cursor=_CleanupStep(log, "statement_close"), connection=closed_connection
+    )
+    closed.close()
+    before_close_cancel = _private_outcome(closed)
+    assert closed.cancel() == {
+        "requested": False,
+        "sent": False,
+        "observed": False,
+        "late": True,
+    }
+    assert _private_outcome(closed) == before_close_cancel
+    assert (before_close_cancel.end, closed_connection.cancel_calls) == (
+        "STOPPED_EARLY",
+        0,
+    )
+
+    eof_connection = _BlockingCancelConnection(
+        log, threading.Event(), threading.Event()
+    )
+    eof = _terminal_owner(
+        cursor=_CleanupStep(log, "statement_close"), connection=eof_connection
+    )
+    eof._source = "EOF"
+    eof._delivery = "COMPLETE"
+    eof._terminal = "COMPLETE"
+    eof._finish(True)
+    before_eof_cancel = _private_outcome(eof)
+    assert eof.cancel()["late"] is True
+    assert _private_outcome(eof) == before_eof_cancel
+    assert (before_eof_cancel.end, eof_connection.cancel_calls) == ("COMPLETE", 0)
+
+
+def test_failed_driver_cancel_keeps_manual_winner_and_records_its_cleanup():
+    log: list[str] = []
+
+    class Connection(_CleanupConnection):
+        def cancel_safe(self, *, timeout):
+            assert timeout == 2
+            raise OSError("cancel transport failed")
+
+    owner = _terminal_owner(connection=Connection(log))
+    owner.cancel()
+    owner._finish(False)
+    outcome = _private_outcome(owner)
+    assert (
+        outcome.end,
+        outcome.cancel_requested,
+        outcome.cancel_sent,
+        outcome.cancel_observed,
+    ) == (
+        "CANCELLED",
+        True,
+        False,
+        False,
+    )
+    assert [(failure.phase, failure.cause) for failure in outcome.cleanup_failures] == [
+        ("cancel", "OSError")
+    ]
+
+
+def test_manual_and_deadline_controls_keep_separate_immutable_winners():
+    manual = _terminal_owner()
+    manual.cancel()
+    manual._deadline()
+    manual._finish(False)
+    manual_outcome = _private_outcome(manual)
+    assert (
+        manual_outcome.end,
+        manual_outcome.deadline_expired,
+        manual_outcome.cancel_requested,
+    ) == (
+        "CANCELLED",
+        False,
+        True,
+    )
+
+    deadline = _terminal_owner()
+    deadline._deadline()
+    deadline.cancel()
+    deadline._finish(False)
+    deadline_outcome = _private_outcome(deadline)
+    assert (
+        deadline_outcome.end,
+        deadline_outcome.deadline_expired,
+        deadline_outcome.cancel_requested,
+    ) == (
+        "DEADLINE",
+        True,
+        True,
+    )
 
 
 def test_a_server_other_than_18_6_is_refused(query, clean):
@@ -1427,6 +2080,7 @@ class StubOwner:
         self.steps = list(steps)
         self.calls = []
         self._closed = False
+        self._terminal = None
         self.deadline_expired = False
         self.session_id = None
         self.source = self.transaction = self.delivery = "NOT_STARTED"
@@ -1436,6 +2090,7 @@ class StubOwner:
         self.failing_steps = tuple(cleanup)
         self.cleanup_failures = []
         self.rows = self.batches = 0
+        self.cancel_requested = self.cancel_sent = self.cancel_observed = False
 
     @property
     def outcome(self):
@@ -1450,9 +2105,9 @@ class StubOwner:
             0,
             self.primary,
             tuple(self.cleanup_failures),
-            False,
-            False,
-            False,
+            self.cancel_requested,
+            self.cancel_sent,
+            self.cancel_observed,
         )
 
     def open(self):
@@ -1469,6 +2124,7 @@ class StubOwner:
             self.open()
         step = self.steps.pop(0)
         if step == "eof":
+            self._terminal = "COMPLETE"
             self.source, self.delivery = "EOF", "COMPLETE"
             self._finish(True)
             if self.primary is not None or self.cleanup_failures:
@@ -1481,7 +2137,15 @@ class StubOwner:
         if isinstance(step, BaseException):
             if step.args == ("deadline",):
                 self.deadline_expired = True
+                self.cancel_requested = True
+                self._terminal = "DEADLINE"
                 step = ex.ExecutionError("EXECUTION_CANCELED")
+            elif isinstance(step, TimeoutError) and step.args == (
+                "EXECUTION_DEADLINE",
+            ):
+                self._terminal = "DEADLINE"
+            elif self._terminal is None:
+                self._terminal = "FAILED"
             if self.primary is None:
                 self.primary = ex.ExecutionFailure("read", type(step).__name__)
             self.source = self.delivery = "FAILED"
@@ -1511,14 +2175,26 @@ class StubOwner:
 
     def close(self):
         if not self._closed:
+            if self._terminal is None:
+                self._terminal = "STOPPED_EARLY"
             if self.source != "EOF":
                 self.source = "EARLY_CLOSE"
                 if self.delivery != "FAILED":
                     self.delivery = "INCOMPLETE"
             self._finish(False)
 
+    def cancel(self, *, deadline=False):
+        if not self._closed and self._terminal is None:
+            self.cancel_requested = True
+            self.deadline_expired = deadline
+            self._terminal = "DEADLINE" if deadline else "CANCELLED"
+            self.source = self.delivery = "FAILED"
+            self._finish(False)
+
     def __exit__(self, kind, error, traceback):
         if error is not None and self.primary is None:
+            if self._terminal is None:
+                self._terminal = "FAILED"
             self.primary = ex.ExecutionFailure("consumer", type(error).__name__)
             self.delivery = "FAILED"
         self.close()
@@ -1532,6 +2208,18 @@ def _stubbed(query, monkeypatch, steps, **options):
         query, route="postgres_rows", access=access(), premise=PREMISE
     )
     return handle, owner
+
+
+def test_manual_cancel_is_the_only_cross_thread_handle_control(query, monkeypatch):
+    handle, owner = _stubbed(query, monkeypatch, [StubBatch(), "eof"])
+    assert handle.cancel() is None
+    outcome = handle.outcome
+    assert (outcome.end, outcome.cancel_requested, outcome.cancel_sent) == (
+        "CANCELLED",
+        True,
+        False,
+    )
+    assert handle.cancel() is None and handle.outcome == outcome
 
 
 def test_reading_to_the_end_commits_and_completes(query, monkeypatch):

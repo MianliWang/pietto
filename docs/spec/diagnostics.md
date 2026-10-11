@@ -172,6 +172,7 @@ attempt outcome carries the alpha's two declarations:
 | `PIE-R3006` | FINALIZATION: the attempt could not commit or clean up at its end. The failure keeps what the attempt recorded: for a failed `COMMIT` or `ROLLBACK`, phase `transaction` with its SQLSTATE and exception class; when the result was read to the end and `COMMIT` acknowledged but a cleanup step then failed, phase `finalization` (cause `ExecutionError`), with the failed step as the `PIE-R5001` entry |
 | `PIE-R3007` | CONSUMER_ERROR: the caller's code raised inside the `with` block (outcome only) |
 | `PIE-R3008` | INTERRUPTED: a `BaseException` that is not an `Exception` ended the attempt (outcome only) |
+| `PIE-R3009` | CANCELLED: the caller cancelled the attempt before it completed |
 | `PIE-R3999` | ATTEMPT_UNCLASSIFIED: an attempt failure that the alpha does not classify yet, including an exception that is not the driver's before a session exists |
 | `PIE-R4001` | HANDLE_REUSED: a result handle was opened again; it runs one attempt once |
 | `PIE-R4002` | BATCH_CLOSED: a closed result batch was exported |

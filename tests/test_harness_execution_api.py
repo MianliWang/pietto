@@ -339,6 +339,21 @@ def _core_schema():
     return value
 
 
+def _core_cancel():
+    value = _core("live")
+    value["result"].update(
+        cancel_return=True,
+        code="PIE-R3009",
+        detail=None,
+        outcome={
+            "end": "CANCELLED",
+            "transaction": "NOT_STARTED",
+            "cancel": [True, False, False],
+        },
+    )
+    return value
+
+
 def consumer_report(cases):
     """A report with the facts a passing consumer family records around the
     checkout's consumer cases."""
@@ -348,6 +363,7 @@ def consumer_report(cases):
         "install": _install("core", "execute-postgres"),
         "core": _core("live"),
         "core_schema": _core_schema(),
+        "core_cancel": _core_cancel(),
         "core_bundle": _core("bundle"),
         "cases": copy.deepcopy(cases),
     }
@@ -395,6 +411,12 @@ def test_the_checker_accepts_the_consumer_facts(checkout_facts):
         ),
         (lambda r: r["core_schema"].update(connected=True), "CORE_SCHEMA"),
         (
+            lambda r: r["core_cancel"]["result"]["outcome"].update(
+                cancel=[True, True, False]
+            ),
+            "CORE_CANCEL",
+        ),
+        (
             lambda r: r["core"]["result"]["outcome"].update(end="OPEN"),
             "CORE_FALLBACK",
         ),
@@ -423,7 +445,15 @@ def test_the_checker_refuses_each_damaged_consumer_report(
         check.check(report)
 
 
-def _outcome(end, transaction, cleanup="CLOSED", rows=0, primary=None):
+def _outcome(
+    end,
+    transaction,
+    cleanup="CLOSED",
+    rows=0,
+    primary=None,
+    cancel=(False, False, False),
+    cleanup_failures=(),
+):
     ack = transaction in ("COMMIT_ACK", "ROLLBACK_ACK")
     return {
         "end": end,
@@ -435,7 +465,8 @@ def _outcome(end, transaction, cleanup="CLOSED", rows=0, primary=None):
         "rows": rows,
         "batches": 1,
         "primary": primary,
-        "cleanup_failures": [],
+        "cleanup_failures": [list(value) for value in cleanup_failures],
+        "cancel": list(cancel),
     }
 
 
@@ -579,6 +610,16 @@ def postgres_report():
                 **_effects(),
             }
         ),
+        "interrupt": _ok(
+            {
+                "reraised": True,
+                "outcome": _outcome(
+                    "FAILED",
+                    "ROLLBACK_ACK",
+                    primary=["PIE-R3008", None, "consumer", None],
+                ),
+            }
+        ),
         "native_unlimited": _ok(
             {
                 "delivered_rows": 1,
@@ -608,6 +649,25 @@ def postgres_report():
             for role in check.ROLES
         },
         "statement_timeout": timeout,
+        "manual_cancel": _ok(
+            {
+                "cancel_return": True,
+                "code": "PIE-R3009",
+                "detail": None,
+                "shown": False,
+                "chained": False,
+                "outcome": _outcome(
+                    "CANCELLED",
+                    "UNKNOWN",
+                    cleanup="FAILED",
+                    rows=0,
+                    primary=["PIE-R3009", None, None, None, None],
+                    cancel=(True, True, True),
+                    cleanup_failures=(("PIE-R5001", "transaction", "ExecutionError"),),
+                ),
+            }
+        )
+        | {"blocked": [["active", "Lock"]]},
         "dropped": {
             "returncode": 0,
             "result": {"warnings": [["PIE-R5002", "DROPPED", True]], "dropped_at": 1.0},
@@ -723,6 +783,12 @@ def test_the_checker_accepts_the_postgres_oracle_facts():
             "BIND_SAFE_FILES",
         ),
         (lambda r: r["early_stop"].update(result=None), "EARLY_STOP"),
+        (
+            lambda r: r["interrupt"]["result"]["outcome"].update(
+                primary=["PIE-R3007", None, "consumer", None]
+            ),
+            "INTERRUPT",
+        ),
         (lambda r: r["early_stop"]["result"].update(first_rows=2), "EARLY_STOP"),
         (
             lambda r: r["authentication"]["pietto_trust"]["result"].update(shown=True),
@@ -903,6 +969,18 @@ def test_the_checker_accepts_the_postgres_oracle_facts():
                 cleanup_failures=[]
             ),
             "STATEMENT_TIMEOUT_END",
+        ),
+        (
+            lambda r: r["statement_timeout"]["result"]["outcome"].update(
+                cancel=[False, True, False]
+            ),
+            "STATEMENT_TIMEOUT",
+        ),
+        (
+            lambda r: r["manual_cancel"]["result"]["outcome"].update(
+                transaction="ROLLBACK_ACK", remote="TRANSACTION_ACK", cleanup="CLOSED"
+            ),
+            "MANUAL_CANCEL",
         ),
         (lambda r: r["dropped"].update(returncode=1), "DROPPED"),
         (lambda r: r["dropped"]["result"].update(warnings=[]), "DROPPED_WARNING"),

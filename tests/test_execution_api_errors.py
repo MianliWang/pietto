@@ -170,6 +170,30 @@ def test_attempt_failures_are_classified_deterministically(error, facts, code):
     assert refusal.cause == type(error).__name__
 
 
+def test_cancelled_deadline_and_server_timeout_have_distinct_runtime_codes():
+    """Manual control, elapsed local deadline and server timeout are separate."""
+    cancelled = errors.failure("PIE-R3009")
+    deadline = errors.attempt_failure(
+        TimeoutError("EXECUTION_DEADLINE"),
+        phase="read",
+        deadline=False,
+        connected=True,
+    )
+    server_timeout = errors.attempt_failure(
+        DriverError("statement timeout", "57014"),
+        phase="read",
+        deadline=False,
+        connected=True,
+    )
+    assert [
+        (item.code, item.category) for item in (cancelled, deadline, server_timeout)
+    ] == [
+        ("PIE-R3009", "CANCELLED"),
+        ("PIE-R3001", "DEADLINE"),
+        ("PIE-R3002", "STATEMENT_TIMEOUT"),
+    ]
+
+
 def test_batch_export_refusals_name_closed_and_transfer():
     assert errors.batch_failure(ResultError("INTEROP_CLOSED")).code == "PIE-R4002"
     assert errors.batch_failure(ResultError("INTEROP_SPENT")).code == "PIE-R4003"

@@ -68,6 +68,9 @@ class Outcome:
     batches: int
     bytes: int
     deadline_expired: bool
+    cancel_requested: bool
+    cancel_sent: bool
+    cancel_observed: bool
     primary: Failure | None
     cleanup_failures: tuple[Failure, ...]
     premise_compliance: str = "NOT_INDEPENDENTLY_VERIFIED"
@@ -90,12 +93,16 @@ class UnclosedHandleWarning(ResourceWarning):
         self.outcome = outcome
 
 
-def _end(closed, deadline, primary, outcome, dropped):
+def _end(closed, deadline, terminal, primary, outcome, dropped):
     if dropped:
         return "DROPPED"
     if not closed:
         # Delivery opens only when the attempt opened successfully.
         return "NOT_STARTED" if outcome.delivery == "NOT_STARTED" else "OPEN"
+    if terminal == "CANCELLED":
+        return "CANCELLED"
+    if terminal == "DEADLINE":
+        return "DEADLINE"
     if (
         primary is None
         and outcome.source == "EOF"
@@ -103,8 +110,6 @@ def _end(closed, deadline, primary, outcome, dropped):
         and outcome.transaction == "COMMIT_ACK"
     ):
         return "COMPLETE"
-    if deadline:
-        return "DEADLINE"
     if primary is not None:
         return "FAILED"
     if outcome.transaction == "NOT_STARTED":
@@ -126,7 +131,7 @@ def _primary(record, recorded):
 
 
 def _outcome(owner, route, recorded, *, dropped=False):
-    closed, deadline, _connected, outcome = composition.attempt_facts(owner)
+    closed, deadline, _connected, outcome, terminal = composition.attempt_facts(owner)
     primary = _primary(outcome.primary, recorded)
     # A check that found the deadline passed before the timer fired ended the
     # attempt at that same deadline.
@@ -134,7 +139,7 @@ def _outcome(owner, route, recorded, *, dropped=False):
     return Outcome(
         outcome.attempt,
         route,
-        _end(closed, deadline, primary, outcome, dropped),
+        _end(closed, deadline, terminal, primary, outcome, dropped),
         outcome.source,
         outcome.transaction,
         outcome.delivery,
@@ -144,6 +149,9 @@ def _outcome(owner, route, recorded, *, dropped=False):
         outcome.batches,
         outcome.bytes,
         deadline,
+        outcome.cancel_requested,
+        outcome.cancel_sent,
+        outcome.cancel_observed,
         primary,
         tuple(record_failure(r, "PIE-R5001") for r in outcome.cleanup_failures),
     )
@@ -282,14 +290,20 @@ class ResultHandle:
             self._settle()
             raise
         except Exception as caught:
-            _closed, deadline, connected, outcome = composition.attempt_facts(owner)
+            _closed, deadline, connected, outcome, terminal = composition.attempt_facts(
+                owner
+            )
             primary = outcome.primary
-            refusal = attempt_failure(
-                caught,
-                phase=None if primary is None else primary.phase,
-                deadline=deadline,
-                connected=connected,
-                driver=composition.driver_error(caught),
+            refusal = (
+                failure("PIE-R3009")
+                if terminal == "CANCELLED"
+                else attempt_failure(
+                    caught,
+                    phase=None if primary is None else primary.phase,
+                    deadline=deadline,
+                    connected=connected,
+                    driver=composition.driver_error(caught),
+                )
             )
             if refusal.code == "PIE-R3006" and primary is not None:
                 # The owner raises one wrapper when its end-of-result commit or
@@ -328,8 +342,14 @@ class ResultHandle:
         self._owner.close()
         self._settle()
 
+    def cancel(self) -> None:
+        """Request cancellation; its settled facts are in ``outcome``."""
+        self._owner.cancel()
+
     def __exit__(self, kind, error, traceback):
-        closed, _deadline, _connected, outcome = composition.attempt_facts(self._owner)
+        closed, _deadline, _connected, outcome, _terminal = composition.attempt_facts(
+            self._owner
+        )
         # After the attempt ended, an exception in the with block passes
         # through and changes nothing: the terminal outcome stays as reached.
         if not closed:

@@ -151,6 +151,7 @@ def attempt_facts(owner):
         owner.deadline_expired is True,
         owner.session_id is not None,
         owner.outcome,
+        owner._terminal,
     )
 
 

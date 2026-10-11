@@ -6,17 +6,17 @@ Phase69 负责公开 alpha 发行工程与统一安全入口（[路线图](../..
 
 ## 授权组与依赖顺序
 
-依赖顺序是 S01；S02–S07 一组；S08–S14 在 S07 之后的现实检查之后；S15–S19 在中点之后；S20 与 S21 各自单独派发（所有者 2026-10-11 决定）。
+所有者已把实施授权扩展为 S01–S21，允许按依赖在隔离 worktree 并行开发，就绪片按既有批次规则合入。S07 之后的三路线现实检查、S11 之后的中点与 S20/S21 的独立检查点继续约束集成和验证；新的公共、信任、预算决定仍须确认。此授权不包含 tag、GitHub release 或 PyPI 上传（所有者 2026-10-11 补充决定）。
 
 - S01 COMPLETED / PUBLISHED，与 S02 同批，head `a7bcb2d7ed4a4c688ce84a68182e70d166a60f4a`，CI38144178777/push/main/attempt1：把 S19 consumer 与 check 的回执目录、审计记录与身份三元组改为显式参数。
 - S02 COMPLETED / PUBLISHED，与 S01 同批，head `a7bcb2d7ed4a4c688ce84a68182e70d166a60f4a`，CI38144178777/push/main/attempt1：公开 PostgreSQL rows 执行 alpha（`pietto.execution`）。
-- S03 在 S02 之后合入，提供调用方自有信任记录下的查询 bundle（`export_bundle`、`load_bundle`）、显式值与重复调用；它是集成 candidate，它的 `COMPLETED / PUBLISHED` 仅在它自己的已推送 head 的普通提交、FF push 与自然 exact-head CI 全部 job 成功后成立，此前是 candidate。S04 是 public results candidate；其完成同样以它自己的已推送 head 的自然 exact-head CI 为准，S05 经自己的 Gate 0 随后。
-- S02–S07 与 S01 同属所有者对第 1–7 片的常设授权，连续进行；遇到 BLOCKER、拆片，或新的公共、信任、预算决定即停。
-- S08–S14 HOLD，直到 S07 之后的现实检查（三条路线当前的资格与支持 profile）。
-- S15–S19 HOLD，直到中点：S11 之后按 S/H/L/K/Q 重估，并复核当时 CI health 的适用样本与 alerts。
+- S03 在 S02 之后合入，提供调用方自有信任记录下的查询 bundle（`export_bundle`、`load_bundle`）、显式值与重复调用；它已 COMPLETED / PUBLISHED，head `d5e75e211fbd0d88251306cf206e8604ae50d709`，CI38173790890/push/main/attempt1。S04 public results 与 Arrow batches 已 COMPLETED / PUBLISHED，head `2b8239ab60848dbe7e100344f6bdaf86d2b64a5b`，CI38176914040/push/main/attempt1。S05 是 CURRENT integration candidate；只有其未来已推送 head 的普通提交、FF push 与自然 exact-head CI 全部 job 成功才成为 `COMPLETED / PUBLISHED`。已批准的 C1/T1 保留手动取消的 first-winner 语义：取消只有先获胜才成为 `CANCELLED`，其后请求不改变已结算终态。S06 仍是 NEXT，须经自己的 Gate 0 与所有者的新公共/信任决定后才进入集成。
+- S01–S21 均有按依赖并行实施的常设授权；遇到 BLOCKER、拆片，或新的公共、信任、预算决定即停。
+- S08–S14 的集成与验证 HOLD，直到 S07 之后的现实检查（三条路线当前的资格与支持 profile）；独立准备与已答复前置决定后的隔离开发可并行。
+- S15–S19 的集成与验证 HOLD，直到中点：S11 之后按 S/H/L/K/Q 重估，并复核当时 CI health 的适用样本与 alerts；独立准备与隔离开发可并行。
 - S20 与 S21 各自单独派发。
 
-已获授权的组内，检查点只约束合入顺序，不约束开始开发：组内的 Slice 在自身前置问题已答复后即可在隔离 worktree 提前开发；合入在路线锁定发布之后，按各行依赖成批进行，每个 Slice 仍是一个提交。S08–S14 与 S15–S19 两组本身分别在 S07 之后的现实检查与中点之后才获授权。草稿、早期 worktree、候选或非权威运行都不授权合入、验证、发布或开始另一个 Slice。
+已获授权的组内，检查点只约束合入顺序，不约束开始开发：组内的 Slice 在自身前置问题已答复后即可在隔离 worktree 提前开发；合入在路线锁定发布之后，按各行依赖成批进行，每个 Slice 仍是一个提交。本次补充授权允许 S01–S21 按依赖并行实施，但不跳过现实检查、中点、每片验收或发行检查点。草稿、早期 worktree、候选或非权威运行本身不构成合入、验证或发布的证据。
 
 | Slice | Outcome | Dependencies |
 | --- | --- | --- |

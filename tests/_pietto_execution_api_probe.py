@@ -126,6 +126,7 @@ def facts(outcome):
         "transaction": outcome.transaction, "delivery": outcome.delivery,
         "cleanup": outcome.cleanup, "remote": outcome.remote_source_use_end,
         "rows": outcome.rows, "batches": outcome.batches,
+        "cancel": [outcome.cancel_requested, outcome.cancel_sent, outcome.cancel_observed],
         "primary": None if p is None else [p.code, p.detail, p.phase, p.sqlstate, p.cause],
         "cleanup_failures": [[f.code, f.phase, f.cause] for f in outcome.cleanup_failures]}
 def effects():
@@ -173,6 +174,13 @@ if case == "schema_refused":
         handle.__arrow_c_schema__()
     except pe.HandleMisuse as error:
         result["schema"] = refusal(error)
+elif case == "cancelled":
+    result["cancel_return"] = handle.cancel() is None
+    try:
+        with handle:
+            pass
+    except pe.AttemptFailed as error:
+        result.update(refusal(error))
 elif case == "requests":
     refusals = {}
     for name, changes in (("premise_none", {"premise": None}),
@@ -224,6 +232,13 @@ elif case == "early_stop":
         result["first_rows"] = first.num_rows
         first.close()
     result.update(outcome=facts(handle.outcome), after=effects())
+elif case == "interrupt":
+    try:
+        with handle:
+            raise KeyboardInterrupt
+    except KeyboardInterrupt:
+        result["reraised"] = True
+    result["outcome"] = facts(handle.outcome)
 elif case == "buffer":
     import pyarrow as pa
 
@@ -347,6 +362,51 @@ elif case == "code_run":
             **records(own))))
     result.update(refusals=refusals, own_load=bundled.origin,
         compatibility_changed=own.compatibility != accepted["accepted_compatibility"])
+print(json.dumps(result), flush=True)
+"""
+
+CANCEL = r"""
+import json, sys, threading
+config = json.loads(sys.stdin.readline())
+import pietto.execution as pe
+query = pe.compile_query(config["project"], module="main.pietto", kind="table",
+    name="active_items", dialect="postgres", emission_contract="contract.json")
+access = pe.PostgresAccess("127.0.0.1", config["port"], "phase66", "pietto_reader",
+    config["password"], "require")
+premise = pe.PostgresDeploymentPremise(schemas=("fixture", "pg_catalog"))
+handle = pe.execute(query, route="postgres_rows", access=access, premise=premise,
+    limits=pe.ExecutionLimits(seconds=20))
+done = threading.Event()
+result = {}
+def facts(outcome):
+    p = outcome.primary
+    return {"end": outcome.end, "source": outcome.source,
+        "transaction": outcome.transaction, "delivery": outcome.delivery,
+        "cleanup": outcome.cleanup, "remote": outcome.remote_source_use_end,
+        "rows": outcome.rows, "batches": outcome.batches,
+        "cancel": [outcome.cancel_requested, outcome.cancel_sent, outcome.cancel_observed],
+        "primary": None if p is None else [p.code, p.detail, p.phase, p.sqlstate, p.cause],
+        "cleanup_failures": [[f.code, f.phase, f.cause] for f in outcome.cleanup_failures]}
+def consume():
+    try:
+        with handle:
+            next(handle)
+    except pe.AttemptFailed as error:
+        result.update(code=error.code, detail=error.detail,
+            chained=error.__cause__ is not None or error.__context__ is not None,
+            shown=config["password"] in str(error))
+    finally:
+        done.set()
+thread = threading.Thread(target=consume, name="pietto-manual-cancel-consumer")
+thread.start()
+print(json.dumps({"ready": handle.attempt}), flush=True)
+if sys.stdin.readline() != "cancel\n":
+    raise SystemExit("CANCEL_GATE")
+result["cancel_return"] = handle.cancel() is None
+thread.join(30)
+if thread.is_alive():
+    raise SystemExit("CANCEL_THREAD")
+result["outcome"] = facts(handle.outcome)
 print(json.dumps(result), flush=True)
 """
 
@@ -732,6 +792,18 @@ def consumer(directory, *, wheel, interpreter, house_root=None, cache=None):
             },
         )
         report["core_schema"]["connected"] = listener["connected"]()
+    with sentinel() as listener:
+        report["core_cancel"] = case(
+            pythons["core"],
+            core,
+            {
+                "case": "cancelled",
+                "project": str(project),
+                "password": secrets.token_hex(12),
+                "port": listener["port"],
+            },
+        )
+        report["core_cancel"]["connected"] = listener["connected"]()
     # The same refusal for a query loaded from its bundle in the core prefix.
     with sentinel() as listener:
         report["core_bundle"] = case(
@@ -912,6 +984,55 @@ def dropped(python, cwd, config, manager):
     }
 
 
+def manual_cancel(python, cwd, config, manager, quiet):
+    """One blocked public statement, then a controller's public cancel call.
+    The manager observes PostgreSQL's lock wait before it releases the child."""
+    process = subprocess.Popen(
+        [str(python), "-I", "-B", "-c", CANCEL],
+        cwd=cwd,
+        env=environment(quiet),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    watchdog = threading.Timer(120, process.kill)
+    watchdog.start()
+    try:
+        assert process.stdin is not None and process.stdout is not None
+        process.stdin.write(json.dumps(config) + "\n")
+        process.stdin.flush()
+        ready = json.loads(process.stdout.readline())
+        if set(ready) != {"ready"} or type(ready["ready"]) is not str:
+            raise ValueError("CANCEL_READY")
+        blocked = None
+        for _ in range(50):
+            with manager.cursor() as cursor:
+                cursor.execute("SELECT pg_stat_clear_snapshot()")
+            found = rows(
+                manager,
+                "SELECT state, wait_event_type FROM pg_stat_activity WHERE usename = 'pietto_reader'"
+                " AND pid <> pg_backend_pid()",
+            )
+            if found == [["active", "Lock"]]:
+                blocked = found
+                break
+            time.sleep(0.1)
+        process.stdin.write("cancel\n")
+        process.stdin.flush()
+        result_line = process.stdout.readline()
+        process.stdin.close()
+        _stdout, stderr = process.communicate()
+        return {
+            "returncode": process.returncode,
+            "blocked": blocked,
+            "result": json.loads(result_line) if result_line.strip() else None,
+            "stderr": stderr[-16384:],
+        }
+    finally:
+        watchdog.cancel()
+
+
 def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
     import _pietto_target_conformance_resources as resources_module
     from _pietto_execution_api import write_example
@@ -990,6 +1111,9 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
             {**reader, "case": "early_stop", "limits": {"batch_rows": 1}},
             extra=quiet,
         )
+        report["interrupt"] = case(
+            python, work, {**reader, "case": "interrupt"}, extra=quiet
+        )
         report["native_unlimited"] = case(
             python,
             work,
@@ -1035,6 +1159,16 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
                 work,
                 {**reader, "case": "failure", "limits": {"seconds": 60}},
                 seconds=120,
+            )
+        finally:
+            with manager.cursor() as cursor:
+                cursor.execute("ROLLBACK")
+        with manager.cursor() as cursor:
+            cursor.execute("BEGIN")
+            cursor.execute("LOCK TABLE fixture.items IN ACCESS EXCLUSIVE MODE")
+        try:
+            report["manual_cancel"] = manual_cancel(
+                python, work, reader, manager, quiet
             )
         finally:
             with manager.cursor() as cursor:

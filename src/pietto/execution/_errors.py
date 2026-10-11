@@ -139,6 +139,7 @@ CODES = {
         "a BaseException that is not an Exception, such as KeyboardInterrupt,"
         " ended the attempt",
     ),
+    "PIE-R3009": ("CANCELLED", "the caller cancelled the attempt before it completed"),
     "PIE-R3999": (
         "ATTEMPT_UNCLASSIFIED",
         "the attempt failed for a reason this alpha does not classify yet",

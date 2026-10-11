@@ -202,7 +202,7 @@ def test_early_close_consumer_failure_and_late_cancel(request_, monkeypatch):
         stream.outcome.transaction,
     ) == ("EARLY_CLOSE", "INCOMPLETE", "ROLLBACK_ACK")
     assert stream.cancel() == {
-        "requested": True,
+        "requested": False,
         "sent": False,
         "observed": False,
         "late": True,
@@ -460,5 +460,5 @@ def test_injected_post_buffer_read_cancel_preserves_incomplete(request_, monkeyp
             next(stream)
     out = stream.outcome
     assert out.source == "FAILED" and out.delivery == "FAILED" and out.rows == 2
-    assert out.cancel_requested and out.cancel_sent and out.cancel_observed
+    assert out.cancel_requested and not out.cancel_sent and out.cancel_observed
     assert conn.closed and stream.control_joined

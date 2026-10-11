@@ -235,6 +235,7 @@ class PostgresExecution:
         self._started = None
         self._submitted = False
         self._closed = False
+        self._finalizing = False
         self._cancel = threading.Event()
         self._lock = threading.Lock()
         self._source = "NOT_STARTED"
@@ -246,6 +247,7 @@ class PostgresExecution:
         self._timer = None
         self.control_events = []
         self.deadline_expired = False
+        self._terminal = None
         self._cancel_sent = self._cancel_observed = False
         self.session_id = None
         self.context = None
@@ -285,6 +287,13 @@ class PostgresExecution:
         if self._cancel.is_set():
             raise ExecutionError("EXECUTION_CANCELED")
         self._remaining()
+
+    def _claim_terminal(self, terminal):
+        with self._lock:
+            if self._terminal is not None or self._closed or self._finalizing:
+                return False
+            self._terminal = terminal
+            return True
 
     def _check_connection(self):
         connection = self._connection
@@ -501,6 +510,7 @@ class PostgresExecution:
             return self.request.limits.seconds
         remaining = self.request.limits.seconds - (time.monotonic() - self._started)
         if remaining <= 0:
+            self._claim_terminal("DEADLINE")
             raise TimeoutError("EXECUTION_DEADLINE")
         return remaining
 
@@ -600,6 +610,7 @@ class PostgresExecution:
             self._delivery = "OPEN"
             return self
         except BaseException as error:
+            self._claim_terminal("FAILED")
             if self._primary is None:
                 self._primary = failure(error, "admission")
             self._source = "FAILED"
@@ -712,8 +723,9 @@ class PostgresExecution:
             if self._cancel.is_set():
                 raise ExecutionError("EXECUTION_CANCELED")
             if not rows:
-                self._source = "EOF"
-                self._delivery = "COMPLETE"
+                if not self._claim_terminal("COMPLETE"):
+                    raise ExecutionError("EXECUTION_CANCELED")
+                self._source, self._delivery = "EOF", "COMPLETE"
                 self._finish(True)
                 if self._primary is not None or self._cleanup_errors:
                     phase = "finalization"
@@ -747,6 +759,7 @@ class PostgresExecution:
         except StopIteration:
             raise
         except BaseException as error:
+            self._claim_terminal("FAILED")
             if self._primary is None:
                 self._primary = failure(error, phase)
             self._cancel_observed = (
@@ -790,6 +803,7 @@ class PostgresExecution:
             self._cursor.close()
             self._cursor = self._owned_cursor = None
         except BaseException as error:
+            self._claim_terminal("FAILED")
             if self._primary is None:
                 self._primary = failure(error, "guard")
             raise
@@ -809,8 +823,9 @@ class PostgresExecution:
                 raise ExecutionError("REFINEMENT_ENUMERATION")
             while True:
                 if self.enumeration.progress[2]:
-                    self._source = "EOF"
-                    self._delivery = "COMPLETE"
+                    if not self._claim_terminal("COMPLETE"):
+                        raise ExecutionError("EXECUTION_CANCELED")
+                    self._source, self._delivery = "EOF", "COMPLETE"
                     self._finish(True)
                     if self._primary is not None or self._cleanup_errors:
                         phase = "finalization"
@@ -927,6 +942,7 @@ class PostgresExecution:
                     batch.close()
                 except BaseException as cleanup:
                     self._cleanup_errors.append(failure(cleanup, "batch_close"))
+            self._claim_terminal("FAILED")
             if self._primary is None:
                 self._primary = failure(error, phase)
             self._cancel_observed = (
@@ -944,55 +960,90 @@ class PostgresExecution:
             raise
 
     def _deadline(self):
-        self.deadline_expired = True
-        self.cancel()
+        self.cancel(deadline=True)
 
     @property
     def control_joined(self):
         return self._timer is None or not self._timer.is_alive()
 
-    def cancel(self):
-        self._cancel.set()
+    def cancel(self, *, deadline=False):
         with self._lock:
+            if self._terminal is not None or self._closed or self._finalizing:
+                return {
+                    "requested": False,
+                    "sent": False,
+                    "observed": False,
+                    "late": True,
+                }
+            self._terminal = "DEADLINE" if deadline else "CANCELLED"
+            self.deadline_expired = deadline
+            self._cancel.set()
             connection = self._owned_connection
-            if self._closed or self._transaction == "COMMIT_ACK" or connection is None:
+            if (
+                self._transaction == "COMMIT_ACK"
+                or connection is None
+                or self._source != "EXECUTING"
+            ):
                 return {
                     "requested": True,
                     "sent": False,
                     "observed": False,
                     "late": self._closed,
                 }
-        try:
-            connection.cancel_safe(timeout=2)
-            self._cancel_sent = True
-            return {
-                "requested": True,
-                "sent": True,
-                "observed": self._cancel_observed,
-                "late": False,
-            }
-        except BaseException as error:
-            self._cleanup_errors.append(failure(error, "cancel"))
-            return {"requested": True, "sent": False, "observed": False, "late": False}
+            try:
+                connection.cancel_safe(timeout=2)
+                self._cancel_sent = True
+                return {
+                    "requested": True,
+                    "sent": True,
+                    "observed": self._cancel_observed,
+                    "late": False,
+                }
+            except BaseException as error:
+                self._cleanup_errors.append(failure(error, "cancel"))
+                return {
+                    "requested": True,
+                    "sent": False,
+                    "observed": False,
+                    "late": False,
+                }
 
     def _finish(self, commit):
-        if self._closed:
-            return
+        active = sys.exc_info()[1]
+        interrupted = interrupted_traceback = None
+
+        def cleanup(error, phase):
+            nonlocal interrupted, interrupted_traceback
+
+            self._cleanup_errors.append(failure(error, phase))
+            if not isinstance(error, Exception) and interrupted is None:
+                interrupted, interrupted_traceback = error, error.__traceback__
+
+        with self._lock:
+            if self._closed or self._finalizing:
+                return
+            self._finalizing = True
         if self._guard_control is not None:
             try:
                 self._guard_control.close()
             except BaseException as error:
-                self._cleanup_errors.append(failure(error, "guard_control_close"))
+                cleanup(error, "guard_control_close")
             self._guard_control = None
         if self.guards is not None:
-            self.guards.close()
+            try:
+                self.guards.close()
+            except BaseException as error:
+                cleanup(error, "guard_close")
         if not commit and self.enumeration is not None:
-            self.enumeration.fail()
+            try:
+                self.enumeration.fail()
+            except BaseException as error:
+                cleanup(error, "enumeration_fail")
         if self._owned_cursor is not None:
             try:
                 self._owned_cursor.close()
             except BaseException as error:
-                self._cleanup_errors.append(failure(error, "statement_close"))
+                cleanup(error, "statement_close")
         if self._owned_connection is not None:
             if self._transaction == "OPEN":
                 try:
@@ -1008,29 +1059,41 @@ class PostgresExecution:
                     if self._primary is None:
                         self._primary = failure(error, "transaction")
                     else:
-                        self._cleanup_errors.append(failure(error, "transaction"))
+                        cleanup(error, "transaction")
+                    if not isinstance(error, Exception) and interrupted is None:
+                        interrupted, interrupted_traceback = error, error.__traceback__
             try:
                 self._owned_connection.close()
             except BaseException as error:
-                self._cleanup_errors.append(failure(error, "connection_close"))
+                cleanup(error, "connection_close")
                 try:
                     self._owned_connection.pgconn.finish()
                 except BaseException as discard:
-                    self._cleanup_errors.append(failure(discard, "connection_discard"))
+                    cleanup(discard, "connection_discard")
         with self._lock:
             self._closed = True
+            self._finalizing = False
         if self._timer is not None:
-            self._timer.cancel()
-            if threading.current_thread() is not self._timer:
-                self._timer.join(timeout=3)
-                if self._timer.is_alive():
-                    self._cleanup_errors.append(
-                        ExecutionFailure("control_join", "TimeoutError")
-                    )
+            try:
+                self._timer.cancel()
+                if threading.current_thread() is not self._timer:
+                    self._timer.join(timeout=3)
+                    if self._timer.is_alive():
+                        self._cleanup_errors.append(
+                            ExecutionFailure("control_join", "TimeoutError")
+                        )
+            except BaseException as error:
+                cleanup(error, "control_join")
         self._cleanup = "FAILED" if self._cleanup_errors else "CLOSED"
+        if interrupted is not None and active is None:
+            raise interrupted.with_traceback(interrupted_traceback)
 
     def close(self):
         if not self._closed:
+            won = self._claim_terminal("STOPPED_EARLY")
+            if not won and self._terminal != "STOPPED_EARLY":
+                self._finish(False)
+                return
             if self._source != "EOF":
                 self._source = "EARLY_CLOSE"
                 if self._delivery != "FAILED":
