@@ -158,7 +158,7 @@ attempt outcome carries the alpha's two declarations:
 | `PIE-R1008` | BUNDLE_NOT_ACCEPTED: the bytes given to `load_bundle` are malformed, fail verification, or name a producer or compatibility other than `accepted_producer` and `accepted_compatibility` |
 | `PIE-R1999` | REQUEST_UNCLASSIFIED: a request refusal that the alpha does not classify yet |
 | `PIE-R2001` | DEPENDENCY_MISSING: a pinned dependency of the route (driver or PyArrow) is not installed; refused before connecting |
-| `PIE-R2002` | DRIVER_PROFILE: the importable driver is not the pinned distribution, version or binary implementation (`PSYCOPG_IMPL` other than `binary` is refused before the import), or the driver or PyArrow cannot be loaded |
+| `PIE-R2002` | DRIVER_PROFILE: the importable driver or PyArrow is not the pinned distribution, version or selected binary implementation, is not that distribution's own files, or cannot be loaded; `PSYCOPG_IMPL` other than `binary`, and an importable `psycopg_c` while it is unset, are refused before psycopg is imported |
 | `PIE-R2003` | AMBIENT_ENVIRONMENT: a refused environment variable (`PG*`, `SSLKEYLOGFILE`, `OPENSSL_CONF`, `OPENSSL_MODULES`) is set; refused before connecting |
 | `PIE-R2004` | CONNECTION_FAILED: the driver reported that the TCP connection or its SCRAM-SHA-256 authentication failed, with channel binding over TLS; other authentication methods are refused before the password is sent. `sslmode` `require` needs a server with TLS, reached directly, whose certificate is signed with RSA or ECDSA, and the first `pg_hba.conf` line that matches must be a `scram-sha-256` line: `hostssl` for remote clients, `host` only for 127.0.0.1 and ::1; see the server setup in [Execution](../execution.md) |
 | `PIE-R2005` | TARGET_VERSION: the server is not PostgreSQL 18.6 |
@@ -167,7 +167,7 @@ attempt outcome carries the alpha's two declarations:
 | `PIE-R3001` | DEADLINE: the attempt's deadline expired |
 | `PIE-R3002` | STATEMENT_TIMEOUT: the server canceled a statement at the 10 second statement limit |
 | `PIE-R3003` | SERVER_ERROR: the server or the open connection reported an error |
-| `PIE-R3004` | RESOURCE_LIMIT: a row or byte limit would be exceeded; the whole batch is refused, never truncated |
+| `PIE-R3004` | RESOURCE_LIMIT: a row or byte limit (`batch_rows`, `batch_bytes`, `max_rows` or `max_bytes`, including qualifying profile and catalog reads) would be exceeded; the whole batch is refused, never truncated; delivered batches stay valid and the attempt is never COMPLETE |
 | `PIE-R3005` | RESULT_CHECK: returned metadata or values do not match the result contract |
 | `PIE-R3006` | FINALIZATION: the attempt could not commit or clean up at its end. The failure keeps what the attempt recorded: for a failed `COMMIT` or `ROLLBACK`, phase `transaction` with its SQLSTATE and exception class; when the result was read to the end and `COMMIT` acknowledged but a cleanup step then failed, phase `finalization` (cause `ExecutionError`), with the failed step as the `PIE-R5001` entry |
 | `PIE-R3007` | CONSUMER_ERROR: the caller's code raised inside the `with` block (outcome only) |
@@ -176,5 +176,6 @@ attempt outcome carries the alpha's two declarations:
 | `PIE-R4001` | HANDLE_REUSED: a result handle was opened again; it runs one attempt once |
 | `PIE-R4002` | BATCH_CLOSED: a closed result batch was exported |
 | `PIE-R4003` | BATCH_TRANSFER: a result batch cannot be exported as requested |
+| `PIE-R4004` | SCHEMA_EXPORT: `pa.schema(result)` cannot export the result schema because PyArrow is absent, is not the pinned `pyarrow` 25.0.1 distribution or cannot be loaded, or the schema cannot be built; the attempt is unchanged |
 | `PIE-R5001` | CLEANUP_FAILED: a cleanup step failed (outcome only) |
 | `PIE-R5002` | DROPPED_UNCLOSED: an open result handle was garbage-collected, or was still open at interpreter exit (a `ResourceWarning`, hidden by default) |

@@ -136,7 +136,7 @@ documentation does not supersede that evidence.
 | CI remaining-tail maintenance R1 | `COMPLETED / PUBLISHED` |
 | PostgreSQL refinement-page JIT predecessor | `COMPLETED / PUBLISHED` |
 | Parallelism interlude | `COMPLETED` |
-| Next | `Phase69 S03 closure; S04 next through its own Gate 0` |
+| Next | `Phase69 S04 closure; S05 next through its own Gate 0` |
 
 ## Phase67 当前路线
 

@@ -25,6 +25,9 @@ from pietto._project.project_result_binding import (
 )
 
 __all__: tuple[str, ...] = ()
+# The pinned Arrow package of every public Arrow-producing flow. The route
+# owners use this at their public boundary; internal callers stay lazy.
+PYARROW = ("pyarrow", "25.0.1", "pyarrow")
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +85,14 @@ def _arrow() -> Any:
         if exc.name != "pyarrow":
             raise
         raise ResultError("ARROW_DEPENDENCY_MISSING") from exc
+
+
+def pinned() -> Any:
+    """The installed PyArrow selected for a public use boundary."""
+    from pietto._project.project_execution import pinned_modules
+
+    (pa,) = pinned_modules((PYARROW,), "ARROW_DEPENDENCY_VERSION")
+    return pa
 
 
 def _widths(producer, requests):

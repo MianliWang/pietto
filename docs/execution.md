@@ -207,7 +207,8 @@ except RequestRejected as error:
   refused. Pietto binds it to the compiled query's own sources on every call.
 - `ExecutionLimits(batch_rows=256, batch_bytes=1 MiB, max_rows=1048576,
   max_bytes=64 MiB, seconds=20.0)` bounds one attempt; `seconds` is its
-  deadline, and each statement runs with a server-side timeout of at most 10
+  deadline, `max_bytes` also counts the route's qualifying profile and catalog
+  reads, and each statement runs with a server-side timeout of at most 10
   seconds that Pietto sets itself.
 - `execute(query, *, route, access, premise, limits=ExecutionLimits(),
   isolation="stable", values=None) -> ResultHandle` checks the request before
@@ -220,11 +221,13 @@ except RequestRejected as error:
 - `ResultHandle` runs that one attempt. Use it in a `with` block or iterate it:
   entering, or the first `next()`, connects; each `next()` returns a
   `ResultBatch`; the end of the result commits and closes it; `close()` before
-  the end stops early and rolls back. `outcome` returns a fresh `Outcome`
-  snapshot. Use a handle from one thread; it cannot be pickled.
+  the end stops early and rolls back. `pa.schema(result)` gives the schema
+  of its batches without opening or consuming the attempt. `outcome` returns a
+  fresh `Outcome` snapshot. Use a handle from one thread; it cannot be pickled.
 - `ResultBatch` is one checked batch you own. Export it through the Arrow
-  PyCapsule interface, for example `pyarrow.record_batch(batch)`; the exported
-  copy stays valid after you close the batch. `num_rows` gives its size.
+  PyCapsule interface, for example `pyarrow.record_batch(batch)`; the imported
+  Arrow batch shares its buffers and stays valid after you close the batch or
+  the handle. `num_rows` gives its size.
 - `Outcome` carries `attempt`, `route`, `end`, the layered `source`,
   `transaction`, `delivery` and `cleanup` states, `remote_source_use_end`,
   `rows`, `batches`, `bytes`, `deadline_expired`, `primary`,
@@ -285,8 +288,10 @@ then checks that `values` is `None` or a tuple (`PIE-R1002`), binds the query
 to the values (`PIE-R1006`, `PIE-R1004`), reads the installed code identity
 again (`PIE-R1005`) and checks the values of `premise`, `access`, `isolation`
 (its type included) and `limits`, in this order, and raises the first refusal.
-The driver and environment checks (`PIE-R2001` to `PIE-R2003`) run when the
-attempt opens.
+When an attempt opens, refused environment variables run first; then the
+pinned driver and its selected implementation; then pinned PyArrow; all run
+before a connection. `pyarrow.schema(result)` can instead raise `HandleMisuse`
+`PIE-R4004` when it cannot export the schema, without changing the attempt.
 
 `load_bundle()` checks `payload`, `expected_pin`, `accepted_producer` and
 `accepted_compatibility` in this order, each given (`PIE-R1001`) and then of
@@ -519,6 +524,107 @@ refused by it.
 | The bundle bytes | Nothing for a query already loaded; it keeps what it loaded. | Changed bytes under the old pin: `PIE-R1007` (`PIE-R1008` when the change breaks the bracket nesting that is checked before hashing). |
 | The project's source files or contract | Nothing for a query already compiled: it is a snapshot, and the edits take effect with the next `compile_query`. | A new export has another producer and pin; records of two exports mixed together are refused (`PIE-R1007`, `PIE-R1008`). |
 
+## Results
+
+Each `ResultBatch` has the query's result schema: one uniquely labelled field
+per selected column, in select order, with the contract's Arrow type and
+nullability. Values are checked before their batch is returned. Rows keep the
+server's order and duplicates; only an `order by` fixes that order.
+`pa.schema(result)` returns this schema before any row, including for an
+empty result, without opening the handle. Pass batches rather than a handle to
+libraries: a library that accepts an iterable can iterate a handle and thereby
+open and consume its attempt.
+
+`batch_rows` and `batch_bytes` bound one batch; `max_rows` and `max_bytes`
+bound the whole attempt. All are finite positive integers; their defaults are
+256 rows, 1 MiB, 1,048,576 rows and 64 MiB. `max_bytes` includes the route's
+qualifying profile and catalog reads plus every delivered batch, including one
+you have closed. A batch that would cross a bound is refused whole
+(`PIE-R3004`); it is never truncated, and batches already delivered remain
+valid. Only `outcome.end == "COMPLETE"` means every row was delivered.
+
+The caller owns a returned batch independently of its handle and attempt. It
+may import the batch through PyArrow without a copy; that imported data remains
+valid after the `ResultBatch` or its handle closes. Exporting a closed
+`ResultBatch` is refused (`PIE-R4002`). Pietto has no call that materializes a
+whole result in one object.
+
+The PostgreSQL rows route receives its native result into libpq at the first
+`next()`, before Pietto checks or counts a batch. Thus `max_rows` and
+`max_bytes` bound delivery, not the native result already received. The
+PostgreSQL witness observes four native rows when it delivers one row from the
+documented query ordered by `id` with `max_rows=1`, and one native row when the
+same ordered query has `limit 1`. Bound the query with `limit` first, then use
+the delivery limits.
+PyArrow's allocator may retain freed memory, and its import reads its documented
+`ARROW_*` resource inputs.
+
+`consume_query.py` sits next to `run_query.py`. Run it in the same way, with the
+password on standard input:
+
+```python
+import sys
+
+import pyarrow as pa
+
+from pietto.execution import (
+    AttemptFailed,
+    ExecutionLimits,
+    PostgresAccess,
+    PostgresDeploymentPremise,
+    compile_query,
+    execute,
+)
+
+query = compile_query(
+    "demo-exec",
+    module="main.pietto",
+    kind="table",
+    name="active_items",
+    dialect="postgres",
+    emission_contract="contract.json",
+)
+access = PostgresAccess(
+    host=sys.argv[1],
+    port=int(sys.argv[2]),
+    database=sys.argv[3],
+    user=sys.argv[4],
+    password=sys.stdin.readline().rstrip("\n"),
+    sslmode=sys.argv[5] if len(sys.argv) > 5 else "require",
+)
+premise = PostgresDeploymentPremise(schemas=("fixture", "pg_catalog"))
+
+
+def read_table(limits):
+    batches = []
+    with execute(
+        query, route="postgres_rows", access=access, premise=premise, limits=limits
+    ) as result:
+        schema = pa.schema(result)
+        for batch in result:
+            with batch:
+                batches.append(pa.record_batch(batch))
+    return pa.Table.from_batches(batches, schema=schema), result.outcome
+
+
+table, outcome = read_table(
+    ExecutionLimits(batch_rows=2, max_rows=100, max_bytes=1024 * 1024)
+)
+print(table.schema)
+print(outcome.end, table.num_rows, sorted(table.column("id").to_pylist()))
+try:
+    read_table(ExecutionLimits(batch_rows=2, max_rows=3))
+except AttemptFailed as error:
+    print(error.code, error.outcome.end, error.outcome.rows)
+```
+
+```text
+id: int64 not null
+label: string not null
+COMPLETE 4 [2, 2, 3, 5]
+PIE-R3004 FAILED 2
+```
+
 ## Connection and trust requirements
 
 Pietto uses only what you pass: no environment variable, service file, password
@@ -556,7 +662,7 @@ file or certificate supplies a connection setting.
   because another implementation would load a system libpq.
   `PSYCOPG_WAIT_FUNC`, which only selects psycopg's I/O wait function, is
   accepted.
-- **Pinned driver files.** The imported `psycopg` and `psycopg_binary` must be
+- **Pinned driver and Arrow files.** The imported `psycopg` and `psycopg_binary` must be
   files recorded by the installed `psycopg 3.3.5` and `psycopg-binary 3.3.5`
   distributions, and the implementation psycopg selected must be
   psycopg-binary's own module, whatever it calls itself; a shadowing copy on
@@ -571,8 +677,9 @@ file or certificate supplies a connection setting.
   psycopg then imports only its binary implementation. This stops accidental
   shadowing, not a deliberately constructed environment, which can run arbitrary
   code anyway. Run scripts with `python -I` to keep the working directory and
-  `PYTHONPATH` out of the import path. PyArrow only has to be importable: this
-  alpha checks neither its version nor the files it is imported from.
+  `PYTHONPATH` out of the import path. PyArrow must be the installed
+  `pyarrow 25.0.1` distribution's own files: a missing package is `PIE-R2001`,
+  and another release or a shadowing copy is `PIE-R2002`, before connecting.
 - **Code identity.** Each compile, bundle load and attempt identifies the
   installed Pietto and ANTLR runtime code from the installed files at that
   moment; restart a running process after they change (see [Repeated calls and
@@ -650,7 +757,8 @@ authentication is `PIE-R2004`.
 | `export_bundle(...)` | none | none; the bytes are encoded in memory | none | none |
 | `load_bundle(...)` | none | the installed Pietto and ANTLR runtime `.py` files and the `METADATA` and `RECORD` of each ANTLR runtime distribution on `sys.path`, for the code identity; no project file, nothing looked up next to the bytes and no environment variable | none | none |
 | `execute(...)`, with or without `values` | none | the installed code and ANTLR metadata again, to bind afresh | none | none |
-| entering, or the first `next()` | one TCP connection: TLS with channel binding unless `disable`, SCRAM-SHA-256; `BEGIN ... READ ONLY`; a settings read; catalog reads that qualify the sources, between two reads of the session context | environment variable names and the value of `PSYCOPG_IMPL`; with it unset, whether a `psycopg_c` module is loaded or can be found on the import path (it is not imported); the `METADATA` and `RECORD` of psycopg and psycopg-binary; the type of `/dev/null` | one non-daemon `pietto-deadline-<attempt>` timer | psycopg 3.3.5 and PyArrow |
+| `pa.schema(result)` | none | the `METADATA` and `RECORD` of pyarrow | none | PyArrow 25.0.1 if it was not already imported |
+| entering, or the first `next()` | one TCP connection: TLS with channel binding unless `disable`, SCRAM-SHA-256; `BEGIN ... READ ONLY`; a settings read; catalog reads that qualify the sources, between two reads of the session context | environment variable names and the value of `PSYCOPG_IMPL`; with it unset, whether a `psycopg_c` module is loaded or can be found on the import path (it is not imported); the `METADATA` and `RECORD` of psycopg, psycopg-binary and pyarrow; the type of `/dev/null` | one non-daemon `pietto-deadline-<attempt>` timer | psycopg 3.3.5 and PyArrow 25.0.1 |
 | the first `next()` | a read of the session context, the statement timeout (`set_config`), then one prepared statement of at most 10 s; the whole result is read into client memory | none | as above | none |
 | each later `next()` | a read of the session context before the batch is returned | none | as above | none |
 | the end of the result, or `close()` | a read of the session context, then `COMMIT` at the end, `ROLLBACK` before it; the connection closes | none | the timer is joined (at most 3 s) | none |
@@ -676,7 +784,7 @@ still running. Interpreter exit waits for the deadline timer, up to
 - The PostgreSQL rows route reads the whole native result into client memory at
   the first `next()`; `max_rows` and `max_bytes` limit only what is delivered to
   you, and exceeding them refuses the whole batch (`PIE-R3004`) instead of
-  truncating it.
+  truncating it. Use `limit` to bound the native result.
 - With `PSYCOPG_IMPL` unset, a psycopg-binary that cannot be loaded makes
   psycopg fall back to its ctypes implementation, which searches for a system
   libpq (running `ldconfig`, then compiler and linker tools found on `PATH`) and

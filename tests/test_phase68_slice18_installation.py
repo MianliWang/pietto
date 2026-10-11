@@ -36,6 +36,7 @@ from test_phase67_slice13_optional_arrow_extra import (
     _inspect,
 )
 from pietto._project import project_execution as ex
+from pietto._project import project_arrow_result as arrow
 from pietto._project import project_execution_mysql_native as mysql
 from pietto._project import project_execution_postgres as postgres
 from pietto._project import project_execution_postgres_adbc_native as adbc
@@ -422,6 +423,11 @@ def test_each_route_checks_exactly_its_declared_selection():
         "psycopg-binary": "3.3.5",
     }
     assert declared["execute-postgres"] == {"pyarrow": "25.0.1", "psycopg": "3.3.5"}
+    assert arrow.PYARROW == (
+        "pyarrow",
+        declared["execute-postgres"]["pyarrow"],
+        "pyarrow",
+    )
     assert checked["execute-mysql"] == {
         k: v for k, v in declared["execute-mysql"].items() if k != "pyarrow"
     }

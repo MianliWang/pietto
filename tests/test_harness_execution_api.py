@@ -328,6 +328,17 @@ def _core(origin):
     }
 
 
+def _core_schema():
+    value = _core("live")
+    value["result"]["schema"] = {
+        "code": "PIE-R4004",
+        "detail": "EXECUTION_DEPENDENCY_MISSING",
+        "shown": False,
+        "chained": False,
+    }
+    return value
+
+
 def consumer_report(cases):
     """A report with the facts a passing consumer family records around the
     checkout's consumer cases."""
@@ -336,6 +347,7 @@ def consumer_report(cases):
         "family": "consumer",
         "install": _install("core", "execute-postgres"),
         "core": _core("live"),
+        "core_schema": _core_schema(),
         "core_bundle": _core("bundle"),
         "cases": copy.deepcopy(cases),
     }
@@ -377,6 +389,11 @@ def test_the_checker_accepts_the_consumer_facts(checkout_facts):
         (lambda r: r["install"].pop("core"), "INSTALL"),
         (lambda r: r["core"].update(returncode=1), "CORE_FALLBACK"),
         (lambda r: r["core"].update(result=None), "CORE_FALLBACK"),
+        (
+            lambda r: r["core_schema"]["result"]["schema"].update(code="PIE-R4003"),
+            "CORE_SCHEMA",
+        ),
+        (lambda r: r["core_schema"].update(connected=True), "CORE_SCHEMA"),
         (
             lambda r: r["core"]["result"]["outcome"].update(end="OPEN"),
             "CORE_FALLBACK",
@@ -532,9 +549,27 @@ def postgres_report():
         "example_loopback": {"returncode": 0, "stdout": example + "\n", "shown": False},
         "bind_safe": _ok(
             {
+                "schema": list(check.DEMO_SCHEMA),
+                "schema_preopen": {
+                    "closed": False,
+                    "end": "NOT_STARTED",
+                    "loaded": ["pyarrow"],
+                },
                 "rows": sorted(check.ROWS),
                 "outcome": _outcome("COMPLETE", "COMMIT_ACK", rows=4),
                 **_effects(),
+            }
+        ),
+        "schema_empty": _ok(
+            {
+                "schema": list(check.DEMO_SCHEMA),
+                "schema_preopen": {
+                    "closed": False,
+                    "end": "NOT_STARTED",
+                    "loaded": ["pyarrow"],
+                },
+                "rows": [],
+                "outcome": _outcome("COMPLETE", "COMMIT_ACK", rows=0),
             }
         ),
         "early_stop": _ok(
@@ -542,6 +577,25 @@ def postgres_report():
                 "first_rows": 1,
                 "outcome": _outcome("STOPPED_EARLY", "ROLLBACK_ACK", rows=1),
                 **_effects(),
+            }
+        ),
+        "native_unlimited": _ok(
+            {
+                "delivered_rows": 1,
+                "first_row": [{"id": 2, "label": "two"}],
+                "native_buffered_rows": 4,
+                "second": "REFUSED",
+                "failure": {"code": "PIE-R3004"},
+                "outcome": _outcome("FAILED", "ROLLBACK_ACK", rows=1),
+            }
+        ),
+        "native_limited": _ok(
+            {
+                "delivered_rows": 1,
+                "first_row": [{"id": 2, "label": "two"}],
+                "native_buffered_rows": 1,
+                "second": "EOF",
+                "outcome": _outcome("COMPLETE", "COMMIT_ACK", rows=1),
             }
         ),
         "result_check": _failure(
@@ -604,6 +658,11 @@ def postgres_report():
             "stdout": "\n".join(check.BUNDLE_EXAMPLE) + "\n",
             "shown": False,
         },
+        "consume_example": {
+            "returncode": 0,
+            "stdout": "\n".join(check.CONSUME_EXAMPLE) + "\n",
+            "shown": False,
+        },
         "cleanup": {"status": "success"},
     }
 
@@ -623,6 +682,34 @@ def test_the_checker_accepts_the_postgres_oracle_facts():
         (lambda r: r["install"].pop("execute-postgres"), "INSTALL"),
         (lambda r: r["server"]["hashes"][0].__setitem__(1, False), "SCRAM_ROLE"),
         (lambda r: r["bind_safe"].update(returncode=1), "BIND_SAFE"),
+        (
+            lambda r: r["bind_safe"]["result"]["schema"].__setitem__(
+                0, ["id", "int32", False]
+            ),
+            "RESULT_SCHEMA",
+        ),
+        (
+            lambda r: r["bind_safe"]["result"]["schema_preopen"].update(end="OPEN"),
+            "RESULT_SCHEMA_PREOPEN",
+        ),
+        (
+            lambda r: r["schema_empty"]["result"].update(rows=[[2, "two"]]),
+            "EMPTY_RESULT",
+        ),
+        (
+            lambda r: r["native_unlimited"]["result"].update(native_buffered_rows=1),
+            "NATIVE_BUFFERING",
+        ),
+        (
+            lambda r: r["native_unlimited"]["result"]["outcome"].update(rows=0),
+            "QUERY_LIMIT",
+        ),
+        (
+            lambda r: r["native_limited"]["result"]["outcome"].update(
+                transaction="ROLLBACK_ACK"
+            ),
+            "QUERY_LIMIT",
+        ),
         (lambda r: r["bind_safe"]["result"].update(outcome=None), "BIND_SAFE"),
         (
             lambda r: r["bind_safe"]["result"]["before"]["files"].pop("tmp"),
@@ -966,6 +1053,7 @@ def test_the_checker_accepts_the_postgres_oracle_facts():
             "BUNDLE_EXAMPLE",
         ),
         (lambda r: r["bundle_example"].update(shown=True), "CREDENTIAL"),
+        (lambda r: r["consume_example"].update(returncode=1), "CONSUME_EXAMPLE"),
     ),
 )
 def test_the_checker_refuses_each_damaged_postgres_fact(damage, reason):

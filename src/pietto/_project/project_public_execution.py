@@ -164,3 +164,14 @@ def driver_error(error):
 def batch_rows(batch):
     """Rows of a checked batch the owner just returned."""
     return batch._batch.num_rows
+
+
+@entry
+def result_schema(owner):
+    """The schema every batch of one prepared owner has, without I/O."""
+    from pietto._project import project_arrow_result as arrow
+    from pietto._project.project_execution_reader import bind_stored_output
+
+    arrow.pinned()
+    producer = bind_stored_output(owner.request.output, owner.request.route)
+    return arrow.bind_arrow(producer).schema

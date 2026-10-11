@@ -792,7 +792,7 @@ def test_a_bundle_carries_no_access_or_attempt_state(live, bundle, clean):
     listener = socket.create_server(("127.0.0.1", 0))
     port = listener.getsockname()[1]
     listener.close()
-    clean.setattr(project_arrow_result, "_arrow", lambda: None)
+    clean.setattr(project_arrow_result, "pinned", lambda: None)
     for query in (live, loaded):
         run(query, (5,))
         refused(run, query, (True,))

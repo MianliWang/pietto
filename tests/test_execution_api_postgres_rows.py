@@ -679,7 +679,7 @@ def test_missing_arrow_is_refused_before_the_query_reaches_the_server(
         handle.__enter__()
     assert (failed.value.code, failed.value.detail) == (
         "PIE-R2001",
-        "ARROW_DEPENDENCY_MISSING",
+        "EXECUTION_DEPENDENCY_MISSING",
     )
     assert ended(failed.value).transaction == "NOT_STARTED"
     assert not sentinel.connected()
@@ -886,7 +886,7 @@ if client == "psycopg":
 else:
     import pietto.execution as pe
     from pietto._project import project_arrow_result
-    project_arrow_result._arrow = lambda: None  # no PyArrow in the core profile
+    project_arrow_result.pinned = lambda: None  # no PyArrow in the core profile
     query = pe.compile_query(project, module="main.pietto", kind="table",
         name="active_items", dialect="postgres", emission_contract="contract.json")
     handle = pe.execute(query, route="postgres_rows",
@@ -1011,7 +1011,7 @@ def test_a_loaded_psycopg_c_without_a_spec_has_the_driver_refusal(
 def _connecting(monkeypatch):
     """The real `_connect` and pinned psycopg; only PyArrow's import is
     replaced, since the core profile has no PyArrow."""
-    monkeypatch.setattr(project_arrow_result, "_arrow", lambda: None)
+    monkeypatch.setattr(project_arrow_result, "pinned", lambda: None)
 
 
 def _attempt(query, connection):

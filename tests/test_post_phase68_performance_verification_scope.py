@@ -364,8 +364,9 @@ ROUTES = (
     *GUARDED_ROUTES,
 )
 # Reached only inside an execution owner's attempt, which needs a live database;
-# the native campaign exercises it.
-OWNER_ONLY = {"verify_native"}
+# the native campaign exercises it. result_schema intentionally needs optional
+# PyArrow, so the installed consumer and PostgreSQL witnesses exercise it.
+OWNER_ONLY = {"result_schema", "verify_native"}
 
 
 def _world(request, route):
@@ -790,6 +791,7 @@ DECORATED = {
     ("project_guard_verification.py", "verify_program", "entry"),
     ("project_guard_verification.py", "verify_statement", "entry"),
     ("project_public_execution.py", "prepare_attempt", "entry"),
+    ("project_public_execution.py", "result_schema", "entry"),
     ("project_refinement.py", "prepare_compiled_refinement", "entry"),
     ("project_refinement_verification.py", "verify_native", "entry"),
     ("project_refinement_verification.py", "verify_refinement", "entry"),

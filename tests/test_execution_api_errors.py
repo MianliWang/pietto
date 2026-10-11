@@ -249,7 +249,7 @@ def test_public_errors_carry_no_credential_or_chained_driver_exception(
     listener = socket.create_server(("127.0.0.1", 0))
     port = listener.getsockname()[1]
     listener.close()
-    monkeypatch.setattr(project_arrow_result, "_arrow", lambda: None)
+    monkeypatch.setattr(project_arrow_result, "pinned", lambda: None)
     handle = execution.execute(
         query,
         route="postgres_rows",

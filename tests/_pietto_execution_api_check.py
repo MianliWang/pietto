@@ -18,6 +18,7 @@ from typing import Any
 FORMAT = "pietto.execution-api-witness.v1"
 # fixture.items rows with id > 1, as a bag: the documented query's oracle.
 ROWS = [[2, "two"], [2, "two"], [3, "three"], [5, "five"]]
+DEMO_SCHEMA = [["id", "int64", False], ["label", "string", False]]
 AMBIENT = (
     "PGHOST",
     "PGPASSWORD",
@@ -56,6 +57,12 @@ EXAMPLE_REPR = (
 # The documented bundle script: the loaded query's origin and slots, then the
 # ids with id > 1 and with id > 3, each attempt complete.
 BUNDLE_EXAMPLE = ["bundle ('Int',)", "1 [2, 2, 3, 5] COMPLETE", "3 [5] COMPLETE"]
+CONSUME_EXAMPLE = [
+    "id: int64 not null",
+    "label: string not null",
+    "COMPLETE 4 [2, 2, 3, 5]",
+    "PIE-R3004 FAILED 2",
+]
 # The documented table compiled bind-safe and loaded from its bundle.
 BUNDLE_LOADED = {
     "origin": "bundle",
@@ -251,6 +258,20 @@ def check_consumer(report: Any) -> Any:
         "CORE_FALLBACK",
     )
     need(core.get("after_open") == [], "CORE_LOADED_DRIVER")
+    schema = result(report.get("core_schema"), "CORE_SCHEMA")
+    unopened(schema)
+    refused_schema = schema.get("schema") or {}
+    need(
+        (refused_schema.get("code"), refused_schema.get("detail"))
+        == ("PIE-R4004", "EXECUTION_DEPENDENCY_MISSING"),
+        "CORE_SCHEMA",
+    )
+    need(
+        refused_schema.get("shown") is False
+        and refused_schema.get("chained") is False
+        and report["core_schema"].get("connected") is False,
+        "CORE_SCHEMA",
+    )
     bundle = refused(
         report.get("core_bundle"),
         "PIE-R2001",
@@ -328,6 +349,15 @@ def check_bundle_example(record: Any) -> None:
     need(lines == BUNDLE_EXAMPLE, "BUNDLE_EXAMPLE")
 
 
+def check_consume_example(record: Any) -> None:
+    need(type(record) is dict and record.get("returncode") == 0, "CONSUME_EXAMPLE")
+    need(record.get("shown") is False, "CREDENTIAL")
+    need(
+        record.get("stdout", "").strip().splitlines() == CONSUME_EXAMPLE,
+        "CONSUME_EXAMPLE",
+    )
+
+
 def completed(record: Any, rows: Any, reason: str) -> None:
     outcome = record.get("outcome") or {}
     need("code" not in record and record.get("rows") == rows, reason)
@@ -397,6 +427,14 @@ def check_postgres(report: Any) -> Any:
     check_example(report.get("example"))
     check_example(report.get("example_loopback"))
     bind = result(report.get("bind_safe"), "BIND_SAFE")
+    need(bind.get("schema") == DEMO_SCHEMA, "RESULT_SCHEMA")
+    preopen = bind.get("schema_preopen") or {}
+    need(
+        preopen.get("closed") is False
+        and preopen.get("end") == "NOT_STARTED"
+        and preopen.get("loaded") == ["pyarrow"],
+        "RESULT_SCHEMA_PREOPEN",
+    )
     need(bind.get("rows") == sorted(ROWS), "BIND_SAFE_ROWS")
     outcome = outcome_of(bind, "BIND_SAFE")
     need(
@@ -405,6 +443,18 @@ def check_postgres(report: Any) -> Any:
         "BIND_SAFE_END",
     )
     check_effects(bind, "BIND_SAFE")
+    empty = result(report.get("schema_empty"), "EMPTY_RESULT")
+    need(empty.get("schema") == DEMO_SCHEMA and empty.get("rows") == [], "EMPTY_RESULT")
+    need(
+        empty.get("schema_preopen") == preopen,
+        "EMPTY_RESULT_PREOPEN",
+    )
+    empty_outcome = outcome_of(empty, "EMPTY_RESULT")
+    need(
+        (empty_outcome["end"], empty_outcome["transaction"], empty_outcome["rows"])
+        == ("COMPLETE", "COMMIT_ACK", 0),
+        "EMPTY_RESULT",
+    )
     early = result(report.get("early_stop"), "EARLY_STOP")
     outcome = outcome_of(early, "EARLY_STOP")
     need(early.get("first_rows") == 1, "EARLY_STOP")
@@ -414,6 +464,31 @@ def check_postgres(report: Any) -> Any:
         "EARLY_STOP_END",
     )
     check_effects(early, "EARLY_STOP")
+    buffered = result(report.get("native_unlimited"), "NATIVE_BUFFERING")
+    limited = result(report.get("native_limited"), "QUERY_LIMIT")
+    need(
+        buffered.get("delivered_rows") == limited.get("delivered_rows") == 1
+        and buffered.get("first_row")
+        == limited.get("first_row")
+        == [{"id": 2, "label": "two"}]
+        and buffered.get("native_buffered_rows") == 4
+        and limited.get("native_buffered_rows") == 1,
+        "NATIVE_BUFFERING",
+    )
+    need(
+        buffered.get("second") == "REFUSED"
+        and (buffered.get("failure") or {}).get("code") == "PIE-R3004"
+        and (buffered.get("outcome") or {}).get("end") == "FAILED"
+        and (buffered.get("outcome") or {}).get("transaction") == "ROLLBACK_ACK"
+        and (buffered.get("outcome") or {}).get("rows") == 1
+        and (buffered.get("outcome") or {}).get("batches") == 1
+        and limited.get("second") == "EOF"
+        and (limited.get("outcome") or {}).get("end") == "COMPLETE"
+        and (limited.get("outcome") or {}).get("transaction") == "COMMIT_ACK"
+        and (limited.get("outcome") or {}).get("rows") == 1
+        and (limited.get("outcome") or {}).get("batches") == 1,
+        "QUERY_LIMIT",
+    )
     check = result(report.get("result_check"), "RESULT_CHECK")
     need(
         (check.get("code"), check.get("detail")) == ("PIE-R3005", "VALUE_DOMAIN"),
@@ -475,6 +550,7 @@ def check_postgres(report: Any) -> Any:
     check_records(exported.get("records"), "BUNDLE_EXPORT")
     check_steps(report.get("bundle_steps") or {})
     check_bundle_example(report.get("bundle_example"))
+    check_consume_example(report.get("consume_example"))
     need((report.get("cleanup") or {}).get("status") == "success", "RESOURCE_CLEANUP")
     return {"family": "postgres", "verdict": "ACCEPTED"}
 

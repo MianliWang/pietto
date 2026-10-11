@@ -10,7 +10,7 @@ Phase69 负责公开 alpha 发行工程与统一安全入口（[路线图](../..
 
 - S01 COMPLETED / PUBLISHED，与 S02 同批，head `a7bcb2d7ed4a4c688ce84a68182e70d166a60f4a`，CI38144178777/push/main/attempt1：把 S19 consumer 与 check 的回执目录、审计记录与身份三元组改为显式参数。
 - S02 COMPLETED / PUBLISHED，与 S01 同批，head `a7bcb2d7ed4a4c688ce84a68182e70d166a60f4a`，CI38144178777/push/main/attempt1：公开 PostgreSQL rows 执行 alpha（`pietto.execution`）。
-- S03 在 S02 之后合入，提供调用方自有信任记录下的查询 bundle（`export_bundle`、`load_bundle`）、显式值与重复调用；它是集成 candidate，它的 `COMPLETED / PUBLISHED` 仅在它自己的已推送 head 的普通提交、FF push 与自然 exact-head CI 全部 job 成功后成立，此前是 candidate。下一个可合入的是 S04，经它自己的 Gate 0。
+- S03 在 S02 之后合入，提供调用方自有信任记录下的查询 bundle（`export_bundle`、`load_bundle`）、显式值与重复调用；它是集成 candidate，它的 `COMPLETED / PUBLISHED` 仅在它自己的已推送 head 的普通提交、FF push 与自然 exact-head CI 全部 job 成功后成立，此前是 candidate。S04 是 public results candidate；其完成同样以它自己的已推送 head 的自然 exact-head CI 为准，S05 经自己的 Gate 0 随后。
 - S02–S07 与 S01 同属所有者对第 1–7 片的常设授权，连续进行；遇到 BLOCKER、拆片，或新的公共、信任、预算决定即停。
 - S08–S14 HOLD，直到 S07 之后的现实检查（三条路线当前的资格与支持 profile）。
 - S15–S19 HOLD，直到中点：S11 之后按 S/H/L/K/Q 重估，并复核当时 CI health 的适用样本与 alerts。

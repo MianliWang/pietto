@@ -73,7 +73,8 @@ class PostgresDeploymentPremise:
 class ExecutionLimits:
     """Bounds of one attempt. ``batch_rows`` (at most 4096) and ``batch_bytes``
     (at most 8 MiB) bound each batch; ``max_rows`` and ``max_bytes`` bound what
-    is delivered; ``seconds`` is the attempt's deadline. Each PostgreSQL
+    is delivered; ``max_bytes`` also counts the route's qualifying profile and
+    catalog reads. ``seconds`` is the attempt's deadline. Each PostgreSQL
     statement is also limited to 10 seconds by the server."""
 
     batch_rows: int = 256

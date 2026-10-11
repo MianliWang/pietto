@@ -1067,6 +1067,11 @@ loopback TCP and Linux inotify, which the integration host and hosted CI
 provide. `tests/test_harness_execution_api.py` runs the probe's database-free
 consumer cases against the checkout and gives every law of the checker a
 damaged fact that it must refuse with that law's reason.
+`tests/test_execution_api_results.py` owns public result-schema export,
+caller-owned batches and bounded consumption: schema export is non-consuming,
+PyArrow is pinned by release and file origin, and no whole-result or stream
+surface is added. The original Arrow/result owners continue to cover values,
+types, ownership and whole-batch refusal.
 
 Real evidence runs explicitly through `tests/_pietto_execution_api_probe.py`;
 its independent checker `_pietto_execution_api_check` judges the raw facts

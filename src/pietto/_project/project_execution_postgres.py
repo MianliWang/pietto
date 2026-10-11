@@ -104,7 +104,7 @@ def _connect(request):
     (pg,) = drivers()
     # The Arrow owner loads before the connection: without PyArrow the
     # attempt is refused here, never after the server ran its statement.
-    arrow._arrow()
+    arrow.pinned()
     # As on the ADBC route, a child of the null character device names no CA,
     # CRL, client certificate or key, so libpq never falls back to the
     # ~/.postgresql defaults: `require` encrypts without verifying the server.

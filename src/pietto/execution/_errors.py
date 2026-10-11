@@ -82,8 +82,9 @@ CODES = {
     ),
     "PIE-R2002": (
         "DRIVER_PROFILE",
-        "the importable driver is not the route's pinned distribution, version and"
-        " binary implementation, or the driver or PyArrow cannot be loaded",
+        "the importable driver or PyArrow is not the route's pinned distribution,"
+        " version and selected binary implementation, or is a copy from another"
+        " location; or the driver or PyArrow cannot be loaded",
     ),
     "PIE-R2003": (
         "AMBIENT_ENVIRONMENT",
@@ -148,6 +149,12 @@ CODES = {
     ),
     "PIE-R4002": ("BATCH_CLOSED", "the batch is closed"),
     "PIE-R4003": ("BATCH_TRANSFER", "the batch cannot be exported as requested"),
+    "PIE-R4004": (
+        "SCHEMA_EXPORT",
+        "the result schema cannot be exported: PyArrow is missing, is not the"
+        " pinned distribution or cannot be loaded, or the schema cannot be built;"
+        " the attempt is unchanged",
+    ),
     "PIE-R5001": ("CLEANUP_FAILED", "a cleanup step failed"),
     "PIE-R5002": (
         "DROPPED_UNCLOSED",
@@ -213,6 +220,7 @@ _ATTEMPT = {
     "EXECUTION_DEPENDENCY_MISSING": "PIE-R2001",
     "ARROW_DEPENDENCY_MISSING": "PIE-R2001",
     "EXECUTION_DRIVER_VERSION": "PIE-R2002",
+    "ARROW_DEPENDENCY_VERSION": "PIE-R2002",
     "POSTGRES_DRIVER_LIBRARY": "PIE-R2002",
     "EXECUTION_AMBIENT_CONNECTION_PROFILE": "PIE-R2003",
     "EXECUTION_TARGET_VERSION": "PIE-R2005",
@@ -417,3 +425,8 @@ def batch_failure(error):
     word = category_word(error)
     code = "PIE-R4002" if word == "INTEROP_CLOSED" else "PIE-R4003"
     return failure(code, word, cause=type(error).__name__)
+
+
+def schema_failure(error):
+    """Classify a schema-export refusal without exposing private messages."""
+    return failure("PIE-R4004", category_word(error), cause=type(error).__name__)

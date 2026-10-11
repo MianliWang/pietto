@@ -48,6 +48,11 @@ def bundle_blocks():
     return _blocks("Query bundles", ("python",))
 
 
+def results_blocks():
+    """The documented bounded-consumption script and its output."""
+    return _blocks("Results", ("python", "text"))
+
+
 def setup_blocks():
     """The documented server setup: role statements, the psql password
     commands and the pg_hba.conf lines."""
@@ -60,9 +65,8 @@ def statements(block):
 
 
 def write_example(directory, *, relation="items"):
-    """Write the documented `demo-exec` project, `run_query.py` and
-    `bundle_query.py` into `directory`; `relation` renames the physical
-    relation only."""
+    """Write the documented project and its three scripts into `directory`;
+    `relation` renames the physical relation only."""
     blocks = example_blocks()
     project = Path(directory) / "demo-exec"
     project.mkdir(parents=True)
@@ -77,6 +81,9 @@ def write_example(directory, *, relation="items"):
     (Path(directory) / "run_query.py").write_text(blocks["python"], encoding="utf-8")
     (Path(directory) / "bundle_query.py").write_text(
         bundle_blocks()["python"], encoding="utf-8"
+    )
+    (Path(directory) / "consume_query.py").write_text(
+        results_blocks()["python"], encoding="utf-8"
     )
     return project
 

@@ -162,11 +162,18 @@ limits = pe.ExecutionLimits(**config.get("limits", {}))
 def attempt(**changes):
     arguments = dict(route="postgres_rows", access=access, premise=premise,
         limits=limits)
+    if "values" in config:
+        arguments["values"] = tuple(config["values"])
     arguments.update(changes)
     return pe.execute(query, **arguments)
 handle = attempt()
 result["unopened"] = [loaded(), handle.outcome.end, password in repr(handle)]
-if case == "requests":
+if case == "schema_refused":
+    try:
+        handle.__arrow_c_schema__()
+    except pe.HandleMisuse as error:
+        result["schema"] = refusal(error)
+elif case == "requests":
     refusals = {}
     for name, changes in (("premise_none", {"premise": None}),
             ("route_adbc", {"route": "postgres_adbc"}),
@@ -195,8 +202,15 @@ elif case == "refused":
     result["psycopg_file"] = getattr(psycopg, "__file__", None)
 elif case == "rows":
     import pyarrow as pa
+
     rows = []
     result["before"] = effects()
+    result["schema"] = [[field.name, str(field.type), field.nullable] for field in pa.schema(handle)]
+    result["schema_preopen"] = {
+        "closed": handle.closed,
+        "end": handle.outcome.end,
+        "loaded": loaded(),
+    }
     with handle:
         for batch in handle:
             with batch:
@@ -210,6 +224,22 @@ elif case == "early_stop":
         result["first_rows"] = first.num_rows
         first.close()
     result.update(outcome=facts(handle.outcome), after=effects())
+elif case == "buffer":
+    import pyarrow as pa
+
+    with handle:
+        batch = next(handle)
+        with batch:
+            result["first_row"] = pa.record_batch(batch).to_pylist()
+        result["delivered_rows"] = batch.num_rows
+        result["native_buffered_rows"] = handle._owner.native_buffered_rows
+        try:
+            next(handle)
+        except StopIteration:
+            result["second"] = "EOF"
+        except pe.AttemptFailed as error:
+            result.update(second="REFUSED", failure=refusal(error))
+    result["outcome"] = facts(handle.outcome)
 elif case == "failure":
     started = time.monotonic()
     try:
@@ -690,6 +720,18 @@ def consumer(directory, *, wheel, interpreter, house_root=None, cache=None):
             },
         )
         report["core"]["connected"] = listener["connected"]()
+    with sentinel() as listener:
+        report["core_schema"] = case(
+            pythons["core"],
+            core,
+            {
+                "case": "schema_refused",
+                "project": str(project),
+                "password": secrets.token_hex(12),
+                "port": listener["port"],
+            },
+        )
+        report["core_schema"]["connected"] = listener["connected"]()
     # The same refusal for a query loaded from its bundle in the core prefix.
     with sentinel() as listener:
         report["core_bundle"] = case(
@@ -894,6 +936,22 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
     work = directory / "work"
     work.mkdir()
     project = write_example(work)
+    ordered = write_example(work / "ordered")
+    path = ordered / "main.pietto"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "        label\n", "        label\n    order by:\n        id\n"
+        ),
+        encoding="utf-8",
+    )
+    limited = write_example(work / "limited")
+    path = limited / "main.pietto"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "        label\n", "        label\n    order by:\n        id\n    limit 1\n"
+        ),
+        encoding="utf-8",
+    )
     wide = write_example(work / "wide", relation="items_wide")
     pins = json.loads((ROOT / "tests/phase66_target_pins.json").read_text())
     (directory / "resources").mkdir()
@@ -920,10 +978,38 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
         report["bind_safe"] = case(
             python, work, {**reader, "case": "rows", "policy": "bind-safe"}, extra=quiet
         )
+        report["schema_empty"] = case(
+            python,
+            work,
+            {**reader, "case": "rows", "policy": "bind-safe", "values": [100]},
+            extra=quiet,
+        )
         report["early_stop"] = case(
             python,
             work,
             {**reader, "case": "early_stop", "limits": {"batch_rows": 1}},
+            extra=quiet,
+        )
+        report["native_unlimited"] = case(
+            python,
+            work,
+            {
+                **reader,
+                "case": "buffer",
+                "project": str(ordered),
+                "limits": {"batch_rows": 1, "max_rows": 1},
+            },
+            extra=quiet,
+        )
+        report["native_limited"] = case(
+            python,
+            work,
+            {
+                **reader,
+                "case": "buffer",
+                "project": str(limited),
+                "limits": {"batch_rows": 1, "max_rows": 1},
+            },
             extra=quiet,
         )
         report["result_check"] = case(
@@ -995,6 +1081,9 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
         )
         report["bundle_example"] = example(
             python, work, port, secret, script="bundle_query.py"
+        )
+        report["consume_example"] = example(
+            python, work, port, secret, script="consume_query.py"
         )
     finally:
         report["cleanup"] = resources.cleanup()

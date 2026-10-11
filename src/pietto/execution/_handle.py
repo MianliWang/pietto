@@ -25,6 +25,7 @@ from pietto.execution._errors import (
     failure,
     record_failure,
     request_failure,
+    schema_failure,
 )
 from pietto.execution._query import CompiledQuery
 
@@ -157,8 +158,9 @@ class ResultBatch:
     """One checked batch of result rows, owned by the caller.
 
     Export it through the Arrow PyCapsule interface, for example with
-    ``pyarrow.record_batch(batch)``; an exported copy stays valid after the
-    batch is closed. Close it (or use it as a context manager) when done.
+    ``pyarrow.record_batch(batch)``; the imported Arrow batch shares its
+    buffers and stays valid after the batch is closed. Close it (or use it as
+    a context manager) when done.
     """
 
     __slots__ = ("_managed", "_rows", "_closed")
@@ -222,7 +224,8 @@ class ResultHandle:
     unopened. Use it as a context manager (``with``) or iterate it: entering,
     or the first ``next()``, connects; each ``next()`` returns a ResultBatch;
     the end of the result commits and closes. close() before the end stops
-    early and rolls back. Use it from one thread.
+    early and rolls back. ``pyarrow.schema(handle)`` returns the schema of its
+    batches without opening or consuming the attempt. Use it from one thread.
     """
 
     __slots__ = ("_owner", "_route", "_finalizer", "_recorded", "__weakref__")
@@ -252,6 +255,14 @@ class ResultHandle:
     @property
     def outcome(self) -> Outcome:
         return _outcome(self._owner, self._route, self._recorded)
+
+    def __arrow_c_schema__(self):
+        """The Arrow schema of this attempt's batches, without I/O."""
+        try:
+            return composition.result_schema(self._owner).__arrow_c_schema__()
+        except Exception as caught:
+            refusal = schema_failure(caught)
+        raise HandleMisuse(refusal, attempt=self._owner.attempt)
 
     def _arm(self):
         # Only an opening attempt holds a connection that a drop would strand.
