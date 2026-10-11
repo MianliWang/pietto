@@ -22,6 +22,44 @@ _MYSQL_TABLE = "mysql.table"
 _KNOWN_CONNECTORS = (_POSTGRES_TABLE, _MYSQL_TABLE)
 
 
+def check_table_names(script: Script) -> list[Diagnostic]:
+    """Reject single-file table strings other than `<table>` or `<schema>.<table>`.
+
+    Project mode takes physical names from its emission contract instead, so
+    only single-file analysis runs this check.
+    """
+
+    diagnostics: list[Diagnostic] = []
+    for definition in script.definitions:
+        if not isinstance(definition, SourceDef):
+            continue
+        connector = definition.connector
+        if not isinstance(connector, CallExpr) or len(connector.arguments) != 1:
+            continue
+        connector_name = _callee_name(connector)
+        argument = connector.arguments[0]
+        if (
+            connector_name not in _KNOWN_CONNECTORS
+            or not isinstance(argument, LiteralExpr)
+            or not isinstance(argument.value, str)
+            or (connector_name == _MYSQL_TABLE and not argument.value)
+        ):
+            continue
+        parts = argument.value.split(".")
+        if (len(parts) == 1 and parts[0]) or (len(parts) == 2 and all(parts)):
+            continue
+        diagnostics.append(
+            _connector_diagnostic(
+                argument,
+                message=(
+                    f"Invalid source connector arguments for {connector_name}: "
+                    "expected <table> or <schema>.<table>"
+                ),
+            )
+        )
+    return diagnostics
+
+
 def check_source_connectors(
     script: Script,
     expression_value_types: Mapping[Expression, ValueType],
@@ -112,7 +150,7 @@ def _invalid_arguments_diagnostic(
 
 
 def _connector_diagnostic(node: Node, *, message: str) -> Diagnostic:
-    """Create a connector diagnostic at the complete connector expression."""
+    """Create a connector diagnostic at one connector expression or argument."""
 
     span = node.span
     return Diagnostic(

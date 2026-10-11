@@ -42,7 +42,7 @@ def test_pipeline_emits_quoted_source_backed_relation_sql() -> None:
     assert artifact.sql == (
         "SELECT\n"
         '    "Email" AS "ContactEmail"\n'
-        'FROM "Sales.Customers"\n'
+        'FROM "Sales"."Customers"\n'
         "WHERE \"Email\" = 'O''Reilly'"
     )
 

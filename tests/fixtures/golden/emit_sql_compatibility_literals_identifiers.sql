@@ -5,5 +5,5 @@ SELECT
     42 AS "Count",
     1.5 AS "Ratio",
     "order" AS "ReservedName"
-FROM "Sales.CompatibilityRows"
+FROM "Sales"."CompatibilityRows"
 WHERE "email" = E'\\''; --'

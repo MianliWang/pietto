@@ -23,7 +23,7 @@ from pietto.sql.expressions import (
     render_window_call_sql,
     render_window_components_sql,
 )
-from pietto.sql.render import quote_identifier
+from pietto.sql.render import quote_identifier, quote_qualified_identifier
 from pietto.sql.window_strategy import (
     NamedWindowLoweringDecision,
     NamedWindowLoweringStrategy,
@@ -116,10 +116,10 @@ def render_relation_sql(
     return "\n".join(lines)
 
 
-def _render_input(input_name: str, relation: RelationIR) -> str:
+def _render_input(input_name: tuple[str, ...], relation: RelationIR) -> str:
     """Alias an input only when qualified field SQL needs its logical name."""
 
-    sql = quote_identifier(input_name)
+    sql = quote_qualified_identifier(input_name)
     if not _relation_uses_qualified_fields(relation):
         return sql
     return f"{sql} AS {quote_identifier(relation.source.name)}"
@@ -143,7 +143,7 @@ def _relation_input_name(
     *,
     sources: Mapping[SymbolId, SourceIR],
     relations: Mapping[SymbolId, RelationIR],
-) -> str:
+) -> tuple[str, ...]:
     """Resolve an input to static table metadata or a relation artifact name."""
 
     source = sources.get(relation.source.target)
@@ -151,14 +151,14 @@ def _relation_input_name(
         return _postgres_table_name(source)
     upstream = relations.get(relation.source.target)
     if upstream is not None:
-        return upstream.name
+        return (upstream.name,)
     raise ValueError(
         "PostgreSQL relation input does not resolve to SourceIR or RelationIR"
     )
 
 
-def _postgres_table_name(source: SourceIR) -> str:
-    """Return the single static table name supported by this backend slice."""
+def _postgres_table_name(source: SourceIR) -> tuple[str, ...]:
+    """Return the static `<table>` or `<schema>.<table>` name parts."""
 
     connector = source.connector
     if (
@@ -168,7 +168,10 @@ def _postgres_table_name(source: SourceIR) -> str:
         or not connector.arguments[0]
     ):
         raise ValueError("PostgreSQL relation emission requires postgres.table(Text)")
-    return connector.arguments[0]
+    parts = tuple(connector.arguments[0].split("."))
+    if len(parts) > 2 or not all(parts):
+        raise ValueError("PostgreSQL table name must be <table> or <schema>.<table>")
+    return parts
 
 
 def _render_projection(

@@ -299,7 +299,7 @@ def test_postgres_qualified_sql_uses_narrow_logical_input_alias() -> None:
     assert result.artifacts[0].sql == (
         "SELECT\n"
         '    "users"."email" AS "email"\n'
-        'FROM "public.users" AS "users"\n'
+        'FROM "public"."users" AS "users"\n'
         'WHERE "users"."active" = TRUE\n'
         "ORDER BY\n"
         '    "users"."email" DESC'
@@ -337,7 +337,7 @@ def test_unqualified_sql_keeps_existing_from_bytes() -> None:
 
     assert result.diagnostics == ()
     assert result.artifacts[0].sql == (
-        'SELECT\n    "email" AS "email"\nFROM "public.users"'
+        'SELECT\n    "email" AS "email"\nFROM "public"."users"'
     )
 
 

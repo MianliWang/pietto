@@ -51,7 +51,7 @@ def test_source_backed_relation_emits_select_from_where_and_projections() -> Non
         "SELECT\n"
         '    "email" AS "email",\n'
         '    lower(trim("email")) AS "email_norm"\n'
-        'FROM "public.users"\n'
+        'FROM "public"."users"\n'
         'WHERE "deleted_at" IS NULL'
     )
     assert result.diagnostics == ()
@@ -66,7 +66,7 @@ def test_relation_without_filter_omits_where() -> None:
 
     assert len(result.artifacts) == 1
     assert result.artifacts[0].sql == (
-        'SELECT\n    "email" AS "email"\nFROM "public.users"'
+        'SELECT\n    "email" AS "email"\nFROM "public"."users"'
     )
     assert "WHERE" not in result.artifacts[0].sql
 
@@ -82,7 +82,7 @@ def test_relation_renderer_uses_source_symbol_mapping() -> None:
         relation,
         sources={source.symbol: source},
         relations={relation.symbol: relation},
-    ).endswith('FROM "public.users"')
+    ).endswith('FROM "public"."users"')
 
 
 def test_source_backed_relation_artifacts_preserve_definition_order() -> None:
@@ -171,6 +171,32 @@ def test_nul_in_source_table_name_reports_pie_b1000() -> None:
     assert diagnostic.code == "PIE-B1000"
     assert "identifiers must not contain NUL" in diagnostic.message
     assert "\x00" not in diagnostic.message
+
+
+@pytest.mark.parametrize("table_name", ["a.b.c", ".users", "public.", "a..b"])
+def test_malformed_dotted_source_table_name_reports_pie_b1000(
+    table_name: str,
+) -> None:
+    script_ir = _compile(
+        SOURCE + "table user_emails:\n    from users\n    select:\n        email\n"
+    )
+    source = _definition(script_ir, SourceIR, "users")
+    bad_source = replace(
+        source,
+        connector=replace(source.connector, arguments=(table_name,)),
+    )
+    definitions = tuple(
+        bad_source if definition is source else definition
+        for definition in script_ir.definitions
+    )
+
+    result = emit_postgres_sql(ScriptIR(definitions=definitions))
+
+    assert result.artifacts == ()
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-B1000"]
+    assert result.diagnostics[0].message.endswith(
+        "PostgreSQL table name must be <table> or <schema>.<table>"
+    )
 
 
 def test_nul_in_relation_literal_reports_pie_b1000() -> None:

@@ -68,6 +68,31 @@ def test_cli_check_reports_parser_and_semantic_errors(
     assert "PIE-S2002 error:" in semantic_output.err
 
 
+@pytest.mark.parametrize("dialect", ("postgres", "mysql"))
+def test_cli_rejects_malformed_dotted_table_name_before_sql(
+    dialect: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = _write(
+        tmp_path,
+        "dotted.pietto",
+        "shape Doc:\n    id: Int not null\n"
+        f'source docs: Doc is {dialect}.table("a.b.c")\n'
+        "table recent:\n    from docs\n    select:\n        id\n",
+    )
+    column = len(f"source docs: Doc is {dialect}.table(") + 1
+    for argv in (
+        ["check", str(source)],
+        ["emit-sql", str(source), "--dialect", dialect],
+        ["explain", str(source)],
+    ):
+        assert cli.main(argv) == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err.startswith(f"{source}:3:{column} PIE-S2306 error: ")
+
+
 @pytest.mark.parametrize(("path", "select_count"), SQL_EXAMPLES, ids=str)
 def test_supported_committed_examples_emit_sql_to_stdout(
     path: Path,
@@ -108,7 +133,7 @@ def test_committed_query_example_emits_ordered_sql_to_file(
     assert captured.out == ""
     assert captured.err == ""
     assert sql.count("SELECT\n") == 2
-    assert sql.index('FROM "public.users"') < sql.index('FROM "active_users"')
+    assert sql.index('FROM "public"."users"') < sql.index('FROM "active_users"')
     assert "\n\nSELECT\n" in sql
 
 

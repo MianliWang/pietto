@@ -21,5 +21,5 @@ SELECT
     `active` OR FALSE AS `disjunction`,
     `score` + (2 * 3) AS `precedence`,
     (`score` + 2) * 3 AS `grouped`
-FROM `analytics.metrics`
+FROM `analytics`.`metrics`
 WHERE ((`age` >= 18) AND (`deleted_at` IS NULL)) OR (`email` IS NOT NULL)

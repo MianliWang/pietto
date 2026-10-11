@@ -74,6 +74,17 @@ executing it:
 source users: User is postgres.table("public.users")
 ```
 
+In single-file mode the connector string names one table: `"users"`, or with
+exactly one dot `"<schema>.<table>"`, where the schema is a PostgreSQL schema
+for `postgres.table` and a MySQL database for `mysql.table`. `emit-sql` quotes
+each part separately, so the source above emits `FROM "public"."users"`. A
+string with more than one dot or an empty part fails `check` with `PIE-S2306`
+at the string, except that an empty `mysql.table("")` keeps its existing
+`PIE-S2306` on the whole connector call. Project mode does not split or
+interpret the name, although its check still rejects an empty `mysql.table`
+string; project SQL emission takes the physical relation from its emission
+contract.
+
 Tables and queries share this ordered clause shape:
 
 ```text

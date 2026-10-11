@@ -56,7 +56,7 @@ def test_source_backed_relation_renders_approved_format() -> None:
         "    `email` AS `email`,\n"
         "    LOWER(TRIM(`email`)) AS `normalized`,\n"
         "    CHAR_LENGTH(`email`) AS `email_length`\n"
-        "FROM `app.users`\n"
+        "FROM `app`.`users`\n"
         "WHERE `deleted_at` IS NULL"
     )
     assert result.diagnostics == ()
@@ -77,17 +77,17 @@ def test_relation_reference_and_artifact_order_are_stable() -> None:
     )
 
     assert [artifact.name for artifact in result.artifacts] == ["first", "second"]
-    assert result.artifacts[0].sql.endswith("FROM `app.users`")
+    assert result.artifacts[0].sql.endswith("FROM `app`.`users`")
     assert result.artifacts[1].sql.endswith("FROM `first`")
     assert result.diagnostics == ()
 
 
-def test_physical_source_name_is_opaque_and_escapes_backticks() -> None:
+def test_physical_source_name_parts_are_quoted_and_escape_backticks() -> None:
     script_ir = _compile(
         SOURCE + "table selected:\n    from users\n    select:\n        email\n"
     )
     source = _definition(script_ir, SourceIR, "users")
-    connector = replace(source.connector, arguments=("app.we`ird.users",))
+    connector = replace(source.connector, arguments=("a`pp.we`ird",))
     bad_source = replace(source, connector=connector)
     definitions = tuple(
         bad_source if definition is source else definition
@@ -96,7 +96,7 @@ def test_physical_source_name_is_opaque_and_escapes_backticks() -> None:
 
     result = emit_mysql_sql(ScriptIR(definitions=definitions))
 
-    assert result.artifacts[0].sql.endswith("FROM `app.we``ird.users`")
+    assert result.artifacts[0].sql.endswith("FROM `a``pp`.`we``ird`")
     assert result.diagnostics == ()
 
 
@@ -135,6 +135,18 @@ def test_reserved_alias_is_backtick_quoted() -> None:
         lambda source: replace(
             source,
             connector=replace(source.connector, arguments=("bad\x00name",)),
+        ),
+        lambda source: replace(
+            source,
+            connector=replace(source.connector, arguments=("a.b.c",)),
+        ),
+        lambda source: replace(
+            source,
+            connector=replace(source.connector, arguments=("app.",)),
+        ),
+        lambda source: replace(
+            source,
+            connector=replace(source.connector, arguments=("app." + "x" * 65,)),
         ),
     ],
 )

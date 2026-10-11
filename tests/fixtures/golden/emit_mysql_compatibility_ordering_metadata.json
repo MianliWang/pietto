@@ -10,7 +10,7 @@
     {
       "kind": "relation",
       "name": "FirstRelation",
-      "sql": "SELECT\n    `id` AS `id`,\n    `email` AS `email`\nFROM `app.users`\nWHERE `active` = TRUE"
+      "sql": "SELECT\n    `id` AS `id`,\n    `email` AS `email`\nFROM `app`.`users`\nWHERE `active` = TRUE"
     },
     {
       "kind": "relation",

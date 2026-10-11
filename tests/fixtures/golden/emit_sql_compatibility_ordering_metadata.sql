@@ -1,7 +1,7 @@
 SELECT
     "id" AS "id",
     "email" AS "email"
-FROM "public.users"
+FROM "public"."users"
 WHERE "active" = TRUE
 
 SELECT

@@ -151,9 +151,9 @@ def _relation_input_sql(
 ) -> str:
     source = sources.get(relation.source.target)
     if source is not None:
-        return quote_identifier(
-            _mysql_table_name(source),
-            context="physical table identifier",
+        return ".".join(
+            quote_identifier(part, context="physical table identifier")
+            for part in _mysql_table_name(source)
         )
     upstream = relations.get(relation.source.target)
     if upstream is not None:
@@ -163,7 +163,9 @@ def _relation_input_sql(
     )
 
 
-def _mysql_table_name(source: SourceIR) -> str:
+def _mysql_table_name(source: SourceIR) -> tuple[str, ...]:
+    """Return the static `<table>` or `<schema>.<table>` name parts."""
+
     connector = source.connector
     if (
         connector.name != "mysql.table"
@@ -172,7 +174,10 @@ def _mysql_table_name(source: SourceIR) -> str:
         or not connector.arguments[0]
     ):
         raise MySqlRenderError("MySQL relation emission requires mysql.table(Text)")
-    return connector.arguments[0]
+    parts = tuple(connector.arguments[0].split("."))
+    if len(parts) > 2 or not all(parts):
+        raise MySqlRenderError("MySQL table name must be <table> or <schema>.<table>")
+    return parts
 
 
 def _render_projection(

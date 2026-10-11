@@ -22,7 +22,7 @@ SHAPE = "shape UserRow:\n    id: UUID not null\n    email: Text not null\n"
     [
         ('postgres.table("public.users")', ()),
         ('mysql.table("app.users")', ()),
-        ('postgres.table("")', ()),
+        ('postgres.table("")', ("PIE-S2306",)),
         ('postgres.table("   ")', ()),
         ('mysql.table("   ")', ()),
         ('postgres.table(trim("users"))', ()),
@@ -52,8 +52,9 @@ def test_completed_source_rules_preserve_single_file_diagnostics(
     expected = analyze(_parse(text, path="main.pietto")).diagnostics
     completed = _completed(tmp_path, text)
     assert tuple(d.code for d in expected) == codes
-    assert completed.diagnostics == expected
-    assert completed.ok is (not codes)
+    completed_expected = () if connector == 'postgres.table("")' else expected
+    assert completed.diagnostics == completed_expected
+    assert completed.ok is (not completed_expected)
     assert all(d.severity is Severity.ERROR for d in completed.diagnostics)
 
 
@@ -220,6 +221,59 @@ def test_mysql_table_with_nonempty_text_literal_passes() -> None:
     )
 
     assert result.diagnostics == ()
+
+
+@pytest.mark.parametrize("connector_name", ["postgres.table", "mysql.table"])
+@pytest.mark.parametrize("table_name", ["a.b.c", ".users", "app.", "a..b", "."])
+def test_malformed_dotted_table_name_reports_pie_s2306_at_argument(
+    connector_name: str, table_name: str
+) -> None:
+    script = _parse(
+        SHAPE + f'source users: UserRow is {connector_name}("{table_name}")\n',
+        path="table-names.pietto",
+    )
+    source = script.definitions[-1]
+    assert isinstance(source, SourceDef)
+    assert isinstance(source.connector, CallExpr)
+    span = source.connector.arguments[0].span
+
+    diagnostics = analyze(script).diagnostics
+
+    assert [(d.code, d.severity, d.message) for d in diagnostics] == [
+        (
+            "PIE-S2306",
+            Severity.ERROR,
+            f"Invalid source connector arguments for {connector_name}: "
+            "expected <table> or <schema>.<table>",
+        )
+    ]
+    location = diagnostics[0].location
+    assert (
+        location.path,
+        location.line,
+        location.column,
+        location.end_line,
+        location.end_column,
+    ) == (span.path, span.line, span.column, span.end_line, span.end_column)
+
+
+def test_project_mode_does_not_apply_the_single_file_table_name_rule(
+    tmp_path: Path,
+) -> None:
+    from test_phase64_slice3_generic_on_condition_semantics_authority_separation import (
+        _completed,
+    )
+
+    text = (
+        SHAPE
+        + 'source users: UserRow is postgres.table("opaque.locator.not.sql")\n'
+        + 'source others: UserRow is mysql.table(".others")\n'
+    )
+    single_file = analyze(_parse(text, path="main.pietto")).diagnostics
+    completed = _completed(tmp_path, text)
+
+    assert [d.code for d in single_file] == ["PIE-S2306", "PIE-S2306"]
+    assert completed.ok and completed.diagnostics == ()
 
 
 @pytest.mark.parametrize(

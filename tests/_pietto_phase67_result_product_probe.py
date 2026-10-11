@@ -5489,8 +5489,12 @@ def run_finite_cases(root):
         )
         a.verify_batch(renamed, coherent, producer)
         refusals["coherent_policy"] = finite_snapshot(renamed)["fields"][12]["label"]
+        # Single-file analysis rejects the multi-dot project locator (PIE-S2306);
+        # use a plain table name so only the label refusal is observed.
         parsed = parse_source(
-            source(target).replace("        other\n", "        renamed = other\n")
+            source(target)
+            .replace("        other\n", "        renamed = other\n")
+            .replace("opaque.result.fixture", "opaque")
         )
         assert parsed.ast is not None and not parsed.diagnostics
         refusals["language"] = [d.code for d in analyze(parsed.ast).diagnostics]
