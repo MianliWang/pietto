@@ -5,7 +5,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-__all__ = ["ExecutionLimits", "PostgresAccess", "PostgresDeploymentPremise"]
+__all__ = [
+    "ExecutionLimits",
+    "MySQLAccess",
+    "MySQLDeploymentPremise",
+    "PostgresAccess",
+    "PostgresDeploymentPremise",
+]
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -65,6 +71,62 @@ class PostgresDeploymentPremise:
     def __reduce_ex__(self, protocol):
         raise TypeError(
             "PostgresDeploymentPremise is a per-call commitment;"
+            " it cannot be pickled or copied"
+        )
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class MySQLAccess:
+    """Explicit connection input for one MySQL 8.4.12 server.
+
+    ``host`` is one TCP host name or IP address. Unix-socket and host-list
+    forms are refused. ``ca_file`` is the explicit trust anchor; Pietto always
+    verifies the certificate and its identity. The account and roles are the
+    values the freshly qualified context must observe. The password is never
+    shown by repr() or str(), and the object refuses pickle and copy.
+    """
+
+    host: str
+    port: int
+    database: str
+    user: str
+    password: str
+    ca_file: str
+    account: str
+    roles: str = "NONE"
+
+    def __repr__(self) -> str:
+        return (
+            f"MySQLAccess(host={self.host!r}, port={self.port!r},"
+            f" database={self.database!r}, user={self.user!r},"
+            f" password=<redacted>, ca_file={self.ca_file!r},"
+            f" account={self.account!r}, roles={self.roles!r})"
+        )
+
+    def __reduce_ex__(self, protocol):
+        raise TypeError(
+            "MySQLAccess holds a credential; it cannot be pickled or copied"
+        )
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class MySQLDeploymentPremise:
+    """The operator's explicit commitment for one execute() call.
+
+    From before source discovery until the last possible remote use of the
+    sources, every administrative path keeps definitions and security in
+    ``schemas`` stable; row data may change. Pietto binds the premise to the
+    compiled query's own sources and requalifies them on every attempt; it
+    does not verify the commitment.
+
+    Managed operator compliance: NOT_INDEPENDENTLY_VERIFIED
+    """
+
+    schemas: tuple[str, ...]
+
+    def __reduce_ex__(self, protocol):
+        raise TypeError(
+            "MySQLDeploymentPremise is a per-call commitment;"
             " it cannot be pickled or copied"
         )
 

@@ -1,4 +1,4 @@
-"""execute(): one explicit attempt on the PostgreSQL rows route, its result
+"""execute(): one explicit attempt on the selected rows route, its result
 handle, its batches and its terminal outcome."""
 
 from __future__ import annotations
@@ -12,6 +12,8 @@ from pietto._project import project_execution as ex
 from pietto._project import project_public_execution as composition
 from pietto.execution._access import (
     ExecutionLimits,
+    MySQLAccess,
+    MySQLDeploymentPremise,
     PostgresAccess,
     PostgresDeploymentPremise,
 )
@@ -37,7 +39,7 @@ __all__ = [
     "execute",
 ]
 
-ROUTES = ("postgres_rows",)
+ROUTES = ("postgres_rows", "mysql_rows")
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,7 +47,8 @@ class Outcome:
     """A snapshot of one attempt's terminal state.
 
     ``end`` is NOT_STARTED, OPEN, COMPLETE (read to the end and committed),
-    STOPPED_EARLY (closed before the end), DEADLINE, FAILED or, in an
+    STOPPED_EARLY (closed before the end), CANCELLED (manual cancellation won),
+    DEADLINE, FAILED or, in an
     UnclosedHandleWarning only, DROPPED. ``source``, ``transaction``,
     ``delivery`` and ``cleanup`` are the owner's layered states; the
     transaction is COMMIT_ACK or ROLLBACK_ACK only after the server
@@ -233,7 +236,9 @@ class ResultHandle:
     or the first ``next()``, connects; each ``next()`` returns a ResultBatch;
     the end of the result commits and closes. close() before the end stops
     early and rolls back. ``pyarrow.schema(handle)`` returns the schema of its
-    batches without opening or consuming the attempt. Use it from one thread.
+    batches without opening or consuming the attempt. Use it from one thread;
+    ``cancel()`` is the sole operation a controller thread may call while
+    another thread consumes the handle.
     """
 
     __slots__ = ("_owner", "_route", "_finalizer", "_recorded", "__weakref__")
@@ -343,7 +348,11 @@ class ResultHandle:
         self._settle()
 
     def cancel(self) -> None:
-        """Request cancellation; its settled facts are in ``outcome``."""
+        """Request cancellation; the sole cross-thread handle operation.
+
+        It returns ``None``. Its settled requested/sent/observed facts and
+        terminal winner are in ``outcome``; a late request is a no-op.
+        """
         self._owner.cancel()
 
     def __exit__(self, kind, error, traceback):
@@ -378,8 +387,8 @@ def execute(
     query: CompiledQuery,
     *,
     route: str,
-    access: PostgresAccess,
-    premise: PostgresDeploymentPremise,
+    access: PostgresAccess | MySQLAccess,
+    premise: PostgresDeploymentPremise | MySQLDeploymentPremise,
     limits: ExecutionLimits = ExecutionLimits(),
     isolation: str = "stable",
     values: tuple | None = None,
@@ -387,8 +396,8 @@ def execute(
     """Prepare one attempt of ``query`` and return its unopened ResultHandle.
 
     ``route``, ``access`` and ``premise`` have no default; ``None`` is refused
-    (PIE-R1001). ``route`` must be ``postgres_rows`` and the query compiled
-    for ``postgres``. ``isolation`` is ``stable`` (REPEATABLE READ READ ONLY)
+    (PIE-R1001). ``route`` must fit the query's selected dialect. ``isolation``
+    is ``stable`` (REPEATABLE READ READ ONLY)
     or ``serializable``. ``values`` is None, which binds the values the query
     was compiled with, or a tuple with exactly one value of its slot's exact
     type for each of ``query.slots``; nothing is converted. Every request
@@ -411,15 +420,22 @@ def execute(
         raise _refuse("PIE-R1001", "PUBLIC_ROUTE_REQUIRED")
     if type(route) is not str:
         raise _refuse("PIE-R1002", "PUBLIC_ROUTE_TYPE")
-    if route not in ROUTES or query.dialect != "postgres":
+    dialect = {"postgres_rows": "postgres", "mysql_rows": "mysql"}.get(route)
+    if dialect is None or query.dialect != dialect:
         raise _refuse("PIE-R1003", "PUBLIC_ROUTE_UNAVAILABLE")
     if access is None:
         raise _refuse("PIE-R1001", "PUBLIC_ACCESS_REQUIRED")
-    if type(access) is not PostgresAccess:
+    access_type = PostgresAccess if route == "postgres_rows" else MySQLAccess
+    premise_type = (
+        PostgresDeploymentPremise
+        if route == "postgres_rows"
+        else MySQLDeploymentPremise
+    )
+    if type(access) is not access_type:
         raise _refuse("PIE-R1002", "PUBLIC_ACCESS_TYPE")
     if premise is None:
         raise _refuse("PIE-R1001", "PUBLIC_PREMISE_REQUIRED")
-    if type(premise) is not PostgresDeploymentPremise:
+    if type(premise) is not premise_type:
         raise _refuse("PIE-R1002", "PUBLIC_PREMISE_TYPE")
     if limits is None:
         raise _refuse("PIE-R1001", "PUBLIC_LIMITS_REQUIRED")
@@ -429,29 +445,57 @@ def execute(
         raise _refuse("PIE-R1001", "PUBLIC_ISOLATION_REQUIRED")
     if values is not None and type(values) is not tuple:
         raise _refuse("PIE-R1002", "PUBLIC_VALUES_TYPE")
+    if (
+        route == "mysql_rows"
+        and type(access.host) is str
+        and (access.host.startswith(("/", "@")) or "," in access.host)
+    ):
+        raise _refuse("PIE-R1002", "EXECUTION_ACCESS_PROFILE")
     try:
-        owner = composition.prepare_attempt(
-            query._template,
-            ex.PostgresAccess(
-                access.host,
-                access.port,
-                access.database,
-                access.user,
-                access.password,
-                access.sslmode,
-            ),
-            route=route,
-            schemas=premise.schemas,
-            limits=ex.ExecutionLimits(
-                limits.batch_rows,
-                limits.batch_bytes,
-                limits.max_rows,
-                limits.max_bytes,
-                limits.seconds,
-            ),
-            isolation=isolation,
-            values=values,
+        private_limits = ex.ExecutionLimits(
+            limits.batch_rows,
+            limits.batch_bytes,
+            limits.max_rows,
+            limits.max_bytes,
+            limits.seconds,
         )
+        if route == "postgres_rows":
+            owner = composition.prepare_attempt(
+                query._template,
+                ex.PostgresAccess(
+                    access.host,
+                    access.port,
+                    access.database,
+                    access.user,
+                    access.password,
+                    access.sslmode,
+                ),
+                route=route,
+                schemas=premise.schemas,
+                limits=private_limits,
+                isolation=isolation,
+                values=values,
+            )
+        else:
+            owner = composition.prepare_mysql_attempt(
+                query._template,
+                ex.MySQLAccess(
+                    access.host,
+                    access.port,
+                    access.database,
+                    access.user,
+                    access.password,
+                    access.ca_file,
+                    access.account,
+                    access.roles,
+                    verify_identity=True,
+                    loopback_tls_exception=False,
+                ),
+                schemas=premise.schemas,
+                limits=private_limits,
+                isolation=isolation,
+                values=values,
+            )
     except Exception as caught:
         refusal = request_failure(caught)
     else:

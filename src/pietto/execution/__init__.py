@@ -23,6 +23,8 @@ Native all-definition lifetime exclusion: NOT_DEMONSTRATED / NOT CLAIMED
 
 from pietto.execution._access import (
     ExecutionLimits,
+    MySQLAccess,
+    MySQLDeploymentPremise,
     PostgresAccess,
     PostgresDeploymentPremise,
 )
@@ -57,6 +59,8 @@ __all__ = [
     "ExecutionLimits",
     "Failure",
     "HandleMisuse",
+    "MySQLAccess",
+    "MySQLDeploymentPremise",
     "Outcome",
     "PostgresAccess",
     "PostgresDeploymentPremise",

@@ -19,24 +19,24 @@ requalifies the sources on every attempt, but it cannot verify that the operator
 keeps the premise, and it does not claim that native definitions stay unchanged
 for the attempt's whole lifetime.
 
-The alpha covers one route, `postgres_rows`, against PostgreSQL 18.6, reached
-over TCP and authenticated with SCRAM-SHA-256. The MySQL and PostgreSQL ADBC
-routes, cancellation and saved results remain private. There is no CLI command
+The alpha covers `postgres_rows`, against PostgreSQL 18.6, and `mysql_rows`,
+against MySQL 8.4.12. Both routes use explicit TCP inputs and deployment
+premises. PostgreSQL ADBC and saved results remain private. There is no CLI command
 that connects to a database.
 
 ## Install
 
 `pietto.execution` exists only in a wheel built from this checkout. The
-released 0.1.1 on PyPI does not contain it, so `pip install
-"pietto[execute-postgres]"` from PyPI does not provide it. Build the wheel here
-with `uv build --wheel`, then install it with the `execute-postgres` extra in a
-fresh virtual environment, for example
-`python -m pip install "dist/pietto-0.1.1-py3-none-any.whl[execute-postgres]"`.
-The extra adds the pinned `psycopg[binary]==3.3.5` and `pyarrow==25.0.1` (see
-the README's execution extras). Compiling, exporting and loading a bundle and
+released 0.1.1 on PyPI does not contain it, so installing an execution extra
+from PyPI does not provide it. Build the wheel here with `uv build --wheel`,
+then install it with `execute-postgres` or `execute-mysql` in a fresh virtual
+environment. The PostgreSQL extra adds pinned `psycopg[binary]==3.3.5`; the
+MySQL extra adds pinned `mysql-connector-python==26.7.0`; both select
+`pyarrow==25.0.1` (see the README's execution extras). Compiling, exporting and loading a bundle and
 an unopened `execute()` need neither. Without them, opening an attempt is
 refused with `PIE-R2001` before any connection, and no other installed driver
-is used instead.
+is used instead. Install `pietto[execute-postgres]` or
+`pietto[execute-mysql]` for the route you select.
 
 ## Example
 
@@ -205,6 +205,14 @@ except RequestRejected as error:
   of the query and must include `pg_catalog`, because qualification checks
   built-in definitions there; other `pg_*` schemas and `information_schema` are
   refused. Pietto binds it to the compiled query's own sources on every call.
+- `MySQLAccess(host, port, database, user, password, ca_file, account,
+  roles="NONE")` is the explicit MySQL connection input. It redacts its
+  password and cannot be pickled or copied. `ca_file` is required; Pietto
+  verifies both the certificate and server identity. `account` and `roles`
+  are checked against the freshly observed session context.
+- `MySQLDeploymentPremise(schemas)` is the same operator commitment for the
+  query's MySQL sources. The schemas must cover every source and cannot name
+  `mysql`, `sys`, `information_schema` or `performance_schema`.
 - `ExecutionLimits(batch_rows=256, batch_bytes=1 MiB, max_rows=1048576,
   max_bytes=64 MiB, seconds=20.0)` bounds one attempt; `seconds` is its
   deadline, `max_bytes` also counts the route's qualifying profile and catalog
@@ -213,7 +221,9 @@ except RequestRejected as error:
 - `execute(query, *, route, access, premise, limits=ExecutionLimits(),
   isolation="stable", values=None) -> ResultHandle` checks the request before
   any connection and returns an unopened handle; the driver and the environment
-  are checked when the attempt opens. `route`, `access` and `premise` have no
+  are checked when the attempt opens, except MySQL's refused OpenSSL names,
+  which are checked while its bridge is prepared before the private native
+  module imports `ssl`. `route`, `access` and `premise` have no
   default. There is no parameter that takes SQL text. Each call binds afresh and
   is a new attempt with its own `attempt` identifier. `isolation` is `stable`
   (REPEATABLE READ READ ONLY) or `serializable` (SERIALIZABLE READ ONLY).
@@ -307,7 +317,8 @@ carries its `outcome`; `HandleMisuse` (PIE-R4xxx) leaves the attempt unchanged.
 `execute()` first checks that `query`, `route`, `access`, `premise` and
 `limits` are given and have the right type and that `isolation` is given, in
 this order; right after the route's type it checks that the route is
-`postgres_rows` and the query was compiled for `postgres` (`PIE-R1003`). It
+the selected route and the query was compiled for its selected dialect
+(`postgres_rows`/`postgres` or `mysql_rows`/`mysql`, `PIE-R1003`). It
 then checks that `values` is `None` or a tuple (`PIE-R1002`), binds the query
 to the values (`PIE-R1006`, `PIE-R1004`), reads the installed code identity
 again (`PIE-R1005`) and checks the values of `premise`, `access`, `isolation`
@@ -651,6 +662,34 @@ PIE-R3004 FAILED 2
 
 ## Connection and trust requirements
 
+### MySQL rows
+
+`mysql_rows` accepts only a query compiled for MySQL 8.4.12 and an explicit
+`MySQLAccess` plus `MySQLDeploymentPremise`. It has no fallback to a PostgreSQL
+route, cursor API or whole-result materializer.
+
+- **One verified TCP connection profile.** `host` is one hostname or IP address;
+  `/...`, `@...` and comma-separated forms are refused before the connector is
+  imported. The caller supplies `ca_file`; certificate and hostname verification
+  are always enabled, including loopback.
+- **Explicit context and premise.** `account` and `roles` are not inferred from
+  `user`. Each attempt observes its own data and control sessions, requalifies
+  its compiled sources, and treats the schemas declaration as an explicit managed
+  deployment premise, not a grant or proof of compliance.
+- **Selected dependency and ambient inputs.** Only
+  `mysql-connector-python==26.7.0`, its own `mysql.connector.connection` file,
+  and `pyarrow==25.0.1` are accepted. A missing selected dependency is
+  `PIE-R2001`; a wrong, shadowed or unloadable selected file is `PIE-R2002`.
+  `SSLKEYLOGFILE`, `OPENSSL_CONF` and `OPENSSL_MODULES` are refused before the
+  private MySQL module imports `ssl`; their values are never read. Earlier
+  process imports remain outside that boundary.
+- **Connection metadata.** Pietto disables Connector/Python default connection
+  attributes and OpenTelemetry context propagation on both data and control
+  connections. The prepared binary row protocol and its EOF remain the native
+  completion evidence; statement close-send is not a server acknowledgement.
+
+### PostgreSQL rows
+
 Pietto uses only what you pass: no environment variable, service file, password
 file or certificate supplies a connection setting.
 
@@ -835,10 +874,10 @@ still running. Interpreter exit waits for the deadline timer, up to
   registry or revocation.
 - Bundles with a guard program or a refinement, which `compile_query` does not
   produce, are refused (`PIE-R1004`).
-- There is no `cancel()` yet. The deadline cancels a running statement and the
-  server's 10 second statement limit ends one; neither bounds a wait on a server
-  or network that stops responding, and neither ends an idle session. When both
-  expire together the error is `DEADLINE`.
+- `cancel()` asks the route's control owner to cancel a running attempt and
+  returns `None`; its `Outcome` keeps the observed cancellation, transaction and
+  cleanup facts. A deadline and server-side statement limit remain separate, and
+  neither bounds a server or network that stops responding.
 - The real-database witness of this alpha uses CPython 3.13.13 on Linux x86-64
   and PostgreSQL 18.6 with TLS, channel binding and SCRAM-SHA-256, and the
   loopback `sslmode="disable"` case; other interpreters, platforms, server

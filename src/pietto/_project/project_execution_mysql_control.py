@@ -27,8 +27,7 @@ class MySQLControl:
         while not self.stop.is_set():
             remaining = owner._started + owner.request.limits.seconds - time.monotonic()
             if remaining <= 0:
-                owner.deadline_expired = True
-                owner._cancel.set()
+                owner.cancel(deadline=True)
             if owner._cancel.is_set():
                 self._interrupt()
                 return
@@ -40,7 +39,12 @@ class MySQLControl:
         # Pin transition/release, not the blocked data call. Cancellation closes
         # this attempt to every subsequent submission before inspecting its id.
         with owner._gate:
-            if owner._closed or owner._transaction == "COMMIT_ACK":
+            if (
+                owner._closed
+                or owner._finalizing
+                or owner._terminal not in ("CANCELLED", "DEADLINE")
+                or owner._transaction == "COMMIT_ACK"
+            ):
                 return
             connection, control = owner._owned_connection, owner._control_connection
             if connection is None:

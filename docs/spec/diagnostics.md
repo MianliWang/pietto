@@ -149,7 +149,7 @@ attempt outcome carries the alpha's two declarations:
 | Code | Meaning |
 |---|---|
 | `PIE-R1001` | INPUT_MISSING: a required argument of `compile_query`, `export_bundle`, `load_bundle` or `execute()` is `None`; no default is substituted |
-| `PIE-R1002` | INPUT_INVALID: an input has the wrong type or an unsupported value, including SQL text instead of a compiled query, a `None` field of an access, premise or limits value, a Unix-socket or multi-host `host`, a premise that does not cover the query's sources or omits `pg_catalog`, invalid limits or isolation, a `values` argument that is not a tuple, a bundle payload that is not `bytes` or is empty or larger than 32 MiB, and a trust record that is not 64 lowercase hexadecimal characters |
+| `PIE-R1002` | INPUT_INVALID: an input has the wrong type or an unsupported value, including SQL text instead of a compiled query, a `None` field of an access, premise or limits value, a Unix-socket or multi-host `host`, a premise that does not cover the query's sources, invalid limits or isolation, a `values` argument that is not a tuple, a bundle payload that is not `bytes` or is empty or larger than 32 MiB, and a trust record that is not 64 lowercase hexadecimal characters |
 | `PIE-R1003` | ROUTE_REFUSED: the route is not available in this alpha or does not fit the compiled query |
 | `PIE-R1004` | QUERY_NOT_EXECUTABLE: the verified query cannot be prepared for execution, including a bundle with a guard program or a refinement and values with which the query cannot be prepared |
 | `PIE-R1005` | CODE_IDENTITY: the installed Pietto or ANTLR runtime code changed since `compile_query` or `load_bundle`, `accepted_compatibility` names other code, or the code's identity cannot be established |
@@ -157,11 +157,11 @@ attempt outcome carries the alpha's two declarations:
 | `PIE-R1007` | BUNDLE_CONTENT: the bytes given to `load_bundle` are not the bytes `expected_pin` names; Pietto never takes a pin from the bytes |
 | `PIE-R1008` | BUNDLE_NOT_ACCEPTED: the bytes given to `load_bundle` are malformed, fail verification, or name a producer or compatibility other than `accepted_producer` and `accepted_compatibility` |
 | `PIE-R1999` | REQUEST_UNCLASSIFIED: a request refusal that the alpha does not classify yet |
-| `PIE-R2001` | DEPENDENCY_MISSING: a pinned dependency of the route (driver or PyArrow) is not installed; refused before connecting |
-| `PIE-R2002` | DRIVER_PROFILE: the importable driver or PyArrow is not the pinned distribution, version or selected binary implementation, is not that distribution's own files, or cannot be loaded; `PSYCOPG_IMPL` other than `binary`, and an importable `psycopg_c` while it is unset, are refused before psycopg is imported |
-| `PIE-R2003` | AMBIENT_ENVIRONMENT: a refused environment variable (`PG*`, `SSLKEYLOGFILE`, `OPENSSL_CONF`, `OPENSSL_MODULES`) is set; refused before connecting |
-| `PIE-R2004` | CONNECTION_FAILED: the driver reported that the TCP connection or its SCRAM-SHA-256 authentication failed, with channel binding over TLS; other authentication methods are refused before the password is sent. `sslmode` `require` needs a server with TLS, reached directly, whose certificate is signed with RSA or ECDSA, and the first `pg_hba.conf` line that matches must be a `scram-sha-256` line: `hostssl` for remote clients, `host` only for 127.0.0.1 and ::1; see the server setup in [Execution](../execution.md) |
-| `PIE-R2005` | TARGET_VERSION: the server is not PostgreSQL 18.6 |
+| `PIE-R2001` | DEPENDENCY_MISSING: a pinned dependency of the selected route (driver or PyArrow) is not installed; refused before connecting |
+| `PIE-R2002` | DRIVER_PROFILE: the importable selected driver or PyArrow is not the pinned distribution, version and required implementation, is not that distribution's own files, or cannot be loaded; route-specific unsafe implementations are refused before they receive connection values |
+| `PIE-R2003` | AMBIENT_ENVIRONMENT: a refused route environment variable is set; refused before connecting |
+| `PIE-R2004` | CONNECTION_FAILED: the selected route's TCP connection, TLS profile or authentication failed. PostgreSQL requires TCP SCRAM-SHA-256, a password encrypted with `password_encryption='scram-sha-256'`, and a first matching `pg_hba.conf` `scram-sha-256` line; MySQL requires `caching_sha2_password`, TLS and a caller CA that verifies server identity. |
+| `PIE-R2005` | TARGET_VERSION: the server is not the selected route's pinned version: PostgreSQL 18.6 or MySQL 8.4.12 |
 | `PIE-R2006` | SESSION_CONTEXT: the session or its read-only transaction lacks the required settings |
 | `PIE-R2007` | SOURCE_QUALIFICATION: a source relation does not qualify under the declared deployment premise |
 | `PIE-R3001` | DEADLINE: the attempt's deadline expired |

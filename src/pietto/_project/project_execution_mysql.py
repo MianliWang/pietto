@@ -128,7 +128,7 @@ class MySQLExecution:
         self._cancel = threading.Event()
         self._controller: Any = None
         self._started: Any = None
-        self._closed = self._discarded = self._submitted = False
+        self._closed = self._discarded = self._submitted = self._finalizing = False
         self._source = self._transaction = self._delivery = self._cleanup = (
             "NOT_STARTED"
         )
@@ -137,6 +137,10 @@ class MySQLExecution:
         self.control_events: list[Any] = []
         self.guard_events: list[Any] = []
         self._cancel_sent = self._cancel_observed = self.deadline_expired = False
+        # This is the private owner fact consumed by the single public outcome
+        # projection. It records the first terminal transition, not an ACK or
+        # a second execution state machine.
+        self._terminal: Any = None
         self.session_id: Any = None
         self.context: Any = None
         self._epoch: Any = None
@@ -167,10 +171,23 @@ class MySQLExecution:
             else self.request.limits.seconds - (time.monotonic() - self._started)
         )
         if remaining <= 0:
+            # Preserve the observed deadline even if completion already won the
+            # terminal race and is now finalizing. The terminal fact itself is
+            # still first-winner only.
             self.deadline_expired = True
             self._cancel.set()
+            self._claim_terminal("DEADLINE")
+            if self._controller is not None:
+                self._controller.wake.set()
             raise TimeoutError("EXECUTION_DEADLINE")
         return remaining
+
+    def _claim_terminal(self, terminal):
+        with self._gate:
+            if self._terminal is not None or self._closed or self._finalizing:
+                return False
+            self._terminal = terminal
+            return True
 
     def _timeout(self):
         return max(1, min(10, math.ceil(self._remaining())))
@@ -499,6 +516,8 @@ class MySQLExecution:
                     return batch
                 self._checkpoint()
             self._refresh()
+            if not self._claim_terminal("COMPLETE"):
+                raise ExecutionError("EXECUTION_CANCELED")
             self._source, self._delivery = "EOF", "COMPLETE"
             self._finish(True)
             if self._primary is not None or self._cleanup_errors:
@@ -552,6 +571,8 @@ class MySQLExecution:
                 if batch is not None:
                     self._checkpoint()
                     return batch
+            if not self._claim_terminal("COMPLETE"):
+                raise ExecutionError("EXECUTION_CANCELED")
             self._source, self._delivery = "EOF", "COMPLETE"
             self._finish(True)
             if self._primary is not None or self._cleanup_errors:
@@ -563,6 +584,7 @@ class MySQLExecution:
             raise
 
     def _failed(self, error, phase):
+        self._claim_terminal("FAILED")
         if self._primary is None:
             self._primary = failure(error, phase)
         if self._cancel_sent and getattr(error, "errno", None) == 1317:
@@ -572,24 +594,36 @@ class MySQLExecution:
         self._delivery = "FAILED"
         self._finish(False)
 
-    def cancel(self):
-        self._cancel.set()
-        if self._controller is not None:
-            self._controller.wake.set()
-        return {
-            "requested": True,
-            "sent": self._cancel_sent,
-            "observed": self._cancel_observed,
-            "late": self._closed,
-        }
+    def cancel(self, *, deadline=False):
+        with self._gate:
+            if self._terminal is not None or self._closed or self._finalizing:
+                return {
+                    "requested": False,
+                    "sent": False,
+                    "observed": False,
+                    "late": True,
+                }
+            self._terminal = "DEADLINE" if deadline else "CANCELLED"
+            self.deadline_expired = deadline
+            self._cancel.set()
+            if self._controller is not None:
+                self._controller.wake.set()
+            return {
+                "requested": True,
+                "sent": self._cancel_sent,
+                "observed": self._cancel_observed,
+                "late": False,
+            }
 
     @property
     def control_joined(self):
         return self._controller is None or not self._controller.thread.is_alive()
 
     def _finish(self, commit):
-        if self._closed:
-            return
+        with self._gate:
+            if self._closed or self._finalizing:
+                return
+            self._finalizing = True
         if self._controller is not None:
             try:
                 self._controller.join()
@@ -683,12 +717,17 @@ class MySQLExecution:
                 except BaseException as error:
                     self._cleanup_errors.append(failure(error, "connection_shutdown"))
             self._closed = True
+            self._finalizing = False
             self._cleanup = (
                 "FAILED" if self._cleanup_errors else "LOCAL_CLOSED_REMOTE_UNOBSERVED"
             )
 
     def close(self):
         if not self._closed:
+            won = self._claim_terminal("STOPPED_EARLY")
+            if not won and self._terminal != "STOPPED_EARLY":
+                self._finish(False)
+                return
             if self._source != "EOF":
                 self._source = "EARLY_CLOSE"
             if self._delivery not in ("FAILED", "COMPLETE"):

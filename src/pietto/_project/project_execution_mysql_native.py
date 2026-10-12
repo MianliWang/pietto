@@ -53,6 +53,10 @@ def connect(owner, *, control=False):
         raise ExecutionError("EXECUTION_AMBIENT_CONNECTION_PROFILE")
     (module,) = drivers()
     connection = module.MySQLConnection()
+    # Connector/Python enables both default connection attributes and OpenTelemetry
+    # propagation by default. Disable those independent outward-facing flows before
+    # configuration for data and control sessions alike.
+    connection.otel_context_propagation = False
     # Register the unconnected handle, including failed handshakes.
     owner._connections.append(connection)
     if control:
@@ -100,10 +104,7 @@ def connect(owner, *, control=False):
         raise_on_warnings=False,
         consume_results=False,
         allow_local_infile=False,
-        conn_attrs={
-            "pietto_attempt": owner.attempt,
-            "pietto_purpose": "control" if control else "data",
-        },
+        client_flags=[-module.ClientFlag.CONNECT_ARGS],
     )
     owner._checkpoint()
     if type(connection) is not module.MySQLConnection:

@@ -309,6 +309,8 @@ def test_public_surface_is_exactly_the_alpha_names():
         "ExecutionLimits",
         "Failure",
         "HandleMisuse",
+        "MySQLAccess",
+        "MySQLDeploymentPremise",
         "Outcome",
         "PostgresAccess",
         "PostgresDeploymentPremise",

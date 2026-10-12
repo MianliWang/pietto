@@ -298,6 +298,26 @@ def check_consumer(report: Any) -> Any:
     return {"family": "consumer", "verdict": "ACCEPTED"}
 
 
+def check_mysql(report: Any) -> Any:
+    check_install(report.get("install", {}), ("core", "execute-mysql"))
+    core = result(report.get("core"), "MYSQL_CORE")
+    need(core.get("before") == [], "MYSQL_CORE_IMPORT")
+    need(core.get("open") == ["PIE-R2001", "EXECUTION_DEPENDENCY_MISSING", False], "MYSQL_CORE")
+    need(core.get("after") == [], "MYSQL_CORE_IMPORT")
+    ambient = report.get("ambient")
+    need(type(ambient) is dict and sorted(ambient) == ["OPENSSL_CONF", "OPENSSL_MODULES", "SSLKEYLOGFILE"], "MYSQL_AMBIENT_DENOMINATOR")
+    for name, record in ambient.items():
+        value = result(record, "MYSQL_AMBIENT_" + name)
+        need(value.get("before") == [], "MYSQL_AMBIENT_IMPORT")
+        need(value.get("request") == ["PIE-R2003", "EXECUTION_AMBIENT_CONNECTION_PROFILE", False], "MYSQL_AMBIENT_" + name)
+        need(value.get("after") == [], "MYSQL_AMBIENT_IMPORT")
+    shadow = result(report.get("shadow"), "MYSQL_SHADOW")
+    need(shadow.get("before") == [], "MYSQL_SHADOW_IMPORT")
+    need(shadow.get("open") == ["PIE-R2002", "EXECUTION_DRIVER_VERSION", False], "MYSQL_SHADOW")
+    need(shadow.get("after") == ["mysql"], "MYSQL_SHADOW_IMPORT")
+    return {"family": "mysql", "verdict": "ACCEPTED"}
+
+
 def outcome_of(value: Any, reason: Any) -> Any:
     outcome = value.get("outcome")
     need(type(outcome) is dict, reason)
@@ -614,5 +634,9 @@ def check_postgres(report: Any) -> Any:
 def check(report: Any) -> Any:
     need(type(report) is dict and report.get("format") == FORMAT, "ENVELOPE")
     family = report.get("family")
-    need(family in ("consumer", "postgres"), "ENVELOPE")
-    return (check_consumer if family == "consumer" else check_postgres)(report)
+    need(family in ("consumer", "mysql", "postgres"), "ENVELOPE")
+    return {
+        "consumer": check_consumer,
+        "mysql": check_mysql,
+        "postgres": check_postgres,
+    }[family](report)

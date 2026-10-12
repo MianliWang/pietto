@@ -365,6 +365,47 @@ elif case == "code_run":
 print(json.dumps(result), flush=True)
 """
 
+MYSQL_WORKER = r"""
+import json, os, sys
+from pathlib import Path
+config = json.loads(sys.stdin.readline())
+for entry in reversed(config.get("path", ())):
+    sys.path.insert(0, entry)
+from _pietto_phase68_slice5_cases import build
+from pietto._project.project_execution_template import prepare_live_template
+from pietto.execution._query import _query
+import pietto.execution as pe
+result = {"case": config["case"]}
+drivers = {"mysql", "psycopg", "pyarrow"}
+def loaded():
+    return sorted({m.split(".")[0] for m in sys.modules} & drivers)
+def refused(call):
+    try:
+        call()
+    except pe.ExecutionError as error:
+        return [error.code, error.detail, error.__cause__ is not None or error.__context__ is not None]
+    return None
+outcome = build(Path(config["work"]), "mysql", "G_emission_table_bag", "bag")
+if outcome.status != "VERIFIED" or outcome.artifact is None:
+    raise SystemExit("MYSQL_TEMPLATE")
+query = _query(prepare_live_template(outcome.artifact), "live", b"")
+access = pe.MySQLAccess("127.0.0.1", config["port"], "phase66", "pietto_query",
+    config["password"], "/explicit/ca.pem", "pietto_query@%")
+premise = pe.MySQLDeploymentPremise(schemas=("phase66",))
+def attempt():
+    return pe.execute(query, route="mysql_rows", access=access, premise=premise)
+result["before"] = loaded()
+try:
+    handle = attempt()
+except pe.ExecutionError as error:
+    result["request"] = [error.code, error.detail, error.__cause__ is not None or error.__context__ is not None]
+else:
+    result["unopened"] = [loaded(), handle.outcome.end, config["password"] in repr(handle)]
+    result["open"] = refused(lambda: handle.__enter__())
+result["after"] = loaded()
+print(json.dumps(result), flush=True)
+"""
+
 CANCEL = r"""
 import json, sys, threading
 config = json.loads(sys.stdin.readline())
@@ -534,6 +575,22 @@ def case(python, cwd, config, **options):
         json.loads(lines[-1]) if record["returncode"] == 0 and lines else None
     )
     record.pop("stdout")
+    return record
+
+
+def mysql_case(python, cwd, config, **options):
+    """One fresh installed MySQL route worker with the same clean environment."""
+    record = run(
+        python,
+        ["-c", MYSQL_WORKER],
+        cwd=cwd,
+        stdin=json.dumps(config) + "\n",
+        **options,
+    )
+    try:
+        record["result"] = json.loads(record["stdout"].splitlines()[-1])
+    except (IndexError, json.JSONDecodeError):
+        record["result"] = None
     return record
 
 
@@ -821,6 +878,59 @@ def consumer(directory, *, wheel, interpreter, house_root=None, cache=None):
         report["core_bundle"]["connected"] = listener["connected"]()
     report["cases"] = consumer_cases(pythons["execute-postgres"], directory / "cases")
     report["seconds"] = time.monotonic() - started
+    return finish(directory, report)
+
+
+def mysql(directory, *, wheel, interpreter, house_root=None, cache=None):
+    """Installed MySQL dependency/origin/ambient witness, without a service.
+
+    The separate native family owns the exact MySQL service acceptance. This
+    consumer family proves the selected installed prefix reaches only the
+    MySQL route's declared dependency boundary.
+    """
+    directory.mkdir(mode=0o700)
+    pythons, install = prefixes(
+        directory,
+        {"core": (), "execute-mysql": ("execute-mysql",)},
+        wheel=wheel,
+        interpreter=interpreter,
+        house_root=house_root or directory,
+        cache=cache,
+    )
+    base = {
+        "path": [str(ROOT / "tests")],
+        "work": str(directory / "work"),
+        "port": 9,
+        "password": secrets.token_hex(12),
+    }
+    report = {
+        "format": FORMAT,
+        "family": "mysql",
+        "context": context(wheel),
+        "install": install,
+    }
+    report["core"] = mysql_case(
+        pythons["core"], directory, {**base, "case": "core"}
+    )
+    ambient = {}
+    for name in ("SSLKEYLOGFILE", "OPENSSL_CONF", "OPENSSL_MODULES"):
+        ambient[name] = mysql_case(
+            pythons["execute-mysql"],
+            directory,
+            {**base, "case": "ambient"},
+            extra={name: "value-never-read"},
+        )
+    shadow = directory / "shadow" / "mysql"
+    (shadow / "connector").mkdir(parents=True)
+    (shadow / "__init__.py").write_text("", encoding="utf-8")
+    (shadow / "connector" / "__init__.py").write_text("", encoding="utf-8")
+    (shadow / "connector" / "connection.py").write_text("", encoding="utf-8")
+    report["ambient"] = ambient
+    report["shadow"] = mysql_case(
+        pythons["execute-mysql"],
+        directory,
+        {**base, "case": "shadow", "path": [str(ROOT / "tests"), str(shadow.parent)]},
+    )
     return finish(directory, report)
 
 
@@ -1294,7 +1404,7 @@ def finish(directory, report):
 
 def main():
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
-    parser.add_argument("family", choices=("consumer", "postgres", "check"))
+    parser.add_argument("family", choices=("consumer", "mysql", "postgres", "check"))
     parser.add_argument("--directory", type=Path)
     parser.add_argument("--wheel", type=Path)
     parser.add_argument("--interpreter", type=Path)
@@ -1310,7 +1420,7 @@ def main():
     else:
         if None in (args.directory, args.wheel, args.interpreter):
             parser.error("--directory, --wheel and --interpreter are required")
-        run_family = consumer if args.family == "consumer" else postgres
+        run_family = {"consumer": consumer, "mysql": mysql, "postgres": postgres}[args.family]
         verdict = run_family(
             args.directory,
             wheel=args.wheel,

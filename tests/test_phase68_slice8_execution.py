@@ -139,6 +139,68 @@ def test_mysql_failure_preserves_vendor_code_without_changing_pg_record():
     }
 
 
+@pytest.mark.parametrize("control", (False, True))
+def test_mysql_native_connection_disables_attributes_and_trace_context(
+    control, monkeypatch
+):
+    """Both private sessions must opt out before Connector/Python configures them."""
+    from types import SimpleNamespace
+    from pietto._project import project_execution_mysql_native as native
+
+    class CheckpointReached(Exception):
+        pass
+
+    class Connection:
+        created = []
+
+        def __init__(self):
+            self._authenticator = SimpleNamespace(
+                _switch_auth_strategy=lambda *args, **kwargs: None
+            )
+            self.otel_context_propagation = True
+            self.calls = []
+            type(self).created.append(self)
+
+        def connect(self, **kwargs):
+            self.calls.append((self.otel_context_propagation, kwargs))
+
+    module = SimpleNamespace(
+        MySQLConnection=Connection,
+        ClientFlag=SimpleNamespace(CONNECT_ARGS=1 << 20),
+    )
+    monkeypatch.setattr(native, "drivers", lambda: (module,))
+    calls = []
+
+    def checkpoint():
+        calls.append(None)
+        if len(calls) == 2:
+            raise CheckpointReached
+
+    owner = SimpleNamespace(
+        _connections=[],
+        _connection=None,
+        _owned_connection=None,
+        _control_connection=None,
+        _owned_control_connection=None,
+        control_events=[],
+        request=SimpleNamespace(access=access()),
+        _checkpoint=checkpoint,
+        _remaining=lambda: 5,
+    )
+    with pytest.raises(CheckpointReached):
+        native.connect(owner, control=control)
+    (connection,) = Connection.created
+    enabled, kwargs = connection.calls[0]
+    assert enabled is False
+    assert kwargs["client_flags"] == [-(1 << 20)]
+    assert "conn_attrs" not in kwargs
+    assert owner._connections == [connection]
+    if control:
+        assert owner._owned_control_connection is connection
+    else:
+        assert owner._owned_connection is connection
+
+
 @pytest.mark.parametrize(
     "explain,diagnostic,accepted",
     (
@@ -274,6 +336,26 @@ def test_observed_source_eof_does_not_complete_early_consumer_delivery(tmp_path)
     assert owner.outcome.source == "EOF"
     assert owner.outcome.delivery == "INCOMPLETE"
     assert owner.outcome.transaction == "NOT_STARTED"
+
+
+def test_mysql_terminal_owner_fact_is_first_winner(tmp_path):
+    q = refined(tmp_path, "mysql", "G_emission_table_bag", "bag")
+    owner = MySQLExecution(prepare_execution(q.original, access()))
+
+    assert owner.cancel() == {
+        "requested": True,
+        "sent": False,
+        "observed": False,
+        "late": False,
+    }
+    assert owner._terminal == "CANCELLED" and owner._cancel.is_set()
+    assert owner.cancel(deadline=True) == {
+        "requested": False,
+        "sent": False,
+        "observed": False,
+        "late": True,
+    }
+    assert owner._terminal == "CANCELLED" and not owner.deadline_expired
 
 
 @pytest.mark.parametrize(

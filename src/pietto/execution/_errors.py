@@ -78,7 +78,7 @@ CODES = {
     "PIE-R2001": (
         "DEPENDENCY_MISSING",
         "a pinned dependency of the route is not installed;"
-        " install pietto[execute-postgres]",
+        " install the selected route's documented extra",
     ),
     "PIE-R2002": (
         "DRIVER_PROFILE",
@@ -88,21 +88,21 @@ CODES = {
     ),
     "PIE-R2003": (
         "AMBIENT_ENVIRONMENT",
-        "a refused environment variable is set (PG*, SSLKEYLOGFILE, OPENSSL_CONF"
-        " or OPENSSL_MODULES); unset it for this process",
+        "a refused route environment variable is set; unset it for this process",
     ),
     "PIE-R2004": (
         "CONNECTION_FAILED",
-        "the connection or its authentication failed. Pietto connects only over"
-        " TCP and authenticates only with SCRAM-SHA-256, bound to the TLS channel"
-        " when sslmode is 'require', which needs a server with ssl = on, reached"
-        " directly, whose certificate is signed with RSA or ECDSA. Give the role a"
-        " password while password_encryption is 'scram-sha-256', and make the"
-        " first pg_hba.conf line that matches its database, role and address a"
-        " 'scram-sha-256' line: 'hostssl' for remote clients, 'host' only for"
-        " 127.0.0.1 and ::1",
+        "the selected route's connection, TLS profile or authentication failed;"
+        " PostgreSQL requires TCP SCRAM-SHA-256, a password encrypted with"
+        " password_encryption='scram-sha-256', and a first matching pg_hba.conf"
+        " scram-sha-256 line; MySQL requires caching_sha2_password, TLS and a"
+        " caller CA that verifies server identity",
     ),
-    "PIE-R2005": ("TARGET_VERSION", "the server is not PostgreSQL 18.6"),
+    "PIE-R2005": (
+        "TARGET_VERSION",
+        "the server is not the selected route's pinned version (PostgreSQL 18.6"
+        " or MySQL 8.4.12)",
+    ),
     "PIE-R2006": (
         "SESSION_CONTEXT",
         "the session or its read-only transaction does not have the required settings",
@@ -191,6 +191,7 @@ _SQLSTATE = re.compile(r"[0-9A-Z]{5}")
 
 _REQUEST = {
     "POSTGRES_DEPLOYMENT_PREMISE_REQUIRED": "PIE-R1001",
+    "MYSQL_DEPLOYMENT_PREMISE_REQUIRED": "PIE-R1001",
     "EXECUTION_REQUEST": "PIE-R1002",
     "EXECUTION_ARTIFACT": "PIE-R1002",
     "EXECUTION_ACCESS": "PIE-R1002",
@@ -199,6 +200,9 @@ _REQUEST = {
     "EXECUTION_ISOLATION": "PIE-R1002",
     "POSTGRES_DEPLOYMENT_PREMISE_INVALID": "PIE-R1002",
     "POSTGRES_DEPLOYMENT_PREMISE_SCOPE": "PIE-R1002",
+    "MYSQL_DEPLOYMENT_PREMISE_INVALID": "PIE-R1002",
+    "MYSQL_DEPLOYMENT_PREMISE_SCOPE": "PIE-R1002",
+    "EXECUTION_AMBIENT_CONNECTION_PROFILE": "PIE-R2003",
     "COMPILED_FRESH_PROFILE_REQUIRED": "PIE-R1003",
     "COMPILED_EXECUTION_ROUTE": "PIE-R1003",
     "EXECUTION_TARGET": "PIE-R1003",

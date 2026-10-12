@@ -143,6 +143,46 @@ def prepare_attempt(
     return PostgresExecution(request)
 
 
+@entry
+def prepare_mysql_attempt(
+    template, access, *, schemas, limits, isolation, values=None
+):
+    """One fresh, unopened MySQL rows owner; no I/O or driver import.
+
+    The ambient TLS refusal precedes importing the private MySQL owner, whose
+    native module imports ``ssl``. The public access shape is converted only
+    here, with the private identity and transaction escape hatches fixed to
+    the approved route profile.
+    """
+    ex.refuse_ambient()
+    from pietto._project.project_execution_mysql import MySQLExecution
+    from pietto._project.project_execution_template import bind_values
+
+    if values is None:
+        values = tuple(
+            slot.original.site.position.literal.value for slot in template.slots
+        )
+    binding = bind_values(
+        template,
+        tuple(zip(template.slots, values))
+        if len(values) == len(template.slots)
+        else values,
+    )
+    premise = ex.MySQLDeploymentPremise(
+        access, binding.artifact.request.sources, schemas
+    )
+    request = ex.prepare_compiled_execution(
+        binding,
+        access,
+        route="mysql_rows",
+        limits=limits,
+        isolation=isolation,
+        mysql_deployment=premise,
+        allow_guard_sql=False,
+    )
+    return MySQLExecution(request)
+
+
 def attempt_facts(owner):
     """The owner's closed flag, deadline, established session and layered
     outcome, read without I/O or locks (a dropped handle's finalizer uses it)."""
@@ -157,9 +197,7 @@ def attempt_facts(owner):
 
 def driver_error(error):
     """Whether the route's driver raised `error` (its message is never read)."""
-    from pietto._project.project_execution_postgres import driver_error
-
-    return driver_error(error)
+    return type(error).__module__.partition(".")[0] in ("mysql", "psycopg")
 
 
 def batch_rows(batch):

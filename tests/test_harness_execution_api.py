@@ -22,6 +22,34 @@ import _pietto_execution_api_probe as probe
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_mysql_consumer_checker_accepts_its_literal_facts_and_refuses_damage():
+    command = {"returncode": 0}
+    install = {
+        recipe: {"venv": command, "install": command, "check": command,
+                 "python": check.INTERPRETER}
+        for recipe in ("core", "execute-mysql")
+    }
+    report = {
+        "format": check.FORMAT,
+        "family": "mysql",
+        "install": install,
+        "core": {"returncode": 0, "result": {
+            "before": [], "open": ["PIE-R2001", "EXECUTION_DEPENDENCY_MISSING", False], "after": []}},
+        "ambient": {
+            name: {"returncode": 0, "result": {
+                "before": [], "request": ["PIE-R2003", "EXECUTION_AMBIENT_CONNECTION_PROFILE", False], "after": []}}
+            for name in ("SSLKEYLOGFILE", "OPENSSL_CONF", "OPENSSL_MODULES")
+        },
+        "shadow": {"returncode": 0, "result": {
+            "before": [], "open": ["PIE-R2002", "EXECUTION_DRIVER_VERSION", False], "after": ["mysql"]}},
+    }
+    assert check.check(report) == {"family": "mysql", "verdict": "ACCEPTED"}
+    damaged = copy.deepcopy(report)
+    damaged["shadow"]["result"]["open"][0] = "PIE-R2001"
+    with pytest.raises(check.Rejected, match="MYSQL_SHADOW"):
+        check.check(damaged)
+
+
 def test_importing_the_witness_modules_acquires_nothing(tmp_path):
     code = (
         "import sys; sys.path[:0] = [sys.argv[1], sys.argv[2]];"
