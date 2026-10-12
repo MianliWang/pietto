@@ -1,7 +1,7 @@
-"""Controlled PostgreSQL inputs and read-only evidence for public R2 recovery.
+"""Controlled target inputs and read-only evidence for public R2 recovery.
 
 The caller owns the existing ``Resources`` lifecycle.  This module only reuses
-its S06 PostgreSQL fixture setup, constructs public carriers in compiled-source
+its S06 target fixture setup, constructs public carriers in compiled-source
 order, and reads the resulting durable history.  The product still opens the
 native owner: source qualification, admissions, Arrow capture and recovery are
 never substituted here.
@@ -23,21 +23,61 @@ class R2Fixture:
     source_requirements: tuple
     values: tuple
     trust: tuple[str, str, str]
+    source: str
+    source_order: tuple[tuple[str, str], ...]
+    source_occurrences: int
+    expected_extent: int
 
 
-def setup_postgres(resource) -> tuple[dict[str, Any], ...]:
+_CROSS_R2 = """query result:
+    from rows
+    cross join rows as second:
+        from rows
+    where rows.id > 0
+    select:
+        record_id = rows.id
+        shifted = second.id + 1
+"""
+
+
+def setup_target(resource) -> tuple[dict[str, Any], ...]:
     """Install the existing immutable retained-source fixture on ``resource``."""
-    if getattr(resource, "target", None) != "postgres":
-        raise ValueError("POSTGRES_RESOURCE")
-    from _pietto_phase68_slice6_probe import setup
+    target = getattr(resource, "target", None)
+    if target not in ("postgres", "mysql"):
+        raise ValueError("R2_TARGET_RESOURCE")
+    from _pietto_phase68_slice6_probe import manager, setup
 
-    return tuple(setup(resource))
+    providers = tuple(setup(resource))
+    if target == "mysql":
+        for table in ("threads", "events_transactions_current"):
+            manager(
+                resource,
+                "GRANT SELECT ON performance_schema."
+                + table
+                + " TO 'pietto_query'@'%'",
+            )
+    return providers
 
 
-def live_r2(directory, providers) -> R2Fixture:
+def _source_role(target: str) -> str:
+    return "pietto_query@%" if target == "mysql" else "pietto_query"
+
+
+def _cross_extent(target: str) -> int:
+    """The fixed fixture rows under the first CROSS input's ``id > 0`` filter."""
+    from _pietto_target_conformance_cases import emission_rows
+
+    rows = emission_rows(target)
+    if len(rows) != 4 or any(item[1]["kind"] != "int" for item in rows):
+        raise ValueError("R2_CROSS_FIXTURE_ROWS")
+    return sum(int(item[1]["value"]) > 0 for item in rows) * len(rows)
+
+
+
+def live_r2(directory, providers, *, target: str = "postgres") -> R2Fixture:
     """Build the live query and its exact public source declarations.
 
-    ``providers`` comes from :func:`setup_postgres`; names are matched only
+    ``providers`` comes from :func:`setup_target`; names are matched only
     against this query's own sources, in its immutable compiled order.
     """
     from _pietto_phase66_sql_emission_probe import CONFIG, source_files
@@ -45,10 +85,16 @@ def live_r2(directory, providers) -> R2Fixture:
     from pietto.execution import R2SourceInput, compile_query
 
     project = Path(directory) / "public-r2"
-    item = fixture("postgres", "R2_bound", "values")
+    if target not in ("postgres", "mysql"):
+        raise ValueError("R2_TARGET")
+    item = fixture(target, "R2_bound", "values")
+    header, marker, _body = item["source"].partition("query result:\n")
+    if marker != "query result:\n":
+        raise ValueError("R2_CROSS_SOURCE")
+    source_text = header + _CROSS_R2
     project.mkdir(parents=True)
     (project / "pietto.toml").write_text(CONFIG, encoding="utf-8")
-    for name, content in sorted(source_files(item["source"]).items()):
+    for name, content in sorted(source_files(source_text).items()):
         (project / name).write_text(content, encoding="utf-8")
     (project / "contract.json").write_text(item["contract"], encoding="utf-8")
     query = compile_query(
@@ -56,7 +102,7 @@ def live_r2(directory, providers) -> R2Fixture:
         module="main.pietto",
         kind="query",
         name="result",
-        dialect="postgres",
+        dialect=target,
         emission_contract="contract.json",
         literal_policy="bind-safe",
     )
@@ -65,6 +111,10 @@ def live_r2(directory, providers) -> R2Fixture:
     sources = template.artifact.request.sources
     if len(by_source) != len(providers):
         raise ValueError("FIXTURE_PROVIDER_DUPLICATE")
+    source_order = tuple((source.namespace, source.name) for source in sources)
+    occurrences = source_text.count("from rows\n")
+    if len(source_order) != 1 or source_order[0] not in by_source or occurrences != 2:
+        raise ValueError("R2_CROSS_SOURCE_ORDER")
     requirements = []
     for source in sources:
         provider = by_source.get((source.namespace, source.name))
@@ -81,52 +131,92 @@ def live_r2(directory, providers) -> R2Fixture:
                 provider["registry"],
                 provider["definition"],
                 tuple(provider["tokens"]),
-                "pietto_query",
+                _source_role(target),
                 "Owned fixture: immutable token/payload and complete visible "
                 "domain; version retained until explicit target cleanup.",
             )
         )
     root = template.artifact.request.verification.completed.root
+    values = tuple(slot.original.site.position.literal.value for slot in template.slots)
+    if values != (0, 1):
+        raise ValueError("R2_CROSS_VALUES")
+    extent = _cross_extent(target)
+    if extent != 12:
+        raise ValueError("R2_CROSS_EXTENT")
     return R2Fixture(
         query,
         tuple(requirements),
-        tuple(slot.original.site.position.literal.value for slot in template.slots),
+        values,
         (
             root.expected_pin,
             root.accepted_producer,
             root.accepted_compatibility[-1],
         ),
+        source_text,
+        source_order,
+        occurrences,
+        extent,
     )
+
+
+def target_inputs(resource):
+    """Public per-call access and premise for one already prepared target."""
+    target = getattr(resource, "target", None)
+    if target == "postgres":
+        from pietto.execution import PostgresAccess, PostgresDeploymentPremise
+
+        return (
+            PostgresAccess(
+                "127.0.0.1",
+                resource.port,
+                "phase66",
+                "pietto_query",
+                resource._passwords[1],
+                "disable",
+            ),
+            PostgresDeploymentPremise(("public", "pg_catalog")),
+        )
+    if target == "mysql":
+        from pietto.execution import MySQLAccess, MySQLDeploymentPremise
+
+        return (
+            MySQLAccess(
+                "localhost",
+                resource.port,
+                "phase66",
+                "pietto_query",
+                resource._passwords[1],
+                str(resource.ca_path),
+                _source_role(target),
+            ),
+            MySQLDeploymentPremise(("phase66",)),
+        )
+    raise ValueError("R2_TARGET_RESOURCE")
+
+
+def setup_postgres(resource) -> tuple[dict[str, Any], ...]:
+    """Compatibility spelling for the original PostgreSQL-only caller."""
+    if getattr(resource, "target", None) != "postgres":
+        raise ValueError("POSTGRES_RESOURCE")
+    return setup_target(resource)
 
 
 def postgres_inputs(resource):
-    """Public per-call access and managed premise for the controlled service."""
+    """Compatibility spelling for the original PostgreSQL-only caller."""
     if getattr(resource, "target", None) != "postgres":
         raise ValueError("POSTGRES_RESOURCE")
-    from pietto.execution import PostgresAccess, PostgresDeploymentPremise
-
-    return (
-        PostgresAccess(
-            "127.0.0.1",
-            resource.port,
-            "phase66",
-            "pietto_query",
-            resource._passwords[1],
-            "disable",
-        ),
-        PostgresDeploymentPremise(("public", "pg_catalog")),
-    )
+    return target_inputs(resource)
 
 
 def prefix_limits():
-    """Commit the first two real rows, then refuse the next complete page."""
+    """Capture eight data rows after bounded admission metadata."""
     from pietto.execution import ExecutionLimits
 
-    return ExecutionLimits(batch_rows=2, max_rows=2, seconds=60)
+    return ExecutionLimits(batch_rows=2, max_rows=8, seconds=60)
 
 
 def recovery_limits():
-    """The fresh recovery attempt has room to enumerate and compare all rows."""
+    """The fresh recovery attempt has room to enumerate all nine cross rows."""
     from pietto.execution import ExecutionLimits
 
     return ExecutionLimits(batch_rows=3, max_rows=64, seconds=60)
