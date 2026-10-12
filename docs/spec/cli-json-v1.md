@@ -77,6 +77,12 @@ Serialization uses Python's standard-library
 DEL, and non-ASCII text are represented by JSON escaping and round-trip to
 their original field values after decoding.
 
+The CLI retains the selected terminal encoding. If text output cannot be
+encoded, it writes the ASCII-only `pietto: error: terminal output could not be
+encoded` notice to stderr and exits `2`; it does not replace text or emit a
+partial SQL document. UTF-8 `--output` files and JSON v1 serialization remain
+unchanged.
+
 JSON fields contain raw structured values. They are not passed through
 `_escape_cli_text()`, which remains exclusive to plain-text terminal and CI
 presentation. Text-mode behavior is separate and unchanged.

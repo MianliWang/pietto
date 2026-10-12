@@ -63,6 +63,9 @@ def parse_source(
             column=1,
         )
 
+    if source.startswith("\ufeff"):
+        source = source[1:]
+
     try:
         return _parse_source(source, path=path)
     except RecursionError:

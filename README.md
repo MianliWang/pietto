@@ -195,6 +195,9 @@ uv run pietto emit-sql active_users.pietto --dialect postgres
 
 `check` does not generate or execute SQL. `emit-sql` writes SQL to stdout by
 default and can atomically replace an explicitly selected regular output file.
+Terminal text uses the terminal's selected encoding; if it cannot represent an
+output, Pietto exits `2` with an ASCII-safe error instead of replacing or
+partially writing SQL. SQL files selected with `--output` remain UTF-8.
 From a checkout, `check`, `explain`, and `emit-sql` also take
 `--check-mode loose`, `checked` (the default), or `strict` for one file; the
 0.1.1 release does not have this option. The

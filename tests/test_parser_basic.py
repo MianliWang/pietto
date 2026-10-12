@@ -6,6 +6,7 @@ from pathlib import Path
 from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
+import pietto.parser_api as parser_api
 from pietto.ast_nodes import EnumDef, Header, Script, Span, TypeDef
 from pietto.parser_api import parse_file, parse_source
 
@@ -17,6 +18,55 @@ def test_empty_source_parses() -> None:
     assert isinstance(result.ast, Script)
     assert result.ast.header is None
     assert result.ast.definitions == ()
+
+
+def test_leading_bom_preserves_parsed_ast_and_spans(tmp_path: Path) -> None:
+    source = 'type Label = Text:\n    ensure matches(self, "中文😀")\n'
+    path = tmp_path / "label.pietto"
+    path.write_bytes(b"\xef\xbb\xbf" + source.encode("utf-8"))
+
+    plain_result = parse_source(source, path=path)
+    bom_result = parse_file(path)
+
+    assert bom_result == plain_result
+
+
+def test_only_leading_bom_parses_as_empty_source() -> None:
+    result = parse_source("\ufeff")
+
+    assert result.diagnostics == ()
+    assert isinstance(result.ast, Script)
+    assert result.ast.header is None
+    assert result.ast.definitions == ()
+
+
+def test_only_one_leading_bom_is_ignored() -> None:
+    for source in ("\ufeff\ufeff", "type Label = \ufeffText\n"):
+        result = parse_source(source)
+
+        assert result.ast is None
+        assert any(diagnostic.code == "PIE-P1000" for diagnostic in result.diagnostics)
+
+
+def test_leading_bom_does_not_relax_source_size_limit() -> None:
+    result = parse_source(
+        "\ufeff" + "#" + "a" * (parser_api._MAX_SOURCE_UTF8_BYTES - 1)
+    )
+
+    assert result.ast is None
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-P1006"]
+
+
+def test_leading_bom_does_not_shift_tab_diagnostic_location() -> None:
+    result = parse_source("\ufeff\tshape User:\n")
+
+    assert result.ast is None
+    tab_diagnostic = next(
+        diagnostic
+        for diagnostic in result.diagnostics
+        if diagnostic.code == "PIE-P1004"
+    )
+    assert (tab_diagnostic.location.line, tab_diagnostic.location.column) == (1, 1)
 
 
 def test_complete_header_parses() -> None:

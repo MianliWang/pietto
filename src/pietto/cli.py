@@ -94,6 +94,16 @@ class _CliArgumentParser(argparse.ArgumentParser):
 def main(argv: Sequence[str] | None = None) -> int:
     """Run Pietto developer tooling and return a process exit code."""
 
+    try:
+        return _main(argv)
+    except UnicodeEncodeError:
+        _print_output_encoding_error()
+        return _EXIT_USAGE_ERROR
+
+
+def _main(argv: Sequence[str] | None = None) -> int:
+    """Run one CLI command after terminal encoding is available."""
+
     arguments = list(argv) if argv is not None else sys.argv[1:]
     parser = _build_parser()
     if arguments == []:
@@ -1208,6 +1218,12 @@ def _print_cli_error(path: Path, message: str) -> None:
         f"{_escape_cli_text(str(path))}: error: {_escape_cli_text(message)}",
         file=sys.stderr,
     )
+
+
+def _print_output_encoding_error() -> None:
+    """Report a terminal encoding failure without repeating unencodable text."""
+
+    sys.stderr.write("pietto: error: terminal output could not be encoded\n")
 
 
 def _escape_cli_text(value: str) -> str:
