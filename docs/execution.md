@@ -1,10 +1,21 @@
-# Execution (alpha)
+# Execution (alpha, source candidate)
+
+**Status:** 0.1.2 UNRELEASED source-candidate documentation. It neither
+activates that version nor claims a published wheel, natural CI result, or
+native support outside the evidence stated here. The published release remains
+0.1.1; its wheel does not provide this alpha surface.
 
 `pietto.execution` compiles one query of your project, runs it explicitly on
 PostgreSQL 18.6 through the PostgreSQL rows route, and hands you typed Arrow
 batches and the attempt's real terminal state. A compiled query can also be
 exported as a query bundle and loaded elsewhere under your own trust records,
 and a `bind-safe` query can run with explicit parameter values.
+
+`compile_query()` is the ordinary live-query compiler entry. It has no R2
+mode, guard constructor, refinement constructor or source-recovery authority.
+R2 is a separate live-only workflow that starts from such a query and takes
+its own complete ordered source declarations and, for recovery, fresh
+caller-held trust records.
 
 This is an **alpha interface**. It is separate from the public contracts listed
 in the README: its names, fields, error codes and behavior may change in later
@@ -22,15 +33,25 @@ for the attempt's whole lifetime.
 The alpha covers `postgres_rows` and `postgres_adbc`, against PostgreSQL 18.6,
 and `mysql_rows`, against MySQL 8.4.12. Both PostgreSQL routes use the same
 explicit TCP inputs and deployment premise; `postgres_adbc` selects only its
-pinned ADBC driver closure. Saved results remain private. There is no CLI command
-that connects to a database.
+pinned ADBC driver closure. The only qualified native profile recorded here is
+CPython 3.13.13 on Linux x86-64 with the lock's exact artifacts on the
+qualified integration host. Windows native execution is `NOTRUN`; an offline
+Windows compiler-project check is not native execution, job, or database
+support. Saved-result workflows are local workspace APIs, and the reference
+sink is a local bounded endpoint. There is no CLI command that connects to a
+database.
+
+Saved-result APIs are unreleased alpha surface. Their Python calls are explicit:
+callers name a workspace, durable operation identities, records and any source
+or sink authority. The CLI remains compilation-only; it neither opens a
+workspace nor connects to a database.
 
 ## Install
 
-`pietto.execution` exists only in a wheel built from this checkout. The
-released 0.1.1 on PyPI does not contain it, so installing an execution extra
-from PyPI does not provide it. Build the wheel here with `uv build --wheel`,
-then install it with `execute-postgres`, `execute-postgres-adbc` or
+`pietto.execution` exists only in a source-candidate wheel built from this
+checkout. It is UNRELEASED, so an execution extra from an existing PyPI
+release does not provide this surface. Build the wheel here with
+`uv build --wheel`, then install it with `execute-postgres`, `execute-postgres-adbc` or
 `execute-mysql` in a fresh virtual environment. The PostgreSQL rows extra adds
 pinned `psycopg[binary]==3.3.5`; the PostgreSQL ADBC extra adds pinned
 `adbc-driver-postgresql==1.12.0` and `adbc-driver-manager==1.12.0`; the MySQL
@@ -175,6 +196,289 @@ except RequestRejected as error:
 
 ## API
 
+### Saved-result API
+
+These APIs are not in the released 0.1.1 wheel. They do not add a CLI database
+command. Existing `check`, `emit-sql`, text output and JSON output keep their
+contracts: JSON uses `ensure_ascii=True` and one trailing newline, while
+`--output` reports its clear output error through the established CLI result
+rather than opening a database or workspace.
+
+`create_workspace(root, *, budget_bytes) -> WorkspaceRef` creates exactly one
+v7 workspace. `open_workspace(root, *, expected_identity) -> WorkspaceRef`
+reopens only the named v7 identity and never migrates it. `new_operation() ->
+str` allocates a caller-held durable-operation identity, and
+`operation_result(workspace, operation) -> OperationReply | None` only reads
+the recorded first step. `WorkspaceRef` is an opaque `(root, identity)` value;
+it is not a SQLite connection and cannot be copied or pickled.
+
+`inspect_job(workspace, *, job) -> JobObservation` returns one immutable,
+consistent recorded-metadata view. `JobObservation` has `job`, `revision` and
+generations in durable creation order. Each `GenerationObservation` has
+`identity`, `route`, `isolation`, `checkpoint`, `frontier`, `committed`,
+`holes`, `observed_end` and every recorded terminal attempt ID in ordered
+`closings`. It refuses a concurrent revision change instead of merging
+observations. This is recorded metadata only: it does not read saved rows,
+open a source, claim a publisher, write state, verify a member, select a
+closing, or grant execution, source, trust, publication, retention, recovery
+or ACK authority. In particular, multiple `closings` remain multiple facts;
+the observation never chooses a successful or publishable one.
+
+`save(workspace, query, *, operation, route, access, premise,
+limits=ExecutionLimits(), isolation="stable", values=None, job=None) ->
+SaveReply` makes one ordinary capture. It is not R2. A repeated `operation` is
+looked up before a later claim or generation write and returns the factual
+`REPLY_LOST_OR_PARTIAL` observation; it never infers completion or retries.
+`SaveReply` has `workspace`, `operation`, `job`, `generation`, `admission`,
+`terminal`, `settlement` and `cleanup`. A `FAILED_REMOTE_UNOBSERVED` reply may
+carry a `SaveCloseHandle`; call its `close()` to make one bounded cleanup
+resume/await attempt. Until that returns, `closed` is false and the remote
+outcome remains `UNKNOWN`; this is not an ACK.
+
+R1 is source-free replay of one fixed saved checkpoint. Allocate a caller-held
+identity with `new_consumer_identity()`, then call
+`open_saved_read(workspace, *, job, generation, checkpoint, consumer,
+register_operation=None, open_operation, expected_pin, accepted_producer,
+accepted_compatibility, values, scope="complete_capture", extent, purpose,
+route, batch_rows, seconds) -> SavedRead`. `SavedRead.next(rows, *, operation)`
+returns `SavedBatch | SavedReadEnd`; only `SavedRead.ack(batch, *, operation)`
+advances its frontier. Close the reader (or use `with`) to release its local
+reader and publisher resources. `release_saved_read(workspace, *, job,
+generation, checkpoint, consumer, operation, expected_pin, accepted_producer,
+accepted_compatibility, values, scope="complete_capture", extent, purpose,
+route, batch_rows, seconds) -> OperationReply` is the separate retention
+release. R1 does not access a source, manufacture an ACK, or release retention
+when a reader merely exhausts its local extent.
+
+Both R1 calls take `expected_pin`, `accepted_producer` and
+`accepted_compatibility` as fresh caller-held scalar strings; the public API
+does not infer them from a workspace, checkpoint or inspection result.
+
+`verified_export(workspace, *, job, generation, checkpoint, scope, extent,
+purpose, route, values, expected_pin, accepted_producer,
+accepted_compatibility, seconds, batch_rows) -> VerifiedExport` is a distinct,
+read-only source-free reader of one fixed snapshot. Iterate it or use `with`;
+its `close()` closes its local reader and workspace. It has no caller operation,
+does not acquire a coordinator, and writes no row, delivery, ACK or retention
+fact.
+
+R2 is live same-source recovery only. `R2SourceInput(namespace, name,
+provider, version, revision, registry_namespace, registry_name, definition,
+token_columns, role, provider_guarantee)` declares one qualified source. R2
+requires an ordinary live `CompiledQuery` from `compile_query`; a loaded bundle
+is refused, and callers cannot manufacture a guard or refinement. Its
+`source_requirements` must be one `R2SourceInput` for every compiled source,
+in the compiled source order, including guarded and refined sources; a partial,
+reordered or substituted tuple is refused. It is not an option on
+`compile_query`.
+`save_recoverable(workspace, query, *, source_requirements, operation, route,
+access, premise, limits, isolation="stable", values=None, job=None) ->
+SaveReply` records R2 retention before progress. `recover(workspace, *, job,
+generation, checkpoint, query, source_requirements, operation, route, access,
+premise, limits, expected_pin, accepted_producer, accepted_compatibility,
+purpose, seconds, isolation="stable", values=None) -> SaveReply` validates the
+recorded checkpoint and trust inputs, requalifies the sources and continues one
+new R2 attempt. Before any workspace access, `recover` requires a non-empty,
+printable `purpose` of at most 256 UTF-8 bytes and integer `seconds` from 1 to
+86400. In both calls `source_requirements` is caller-supplied and in
+the compiled source order, with one declaration for every source, including
+guarded and refined sources. An ordinary `save`, a source-free reader/export,
+and a loaded bundle never acquire this authority. R2 uses the same factual
+operation replay and possible `SaveCloseHandle` rule as ordinary save.
+
+Each R2 attempt takes the caller's values, access and deployment premise anew.
+`recover` also takes fresh caller-held scalar `expected_pin`,
+`accepted_producer` and `accepted_compatibility` inputs; `save_recoverable`
+uses the current live query's records. Neither call derives R2 authority,
+values, trust, or a premise from inspection metadata.
+
+`publish_saved_generation(workspace, *, job, generation, checkpoint, closing,
+purpose, route, isolation, values, expected_pin, accepted_producer,
+accepted_compatibility, seconds, operation) -> PublicationReply` makes one
+complete local publication after accepting a fixed captured generation.
+`PublicationReply` names the workspace, operation, job, generation,
+checkpoint, closing, extent, retention and terminal. Repeating the preparation
+operation reports `REPLY_LOST_OR_PARTIAL`; it does not guess a later visibility
+write. Publication also takes the three fresh caller-held scalar trust inputs
+`expected_pin`, `accepted_producer` and `accepted_compatibility`; `closing` is
+an explicit caller choice subject to publication validation, never an
+`inspect_job` selection. `retire_generation(workspace, *, job, generation, operation) ->
+OperationReply` retires only a caller-owned unpublished generation's implicit
+latest-checkpoint root. It is neither general garbage collection nor a release
+of another retention.
+
+`create_reference_sink(root, *, namespace, epoch, retention_seconds,
+budget_bytes=..., busy_seconds=5.0) -> ReferenceSinkDescriptor` creates and
+reads back the minimal local reference-sink descriptor. The descriptor holds
+no open sink resource and carries `root`, `identity`, `namespace`, `epoch`,
+`retention`, `budget_bytes` and `busy_seconds`.
+`relay_live(workspace, query, *, operation, route, access, premise, sink_root,
+expected_sink_identity, sink_namespace, sink_epoch, sink_retention,
+sink_budget_bytes, sink_busy_seconds=5.0, limits=None,
+isolation="stable", values=None) -> RelayReply` starts one fresh live
+capture/relay to that exact descriptor; earlier saved results are not its
+input. `RelayReply` has the save-like factual fields and may carry a
+`RelayCloseHandle`; close it only to settle the retained relay cleanup. A
+reference sink is not a general callback facility and a relay does not promise
+delivery to arbitrary sink code.
+
+### Effects and resource end
+
+| Call | Source and database use | Local workspace/sink effect | Caller end or release |
+| --- | --- | --- | --- |
+| direct `execute()` | one fresh route attempt | none | close `ResultHandle` and batches |
+| `inspect_job()` | no source or database access | read-only recorded metadata; no publisher claim | no retained public handle |
+| `save()` | one admitted fresh attempt | job, generation, chunks and checkpoints | terminal capture; close a returned cleanup handle |
+| R1 `open_saved_read()` | no source or database access | holds the reader/publisher resources for its fixed scope | close the `SavedRead`; release retention separately when authorized |
+| `verified_export()` | no source or database access | read-only fixed-snapshot reader; no coordinator | close the export |
+| R2 `save_recoverable()` / `recover()` | one qualified live same-source attempt | R2 retention plus capture/recovery facts | terminal capture; close a returned cleanup handle |
+| `publish_saved_generation()` | no source or database access | local publication and its retention fact | no retained public handle |
+| `retire_generation()` | no source or database access | only the eligible unpublished root | no retained public handle |
+| `create_reference_sink()` | no database access | creates and closes a local sink before returning its descriptor | descriptor owns no handle |
+| `relay_live()` | one qualified fresh route attempt | a submission to the named local sink | close a returned relay cleanup handle |
+
+Workspace and sink locks, coordinators, SQLite connections, native owners,
+credentials, queues and schedulers remain private. No call performs automatic
+retry, general collection, age-based deletion, fallback, or acknowledgement.
+
+### Saved workflow and observation boundary
+
+The ordinary capture part of a saved workflow is public. It reuses the live
+`query`, `access` and `premise` from the example above and needs a real qualified
+route; it does not fabricate a saved result when a database is unavailable.
+
+```python
+from pietto.execution import create_workspace, new_operation, save
+
+workspace = create_workspace("saved-results", budget_bytes=64 * 1024 * 1024)
+operation = new_operation()
+reply = save(
+    workspace,
+    query,
+    operation=operation,
+    route="postgres_rows",
+    access=access,
+    premise=premise,
+)
+if reply.terminal != "COMPLETED":
+    raise RuntimeError(reply.terminal)
+assert reply.job is not None and reply.generation is not None
+```
+
+`reply.settlement` is a state word such as `RELEASED`, not an operation or
+snapshot identity. Inspect the recorded job, locate the generation named by the
+reply, and make the completeness decision explicitly. `frontier` is the saved
+extent only when the caller has checked `checkpoint is not None`, `holes == ()`
+and `observed_end == frontier`. `closings` preserves every recorded terminal
+attempt and does not pick one; this ordinary example refuses zero or multiple
+closings rather than selecting a winner. It is not an R2 closing-selection
+procedure.
+
+```python
+from pietto.execution import (
+    export_bundle,
+    inspect_job,
+    new_consumer_identity,
+    open_saved_read,
+    release_saved_read,
+    SavedReadEnd,
+    verified_export,
+)
+
+# Trust and values are caller-held public records; inspect_job never supplies them.
+bundle = export_bundle(query)
+expected_pin = bundle.pin
+accepted_producer = bundle.producer
+accepted_compatibility = bundle.compatibility
+values = ()  # The preceding preserve query has no value slots.
+
+observed = inspect_job(workspace, job=reply.job)
+generation = next(item for item in observed.generations if item.identity == reply.generation)
+if (
+    generation.checkpoint is None
+    or generation.frontier <= 0
+    or generation.holes != ()
+    or generation.observed_end != generation.frontier
+    or len(generation.closings) != 1
+):
+    raise RuntimeError("generation is not a complete single-closing capture")
+
+checkpoint = generation.checkpoint
+extent = generation.frontier
+consumer = new_consumer_identity()
+
+with open_saved_read(
+    workspace,
+    job=observed.job,
+    generation=generation.identity,
+    checkpoint=checkpoint,
+    consumer=consumer,
+    register_operation=new_operation(),
+    open_operation=new_operation(),
+    expected_pin=expected_pin,
+    accepted_producer=accepted_producer,
+    accepted_compatibility=accepted_compatibility,
+    values=values,
+    extent=extent,
+    purpose="read-saved-result",
+    route=generation.route,
+    batch_rows=256,
+    seconds=60,
+) as reader:
+    while True:
+        item = reader.next(256, operation=new_operation())
+        if isinstance(item, SavedReadEnd):
+            break
+        with item.batch:
+            print(item.batch.num_rows)
+        reader.ack(item, operation=new_operation())
+
+release_saved_read(
+    workspace,
+    job=observed.job,
+    generation=generation.identity,
+    checkpoint=checkpoint,
+    consumer=consumer,
+    operation=new_operation(),
+    expected_pin=expected_pin,
+    accepted_producer=accepted_producer,
+    accepted_compatibility=accepted_compatibility,
+    values=values,
+    extent=extent,
+    purpose="read-saved-result",
+    route=generation.route,
+    batch_rows=256,
+    seconds=60,
+)
+
+with verified_export(
+    workspace,
+    job=observed.job,
+    generation=generation.identity,
+    checkpoint=checkpoint,
+    scope="complete_capture",
+    extent=extent,
+    purpose="export-saved-result",
+    route=generation.route,
+    values=values,
+    expected_pin=expected_pin,
+    accepted_producer=accepted_producer,
+    accepted_compatibility=accepted_compatibility,
+    seconds=60,
+    batch_rows=256,
+) as exported:
+    for batch in exported:
+        batch.close()
+```
+
+The example deliberately does not turn recorded facts into verified members,
+native completion, ACK or trust. It also does not use private attributes,
+SQLite files or test helpers. It does not select a `closing` for publication:
+multiple recorded closings remain multiple facts. Publication, when separately
+authorized by its caller, requires an explicit caller-supplied closing that its
+own validation accepts. R2 recovery still requires its caller-held checkpoint
+and fresh trust, source, value and deployment inputs.
+
 - `compile_query(project, *, module, kind, name, dialect, emission_contract,
   literal_policy="preserve") -> CompiledQuery` takes the arguments of
   `pietto emit-sql --project` and runs the same pipeline. When the project input
@@ -313,9 +617,10 @@ outcome; `next()` and re-entry are refused with `PIE-R4001`. A later explicit `c
 only the established cleanup and does not resume execution or replace those
 facts with an acknowledgement.
 
-A `KeyboardInterrupt` or other `BaseException` during finalization records the
-terminal and cleanup facts reached by bounded cleanup, then propagates the
-original exception unchanged. It is never replaced by an execution error.
+A `KeyboardInterrupt` or other `BaseException` during finalization first runs
+the bounded cleanup available to the route, records its resulting terminal and
+cleanup facts, then propagates the original exception unchanged. It is never
+replaced by an execution error.
 
 ### Errors
 
@@ -357,10 +662,10 @@ Error text never contains a password, driver message, SQL text, value or bundle
 content, and a public error is not chained to the private or driver exception
 it classifies. A
 `KeyboardInterrupt` or another `BaseException` that is not an `Exception`
-passes through unchanged and is recorded as `PIE-R3008`; in this alpha one that
-arrives while the attempt commits, rolls back or closes its connection is
-recorded as that step's failure (`PIE-R3006`, or a `PIE-R5001` cleanup failure)
-and does not propagate.
+passes through unchanged after bounded cleanup and is recorded as `PIE-R3008`.
+If it arrives while the attempt commits, rolls back or closes its connection,
+the outcome also records that step's `PIE-R3006` or `PIE-R5001` cleanup failure;
+the original exception still propagates.
 
 ## Values
 
@@ -842,6 +1147,11 @@ authentication is `PIE-R2004`.
 
 ## Effects
 
+The following table describes direct execution. The saved-result calls have
+their separate workspace, lock and retention effects in
+[Effects and resource end](#effects-and-resource-end); they are not covered by
+the no-state statement below.
+
 | Call | Database and network | Reads | Threads | Imports |
 | --- | --- | --- | --- | --- |
 | `import pietto.execution` | none | Python modules; importing `hashlib` lets CPython's OpenSSL read `OPENSSL_CONF` or the system `openssl.cnf` | none | no driver, no PyArrow |
@@ -856,8 +1166,10 @@ authentication is `PIE-R2004`.
 | each later `next()` | a read of the session context before the batch is returned | none | as above | none |
 | the end of the result, or `close()` | a read of the session context, then `COMMIT` at the end, `ROLLBACK` before it; the connection closes | none | the timer is joined (at most 3 s) | none |
 
-Pietto writes no file and keeps no state between calls. `help()` runs pydoc,
-which reads `HOME` and other variables itself.
+Direct compilation, bundle and `execute()` calls write no file and keep no
+state between calls. Saved-result calls write only their caller-named local
+workspace or reference-sink roots. `help()` runs pydoc, which reads `HOME` and
+other variables itself.
 
 ### Dropped handles
 
@@ -883,9 +1195,10 @@ still running. Interpreter exit waits for the deadline timer, up to
   libpq (running `ldconfig`, then compiler and linker tools found on `PATH`) and
   loads it before Pietto refuses that implementation with `PIE-R2002`;
   `PSYCOPG_IMPL=binary` prevents the fallback.
-- Sources with `Timestamp` or `UUID` fields are blocked when compiled
-  (`PIE-B1004`), even if the query does not select those fields; public Timestamp
-  and UUID results are not part of this alpha.
+- Sources with `Timestamp` or `UUID` fields are refused exactly at compilation
+  (`PIE-B1004`), even if the query does not select those fields. This alpha has
+  no string, integer, binary, timezone, precision or implicit UUID fallback;
+  public Timestamp and UUID results are not part of it.
 - A query whose single-match requirements need runtime enforcement is blocked
   when compiled (`PIE-B1006`), as with `pietto emit-sql --project`.
 - Only the literals of a `bind-safe` query can take other values (see
