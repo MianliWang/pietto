@@ -73,7 +73,6 @@ def _cross_extent(target: str) -> int:
     return sum(int(item[1]["value"]) > 0 for item in rows) * len(rows)
 
 
-
 def live_r2(directory, providers, *, target: str = "postgres") -> R2Fixture:
     """Build the live query and its exact public source declarations.
 

@@ -240,9 +240,7 @@ def test_r2_cross_fixture_has_four_ordered_sources_and_two_slots(tmp_path, targe
     )
     assert witness.source.count("cross join rows as ") == 1
     assert tuple(item.role for item in witness.source_requirements) == (
-        ("pietto_query@%",)
-        if target == "mysql"
-        else ("pietto_query",)
+        ("pietto_query@%",) if target == "mysql" else ("pietto_query",)
     )
 
 

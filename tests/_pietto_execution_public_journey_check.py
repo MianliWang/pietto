@@ -84,7 +84,9 @@ def compile_inputs(
     )
 
 
-def generation(execution: Any, workspace: Any, reply: Any, *, complete=True) -> Generation:
+def generation(
+    execution: Any, workspace: Any, reply: Any, *, complete=True
+) -> Generation:
     """Read the explicit durable names needed by later public calls."""
     if reply.job is None or reply.generation is None:
         raise UnavailableJourney("SAVE_REPLY_GENERATION")
@@ -504,9 +506,11 @@ def check(report: Any) -> dict[str, str]:
     _need(report.get("format") == "pietto.s18-public-journey.v1", "FORMAT")
     _need(report.get("status") == "PASS", "STATUS")
     routes = report.get("routes")
-    _need(type(routes) is dict and set(routes) == {
-        "postgres_rows", "postgres_adbc", "mysql_rows"
-    }, "ROUTES")
+    _need(
+        type(routes) is dict
+        and set(routes) == {"postgres_rows", "postgres_adbc", "mysql_rows"},
+        "ROUTES",
+    )
     for route, facts in routes.items():
         if type(route) is not str:
             raise Rejected("ROUTE_KEY")
