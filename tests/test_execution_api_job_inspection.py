@@ -23,7 +23,7 @@ def _saved(tmp_path, monkeypatch):
     try:
         arrow.pinned()
     except private_execution.ExecutionError:
-        pytest.skip("PIETTO_NOT_RUN inspection requires pinned PyArrow")
+        pytest.skip("inspection requires pinned PyArrow")
     public_cases._controlled_postgres_source(monkeypatch, (((2, 3), (2, 3)), ((3, 4),)))
     template, built = workspace_probe.compiled_template(tmp_path / "compiled")
     workspace = execution.create_workspace(

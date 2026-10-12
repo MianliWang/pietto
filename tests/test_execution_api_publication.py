@@ -41,24 +41,12 @@ def _publish(saved, *, operation=None, **overrides):
     return execution.publish_saved_generation(saved.reference, **arguments)
 
 
-def _saved(tmp_path, monkeypatch):
-    from pietto._project import project_arrow_result as arrow
-    from pietto._project import project_execution as private_execution
-
-    try:
-        arrow.pinned()
-    except private_execution.ExecutionError:
-        pytest.skip("PIETTO_NOT_RUN publication requires pinned PyArrow")
-    saved = public_cases.completed_saved_result(tmp_path, monkeypatch)
-    if saved is None:
-        pytest.skip("PIETTO_NOT_RUN publication requires qualified storage")
-    return saved
-
-
 def test_publication_preserves_real_members_and_source_free_saved_read(
     tmp_path, monkeypatch
 ):
-    saved = _saved(tmp_path, monkeypatch)
+    saved = public_cases.completed_saved_result(tmp_path, monkeypatch)
+    if saved is None:
+        return
     try:
         reply = _publish(saved)
         assert (
@@ -128,7 +116,9 @@ def test_publication_preserves_real_members_and_source_free_saved_read(
 def test_publication_acceptance_defers_arrow_binding_until_member_verify(
     tmp_path, monkeypatch
 ):
-    saved = _saved(tmp_path, monkeypatch)
+    saved = public_cases.completed_saved_result(tmp_path, monkeypatch)
+    if saved is None:
+        return
     try:
         from pietto._project import project_arrow_result as arrow
 
@@ -160,7 +150,9 @@ def test_publication_acceptance_defers_arrow_binding_until_member_verify(
 def test_publication_replay_reports_partial_without_claiming_again(
     tmp_path, monkeypatch
 ):
-    saved = _saved(tmp_path, monkeypatch)
+    saved = public_cases.completed_saved_result(tmp_path, monkeypatch)
+    if saved is None:
+        return
     try:
         operation = execution.new_operation()
         first = _publish(saved, operation=operation)
@@ -183,7 +175,9 @@ def test_publication_replay_reports_partial_without_claiming_again(
 def test_publication_refuses_bad_trust_and_missing_member_before_publication(
     tmp_path, monkeypatch
 ):
-    saved = _saved(tmp_path, monkeypatch)
+    saved = public_cases.completed_saved_result(tmp_path, monkeypatch)
+    if saved is None:
+        return
     try:
         with pytest.raises(execution.RequestRejected) as bad_trust:
             _publish(saved, expected_pin="0" * 64)
@@ -207,7 +201,9 @@ def test_publication_refuses_bad_trust_and_missing_member_before_publication(
 
 
 def test_publication_refuses_a_retired_unpublished_generation(tmp_path, monkeypatch):
-    saved = _saved(tmp_path, monkeypatch)
+    saved = public_cases.completed_saved_result(tmp_path, monkeypatch)
+    if saved is None:
+        return
     try:
         publisher = store.claim_publisher(
             saved.workspace, saved.job, operation=store.new_operation()

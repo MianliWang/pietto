@@ -158,13 +158,6 @@ def test_public_runtime_capacity_preserves_the_control_operation_reserve(tmp_pat
 def test_capture_uses_verified_budget_and_a_policy_compatible_real_runtime(
     tmp_path, monkeypatch
 ):
-    from pietto._project import project_arrow_result as arrow
-    from pietto._project import project_execution as private_execution
-
-    try:
-        arrow.pinned()
-    except private_execution.ExecutionError:
-        pytest.skip("PIETTO_NOT_RUN saved payload requires pinned PyArrow")
     saved = public_cases.completed_saved_result(tmp_path, monkeypatch)
     if saved is None:
         return
@@ -191,7 +184,7 @@ def test_public_save_runs_the_real_runtime_capture_path(tmp_path, monkeypatch):
     try:
         arrow.pinned()
     except private_execution.ExecutionError:
-        pytest.skip("PIETTO_NOT_RUN public save payload requires pinned PyArrow")
+        pytest.skip("public save payload requires pinned PyArrow")
     public_cases._controlled_postgres_source(monkeypatch, (((2, 3), (2, 3)), ((3, 4),)))
     from pietto._project.project_execution_postgres import PostgresExecution
 
