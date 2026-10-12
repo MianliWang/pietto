@@ -1,8 +1,9 @@
 # Execution alpha release notes
 
-**Status:** 0.1.2 UNRELEASED source-candidate notes. No release, tag, package
-upload, artifact, version activation or release date is implied. The published
-release remains 0.1.1.
+**Status:** unreleased source changes with package version 0.1.1 retained.
+These notes describe the current source, not the published 0.1.1 PyPI package or
+v0.1.1 assets. The owner will select a later version after more work; no new
+release, tag, upload or release date is authorized.
 
 ## Added alpha surface
 

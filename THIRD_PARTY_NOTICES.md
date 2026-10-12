@@ -10,8 +10,8 @@ provided for attribution; it is not legal advice.
 
 ## Wheel and sdist
 
-For the 0.1.2 source candidate, these items would be inside
-`pietto-0.1.2-py3-none-any.whl` and `pietto-0.1.2.tar.gz`.
+For the 0.1.1 source candidate, these items would be inside
+`pietto-0.1.1-py3-none-any.whl` and `pietto-0.1.1.tar.gz`.
 Locations are repository paths; in the wheel they appear without the leading
 `src/`.
 
@@ -44,10 +44,10 @@ Dependencies are installed from their own distributions and are not bundled:
 ## GitHub source archive
 
 The archive of a tagged release contains the whole repository tree: everything
-listed above, plus the following. If a `v0.1.2` tag is published, GitHub's
-automatic tar.gz archive downloads as `pietto-0.1.2.tar.gz`, the same file name
-as the sdist; it can be told apart by its contents (it contains `tools/`,
-`tests/` and `docs/`).
+listed above, plus the following. GitHub's automatic tar.gz archive can have
+the same file name as that version's sdist; its contents include `tools/`,
+`tests/` and `docs/`. The existing `v0.1.1` archive belongs to the published
+commit. Current source candidates are separate and do not replace it.
 
 | Material | Location | Upstream | License text |
 | --- | --- | --- | --- |

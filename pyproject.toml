@@ -1,6 +1,6 @@
 [project]
 name = "pietto"
-version = "0.1.2"
+version = "0.1.1"
 description = "A gradual, semantic SQL authoring DSL"
 readme = "README.md"
 license = "MIT"
@@ -57,7 +57,7 @@ pietto = "pietto.cli:main"
 [project.urls]
 Homepage = "https://github.com/MianliWang/pietto"
 Repository = "https://github.com/MianliWang/pietto"
-Documentation = "https://github.com/MianliWang/pietto/tree/v0.1.2/docs"
+Documentation = "https://github.com/MianliWang/pietto/tree/main/docs"
 Issues = "https://github.com/MianliWang/pietto/issues"
 Releases = "https://github.com/MianliWang/pietto/releases"
 

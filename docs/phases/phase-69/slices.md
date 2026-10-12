@@ -14,7 +14,7 @@ Phase69 负责公开 alpha 发行工程与统一安全入口（[路线图](../..
 - S01–S21 均有按依赖并行实施的常设授权；遇到 BLOCKER、拆片，或新的公共、信任、预算决定即停。
 - S07 之后的三路线现实检查已闭合，S08–S14 按既有依赖集成与验证；其候选及开发证据仍不能替代批次最终 Gate。
 - S11 中点已闭合；当时 CI health 为 `INSUFFICIENT_EVIDENCE / WATCH`，可比样本为 0，成本记录不完整，alerts 仅作复核线索。S15–S19 继续既有依赖；S19 的 profile 与冻结仍须使用 S18 最终自然 CI，调度与资源政策不因此改变。
-- S20 与 S21 各自单独派发。
+- S20 与 S21 各自单独派发。所有者 2026-10-12 决定当前源码统一为 `0.1.1`，更多工作之后再升版；现有 PyPI `0.1.1` 与 `v0.1.1` 字节不替换。S15–S19 的实现和验收继续，S20 新发行及 S21 发行后审计等待后续版本与发行决定，当前不据此宣称 Phase69 完成。
 
 已获授权的组内，检查点只约束合入顺序，不约束开始开发：组内的 Slice 在自身前置问题已答复后即可在隔离 worktree 提前开发；合入在路线锁定发布之后，按各行依赖成批进行，每个 Slice 仍是一个提交。本次补充授权允许 S01–S21 按依赖并行实施，但不跳过现实检查、中点、每片验收或发行检查点。草稿、早期 worktree、候选或非权威运行本身不构成合入、验证或发布的证据。
 
@@ -35,7 +35,7 @@ Phase69 负责公开 alpha 发行工程与统一安全入口（[路线图](../..
 | S13 | Complete local publication of ordinary and recovered generations | S08, S09, S10, S12 |
 | S14 | Reference cooperative sink: window delivery and relay | S08, S09, S10 |
 | S15 | Unified entry: API reference, CLI and documentation consistency, effect table and runnable walkthrough | S02–S14 |
-| S16 | Release metadata and version readers for `0.1.2` | S06, S07, S14, S15 |
+| S16 | Current metadata and version readers with source version retained at `0.1.1` | S06, S07, S14, S15 |
 | S17 | Third-party materials and public notes: support table, README execution part and alpha release notes | S16 |
 | S18 | Whole public journey joint acceptance and the native campaign on one candidate build | S01–S17 |
 | S19 | Phase-end consolidation and freeze after S18's natural CI | S18 |
