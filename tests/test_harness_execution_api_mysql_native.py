@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import subprocess
+import sys
 
 import pytest
 
@@ -50,11 +52,13 @@ def report():
                         "host": "127.0.0.1",
                         "identity_verified": True,
                         "tls": "TLSv1.3",
+                        "fresh_leaf": True,
                     },
                     {
                         "host": "localhost",
                         "identity_verified": True,
                         "tls": "TLSv1.3",
+                        "fresh_leaf": True,
                     },
                 ],
             },
@@ -118,16 +122,29 @@ def report():
                 "source": "INCOMPLETE",
                 "delivery": "FAILED",
                 "deadline_expired": False,
-                "transaction": "ROLLBACK_ACK",
-                "remote": "TRANSACTION_ACK",
-                "cancel": {"requested": True, "sent": True, "observed": True},
-                "primary": ["PIE-R3009", "EXECUTION_CANCELED", "query"],
-                "error": {"receipt": {"requested": True, "sent": False, "observed": False, "late": False}},
+                "transaction": "UNKNOWN",
+                "remote": "REMOTE_QUIESCENCE_UNCONFIRMED",
+                "cancel": {"requested": True, "sent": True, "observed": False},
+                "primary": ["PIE-R3009", None, None],
+                "error": {"code": "PIE-R3009", "receipt": None},
                 "control_kill": True,
                 "consumer_thread_joined": True,
+                "late_unchanged": True,
+                "batches": 0,
+                "rows": 0,
                 "blocked": {
-                    "session": 1, "event": "statement/sql/select", "sql": "SELECT",
-                    "native_statement": "NativeStatement", "purpose": "query",
+                    "session": 1,
+                    "event": "statement/sql/select",
+                    "sql_sha256": "b" * 64,
+                    "native_statement": "NativeStatement",
+                    "purpose": "query",
+                    "server": {
+                        "current_rows": 1,
+                        "statement_event": "statement/com/Execute",
+                        "end_event_id": None,
+                        "process_state": "executing",
+                        "process_command": "Execute",
+                    },
                 },
             },
             "deadline": {
@@ -143,9 +160,22 @@ def report():
                 "error": {"code": "PIE-R3001"},
                 "control_kill": True,
                 "consumer_thread_joined": True,
+                "late_unchanged": True,
+                "batches": 0,
+                "rows": 0,
                 "blocked": {
-                    "session": 2, "event": "statement/sql/select", "sql": "SELECT",
-                    "native_statement": "NativeStatement", "purpose": "query",
+                    "session": 2,
+                    "event": "statement/sql/select",
+                    "sql_sha256": "b" * 64,
+                    "native_statement": "NativeStatement",
+                    "purpose": "query",
+                    "server": {
+                        "current_rows": 1,
+                        "statement_event": "statement/com/Execute",
+                        "end_event_id": None,
+                        "process_state": "executing",
+                        "process_command": "Execute",
+                    },
                 },
             },
         },
@@ -162,6 +192,67 @@ def report():
 
 def test_checker_accepts_literal_native_facts(report):
     assert native.check(report) == {"family": "mysql-native", "verdict": "ACCEPTED"}
+
+
+def test_checker_preserves_a_server_statement_timeout(report):
+    report["cases"]["deadline"].update(
+        end="FAILED",
+        deadline_expired=False,
+        cancel={"requested": False, "sent": False, "observed": False},
+        primary=["PIE-R3002", None, None],
+        error={"code": "PIE-R3002"},
+        control_kill=False,
+    )
+    assert native.check(report) == {"family": "mysql-native", "verdict": "ACCEPTED"}
+
+
+def test_terminal_readiness_has_a_bounded_wait():
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        with pytest.raises(ValueError, match="^TEST_READY_TIMEOUT$"):
+            native._worker_line(child, "TEST_READY", seconds=0.01)
+    finally:
+        child.kill()
+        child.wait(timeout=5)
+
+
+def test_terminal_worker_sends_config_before_readiness():
+    class Stdin:
+        writes: list[str]
+        flushed: bool
+
+        def __init__(self):
+            self.writes = []
+            self.flushed = False
+
+        def write(self, value: str) -> None:
+            self.writes.append(value)
+
+        def flush(self) -> None:
+            self.flushed = True
+
+    class Process:
+        stdin: Stdin | None
+
+        def __init__(self):
+            self.stdin = Stdin()
+
+    process = Process()
+    native._send_worker_config(process, {"case": "terminal"})
+    assert process.stdin is not None
+    assert process.stdin.writes == ['{"case": "terminal"}\n']
+    assert process.stdin.flushed is True
+
+
+def test_preterminal_checker_refuses_a_failed_worker_outcome(report):
+    cases = copy.deepcopy(report["cases"])
+    cases["rows"]["end"] = "FAILED"
+    with pytest.raises(native.Rejected, match="^ROWS$"):
+        native._check_nonterminal_cases(cases)
 
 
 @pytest.mark.parametrize(
@@ -194,8 +285,12 @@ def test_checker_accepts_literal_native_facts(report):
             "OTEL_WHEELS",
         ),
         (
-            lambda r: r["cases"]["cancel"]["cancel"].update(observed=False),
+            lambda r: r["cases"]["cancel"]["cancel"].update(sent=False),
             "CANCEL_FACTS",
+        ),
+        (
+            lambda r: r["cases"]["deadline"].update(late_unchanged=False),
+            "DEADLINE_FACTS",
         ),
         (
             lambda r: r["cases"]["deadline"].update(blocked=None),

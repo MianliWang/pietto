@@ -816,8 +816,14 @@ def test_the_premise_bounds_what_a_bundle_reads(bundle, unconnected):
     assert run(loaded).outcome.end == "NOT_STARTED"
 
 
-def test_a_mysql_bundle_loads_and_its_route_is_refused(tmp_path, unconnected):
+def test_a_mysql_bundle_loads_and_prepares_its_selected_route(
+    tmp_path, unconnected, monkeypatch
+):
     from _pietto_phase68_slice4_probe import template
+    from pietto._project import project_execution_mysql_native as mysql_native
+
+    def forbidden(*arguments, **keywords):
+        raise AssertionError("an unopened MySQL bundle reached the driver")
 
     built = build_compiled(template(tmp_path / "mysql", target="mysql").artifact)
     query = execution.load_bundle(
@@ -827,11 +833,34 @@ def test_a_mysql_bundle_loads_and_its_route_is_refused(tmp_path, unconnected):
         accepted_compatibility=built.compatibility[-1],
     )
     assert (query.origin, query.dialect, query.emission) == ("bundle", "mysql", None)
-    for route in ("postgres_rows", "mysql_rows", "postgres_adbc"):
+    assert query.slots == ("Int",)
+    for route in ("postgres_rows", "postgres_adbc", "unknown"):
         assert refused(run, query, route=route) == (
             "PIE-R1003",
             "PUBLIC_ROUTE_UNAVAILABLE",
         )
+    monkeypatch.setattr(mysql_native, "drivers", forbidden)
+    values = (2,)
+    handle = execution.execute(
+        query,
+        route="mysql_rows",
+        access=execution.MySQLAccess(
+            "127.0.0.1",
+            3306,
+            "phase66",
+            "pietto_query",
+            PASSWORD,
+            "/explicit/ca.pem",
+            "pietto_query",
+        ),
+        premise=execution.MySQLDeploymentPremise(schemas=("phase66",)),
+        values=values,
+    )
+    assert (
+        handle.route == "mysql_rows"
+        and handle.outcome.end == "NOT_STARTED"
+        and handle._owner.request.binding.arguments == values
+    )
     assert execution.export_bundle(query).payload == built.payload
 
 

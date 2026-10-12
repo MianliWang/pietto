@@ -163,6 +163,18 @@ def ordinary(tmp_path_factory):
 
 
 @pytest.fixture(scope="module")
+def mysql_ordinary(tmp_path_factory):
+    from _pietto_phase68_slice4_probe import template as mysql_template
+
+    original = mysql_template(
+        tmp_path_factory.mktemp("verification-scope-mysql"), target="mysql"
+    )
+    built = build_compiled(original.artifact)
+    values = tuple(v.value for v in original.artifact.fixed_values)
+    return original, built, values
+
+
+@pytest.fixture(scope="module")
 def guarded(tmp_path_factory):
     """The refined guarded case with the most requirement origins, compiled."""
     from _pietto_phase68_slice7_cases import case_preparation, manifest
@@ -280,6 +292,48 @@ def _route(name, world):
             [("verify(root)", root)],
             {},
         )
+    if name == "public_mysql_attempt":
+        from pietto._project.project_public_execution import prepare_mysql_attempt
+
+        loaded = prepare_compiled_template(root)
+        access = execution.MySQLAccess(
+            "127.0.0.1",
+            3306,
+            "phase66",
+            "pietto_query",
+            "unused",
+            "/ca.pem",
+            "pietto_query",
+        )
+        return (
+            lambda: prepare_mysql_attempt(
+                loaded,
+                access,
+                schemas=("phase66",),
+                limits=execution.ExecutionLimits(),
+                isolation="stable",
+            ),
+            [("verify(root)", root)],
+            {},
+        )
+    if name == "public_adbc_attempt":
+        from pietto._project.project_public_execution import (
+            prepare_postgres_adbc_attempt,
+        )
+
+        loaded = prepare_compiled_template(root)
+        access = _access()
+        return (
+            lambda: prepare_postgres_adbc_attempt(
+                loaded,
+                access,
+                schemas=("public", "pg_catalog"),
+                limits=execution.ExecutionLimits(),
+                isolation="stable",
+            ),
+            [("verify(root)", root)],
+            {},
+        )
     if name == "execution":
         loaded = prepare_compiled_template(root)
         binding = bind_values(loaded, tuple((slot, 2) for slot in loaded.slots))
@@ -361,6 +415,8 @@ ROUTES = (
     "compatible",
     "live",
     "public_attempt",
+    "public_mysql_attempt",
+    "public_adbc_attempt",
     *GUARDED_ROUTES,
 )
 # Reached only inside an execution owner's attempt, which needs a live database;
@@ -370,6 +426,8 @@ OWNER_ONLY = {"result_schema", "verify_native"}
 
 
 def _world(request, route):
+    if route == "public_mysql_attempt":
+        return request.getfixturevalue("mysql_ordinary")
     return request.getfixturevalue("guarded" if route in GUARDED_ROUTES else "ordinary")
 
 
@@ -791,6 +849,8 @@ DECORATED = {
     ("project_guard_verification.py", "verify_program", "entry"),
     ("project_guard_verification.py", "verify_statement", "entry"),
     ("project_public_execution.py", "prepare_attempt", "entry"),
+    ("project_public_execution.py", "prepare_mysql_attempt", "entry"),
+    ("project_public_execution.py", "prepare_postgres_adbc_attempt", "entry"),
     ("project_public_execution.py", "result_schema", "entry"),
     ("project_refinement.py", "prepare_compiled_refinement", "entry"),
     ("project_refinement_verification.py", "verify_native", "entry"),

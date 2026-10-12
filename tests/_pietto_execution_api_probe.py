@@ -184,7 +184,7 @@ elif case == "cancelled":
 elif case == "requests":
     refusals = {}
     for name, changes in (("premise_none", {"premise": None}),
-            ("route_adbc", {"route": "postgres_adbc"}),
+            ("route_unknown", {"route": "postgres_unknown"}),
             ("socket_host", {"access": pe.PostgresAccess("/var/run/postgresql",
                 5432, "phase66", "pietto_reader", password)})):
         try:
@@ -406,6 +406,40 @@ result["after"] = loaded()
 print(json.dumps(result), flush=True)
 """
 
+ADBC_WORKER = r"""
+import json, sys
+config = json.loads(sys.stdin.readline())
+for entry in reversed(config.get("path", ())):
+    sys.path.insert(0, entry)
+import pietto.execution as pe
+result = {"case": config["case"]}
+drivers = {"adbc_driver_manager", "adbc_driver_postgresql", "psycopg", "pyarrow"}
+def loaded():
+    return sorted({m.split(".")[0] for m in sys.modules} & drivers)
+def refusal(error):
+    return [error.code, error.detail, error.__cause__ is not None or error.__context__ is not None]
+query = pe.compile_query(config["project"], module="main.pietto", kind="table",
+    name="active_items", dialect="postgres", emission_contract="contract.json")
+access = pe.PostgresAccess("127.0.0.1", config["port"], "phase66", "pietto_reader",
+    config["password"], "require")
+premise = pe.PostgresDeploymentPremise(schemas=("fixture", "pg_catalog"))
+def attempt():
+    return pe.execute(query, route="postgres_adbc", access=access, premise=premise)
+result["before"] = loaded()
+try:
+    handle = attempt()
+except pe.ExecutionError as error:
+    result["request"] = refusal(error)
+else:
+    result["unopened"] = [loaded(), handle.outcome.end, config["password"] in repr(handle)]
+    try:
+        handle.__enter__()
+    except pe.ExecutionError as error:
+        result["open"] = refusal(error)
+result["after"] = loaded()
+print(json.dumps(result), flush=True)
+"""
+
 CANCEL = r"""
 import json, sys, threading
 config = json.loads(sys.stdin.readline())
@@ -583,6 +617,21 @@ def mysql_case(python, cwd, config, **options):
     record = run(
         python,
         ["-c", MYSQL_WORKER],
+        cwd=cwd,
+        stdin=json.dumps(config) + "\n",
+        **options,
+    )
+    try:
+        record["result"] = json.loads(record["stdout"].splitlines()[-1])
+    except (IndexError, json.JSONDecodeError):
+        record["result"] = None
+    return record
+
+
+def adbc_case(python, cwd, config, **options):
+    record = run(
+        python,
+        ["-c", ADBC_WORKER],
         cwd=cwd,
         stdin=json.dumps(config) + "\n",
         **options,
@@ -909,9 +958,7 @@ def mysql(directory, *, wheel, interpreter, house_root=None, cache=None):
         "context": context(wheel),
         "install": install,
     }
-    report["core"] = mysql_case(
-        pythons["core"], directory, {**base, "case": "core"}
-    )
+    report["core"] = mysql_case(pythons["core"], directory, {**base, "case": "core"})
     ambient = {}
     for name in ("SSLKEYLOGFILE", "OPENSSL_CONF", "OPENSSL_MODULES"):
         ambient[name] = mysql_case(
@@ -930,6 +977,62 @@ def mysql(directory, *, wheel, interpreter, house_root=None, cache=None):
         pythons["execute-mysql"],
         directory,
         {**base, "case": "shadow", "path": [str(ROOT / "tests"), str(shadow.parent)]},
+    )
+    return finish(directory, report)
+
+
+def postgres_adbc(directory, *, wheel, interpreter, house_root=None, cache=None):
+    """Installed ADBC dependency/origin/ambient witness, without a service.
+
+    The separate exact-wheel PostgreSQL ADBC family owns SCRAM and result
+    acceptance; this family proves the public route's selected prefix cannot
+    use another route's driver before that service witness runs.
+    """
+    from _pietto_execution_api import write_example
+
+    directory.mkdir(mode=0o700)
+    pythons, install = prefixes(
+        directory,
+        {"core": (), "execute-postgres-adbc": ("execute-postgres-adbc",)},
+        wheel=wheel,
+        interpreter=interpreter,
+        house_root=house_root or directory,
+        cache=cache,
+    )
+    project = write_example(directory / "project")
+    base = {
+        "path": [str(ROOT / "tests")],
+        "project": str(project),
+        "port": 9,
+        "password": secrets.token_hex(12),
+    }
+    report = {
+        "format": FORMAT,
+        "family": "postgres_adbc",
+        "context": context(wheel),
+        "install": install,
+    }
+    report["core"] = adbc_case(pythons["core"], directory, {**base, "case": "core"})
+    ambient = {}
+    for name in ("SSLKEYLOGFILE", "OPENSSL_CONF", "OPENSSL_MODULES"):
+        ambient[name] = adbc_case(
+            pythons["execute-postgres-adbc"],
+            directory,
+            {**base, "case": "ambient"},
+            extra={name: "value-never-read"},
+        )
+    shadow = directory / "shadow" / "adbc_driver_postgresql"
+    shadow.mkdir(parents=True)
+    (shadow / "__init__.py").write_text("", encoding="utf-8")
+    report["ambient"] = ambient
+    report["shadow"] = adbc_case(
+        pythons["execute-postgres-adbc"],
+        directory,
+        {
+            **base,
+            "case": "shadow",
+            "path": [str(ROOT / "tests"), str(shadow.parent)],
+        },
     )
     return finish(directory, report)
 
@@ -1399,12 +1502,449 @@ def finish(directory, report):
     with os.fdopen(fd, "w") as stream:
         json.dump(report, stream, indent=2, sort_keys=True)
         stream.write("\n")
-    return check.check(report)
+    return check.check(json.loads(path.read_text(encoding="utf-8")))
+
+
+ADBC_NATIVE_WORKER = r"""
+import importlib, json, os, sys, threading, time
+from importlib.metadata import distribution, version
+config = json.loads(sys.stdin.readline())
+TRACK = {"adbc_driver_manager", "adbc_driver_postgresql", "pyarrow"}
+def loaded():
+    return sorted({name.split(".")[0] for name in sys.modules} & TRACK)
+def facts(outcome):
+    primary = outcome.primary
+    return {"end": outcome.end, "source": outcome.source,
+        "transaction": outcome.transaction, "delivery": outcome.delivery,
+        "cleanup": outcome.cleanup, "remote": outcome.remote_source_use_end,
+        "rows": outcome.rows, "batches": outcome.batches,
+        "cancel": [outcome.cancel_requested, outcome.cancel_sent, outcome.cancel_observed],
+        "primary": None if primary is None else [primary.code, primary.detail,
+            primary.phase, primary.sqlstate, primary.cause],
+        "cleanup_failures": [[item.code, item.phase, item.cause]
+            for item in outcome.cleanup_failures]}
+def compile(project, policy="bind-safe"):
+    return pe.compile_query(project, module="main.pietto", kind="table",
+        name="active_items", dialect="postgres", emission_contract="contract.json",
+        literal_policy=policy)
+def access(sslmode="require"):
+    return pe.PostgresAccess("127.0.0.1", config["port"], "phase66",
+        config.get("user", "pietto_reader"), password, sslmode)
+def attempt(query, *, values=None, limits=None, sslmode="require"):
+    arguments = {}
+    if values is not None:
+        arguments["values"] = values
+    return pe.execute(query, route="postgres_adbc", access=access(sslmode),
+        premise=premise, limits=pe.ExecutionLimits(**(limits or {})), **arguments)
+def rows(query, *, values=(), limits=None):
+    import pyarrow as pa
+    handle = attempt(query, values=values, limits=limits)
+    schema = [[field.name, str(field.type), field.nullable] for field in pa.schema(handle)]
+    data = []
+    with handle:
+        for batch in handle:
+            with batch:
+                data.extend(pa.record_batch(batch).to_pylist())
+    return {"route": handle.route, "sslmode": "require", "schema": schema,
+        "rows": [[item["id"], item["label"]] for item in data],
+        "outcome": facts(handle.outcome)}
+def library():
+    module = importlib.import_module("adbc_driver_postgresql")
+    manager = importlib.import_module("adbc_driver_manager")
+    root = os.path.realpath(sys.prefix)
+    package = os.path.dirname(os.path.realpath(module.__file__))
+    path = os.path.join(package, "libadbc_driver_postgresql.so")
+    files = {str(item) for item in distribution("adbc-driver-postgresql").files or ()}
+    return {"prefix": root, "postgresql_version": version("adbc-driver-postgresql"),
+        "manager_version": version("adbc-driver-manager"),
+        "module": os.path.realpath(module.__file__),
+        "manager_module": os.path.realpath(manager.__file__), "library": path,
+        "library_record": "adbc_driver_postgresql/libadbc_driver_postgresql.so" in files,
+        "module_record": "adbc_driver_postgresql/__init__.py" in files,
+        "module_in_prefix": os.path.commonpath([root, os.path.realpath(module.__file__)]) == root,
+        "library_in_prefix": os.path.commonpath([root, path]) == root,
+        "library_exists": os.path.isfile(path)}
+import pietto.execution as pe
+password = config["password"]
+premise = pe.PostgresDeploymentPremise(schemas=("fixture", "pg_catalog"))
+result = {"after_import": loaded()}
+if config["case"] == "ambient":
+    query = compile(config["project"])
+    try:
+        handle = attempt(query)
+    except pe.RequestRejected as error:
+        result.update(code=error.code, detail=error.detail,
+            shown=password in str(error) + repr(error),
+            chained=error.__cause__ is not None or error.__context__ is not None)
+    else:
+        result["unopened"] = [loaded(), handle.outcome.end, password in repr(handle)]
+        try:
+            with handle:
+                pass
+        except pe.AttemptFailed as error:
+            result.update(code=error.code, detail=error.detail,
+                shown=password in str(error) + repr(error),
+                chained=error.__cause__ is not None or error.__context__ is not None,
+                outcome=facts(error.outcome))
+    result["after_open"] = loaded()
+elif config["case"] == "auth":
+    query = compile(config["project"])
+    handle = attempt(query, sslmode="disable")
+    result["unopened"] = [loaded(), handle.outcome.end, password in repr(handle)]
+    try:
+        with handle:
+            pass
+    except pe.AttemptFailed as error:
+        result.update(code=error.code, detail=error.detail,
+            shown=password in str(error) + repr(error),
+            chained=error.__cause__ is not None or error.__context__ is not None,
+            outcome=facts(error.outcome))
+    result["after_open"] = loaded()
+elif config["case"] == "native":
+    qualification = []
+    import pietto._project.project_execution_postgres_adbc as native
+    original = native.qualify_sources
+    def observed(owner):
+        qualification.append(owner.request.route)
+        return original(owner)
+    native.qualify_sources = observed
+    try:
+        live = compile(config["project"])
+        bundle = pe.export_bundle(live)
+        loaded_query = pe.load_bundle(bundle.payload, expected_pin=bundle.pin,
+            accepted_producer=bundle.producer, accepted_compatibility=bundle.compatibility)
+        live_rows = rows(live, values=(1,))
+        bundle_rows = rows(loaded_query, values=(1,))
+        live_rows["origin"] = live.origin
+        bundle_rows["origin"] = loaded_query.origin
+        result.update(live=live_rows, bundle=bundle_rows,
+            empty=rows(compile(config["empty"]), values=(100,)),
+            bounded=rows(compile(config["limited"]), values=(1,)),
+            qualification=qualification,
+            driver=library())
+        handle = attempt(live, values=(1,), limits={"batch_rows": 1})
+        import pyarrow as pa
+        with handle:
+            batch = next(handle)
+            with batch:
+                result["early_rows"] = pa.record_batch(batch).to_pylist()
+        result["early"] = facts(handle.outcome)
+        handle = attempt(live, values=(1,))
+        cancelled = {"cancel_return": handle.cancel() is None}
+        try:
+            with handle:
+                pass
+        except pe.AttemptFailed as error:
+            cancelled.update(code=error.code, detail=error.detail,
+                shown=password in str(error) + repr(error),
+                chained=error.__cause__ is not None or error.__context__ is not None,
+                outcome=facts(error.outcome))
+        cancelled["closed"] = handle.closed
+        result["cancelled"] = cancelled
+    finally:
+        native.qualify_sources = original
+elif config["case"] in ("active_cancel", "active_server_timeout"):
+    live = compile(config["project"])
+    handle = attempt(live, values=(1,))
+    seen = []
+    opened = threading.Event()
+    go = threading.Event()
+    def consume():
+        try:
+            handle.__enter__()
+            opened.set()
+            print(json.dumps({"ready": handle.attempt, "purpose": "query"}), flush=True)
+            if not go.wait(30):
+                raise RuntimeError("ADBC_CANCEL_GO")
+            next(handle)
+        except BaseException as error:
+            seen.append(error)
+    worker = threading.Thread(target=consume, name="pietto-adbc-active-consumer")
+    worker.start()
+    if sys.stdin.readline() != "go\n":
+        raise SystemExit("ADBC_CANCEL_GO")
+    go.set()
+    active = None
+    for _ in range(100):
+        candidate = getattr(handle._owner, "_active", None)
+        if (
+            candidate is not None
+            and getattr(candidate, "purpose", None) == "query"
+            and getattr(candidate, "native", None) is not None
+        ):
+            active = candidate
+            break
+        time.sleep(0.01)
+    if active is None:
+        raise SystemExit("ADBC_ACTIVE_NATIVE_STATEMENT")
+    active_record = {"type": type(active).__name__, "purpose": getattr(active, "purpose", None), "native": getattr(active, "native", None) is not None}
+    print(json.dumps({"active": active_record}), flush=True)
+    if config["case"] == "active_cancel":
+        if sys.stdin.readline() != "cancel\n":
+            raise SystemExit("ADBC_CANCEL_CONTROL")
+        result["cancel_return"] = handle.cancel() is None
+    worker.join(30)
+    if worker.is_alive():
+        raise SystemExit("ADBC_CANCEL_JOIN")
+    settled = facts(handle.outcome)
+    result.update(active=active_record, closed=handle.closed, outcome=settled,
+        raised=None if not seen else type(seen[0]).__name__,
+        late_cancel_return=handle.cancel() is None,
+        outcome_after_late=facts(handle.outcome))
+print(json.dumps(result), flush=True)
+"""
+
+
+def adbc_native_case(python, cwd, config, **options):
+    """One fresh ADBC worker.  Its raw facts never reuse a rows-route child."""
+    record = run(
+        python,
+        ["-c", ADBC_NATIVE_WORKER],
+        cwd=cwd,
+        stdin=json.dumps(config) + "\n",
+        **options,
+    )
+    lines = record["stdout"].strip().splitlines()
+    record["result"] = (
+        json.loads(lines[-1]) if record["returncode"] == 0 and lines else None
+    )
+    record.pop("stdout")
+    return record
+
+
+def adbc_active_cancel(python, cwd, config, manager, quiet, *, deadline=False):
+    """Observe a real active lock wait before the public ADBC cancel call."""
+    process = subprocess.Popen(
+        [str(python), "-I", "-B", "-c", ADBC_NATIVE_WORKER],
+        cwd=cwd,
+        env=environment(quiet),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    watchdog = threading.Timer(120, process.kill)
+    watchdog.start()
+
+    def failed(stage, raw, blocked=None, active=None):
+        if process.stdin is not None and not process.stdin.closed:
+            process.stdin.close()
+        stdout, stderr = process.communicate()
+        return {
+            "returncode": process.returncode,
+            "blocked": blocked,
+            "active": active,
+            "result": None,
+            "protocol_failure": stage,
+            "rawstdout": raw + stdout,
+            "stderr": stderr[-16384:],
+        }
+
+    try:
+        assert process.stdin is not None and process.stdout is not None
+        process.stdin.write(
+            json.dumps(
+                {
+                    **config,
+                    "case": "active_server_timeout" if deadline else "active_cancel",
+                    "limits": {"seconds": 5} if deadline else {},
+                }
+            )
+            + "\n"
+        )
+        process.stdin.flush()
+        raw_ready = process.stdout.readline()
+        try:
+            ready = json.loads(raw_ready)
+        except json.JSONDecodeError:
+            return failed("READY_JSON", raw_ready)
+        if set(ready) != {"ready", "purpose"} or ready["purpose"] != "query":
+            return failed("READY_SHAPE", raw_ready)
+        with manager.cursor() as cursor:
+            cursor.execute("BEGIN")
+            cursor.execute("LOCK TABLE fixture.items IN ACCESS EXCLUSIVE MODE")
+            process.stdin.write("go\n")
+            process.stdin.flush()
+            raw_active = process.stdout.readline()
+            try:
+                active = json.loads(raw_active)
+            except json.JSONDecodeError:
+                return failed("ACTIVE_JSON", raw_ready + raw_active, active=None)
+            if set(active) != {"active"}:
+                return failed("ACTIVE_SHAPE", raw_ready + raw_active, active=active)
+            if active["active"] != {
+                "type": "NativeStatement",
+                "purpose": "query",
+                "native": True,
+            }:
+                return failed(
+                    "ACTIVE_NATIVE_STATEMENT",
+                    raw_ready + raw_active,
+                    active=active,
+                )
+            blocked = None
+            for _ in range(50):
+                cursor.execute("SELECT pg_stat_clear_snapshot()")
+                found = rows(
+                    manager,
+                    "SELECT state, wait_event_type FROM pg_stat_activity WHERE usename = 'pietto_reader' AND pid <> pg_backend_pid()",
+                )
+                if found == [["active", "Lock"]]:
+                    blocked = found
+                    break
+                time.sleep(0.1)
+            if not deadline:
+                process.stdin.write("cancel\n")
+                process.stdin.flush()
+            line = process.stdout.readline()
+            cursor.execute("ROLLBACK")
+        process.stdin.close()
+        _stdout, stderr = process.communicate()
+        return {
+            "returncode": process.returncode,
+            "blocked": blocked,
+            "attempt": ready["ready"],
+            "purpose": ready["purpose"],
+            "active": active["active"],
+            "result": json.loads(line) if line.strip() else None,
+            "stderr": stderr[-16384:],
+        }
+    finally:
+        watchdog.cancel()
+
+
+def postgres_adbc_native(directory, *, wheel, interpreter, house_root=None, cache=None):
+    """A distinct installed ADBC witness against the PostgreSQL 18.6 fixture.
+
+    The ordinary ``postgres_adbc`` consumer family remains service-free.  This
+    one proves the selected candidate wheel can perform the public TCP SCRAM
+    route; its negative protocol observations use the existing one-shot stub.
+    """
+    import _pietto_target_conformance_resources as resources_module
+    from _pietto_execution_api import PostgresStub, write_example
+
+    directory.mkdir(mode=0o700)
+    started = time.monotonic()
+    pythons, install = prefixes(
+        directory,
+        {"execute-postgres-adbc": ("execute-postgres-adbc",)},
+        wheel=wheel,
+        interpreter=interpreter,
+        house_root=house_root or directory,
+        cache=cache,
+    )
+    python = pythons["execute-postgres-adbc"]
+    report = {
+        "format": FORMAT,
+        "family": "postgres_adbc_native",
+        "context": context(wheel),
+        "install": install,
+    }
+    work = directory / "work"
+    work.mkdir()
+    project = write_example(work / "ordered")
+    path = project / "main.pietto"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "        label\n", "        label\n    order by:\n        id\n"
+        ),
+        encoding="utf-8",
+    )
+    empty = write_example(work / "empty")
+    limited = write_example(work / "limited")
+    path = limited / "main.pietto"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "        label\n", "        label\n    order by:\n        id\n    limit 1\n"
+        ),
+        encoding="utf-8",
+    )
+    pins = json.loads((ROOT / "tests/phase66_target_pins.json").read_text())
+    (directory / "resources").mkdir()
+    resources = resources_module.Resources(
+        "postgres", pins["targets"]["postgres"], directory / "resources"
+    )
+    passwords = {role: secrets.token_hex(16) for role in ROLES}
+    quiet = {}
+    for name in ("home", "tmp"):
+        (directory / name).mkdir(mode=0o700)
+        quiet["HOME" if name == "home" else "TMPDIR"] = str(directory / name)
+    try:
+        resources.acquire()
+        report["server"] = prepare_server(resources, passwords)
+        report["image"] = resources.runtime_image_id
+        base = {
+            "project": str(project),
+            "empty": str(empty),
+            "limited": str(limited),
+            "port": resources.port,
+            "password": passwords["pietto_reader"],
+        }
+        report["native"] = adbc_native_case(
+            python, work, {**base, "case": "native"}, extra=quiet
+        )
+        report["active_cancel"] = adbc_active_cancel(
+            python, work, base, resources.manager, quiet
+        )
+        report["active_server_timeout"] = adbc_active_cancel(
+            python, work, base, resources.manager, quiet, deadline=True
+        )
+        report["authentication"] = {}
+        for method in ("trust", "password", "md5", "gss", "sspi"):
+            with PostgresStub(auth=method) as stub:
+                record = adbc_native_case(
+                    python,
+                    work,
+                    {**base, "case": "auth", "port": stub.port},
+                    extra=quiet,
+                )
+            record["stub"] = {
+                "events": stub.events,
+                "replied": stub.replied,
+                "startup": [
+                    stub.startup.get(b"user", b"").decode(),
+                    stub.startup.get(b"database", b"").decode(),
+                ],
+            }
+            report["authentication"][method] = record
+        report["ambient"] = {}
+        for name in ("SSLKEYLOGFILE", "OPENSSL_CONF", "OPENSSL_MODULES"):
+            keylog = work / ("keylog-" + name)
+            value = {
+                "SSLKEYLOGFILE": str(keylog),
+                "OPENSSL_CONF": str(work / "empty.cnf"),
+                "OPENSSL_MODULES": str(work),
+            }[name]
+            (work / "empty.cnf").write_text("", encoding="utf-8")
+            with sentinel() as listener:
+                record = adbc_native_case(
+                    python,
+                    work,
+                    {**base, "case": "ambient", "port": listener["port"]},
+                    extra={**quiet, name: value},
+                )
+                record["connected"] = listener["connected"]()
+            record["keylog_created"] = keylog.exists()
+            report["ambient"][name] = record
+    finally:
+        report["cleanup"] = resources.cleanup()
+    report["seconds"] = time.monotonic() - started
+    return finish(directory, report)
 
 
 def main():
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
-    parser.add_argument("family", choices=("consumer", "mysql", "postgres", "check"))
+    parser.add_argument(
+        "family",
+        choices=(
+            "consumer",
+            "mysql",
+            "postgres",
+            "postgres_adbc",
+            "postgres_adbc_native",
+            "check",
+        ),
+    )
     parser.add_argument("--directory", type=Path)
     parser.add_argument("--wheel", type=Path)
     parser.add_argument("--interpreter", type=Path)
@@ -1420,7 +1960,13 @@ def main():
     else:
         if None in (args.directory, args.wheel, args.interpreter):
             parser.error("--directory, --wheel and --interpreter are required")
-        run_family = {"consumer": consumer, "mysql": mysql, "postgres": postgres}[args.family]
+        run_family = {
+            "consumer": consumer,
+            "mysql": mysql,
+            "postgres": postgres,
+            "postgres_adbc": postgres_adbc,
+            "postgres_adbc_native": postgres_adbc_native,
+        }[args.family]
         verdict = run_family(
             args.directory,
             wheel=args.wheel,

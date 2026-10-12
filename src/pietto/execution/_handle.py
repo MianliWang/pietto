@@ -4,7 +4,7 @@ handle, its batches and its terminal outcome."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 import warnings
 import weakref
 
@@ -39,7 +39,7 @@ __all__ = [
     "execute",
 ]
 
-ROUTES = ("postgres_rows", "mysql_rows")
+ROUTES = ("postgres_rows", "postgres_adbc", "mysql_rows")
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +100,8 @@ def _end(closed, deadline, terminal, primary, outcome, dropped):
     if dropped:
         return "DROPPED"
     if not closed:
+        if outcome.cleanup == "FAILED_REMOTE_UNOBSERVED":
+            return "FAILED_REMOTE_UNOBSERVED"
         # Delivery opens only when the attempt opened successfully.
         return "NOT_STARTED" if outcome.delivery == "NOT_STARTED" else "OPEN"
     if terminal == "CANCELLED":
@@ -287,6 +289,9 @@ class ResultHandle:
             self._finalizer.detach()
             self._finalizer = None
 
+    def _cleanup_retry_pending(self):
+        return not self.closed and self.outcome.end == "FAILED_REMOTE_UNOBSERVED"
+
     def _run(self, step):
         owner = self._owner
         try:
@@ -331,6 +336,8 @@ class ResultHandle:
         raise AttemptFailed(refusal, attempt=owner.attempt, outcome=self.outcome)
 
     def __enter__(self):
+        if self._cleanup_retry_pending():
+            raise HandleMisuse(failure("PIE-R4001"), attempt=self._owner.attempt)
         self._arm()
         self._run(self._owner.open)
         return self
@@ -339,6 +346,8 @@ class ResultHandle:
         return self
 
     def __next__(self) -> ResultBatch:
+        if self._cleanup_retry_pending():
+            raise HandleMisuse(failure("PIE-R4001"), attempt=self._owner.attempt)
         self._arm()
         return _batch(self._run(self._owner.__next__))
 
@@ -420,15 +429,19 @@ def execute(
         raise _refuse("PIE-R1001", "PUBLIC_ROUTE_REQUIRED")
     if type(route) is not str:
         raise _refuse("PIE-R1002", "PUBLIC_ROUTE_TYPE")
-    dialect = {"postgres_rows": "postgres", "mysql_rows": "mysql"}.get(route)
+    dialect = {
+        "postgres_rows": "postgres",
+        "postgres_adbc": "postgres",
+        "mysql_rows": "mysql",
+    }.get(route)
     if dialect is None or query.dialect != dialect:
         raise _refuse("PIE-R1003", "PUBLIC_ROUTE_UNAVAILABLE")
     if access is None:
         raise _refuse("PIE-R1001", "PUBLIC_ACCESS_REQUIRED")
-    access_type = PostgresAccess if route == "postgres_rows" else MySQLAccess
+    access_type = PostgresAccess if route.startswith("postgres_") else MySQLAccess
     premise_type = (
         PostgresDeploymentPremise
-        if route == "postgres_rows"
+        if route.startswith("postgres_")
         else MySQLDeploymentPremise
     )
     if type(access) is not access_type:
@@ -460,15 +473,16 @@ def execute(
             limits.seconds,
         )
         if route == "postgres_rows":
+            postgres_access = cast(PostgresAccess, access)
             owner = composition.prepare_attempt(
                 query._template,
                 ex.PostgresAccess(
-                    access.host,
-                    access.port,
-                    access.database,
-                    access.user,
-                    access.password,
-                    access.sslmode,
+                    postgres_access.host,
+                    postgres_access.port,
+                    postgres_access.database,
+                    postgres_access.user,
+                    postgres_access.password,
+                    postgres_access.sslmode,
                 ),
                 route=route,
                 schemas=premise.schemas,
@@ -476,18 +490,36 @@ def execute(
                 isolation=isolation,
                 values=values,
             )
+        elif route == "postgres_adbc":
+            postgres_access = cast(PostgresAccess, access)
+            owner = composition.prepare_postgres_adbc_attempt(
+                query._template,
+                ex.PostgresAccess(
+                    postgres_access.host,
+                    postgres_access.port,
+                    postgres_access.database,
+                    postgres_access.user,
+                    postgres_access.password,
+                    postgres_access.sslmode,
+                ),
+                schemas=premise.schemas,
+                limits=private_limits,
+                isolation=isolation,
+                values=values,
+            )
         else:
+            mysql_access = cast(MySQLAccess, access)
             owner = composition.prepare_mysql_attempt(
                 query._template,
                 ex.MySQLAccess(
-                    access.host,
-                    access.port,
-                    access.database,
-                    access.user,
-                    access.password,
-                    access.ca_file,
-                    access.account,
-                    access.roles,
+                    mysql_access.host,
+                    mysql_access.port,
+                    mysql_access.database,
+                    mysql_access.user,
+                    mysql_access.password,
+                    mysql_access.ca_file,
+                    mysql_access.account,
+                    mysql_access.roles,
                     verify_identity=True,
                     loopback_tls_exception=False,
                 ),

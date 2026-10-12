@@ -19,9 +19,10 @@ requalifies the sources on every attempt, but it cannot verify that the operator
 keeps the premise, and it does not claim that native definitions stay unchanged
 for the attempt's whole lifetime.
 
-The alpha covers `postgres_rows`, against PostgreSQL 18.6, and `mysql_rows`,
-against MySQL 8.4.12. Both routes use explicit TCP inputs and deployment
-premises. PostgreSQL ADBC and saved results remain private. There is no CLI command
+The alpha covers `postgres_rows` and `postgres_adbc`, against PostgreSQL 18.6,
+and `mysql_rows`, against MySQL 8.4.12. Both PostgreSQL routes use the same
+explicit TCP inputs and deployment premise; `postgres_adbc` selects only its
+pinned ADBC driver closure. Saved results remain private. There is no CLI command
 that connects to a database.
 
 ## Install
@@ -29,9 +30,11 @@ that connects to a database.
 `pietto.execution` exists only in a wheel built from this checkout. The
 released 0.1.1 on PyPI does not contain it, so installing an execution extra
 from PyPI does not provide it. Build the wheel here with `uv build --wheel`,
-then install it with `execute-postgres` or `execute-mysql` in a fresh virtual
-environment. The PostgreSQL extra adds pinned `psycopg[binary]==3.3.5`; the
-MySQL extra adds pinned `mysql-connector-python==26.7.0`; both select
+then install it with `execute-postgres`, `execute-postgres-adbc` or
+`execute-mysql` in a fresh virtual environment. The PostgreSQL rows extra adds
+pinned `psycopg[binary]==3.3.5`; the PostgreSQL ADBC extra adds pinned
+`adbc-driver-postgresql==1.12.0` and `adbc-driver-manager==1.12.0`; the MySQL
+extra adds pinned `mysql-connector-python==26.7.0`; all select
 `pyarrow==25.0.1` (see the README's execution extras). Compiling, exporting and loading a bundle and
 an unopened `execute()` need neither. Without them, opening an attempt is
 refused with `PIE-R2001` before any connection, and no other installed driver
@@ -256,6 +259,7 @@ except RequestRejected as error:
 | `DEADLINE` | `limits.seconds` expired. |
 | `CANCELLED` | `cancel()` won before the attempt completed. |
 | `FAILED` | A failure ended it; `primary` says which. This includes a result read to the end and committed whose cleanup then failed (see below). |
+| `FAILED_REMOTE_UNOBSERVED` | PostgreSQL ADBC cleanup has failed or timed out and remains available only for an explicit `close()` retry. The handle is not closed, but cannot read, reopen or claim remote completion. |
 | `DROPPED` | Only in an `UnclosedHandleWarning`: the open handle was garbage-collected, or was still open at interpreter exit. |
 
 `transaction` is `COMMIT_ACK` or `ROLLBACK_ACK` only after the server
@@ -302,6 +306,13 @@ step then failed (closing the connection, for example), the attempt ends
 `STOPPED_EARLY` with no `primary`, `cleanup` `FAILED` and that `PIE-R5001`
 entry.
 
+When PostgreSQL ADBC cleanup cannot complete, its public end is
+`FAILED_REMOTE_UNOBSERVED` while `closed` remains false. The original failure,
+`UNKNOWN` transaction state and remote-unobserved cleanup facts remain in the
+outcome; `next()` and re-entry are refused with `PIE-R4001`. A later explicit `close()` retries
+only the established cleanup and does not resume execution or replace those
+facts with an acknowledgement.
+
 A `KeyboardInterrupt` or other `BaseException` during finalization records the
 terminal and cleanup facts reached by bounded cleanup, then propagates the
 original exception unchanged. It is never replaced by an execution error.
@@ -318,7 +329,8 @@ carries its `outcome`; `HandleMisuse` (PIE-R4xxx) leaves the attempt unchanged.
 `limits` are given and have the right type and that `isolation` is given, in
 this order; right after the route's type it checks that the route is
 the selected route and the query was compiled for its selected dialect
-(`postgres_rows`/`postgres` or `mysql_rows`/`mysql`, `PIE-R1003`). It
+(`postgres_rows` or `postgres_adbc`/`postgres`, or `mysql_rows`/`mysql`,
+`PIE-R1003`). It
 then checks that `values` is `None` or a tuple (`PIE-R1002`), binds the query
 to the values (`PIE-R1006`, `PIE-R1004`), reads the installed code identity
 again (`PIE-R1005`) and checks the values of `premise`, `access`, `isolation`
@@ -687,6 +699,24 @@ route, cursor API or whole-result materializer.
   attributes and OpenTelemetry context propagation on both data and control
   connections. The prepared binary row protocol and its EOF remain the native
   completion evidence; statement close-send is not a server acknowledgement.
+
+### PostgreSQL ADBC rows
+
+`postgres_adbc` reuses `PostgresAccess` and `PostgresDeploymentPremise`, but
+selects exactly `adbc-driver-postgresql==1.12.0`,
+`adbc-driver-manager==1.12.0` and `pyarrow==25.0.1`. It uses the same bound
+query, `ResultHandle`, `ResultBatch`, schema protocol and `Outcome` as the
+other rows routes; it exposes no ADBC connection, reader, URI, driver path or
+fallback to `postgres_rows`. Its private bridge creates the route-bound ADBC
+premise from the binding's exact ordered sources on every call.
+
+The route refuses `PG*`, `SSLKEYLOGFILE`, `OPENSSL_CONF` and `OPENSSL_MODULES`
+before importing its native owner. It uses the documented PostgreSQL TCP SCRAM
+profile, including `require_auth=scram-sha-256`; an ADBC service witness is the
+acceptance evidence for a successful SCRAM exchange and pre-response rejection
+of non-SCRAM methods. The selected Linux driver library is checked as adjacent
+to the pinned driver module; Pietto makes no broader transitive-libpq or
+platform claim.
 
 ### PostgreSQL rows
 

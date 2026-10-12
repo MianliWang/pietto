@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import sys
 import threading
 import time
 import uuid
@@ -120,6 +121,7 @@ class PostgresADBCExecution:
         self._timer: Any = None
         self._started: Any = None
         self._closed = self._submitted = self._finalizing = self._retired = False
+        self._terminal = None
         self._unsafe_protocol = False
         self._copy_checkpoint: Any = None
         self._copy_status: Any = None
@@ -158,10 +160,17 @@ class PostgresADBCExecution:
             return float(self.request.limits.seconds)
         value = self.request.limits.seconds - (time.monotonic() - self._started)
         if value <= 0:
-            self.deadline_expired = True
-            self._cancel.set()
+            if self._claim_terminal("DEADLINE"):
+                self.deadline_expired = True
             raise ExecutionError("EXECUTION_DEADLINE")
         return value
+
+    def _claim_terminal(self, terminal):
+        with self._gate:
+            if self._terminal is not None or self._closed or self._finalizing:
+                return False
+            self._terminal = terminal
+            return True
 
     def _checkpoint(self):
         if self._finalizing:
@@ -333,6 +342,7 @@ class PostgresADBCExecution:
             self._delivery = "OPEN"
             return self
         except BaseException as error:
+            self._claim_terminal("FAILED")
             self._failed(error, "admission")
             raise
 
@@ -501,8 +511,9 @@ class PostgresADBCExecution:
                 return batch
             if not statement.exhausted:
                 raise ExecutionError("POSTGRES_ADBC_READER_TERMINAL")
-            self._source = "EOF"
-            self._delivery = "COMPLETE"
+            if not self._claim_terminal("COMPLETE"):
+                raise ExecutionError("EXECUTION_CANCELED")
+            self._source, self._delivery = "EOF", "COMPLETE"
             self._finish(True)
             if self._primary is not None or self._cleanup_errors:
                 raise ExecutionError("EXECUTION_FINALIZATION")
@@ -511,6 +522,7 @@ class PostgresADBCExecution:
             raise
         except BaseException as error:
             self._close_failed_batch(batch)
+            self._claim_terminal("FAILED")
             self._failed(error, "query")
             raise
 
@@ -561,17 +573,20 @@ class PostgresADBCExecution:
                 )
                 if batch is not None:
                     return batch
-            self._source = "EOF"
-            self._delivery = "COMPLETE"
+            if not self._claim_terminal("COMPLETE"):
+                raise ExecutionError("EXECUTION_CANCELED")
+            self._source, self._delivery = "EOF", "COMPLETE"
             self._finish(True)
             if self._primary is not None or self._cleanup_errors:
                 raise ExecutionError("EXECUTION_FINALIZATION")
             raise StopIteration
         except BaseException:
             self._close_failed_batch(batch)
+            self._claim_terminal("FAILED")
             raise
 
     def _failed(self, error, phase):
+        self._claim_terminal("FAILED")
         if (
             self._unsafe_protocol
             or str(error)
@@ -600,14 +615,22 @@ class PostgresADBCExecution:
         self._finish(False)
 
     def _deadline(self):
-        self.deadline_expired = True
-        self.cancel()
+        self.cancel(deadline=True)
 
-    def cancel(self):
-        self._cancel.set()
+    def cancel(self, *, deadline=False):
         with self._gate:
+            if self._terminal is not None or self._closed or self._finalizing:
+                return {
+                    "requested": False,
+                    "sent": False,
+                    "observed": False,
+                    "late": True,
+                }
+            self._terminal = "DEADLINE" if deadline else "CANCELLED"
+            self.deadline_expired = deadline
+            self._cancel.set()
             statement = self._active
-            if self._closed or statement is None or statement.native is None:
+            if statement is None or statement.native is None:
                 return {
                     "requested": True,
                     "sent": False,
@@ -624,43 +647,63 @@ class PostgresADBCExecution:
                 )
             except BaseException as error:
                 self._cleanup_errors.append(failure(error, "cancel"))
-        return {
-            "requested": True,
-            "sent": self._cancel_sent,
-            "observed": self._cancel_observed,
-            "late": False,
-        }
+            return {
+                "requested": True,
+                "sent": self._cancel_sent,
+                "observed": self._cancel_observed,
+                "late": False,
+            }
 
     @property
     def control_joined(self):
         return self._timer is None or not self._timer.is_alive()
 
     def _finish(self, commit):
-        if self._closed:
-            return
-        self._retired = True
-        self._finalizing = True
+        active = sys.exc_info()[1]
+        interrupted = interrupted_traceback = None
+
+        def cleanup(error, phase):
+            nonlocal interrupted, interrupted_traceback
+
+            self._cleanup_errors.append(failure(error, phase))
+            if not isinstance(error, Exception) and interrupted is None:
+                interrupted, interrupted_traceback = error, error.__traceback__
+
+        with self._gate:
+            if self._closed or self._finalizing:
+                return
+            self._retired = True
+            self._finalizing = True
         try:
             if self._timer is not None:
-                self._timer.cancel()
-                if threading.current_thread() is not self._timer:
-                    self._timer.join(timeout=12)
-                if self._timer.is_alive():
-                    self._cleanup_errors.append(
-                        ExecutionFailure("control_join", "TimeoutError")
-                    )
-                    self._transaction = "UNKNOWN"
-                    self._cleanup = "FAILED_REMOTE_UNOBSERVED"
-                    return
+                try:
+                    self._timer.cancel()
+                    if threading.current_thread() is not self._timer:
+                        self._timer.join(timeout=12)
+                    if self._timer.is_alive():
+                        self._cleanup_errors.append(
+                            ExecutionFailure("control_join", "TimeoutError")
+                        )
+                        self._transaction = "UNKNOWN"
+                        self._cleanup = "FAILED_REMOTE_UNOBSERVED"
+                        return
+                except BaseException as error:
+                    cleanup(error, "control_join")
             if self.guards is not None:
-                self.guards.close()
+                try:
+                    self.guards.close()
+                except BaseException as error:
+                    cleanup(error, "guard_close")
             if not commit and self.enumeration is not None:
-                self.enumeration.fail()
+                try:
+                    self.enumeration.fail()
+                except BaseException as error:
+                    cleanup(error, "enumeration_fail")
             for statement in tuple(self._statements):
                 try:
                     statement.close()
                 except BaseException as error:
-                    self._cleanup_errors.append(failure(error, "statement_close"))
+                    cleanup(error, "statement_close")
             if self._owned_connection is not None:
                 if self._transaction == "OPEN":
                     try:
@@ -694,27 +737,40 @@ class PostgresADBCExecution:
                         if self._primary is None:
                             self._primary = failure(error, "transaction")
                         else:
-                            self._cleanup_errors.append(failure(error, "transaction"))
+                            cleanup(error, "transaction")
+                        if not isinstance(error, Exception) and interrupted is None:
+                            interrupted, interrupted_traceback = (
+                                error,
+                                error.__traceback__,
+                            )
                 try:
                     self._owned_connection.close()
                 except BaseException as error:
-                    self._cleanup_errors.append(failure(error, "connection_close"))
+                    cleanup(error, "connection_close")
             if self._owned_database is not None:
                 try:
                     self._owned_database.close()
                 except BaseException as error:
-                    self._cleanup_errors.append(failure(error, "database_close"))
-            self._closed = True
+                    cleanup(error, "database_close")
+            with self._gate:
+                self._closed = True
             self._cleanup = (
                 "FAILED_REMOTE_UNOBSERVED"
                 if self._cleanup_errors
                 else "LOCAL_CLOSED_REMOTE_UNOBSERVED"
             )
         finally:
-            self._finalizing = False
+            with self._gate:
+                self._finalizing = False
+        if interrupted is not None and active is None:
+            raise interrupted.with_traceback(interrupted_traceback)
 
     def close(self):
         if not self._closed:
+            won = self._claim_terminal("STOPPED_EARLY")
+            if not won and self._terminal != "STOPPED_EARLY":
+                self._finish(False)
+                return
             if self._source != "EOF":
                 self._source = "EARLY_CLOSE"
             if self._delivery != "FAILED":

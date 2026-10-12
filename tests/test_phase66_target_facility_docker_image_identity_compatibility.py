@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import subprocess
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -264,3 +267,121 @@ def test_pins_keep_platform_and_config_as_distinct_reviewed_identities() -> None
     for target in TARGETS:
         assert pin(target)["platform_digest"] != pin(target)["config_digest"]
         assert {"platform_digest", "config_digest"} <= set(pin(target))
+
+
+class CachedImageResources(resources.Resources):
+    def __init__(
+        self,
+        target: str,
+        directory: Path,
+        observations: list[dict[str, Any] | str | Exception],
+    ) -> None:
+        super().__init__(target, pin(target), directory)
+        self.observations = observations
+        self.commands: list[tuple[str, ...]] = []
+
+    def docker(
+        self, *args: str, timeout: float = 30, extra_env: dict[str, str] | None = None
+    ) -> str:
+        self.commands.append(args)
+        if args[:2] == ("image", "inspect"):
+            value = self.observations.pop(0)
+            if isinstance(value, Exception):
+                raise value
+            if type(value) is str:
+                return value
+            return json.dumps(value)
+        if args[:2] == ("image", "pull"):
+            return ""
+        raise AssertionError(args)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_acquire_reuses_a_verified_cached_immutable_image(
+    target: str, tmp_path: Path
+) -> None:
+    resource = CachedImageResources(target, tmp_path, [descriptor_observation(target)])
+    reference = pin(target)["repository"] + "@" + pin(target)["platform_digest"]
+
+    resource.acquire_image(reference)
+
+    assert resource.runtime_image_id == RUNTIME
+    assert [command[:2] for command in resource.commands] == [("image", "inspect")]
+    assert resource.events == [
+        {"event": "image_cached", "reference": reference},
+        {"event": "image_verified", "reference": reference}
+        | resources.image_identity(descriptor_observation(target), pin(target)),
+    ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_acquire_pulls_only_an_unknown_or_missing_image_then_verifies(
+    target: str, tmp_path: Path
+) -> None:
+    resource = CachedImageResources(
+        target,
+        tmp_path,
+        [
+            RuntimeError("Docker image inspect unknown or missing"),
+            descriptor_observation(target),
+        ],
+    )
+    reference = pin(target)["repository"] + "@" + pin(target)["platform_digest"]
+
+    resource.acquire_image(reference)
+
+    assert resource.runtime_image_id == RUNTIME
+    assert [command[:2] for command in resource.commands] == [
+        ("image", "inspect"),
+        ("image", "pull"),
+        ("image", "inspect"),
+    ]
+    assert [event["event"] for event in resource.events] == [
+        "image_pull_start",
+        "image_pulled",
+        "image_verified",
+    ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "observation",
+    [
+        RuntimeError("Docker operation failed: image"),
+        descriptor_observation("postgres", descriptor={"digest": FOREIGN}),
+        "not-json",
+    ],
+)
+def test_acquire_never_pulls_after_daemon_or_identity_failure(
+    target: str, tmp_path: Path, observation: dict[str, Any] | str | Exception
+) -> None:
+    resource = CachedImageResources(target, tmp_path, [observation])
+    reference = pin(target)["repository"] + "@" + pin(target)["platform_digest"]
+
+    with pytest.raises((RuntimeError, ValueError, json.JSONDecodeError)):
+        resource.acquire_image(reference)
+
+    assert resource.runtime_image_id is None
+    assert [command[:2] for command in resource.commands] == [("image", "inspect")]
+    assert resource.events == []
+
+
+@pytest.mark.parametrize(
+    ("stderr", "expected"),
+    [
+        ("Error response from daemon: No such image", "unknown or missing"),
+        ("Cannot connect to the Docker daemon", "Docker operation failed: image"),
+    ],
+)
+def test_docker_classifies_only_missing_image_inspection_for_pull(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stderr: str, expected: str
+) -> None:
+    resource = resources.Resources("postgres", pin("postgres"), tmp_path)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout="", stderr=stderr),
+    )
+
+    with pytest.raises(RuntimeError, match=expected):
+        resource.docker("image", "inspect", "immutable")

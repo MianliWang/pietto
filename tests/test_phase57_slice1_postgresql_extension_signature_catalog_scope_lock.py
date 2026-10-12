@@ -368,6 +368,28 @@ def test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
                 REPO_ROOT / "src/pietto/_project/project_execution_postgres.py"
             )
             excluded_paths = {execution_path}
+        if forbidden == "psycopg":
+            # Public composition identifies a caught dependency by its module
+            # root; it neither imports nor opens the driver.  Keep that one
+            # exact literal in its one classifier, without widening the
+            # execution reader reserve to other public or private owners.
+            public_execution_path = source_root / "_project/project_public_execution.py"
+            public_execution_text = _read(public_execution_path)
+            assert public_execution_text.count("psycopg") == 1
+            classifier = [
+                node
+                for node in ast.walk(ast.parse(public_execution_text))
+                if isinstance(node, ast.FunctionDef) and node.name == "driver_error"
+            ]
+            assert len(classifier) == 1
+            assert (
+                sum(
+                    isinstance(node, ast.Constant) and node.value == "psycopg"
+                    for node in ast.walk(classifier[0])
+                )
+                == 1
+            )
+            excluded_paths.add(public_execution_path)
         if forbidden == "server_version":
             # S06 source admission reads the selected version in this exact
             # read-only context query. A second/comment/injected occurrence is

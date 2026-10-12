@@ -47,7 +47,9 @@ def test_mysql_access_and_premise_redact_and_refuse_copy():
                 duplicate(value)
 
 
-def test_mysql_route_dispatches_one_private_owner_with_fixed_profile(query, monkeypatch):
+def test_mysql_route_dispatches_one_private_owner_with_fixed_profile(
+    query, monkeypatch
+):
     captured = {}
     owner = SimpleNamespace(attempt="mysql-attempt")
 
@@ -146,7 +148,11 @@ def test_mysql_ambient_refusal_precedes_private_owner_import(monkeypatch):
     monkeypatch.setattr(ex, "refuse_ambient", refuse)
     with pytest.raises(ex.ExecutionError, match="EXECUTION_AMBIENT_CONNECTION_PROFILE"):
         composition.prepare_mysql_attempt(
-            object(), object(), schemas=("fixture",), limits=object(), isolation="stable"
+            object(),
+            object(),
+            schemas=("fixture",),
+            limits=object(),
+            isolation="stable",
         )
     assert calls == ["ambient"]
 

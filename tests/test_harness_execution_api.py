@@ -25,28 +25,108 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_mysql_consumer_checker_accepts_its_literal_facts_and_refuses_damage():
     command = {"returncode": 0}
     install = {
-        recipe: {"venv": command, "install": command, "check": command,
-                 "python": check.INTERPRETER}
+        recipe: {
+            "venv": command,
+            "install": command,
+            "check": command,
+            "python": check.INTERPRETER,
+        }
         for recipe in ("core", "execute-mysql")
     }
     report = {
         "format": check.FORMAT,
         "family": "mysql",
         "install": install,
-        "core": {"returncode": 0, "result": {
-            "before": [], "open": ["PIE-R2001", "EXECUTION_DEPENDENCY_MISSING", False], "after": []}},
+        "core": {
+            "returncode": 0,
+            "result": {
+                "before": [],
+                "open": ["PIE-R2001", "EXECUTION_DEPENDENCY_MISSING", False],
+                "after": [],
+            },
+        },
         "ambient": {
-            name: {"returncode": 0, "result": {
-                "before": [], "request": ["PIE-R2003", "EXECUTION_AMBIENT_CONNECTION_PROFILE", False], "after": []}}
+            name: {
+                "returncode": 0,
+                "result": {
+                    "before": [],
+                    "request": [
+                        "PIE-R2003",
+                        "EXECUTION_AMBIENT_CONNECTION_PROFILE",
+                        False,
+                    ],
+                    "after": [],
+                },
+            }
             for name in ("SSLKEYLOGFILE", "OPENSSL_CONF", "OPENSSL_MODULES")
         },
-        "shadow": {"returncode": 0, "result": {
-            "before": [], "open": ["PIE-R2002", "EXECUTION_DRIVER_VERSION", False], "after": ["mysql"]}},
+        "shadow": {
+            "returncode": 0,
+            "result": {
+                "before": [],
+                "open": ["PIE-R2002", "EXECUTION_DRIVER_VERSION", False],
+                "after": ["mysql"],
+            },
+        },
     }
     assert check.check(report) == {"family": "mysql", "verdict": "ACCEPTED"}
     damaged = copy.deepcopy(report)
     damaged["shadow"]["result"]["open"][0] = "PIE-R2001"
     with pytest.raises(check.Rejected, match="MYSQL_SHADOW"):
+        check.check(damaged)
+
+
+def test_adbc_consumer_checker_accepts_its_literal_facts_and_refuses_damage():
+    command = {"returncode": 0}
+    install = {
+        recipe: {
+            "venv": command,
+            "install": command,
+            "check": command,
+            "python": check.INTERPRETER,
+        }
+        for recipe in ("core", "execute-postgres-adbc")
+    }
+    report = {
+        "format": check.FORMAT,
+        "family": "postgres_adbc",
+        "install": install,
+        "core": {
+            "returncode": 0,
+            "result": {
+                "before": [],
+                "open": ["PIE-R2001", "EXECUTION_DEPENDENCY_MISSING", False],
+                "after": [],
+            },
+        },
+        "ambient": {
+            name: {
+                "returncode": 0,
+                "result": {
+                    "before": [],
+                    "request": [
+                        "PIE-R2003",
+                        "EXECUTION_AMBIENT_CONNECTION_PROFILE",
+                        False,
+                    ],
+                    "after": [],
+                },
+            }
+            for name in ("SSLKEYLOGFILE", "OPENSSL_CONF", "OPENSSL_MODULES")
+        },
+        "shadow": {
+            "returncode": 0,
+            "result": {
+                "before": [],
+                "open": ["PIE-R2002", "POSTGRES_ADBC_DRIVER_PROFILE", False],
+                "after": ["adbc_driver_postgresql"],
+            },
+        },
+    }
+    assert check.check(report) == {"family": "postgres_adbc", "verdict": "ACCEPTED"}
+    damaged = copy.deepcopy(report)
+    damaged["ambient"]["OPENSSL_CONF"]["result"]["after"] = ["pyarrow"]
+    with pytest.raises(check.Rejected, match="ADBC_AMBIENT_IMPORT"):
         check.check(damaged)
 
 
@@ -117,6 +197,10 @@ def test_checkout_consumer_cases_satisfy_the_checker(checkout_facts):
         (lambda f: f["imports"].update(connected=True), "IMPORT_CONNECTED"),
         (
             lambda f: f["imports"]["result"]["refusals"].update(sql_text=None),
+            "REQUEST_REFUSALS",
+        ),
+        (
+            lambda f: f["imports"]["result"]["refusals"].update(route_unknown=None),
             "REQUEST_REFUSALS",
         ),
         (lambda f: f["ambient"].pop("OPENSSL_CONF"), "AMBIENT_DENOMINATOR"),
@@ -1164,6 +1248,307 @@ def test_the_checker_accepts_the_postgres_oracle_facts():
 )
 def test_the_checker_refuses_each_damaged_postgres_fact(damage, reason):
     report = postgres_report()
+    damage(report)
+    with pytest.raises(check.Rejected, match="^" + reason + "$"):
+        check.check(report)
+
+
+def postgres_adbc_native_report():
+    """Literal raw facts for the installed, TCP SCRAM ADBC witness."""
+    rows = [[2, "two"], [2, "two"], [3, "three"], [5, "five"]]
+
+    def adbc_outcome(*args, **kwargs):
+        value = _outcome(*args, **kwargs)
+        value["cleanup"] = "LOCAL_CLOSED_REMOTE_UNOBSERVED"
+        return value
+
+    def completed(origin, values, count):
+        outcome = adbc_outcome("COMPLETE", "COMMIT_ACK", rows=count)
+        outcome["batches"] = 0 if count == 0 else 1
+        return {
+            "origin": origin,
+            "route": "postgres_adbc",
+            "sslmode": "require",
+            "schema": list(check.DEMO_SCHEMA),
+            "rows": copy.deepcopy(values),
+            "outcome": outcome,
+        }
+
+    early = adbc_outcome("STOPPED_EARLY", "ROLLBACK_ACK", rows=1)
+    early.update(source="EARLY_CLOSE", delivery="INCOMPLETE")
+    cancelled = adbc_outcome(
+        "CANCELLED",
+        "NOT_STARTED",
+        primary=["PIE-R3009", None, None, None, None],
+        cancel=(True, False, False),
+    )
+    cancelled.update(source="FAILED", delivery="FAILED", batches=0)
+
+    def refused_adbc_outcome():
+        value = adbc_outcome(
+            "FAILED",
+            "NOT_STARTED",
+            primary=["PIE-R2004", None, "admission", None, "OperationalError"],
+        )
+        value.update(source="FAILED", delivery="FAILED", batches=0)
+        return value
+
+    def active_adbc(terminal, code, *, manual=True):
+        value = adbc_outcome(
+            terminal,
+            "UNKNOWN",
+            primary=[
+                code,
+                None,
+                "query",
+                None if manual else "57014",
+                "OperationalError",
+            ],
+            cancel=(True, True, True) if manual else (False, False, False),
+        )
+        value.update(
+            source="FAILED",
+            delivery="FAILED",
+            batches=0,
+            cleanup="FAILED_REMOTE_UNOBSERVED",
+        )
+        return {
+            "returncode": 0,
+            "blocked": [["active", "Lock"]],
+            "attempt": "active-attempt-" + terminal,
+            "purpose": "query",
+            "result": {
+                "active": {
+                    "type": "NativeStatement",
+                    "purpose": "query",
+                    "native": True,
+                },
+                "closed": True,
+                "raised": "AttemptFailed",
+                **({"cancel_return": True} if manual else {}),
+                "outcome": value,
+                "late_cancel_return": True,
+                "outcome_after_late": copy.deepcopy(value),
+            },
+        }
+
+    authentication = {}
+    for method in ("trust", "password", "md5", "gss", "sspi"):
+        authentication[method] = _ok(
+            {
+                "after_import": [],
+                "unopened": [[], "NOT_STARTED", False],
+                "code": "PIE-R2004",
+                "detail": None,
+                "shown": False,
+                "chained": False,
+                "after_open": [
+                    "adbc_driver_manager",
+                    "adbc_driver_postgresql",
+                    "pyarrow",
+                ],
+                "outcome": refused_adbc_outcome(),
+            }
+        )
+        authentication[method]["stub"] = {
+            "events": [["startup", "pietto_reader", "phase66"], ["closed", "EOFError"]],
+            "replied": False,
+            "startup": ["pietto_reader", "phase66"],
+        }
+    ambient = {
+        name: _ok(
+            {
+                "after_import": [],
+                "code": "PIE-R2003",
+                "detail": "EXECUTION_AMBIENT_CONNECTION_PROFILE",
+                "shown": False,
+                "chained": False,
+                "after_open": [],
+            }
+        )
+        for name in ("SSLKEYLOGFILE", "OPENSSL_CONF", "OPENSSL_MODULES")
+    }
+    for record in ambient.values():
+        record.update(connected=False, keylog_created=False)
+    return {
+        "format": check.FORMAT,
+        "family": "postgres_adbc_native",
+        "install": _install("execute-postgres-adbc"),
+        "server": copy.deepcopy(postgres_report()["server"]),
+        "native": _ok(
+            {
+                "after_import": [],
+                "live": completed("live", rows, 4),
+                "bundle": completed("bundle", rows, 4),
+                "empty": completed("live", [], 0),
+                "bounded": completed("live", [[2, "two"]], 1),
+                "early_rows": [{"id": 2, "label": "two"}],
+                "early": early,
+                "cancelled": {
+                    "cancel_return": True,
+                    "closed": True,
+                    "code": "PIE-R3009",
+                    "detail": None,
+                    "shown": False,
+                    "chained": False,
+                    "outcome": cancelled,
+                },
+                "qualification": ["postgres_adbc"] * 5,
+                "driver": {
+                    "prefix": "/prefix",
+                    "postgresql_version": "1.12.0",
+                    "manager_version": "1.12.0",
+                    "module": "/prefix/lib/python3.13/site-packages/adbc_driver_postgresql/__init__.py",
+                    "manager_module": "/prefix/lib/python3.13/site-packages/adbc_driver_manager/__init__.py",
+                    "library": "/prefix/lib/python3.13/site-packages/adbc_driver_postgresql/libadbc_driver_postgresql.so",
+                    "library_record": True,
+                    "module_record": True,
+                    "module_in_prefix": True,
+                    "library_in_prefix": True,
+                    "library_exists": True,
+                },
+            }
+        ),
+        "authentication": authentication,
+        "ambient": ambient,
+        "active_cancel": active_adbc("CANCELLED", "PIE-R3009"),
+        "active_server_timeout": active_adbc("FAILED", "PIE-R3002", manual=False),
+        "cleanup": {"status": "success"},
+    }
+
+
+def test_the_checker_accepts_the_postgres_adbc_native_raw_facts():
+    assert check.check(postgres_adbc_native_report()) == {
+        "family": "postgres_adbc_native",
+        "verdict": "ACCEPTED",
+    }
+
+
+def test_finish_checks_the_exclusive_json_report_with_ordered_stub_events(tmp_path):
+    report = postgres_adbc_native_report()
+    events = (
+        ("startup", "pietto_reader", "phase66"),
+        ("closed", "EOFError"),
+        ("closed", "EOFError"),
+    )
+    for record in report["authentication"].values():
+        record["stub"]["events"] = events
+
+    verdict = probe.finish(tmp_path, report)
+    written = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
+    assert written["authentication"]["trust"]["stub"]["events"] == [
+        list(event) for event in events
+    ]
+    assert (
+        verdict
+        == check.check(written)
+        == {
+            "family": "postgres_adbc_native",
+            "verdict": "ACCEPTED",
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "damage,reason",
+    (
+        (lambda r: r["install"].pop("execute-postgres-adbc"), "INSTALL"),
+        (lambda r: r["server"]["hba"][4].__setitem__(2, "md5"), "HBA_METHODS"),
+        (
+            lambda r: r["native"]["result"]["live"].update(origin="bundle"),
+            "ADBC_NATIVE_LIVE",
+        ),
+        (
+            lambda r: r["native"]["result"]["live"]["outcome"].update(cleanup="CLOSED"),
+            "ADBC_NATIVE_LIVE",
+        ),
+        (
+            lambda r: r["native"]["result"]["bundle"]["rows"].reverse(),
+            "ADBC_NATIVE_BUNDLE",
+        ),
+        (
+            lambda r: r["native"]["result"]["early"].update(
+                remote="REMOTE_QUIESCENCE_UNCONFIRMED"
+            ),
+            "ADBC_EARLY_CLOSE",
+        ),
+        (
+            lambda r: r["native"]["result"].update(qualification=[]),
+            "ADBC_QUALIFICATION",
+        ),
+        (
+            lambda r: r["native"]["result"]["cancelled"]["outcome"].update(
+                transaction="COMMIT_ACK"
+            ),
+            "ADBC_CANCEL",
+        ),
+        (
+            lambda r: r["active_cancel"]["result"].update(active={"purpose": "query"}),
+            "ADBC_ACTIVE_CANCEL_STATEMENT",
+        ),
+        (
+            lambda r: r["active_server_timeout"].update(blocked=[]),
+            "ADBC_ACTIVE_SERVER_TIMEOUT_BARRIER",
+        ),
+        (
+            lambda r: r["active_server_timeout"]["result"].update(cancel_return=False),
+            "ADBC_ACTIVE_SERVER_TIMEOUT",
+        ),
+        (
+            lambda r: r["active_cancel"]["result"]["outcome"].update(end="DEADLINE"),
+            "ADBC_ACTIVE_CANCEL",
+        ),
+        (
+            lambda r: r["active_server_timeout"]["result"]["outcome"].update(
+                transaction="COMMIT_ACK"
+            ),
+            "ADBC_ACTIVE_SERVER_TIMEOUT",
+        ),
+        (
+            lambda r: r["active_cancel"]["result"]["outcome"].update(
+                cancel=[True, False, True]
+            ),
+            "ADBC_ACTIVE_CANCEL",
+        ),
+        (
+            lambda r: r["active_server_timeout"]["result"].update(
+                outcome_after_late={}
+            ),
+            "ADBC_ACTIVE_SERVER_TIMEOUT",
+        ),
+        (
+            lambda r: r["native"]["result"]["driver"].update(library_record=False),
+            "ADBC_DRIVER_RECORD",
+        ),
+        (
+            lambda r: r["authentication"]["password"]["stub"].update(replied=True),
+            "ADBC_AUTH_password",
+        ),
+        (
+            lambda r: r["authentication"]["gss"]["result"]["outcome"].update(
+                cleanup="CLOSED"
+            ),
+            "ADBC_AUTH_gss",
+        ),
+        (
+            lambda r: r["authentication"]["md5"]["result"].update(shown=True),
+            "ADBC_AUTH_md5",
+        ),
+        (
+            lambda r: r["ambient"]["SSLKEYLOGFILE"].update(keylog_created=True),
+            "ADBC_NATIVE_AMBIENT_SSLKEYLOGFILE",
+        ),
+        (
+            lambda r: r["ambient"]["OPENSSL_CONF"]["result"].update(
+                after_open=["pyarrow"]
+            ),
+            "ADBC_NATIVE_AMBIENT_OPENSSL_CONF",
+        ),
+        (lambda r: r["cleanup"].update(status="failed"), "RESOURCE_CLEANUP"),
+    ),
+)
+def test_the_checker_refuses_each_damaged_postgres_adbc_native_fact(damage, reason):
+    report = postgres_adbc_native_report()
     damage(report)
     with pytest.raises(check.Rejected, match="^" + reason + "$"):
         check.check(report)

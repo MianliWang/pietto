@@ -396,8 +396,8 @@ REQUEST_CASES: dict[str, tuple[dict[str, Any], str, str]] = {
     ),
     "route_none": (dict(route=None), "PIE-R1001", "PUBLIC_ROUTE_REQUIRED"),
     "route_type": (dict(route=5), "PIE-R1002", "PUBLIC_ROUTE_TYPE"),
-    "route_adbc": (
-        dict(route="postgres_adbc"),
+    "route_unknown": (
+        dict(route="postgres_other"),
         "PIE-R1003",
         "PUBLIC_ROUTE_UNAVAILABLE",
     ),
@@ -528,7 +528,7 @@ def test_execute_refuses_each_invalid_input_before_any_io(query, monkeypatch, ca
 def test_execute_reports_the_first_refusal_in_the_documented_order(query):
     order = (
         ("query", "SELECT 1", "PUBLIC_QUERY_TYPE"),
-        ("route", "postgres_adbc", "PUBLIC_ROUTE_UNAVAILABLE"),
+        ("route", "postgres_other", "PUBLIC_ROUTE_UNAVAILABLE"),
         ("access", None, "PUBLIC_ACCESS_REQUIRED"),
         ("premise", None, "PUBLIC_PREMISE_REQUIRED"),
         ("limits", None, "PUBLIC_LIMITS_REQUIRED"),

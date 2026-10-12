@@ -204,6 +204,11 @@ class Resources:
         )
         if result.returncode:
             # Docker error output can include credentials or raw configuration.
+            if args[:2] == ("image", "inspect") and any(
+                marker in str(getattr(result, "stderr", "")).lower()
+                for marker in ("no such image", "not found")
+            ):
+                raise RuntimeError("Docker image inspect unknown or missing")
             raise RuntimeError("Docker operation failed: " + args[0])
         if len(result.stdout.encode()) > 1024 * 1024:
             raise ValueError("Docker response limit exceeded")
@@ -234,6 +239,37 @@ class Resources:
             )
         )
 
+    def acquire_image(self, image: str) -> None:
+        """Use a locally cached immutable image only after its full identity
+        contract verifies.  A known missing cache entry alone permits a pull."""
+        try:
+            observed = json.loads(
+                self.docker("image", "inspect", image, "--format", IMAGE_FIELDS)
+            )
+        except RuntimeError as error:
+            if str(error) != "Docker image inspect unknown or missing":
+                raise
+            self.event("image_pull_start", image=image)
+            self.docker(
+                "image",
+                "pull",
+                "--quiet",
+                "--platform",
+                "linux/amd64",
+                image,
+                timeout=600,
+            )
+            observed = json.loads(
+                self.docker("image", "inspect", image, "--format", IMAGE_FIELDS)
+            )
+            source = "pulled"
+        else:
+            source = "cached"
+        identity = image_identity(observed, self.pin)
+        self.runtime_image_id = identity["runtime_image_id"]
+        self.event("image_" + source, reference=image)
+        self.event("image_verified", reference=image, **identity)
+
     def acquire(self) -> None:
         socket = Path("/var/run/docker.sock")
         if not socket.exists() or not stat.S_ISSOCK(socket.stat().st_mode):
@@ -249,18 +285,7 @@ class Resources:
         }
         self.event("endpoint_verified", **self.endpoint_observation)
         image = self.pin["repository"] + "@" + self.pin["platform_digest"]
-        self.event("image_pull_start", image=image)
-        self.docker(
-            "image", "pull", "--quiet", "--platform", "linux/amd64", image, timeout=600
-        )
-        identity = image_identity(
-            json.loads(
-                self.docker("image", "inspect", image, "--format", IMAGE_FIELDS)
-            ),
-            self.pin,
-        )
-        self.runtime_image_id = identity["runtime_image_id"]
-        self.event("image_verified", reference=image, **identity)
+        self.acquire_image(image)
         label = "pietto.phase66.invocation=" + self.nonce
         self.event("network_create_intent", name=self.network_name, nonce=self.nonce)
         self.uncertain.append("network")

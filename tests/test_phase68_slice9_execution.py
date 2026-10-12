@@ -7,9 +7,14 @@ from _pietto_phase68_slice5_cases import build
 from _pietto_phase68_slice7_cases import manifest, case_preparation
 from test_phase68_slice6_refinement import capabilities
 from pietto._project.project_execution import (
+    AMBIENT_TLS,
+    ExecutionRequest,
     PostgresAccess,
     PostgresADBCDeploymentPremise,
     ExecutionError,
+    ExecutionFailure,
+    PostgresDeploymentPremise,
+    prepare_compiled_execution,
     prepare_execution,
     request_state,
 )
@@ -65,6 +70,46 @@ def test_explicit_route_and_premise_preserve_rows(artifact):
     with pytest.raises(ExecutionError, match="EXECUTION_TARGET"):
         PostgresExecution(request)
     assert "not-a-live-secret" not in repr(request)
+
+
+def test_compiled_adbc_uses_its_fresh_route_bound_premise(artifact):
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+    )
+
+    root = build_compiled(artifact).root
+    template = prepare_compiled_template(root)
+    values = tuple(slot.original.site.position.literal.value for slot in template.slots)
+    binding = bind_values(template, tuple(zip(template.slots, values, strict=True)))
+    a = access()
+    premise = PostgresADBCDeploymentPremise(
+        a, binding.artifact.request.sources, ("public", "pg_catalog")
+    )
+    request = prepare_compiled_execution(
+        binding,
+        a,
+        route="postgres_adbc",
+        postgres_adbc_deployment=premise,
+    )
+    assert type(request) is ExecutionRequest
+    assert request.route == "postgres_adbc"
+    assert request.postgres_adbc_deployment is premise
+    assert request.postgres_deployment is None
+    with pytest.raises(
+        ExecutionError, match="POSTGRES_ADBC_DEPLOYMENT_PREMISE_REQUIRED"
+    ):
+        prepare_compiled_execution(binding, a, route="postgres_adbc")
+
+    rows = PostgresDeploymentPremise(
+        a, binding.artifact.request.sources, ("public", "pg_catalog"), "postgres_rows"
+    )
+    row_request = prepare_compiled_execution(
+        binding, a, route="postgres_rows", postgres_deployment=rows
+    )
+    assert type(row_request) is ExecutionRequest
+    assert row_request.postgres_deployment is rows
 
 
 @pytest.mark.parametrize(
@@ -286,6 +331,91 @@ def test_finalization_timeout_retires_delivery_but_allows_cleanup_retry(artifact
     assert owner.outcome.transaction == "UNKNOWN"
 
 
+def test_adbc_terminal_winner_and_late_cancel_are_fixed(artifact):
+    a = access()
+    p = PostgresADBCDeploymentPremise(
+        a, artifact.request.sources, ("public", "pg_catalog")
+    )
+    owner = PostgresADBCExecution(
+        prepare_execution(
+            artifact, a, route="postgres_adbc", postgres_adbc_deployment=p
+        )
+    )
+    assert owner.cancel() == {
+        "requested": True,
+        "sent": False,
+        "observed": False,
+        "late": False,
+    }
+    owner._failed(ExecutionError("EXECUTION_CANCELED"), "query")
+    assert owner._closed and owner._terminal == "CANCELLED"
+    assert owner.outcome.cancel_requested is True
+    assert owner.cancel() == {
+        "requested": False,
+        "sent": False,
+        "observed": False,
+        "late": True,
+    }
+
+    other = PostgresADBCExecution(
+        prepare_execution(
+            artifact, a, route="postgres_adbc", postgres_adbc_deployment=p
+        )
+    )
+    assert other._claim_terminal("FAILED")
+    other._deadline()
+    assert other._terminal == "FAILED" and other.deadline_expired is False
+
+    deadline = PostgresADBCExecution(
+        prepare_execution(
+            artifact, a, route="postgres_adbc", postgres_adbc_deployment=p
+        )
+    )
+    assert deadline._deadline() is None
+    assert deadline._terminal == "DEADLINE" and deadline.deadline_expired is True
+    assert deadline.outcome.cancel_requested is True
+
+
+def test_adbc_finalization_records_and_reraises_keyboard_interrupt(artifact):
+    a = access()
+    p = PostgresADBCDeploymentPremise(
+        a, artifact.request.sources, ("public", "pg_catalog")
+    )
+
+    class InterruptingGuards:
+        def close(self):
+            raise KeyboardInterrupt()
+
+    owner = PostgresADBCExecution(
+        prepare_execution(
+            artifact, a, route="postgres_adbc", postgres_adbc_deployment=p
+        )
+    )
+    owner.guards = InterruptingGuards()
+    with pytest.raises(KeyboardInterrupt):
+        owner.close()
+    assert owner._closed
+    assert [(e.phase, e.kind) for e in owner._cleanup_errors] == [
+        ("guard_close", "KeyboardInterrupt")
+    ]
+
+    primary = PostgresADBCExecution(
+        prepare_execution(
+            artifact, a, route="postgres_adbc", postgres_adbc_deployment=p
+        )
+    )
+    primary._primary = ExecutionFailure("query", "KeyboardInterrupt")
+    primary.guards = InterruptingGuards()
+    try:
+        raise KeyboardInterrupt()
+    except KeyboardInterrupt:
+        primary._finish(False)
+    assert primary._closed
+    assert [(e.phase, e.kind) for e in primary._cleanup_errors] == [
+        ("guard_close", "KeyboardInterrupt")
+    ]
+
+
 def test_page_primary_survives_failed_batch_close(artifact, monkeypatch):
     from types import SimpleNamespace
 
@@ -403,7 +533,7 @@ def test_explicit_tls_files_cannot_fall_back_to_user_home(
         lambda distribution, module: frozenset({version(distribution)}),
     )
     for key in tuple(os.environ):
-        if key.startswith("PG") or key == "SSLKEYLOGFILE":
+        if key.startswith("PG") or key in AMBIENT_TLS:
             monkeypatch.delenv(key)
     before = dict(os.environ)
     owner = SimpleNamespace(
@@ -416,12 +546,31 @@ def test_explicit_tls_files_cannot_fall_back_to_user_home(
     native.connect(owner)
     options = parse_qs(urlparse(captured[0]["uri"]).query)
     assert options["sslmode"] == [sslmode] and options["sslcertmode"] == ["disable"]
+    assert options["require_auth"] == ["scram-sha-256"]
+    assert options["channel_binding"] == [
+        "require" if sslmode == "require" else "disable"
+    ]
     for key in ("sslrootcert", "sslcrl", "sslcert", "sslkey"):
         path = options[key][0]
         assert path.startswith("/dev/null/")
         with pytest.raises(NotADirectoryError):
             Path(path).stat()
     assert os.environ == before
+
+
+@pytest.mark.parametrize("name", AMBIENT_TLS)
+def test_adbc_refuses_shared_tls_ambient_before_driver_loads(monkeypatch, name):
+    from types import SimpleNamespace
+    from pietto._project import project_execution_postgres_adbc_native as native
+
+    def forbidden():
+        raise AssertionError("ADBC driver loaded despite a refused ambient input")
+
+    monkeypatch.setattr(native, "drivers", forbidden)
+    monkeypatch.setenv(name, "set")
+    owner = SimpleNamespace(request=SimpleNamespace(access=access()))
+    with pytest.raises(ExecutionError, match="^EXECUTION_AMBIENT_CONNECTION_PROFILE$"):
+        native.connect(owner)
 
 
 def test_supplementary_oracle_checks_whole_values_not_just_count(artifact):

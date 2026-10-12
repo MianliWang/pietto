@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 import math
-import os
 import stat
 from pathlib import Path
 from urllib.parse import urlencode, quote
@@ -14,6 +13,7 @@ from pietto._project.project_execution import (
     ExecutionError,
     ExecutionFailure,
     pinned_modules,
+    refuse_ambient,
 )
 
 __all__: tuple[str, ...] = ()
@@ -48,8 +48,7 @@ def drivers():
 
 
 def connect(owner):
-    if any(k.startswith("PG") or k == "SSLKEYLOGFILE" for k in os.environ):
-        raise ExecutionError("EXECUTION_AMBIENT_CONNECTION_PROFILE")
+    refuse_ambient(("PG",))
     manager, pa, library = drivers()
     a = owner.request.access
     # The pinned Linux driver supports require (encryption) or explicit loopback
@@ -64,6 +63,8 @@ def connect(owner):
         user=a.user,
         password=a.password,
         sslmode=a.sslmode,
+        channel_binding="require" if a.sslmode == "require" else "disable",
+        require_auth="scram-sha-256",
         gssencmode="disable",
         sslcertmode="disable",
         sslrootcert="/dev/null/pietto-ca",

@@ -387,8 +387,7 @@ EXPECTED_STATUS = (
     ("Parallelism interlude", "`COMPLETED`"),
     (
         "Next",
-        "`Phase69 S05 CURRENT integration candidate; S06 next through its own Gate 0 "
-        "and owner public/trust decisions`",
+        "`Phase69 S05–S07 CURRENT batch candidate; S08 next after S07 reality check`",
     ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."

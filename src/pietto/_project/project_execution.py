@@ -391,7 +391,10 @@ def _verify_execution_structure(request, *, guarded=None) -> None:
         if request.binding is None or request.output is None:
             raise ExecutionError("COMPILED_BINDING_REQUIRED")
         if family == "postgres":
-            verify_postgres_deployment(request)
+            if request.route == "postgres_adbc":
+                verify_postgres_adbc_deployment(request)
+            else:
+                verify_postgres_deployment(request)
         else:
             if (
                 request.postgres_deployment is not None
@@ -671,6 +674,7 @@ def prepare_compiled_execution(
     limits=ExecutionLimits(),
     isolation="stable",
     postgres_deployment=None,
+    postgres_adbc_deployment=None,
     mysql_deployment=None,
     allow_guard_sql=True,
 ):
@@ -696,6 +700,7 @@ def prepare_compiled_execution(
         output=output,
         mysql_deployment=mysql_deployment,
         route=route,
+        postgres_adbc_deployment=postgres_adbc_deployment,
         postgres_deployment=postgres_deployment,
     )
     if program is not None:

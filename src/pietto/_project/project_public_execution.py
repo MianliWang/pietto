@@ -144,9 +144,7 @@ def prepare_attempt(
 
 
 @entry
-def prepare_mysql_attempt(
-    template, access, *, schemas, limits, isolation, values=None
-):
+def prepare_mysql_attempt(template, access, *, schemas, limits, isolation, values=None):
     """One fresh, unopened MySQL rows owner; no I/O or driver import.
 
     The ambient TLS refusal precedes importing the private MySQL owner, whose
@@ -183,6 +181,45 @@ def prepare_mysql_attempt(
     return MySQLExecution(request)
 
 
+@entry
+def prepare_postgres_adbc_attempt(
+    template, access, *, schemas, limits, isolation, values=None
+):
+    """One fresh, unopened PostgreSQL ADBC rows owner; no I/O.
+
+    Refuse the shared PostgreSQL/OpenSSL ambient inputs before importing the
+    private ADBC owner, then retain the one binding, output and result carrier
+    used by the other public routes.
+    """
+    ex.refuse_ambient(("PG",))
+    from pietto._project.project_execution_postgres_adbc import PostgresADBCExecution
+    from pietto._project.project_execution_template import bind_values
+
+    if values is None:
+        values = tuple(
+            slot.original.site.position.literal.value for slot in template.slots
+        )
+    binding = bind_values(
+        template,
+        tuple(zip(template.slots, values))
+        if len(values) == len(template.slots)
+        else values,
+    )
+    premise = ex.PostgresADBCDeploymentPremise(
+        access, binding.artifact.request.sources, schemas
+    )
+    request = ex.prepare_compiled_execution(
+        binding,
+        access,
+        route="postgres_adbc",
+        limits=limits,
+        isolation=isolation,
+        postgres_adbc_deployment=premise,
+        allow_guard_sql=False,
+    )
+    return PostgresADBCExecution(request)
+
+
 def attempt_facts(owner):
     """The owner's closed flag, deadline, established session and layered
     outcome, read without I/O or locks (a dropped handle's finalizer uses it)."""
@@ -197,7 +234,12 @@ def attempt_facts(owner):
 
 def driver_error(error):
     """Whether the route's driver raised `error` (its message is never read)."""
-    return type(error).__module__.partition(".")[0] in ("mysql", "psycopg")
+    return type(error).__module__.partition(".")[0] in (
+        "adbc_driver_manager",
+        "adbc_driver_postgresql",
+        "mysql",
+        "psycopg",
+    )
 
 
 def batch_rows(batch):

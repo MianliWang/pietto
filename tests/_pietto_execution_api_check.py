@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import ast
 from collections import Counter
-from typing import Any
+from typing import Any, cast
 
 FORMAT = "pietto.execution-api-witness.v1"
 # fixture.items rows with id > 1, as a bag: the documented query's oracle.
@@ -29,7 +29,7 @@ AMBIENT = (
 )
 REFUSALS = {
     "premise_none": ["PIE-R1001", "PUBLIC_PREMISE_REQUIRED", False],
-    "route_adbc": ["PIE-R1003", "PUBLIC_ROUTE_UNAVAILABLE", False],
+    "route_unknown": ["PIE-R1003", "PUBLIC_ROUTE_UNAVAILABLE", False],
     "socket_host": ["PIE-R1002", "EXECUTION_ACCESS_PROFILE", False],
     "sql_text": ["PIE-R1002", "PUBLIC_QUERY_TYPE", False],
 }
@@ -302,20 +302,70 @@ def check_mysql(report: Any) -> Any:
     check_install(report.get("install", {}), ("core", "execute-mysql"))
     core = result(report.get("core"), "MYSQL_CORE")
     need(core.get("before") == [], "MYSQL_CORE_IMPORT")
-    need(core.get("open") == ["PIE-R2001", "EXECUTION_DEPENDENCY_MISSING", False], "MYSQL_CORE")
+    need(
+        core.get("open") == ["PIE-R2001", "EXECUTION_DEPENDENCY_MISSING", False],
+        "MYSQL_CORE",
+    )
     need(core.get("after") == [], "MYSQL_CORE_IMPORT")
     ambient = report.get("ambient")
-    need(type(ambient) is dict and sorted(ambient) == ["OPENSSL_CONF", "OPENSSL_MODULES", "SSLKEYLOGFILE"], "MYSQL_AMBIENT_DENOMINATOR")
+    need(
+        type(ambient) is dict
+        and sorted(ambient) == ["OPENSSL_CONF", "OPENSSL_MODULES", "SSLKEYLOGFILE"],
+        "MYSQL_AMBIENT_DENOMINATOR",
+    )
+    ambient = cast(dict[str, Any], ambient)
     for name, record in ambient.items():
         value = result(record, "MYSQL_AMBIENT_" + name)
         need(value.get("before") == [], "MYSQL_AMBIENT_IMPORT")
-        need(value.get("request") == ["PIE-R2003", "EXECUTION_AMBIENT_CONNECTION_PROFILE", False], "MYSQL_AMBIENT_" + name)
+        need(
+            value.get("request")
+            == ["PIE-R2003", "EXECUTION_AMBIENT_CONNECTION_PROFILE", False],
+            "MYSQL_AMBIENT_" + name,
+        )
         need(value.get("after") == [], "MYSQL_AMBIENT_IMPORT")
     shadow = result(report.get("shadow"), "MYSQL_SHADOW")
     need(shadow.get("before") == [], "MYSQL_SHADOW_IMPORT")
-    need(shadow.get("open") == ["PIE-R2002", "EXECUTION_DRIVER_VERSION", False], "MYSQL_SHADOW")
+    need(
+        shadow.get("open") == ["PIE-R2002", "EXECUTION_DRIVER_VERSION", False],
+        "MYSQL_SHADOW",
+    )
     need(shadow.get("after") == ["mysql"], "MYSQL_SHADOW_IMPORT")
     return {"family": "mysql", "verdict": "ACCEPTED"}
+
+
+def check_postgres_adbc(report: Any) -> Any:
+    check_install(report.get("install", {}), ("core", "execute-postgres-adbc"))
+    core = result(report.get("core"), "ADBC_CORE")
+    need(core.get("before") == [], "ADBC_CORE_IMPORT")
+    need(
+        core.get("open") == ["PIE-R2001", "EXECUTION_DEPENDENCY_MISSING", False],
+        "ADBC_CORE",
+    )
+    need(core.get("after") == [], "ADBC_CORE_IMPORT")
+    ambient = report.get("ambient")
+    need(
+        type(ambient) is dict
+        and sorted(ambient) == ["OPENSSL_CONF", "OPENSSL_MODULES", "SSLKEYLOGFILE"],
+        "ADBC_AMBIENT_DENOMINATOR",
+    )
+    ambient = cast(dict[str, Any], ambient)
+    for name, record in ambient.items():
+        value = result(record, "ADBC_AMBIENT_" + name)
+        need(value.get("before") == [], "ADBC_AMBIENT_IMPORT")
+        need(
+            value.get("request")
+            == ["PIE-R2003", "EXECUTION_AMBIENT_CONNECTION_PROFILE", False],
+            "ADBC_AMBIENT_" + name,
+        )
+        need(value.get("after") == [], "ADBC_AMBIENT_IMPORT")
+    shadow = result(report.get("shadow"), "ADBC_SHADOW")
+    need(shadow.get("before") == [], "ADBC_SHADOW_IMPORT")
+    need(
+        shadow.get("open") == ["PIE-R2002", "POSTGRES_ADBC_DRIVER_PROFILE", False],
+        "ADBC_SHADOW",
+    )
+    need(shadow.get("after") == ["adbc_driver_postgresql"], "ADBC_SHADOW_IMPORT")
+    return {"family": "postgres_adbc", "verdict": "ACCEPTED"}
 
 
 def outcome_of(value: Any, reason: Any) -> Any:
@@ -631,12 +681,365 @@ def check_postgres(report: Any) -> Any:
     return {"family": "postgres", "verdict": "ACCEPTED"}
 
 
+def check_postgres_adbc_native(report: Any) -> Any:
+    """The installed ADBC wheel, not the service-free ADBC consumer profile."""
+    check_install(report.get("install", {}), ("execute-postgres-adbc",))
+    check_server(report.get("server") or {})
+    native = result(report.get("native"), "ADBC_NATIVE")
+    need(native.get("after_import") == [], "ADBC_NATIVE_IMPORT")
+    expected = [[2, "two"], [2, "two"], [3, "three"], [5, "five"]]
+    for name, origin in (("live", "live"), ("bundle", "bundle")):
+        value = native.get(name) or {}
+        outcome = outcome_of(value, "ADBC_NATIVE_" + name.upper())
+        need(
+            value.get("origin") == origin
+            and value.get("route") == "postgres_adbc"
+            and value.get("sslmode") == "require"
+            and value.get("schema") == DEMO_SCHEMA
+            and value.get("rows") == expected
+            and (
+                outcome.get("end"),
+                outcome.get("source"),
+                outcome.get("transaction"),
+                outcome.get("delivery"),
+                outcome.get("cleanup"),
+                outcome.get("rows"),
+                outcome.get("batches"),
+                outcome.get("cancel"),
+                outcome.get("primary"),
+                outcome.get("cleanup_failures"),
+            )
+            == (
+                "COMPLETE",
+                "EOF",
+                "COMMIT_ACK",
+                "COMPLETE",
+                "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+                4,
+                1,
+                [False, False, False],
+                None,
+                [],
+            ),
+            "ADBC_NATIVE_" + name.upper(),
+        )
+    empty = native.get("empty") or {}
+    empty_outcome = outcome_of(empty, "ADBC_EMPTY")
+    need(
+        empty.get("route") == "postgres_adbc"
+        and empty.get("sslmode") == "require"
+        and empty.get("schema") == DEMO_SCHEMA
+        and empty.get("rows") == []
+        and (
+            empty_outcome.get("end"),
+            empty_outcome.get("source"),
+            empty_outcome.get("transaction"),
+            empty_outcome.get("delivery"),
+            empty_outcome.get("cleanup"),
+            empty_outcome.get("rows"),
+            empty_outcome.get("batches"),
+            empty_outcome.get("cancel"),
+            empty_outcome.get("primary"),
+            empty_outcome.get("cleanup_failures"),
+        )
+        == (
+            "COMPLETE",
+            "EOF",
+            "COMMIT_ACK",
+            "COMPLETE",
+            "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+            0,
+            0,
+            [False, False, False],
+            None,
+            [],
+        ),
+        "ADBC_EMPTY",
+    )
+    bounded = native.get("bounded") or {}
+    bounded_outcome = outcome_of(bounded, "ADBC_BOUNDED")
+    need(
+        bounded.get("route") == "postgres_adbc"
+        and bounded.get("sslmode") == "require"
+        and bounded.get("schema") == DEMO_SCHEMA
+        and bounded.get("rows") == [[2, "two"]]
+        and (
+            bounded_outcome.get("end"),
+            bounded_outcome.get("source"),
+            bounded_outcome.get("transaction"),
+            bounded_outcome.get("delivery"),
+            bounded_outcome.get("cleanup"),
+            bounded_outcome.get("rows"),
+            bounded_outcome.get("batches"),
+            bounded_outcome.get("cancel"),
+            bounded_outcome.get("primary"),
+            bounded_outcome.get("cleanup_failures"),
+        )
+        == (
+            "COMPLETE",
+            "EOF",
+            "COMMIT_ACK",
+            "COMPLETE",
+            "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+            1,
+            1,
+            [False, False, False],
+            None,
+            [],
+        ),
+        "ADBC_BOUNDED",
+    )
+    early = native.get("early") or {}
+    need(
+        native.get("early_rows") == [{"id": 2, "label": "two"}]
+        and (
+            early.get("end"),
+            early.get("source"),
+            early.get("transaction"),
+            early.get("delivery"),
+            early.get("cleanup"),
+            early.get("rows"),
+            early.get("batches"),
+            early.get("cancel"),
+            early.get("primary"),
+            early.get("cleanup_failures"),
+        )
+        == (
+            "STOPPED_EARLY",
+            "EARLY_CLOSE",
+            "ROLLBACK_ACK",
+            "INCOMPLETE",
+            "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+            1,
+            1,
+            [False, False, False],
+            None,
+            [],
+        )
+        and early.get("remote") == "TRANSACTION_ACK",
+        "ADBC_EARLY_CLOSE",
+    )
+    cancelled = native.get("cancelled") or {}
+    cancelled_outcome = outcome_of(cancelled, "ADBC_CANCEL")
+    need(
+        cancelled.get("cancel_return") is True
+        and cancelled.get("closed") is True
+        and (cancelled.get("code"), cancelled.get("detail")) == ("PIE-R3009", None)
+        and cancelled.get("shown") is False
+        and cancelled.get("chained") is False
+        and (
+            cancelled_outcome.get("end"),
+            cancelled_outcome.get("source"),
+            cancelled_outcome.get("transaction"),
+            cancelled_outcome.get("delivery"),
+            cancelled_outcome.get("cleanup"),
+            cancelled_outcome.get("remote"),
+            cancelled_outcome.get("rows"),
+            cancelled_outcome.get("batches"),
+            cancelled_outcome.get("cancel"),
+            cancelled_outcome.get("primary"),
+            cancelled_outcome.get("cleanup_failures"),
+        )
+        == (
+            "CANCELLED",
+            "FAILED",
+            "NOT_STARTED",
+            "FAILED",
+            "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+            "REMOTE_QUIESCENCE_UNCONFIRMED",
+            0,
+            0,
+            [True, False, False],
+            ["PIE-R3009", None, None, None, None],
+            [],
+        ),
+        "ADBC_CANCEL",
+    )
+    need(native.get("qualification") == ["postgres_adbc"] * 5, "ADBC_QUALIFICATION")
+    check_adbc_active(
+        report.get("active_cancel"),
+        terminal="CANCELLED",
+        code="PIE-R3009",
+        reason="ADBC_ACTIVE_CANCEL",
+    )
+    check_adbc_active(
+        report.get("active_server_timeout"),
+        terminal="FAILED",
+        code="PIE-R3002",
+        reason="ADBC_ACTIVE_SERVER_TIMEOUT",
+        manual=False,
+    )
+    driver = native.get("driver") or {}
+    need(
+        driver.get("postgresql_version") == driver.get("manager_version") == "1.12.0"
+        and all(
+            driver.get(name) is True
+            for name in (
+                "library_record",
+                "module_record",
+                "module_in_prefix",
+                "library_in_prefix",
+                "library_exists",
+            )
+        )
+        and all(
+            type(driver.get(name)) is str
+            for name in ("prefix", "module", "manager_module", "library")
+        )
+        and driver["library"].endswith(
+            "adbc_driver_postgresql/libadbc_driver_postgresql.so"
+        ),
+        "ADBC_DRIVER_RECORD",
+    )
+    authentication = report.get("authentication") or {}
+    methods = ("trust", "password", "md5", "gss", "sspi")
+    need(sorted(authentication) == sorted(methods), "ADBC_AUTH_DENOMINATOR")
+    for method in methods:
+        record = authentication[method]
+        value = result(record, "ADBC_AUTH_" + method)
+        outcome = outcome_of(value, "ADBC_AUTH_" + method)
+        stub = record.get("stub") or {}
+        events = stub.get("events") or []
+        need(
+            value.get("after_import") == []
+            and value.get("unopened") == [[], "NOT_STARTED", False]
+            and value.get("code") == "PIE-R2004"
+            and value.get("shown") is False
+            and value.get("chained") is False
+            and "adbc_driver_postgresql" in value.get("after_open", [])
+            and "adbc_driver_manager" in value.get("after_open", [])
+            and "psycopg" not in value.get("after_open", [])
+            and (
+                outcome.get("end"),
+                outcome.get("source"),
+                outcome.get("transaction"),
+                outcome.get("delivery"),
+                outcome.get("cleanup"),
+                outcome.get("rows"),
+                outcome.get("batches"),
+                outcome.get("cancel"),
+                outcome.get("primary"),
+                outcome.get("cleanup_failures"),
+            )
+            == (
+                "FAILED",
+                "FAILED",
+                "NOT_STARTED",
+                "FAILED",
+                "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+                0,
+                0,
+                [False, False, False],
+                ["PIE-R2004", None, "admission", None, "OperationalError"],
+                [],
+            )
+            and stub.get("startup") == ["pietto_reader", "phase66"]
+            and events
+            and events[0] == ["startup", "pietto_reader", "phase66"]
+            and stub.get("replied") is False
+            and not any(event[0] == "reply" for event in events),
+            "ADBC_AUTH_" + method,
+        )
+    ambient = report.get("ambient") or {}
+    names = ("SSLKEYLOGFILE", "OPENSSL_CONF", "OPENSSL_MODULES")
+    need(sorted(ambient) == sorted(names), "ADBC_NATIVE_AMBIENT_DENOMINATOR")
+    for name in names:
+        record = ambient[name]
+        value = result(record, "ADBC_NATIVE_AMBIENT_" + name)
+        need(
+            value.get("after_import") == []
+            and (value.get("code"), value.get("detail"))
+            == ("PIE-R2003", "EXECUTION_AMBIENT_CONNECTION_PROFILE")
+            and value.get("shown") is False
+            and value.get("chained") is False
+            and value.get("after_open") == []
+            and record.get("connected") is False
+            and record.get("keylog_created") is False,
+            "ADBC_NATIVE_AMBIENT_" + name,
+        )
+    need((report.get("cleanup") or {}).get("status") == "success", "RESOURCE_CLEANUP")
+    return {"family": "postgres_adbc_native", "verdict": "ACCEPTED"}
+
+
+def check_adbc_active(
+    record: Any, *, terminal: str, code: str, reason: str, manual=True
+) -> None:
+    """An active native query, never merely the worker's declared purpose."""
+    need(type(record) is dict and record.get("returncode") == 0, reason)
+    need(
+        record.get("blocked") == [["active", "Lock"]]
+        and type(record.get("attempt")) is str
+        and bool(record["attempt"]),
+        reason + "_BARRIER",
+    )
+    value = result(record, reason)
+    active = value.get("active") or {}
+    need(
+        active == {"type": "NativeStatement", "purpose": "query", "native": True},
+        reason + "_STATEMENT",
+    )
+    outcome = outcome_of(value, reason)
+    primary = outcome.get("primary") or []
+    cleanup = outcome.get("cleanup")
+    failures = outcome.get("cleanup_failures")
+    need(
+        value.get("closed") is True
+        and value.get("raised") == "AttemptFailed"
+        and (
+            value.get("cancel_return") is True
+            if manual
+            else "cancel_return" not in value
+        )
+        and (
+            outcome.get("end"),
+            outcome.get("source"),
+            outcome.get("transaction"),
+            outcome.get("delivery"),
+            outcome.get("remote"),
+            outcome.get("rows"),
+            outcome.get("batches"),
+            outcome.get("cancel"),
+        )
+        == (
+            terminal,
+            "FAILED",
+            "UNKNOWN",
+            "FAILED",
+            "REMOTE_QUIESCENCE_UNCONFIRMED",
+            0,
+            0,
+            [True, True, True] if manual else [False, False, False],
+        )
+        and cleanup
+        in (
+            "FAILED_REMOTE_UNOBSERVED",
+            "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+        )
+        and type(primary) is list
+        and len(primary) == 5
+        and primary[0] == code
+        and (manual or primary[3] == "57014")
+        and type(failures) is list
+        and all(type(failure) is list and len(failure) == 3 for failure in failures)
+        and value.get("late_cancel_return") is True
+        and value.get("outcome_after_late") == outcome,
+        reason,
+    )
+
+
 def check(report: Any) -> Any:
     need(type(report) is dict and report.get("format") == FORMAT, "ENVELOPE")
     family = report.get("family")
-    need(family in ("consumer", "mysql", "postgres"), "ENVELOPE")
+    need(
+        family
+        in ("consumer", "mysql", "postgres", "postgres_adbc", "postgres_adbc_native"),
+        "ENVELOPE",
+    )
+    family = cast(str, family)
     return {
         "consumer": check_consumer,
         "mysql": check_mysql,
         "postgres": check_postgres,
+        "postgres_adbc": check_postgres_adbc,
+        "postgres_adbc_native": check_postgres_adbc_native,
     }[family](report)
