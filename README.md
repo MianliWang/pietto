@@ -132,24 +132,29 @@ qualifies storage. A selected route whose pinned driver is absent refuses with
 with that route's version error, and another route's installed driver is never
 used instead. These extras were verified on CPython 3.13.13, Linux x86-64,
 with the lock's exact artifacts; other platforms, interpreters and driver
-versions are not covered. The MySQL and PostgreSQL ADBC execution APIs remain
-private under `pietto._project`; the PostgreSQL rows route has the alpha below.
+versions are not covered. The execution alpha below is source-candidate
+material and is not exposed by the released 0.1.1 PyPI package or its v0.1.1
+release assets.
 
-### PostgreSQL rows execution alpha (checkout only)
+### Execution alpha (source candidate)
 
-This source checkout also contains a public alpha for the PostgreSQL rows route:
-[`pietto.execution`](https://github.com/MianliWang/pietto/blob/main/docs/execution.md).
-It is available from this checkout or a wheel built from it with
-`execute-postgres`; it is not exposed by the released 0.1.1 PyPI package or its
-v0.1.1 release assets, so installing `pietto[execute-postgres]` from PyPI does
-not provide it. The alpha accepts a compiled project query, or a compiled
-query bundle under the caller's own trust records, explicit parameter values,
-and explicit connection and deployment-premise inputs; it does not accept SQL
-text. It supports PostgreSQL 18.6 only, reached over TCP and authenticated with
-SCRAM-SHA-256 only, and sources with `Timestamp` or `UUID` fields are blocked
-when compiled. A wheel built from this checkout still declares version 0.1.1,
-so `pip show` cannot tell it from the released package. The MySQL and
-PostgreSQL ADBC routes remain private under `pietto._project`.
+`pietto.execution` is an alpha Python interface for explicit, bounded database
+attempts and saved results. It compiles a project query or loads a query bundle
+under caller-held trust records, then returns typed Arrow batches and the
+attempt's factual terminal state. It never accepts SQL text and Pietto has no
+CLI command that connects to a database.
+
+The direct routes are `postgres_rows`, `mysql_rows` and `postgres_adbc`; each
+requires its selected extra, explicit access and a deployment premise. The
+saved-result workspace provides ordinary save, R1 source-free re-read,
+fixed-snapshot verified export, R2 same-source recovery, local publication and
+relay to a local reference cooperative sink. R2 takes one caller-supplied
+compiled-source declaration for every source in compiled order, including
+guarded and refined sources. The API reference records effects, cleanup and
+compatibility requirements in [execution documentation](docs/execution.md).
+
+All execution names, fields, `PIE-R` codes and behavior may change in a later
+alpha release. The compiler, CLI and existing public contracts do not change.
 
 ## Quick start
 

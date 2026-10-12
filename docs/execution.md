@@ -46,6 +46,22 @@ callers name a workspace, durable operation identities, records and any source
 or sink authority. The CLI remains compilation-only; it neither opens a
 workspace nor connects to a database.
 
+## Support matrix
+
+| Route | Selected target and dependencies | Explicit prerequisites | Qualified native evidence | Not claimed |
+| --- | --- | --- | --- | --- |
+| `postgres_rows` | PostgreSQL 18.6; `psycopg[binary]==3.3.5`; `pyarrow==25.0.1` | One TCP host, `PostgresAccess`, `PostgresDeploymentPremise`, and SCRAM-SHA-256. | Linux x86-64, CPython 3.13.13. | Windows native execution; another PostgreSQL release, libpq closure or TLS profile. |
+| `mysql_rows` | MySQL 8.4.12; `mysql-connector-python==26.7.0`; `pyarrow==25.0.1` | One TCP host, `MySQLAccess`, `MySQLDeploymentPremise`, and caller-supplied CA with certificate and server-identity verification. | Linux x86-64, CPython 3.13.13. | Windows native execution; another MySQL release, connector version or provider profile. |
+| `postgres_adbc` | PostgreSQL 18.6; `adbc-driver-postgresql==1.12.0`; `adbc-driver-manager==1.12.0`; `pyarrow==25.0.1` | PostgreSQL TCP access, deployment premise, SCRAM profile, and the selected driver closure. | Linux x86-64, CPython 3.13.13. | Windows native execution; another ADBC/libpq closure, PostgreSQL release or platform. |
+
+The qualified profile is the integration host with the lock's exact artifacts.
+Installing an extra selects no route, grants no execution, opens no source and
+does not qualify storage. A missing or wrong selected dependency is refused
+before connection; another route's driver is never a fallback. The PyArrow pin
+does not bound allocator retention. Windows native routes are `NOTRUN`; an
+offline Windows compiler-project check does not establish jobs, database
+execution or a supported Windows profile.
+
 ## Install
 
 `pietto.execution` exists only in a source-candidate wheel built from this
