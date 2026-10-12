@@ -327,6 +327,7 @@ def test_public_surface_is_exactly_the_alpha_names():
         "SavedRead",
         "SavedReadEnd",
         "UnclosedHandleWarning",
+        "VerifiedExport",
         "WorkspaceRef",
         "compile_query",
         "create_workspace",
@@ -342,6 +343,7 @@ def test_public_surface_is_exactly_the_alpha_names():
         "release_saved_read",
         "retire_generation",
         "save",
+        "verified_export",
     }
     for name in execution.__all__:
         assert getattr(execution, name).__module__.startswith("pietto.execution.")

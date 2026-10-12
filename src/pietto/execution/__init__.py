@@ -65,6 +65,7 @@ from pietto.execution._saved_read import (
     open_saved_read,
     release_saved_read,
 )
+from pietto.execution._verified_export import VerifiedExport, verified_export
 from pietto.execution._workspace import (
     OperationReply,
     WorkspaceRef,
@@ -100,6 +101,7 @@ __all__ = [
     "SavedRead",
     "SavedReadEnd",
     "UnclosedHandleWarning",
+    "VerifiedExport",
     "WorkspaceRef",
     "compile_query",
     "create_workspace",
@@ -115,4 +117,5 @@ __all__ = [
     "release_saved_read",
     "retire_generation",
     "save",
+    "verified_export",
 ]
