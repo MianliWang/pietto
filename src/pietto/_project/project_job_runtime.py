@@ -1188,7 +1188,7 @@ class Runtime:
             # which owns the publisher and its SQLite connection.
             if record.cancel_requested:
                 self._durable_cancel(record, publisher)
-            for step in context["closers"][::-1] + self._closure(context):
+            for step in context["closers"][::-1] + self._closure(record, context):
                 try:
                     step()
                 except BaseException as error:
@@ -1244,7 +1244,7 @@ class Runtime:
             record.durable_cancel = outcome
             self._event(record, "DURABLE_CANCEL:" + outcome)
 
-    def _closure(self, context) -> list:
+    def _closure(self, record, context) -> list:
         """The original closure of an opened attempt after a normal end, failure,
         cancel or stop: owner closed, capture/continuation end, and the attempt's
         own terminal (its real outcome, or NOT_EXECUTED without an owner)."""
@@ -1260,7 +1260,17 @@ class Runtime:
         session = context.get("session")
         steps = []
         if owner is not None:
-            steps.append(owner.close)
+
+            def close_owner():
+                owner.close()
+                while owner._closed is not True:
+                    with self._cond:
+                        seen = record.resume
+                    self._activity(record, "WAITING_FOR_CLEANUP")
+                    self._park(record, lambda: record.resume != seen)
+                    owner.close()
+
+            steps.append(close_owner)
         if session is not None:
             steps.append(lambda: session.end(operation=new_operation()))
         if owner is None:
@@ -1630,6 +1640,12 @@ def _owner(binding, source: NativeSource):
     if source.route == "mysql_rows":
         premise: dict = {
             "mysql_deployment": ex.MySQLDeploymentPremise(
+                source.access, sources, source.schemas
+            )
+        }
+    elif source.route == "postgres_adbc":
+        premise = {
+            "postgres_adbc_deployment": ex.PostgresADBCDeploymentPremise(
                 source.access, sources, source.schemas
             )
         }

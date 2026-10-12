@@ -148,7 +148,7 @@ attempt outcome carries the alpha's two declarations:
 
 | Code | Meaning |
 |---|---|
-| `PIE-R1001` | INPUT_MISSING: a required argument of `compile_query`, `export_bundle`, `load_bundle` or `execute()` is `None`; no default is substituted |
+| `PIE-R1001` | INPUT_MISSING: a required argument of `compile_query`, `export_bundle`, `load_bundle`, `execute()` or `save()` is `None`; no default is substituted |
 | `PIE-R1002` | INPUT_INVALID: an input has the wrong type or an unsupported value, including SQL text instead of a compiled query, a `None` field of an access, premise or limits value, a Unix-socket or multi-host `host`, a premise that does not cover the query's sources, invalid limits or isolation, a `values` argument that is not a tuple, a bundle payload that is not `bytes` or is empty or larger than 32 MiB, and a trust record that is not 64 lowercase hexadecimal characters |
 | `PIE-R1003` | ROUTE_REFUSED: the route is not available in this alpha or does not fit the compiled query |
 | `PIE-R1004` | QUERY_NOT_EXECUTABLE: the verified query cannot be prepared for execution, including a bundle with a guard program or a refinement and values with which the query cannot be prepared |
@@ -156,6 +156,8 @@ attempt outcome carries the alpha's two declarations:
 | `PIE-R1006` | VALUE_REFUSED: `execute(values=...)` does not give exactly one value per slot of `query.slots`, or a value is not of its slot's exact type and range (`Bool`: `bool`; `Int`: `int`, never `bool`, signed 64-bit; `Float`: finite `float`; `Text`: `str` that UTF-8 can encode, without NUL); `detail` is `BINDING_VALUE:<ordinal>:<tag>` with the 0-based slot ordinal for a value and `BINDING_SLOTS` for a wrong number of values, never the value |
 | `PIE-R1007` | BUNDLE_CONTENT: the bytes given to `load_bundle` are not the bytes `expected_pin` names; Pietto never takes a pin from the bytes |
 | `PIE-R1008` | BUNDLE_NOT_ACCEPTED: the bytes given to `load_bundle` are malformed, fail verification, or name a producer or compatibility other than `accepted_producer` and `accepted_compatibility` |
+| `PIE-R1009` | WORKSPACE_REFUSED: a saved-result workspace is absent, invalid, unqualified or not v7 |
+| `PIE-R1010` | OPERATION_REFUSED: a caller operation identity is invalid or conflicts with a recorded step |
 | `PIE-R1999` | REQUEST_UNCLASSIFIED: a request refusal that the alpha does not classify yet |
 | `PIE-R2001` | DEPENDENCY_MISSING: a pinned dependency of the selected route (driver or PyArrow) is not installed; refused before connecting |
 | `PIE-R2002` | DRIVER_PROFILE: the importable selected driver or PyArrow is not the pinned distribution, version and required implementation, is not that distribution's own files, or cannot be loaded; route-specific unsafe implementations are refused before they receive connection values |

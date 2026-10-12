@@ -456,6 +456,8 @@ def execute(
         raise _refuse("PIE-R1002", "PUBLIC_LIMITS_TYPE")
     if isolation is None:
         raise _refuse("PIE-R1001", "PUBLIC_ISOLATION_REQUIRED")
+    access = cast(Any, access)
+    premise = cast(Any, premise)
     if values is not None and type(values) is not tuple:
         raise _refuse("PIE-R1002", "PUBLIC_VALUES_TYPE")
     if (

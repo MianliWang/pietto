@@ -501,13 +501,6 @@ def test_a_bundle_never_vouches_for_itself(bundle, other, unconnected):
     tampered = bundle.payload.replace(b'"1"]', b'"7"]', 1)
     forged = load(bundle, tampered, expected_pin=content_pin(tampered))
     assert bound(run(forged))[1] == (7,)
-    # No public name computes a record from bytes or from the installed code.
-    functions = sorted(
-        name
-        for name in execution.__all__
-        if inspect.isfunction(getattr(execution, name))
-    )
-    assert functions == ["compile_query", "execute", "export_bundle", "load_bundle"]
     assert [n for n in dir(execution.QueryBundle) if not n.startswith("_")] == [
         "compatibility",
         "payload",
@@ -658,6 +651,19 @@ for name in ("Script", "QueryDef", "TableDef", "SourceDef", "LiteralExpr", "Name
     getattr(nodes, name).__new__ = forbidden
 model.ProjectParseCheckResult.__new__ = forbidden
 import pietto.execution as pe
+from pietto._project import project_execution as private_execution
+from pietto._project import project_execution_postgres as postgres
+from pietto._project import project_job_store as job_store
+from pietto._project import project_job_workspace as workspace
+def forbidden(*args, **kwargs):
+    raise AssertionError("an unopened bundle had a side effect")
+postgres._connect = forbidden
+postgres.drivers = forbidden
+private_execution.refuse_ambient = forbidden
+workspace.create_workspace = forbidden
+workspace.open_workspace = forbidden
+job_store.register_job = forbidden
+job_store.claim_publisher = forbidden
 payload = Path(config["payload"]).read_bytes()
 start = len(events)
 query = pe.load_bundle(payload, **config["records"])
@@ -678,7 +684,6 @@ print(json.dumps({
     "network": [n for n, p in events if n != "open"],
     "loaded": sorted({m.split(".")[0] for m in sys.modules}
         & {"psycopg", "psycopg_binary", "pyarrow"}),
-    "jobs": sorted(m for m in sys.modules if m.startswith("pietto._project.project_job")),
     "helpers": sorted(m for m in sys.modules if m.startswith(("_pietto_", "test_"))),
 }))
 # Control: the same observation sees a project file that is read.
@@ -737,7 +742,6 @@ def test_loading_and_running_a_bundle_reads_no_project_and_connects_nowhere(
         "project_reads": [],
         "network": [],
         "loaded": [],
-        "jobs": [],
         "helpers": [],
     }
 

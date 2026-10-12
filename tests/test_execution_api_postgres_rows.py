@@ -205,6 +205,19 @@ DRIVERS = ("psycopg", "psycopg_binary", "pyarrow")
 def loaded():
     return sorted({m.split(".")[0] for m in sys.modules} & set(DRIVERS))
 import pietto.execution as pe
+from pietto._project import project_execution as private_execution
+from pietto._project import project_execution_postgres as postgres
+from pietto._project import project_job_store as job_store
+from pietto._project import project_job_workspace as workspace
+def forbidden(*args, **kwargs):
+    raise AssertionError("an unopened query had a side effect")
+postgres._connect = forbidden
+postgres.drivers = forbidden
+private_execution.refuse_ambient = forbidden
+workspace.create_workspace = forbidden
+workspace.open_workspace = forbidden
+job_store.register_job = forbidden
+job_store.claim_publisher = forbidden
 after_import = loaded()
 query = pe.compile_query(sys.argv[2], module="main.pietto", kind="table",
     name="active_items", dialect="postgres", emission_contract="contract.json")
@@ -218,7 +231,7 @@ texts = [repr(query), repr(access), str(access), repr(handle), repr(handle.outco
     pydoc.render_doc(handle, renderer=pydoc.plaintext)]
 print(json.dumps({"after_import": after_import, "loaded": loaded(), "events": events,
     "end": handle.outcome.end, "shown": any("pw-never-sent" in t for t in texts),
-    "jobs": sorted(m for m in sys.modules if m.startswith("pietto._project.project_job"))}))
+}))
 """
 
 
@@ -257,7 +270,6 @@ def test_import_compile_and_unopened_execute_load_no_driver_and_connect_nowhere(
         "events": [],
         "end": "NOT_STARTED",
         "shown": False,
-        "jobs": [],
     }
     assert not sentinel.connected()
 

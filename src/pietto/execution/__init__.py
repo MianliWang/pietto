@@ -50,6 +50,15 @@ from pietto.execution._query import (
     export_bundle,
     load_bundle,
 )
+from pietto.execution._saved import SaveCloseHandle, SaveReply, save
+from pietto.execution._workspace import (
+    OperationReply,
+    WorkspaceRef,
+    create_workspace,
+    new_operation,
+    open_workspace,
+    operation_result,
+)
 
 __all__ = [
     "AttemptFailed",
@@ -61,6 +70,7 @@ __all__ = [
     "HandleMisuse",
     "MySQLAccess",
     "MySQLDeploymentPremise",
+    "OperationReply",
     "Outcome",
     "PostgresAccess",
     "PostgresDeploymentPremise",
@@ -68,9 +78,17 @@ __all__ = [
     "RequestRejected",
     "ResultBatch",
     "ResultHandle",
+    "SaveCloseHandle",
+    "SaveReply",
     "UnclosedHandleWarning",
+    "WorkspaceRef",
     "compile_query",
+    "create_workspace",
     "execute",
     "export_bundle",
     "load_bundle",
+    "new_operation",
+    "open_workspace",
+    "operation_result",
+    "save",
 ]

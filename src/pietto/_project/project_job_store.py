@@ -363,6 +363,28 @@ def _slots(root) -> str:
     )
 
 
+def register_job_request(template) -> dict:
+    """Canonical caller-owned request for the first durable job step."""
+    from pietto._project.project_compiled_schema import (
+        MAX_BYTES,
+        _wire,
+        content_pin,
+        encode,
+    )
+
+    root = _template_root(template)
+    raw = encode(root.description)
+    if len(raw) > MAX_BYTES or content_pin(raw) != root.expected_pin:
+        raise JobStoreError("JOB_BUNDLE")
+    compatibility = _wire(root.accepted_compatibility)
+    return {
+        "bytes": len(raw),
+        "compatibility": compatibility,
+        "pin": root.expected_pin,
+        "producer": root.accepted_producer,
+    }
+
+
 def _vector(binding) -> str:
     """Canonical typed vector (S10 scalar wire): Bool/Int/±0/Float bits/Text kept."""
     from pietto._project.project_compiled_schema import Scalar, scalar_wire
@@ -376,6 +398,17 @@ def _vector(binding) -> str:
     if len(text.encode("utf-8")) > MAX_VECTOR_BYTES:
         raise JobStoreError("BINDING_VECTOR")
     return text
+
+
+def register_binding_request(job: str, binding) -> dict:
+    """Canonical caller-owned request for a binding's first durable step."""
+    root = _binding_root(binding)
+    return {
+        "job": job,
+        "pin": root.expected_pin,
+        "slots": _slots(root),
+        "vector": _vector(binding),
+    }
 
 
 def _description(binding, route) -> str:
@@ -415,24 +448,12 @@ def _job_row(workspace, job):
 
 def register_job(workspace: Workspace, template, *, operation: str) -> OperationResult:
     """Persist this live or loaded template's exact pinned bundle bytes."""
-    from pietto._project.project_compiled_schema import (
-        MAX_BYTES,
-        _wire,
-        content_pin,
-        encode,
-    )
+    from pietto._project.project_compiled_schema import encode
 
+    request = register_job_request(template)
     root = _template_root(template)
     raw = encode(root.description)
-    if len(raw) > MAX_BYTES or content_pin(raw) != root.expected_pin:
-        raise JobStoreError("JOB_BUNDLE")
-    compatibility = _wire(root.accepted_compatibility)
-    request = {
-        "bytes": len(raw),
-        "compatibility": compatibility,
-        "pin": root.expected_pin,
-        "producer": root.accepted_producer,
-    }
+    compatibility = request["compatibility"]
 
     def effect(connection):
         _limit(connection, "job")
@@ -536,8 +557,9 @@ def register_binding(
     root = _binding_root(binding)
     if _job_row(workspace, publisher.job)[0] != root.expected_pin:
         raise JobStoreError("BINDING_ROOT")
-    slots, vector = _slots(root), _vector(binding)
-    request = _identity_request(publisher, slots=slots, vector=vector)
+    caller_request = register_binding_request(publisher.job, binding)
+    slots, vector = caller_request["slots"], caller_request["vector"]
+    request = _identity_request(publisher, **caller_request)
 
     def effect(connection):
         revision = _fence(connection, publisher)
@@ -865,19 +887,68 @@ def cancel_job(publisher: Publisher, *, operation: str) -> OperationResult:
     )
 
 
-def query_operation(workspace: Workspace, operation: str) -> OperationResult | None:
+_OPERATION_REQUEST_FIELDS = {
+    "register_job": (
+        ("bytes", "compatibility", "pin", "producer"),
+        ("bytes", "compatibility", "pin", "producer"),
+    ),
+    "register_binding": (
+        ("job", "pin", "publisher", "slots", "vector"),
+        ("job", "pin", "slots", "vector"),
+    ),
+}
+
+
+def _same_caller_request(kind, expected, actual) -> bool:
+    schema = _OPERATION_REQUEST_FIELDS.get(kind)
+    if schema is None or type(expected) is not dict or type(actual) is not dict:
+        return False
+    stored_fields, caller_fields = schema
+    if (
+        tuple(sorted(expected)) != caller_fields
+        or tuple(sorted(actual)) != stored_fields
+    ):
+        return False
+    try:
+        return _json(expected) == _json({name: actual[name] for name in caller_fields})
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def query_operation(
+    workspace: Workspace,
+    operation: str,
+    *,
+    expected_kind: str | None = None,
+    expected_request: dict | None = None,
+) -> OperationResult | None:
+    """Read one operation, optionally checking its caller-owned first-step fields."""
     if not valid_identity(operation, "op"):
         raise JobStoreError("OPERATION_IDENTITY")
+    if (expected_kind is None) != (expected_request is None):
+        raise JobStoreError("OPERATION_CONFLICT")
     row = read(
         workspace,
         lambda c: c.execute(
-            "SELECT sequence, kind, job, result FROM operation WHERE identity = ?",
+            "SELECT sequence, kind, job, request, result FROM operation WHERE identity = ?",
             (operation,),
         ).fetchone(),
     )
     if row is None:
         return None
-    return OperationResult(operation, row[1], row[2], row[0], _pairs(row[3]), "QUERIED")
+    if expected_kind is not None:
+        assert expected_request is not None
+        try:
+            actual = json.loads(row[3])
+        except (TypeError, ValueError):
+            actual = None
+        if row[1] != expected_kind or not _same_caller_request(
+            expected_kind, expected_request, actual
+        ):
+            raise JobStoreError("OPERATION_CONFLICT")
+        if "job" in expected_request and row[2] != expected_request["job"]:
+            raise JobStoreError("OPERATION_CONFLICT")
+    return OperationResult(operation, row[1], row[2], row[0], _pairs(row[4]), "QUERIED")
 
 
 def job_record(workspace: Workspace, job: str) -> JobRecord:

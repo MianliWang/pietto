@@ -71,6 +71,14 @@ CODES = {
         "the bundle bytes are malformed, fail verification, or name a producer or"
         " compatibility other than the accepted ones",
     ),
+    "PIE-R1009": (
+        "WORKSPACE_REFUSED",
+        "the saved-result workspace is absent, invalid, unqualified or not v7",
+    ),
+    "PIE-R1010": (
+        "OPERATION_REFUSED",
+        "the caller operation identity is invalid or conflicts with a recorded step",
+    ),
     "PIE-R1999": (
         "REQUEST_UNCLASSIFIED",
         "the request was refused for a reason this alpha does not classify yet",
@@ -383,6 +391,16 @@ def request_failure(error):
     else:
         code = "PIE-R1999"
     return failure(code, word, cause=type(error).__name__)
+
+
+def workspace_failure(error):
+    """Map private workspace/control refusals without exposing their message."""
+    word = category_word(error)
+    text = str(error) if type(error).__name__ == "JobStoreError" else ""
+    code = "PIE-R1010" if text.startswith("OPERATION_") else "PIE-R1009"
+    return failure(
+        code, word or (text if text.isupper() else None), cause=type(error).__name__
+    )
 
 
 def bundle_failure(error):

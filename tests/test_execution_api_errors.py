@@ -311,6 +311,7 @@ def test_public_surface_is_exactly_the_alpha_names():
         "HandleMisuse",
         "MySQLAccess",
         "MySQLDeploymentPremise",
+        "OperationReply",
         "Outcome",
         "PostgresAccess",
         "PostgresDeploymentPremise",
@@ -318,11 +319,19 @@ def test_public_surface_is_exactly_the_alpha_names():
         "RequestRejected",
         "ResultBatch",
         "ResultHandle",
+        "SaveCloseHandle",
+        "SaveReply",
         "UnclosedHandleWarning",
+        "WorkspaceRef",
         "compile_query",
+        "create_workspace",
         "execute",
         "export_bundle",
         "load_bundle",
+        "new_operation",
+        "open_workspace",
+        "operation_result",
+        "save",
     }
     for name in execution.__all__:
         assert getattr(execution, name).__module__.startswith("pietto.execution.")
