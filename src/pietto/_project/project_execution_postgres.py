@@ -206,7 +206,9 @@ class PostgresExecution:
             and self.guarded_request.program.refinement is not None
         ):
             self.refined_request = RefinedExecutionRequest(
-                self.guarded_request.execution, self.guarded_request.program.refinement
+                self.guarded_request.execution,
+                self.guarded_request.program.refinement,
+                self.guarded_request.live_r2,
             )
         self._owned_refined_request = self.refined_request
         if self.refined_request is not None:

@@ -97,6 +97,7 @@ def _checked_request(
     isolation: Any,
     values: Any,
     job: Any,
+    allow_guard_sql: bool = False,
 ) -> tuple[Any, Any, Any, Any, tuple[str, ...]]:
     if type(workspace) is not WorkspaceRef:
         _refuse("PIE-R1002", "PUBLIC_WORKSPACE_REFERENCE")
@@ -195,12 +196,12 @@ def _checked_request(
                 route=route,
                 limits=private_limits,
                 isolation=isolation,
-                allow_guard_sql=False,
                 mysql_deployment=private_execution.MySQLDeploymentPremise(
                     private_access,
                     binding.artifact.request.sources,
                     tuple(premise.schemas),
                 ),
+                allow_guard_sql=allow_guard_sql,
             )
         else:
             private_access = private_execution.PostgresAccess(
@@ -235,7 +236,7 @@ def _checked_request(
                 route=route,
                 limits=private_limits,
                 isolation=isolation,
-                allow_guard_sql=False,
+                allow_guard_sql=allow_guard_sql,
                 **deployment,
             )
     except Exception as caught:

@@ -43,6 +43,7 @@ __all__: tuple[str, ...] = ()
 class RefinedExecutionRequest:
     execution: ExecutionRequest = field(repr=False)
     refinement: RefinedQuery = field(repr=False)
+    live_r2: Any = field(default=None, repr=False)
 
 
 def prepare_refined_execution(
@@ -95,6 +96,10 @@ def verify_refined_execution(request, *, _guarded=None):
         or e.source_requirement is not None
     ):
         raise ValueError("REFINEMENT_EXECUTION_CORRESPONDENCE")
+    if request.live_r2 is not None:
+        from pietto._project.project_refinement import verify_live_r2_witness
+
+        verify_live_r2_witness(request.live_r2, request)
 
 
 def atom(value):

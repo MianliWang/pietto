@@ -6,6 +6,7 @@ pre-attempt choice policy, and the full original output remain separate roots.
 
 from dataclasses import dataclass, field
 from typing import Any
+import weakref
 
 from pietto._project.project_execution_source import (
     RetainedSourceRequirement,
@@ -57,6 +58,20 @@ class RefinedQuery:
     erasure: tuple[tuple[int, Any], ...] = field(repr=False)
 
 
+@dataclass(frozen=True, slots=True, eq=False, weakref_slot=True)
+class LiveR2Witness:
+    """Private proof that one live caller supplied this R2 refinement."""
+
+    template: Any = field(repr=False)
+    binding: Any = field(repr=False)
+    refinement: RefinedQuery = field(repr=False)
+    requirements: tuple[RetainedSourceRequirement, ...] = field(repr=False)
+    reanchored: bool = field(repr=False)
+
+
+_LIVE_R2_WITNESSES: weakref.WeakSet[LiveR2Witness] = weakref.WeakSet()
+
+
 def verify_sources(requirements, sources, *, family="postgres"):
     """Exact ordered complete collection; repeated uses share their source root."""
     if type(requirements) is not tuple or len(requirements) != len(sources):
@@ -74,7 +89,14 @@ def verify_sources(requirements, sources, *, family="postgres"):
         raise ValueError("REFINEMENT_DUPLICATE_SOURCE")
 
 
-def prepare_refinement(artifact, sources, *, policy, output=None, binding=None):
+def prepare_refinement(
+    artifact,
+    sources,
+    *,
+    policy,
+    output=None,
+    binding=None,
+):
     from pietto._project.project_refinement_lowering import lower
     from pietto._project.project_refinement_verification import verify_refinement
 
@@ -110,8 +132,93 @@ def prepare_refinement(artifact, sources, *, policy, output=None, binding=None):
     return value
 
 
+def _live_root(template, binding, *, reanchor):
+    """Validate the current live template before an R2-only refinement."""
+    from pietto._project.project_execution_binding_verification import verify_binding
+    from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
+
+    verify_binding(binding)
+    if binding.template is not template and not reanchor:
+        raise ValueError("PUBLIC_R2_BINDING_TEMPLATE")
+    current = template.artifact.request
+    stored = binding.artifact.request
+    if (
+        type(current) is not CompiledPreparedEmission
+        or type(stored) is not CompiledPreparedEmission
+    ):
+        raise ValueError("PUBLIC_R2_COMPILED_ROOT")
+    current_root = current.verification.completed.root
+    stored_root = stored.verification.completed.root
+    if reanchor:
+        if (
+            current_root.expected_pin,
+            current_root.accepted_producer,
+            current_root.accepted_compatibility,
+        ) != (
+            stored_root.expected_pin,
+            stored_root.accepted_producer,
+            stored_root.accepted_compatibility,
+        ):
+            raise ValueError("PUBLIC_R2_RECOVERY_ROOT")
+    elif binding.template is not template:
+        raise ValueError("PUBLIC_R2_BINDING_TEMPLATE")
+    return binding.artifact
+
+
+def prepare_live_r2_refinement(template, binding, requirements, *, reanchor=False):
+    """Create the sole non-policy compiled refinement authority.
+
+    ``template`` is retained by the public live entry.  Recovery may bind the
+    stored copy only after its current caller template and trust records have
+    already been checked, so it uses the narrow re-anchor case.
+    """
+    from pietto._project.project_compiled_schema import Address
+
+    artifact = _live_root(template, binding, reanchor=reanchor)
+    policy = artifact.request.verification.completed.root.records[Address("policy", 0)]
+    if policy.get("refinement") is not None:
+        expected = compiled_source_requirements(artifact)
+        if tuple(requirement_state(r) for r in requirements) != tuple(
+            requirement_state(r) for r in expected
+        ):
+            raise ValueError("COMPILED_REFINEMENT_REQUIREMENTS")
+        output = None
+        if binding.guarded is not None:
+            from pietto._project.project_guard_preparation import prepare_guarded_output
+
+            output = prepare_guarded_output(binding.guarded, binding=binding)
+        return (
+            prepare_refinement(
+                artifact,
+                expected,
+                policy=TieRefinement(),
+                output=output,
+                binding=binding,
+            ),
+            None,
+        )
+    verify_sources(
+        requirements, artifact.request.sources, family=artifact.request.family
+    )
+    output = None
+    if binding.guarded is not None:
+        from pietto._project.project_guard_preparation import prepare_guarded_output
+
+        output = prepare_guarded_output(binding.guarded, binding=binding)
+    value = _prepare_refinement(
+        artifact,
+        requirements,
+        policy=TieRefinement(),
+        output=output,
+        binding=binding,
+    )
+    witness = LiveR2Witness(template, binding, value, requirements, reanchor)
+    _LIVE_R2_WITNESSES.add(witness)
+    return value, witness
+
+
 def _prepare_refinement(artifact, sources, *, policy, output, binding):
-    """The shared checked construction used by recorded saved-output recovery."""
+    """The shared checked construction; public callers use the narrow wrapper."""
     from pietto._project.project_refinement_lowering import lower
     from pietto._project.project_refinement_verification import verify_refinement
 
@@ -137,6 +244,29 @@ def _prepare_refinement(artifact, sources, *, policy, output, binding):
     )
     verify_refinement(value)
     return value
+
+
+def verify_live_r2_witness(witness, request):
+    """Reject constructed, copied, stale and cross-request R2 witnesses."""
+    from pietto._project.project_execution_binding_verification import verify_binding
+
+    if type(witness) is not LiveR2Witness or witness not in _LIVE_R2_WITNESSES:
+        raise ValueError("PUBLIC_R2_WITNESS")
+    verify_binding(witness.binding)
+    if (
+        witness.binding is not request.execution.binding
+        or witness.refinement is not request.refinement
+        or witness.refinement.output is not request.execution.output
+        or witness.binding.artifact is not request.execution.artifact
+        or tuple(witness.refinement.sources) != witness.requirements
+    ):
+        raise ValueError("PUBLIC_R2_WITNESS_CORRESPONDENCE")
+    _live_root(witness.template, witness.binding, reanchor=witness.reanchored)
+    verify_sources(
+        witness.requirements,
+        witness.binding.artifact.request.sources,
+        family=witness.binding.artifact.request.family,
+    )
 
 
 def compiled_source_requirements(artifact):

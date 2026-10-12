@@ -870,9 +870,12 @@ def verify_compiled_owner(owner):
     policy = root.records[Address("policy", 0)]
     if (owner.guarded_request is not None) is not policy.get("guarded"):
         raise ExecutionError("COMPILED_GUARD_MODE_REQUIRED")
-    if (owner.refined_request is not None) is not (
-        policy.get("refinement") is not None
-    ):
+    policy_refinement = policy.get("refinement") is not None
+    live_r2 = None if owner.refined_request is None else owner.refined_request.live_r2
+    if policy_refinement:
+        if owner.refined_request is None or live_r2 is not None:
+            raise ExecutionError("COMPILED_REFINEMENT_MODE_REQUIRED")
+    elif owner.refined_request is not None and live_r2 is None:
         raise ExecutionError("COMPILED_REFINEMENT_MODE_REQUIRED")
     if owner.refined_request is not None:
         from pietto._project.project_refinement_enumeration import (

@@ -27,7 +27,7 @@ settlement never rewrite source, transaction, delivery, sink or publication fact
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import fcntl
 import os
 import stat
@@ -414,6 +414,8 @@ class NativeSource:
     schemas: tuple[str, ...]
     limits: Any
     isolation: str = "stable"
+    refinement: Any = field(default=None, repr=False)
+    live_r2: Any = field(default=None, repr=False)
 
     def __reduce_ex__(self, protocol):
         raise JobStoreError("RUNTIME_SOURCE_COPY")
@@ -459,6 +461,8 @@ class Unit:
     extent: int = 0
     purpose: str = "s17-runtime"
     batch_rows: int = 4096
+    operation: str | None = None
+    source_requirements: tuple | None = field(default=None, repr=False)
     # A live in-process template (the live entry); None loads the stored bundle
     # with the fresh `trust` inputs. Either way the stored binding must match.
     template: Any = field(default=None, repr=False)
@@ -1326,9 +1330,9 @@ class Runtime:
             accepted_compatibility=compatibility,
         )
 
-    def _native(self, record, context, binding, route):
+    def _native(self, record, context, binding, route, source=None):
         """Open the attempt's own native owner in this worker thread."""
-        source = record.unit.source
+        source = record.unit.source if source is None else source
         if source.route != route:
             raise JobStoreError("RUNTIME_ROUTE")
         owner = _owner(binding, source)
@@ -1362,7 +1366,21 @@ class Runtime:
         unit, workspace = record.unit, context["workspace"]
         _template, binding, route = self._binding(workspace, unit)
         attempt = self._attempt(context, binding)
-        owner = self._native(record, context, binding, route)
+        source = unit.source
+        if unit.extraction and unit.source_requirements is not None:
+            from pietto._project.project_public_r2_proposal import (
+                prepare_refinement_for_binding,
+            )
+
+            prepared = prepare_refinement_for_binding(
+                binding,
+                unit.source_requirements,
+                authority=unit.source.live_r2,
+            )
+            source = replace(
+                source, refinement=prepared.refinement, live_r2=prepared.witness
+            )
+        owner = self._native(record, context, binding, route, source)
         session = self._capture_session(record, admission, context, owner, attempt)
         while True:
             self._check(record)
@@ -1474,11 +1492,24 @@ class Runtime:
             expected_pin=pin,
             accepted_producer=producer,
             accepted_compatibility=compatibility,
+            source_requirements=unit.source_requirements,
+            live_r2=unit.source.live_r2,
         )
         attempt = self._attempt(context, acceptance.binding)
-        owner = self._native(record, context, acceptance.binding, acceptance.route)
+        source = replace(
+            unit.source,
+            refinement=acceptance._refinement,
+            live_r2=acceptance._live_r2,
+        )
+        owner = self._native(
+            record, context, acceptance.binding, acceptance.route, source
+        )
         session = x.begin_continuation(
-            publisher, acceptance, attempt, owner, operation=new_operation()
+            publisher,
+            acceptance,
+            attempt,
+            owner,
+            operation=unit.operation,
         )
         session.admission = admission
         context["session"] = session
@@ -1655,14 +1686,52 @@ def _owner(binding, source: NativeSource):
                 source.access, sources, source.schemas, source.route
             )
         }
-    request = ex.prepare_compiled_execution(
-        binding,
-        source.access,
-        route=source.route,
-        limits=source.limits,
-        isolation=source.isolation,
-        **premise,
-    )
+    if source.refinement is None:
+        request = ex.prepare_compiled_execution(
+            binding,
+            source.access,
+            route=source.route,
+            limits=source.limits,
+            isolation=source.isolation,
+            **premise,
+        )
+    else:
+        from pietto._project.project_refinement_enumeration import (
+            RefinedExecutionRequest,
+            verify_refined_execution,
+        )
+
+        execution = ex.prepare_execution(
+            binding.artifact,
+            source.access,
+            route=source.route,
+            limits=source.limits,
+            isolation=source.isolation,
+            binding=binding,
+            output=source.refinement.output,
+            **premise,
+        )
+        if binding.guarded is None:
+            request = RefinedExecutionRequest(
+                execution, source.refinement, source.live_r2
+            )
+            verify_refined_execution(request)
+        else:
+            from pietto._project.project_guard_program import prepare_program
+            from pietto._project.project_guard_runtime import (
+                GuardedExecutionRequest,
+                verify_guarded_execution,
+            )
+
+            request = GuardedExecutionRequest(
+                execution,
+                prepare_program(
+                    binding.guarded, binding=binding, refinement=source.refinement
+                ),
+                False,
+                source.live_r2,
+            )
+            verify_guarded_execution(request)
     owners = {
         "postgres_rows": PostgresExecution,
         "postgres_adbc": PostgresADBCExecution,

@@ -30,6 +30,7 @@ class GuardedExecutionRequest:
     execution: ExecutionRequest = field(repr=False)
     program: GuardProgram = field(repr=False)
     allow_guard_sql: bool = True
+    live_r2: Any = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True, eq=False)

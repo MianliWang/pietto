@@ -31,6 +31,7 @@ from pietto._project.project_job_capture import (
     _begin,
     _snapshot,
     arrow_output,
+    checkpoint_snapshot,
     contract_digest,
     coordinate_scheme,
     known_extent,
@@ -50,6 +51,7 @@ from pietto._project.project_job_store import (
     _operate,
     _unpublished,
     _vector,
+    new_operation,
 )
 from pietto._project.project_job_workspace import (
     JobStoreError,
@@ -182,6 +184,7 @@ class RecoveryAcceptance:
     _snapshot: Any = field(repr=False)
     _output: Any = field(repr=False)
     _refinement: Any = field(repr=False)
+    _live_r2: Any = field(repr=False)
     _specification: str = field(repr=False)
     _description: str = field(repr=False)
     _deadline: float = field(repr=False)
@@ -212,40 +215,25 @@ def _verify_saved(workspace, snapshot, output, refinement, route) -> None:
         reader.verify()
 
 
-def accept_recovery(
-    workspace: Workspace,
-    job: str,
-    generation: str,
-    *,
-    checkpoint: str | None,
-    purpose: str,
+def _recovery_inputs(
+    workspace,
+    job,
+    generation,
+    checkpoint,
     values,
-    expected_pin: str,
-    accepted_producer: str,
-    accepted_compatibility: tuple,
-    seconds: int,
-) -> RecoveryAcceptance:
-    """Fresh trust, exact values/specification, current checkpoint, verified bytes.
-
-    `checkpoint` must name the generation's current latest checkpoint (None only
-    when none exists). Every saved member is checked before any source opens.
-    """
+    expected_pin,
+    accepted_producer,
+    accepted_compatibility,
+    source_requirements,
+    live_r2,
+):
+    """Rebuild caller-held recovery inputs without accepting a continuation."""
     from pietto._project.project_execution import compiled_output
     from pietto._project.project_execution_template import bind_values
 
     _extracting(workspace)
     if checkpoint is not None and not valid_identity(checkpoint, "ckp"):
         raise JobStoreError("CHECKPOINT_UNKNOWN")
-    if (
-        type(purpose) is not str
-        or not purpose
-        or not purpose.isprintable()
-        or len(purpose.encode("utf-8")) > MAX_PURPOSE_BYTES
-    ):
-        raise JobStoreError("ACCEPTANCE_PURPOSE")
-    if type(seconds) is not int or not 1 <= seconds <= MAX_ACCEPTANCE_SECONDS:
-        raise JobStoreError("ACCEPTANCE_BOUND")
-    accepted_at, deadline = _wall(), _monotonic() + seconds
     template, binding, route = stored_binding(
         workspace,
         job,
@@ -261,18 +249,143 @@ def accept_recovery(
     if _vector(stated) != _vector(binding):
         raise JobStoreError("BINDING_VECTOR")
     output, refinement, _program = compiled_output(binding)
+    if source_requirements is not None:
+        from pietto._project.project_public_r2_proposal import (
+            prepare_refinement_for_binding,
+        )
+
+        prepared = prepare_refinement_for_binding(
+            binding,
+            source_requirements,
+            authority=live_r2,
+            reanchor=True,
+        )
+        refinement, live_r2 = prepared.refinement, prepared.witness
+        output = refinement.output
     if refinement is None:
         raise JobStoreError("EXTRACTION_UNKNOWN")
+    return binding, route, output, refinement, live_r2
+
+
+def _recovery_metadata(c, job, generation):
+    row = c.execute(
+        "SELECT x.specification, x.qualification, g.isolation FROM extraction x"
+        " JOIN generation g ON g.identity = x.generation AND g.job = x.job"
+        " WHERE x.generation = ? AND x.job = ?",
+        (generation, job),
+    ).fetchone()
+    if row is None:
+        raise JobStoreError("EXTRACTION_UNKNOWN")
+    return row
+
+
+def _recovery_request(job, generation, checkpoint, snapshot, qualification):
+    if snapshot is None:
+        return {
+            "job": job,
+            "generation": generation,
+            "predecessor": checkpoint,
+            "frontier": 0,
+            "reach": 0,
+            "members": 0,
+            "rows": 0,
+            "qualification": qualification,
+        }
+    return {
+        "job": job,
+        "generation": generation,
+        "predecessor": checkpoint,
+        "frontier": snapshot.frontier,
+        "reach": max((member.stop for member in snapshot.members), default=0),
+        "members": len(snapshot.members),
+        "rows": sum(member.stop - member.start for member in snapshot.members),
+        "qualification": qualification,
+    }
+
+
+def continuation_replay_request(
+    workspace: Workspace,
+    job: str,
+    generation: str,
+    *,
+    checkpoint: str | None,
+    values,
+    expected_pin: str,
+    accepted_producer: str,
+    accepted_compatibility: tuple,
+    source_requirements=None,
+    live_r2=None,
+) -> dict:
+    """Project a frozen first step without accepting an obsolete predecessor."""
+    _binding, route, output, refinement, _live_r2 = _recovery_inputs(
+        workspace,
+        job,
+        generation,
+        checkpoint,
+        values,
+        expected_pin,
+        accepted_producer,
+        accepted_compatibility,
+        source_requirements,
+        live_r2,
+    )
+    text, qualification, isolation = read(
+        workspace, lambda c: _recovery_metadata(c, job, generation)
+    )
+    if specification(refinement, output, route, isolation) != text:
+        raise JobStoreError("EXTRACTION_SPECIFICATION")
+    if checkpoint is None:
+        return _recovery_request(job, generation, checkpoint, None, qualification)
+    snapshot = checkpoint_snapshot(workspace, job, generation, checkpoint=checkpoint)
+    _verify_saved(workspace, snapshot, output, refinement, route)
+    return _recovery_request(job, generation, checkpoint, snapshot, qualification)
+
+
+def accept_recovery(
+    workspace: Workspace,
+    job: str,
+    generation: str,
+    *,
+    checkpoint: str | None,
+    purpose: str,
+    values,
+    expected_pin: str,
+    accepted_producer: str,
+    accepted_compatibility: tuple,
+    seconds: int,
+    source_requirements=None,
+    live_r2=None,
+) -> RecoveryAcceptance:
+    """Fresh trust, exact values/specification, current checkpoint, verified bytes.
+
+    `checkpoint` must name the generation's current latest checkpoint (None only
+    when none exists). Every saved member is checked before any source opens.
+    """
+    if (
+        type(purpose) is not str
+        or not purpose
+        or not purpose.isprintable()
+        or len(purpose.encode("utf-8")) > MAX_PURPOSE_BYTES
+    ):
+        raise JobStoreError("ACCEPTANCE_PURPOSE")
+    if type(seconds) is not int or not 1 <= seconds <= MAX_ACCEPTANCE_SECONDS:
+        raise JobStoreError("ACCEPTANCE_BOUND")
+    accepted_at, deadline = _wall(), _monotonic() + seconds
+    binding, route, output, refinement, live_r2 = _recovery_inputs(
+        workspace,
+        job,
+        generation,
+        checkpoint,
+        values,
+        expected_pin,
+        accepted_producer,
+        accepted_compatibility,
+        source_requirements,
+        live_r2,
+    )
 
     def body(c):
-        row = c.execute(
-            "SELECT x.specification, x.qualification, g.isolation FROM extraction x"
-            " JOIN generation g ON g.identity = x.generation AND g.job = x.job"
-            " WHERE x.generation = ? AND x.job = ?",
-            (generation, job),
-        ).fetchone()
-        if row is None:
-            raise JobStoreError("EXTRACTION_UNKNOWN")
+        row = _recovery_metadata(c, job, generation)
         snapshot = _snapshot(c, workspace, job, generation, None)
         if snapshot.checkpoint != checkpoint:
             raise JobStoreError("CONTINUATION_PREDECESSOR")
@@ -305,6 +418,7 @@ def accept_recovery(
         snapshot,
         output,
         refinement,
+        live_r2,
         text,
         description,
         deadline,
@@ -312,6 +426,18 @@ def accept_recovery(
     )
     _ACCEPTED.add(acceptance)
     return _accepted(acceptance)
+
+
+def continuation_request(acceptance: RecoveryAcceptance) -> dict:
+    """Canonical caller-owned request for one accepted continuation step."""
+    acceptance = _accepted(acceptance)
+    return _recovery_request(
+        acceptance.job,
+        acceptance.generation,
+        acceptance.checkpoint,
+        acceptance._snapshot,
+        acceptance._description,
+    )
 
 
 def segments(members, start: int, stop: int) -> tuple[tuple[str, int, int, Any], ...]:
@@ -341,7 +467,7 @@ def begin_continuation(
     attempt: AttemptHandle,
     owner,
     *,
-    operation: str,
+    operation: str | None = None,
 ) -> ContinuationSession:
     """Freeze the accepted checkpoint for this new attempt after fresh qualification.
 
@@ -385,15 +511,7 @@ def begin_continuation(
         raise JobStoreError("EXTRACTION_QUALIFICATION_CHANGED")
     snapshot = acceptance._snapshot
     document = _identity_request(
-        publisher,
-        generation=acceptance.generation,
-        attempt=attempt.identity,
-        predecessor=acceptance.checkpoint,
-        frontier=acceptance.frontier,
-        reach=acceptance.reach,
-        members=len(snapshot.members),
-        rows=acceptance.rows,
-        qualification=description,
+        publisher, attempt=attempt.identity, **continuation_request(acceptance)
     )
 
     def effect(c):
@@ -456,7 +574,7 @@ def begin_continuation(
         publisher,
         _operate(
             workspace,
-            operation,
+            new_operation() if operation is None else operation,
             "begin_continuation",
             document,
             effect,

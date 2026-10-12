@@ -77,7 +77,9 @@ class PostgresADBCExecution:
             and self.guarded_request.program.refinement is not None
         ):
             self.refined_request = RefinedExecutionRequest(
-                self.guarded_request.execution, self.guarded_request.program.refinement
+                self.guarded_request.execution,
+                self.guarded_request.program.refinement,
+                self.guarded_request.live_r2,
             )
         if self.refined_request is not None:
             request = self.refined_request.execution
@@ -246,6 +248,9 @@ class PostgresADBCExecution:
         self._checkpoint()
 
     def _verify(self):
+        from pietto._project.project_execution import verify_compiled_owner
+
+        verify_compiled_owner(self)
         if (
             self.request is not self._owned_request
             or request_state(self.request) != self._captured

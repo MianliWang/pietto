@@ -896,6 +896,30 @@ _OPERATION_REQUEST_FIELDS = {
         ("job", "pin", "publisher", "slots", "vector"),
         ("job", "pin", "slots", "vector"),
     ),
+    "begin_continuation": (
+        (
+            "attempt",
+            "frontier",
+            "generation",
+            "job",
+            "members",
+            "predecessor",
+            "publisher",
+            "qualification",
+            "reach",
+            "rows",
+        ),
+        (
+            "frontier",
+            "generation",
+            "job",
+            "members",
+            "predecessor",
+            "qualification",
+            "reach",
+            "rows",
+        ),
+    ),
 }
 
 

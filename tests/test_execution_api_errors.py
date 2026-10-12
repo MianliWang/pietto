@@ -318,6 +318,7 @@ def test_public_surface_is_exactly_the_alpha_names():
         "PostgresAccess",
         "PostgresDeploymentPremise",
         "QueryBundle",
+        "R2SourceInput",
         "RequestRejected",
         "ResultBatch",
         "ResultHandle",
@@ -341,8 +342,10 @@ def test_public_surface_is_exactly_the_alpha_names():
         "open_workspace",
         "operation_result",
         "release_saved_read",
+        "recover",
         "retire_generation",
         "save",
+        "save_recoverable",
         "verified_export",
     }
     for name in execution.__all__:

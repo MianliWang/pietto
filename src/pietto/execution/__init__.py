@@ -57,6 +57,7 @@ from pietto.execution._query import (
 )
 from pietto.execution._retirement import retire_generation
 from pietto.execution._saved import SaveCloseHandle, SaveReply, save
+from pietto.execution._r2 import R2SourceInput, recover, save_recoverable
 from pietto.execution._saved_read import (
     SavedBatch,
     SavedRead,
@@ -92,6 +93,7 @@ __all__ = [
     "PostgresAccess",
     "PostgresDeploymentPremise",
     "QueryBundle",
+    "R2SourceInput",
     "RequestRejected",
     "ResultBatch",
     "ResultHandle",
@@ -114,8 +116,10 @@ __all__ = [
     "open_saved_read",
     "open_workspace",
     "operation_result",
+    "recover",
     "release_saved_read",
     "retire_generation",
     "save",
+    "save_recoverable",
     "verified_export",
 ]

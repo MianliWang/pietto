@@ -155,3 +155,128 @@ def capture(
             report = opened.close()
             if report["unjoined"]:
                 raise workspace.JobStoreError("RUNTIME_CLOSE_UNJOINED")
+
+
+def capture_recoverable(
+    workspace_ref,
+    *,
+    job,
+    generation,
+    template,
+    route,
+    access,
+    schemas,
+    limits,
+    isolation,
+    values,
+    source_requirements,
+    live_r2=None,
+):
+    """First R2 capture: the runtime calls begin_extraction before any page."""
+    budget, operations = runtime_capacity(workspace_ref)
+    pending = False
+    policy = policy_for(budget, operations)
+    opened = runtime.open_runtime(
+        workspace_ref.root, expected_identity=workspace_ref.identity, policy=policy
+    )
+    try:
+        while opened.reconcile():
+            pass
+        handle = opened.submit(
+            runtime.Unit(
+                "CAPTURE",
+                workspace_ref.root,
+                workspace_ref.identity,
+                job,
+                generation,
+                trust=(),
+                seconds=max(1, math.ceil(limits.seconds)),
+                values=values,
+                source=runtime.NativeSource(
+                    route, access, schemas, limits, isolation, live_r2=live_r2
+                ),
+                durable=policy.durable,
+                operations=policy.operations,
+                extraction=True,
+                source_requirements=source_requirements,
+                template=template,
+            )
+        )
+        while True:
+            state = opened.wait(handle, 1.0)
+            if state.terminal is not None:
+                return state, None
+            if state.activity == "WAITING_FOR_CLEANUP":
+                pending = True
+                return state, PendingClose(opened, handle)
+    finally:
+        if not pending:
+            report = opened.close()
+            if report["unjoined"]:
+                raise workspace.JobStoreError("RUNTIME_CLOSE_UNJOINED")
+
+
+def recover_recoverable(
+    workspace_ref,
+    *,
+    job,
+    generation,
+    checkpoint,
+    template,
+    route,
+    access,
+    schemas,
+    limits,
+    isolation,
+    values,
+    trust,
+    purpose,
+    seconds,
+    source_requirements,
+    live_r2=None,
+    operation,
+):
+    """One fresh R2 attempt; runtime compares saved occurrences before commit."""
+    budget, operations = runtime_capacity(workspace_ref)
+    pending = False
+    policy = policy_for(budget, operations)
+    opened = runtime.open_runtime(
+        workspace_ref.root, expected_identity=workspace_ref.identity, policy=policy
+    )
+    try:
+        while opened.reconcile():
+            pass
+        handle = opened.submit(
+            runtime.Unit(
+                "RECOVER",
+                workspace_ref.root,
+                workspace_ref.identity,
+                job,
+                generation,
+                trust=trust,
+                seconds=seconds,
+                values=values,
+                source=runtime.NativeSource(
+                    route, access, schemas, limits, isolation, live_r2=live_r2
+                ),
+                durable=policy.durable,
+                operations=policy.operations,
+                checkpoint=checkpoint,
+                purpose=purpose,
+                operation=operation,
+                source_requirements=source_requirements,
+                template=template,
+            )
+        )
+        while True:
+            state = opened.wait(handle, 1.0)
+            if state.terminal is not None:
+                return state, None
+            if state.activity == "WAITING_FOR_CLEANUP":
+                pending = True
+                return state, PendingClose(opened, handle)
+    finally:
+        if not pending:
+            report = opened.close()
+            if report["unjoined"]:
+                raise workspace.JobStoreError("RUNTIME_CLOSE_UNJOINED")
