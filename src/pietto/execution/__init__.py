@@ -43,6 +43,11 @@ from pietto.execution._handle import (
     UnclosedHandleWarning,
     execute,
 )
+from pietto.execution._inspection import (
+    GenerationObservation,
+    JobObservation,
+    inspect_job,
+)
 from pietto.execution._query import (
     CompiledQuery,
     QueryBundle,
@@ -50,6 +55,7 @@ from pietto.execution._query import (
     export_bundle,
     load_bundle,
 )
+from pietto.execution._retirement import retire_generation
 from pietto.execution._saved import SaveCloseHandle, SaveReply, save
 from pietto.execution._workspace import (
     OperationReply,
@@ -67,7 +73,9 @@ __all__ = [
     "ExecutionError",
     "ExecutionLimits",
     "Failure",
+    "GenerationObservation",
     "HandleMisuse",
+    "JobObservation",
     "MySQLAccess",
     "MySQLDeploymentPremise",
     "OperationReply",
@@ -86,9 +94,11 @@ __all__ = [
     "create_workspace",
     "execute",
     "export_bundle",
+    "inspect_job",
     "load_bundle",
     "new_operation",
     "open_workspace",
     "operation_result",
+    "retire_generation",
     "save",
 ]

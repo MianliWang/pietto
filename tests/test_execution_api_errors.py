@@ -308,7 +308,9 @@ def test_public_surface_is_exactly_the_alpha_names():
         "ExecutionError",
         "ExecutionLimits",
         "Failure",
+        "GenerationObservation",
         "HandleMisuse",
+        "JobObservation",
         "MySQLAccess",
         "MySQLDeploymentPremise",
         "OperationReply",
@@ -327,10 +329,12 @@ def test_public_surface_is_exactly_the_alpha_names():
         "create_workspace",
         "execute",
         "export_bundle",
+        "inspect_job",
         "load_bundle",
         "new_operation",
         "open_workspace",
         "operation_result",
+        "retire_generation",
         "save",
     }
     for name in execution.__all__:
