@@ -16,13 +16,22 @@ import csv
 import hashlib
 import io
 import json
+from pathlib import Path
 import re
 import tarfile
+import tomllib
 import zipfile
 from email import policy
 from email.parser import BytesParser
 
-CORE = {"pietto": "0.1.1", "antlr4-python3-runtime": "4.13.2"}
+CORE = {
+    "pietto": tomllib.loads(
+        (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+    )["project"]["version"],
+    "antlr4-python3-runtime": "4.13.2",
+}
 ARROW = {**CORE, "pyarrow": "25.0.1"}
 POSTGRES = {**ARROW, "psycopg": "3.3.5", "psycopg-binary": "3.3.5"}
 MYSQL = {**ARROW, "mysql-connector-python": "26.7.0"}

@@ -5,7 +5,7 @@ documentation does not supersede that evidence.
 
 | Item | State |
 | --- | --- |
-| Package and CLI | `0.1.1` |
+| Repository package and CLI | `0.1.2` source candidate (`UNRELEASED`); published package: `0.1.1` |
 | Phase 55 | `COMPLETED` |
 | Phase 56 | `COMPLETED` |
 | Phase 57 | `COMPLETED` |

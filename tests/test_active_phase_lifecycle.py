@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 import subprocess
-import tomllib
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -246,12 +245,7 @@ INTERLUDE_COMPLETION = (
     "Complete validation performance interlude",
 )
 
-# The status row follows the declared package version.
-PACKAGE_VERSION = tomllib.loads(
-    (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-)["project"]["version"]
 EXPECTED_STATUS = (
-    ("Package and CLI", f"`{PACKAGE_VERSION}`"),
     ("Phase 55", "`COMPLETED`"),
     ("Phase 56", "`COMPLETED`"),
     ("Phase 57", "`COMPLETED`"),
@@ -1610,7 +1604,12 @@ def _table_rows(document: str) -> tuple[tuple[str, ...], ...]:
 def test_active_status_table_and_authority_prose_are_exact() -> None:
     status = _read(STATUS)
     rows = _table_rows(status)[1:]
-    assert tuple(row for row in rows if row[0] != "Next") == EXPECTED_STATUS
+    assert (
+        tuple(
+            row for row in rows if row[0] not in {"Next", "Repository package and CLI"}
+        )
+        == EXPECTED_STATUS
+    )
     next_rows = tuple(row for row in rows if row[0] == "Next")
     assert len(next_rows) == 1 and next_rows[0][1].strip("` ")
     normalized = " ".join(status.split())

@@ -51,7 +51,7 @@ from pietto._project.model import (
 )
 from pietto.errors import Diagnostic, Severity
 
-_FALLBACK_VERSION = "0.1.1"
+_FALLBACK_VERSION = "0.1.2"
 _EXIT_DIAGNOSTIC_ERROR = 1
 _EXIT_USAGE_ERROR = 2
 _FORMAT_TEXT = "text"
