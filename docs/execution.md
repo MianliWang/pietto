@@ -1,9 +1,10 @@
 # Execution (alpha, source candidate)
 
-**Status:** 0.1.2 UNRELEASED source-candidate documentation. It neither
-activates that version nor claims a published wheel, natural CI result, or
-native support outside the evidence stated here. The published release remains
-0.1.1; its wheel does not provide this alpha surface.
+**Status:** UNRELEASED source-candidate documentation; package version 0.1.1
+is retained until the owner chooses an upgrade after more work. This document
+does not claim a new published wheel, natural CI result, or native support
+outside the evidence stated here. The published 0.1.1 wheel does not provide
+this alpha surface.
 
 `pietto.execution` compiles one query of your project, runs it explicitly on
 PostgreSQL 18.6 through the PostgreSQL rows route, and hands you typed Arrow
