@@ -1483,15 +1483,17 @@ def verified_stored_output(
     from pietto._project.project_job_extraction import specification
 
     output, refinement, _program = compiled_output(binding)
-    recorded = read(
-        workspace,
-        lambda c: c.execute(
-            "SELECT x.specification, g.isolation FROM extraction x"
-            " JOIN generation g ON g.identity = x.generation AND g.job = x.job"
-            " WHERE x.generation = ? AND x.job = ?",
-            (generation, job),
-        ).fetchone(),
-    )
+    recorded = None
+    if supports(workspace, "extraction-resume"):
+        recorded = read(
+            workspace,
+            lambda c: c.execute(
+                "SELECT x.specification, g.isolation FROM extraction x"
+                " JOIN generation g ON g.identity = x.generation AND g.job = x.job"
+                " WHERE x.generation = ? AND x.job = ?",
+                (generation, job),
+            ).fetchone(),
+        )
     if recorded is not None:
         text, isolation = recorded
         if refinement is None:

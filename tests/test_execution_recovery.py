@@ -21,6 +21,7 @@ def test_saved_output_rebuilds_recorded_r2_shape_over_guarded_output(monkeypatch
 
     binding, output, program, refinement = object(), object(), object(), object()
     observed = []
+    monkeypatch.setattr(capture, "supports", lambda workspace, feature: True)
     monkeypatch.setattr(
         private_execution, "compiled_output", lambda actual: (output, None, program)
     )
