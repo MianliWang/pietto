@@ -1424,6 +1424,36 @@ def test_s13_delivery_is_acknowledged_only_after_sink_confirmation(setup):
     verify_store(x.workspace)
 
 
+def test_bridge_refuses_a_saved_read_with_a_different_stored_output(setup):
+    if setup is None:
+        return
+    x = setup
+    stream, delivery = stream_of(x, (2, 2))
+    acceptance = s13.accept(x.workspace, x.job, x.generation, x.built)
+    r.register_consumer(x.publisher, acceptance, operation=op())
+    replay = r.open_replay(x.publisher, acceptance, operation=op())
+    offered = s13.issue(replay, 2)
+    from pietto._project.project_job_capture import StoredOutput
+
+    object.__setattr__(
+        acceptance,
+        "_stored_output",
+        StoredOutput(
+            acceptance._stored_output.job,
+            acceptance._stored_output.generation,
+            "different-contract",
+            acceptance._stored_output.scheme,
+            acceptance._stored_output.binding,
+        ),
+    )
+    try:
+        with pytest.raises(JobStoreError, match="ACCEPTANCE_SUBJECT"):
+            delivery.bridge(offered, operation=op())
+    finally:
+        offered.batch.close()
+        replay.close()
+
+
 def test_an_unrelated_r1_cursor_proves_no_sink_effect(setup):
     if setup is None:
         return

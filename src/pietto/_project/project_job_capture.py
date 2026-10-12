@@ -1358,8 +1358,7 @@ def stored_binding(
 
 
 def arrow_output(job, generation, output, refinement, route) -> StoredOutput:
-    """The stored-chunk producer of a freshly rederived compiled output."""
-    from pietto._project.project_arrow_result import bind_arrow
+    """The Arrow-free stored-output descriptor for one checked reader."""
     from pietto._project.project_execution_reader import bind_stored_output
 
     return StoredOutput(
@@ -1367,8 +1366,128 @@ def arrow_output(job, generation, output, refinement, route) -> StoredOutput:
         generation,
         contract_digest(output),
         coordinate_scheme(refinement),
-        bind_arrow(bind_stored_output(output, route)),
+        bind_stored_output(output, route),
     )
+
+
+def _recorded_refinement(binding, output, route, isolation, text):
+    """Rebuild an R2 reader shape from its recorded, non-authorizing spec."""
+    from pietto._project.project_execution_source import (
+        RetainedSourceRequirement,
+        verify_requirement,
+    )
+    from pietto._project.project_job_extraction import SPECIFICATION, specification
+    from pietto._project.project_refinement import TieRefinement, _prepare_refinement
+
+    try:
+        document = json.loads(text)
+    except (TypeError, ValueError):
+        raise JobStoreError("EXTRACTION_SPECIFICATION") from None
+    if (
+        type(document) is not dict
+        or _json(document) != text
+        or set(document)
+        != {
+            "chunk",
+            "contract",
+            "coordinates",
+            "isolation",
+            "kind",
+            "route",
+            "scheme",
+            "sources",
+            "version",
+        }
+        or document["chunk"] != chunks.FORMAT
+        or document["coordinates"] != chunks.COORDINATES
+        or document["isolation"] != isolation
+        or document["kind"] != "REFINED"
+        or document["route"] != route
+        or document["version"] != SPECIFICATION
+        or type(document["contract"]) is not str
+        or type(document["scheme"]) is not str
+        or type(document["sources"]) is not list
+        or len(document["sources"]) != len(binding.artifact.request.sources)
+    ):
+        raise JobStoreError("EXTRACTION_SPECIFICATION")
+    requirements = []
+    for fields, source in zip(
+        document["sources"], binding.artifact.request.sources, strict=True
+    ):
+        if (
+            type(fields) is not list
+            or len(fields) != 11
+            or (fields[0], fields[1]) != (source.namespace, source.name)
+            or any(type(value) is not str for value in (*fields[:8], *fields[9:]))
+            or type(fields[8]) is not list
+            or any(type(value) is not str for value in fields[8])
+        ):
+            raise JobStoreError("EXTRACTION_SPECIFICATION")
+        requirement = RetainedSourceRequirement(
+            source,
+            fields[2],
+            fields[3],
+            fields[4],
+            fields[5],
+            fields[6],
+            fields[7],
+            tuple(fields[8]),
+            fields[9],
+            fields[10],
+        )
+        try:
+            verify_requirement(
+                requirement,
+                binding.artifact.request.sources,
+                family=binding.artifact.request.family,
+            )
+        except ValueError:
+            raise JobStoreError("EXTRACTION_SPECIFICATION") from None
+        requirements.append(requirement)
+    try:
+        refinement = _prepare_refinement(
+            binding.artifact,
+            tuple(requirements),
+            policy=TieRefinement(),
+            output=output,
+            binding=binding,
+        )
+    except ValueError:
+        raise JobStoreError("EXTRACTION_SPECIFICATION") from None
+    if specification(refinement, output, route, isolation) != text:
+        raise JobStoreError("EXTRACTION_SPECIFICATION")
+    return refinement
+
+
+def verified_stored_output(
+    workspace: Workspace, job: str, generation: str, binding, route: str
+) -> StoredOutput:
+    """Derive one read-only stored output from a caller-verified binding.
+
+    A recorded R2 specification supplies comparison data only. Its reconstructed
+    refinement is discarded after binding the chunk reader, so it cannot confer
+    native execution permission.
+    """
+    from pietto._project.project_execution import compiled_output
+    from pietto._project.project_job_extraction import specification
+
+    output, refinement, _program = compiled_output(binding)
+    recorded = read(
+        workspace,
+        lambda c: c.execute(
+            "SELECT x.specification, g.isolation FROM extraction x"
+            " JOIN generation g ON g.identity = x.generation AND g.job = x.job"
+            " WHERE x.generation = ? AND x.job = ?",
+            (generation, job),
+        ).fetchone(),
+    )
+    if recorded is not None:
+        text, isolation = recorded
+        if refinement is None:
+            refinement = _recorded_refinement(binding, output, route, isolation, text)
+        elif specification(refinement, output, route, isolation) != text:
+            raise JobStoreError("EXTRACTION_SPECIFICATION")
+    return arrow_output(job, generation, output, refinement, route)
 
 
 def stored_output(
@@ -1381,8 +1500,6 @@ def stored_output(
     accepted_compatibility: tuple,
 ) -> StoredOutput:
     """Fresh caller trust -> S10 template/binding/output -> stored-chunk producer."""
-    from pietto._project.project_execution import compiled_output
-
     _template, binding, route = stored_binding(
         workspace,
         job,
@@ -1391,8 +1508,7 @@ def stored_output(
         accepted_producer=accepted_producer,
         accepted_compatibility=accepted_compatibility,
     )
-    output, refinement, _program = compiled_output(binding)
-    return arrow_output(job, generation, output, refinement, route)
+    return verified_stored_output(workspace, job, generation, binding, route)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -1519,8 +1635,10 @@ class SnapshotReader:
             )
         elif descriptor["coordinates"] is not None:
             raise JobStoreError("CHUNK_COORDINATE")
+        from pietto._project.project_arrow_result import bind_arrow
+
         session = open_ipc(
-            self.output.binding,
+            bind_arrow(self.output.binding),
             frame,
             expected_rows=rows,
             ipc_limits=IPCLimits(chunks.MAX_FRAME_BYTES),

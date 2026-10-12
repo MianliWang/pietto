@@ -110,6 +110,35 @@ def prepare_refinement(artifact, sources, *, policy, output=None, binding=None):
     return value
 
 
+def _prepare_refinement(artifact, sources, *, policy, output, binding):
+    """The shared checked construction used by recorded saved-output recovery."""
+    from pietto._project.project_refinement_lowering import lower
+    from pietto._project.project_refinement_verification import verify_refinement
+
+    if (
+        type(policy) is not TieRefinement
+        or policy.choice != "structural_occurrence_ascending"
+    ):
+        raise ValueError("REFINEMENT_POLICY")
+    if output is None:
+        output = prepare_output(artifact, binding=binding)
+    verify_sources(sources, artifact.request.sources, family=artifact.request.family)
+    units, statement, prefix = lower(output, sources)
+    value = RefinedQuery(
+        artifact,
+        output,
+        policy,
+        sources,
+        tuple(requirement_state(s) for s in sources),
+        units,
+        statement,
+        prefix,
+        tuple((i, c) for i, c in enumerate(output.columns)),
+    )
+    verify_refinement(value)
+    return value
+
+
 def compiled_source_requirements(artifact):
     """Rebind the complete immutable descriptions to this fresh artifact only."""
     from pietto._project.project_compiled_schema import Address

@@ -57,6 +57,14 @@ from pietto.execution._query import (
 )
 from pietto.execution._retirement import retire_generation
 from pietto.execution._saved import SaveCloseHandle, SaveReply, save
+from pietto.execution._saved_read import (
+    SavedBatch,
+    SavedRead,
+    SavedReadEnd,
+    new_consumer_identity,
+    open_saved_read,
+    release_saved_read,
+)
 from pietto.execution._workspace import (
     OperationReply,
     WorkspaceRef,
@@ -88,6 +96,9 @@ __all__ = [
     "ResultHandle",
     "SaveCloseHandle",
     "SaveReply",
+    "SavedBatch",
+    "SavedRead",
+    "SavedReadEnd",
     "UnclosedHandleWarning",
     "WorkspaceRef",
     "compile_query",
@@ -96,9 +107,12 @@ __all__ = [
     "export_bundle",
     "inspect_job",
     "load_bundle",
+    "new_consumer_identity",
     "new_operation",
+    "open_saved_read",
     "open_workspace",
     "operation_result",
+    "release_saved_read",
     "retire_generation",
     "save",
 ]

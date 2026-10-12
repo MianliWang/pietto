@@ -25,13 +25,11 @@ from pietto._project.project_job_capture import (
     _retain,
     _scope,
     _snapshot,
-    arrow_output,
     checkpoint_snapshot,
-    contract_digest,
-    coordinate_scheme,
     frontier,
     holes,
     stored_binding,
+    verified_stored_output,
 )
 from pietto._project.project_job_store import (
     _FENCE,
@@ -95,8 +93,7 @@ class SavedReadAcceptance:
     batch_rows: int
     seconds: int
     accepted_at: float
-    _output: Any = field(repr=False)
-    _refinement: Any = field(repr=False)
+    _stored_output: Any = field(repr=False)
     _deadline: float = field(repr=False)
     _pid: int = field(repr=False)
 
@@ -138,7 +135,6 @@ def accept_saved_read(
     batch_rows: int,
 ) -> SavedReadAcceptance:
     """Fresh trust, exact binding/output correspondence and bounded validity."""
-    from pietto._project.project_execution import compiled_output
     from pietto._project.project_execution_template import bind_values
 
     _replaying(workspace)
@@ -179,12 +175,9 @@ def accept_saved_read(
     # The typed wire keeps True != 1, -0.0 != 0.0 and exact Text distinct.
     if _vector(stated) != _vector(binding):
         raise JobStoreError("BINDING_VECTOR")
-    output, refinement, _program = compiled_output(binding)
+    output = verified_stored_output(workspace, job, generation, binding, route)
     snapshot = checkpoint_snapshot(workspace, job, generation, checkpoint=checkpoint)
-    if (snapshot.contract, snapshot.scheme) != (
-        contract_digest(output),
-        coordinate_scheme(refinement),
-    ):
+    if (snapshot.contract, snapshot.scheme) != (output.contract, output.scheme):
         raise JobStoreError("READER_SNAPSHOT")
     _covered(snapshot, scope, extent)
     acceptance = SavedReadAcceptance(
@@ -201,7 +194,6 @@ def accept_saved_read(
         seconds,
         _wall(),
         output,
-        refinement,
         _monotonic() + seconds,
         os.getpid(),
     )
@@ -504,7 +496,9 @@ def _rebatch(replay, start, stop) -> tuple[Any, tuple | None, int, Any]:
         if buffer is not None
     )
     refined = replay.snapshot.kind == "REFINED"
-    batch = manage_batch(replay._open_reader().output.binding, joined)
+    from pietto._project.project_arrow_result import bind_arrow
+
+    batch = manage_batch(bind_arrow(replay._open_reader().output.binding), joined)
     return batch, tuple(coordinates) if refined else None, held, joined.schema
 
 
@@ -607,10 +601,9 @@ class ReplaySession:
     def _open_reader(self) -> SnapshotReader:
         if self._reader is None:
             a = self.acceptance
-            output = arrow_output(
-                a.job, a.generation, a._output, a._refinement, a.route
+            self._reader = SnapshotReader(
+                self.publisher.use(), self.snapshot, a._stored_output
             )
-            self._reader = SnapshotReader(self.publisher.use(), self.snapshot, output)
         return self._reader
 
     def _chunk(self, index):

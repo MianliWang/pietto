@@ -96,6 +96,32 @@ def _controlled_postgres_source(monkeypatch, rows) -> None:
     monkeypatch.setattr(PostgresExecution, "__next__", next_)
 
 
+def _store(root, template, values, *, format):
+    """Create the minimal registered v7 fixture without a phase-test import."""
+    from pietto._project import project_job_store as store
+    from pietto._project import project_job_workspace as workspace
+    from pietto._project.project_execution_template import bind_values
+
+    saved = workspace.create_workspace(str(root), format=format)
+    job = store.register_job(saved, template, operation=store.new_operation()).get(
+        "job"
+    )
+    publisher = store.claim_publisher(saved, job, operation=store.new_operation())
+    binding = bind_values(template, tuple(zip(template.slots, values, strict=True)))
+    record = store.register_binding(
+        publisher, binding, operation=store.new_operation()
+    ).get("binding")
+    generation = store.register_generation(
+        publisher,
+        record,
+        binding,
+        route="postgres_rows",
+        isolation="stable",
+        operation=store.new_operation(),
+    ).get("generation")
+    return saved, job, publisher, binding, record, generation
+
+
 def unstarted_saved_generation(directory) -> UnstartedSavedGeneration | None:
     """Build the real v7 metadata needed by control-only public consumers."""
     if not workspace_probe.qualified(directory):
@@ -122,14 +148,20 @@ def completed_saved_result(directory, monkeypatch) -> SavedResultCase | None:
     from pietto._project import project_public_jobs as jobs
     from pietto._project import project_execution as private_execution
     from pietto._project import project_job_workspace as private_workspace
+    from pietto._project import project_arrow_result as arrow
     from pietto.execution import WorkspaceRef
+
+    try:
+        arrow.pinned()
+    except private_execution.ExecutionError:
+        import pytest
+
+        pytest.skip("R1 delivery consumes pinned PyArrow")
 
     expected_rows = ((2, 3), (2, 3), (3, 4))
     _controlled_postgres_source(monkeypatch, (expected_rows[:2], expected_rows[2:]))
     template, built = workspace_probe.compiled_template(directory / "compiled")
-    from _pietto_phase68_slice12_probe import store
-
-    workspace, job, publisher, binding, _record, generation = store(
+    workspace, job, publisher, binding, _record, generation = _store(
         directory / "workspace", template, (1,), format=private_workspace.FORMAT_V7
     )
     publisher.close()
@@ -196,7 +228,7 @@ def completed_saved_result(directory, monkeypatch) -> SavedResultCase | None:
             state,
             snapshot,
             expected_rows,
-            output.binding.schema,
+            chunks[0].table.schema,
             (1,),
             (built.pin, built.producer, built.compatibility),
         )

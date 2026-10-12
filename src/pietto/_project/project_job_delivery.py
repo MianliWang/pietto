@@ -1292,8 +1292,16 @@ class StreamSession:
             source.job,
             source.generation,
             source.route,
-            layout(source._output, source._refinement),
-        ) != (facts.workspace, facts.job, facts.generation, facts.route, facts.layout):
+            source._stored_output.contract,
+            source._stored_output.scheme,
+        ) != (
+            facts.workspace,
+            facts.job,
+            facts.generation,
+            facts.route,
+            facts.contract,
+            facts.scheme,
+        ):
             raise JobStoreError("ACCEPTANCE_SUBJECT")
         _accepted(self.sink, SinkAcceptance)
         payloads = _payloads(delivery.batch, delivery.coordinates)

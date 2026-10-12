@@ -383,8 +383,7 @@ def test_replayed_save_operation_is_read_only_before_claim_or_generation(
         assert store.job_record(workspace, original.job) == after
 
         values = tuple(
-            slot.original.site.position.literal.value
-            for slot in query._template.slots
+            slot.original.site.position.literal.value for slot in query._template.slots
         )
         from pietto._project.project_execution_template import bind_values
 
@@ -410,7 +409,9 @@ def test_replayed_save_operation_is_read_only_before_claim_or_generation(
             job=original.job,
         )
         assert reply.terminal == "REPLY_LOST_OR_PARTIAL"
-        assert reply.operation is not None and reply.operation.sequence == binding.sequence
+        assert (
+            reply.operation is not None and reply.operation.sequence == binding.sequence
+        )
         assert store.job_record(workspace, original.job) == before
     finally:
         workspace.close()
