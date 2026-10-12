@@ -25,13 +25,11 @@ from pietto._project import project_job_chunks as chunks
 from pietto._project.project_job_capture import (
     SnapshotReader,
     _snapshot,
-    arrow_output,
-    contract_digest,
-    coordinate_scheme,
     known_extent,
     release_retention,
     retain_checkpoint,
     stored_binding,
+    verified_stored_output,
 )
 from pietto._project.project_job_store import (
     _FENCE,
@@ -299,8 +297,7 @@ class PublicationAcceptance:
     scheme: str = field(repr=False)
     seconds: int
     accepted_at: float
-    _output: Any = field(repr=False)
-    _refinement: Any = field(repr=False)
+    _stored_output: Any = field(repr=False)
     _deadline: float = field(repr=False)
     _pid: int = field(repr=False)
 
@@ -340,9 +337,7 @@ def accept_publication(
 ) -> PublicationAcceptance:
     """Fresh trust, exact typed values, route/isolation, output/scheme and (R2)
     the extraction specification; no source, guard or database credential."""
-    from pietto._project.project_execution import compiled_output
     from pietto._project.project_execution_template import bind_values
-    from pietto._project.project_job_extraction import specification
 
     _publishing(workspace)
     if not valid_identity(checkpoint, "ckp"):
@@ -376,7 +371,7 @@ def accept_publication(
     # The typed wire keeps True != 1, -0.0 != 0.0 and exact Text distinct.
     if _vector(stated) != _vector(binding):
         raise JobStoreError("BINDING_VECTOR")
-    output, refinement, _program = compiled_output(binding)
+    output = verified_stored_output(workspace, job, generation, binding, route)
 
     def body(c):
         row = c.execute(
@@ -394,13 +389,8 @@ def accept_publication(
     record, stored_isolation, contract, scheme, text = read(workspace, body)
     if isolation != stored_isolation:
         raise JobStoreError("ACCEPTANCE_ISOLATION")
-    if (contract, scheme) != (contract_digest(output), coordinate_scheme(refinement)):
+    if (contract, scheme) != (output.contract, output.scheme):
         raise JobStoreError("READER_SNAPSHOT")
-    if text is not None and (
-        refinement is None
-        or specification(refinement, output, route, isolation) != text
-    ):
-        raise JobStoreError("EXTRACTION_SPECIFICATION")
     acceptance = PublicationAcceptance(
         workspace.identity,
         job,
@@ -416,7 +406,6 @@ def accept_publication(
         seconds,
         accepted_at,
         output,
-        refinement,
         deadline,
         os.getpid(),
     )
@@ -444,17 +433,10 @@ def _verify(workspace, acceptance, snapshot) -> tuple[chunks.FileFacts, ...]:
     """Every member, one bounded chunk at a time, with every S12 reader check
     against freshly reconstructed requirements; the object read is the one
     observed before and after. No decoded table is kept."""
-    stored = arrow_output(
-        acceptance.job,
-        acceptance.generation,
-        acceptance._output,
-        acceptance._refinement,
-        acceptance.route,
-    )
     files = []
     directory = workspace.directory(CHUNKS)
     try:
-        with SnapshotReader(workspace, snapshot, stored) as reader:
+        with SnapshotReader(workspace, snapshot, acceptance._stored_output) as reader:
             for index, member in enumerate(snapshot.members):
                 before = _object(directory, member)
                 reader.read(index)

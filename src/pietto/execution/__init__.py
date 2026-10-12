@@ -67,6 +67,7 @@ from pietto.execution._saved_read import (
     release_saved_read,
 )
 from pietto.execution._verified_export import VerifiedExport, verified_export
+from pietto.execution._publication import PublicationReply, publish_saved_generation
 from pietto.execution._workspace import (
     OperationReply,
     WorkspaceRef,
@@ -92,6 +93,7 @@ __all__ = [
     "Outcome",
     "PostgresAccess",
     "PostgresDeploymentPremise",
+    "PublicationReply",
     "QueryBundle",
     "R2SourceInput",
     "RequestRejected",
@@ -116,6 +118,7 @@ __all__ = [
     "open_saved_read",
     "open_workspace",
     "operation_result",
+    "publish_saved_generation",
     "recover",
     "release_saved_read",
     "retire_generation",

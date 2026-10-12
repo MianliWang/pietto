@@ -1045,6 +1045,16 @@ def _scope(scope) -> str:
     return text
 
 
+def retain_checkpoint_request(job: str, generation: str, checkpoint, scope) -> dict:
+    """Canonical caller-owned request for retaining one checkpoint."""
+    return {
+        "job": job,
+        "generation": generation,
+        "checkpoint": checkpoint,
+        "scope": _scope(scope),
+    }
+
+
 def _retain(c, workspace, publisher, generation, checkpoint, text):
     """Transaction-local retention insert; the caller owns fence and operation.
     v7: a retired generation takes no new reference (consumer, window,
@@ -1090,10 +1100,11 @@ def retain_checkpoint(
     _capturing(workspace)
     if not valid_identity(generation, "gen"):
         raise JobStoreError("CAPTURE_UNKNOWN")
-    text = _scope(scope)
-    request = _identity_request(
-        publisher, generation=generation, checkpoint=checkpoint, scope=text
+    caller_request = retain_checkpoint_request(
+        publisher.job, generation, checkpoint, scope
     )
+    text = caller_request["scope"]
+    request = _identity_request(publisher, **caller_request)
     taken = []
 
     def effect(c):

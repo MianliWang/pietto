@@ -920,6 +920,10 @@ _OPERATION_REQUEST_FIELDS = {
             "rows",
         ),
     ),
+    "retain_checkpoint": (
+        ("checkpoint", "generation", "job", "publisher", "scope"),
+        ("checkpoint", "generation", "job", "scope"),
+    ),
 }
 
 
