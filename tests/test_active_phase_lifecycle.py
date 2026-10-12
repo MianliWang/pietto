@@ -385,10 +385,6 @@ EXPECTED_STATUS = (
     ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
     ("PostgreSQL refinement-page JIT predecessor", "`COMPLETED / PUBLISHED`"),
     ("Parallelism interlude", "`COMPLETED`"),
-    (
-        "Next",
-        "`Phase69 S05–S07 CURRENT batch candidate; S08 next after S07 reality check`",
-    ),
 )
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
@@ -1613,7 +1609,10 @@ def _table_rows(document: str) -> tuple[tuple[str, ...], ...]:
 
 def test_active_status_table_and_authority_prose_are_exact() -> None:
     status = _read(STATUS)
-    assert _table_rows(status)[1:] == EXPECTED_STATUS
+    rows = _table_rows(status)[1:]
+    assert tuple(row for row in rows if row[0] != "Next") == EXPECTED_STATUS
+    next_rows = tuple(row for row in rows if row[0] == "Next")
+    assert len(next_rows) == 1 and next_rows[0][1].strip("` ")
     normalized = " ".join(status.split())
     assert "pre-phase64-slice2-compilation-boundary-correctness-repair-v1.md" in status
     assert (

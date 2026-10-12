@@ -403,6 +403,30 @@ def workspace_failure(error):
     )
 
 
+def sink_failure(error):
+    """Map an explicit local reference-sink refusal without its message."""
+    word = category_word(error)
+    text = str(error) if type(error).__name__ == "JobStoreError" else ""
+    code = (
+        "PIE-R1002"
+        if text
+        in {
+            "SINK_BUDGET",
+            "SINK_BUSY",
+            "SINK_CONTRACT",
+            "SINK_IDENTITY",
+            "SINK_NAMESPACE",
+            "SINK_RETENTION",
+            "SINK_SETTINGS",
+            "WORKSPACE_BUSY_BOUND",
+        }
+        else "PIE-R1009"
+    )
+    return failure(
+        code, word or (text if text.isupper() else None), cause=type(error).__name__
+    )
+
+
 def bundle_failure(error):
     """Classify a refusal of the caller's records or the bundle bytes (no I/O)."""
     word = category_word(error)

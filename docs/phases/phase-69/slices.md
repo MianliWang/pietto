@@ -10,9 +10,9 @@ Phase69 负责公开 alpha 发行工程与统一安全入口（[路线图](../..
 
 - S01 COMPLETED / PUBLISHED，与 S02 同批，head `a7bcb2d7ed4a4c688ce84a68182e70d166a60f4a`，CI38144178777/push/main/attempt1：把 S19 consumer 与 check 的回执目录、审计记录与身份三元组改为显式参数。
 - S02 COMPLETED / PUBLISHED，与 S01 同批，head `a7bcb2d7ed4a4c688ce84a68182e70d166a60f4a`，CI38144178777/push/main/attempt1：公开 PostgreSQL rows 执行 alpha（`pietto.execution`）。
-- S03 在 S02 之后合入，提供调用方自有信任记录下的查询 bundle（`export_bundle`、`load_bundle`）、显式值与重复调用；它已 COMPLETED / PUBLISHED，head `d5e75e211fbd0d88251306cf206e8604ae50d709`，CI38173790890/push/main/attempt1。S04 public results 与 Arrow batches 已 COMPLETED / PUBLISHED，head `2b8239ab60848dbe7e100344f6bdaf86d2b64a5b`，CI38176914040/push/main/attempt1。S05–S07 是 CURRENT batch integration candidates；每片一个普通提交，只有批次头的 FF push 与自然 exact-head CI 全部 job 成功才成为 `COMPLETED / PUBLISHED`。已批准的 C1/T1 保留手动取消的 first-winner 语义：取消只有先获胜才成为 `CANCELLED`，其后请求不改变已结算终态。S06 的显式连接输入、单一 TCP host、CA 身份校验、关闭连接属性与 OpenTelemetry 已获所有者确认；S07 保留清理超时后的显式重试。下一步是 S07 三路线现实检查后的 S08 集成。
+- S03 在 S02 之后合入，提供调用方自有信任记录下的查询 bundle（`export_bundle`、`load_bundle`）、显式值与重复调用；它已 COMPLETED / PUBLISHED，head `d5e75e211fbd0d88251306cf206e8604ae50d709`，CI38173790890/push/main/attempt1。S04 public results 与 Arrow batches 已 COMPLETED / PUBLISHED，head `2b8239ab60848dbe7e100344f6bdaf86d2b64a5b`，CI38176914040/push/main/attempt1。S05–S07 已 COMPLETED / PUBLISHED，批次头 `2156ff02c5abdb28747920f0d2cfada38426042b`，自然 CI38221525566/push/main/attempt1；19 个 jobs 与 36 份 required artifacts 的 exact-head 消费检查全部通过。S08–S14 是当前集成候选批次；每片一个普通提交，只有批次头完成权威验证、FF push 与自然 exact-head CI 后才成为 `COMPLETED / PUBLISHED`。已批准的 C1/T1 保留手动取消的 first-winner 语义：取消只有先获胜才成为 `CANCELLED`，其后请求不改变已结算终态。S06 的显式连接输入、单一 TCP host、CA 身份校验、关闭连接属性与 OpenTelemetry 已获所有者确认；S07 保留清理超时后的显式重试。S07 三路线现实检查已按本派发闭合：Linux 集成主机的 PG rows、MySQL rows 和 PG ADBC 资格通过，operator compliance 与 native source lifetime 的原有未证明边界保留；S08–S14 可按依赖集成。
 - S01–S21 均有按依赖并行实施的常设授权；遇到 BLOCKER、拆片，或新的公共、信任、预算决定即停。
-- S08–S14 的集成与验证 HOLD，直到 S07 之后的现实检查（三条路线当前的资格与支持 profile）；独立准备与已答复前置决定后的隔离开发可并行。
+- S07 之后的三路线现实检查已闭合，S08–S14 按既有依赖集成与验证；其候选及开发证据仍不能替代批次最终 Gate。
 - S15–S19 的集成与验证 HOLD，直到中点：S11 之后按 S/H/L/K/Q 重估，并复核当时 CI health 的适用样本与 alerts；独立准备与隔离开发可并行。
 - S20 与 S21 各自单独派发。
 

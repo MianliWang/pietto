@@ -431,6 +431,7 @@ class SinkTarget:
     epoch: int
     retention: str
     busy_seconds: float = 5.0
+    budget_bytes: int | None = None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -1410,6 +1411,8 @@ class Runtime:
             busy_seconds=target.busy_seconds,
         )
         context["closers"].append(sink.close)
+        if target.budget_bytes is not None and sink.budget != target.budget_bytes:
+            raise JobStoreError("SINK_BUDGET")
         accepted = d.accept_sink(
             sink,
             instance=target.identity,

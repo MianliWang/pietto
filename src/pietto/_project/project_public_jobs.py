@@ -280,3 +280,65 @@ def recover_recoverable(
             report = opened.close()
             if report["unjoined"]:
                 raise workspace.JobStoreError("RUNTIME_CLOSE_UNJOINED")
+
+
+def relay(
+    workspace_ref,
+    *,
+    job,
+    generation,
+    template,
+    route,
+    access,
+    schemas,
+    limits,
+    isolation,
+    values,
+    trust,
+    sink,
+    purpose,
+    rows,
+    batch_rows,
+):
+    """Run one live relay through the same bounded private coordinator."""
+    budget, available_operations = runtime_capacity(workspace_ref)
+    pending = False
+    policy = policy_for(budget, available_operations)
+    opened = runtime.open_runtime(
+        workspace_ref.root, expected_identity=workspace_ref.identity, policy=policy
+    )
+    try:
+        while opened.reconcile():
+            pass
+        source = runtime.NativeSource(route, access, schemas, limits, isolation)
+        unit = runtime.Unit(
+            "RELAY",
+            workspace_ref.root,
+            workspace_ref.identity,
+            job,
+            generation,
+            trust=trust,
+            seconds=max(1, math.ceil(limits.seconds)),
+            values=values,
+            source=source,
+            durable=policy.durable,
+            operations=policy.operations,
+            sink=sink,
+            rows=rows,
+            purpose=purpose,
+            batch_rows=batch_rows,
+            template=template,
+        )
+        handle = opened.submit(unit)
+        while True:
+            state = opened.wait(handle, 1.0)
+            if state.terminal is not None:
+                return state, None
+            if state.activity == "WAITING_FOR_DOWNSTREAM":
+                pending = True
+                return state, PendingClose(opened, handle)
+    finally:
+        if not pending:
+            report = opened.close()
+            if report["unjoined"]:
+                raise workspace.JobStoreError("RUNTIME_CLOSE_UNJOINED")

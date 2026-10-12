@@ -68,6 +68,11 @@ from pietto.execution._saved_read import (
 )
 from pietto.execution._verified_export import VerifiedExport, verified_export
 from pietto.execution._publication import PublicationReply, publish_saved_generation
+from pietto.execution._reference_sink import (
+    ReferenceSinkDescriptor,
+    create_reference_sink,
+)
+from pietto.execution._relay import RelayCloseHandle, RelayReply, relay_live
 from pietto.execution._workspace import (
     OperationReply,
     WorkspaceRef,
@@ -96,6 +101,9 @@ __all__ = [
     "PublicationReply",
     "QueryBundle",
     "R2SourceInput",
+    "ReferenceSinkDescriptor",
+    "RelayCloseHandle",
+    "RelayReply",
     "RequestRejected",
     "ResultBatch",
     "ResultHandle",
@@ -108,6 +116,7 @@ __all__ = [
     "VerifiedExport",
     "WorkspaceRef",
     "compile_query",
+    "create_reference_sink",
     "create_workspace",
     "execute",
     "export_bundle",
@@ -120,6 +129,7 @@ __all__ = [
     "operation_result",
     "publish_saved_generation",
     "recover",
+    "relay_live",
     "release_saved_read",
     "retire_generation",
     "save",

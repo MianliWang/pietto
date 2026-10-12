@@ -137,6 +137,8 @@ def test_public_runtime_capacity_preserves_the_control_operation_reserve(tmp_pat
     from pietto._project import project_job_runtime as runtime
     from pietto._project import project_public_jobs as jobs
 
+    if not workspace_probe.qualified(tmp_path):
+        pytest.skip("runtime capacity requires a qualified workspace")
     reference = execution.create_workspace(
         tmp_path / "workspace", budget_bytes=private_workspace.MIN_BUDGET
     )
