@@ -325,7 +325,12 @@ class PostgresADBCExecution:
                 True,
                 "UTF8",
             )
-            qualify_sources(self)
+            qualification = qualify_sources(self)
+            from pietto._project.project_postgres_source_assurance import (
+                verify_temporal_uuid_catalog,
+            )
+
+            verify_temporal_uuid_catalog(qualification)
             if self.requirements:
                 self.source_admissions = self._owned_admissions = admit_sources(
                     self, self.requirements

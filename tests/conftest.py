@@ -11,7 +11,7 @@ last one, and a heavy file must not wait behind it. Registry standalone nodes
 of their own and inherit their file's estimate.
 
 It also registers ``--pietto-storage-class``, the explicit storage environment
-class that ``tests/_pietto_phase68_slice11_probe.py`` resolves and applies.
+class that ``tests/_pietto_execution_jobs_probe.py`` resolves and applies.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    import _pietto_phase68_slice11_probe as probe
+    import _pietto_execution_jobs_probe as probe
 
     probe.STORAGE_CLASS_OPTION = config.getoption("--pietto-storage-class")
     try:

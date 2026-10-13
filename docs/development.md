@@ -117,7 +117,7 @@ Verification budget: within one top-level call each memoized structural
 verifier runs at most once for the same exact arguments, and every new call
 verifies again (call-scoped verification, see the
 [interlude record](spec/post-phase68-performance-interlude-v1.md)). The
-principal `tests/test_post_phase68_performance_verification_scope.py` counts
+principal `tests/test_project_verification_scope.py` counts
 complete runs with `sys.monitoring` and prints up to three call paths for each
 over-budget object. Every scope entry must run inside one of its routes (an entry
 only an execution owner's attempt reaches is listed with that reason), so a new
@@ -143,6 +143,13 @@ it. Under these premises hosted CI currently runs no part of a Gate 2
 validation and keeps its Gate 3 role as natural exact-head CI. Where this
 document calls validation work or its reports local, it means the integration
 host.
+
+VR1 preparation may export a dirty candidate tree from an exact temporary
+index, reconstruct it independently over a baseline checkout, bind static
+gate and coverage evidence to both identities, and evaluate an environment
+assertion. Its terminals remain explicitly non-qualified. The bounded
+comparison run is development evidence only; E* qualification and the first
+authoritative split remain separate decisions.
 
 ## Phase-end acquisition consolidation
 
@@ -344,6 +351,12 @@ denominator is 63 cases and 195 public documents per target (189 API-generated a
 console documents). Its partitioned-root witness also executes a wide `lag` default, so each
 target's own window value width is checked by the full manifest.
 
+The current post-Phase69 receipt reader reserves 34 MiB (35,651,584 bytes).
+The expanded successful scalar/temporal corpus measured 34,646,977 bytes for
+PostgreSQL and 34,659,873 bytes for MySQL; the bounded reserve covers those
+complete receipts. The historical Slice15/Slice16 sizes above remain their
+original measurements.
+
 
 The post-publication residual supplement keeps that denominator and receipt format. Its
 `A_window_frame/range` witness retains both original outputs and adds one literal-carrier
@@ -460,7 +473,7 @@ path 与 summed runner time，不从一次 hosted run 推出版本因果或稳�
 CI 的 setup-python 对每个逻辑 family 使用确切 patch（3.12.14 / 3.13.15），因为 coverage/report
 上下文按完整 `python_version` 严格相等核对：PR #81 的 3.12 collection 记录 3.12.14，而同 family
 的聚合消费者被浮动 `"3.12"` 解析为 3.12.15，因此被拒绝。升级 patch 时同一 family 的全部
-producer/consumer/target 站点一起改（`tests/test_phase11_ci_workflow.py` 守护）；不放宽相等性，
+producer/consumer/target 站点一起改（`tests/test_ci_workflow.py` 守护）；不放宽相等性，
 不回到 minor 浮动选择；`--python` 逻辑标签与 artifact 名称不变。
 
 CI runtime 使用 `--durations=30 --durations-min=1`，另从实际 pytest reports 输出有界的慢节点、

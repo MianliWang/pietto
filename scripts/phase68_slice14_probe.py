@@ -40,7 +40,7 @@ def main():
     root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(root / "src"))
     sys.path.insert(0, str(root / "tests"))
-    import _pietto_phase68_slice14_probe as probe
+    import _pietto_execution_recovery_probe as probe
 
     if args.family == "histories":
         origin = args.cells[0].split(":")[0]

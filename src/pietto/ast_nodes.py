@@ -81,6 +81,32 @@ class UnaryExpr(Expression):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ConditionalExpr(Expression):
+    """A source-ordered conditional expression."""
+
+    when_true: Expression
+    condition: Expression
+    when_false: Expression
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MembershipExpr(Expression):
+    """One fixed authored scalar membership predicate."""
+
+    value: Expression
+    options: tuple[Expression, ...]
+    negated: bool
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CastExpr(Expression):
+    """An explicit source-level conversion to a parsed type expression."""
+
+    value: Expression
+    target: TypeExpr
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class BinaryExpr(Expression):
     """A binary arithmetic or Boolean expression."""
 

@@ -80,23 +80,24 @@ def _freeze_signatures(
 
 
 def _scalar_function_evidence(name: str) -> tuple[CapabilityEvidence, ...]:
+    special = name in {"coalesce", "nullif", "sign", "year", "month", "day"}
     semantic_test = {
         "lower": "test_text_transform_function_returns_text",
         "trim": "test_text_transform_function_returns_text",
         "len": "test_len_returns_int",
         "matches": "test_matches_returns_bool_and_is_valid_where_predicate",
-    }[name]
+    }.get(name, "closed scalar function result tests")
     ir_test = (
         "test_matches_call_lowers_as_bool_expression"
         if name == "matches"
-        else "test_builtin_call_lowers_with_callable_symbol"
+        else "closed scalar call lowering tests"
     )
     postgres_test = {
         "lower": "test_lower_and_trim_calls_render_recursively",
         "trim": "test_lower_and_trim_calls_render_recursively",
         "len": "test_len_call_uses_postgres_length",
         "matches": "test_matches_call_uses_postgres_regex_operator",
-    }[name]
+    }.get(name, "closed scalar call rendering tests")
     mysql_path = (
         "tests/test_sql_mysql_relations.py"
         if name == "matches"
@@ -134,7 +135,11 @@ def _scalar_function_evidence(name: str) -> tuple[CapabilityEvidence, ...]:
         _evidence(
             CapabilityEvidenceSource.SEMANTIC_CATALOG,
             "src/pietto/semantic/catalog.py",
-            f'BuiltinFunction and BUILTIN_FUNCTIONS["{name}"]',
+            (
+                "SPECIAL_BUILTIN_FUNCTION_NAMES and is_builtin_function_name"
+                if special
+                else f'BuiltinFunction and BUILTIN_FUNCTIONS["{name}"]'
+            ),
         ),
         _evidence(
             CapabilityEvidenceSource.SEMANTIC_PROCEDURE,
@@ -201,11 +206,194 @@ def _scalar_function_evidence(name: str) -> tuple[CapabilityEvidence, ...]:
     )
 
 
+def _structural_expression_evidence(operation: str) -> tuple[CapabilityEvidence, ...]:
+    """Evidence for closed AST forms represented in the existing scalar domain."""
+
+    details = {
+        "conditional": (
+            "conditionalExpression",
+            "ConditionalExpr",
+            "_conditional_value_type",
+            "ConditionalIR",
+            "test_q1_conditional_membership_and_explicit_cast_have_closed_types",
+        ),
+        "in": (
+            "comparisonExpression",
+            "MembershipExpr",
+            "_membership_value_type",
+            "MembershipIR",
+            "test_q1_conditional_membership_and_explicit_cast_have_closed_types",
+        ),
+        "not in": (
+            "comparisonExpression",
+            "MembershipExpr",
+            "_membership_value_type",
+            "MembershipIR",
+            "test_q1_conditional_membership_and_explicit_cast_have_closed_types",
+        ),
+    }
+    grammar, ast_name, semantic, ir_name, semantic_test = details[operation]
+    return (
+        _evidence(CapabilityEvidenceSource.GRAMMAR_AST, "grammar/Pietto.g4", grammar),
+        _evidence(
+            CapabilityEvidenceSource.GRAMMAR_AST, "src/pietto/ast_nodes.py", ast_name
+        ),
+        _evidence(
+            CapabilityEvidenceSource.SEMANTIC_PROCEDURE,
+            "src/pietto/semantic/expressions.py",
+            semantic,
+        ),
+        _evidence(
+            CapabilityEvidenceSource.SEMANTIC_MODEL,
+            "src/pietto/semantic/model.py",
+            "ValueType and EffectiveNullability",
+        ),
+        _evidence(CapabilityEvidenceSource.IR, "src/pietto/ir/model.py", ir_name),
+        _evidence(
+            CapabilityEvidenceSource.IR,
+            "src/pietto/ir/lowering.py",
+            f"_lower_expr_node {ir_name.replace('IR', 'Expr')} branch",
+        ),
+        _evidence(
+            CapabilityEvidenceSource.BACKEND,
+            "src/pietto/sql/expressions.py",
+            f"_render_expression_sql {ir_name} branch",
+            dialect="postgresql",
+            backend="postgresql",
+        ),
+        _evidence(
+            CapabilityEvidenceSource.BACKEND,
+            "src/pietto/sql/mysql_expressions.py",
+            f"_render_mysql_expression {ir_name} branch",
+            dialect="mysql",
+            backend="private-mysql",
+        ),
+        _evidence(
+            CapabilityEvidenceSource.TEST,
+            "tests/test_semantic_expressions.py",
+            semantic_test,
+        ),
+        _evidence(
+            CapabilityEvidenceSource.TEST,
+            "tests/test_ir_expressions.py",
+            "Q1 scalar lowering tests",
+        ),
+        _evidence(
+            CapabilityEvidenceSource.TEST,
+            "tests/test_sql_postgres_expressions.py",
+            "Q1 scalar rendering tests",
+        ),
+        _evidence(
+            CapabilityEvidenceSource.TEST,
+            "tests/test_sql_mysql_expressions.py",
+            "Q1 scalar rendering tests",
+        ),
+        _evidence(CapabilityEvidenceSource.SPEC, "docs/language.md", "Expressions"),
+    )
+
+
+def _conversion_evidence() -> tuple[CapabilityEvidence, ...]:
+    """Evidence for the single explicit Int-to-Float conversion."""
+
+    return (
+        _evidence(
+            CapabilityEvidenceSource.GRAMMAR_AST,
+            "grammar/Pietto.g4",
+            "primaryExpression CAST form",
+        ),
+        _evidence(
+            CapabilityEvidenceSource.GRAMMAR_AST, "src/pietto/ast_nodes.py", "CastExpr"
+        ),
+        _evidence(
+            CapabilityEvidenceSource.SEMANTIC_PROCEDURE,
+            "src/pietto/semantic/expressions.py",
+            "_cast_value_type",
+        ),
+        _evidence(
+            CapabilityEvidenceSource.SEMANTIC_MODEL,
+            "src/pietto/semantic/model.py",
+            "ValueType and EffectiveNullability",
+        ),
+        _evidence(CapabilityEvidenceSource.IR, "src/pietto/ir/model.py", "CastIR"),
+        _evidence(
+            CapabilityEvidenceSource.IR,
+            "src/pietto/ir/lowering.py",
+            "_lower_expr_node CastExpr branch",
+        ),
+        _evidence(
+            CapabilityEvidenceSource.BACKEND,
+            "src/pietto/sql/expressions.py",
+            "_render_expression_sql CastIR branch",
+            dialect="postgresql",
+            backend="postgresql",
+        ),
+        _evidence(
+            CapabilityEvidenceSource.BACKEND,
+            "src/pietto/sql/mysql_expressions.py",
+            "_render_mysql_expression CastIR branch",
+            dialect="mysql",
+            backend="private-mysql",
+        ),
+        _evidence(
+            CapabilityEvidenceSource.TEST,
+            "tests/test_semantic_expressions.py",
+            "test_q1_conditional_membership_and_explicit_cast_have_closed_types",
+        ),
+        _evidence(
+            CapabilityEvidenceSource.TEST,
+            "tests/test_ir_expressions.py",
+            "Q1 scalar lowering tests",
+        ),
+        _evidence(
+            CapabilityEvidenceSource.TEST,
+            "tests/test_sql_postgres_expressions.py",
+            "test_q1_cast_and_qualified_field_traversal_render",
+        ),
+        _evidence(
+            CapabilityEvidenceSource.TEST,
+            "tests/test_sql_mysql_expressions.py",
+            "test_q1_int_to_float_cast_uses_explicit_double",
+        ),
+        _evidence(CapabilityEvidenceSource.SPEC, "docs/language.md", "Expressions"),
+    )
+
+
 _SCALAR_SIGNATURES = (
     ("Text", "lower", ("Text", "unknown")),
+    ("Text", "upper", ("Text", "unknown")),
     ("Text", "trim", ("Text", "unknown")),
     ("Text", "len", ("Int", "unknown")),
+    ("Text", "substr", ("Int", "Int", "Text", "unknown")),
+    ("Text", "replace", ("Text", "Text", "Text", "unknown")),
+    ("Text", "contains", ("Text", "Bool", "unknown")),
+    ("Text", "starts_with", ("Text", "Bool", "unknown")),
+    ("Text", "ends_with", ("Text", "Bool", "unknown")),
+    ("Decimal", "abs", ("Decimal", "unknown")),
+    ("Timestamp", "date_of", ("Date", "unknown")),
+    ("Timestamp", "hour", ("Int", "unknown")),
+    ("Timestamp", "minute", ("Int", "unknown")),
     ("Text", "matches", ("Text", "Bool", "unknown")),
+    (
+        "ValueTypeKind.KNOWN",
+        "coalesce",
+        ("ValueTypeKind.KNOWN", "ValueTypeKind.KNOWN", "unknown"),
+    ),
+    (
+        "ValueTypeKind.KNOWN",
+        "nullif",
+        ("ValueTypeKind.KNOWN", "ValueTypeKind.KNOWN", "unknown"),
+    ),
+    ("Int", "sign", ("Int", "unknown")),
+    ("Decimal", "sign", ("Int", "unknown")),
+    ("Timestamp", "year", ("Int", "unknown")),
+    ("Timestamp", "month", ("Int", "unknown")),
+    ("Timestamp", "day", ("Int", "unknown")),
+    ("Date", "year", ("Int", "unknown")),
+    ("Date", "month", ("Int", "unknown")),
+    ("Date", "day", ("Int", "unknown")),
+    ("ValueTypeKind.KNOWN", "conditional", ("Bool", "ValueTypeKind.KNOWN", "unknown")),
+    ("ValueTypeKind.KNOWN", "in", ("Bool", "unknown")),
+    ("ValueTypeKind.KNOWN", "not in", ("Bool", "unknown")),
 )
 
 _SCALAR_FUNCTION_FACTS: tuple[CapabilityFact, ...] = _freeze_signatures(
@@ -214,9 +402,26 @@ _SCALAR_FUNCTION_FACTS: tuple[CapabilityFact, ...] = _freeze_signatures(
         subject,
         operation,
         operands,
-        _scalar_function_evidence(operation),
+        (
+            _structural_expression_evidence(operation)
+            if operation in {"conditional", "in", "not in"}
+            else _scalar_function_evidence(operation)
+        ),
     )
     for subject, operation, operands in _SCALAR_SIGNATURES
+)
+
+
+_CONVERSION_FACTS: tuple[CapabilityFact, ...] = _freeze_signatures(
+    (
+        _fact(
+            CapabilityDomain.CONVERSION,
+            "Int",
+            "cast",
+            ("Float", "unknown"),
+            _conversion_evidence(),
+        ),
+    )
 )
 
 
@@ -235,7 +440,7 @@ def _unary_evidence() -> tuple[CapabilityEvidence, ...]:
         _evidence(
             CapabilityEvidenceSource.SEMANTIC_PROCEDURE,
             "src/pietto/semantic/expressions.py",
-            "_unary_value_type and _is_numeric",
+            "_unary_value_type and resolved_unary_value_type",
         ),
         _evidence(
             CapabilityEvidenceSource.SEMANTIC_MODEL,
@@ -264,7 +469,7 @@ def _unary_evidence() -> tuple[CapabilityEvidence, ...]:
         ),
         _evidence(
             CapabilityEvidenceSource.TEST,
-            "tests/test_phase26_numeric_scalar_expression_semantics.py",
+            "tests/test_semantic_numeric_scalar_expression_semantics.py",
             "test_unary_numeric_semantics_remain_unchanged",
         ),
         _evidence(
@@ -295,6 +500,7 @@ _UNARY_SIGNATURES = (
     ("Float", "+", ("Float", "preserve_operand")),
     ("Int", "-", ("Int", "preserve_operand")),
     ("Float", "-", ("Float", "preserve_operand")),
+    ("Bool", "not", ("Bool", "preserve_operand")),
 )
 
 _UNARY_OPERATOR_FACTS: tuple[CapabilityFact, ...] = _freeze_signatures(
@@ -325,11 +531,11 @@ def _binary_evidence(kind: str) -> tuple[CapabilityEvidence, ...]:
         "bool": "_binary_value_type Boolean branch",
     }[kind]
     semantic_test_path = {
-        "int_float": "tests/test_phase26_numeric_scalar_expression_semantics.py",
-        "decimal": "tests/test_phase26_decimal_scalar_expression_semantics.py",
-        "decimal_int": "tests/test_phase42_decimal_int_exact_arithmetic.py",
-        "modulo": "tests/test_phase17_core_scalar_expression_semantics.py",
-        "bool": "tests/test_phase17_core_scalar_expression_semantics.py",
+        "int_float": "tests/test_semantic_numeric_scalar_expression_semantics.py",
+        "decimal": "tests/test_semantic_decimal_scalar_expression_semantics.py",
+        "decimal_int": "tests/test_semantic_decimal_int_exact_arithmetic.py",
+        "modulo": "tests/test_semantic_core_scalar_expression_semantics.py",
+        "bool": "tests/test_semantic_core_scalar_expression_semantics.py",
     }[kind]
     semantic_test = {
         "int_float": "test_int_float_binary_arithmetic_computed_projection_schema_is_locked",
@@ -454,6 +660,7 @@ _BINARY_SIGNATURES = (
     ("Int", "*", "Float", "Float", "int_float"),
     ("Float", "*", "Int", "Float", "int_float"),
     ("Float", "*", "Float", "Float", "int_float"),
+    ("Decimal", "*", "Decimal", "Decimal", "decimal"),
     ("Int", "%", "Int", "Int", "modulo"),
     ("Bool", "and", "Bool", "Bool", "bool"),
     ("Bool", "or", "Bool", "Bool", "bool"),
@@ -481,27 +688,23 @@ def _comparison_evidence(kind: str) -> tuple[CapabilityEvidence, ...]:
     if kind == "between":
         postgres_reference = "_render_expression_sql BetweenIR branch"
         mysql_reference = "_render_mysql_expression BetweenIR branch"
-        semantic_path = "tests/test_phase17_core_scalar_expression_semantics.py"
+        semantic_path = "tests/test_semantic_core_scalar_expression_semantics.py"
         semantic_test = "test_between_where_resolves_to_known_bool"
         ir_test = "test_scalar_expression_forms_lower_with_semantic_types"
         postgres_test = "test_between_ir_renders_inclusive_predicate"
         mysql_test = "test_between_ir_renders_inclusive_predicate"
     elif kind == "like":
         postgres_reference = (
-            "_COMPARISON_OPERATORS omission and _supported_operator rejection"
+            "_COMPARISON_OPERATORS and _render_expression_sql ComparisonIR branch"
         )
         mysql_reference = (
-            "_COMPARISON_OPERATORS omission and _supported_operator rejection"
+            "_COMPARISON_OPERATORS and _render_mysql_expression ComparisonIR branch"
         )
-        semantic_path = "tests/test_phase30_operator_comparison_matrix_contract.py"
-        semantic_test = (
-            "test_comparison_between_and_is_null_boundaries_check_operand_families"
-        )
+        semantic_path = "tests/test_semantic_expressions.py"
+        semantic_test = "text comparison operand tests"
         ir_test = "test_comparison_lowers_recursively"
-        postgres_test = (
-            "test_unsupported_calls_kinds_and_operators_are_not_silently_rendered"
-        )
-        mysql_test = "test_unsupported_expressions_fail_closed"
+        postgres_test = "text comparison rendering tests"
+        mysql_test = "text comparison rendering tests"
     else:
         postgres_reference = (
             "_COMPARISON_OPERATORS and _render_expression_sql ComparisonIR branch"
@@ -514,9 +717,7 @@ def _comparison_evidence(kind: str) -> tuple[CapabilityEvidence, ...]:
         ir_test = "test_comparison_lowers_recursively"
         postgres_test = "test_comparison_ir_maps_supported_operators"
         mysql_test = "test_comparison_ir_maps_approved_operators"
-    backend_reason = (
-        CapabilityReasonCode.DIALECT_LOWERING_GAP if kind == "like" else None
-    )
+    backend_reason = None
     return (
         _evidence(
             CapabilityEvidenceSource.GRAMMAR_AST,
@@ -599,6 +800,7 @@ _COMPARISON_SIGNATURES = (
     ("Expression", ">", ("Expression", "Bool", "unknown"), "simple"),
     ("Expression", ">=", ("Expression", "Bool", "unknown"), "simple"),
     ("Expression", "like", ("Expression", "Bool", "unknown"), "like"),
+    ("Expression", "not like", ("Expression", "Bool", "unknown"), "like"),
     (
         "ValueTypeKind.KNOWN",
         "between",
@@ -730,6 +932,7 @@ _CAPABILITY_SIGNATURE_FACTS: tuple[CapabilityFact, ...] = _freeze_signatures(
         *_BINARY_OPERATOR_FACTS,
         *_COMPARISON_FACTS,
         *_NULL_TEST_FACTS,
+        *_CONVERSION_FACTS,
     )
 )
 
@@ -740,8 +943,12 @@ _BINARY_IDENTITIES = frozenset(
     (subject, operation, right)
     for subject, operation, right, _, _ in _BINARY_SIGNATURES
 )
-_COMPARISON_OPERATIONS = frozenset(("==", "!=", "<", "<=", ">", ">=", "like"))
-_LOGICAL_TYPE_ATOMS = frozenset(("Int", "Float", "Decimal", "Text", "Bool"))
+_COMPARISON_OPERATIONS = frozenset(
+    ("==", "!=", "<", "<=", ">", ">=", "like", "not like")
+)
+_LOGICAL_TYPE_ATOMS = frozenset(
+    ("Int", "Float", "Decimal", "Text", "Bool", "Date", "Timestamp", "UUID")
+)
 _RESULT_NULLABILITY_POSTURES = frozenset(("unknown", "non_null", "preserve_operand"))
 
 
@@ -753,6 +960,19 @@ def _schema_is_complete(key: CapabilityKey) -> bool:
     ):
         return False
     if key.domain is CapabilityDomain.SCALAR_FUNCTION:
+        if key.subject == "ValueTypeKind.KNOWN" and key.operation in {
+            "coalesce",
+            "nullif",
+        }:
+            return key.operands == (
+                "ValueTypeKind.KNOWN",
+                "ValueTypeKind.KNOWN",
+                "unknown",
+            )
+        if key.subject == "ValueTypeKind.KNOWN" and key.operation == "conditional":
+            return key.operands == ("Bool", "ValueTypeKind.KNOWN", "unknown")
+        if key.subject == "ValueTypeKind.KNOWN" and key.operation in {"in", "not in"}:
+            return key.operands == ("Bool", "unknown")
         return (
             key.subject in _LOGICAL_TYPE_ATOMS
             and key.operation is not None
@@ -798,6 +1018,12 @@ def _schema_is_complete(key: CapabilityKey) -> bool:
             and key.operands[0] in _LOGICAL_TYPE_ATOMS
             and key.operands[-1] == "non_null"
         )
+    if key.domain is CapabilityDomain.CONVERSION:
+        return (
+            key.subject == "Int"
+            and key.operation == "cast"
+            and key.operands == ("Float", "unknown")
+        )
     return False
 
 
@@ -824,16 +1050,6 @@ def _unknown_reason(key: CapabilityKey) -> CapabilityReasonCode | None:
         dialect="mysql",
     ):
         return CapabilityReasonCode.DIALECT_LOWERING_GAP
-    if (
-        key.domain is CapabilityDomain.COMPARISON
-        and key.subject == "Expression"
-        and key.operation == "like"
-        and key.operands == ("Expression", "Bool", "unknown")
-        and key.context == "expression"
-        and key.dialect in {"postgresql", "mysql"}
-        and key.extension is None
-    ):
-        return CapabilityReasonCode.DIALECT_LOWERING_GAP
     return None
 
 
@@ -858,6 +1074,8 @@ def signature_lookup_inputs(
         facts = _COMPARISON_FACTS
     elif key.domain is CapabilityDomain.NULL_TEST:
         facts = _NULL_TEST_FACTS
+    elif key.domain is CapabilityDomain.CONVERSION:
+        facts = _CONVERSION_FACTS
     else:
         facts = ()
     complete = _schema_is_complete(key)

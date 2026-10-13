@@ -16,13 +16,28 @@ window refinement, and to CI remaining-tail maintenance R1. When this version
 is published, no acceptance tool and no qualified environment record exist for
 any runner other than the integration host.
 
-This version adds no acceptance tool, report or environment-record format,
-runner script, job template or qualification run. It changes no validator, CI
-workflow, coverage or health schema, worker ceiling, product source, package
-input or version, and it moves no domain away from the integration host.
+VR1 preparation now provides a bounded candidate source exporter, independent
+remote tree reconstruction check, static-gate report producer, environment
+assertion checker and evidence receiver. Every successful terminal is explicitly
+`*_NOT_QUALIFIED`: it creates no qualified environment record, accepts no Gate
+2 result, changes no validator, CI workflow, coverage or health schema, worker
+ceiling, product source, package input or version, and moves no domain away
+from the integration host. VR2 remains the separate qualification and E*
+freeze decision.
 Validation keeps the layered policy of
 [Workflow Lifecycle Reader And Validation Efficiency v1](workflow-lifecycle-reader-validation-efficiency-v1.md)
 and the current rules in [Development](../development.md).
+
+The approved VR1 comparison is development-only: at most six Teach jobs, each
+with 40 allocated CPUs and 15 minutes, for at most 60 core-hours total. Remote
+and local use the same candidate, Scheme-B partitions, static gates and worker
+budget. A measured end-to-end gain is material only when every closure passes
+and remote wall time is at least 15% lower; differing strategies are
+`UNKNOWN`. Neither outcome qualifies the runner or starts a Gate 2 split.
+
+The static-gate and environment JSON are assertions for VR1 development, not
+proof that a remote runner executed the commands or observed the stated facts.
+Only a later qualified-record and acceptance path may grant them Gate 2 effect.
 
 ## Terms
 
@@ -47,7 +62,8 @@ and the current rules in [Development](../development.md).
   evidence path differs.
 - **Acceptance tool**: a checker that the integration host runs to decide
   whether another runner's environment record and reports count toward a
-  Gate 2 validation. This version provides none.
+  Gate 2 validation. VR1 preparation is not an acceptance tool: it only
+  rejects or records non-qualified evidence.
 - **Qualified environment record**: an environment record that an acceptance
   tool has accepted for named domains.
 - **Provenance**: the producer of a report. [Development](../development.md)

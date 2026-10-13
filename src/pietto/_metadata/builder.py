@@ -23,13 +23,16 @@ from pietto.ir.model import (
     AggregateCallIR,
     BetweenIR,
     BinaryIR,
+    CastIR,
     CallIR,
+    ConditionalIR,
     ComparisonIR,
     DefinitionIR,
     ExpressionIR,
     FieldRefIR,
     IsNullIR,
     LiteralIR,
+    MembershipIR,
     OrderItemIR,
     ProjectionIR,
     RelationIR,
@@ -387,13 +390,13 @@ def _expression_kind(expression: ExpressionIR) -> str:
         return "field_ref"
     if isinstance(expression, AggregateCallIR):
         return "aggregate_call"
-    if isinstance(expression, (BinaryIR, UnaryIR)):
+    if isinstance(expression, (BinaryIR, UnaryIR, ConditionalIR, CastIR)):
         return "bounded_expression"
     if isinstance(expression, LiteralIR):
         return "literal"
     if isinstance(expression, CallIR):
         return "call"
-    if isinstance(expression, (ComparisonIR, BetweenIR, IsNullIR)):
+    if isinstance(expression, (ComparisonIR, BetweenIR, IsNullIR, MembershipIR)):
         return "predicate"
     return "unknown"
 
@@ -446,6 +449,15 @@ def _walk_expressions(expression: ExpressionIR) -> Iterable[ExpressionIR]:
         yield from _walk_many(expression.arguments)
     elif isinstance(expression, UnaryIR):
         yield from _walk_expressions(expression.operand)
+    elif isinstance(expression, ConditionalIR):
+        yield from _walk_expressions(expression.when_true)
+        yield from _walk_expressions(expression.condition)
+        yield from _walk_expressions(expression.when_false)
+    elif isinstance(expression, MembershipIR):
+        yield from _walk_expressions(expression.value)
+        yield from _walk_many(expression.options)
+    elif isinstance(expression, CastIR):
+        yield from _walk_expressions(expression.value)
     elif isinstance(expression, BinaryIR):
         yield from _walk_expressions(expression.left)
         yield from _walk_expressions(expression.right)

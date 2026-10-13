@@ -22,6 +22,20 @@ from pietto._project import project_sql_plan_results as plan_results
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project.project_final_outputs import ProjectRelationOrdering
 from pietto._project.project_ir_properties import ProjectIRProvidedRelationOrdering
+from pietto.ast_nodes import (
+    BinaryExpr,
+    BetweenExpr,
+    CallExpr,
+    CastExpr,
+    ComparisonExpr,
+    ConditionalExpr,
+    DottedNameExpr,
+    IsNullExpr,
+    LiteralExpr,
+    MembershipExpr,
+    NameExpr,
+    UnaryExpr,
+)
 from pietto._project.project_query_block_ir import (
     ProjectIRCompletedQueryBlockOutput,
     ProjectIRReboundExistingOutput,
@@ -43,6 +57,7 @@ NULL_POSTURE = "target_defined"
 # R19 orders the same exact comparison domain the window stage admits; a Float
 # key stays outside relation ORDER exactly as it stays outside window ORDER.
 ORDER_TAGS = frozenset({"Int", "Bool", "Text", "Decimal"})
+DISTINCT_TAGS = ORDER_TAGS | {"Timestamp", "UUID"}
 # The published rule each retained result-boundary demand belongs to, by
 # subject kind. A projection-role result port and a canonical result export
 # exist for every definition and keep their prior generic attribution.
@@ -67,6 +82,28 @@ def _scalar(value: Any) -> Any:
 
 def _count(value: Any) -> int | str:
     return len(value) if type(value) is tuple else "?"
+
+
+def distinct_problem(family: str, realization: rows.Realization) -> str | None:
+    """Keep Q3 equality-only carriers out of ORDER while admitting exact DISTINCT."""
+    if realization.tag not in DISTINCT_TAGS:
+        return "distinct_field_comparison_domain_unsupported"
+    if realization.tag == "Timestamp" and (
+        realization.storage
+        != {
+            "kind": "pg_timestamp" if family == "postgres" else "my_datetime",
+            "fractional_seconds": 6,
+        }
+        or realization.domain != {"kind": "timestamp"}
+    ):
+        return "distinct_field_temporal_physical_representation_mismatch"
+    if realization.tag == "UUID" and (
+        realization.storage
+        != {"kind": "pg_uuid" if family == "postgres" else "my_uuid_bytes"}
+        or realization.domain != {"kind": "uuid", "encoding": "standard_bytes"}
+    ):
+        return "distinct_field_uuid_physical_representation_mismatch"
+    return None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -361,6 +398,94 @@ def bound_port(use, inputs):
     return min(matches, key=lambda port: port.position)
 
 
+def _same_order_expression(left, right):
+    """Match one authored computed ORDER key to one visible projection value."""
+    if type(left) is not type(right):
+        return False
+    if type(left) is NameExpr:
+        return left.name == right.name
+    if type(left) is DottedNameExpr:
+        return left.parts == right.parts
+    if type(left) is LiteralExpr:
+        return type(left.value) is type(right.value) and left.value == right.value
+    if type(left) is UnaryExpr:
+        return left.operator == right.operator and _same_order_expression(
+            left.operand, right.operand
+        )
+    if type(left) in {BinaryExpr, ComparisonExpr}:
+        return (
+            left.operator == right.operator
+            and _same_order_expression(left.left, right.left)
+            and _same_order_expression(left.right, right.right)
+        )
+    if type(left) is IsNullExpr:
+        return left.negated == right.negated and _same_order_expression(
+            left.value, right.value
+        )
+    if type(left) is BetweenExpr:
+        return (
+            _same_order_expression(left.value, right.value)
+            and _same_order_expression(left.lower, right.lower)
+            and _same_order_expression(left.upper, right.upper)
+        )
+    if type(left) is CallExpr:
+        return (
+            _same_order_expression(left.callee, right.callee)
+            and len(left.arguments) == len(right.arguments)
+            and all(
+                _same_order_expression(a, b)
+                for a, b in zip(left.arguments, right.arguments, strict=True)
+            )
+        )
+    if type(left) is ConditionalExpr:
+        return (
+            _same_order_expression(left.when_true, right.when_true)
+            and _same_order_expression(left.condition, right.condition)
+            and _same_order_expression(left.when_false, right.when_false)
+        )
+    if type(left) is MembershipExpr:
+        return (
+            left.negated == right.negated
+            and _same_order_expression(left.value, right.value)
+            and len(left.options) == len(right.options)
+            and all(
+                _same_order_expression(a, b)
+                for a, b in zip(left.options, right.options, strict=True)
+            )
+        )
+    if type(left) is CastExpr:
+        return left.target == right.target and _same_order_expression(
+            left.value, right.value
+        )
+    return False
+
+
+def _computed_order_inputs_visible(root, expressions, projection, plan) -> bool:
+    """Require each computed-key leaf to have a visible result-scope port."""
+    from pietto._project.project_sql_emission_ast import RowValueColumn
+
+    pending = [root]
+    seen = set()
+    while pending:
+        node = pending.pop()
+        if node is None or node.ref in seen:
+            return False
+        seen.add(node.ref)
+        if node.use is not None:
+            if not any(
+                type(column) is RowValueColumn
+                and _same_order_expression(
+                    plan.expressions[column.expression.position].expression,
+                    node.expression,
+                )
+                for column in projection.columns
+            ):
+                return False
+            continue
+        pending.extend(expressions.get(ref) for ref in node.operands)
+    return True
+
+
 def build_result_body(
     request,
     definition,
@@ -372,6 +497,7 @@ def build_result_body(
     symbol,
 ):
     """Realize one definition's result boundaries as its terminal SELECT."""
+    from pietto._project.project_sql_emission_ast import RowValueColumn
 
     plan = request.plan
     entry = definition.original.entry
@@ -465,10 +591,11 @@ def build_result_body(
                         location,
                     )
                 read = origin[port.ref][1]
-                if read.realization.tag not in ORDER_TAGS:
+                detail = distinct_problem(request.family, read.realization)
+                if detail is not None:
                     return problem(
                         "PIE-B1003",
-                        "distinct_field_comparison_domain_unsupported",
+                        detail,
                         field.ref,
                         location,
                     )
@@ -516,29 +643,54 @@ def build_result_body(
                         item.ref,
                         location,
                     )
-                if root.use is None or root.operands:
-                    return problem(
-                        "PIE-B1003",
-                        "order_expression_requires_established_port",
-                        item.ref,
-                        location,
+                if root.use is not None and not root.operands:
+                    use = uses.get(root.use)
+                    if (
+                        use is None
+                        or use.item is not item.ref
+                        or use.scope is not boundary.ref
+                        or use.requirement is not None
+                        or use.source.expression is not root.expression
+                    ):
+                        return problem(
+                            "PIE-B1001",
+                            "order_use_inventory_drift",
+                            item.ref,
+                            location,
+                        )
+                    port = bound_port(use, inputs)
+                    if port is None:
+                        return problem(
+                            "PIE-B1001", "order_value_port_missing", item.ref, location
+                        )
+                else:
+                    if not _computed_order_inputs_visible(
+                        root, expressions, projection, plan
+                    ):
+                        return problem(
+                            "PIE-B1003",
+                            "order_expression_requires_established_port",
+                            item.ref,
+                            location,
+                        )
+                    matches = tuple(
+                        position
+                        for position, column in enumerate(projection.columns)
+                        if type(column) is RowValueColumn
+                        and _same_order_expression(
+                            plan.expressions[column.expression.position].expression,
+                            item.source.expression,
+                        )
                     )
-                use = uses.get(root.use)
-                if (
-                    use is None
-                    or use.item is not item.ref
-                    or use.scope is not boundary.ref
-                    or use.requirement is not None
-                    or use.source.expression is not root.expression
-                ):
-                    return problem(
-                        "PIE-B1001", "order_use_inventory_drift", item.ref, location
-                    )
-                port = bound_port(use, inputs)
-                if port is None:
-                    return problem(
-                        "PIE-B1001", "order_value_port_missing", item.ref, location
-                    )
+                    if len(matches) != 1:
+                        return problem(
+                            "PIE-B1003",
+                            "order_expression_requires_established_port",
+                            item.ref,
+                            location,
+                        )
+                    use = None
+                    port = inputs[matches[0]]
                 read = origin[port.ref][1]
                 direction = item.source.direction.value
                 if direction not in DIRECTIONS or (
@@ -788,7 +940,7 @@ def build_compiled_result_body(
     distinct = None
     if record.get("distinct"):
         for column in columns:
-            if column.column.realization.tag not in ORDER_TAGS:
+            if distinct_problem(request.family, column.column.realization) is not None:
                 raise CompiledError("COMPILED_DISTINCT_DOMAIN")
         selected = boundary("result_distinct")
         boundaries.append(selected)

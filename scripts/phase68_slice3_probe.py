@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def load_probe():
     spec = importlib.util.spec_from_file_location(
-        "p68_s3_probe", ROOT / "tests/_pietto_phase68_slice3_probe.py"
+        "p68_s3_probe", ROOT / "tests/_pietto_execution_qualification_probe.py"
     )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

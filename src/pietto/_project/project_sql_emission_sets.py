@@ -227,17 +227,19 @@ def resolved_column_realization(
         return None, ("PIE-B1003", "set_row_equivalence_domain_unsupported")
     storage = first.storage
     domain: dict[str, Any] = dict(first.domain)
+    proofs: list[tuple[int, int] | None] = []
     if tag == "Int":
         widths = {
             rows.INT_WIDTHS.get(item.realization.storage["kind"]) for item in inputs
         }
-        bounds = [rows.int_bounds(item.realization) for item in inputs]
-        if None in widths or len(widths) != 1 or any(b is None for b in bounds):
+        declared = [rows.int_bounds(item.realization) for item in inputs]
+        proofs = [rows.proven_int_bounds(item.realization) for item in inputs]
+        if None in widths or len(widths) != 1 or any(b is None for b in declared):
             return None, ("PIE-B1002", "set_column_physical_representation_mismatch")
         domain = {
             "kind": "int_range",
-            "min": str(min(b[0] for b in bounds if b is not None)),
-            "max": str(max(b[1] for b in bounds if b is not None)),
+            "min": str(min(b[0] for b in declared if b is not None)),
+            "max": str(max(b[1] for b in declared if b is not None)),
         }
     else:
         if any(item.realization.storage != storage for item in inputs):
@@ -274,7 +276,15 @@ def resolved_column_realization(
     ):
         if any(reason is not None for reason in equivalence_reasons):
             return None, ("PIE-B1003", "set_row_equivalence_domain_unsupported")
-    return rows.Realization(tag, storage, physical, domain), None
+    proof = (
+        None
+        if tag != "Int" or any(b is None for b in proofs)
+        else (
+            min(b[0] for b in proofs if b is not None),
+            max(b[1] for b in proofs if b is not None),
+        )
+    )
+    return rows.Realization(tag, storage, physical, domain, proof), None
 
 
 def build_set_unit(

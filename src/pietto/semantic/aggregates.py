@@ -7,14 +7,18 @@ from collections.abc import Mapping
 from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
+    CastExpr,
     CallExpr,
+    ConditionalExpr,
     ComparisonExpr,
     DottedNameExpr,
     Expression,
     IsNullExpr,
     LiteralExpr,
+    MembershipExpr,
     NameExpr,
     UnaryExpr,
+    WindowExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.model import (
@@ -225,6 +229,12 @@ def child_expressions(expression: Expression) -> tuple[Expression, ...]:
         return expression.arguments
     if isinstance(expression, UnaryExpr):
         return (expression.operand,)
+    if isinstance(expression, ConditionalExpr):
+        return (expression.when_true, expression.condition, expression.when_false)
+    if isinstance(expression, MembershipExpr):
+        return (expression.value, *expression.options)
+    if isinstance(expression, CastExpr):
+        return (expression.value,)
     if isinstance(expression, BinaryExpr):
         return (expression.left, expression.right)
     if isinstance(expression, ComparisonExpr):
@@ -233,7 +243,9 @@ def child_expressions(expression: Expression) -> tuple[Expression, ...]:
         return (expression.value, expression.lower, expression.upper)
     if isinstance(expression, IsNullExpr):
         return (expression.value,)
-    return ()
+    if isinstance(expression, (LiteralExpr, NameExpr, DottedNameExpr, WindowExpr)):
+        return ()
+    raise AssertionError(f"Unsupported expression: {type(expression).__name__}")
 
 
 def expected_aggregate_arity(function_name: str) -> int:

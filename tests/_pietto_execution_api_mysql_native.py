@@ -291,7 +291,7 @@ import hashlib, importlib.metadata, json, platform, sys, threading, time
 from pathlib import Path
 config=json.loads(sys.stdin.readline())
 sys.path.insert(0,config["tests"])
-from _pietto_phase68_slice8_probe import Calls
+from _pietto_execution_deployment_probe import Calls
 import pietto.execution as pe
 import pyarrow as pa
 from opentelemetry import trace
@@ -586,7 +586,7 @@ def _reload_tls(resource) -> None:
 
 def _configure_tls(resource) -> dict[str, Any]:
     """Replace only the owned tmpfs TLS files and ask MySQL to reload them."""
-    from _pietto_phase68_slice6_probe import manager
+    from _pietto_execution_source_assurance_probe import manager
 
     paths = dict(
         manager(
@@ -769,7 +769,7 @@ def _configure_tls(resource) -> dict[str, Any]:
 
 def _attrs_oracle(resource) -> dict[str, Any]:
     """A server positive prevents a disabled attrs table passing as empty."""
-    from _pietto_phase68_slice6_probe import manager
+    from _pietto_execution_source_assurance_probe import manager
     import mysql.connector
 
     enabled = manager(resource, "SELECT @@performance_schema")[0][0] == 1
@@ -1103,7 +1103,7 @@ def _terminal_worker(
     python: Path, directory: Path, config: dict[str, Any], resource, terminal: str
 ) -> dict[str, Any]:
     """Observe a public worker's genuinely blocked statement before its terminal."""
-    from _pietto_phase68_slice6_probe import manager
+    from _pietto_execution_source_assurance_probe import manager
     from _pietto_target_conformance_resources import clean_environment
     import mysql.connector
 
@@ -1299,13 +1299,13 @@ def campaign(
     directory: Path, wheel: Path, interpreter: str, house: Path, otel_house: Path
 ) -> Path:
     """Materialize one exact prefix and record real public route observations."""
-    from _pietto_phase68_slice18_probe import (
+    from _pietto_execution_installation_probe import (
         _environment,
         _run,
         materialize,
         wheelhouse,
     )
-    from _pietto_phase68_slice6_probe import manager
+    from _pietto_execution_source_assurance_probe import manager
     from _pietto_target_conformance_resources import Resources
 
     directory.mkdir(mode=0o700)

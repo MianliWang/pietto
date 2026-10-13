@@ -36,7 +36,7 @@ def main():
     root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(root / "src"))
     sys.path.insert(0, str(root / "tests"))
-    import _pietto_phase68_slice13_probe as probe
+    import _pietto_execution_saved_read_probe as probe
 
     common = dict(
         directory=args.directory,

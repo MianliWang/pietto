@@ -16,6 +16,7 @@ from pietto._project.project_postgres_source_assurance import (
     MAX_DEPTH,
 )
 from pietto._project.project_refinement_enumeration import atom
+from pietto._project.project_sql_emission_contract import BoundSource
 
 __all__: tuple[str, ...] = ()
 
@@ -152,6 +153,7 @@ def verify_native_reply(reply, sql, arguments, rows):
         "resolve": (20,),
         "relation": (20, 25, 25, 25, 25, 20, 16, 16, 25, 20, 25, 20, 16),
         "attributes": (23, 25, 20, 20, 25, 25),
+        "temporal_attributes": (25, 20, 23),
         "children": (20, 23, 16),
         "rewrite": (20, 25, 25, 16, 25, 25),
         "function": (20, 25, 25, 25, 25, 25, 25, 20, 25, 16, 25, 16, 25, 20, 16),
@@ -199,12 +201,27 @@ def verify_native_reply(reply, sql, arguments, rows):
             )
 
 
-def verify_catalog(roots, root_oids, replies, context, schemas, context_native=None):
+def verify_catalog(
+    roots,
+    root_oids,
+    replies,
+    context,
+    schemas,
+    context_native=None,
+    *,
+    temporal_sources: tuple[BoundSource, ...] = (),
+):
     """No acquisition call or constructor-derived safe verdict is consumed."""
     from pietto._project.project_execution_postgres_adbc_native import CONTEXT_SQL
 
     need(
-        type(replies) is tuple and type(roots) is tuple and len(roots) == len(root_oids)
+        type(replies) is tuple
+        and type(roots) is tuple
+        and type(temporal_sources) is tuple
+        and len(roots) == len(root_oids)
+        and len(temporal_sources) <= len(roots)
+        and tuple((source.namespace, source.name) for source in temporal_sources)
+        == roots[: len(temporal_sources)]
     )
     need(
         context_native is not None
@@ -607,10 +624,44 @@ def verify_catalog(roots, root_oids, replies, context, schemas, context_native=N
         stack.remove(oid)
 
     role(context[4])
+    from pietto._project.project_execution_source import (
+        SourceAdmissionError,
+        requires_temporal_uuid_catalog,
+        verify_temporal_uuid_catalog,
+    )
+
     for i, (root, oid) in enumerate(zip(roots, root_oids, strict=True)):
         need(rows("resolve", *root) == ((oid,),), "POSTGRES_SOURCE_ROOT")
         r = one("relation", oid, 13)
         need(r[1:3] == root, "POSTGRES_SOURCE_ROOT")
         visit(oid, True, ("root", i), context[4])
+        if i < len(temporal_sources) and requires_temporal_uuid_catalog(
+            temporal_sources[i]
+        ):
+            temporal = rows("temporal_attributes", oid)
+            need(
+                len({row[0] for row in temporal}) == len(temporal)
+                and all(
+                    len(row) == 3
+                    and type(row[0]) is str
+                    and type(row[1]) is int
+                    and type(row[2]) is int
+                    for row in temporal
+                ),
+                "POSTGRES_SOURCE_CATALOG_IDENTITY",
+            )
+            attributes = {row[1]: row[2] for row in rows("attributes", oid)}
+            need(
+                all(attributes.get(row[0]) == row[1] for row in temporal),
+                "POSTGRES_SOURCE_CATALOG_IDENTITY",
+            )
+            try:
+                verify_temporal_uuid_catalog(
+                    temporal_sources[i], temporal, family="postgres"
+                )
+            except SourceAdmissionError as error:
+                raise ExecutionError(
+                    "POSTGRES_SOURCE_TEMPORAL_UUID_QUALIFICATION"
+                ) from error
     need(used == set(index), "POSTGRES_SOURCE_EXTRA_REPLY")
     return tuple(paths)

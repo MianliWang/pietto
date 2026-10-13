@@ -9,7 +9,7 @@ import pytest
 
 import _pietto_execution_api as api
 from _pietto_jobs_public_cases import _controlled_postgres_source
-from _pietto_phase68_slice11_probe import qualified
+from _pietto_execution_jobs_probe import qualified
 import pietto.execution as execution
 from pietto._project import project_execution as private_execution
 from pietto._project import project_job_runtime as runtime

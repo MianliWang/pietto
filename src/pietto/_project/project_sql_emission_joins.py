@@ -308,7 +308,13 @@ def resolved_port_realization(tag, nullable, carrier, *, outer, proved=False):
         if not (nullable is False and carrier.nullable is True and proved):
             return None, ("PIE-B1002", "join_output_nullability_drift")
     return (
-        rows.Realization(carrier.tag, carrier.storage, nullable, carrier.domain),
+        rows.Realization(
+            carrier.tag,
+            carrier.storage,
+            nullable,
+            carrier.domain,
+            carrier.proven_int_range,
+        ),
         None,
     )
 

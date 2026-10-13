@@ -1571,7 +1571,7 @@ def compiled_requirement_rule(plan, entry, *, generated_scopes):
         anchors = tuple(
             records[a]
             for a in described.get("anchors")
-            if a.kind in ("literal", "read", "operation")
+            if a.kind in ("literal", "null_literal", "read", "operation")
         )
         rules = []
         for record in anchors:

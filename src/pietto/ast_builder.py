@@ -22,9 +22,11 @@ from pietto.ast_nodes import (
     AuthoredWindowNullTreatment,
     BetweenExpr,
     BinaryExpr,
+    CastExpr,
     CallExpr,
     CheckDef,
     ComparisonExpr,
+    ConditionalExpr,
     ConstraintDef,
     DeriveDef,
     DottedNameExpr,
@@ -49,6 +51,7 @@ from pietto.ast_nodes import (
     LetClause,
     LimitClause,
     LiteralExpr,
+    MembershipExpr,
     NameExpr,
     ModuleDeclarationKind,
     NamedWindowDeclaration,
@@ -1045,10 +1048,39 @@ class AstBuilder(PiettoVisitor):
         )
 
     def visitExpression(self, ctx: _AntlrContext) -> Expression:
-        return self.visit(ctx.orExpression())
+        return self.visit(ctx.conditionalExpression())
 
     def visitQualifyExpression(self, ctx: _AntlrContext) -> Expression:
-        return self.visit(ctx.qualifyOrExpression())
+        return self.visit(ctx.qualifyConditionalExpression())
+
+    def visitConditionalExpression(self, ctx: _AntlrContext) -> Expression:
+        return self._conditional_expression(
+            ctx,
+            ctx.orExpression(),
+            ctx.conditionalExpression(),
+        )
+
+    def visitQualifyConditionalExpression(self, ctx: _AntlrContext) -> Expression:
+        return self._conditional_expression(
+            ctx,
+            ctx.qualifyOrExpression(),
+            ctx.qualifyConditionalExpression(),
+        )
+
+    def _conditional_expression(
+        self,
+        ctx: _AntlrContext,
+        operands: list[_AntlrContext],
+        when_false: _AntlrContext | None,
+    ) -> Expression:
+        if when_false is None:
+            return self.visit(operands[0])
+        return ConditionalExpr(
+            span=self._span(ctx),
+            when_true=self.visit(operands[0]),
+            condition=self.visit(operands[1]),
+            when_false=self.visit(when_false),
+        )
 
     def visitOrExpression(self, ctx: _AntlrContext) -> Expression:
         return self._fold_binary(ctx)
@@ -1062,24 +1094,61 @@ class AstBuilder(PiettoVisitor):
     def visitQualifyAndExpression(self, ctx: _AntlrContext) -> Expression:
         return self._fold_binary(ctx)
 
+    def visitNotExpression(self, ctx: _AntlrContext) -> Expression:
+        return self._not_expression(
+            ctx, ctx.notExpression(), ctx.comparisonExpression()
+        )
+
+    def visitQualifyNotExpression(self, ctx: _AntlrContext) -> Expression:
+        return self._not_expression(
+            ctx,
+            ctx.qualifyNotExpression(),
+            ctx.qualifyComparisonExpression(),
+        )
+
+    def _not_expression(
+        self,
+        ctx: _AntlrContext,
+        nested: _AntlrContext | None,
+        comparison: _AntlrContext | None,
+    ) -> Expression:
+        if comparison is not None:
+            return self.visit(comparison)
+        assert nested is not None
+        return UnaryExpr(
+            span=self._span(ctx),
+            operator="not",
+            operand=self.visit(nested),
+        )
+
     def visitComparisonExpression(self, ctx: _AntlrContext) -> Expression:
-        return self._comparison_expression(ctx, ctx.additiveExpression())
+        return self._comparison_expression(
+            ctx,
+            ctx.additiveExpression(),
+            ctx.expression(),
+        )
 
     def visitQualifyComparisonExpression(self, ctx: _AntlrContext) -> Expression:
-        return self._comparison_expression(ctx, ctx.qualifyAdditiveExpression())
+        return self._comparison_expression(
+            ctx,
+            ctx.qualifyAdditiveExpression(),
+            ctx.qualifyExpression(),
+        )
 
     def _comparison_expression(
         self,
         ctx: _AntlrContext,
         operands: list[_AntlrContext],
+        membership_options: list[_AntlrContext],
     ) -> Expression:
         left = cast(Expression, self.visit(operands[0]))
 
         if ctx.comparisonOperator() is not None:
+            operator = ctx.comparisonOperator().getText()
             return ComparisonExpr(
                 span=self._span(ctx),
                 left=left,
-                operator=ctx.comparisonOperator().getText(),
+                operator="not like" if operator == "notlike" else operator,
                 right=self.visit(operands[1]),
             )
         if ctx.BETWEEN() is not None:
@@ -1093,6 +1162,13 @@ class AstBuilder(PiettoVisitor):
             return IsNullExpr(
                 span=self._span(ctx),
                 value=left,
+                negated=ctx.NOT() is not None,
+            )
+        if ctx.IN() is not None:
+            return MembershipExpr(
+                span=self._span(ctx),
+                value=left,
+                options=tuple(self.visit(option) for option in membership_options),
                 negated=ctx.NOT() is not None,
             )
         return left
@@ -1130,6 +1206,12 @@ class AstBuilder(PiettoVisitor):
     def visitPrimaryExpression(self, ctx: _AntlrContext) -> Expression:
         if ctx.literal() is not None:
             return self.visit(ctx.literal())
+        if ctx.CAST() is not None:
+            return CastExpr(
+                span=self._span(ctx),
+                value=self.visit(ctx.expression()),
+                target=self.visit(ctx.typeExpression()),
+            )
         if ctx.expression() is not None:
             return self.visit(ctx.expression())
 
@@ -1143,6 +1225,12 @@ class AstBuilder(PiettoVisitor):
             return self.visit(ctx.qualifyWindowExpression())
         if ctx.literal() is not None:
             return self.visit(ctx.literal())
+        if ctx.CAST() is not None:
+            return CastExpr(
+                span=self._span(ctx),
+                value=self.visit(ctx.qualifyExpression()),
+                target=self.visit(ctx.typeExpression()),
+            )
         if ctx.qualifyExpression() is not None:
             return self.visit(ctx.qualifyExpression())
 

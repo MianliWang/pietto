@@ -407,7 +407,11 @@ qualifyClause
     ;
 
 qualifyExpression
-    : qualifyOrExpression
+    : qualifyConditionalExpression
+    ;
+
+qualifyConditionalExpression
+    : qualifyOrExpression (IF qualifyOrExpression ELSE qualifyConditionalExpression)?
     ;
 
 qualifyOrExpression
@@ -415,7 +419,12 @@ qualifyOrExpression
     ;
 
 qualifyAndExpression
-    : qualifyComparisonExpression (AND qualifyComparisonExpression)*
+    : qualifyNotExpression (AND qualifyNotExpression)*
+    ;
+
+qualifyNotExpression
+    : NOT qualifyNotExpression
+    | qualifyComparisonExpression
     ;
 
 qualifyComparisonExpression
@@ -423,6 +432,7 @@ qualifyComparisonExpression
         comparisonOperator qualifyAdditiveExpression
         | BETWEEN qualifyAdditiveExpression AND qualifyAdditiveExpression
         | IS NOT? NULL
+        | NOT? IN LPAREN (qualifyExpression (COMMA qualifyExpression)* COMMA?)? RPAREN
     )?
     ;
 
@@ -442,6 +452,7 @@ qualifyUnaryExpression
 qualifyPrimaryExpression
     : qualifyWindowExpression
     | literal
+    | CAST LPAREN qualifyExpression AS typeExpression RPAREN
     | dottedName qualifyCallSuffix?
     | LPAREN qualifyExpression RPAREN
     ;
@@ -471,10 +482,14 @@ limitClause
     : LIMIT expression NEWLINE
     ;
 
-// First-slice expressions intentionally omit CASE and general assignment syntax.
-// Precedence rises from or through and, comparisons, arithmetic, unary, primary.
+// Conditional expressions are lowest precedence and right associative.  Precedence
+// then rises through or, and, not, comparisons, arithmetic, unary, and primary.
 expression
-    : orExpression
+    : conditionalExpression
+    ;
+
+conditionalExpression
+    : orExpression (IF orExpression ELSE conditionalExpression)?
     ;
 
 orExpression
@@ -482,7 +497,12 @@ orExpression
     ;
 
 andExpression
-    : comparisonExpression (AND comparisonExpression)*
+    : notExpression (AND notExpression)*
+    ;
+
+notExpression
+    : NOT notExpression
+    | comparisonExpression
     ;
 
 comparisonExpression
@@ -490,6 +510,7 @@ comparisonExpression
         comparisonOperator additiveExpression
         | BETWEEN additiveExpression AND additiveExpression
         | IS NOT? NULL
+        | NOT? IN LPAREN (expression (COMMA expression)* COMMA?)? RPAREN
     )?
     ;
 
@@ -501,6 +522,7 @@ comparisonOperator
     | GT
     | GE
     | LIKE
+    | NOT LIKE
     ;
 
 additiveExpression
@@ -518,6 +540,7 @@ unaryExpression
 
 primaryExpression
     : literal
+    | CAST LPAREN expression AS typeExpression RPAREN
     | dottedName callSuffix?
     | LPAREN expression RPAREN
     ;
@@ -553,6 +576,7 @@ namePart
     | VIA
     | CROSS | RIGHT | FULL | SEMI | ANTI
     | UNION | INTERSECT | EXCEPT | ALL | DISTINCT
+    | IF | ELSE | IN | CAST
     ;
 
 // New language keywords remain valid in identifier positions for compatibility.
@@ -595,6 +619,7 @@ identifier
     | VIA
     | CROSS | RIGHT | FULL | SEMI | ANTI
     | UNION | INTERSECT | EXCEPT | ALL | DISTINCT
+    | IF | ELSE | IN | CAST
     ;
 
 callSuffix
@@ -688,6 +713,10 @@ NOT: 'not';
 NULL: 'null';
 BETWEEN: 'between';
 LIKE: 'like';
+IF: 'if';
+ELSE: 'else';
+IN: 'in';
+CAST: 'cast';
 TRUE: 'true';
 FALSE: 'false';
 

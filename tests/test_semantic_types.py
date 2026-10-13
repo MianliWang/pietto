@@ -121,6 +121,54 @@ def test_unknown_type_diagnostic_uses_type_expression_span() -> None:
     assert diagnostic.location.end_column == type_expr.span.end_column
 
 
+def test_cast_target_participates_in_type_resolution() -> None:
+    result = analyze(
+        _parse(
+            "shape User:\n"
+            "    count: Int not null\n"
+            'source users: User is postgres.table("users")\n'
+            "table projected:\n"
+            "    from users\n"
+            "    select:\n"
+            "        value = cast(count as Missing)\n",
+            path=Path("cast-target.pietto"),
+        )
+    )
+
+    target = next(
+        type_expr
+        for type_expr in result.model.type_resolutions
+        if type_expr.name == "Missing"
+    )
+    assert result.model.type_resolutions[target].kind is TypeKind.UNKNOWN
+    diagnostic = next(
+        diagnostic
+        for diagnostic in result.diagnostics
+        if diagnostic.code == "PIE-S2002"
+    )
+    assert (
+        diagnostic.location.path,
+        diagnostic.location.line,
+        diagnostic.location.column,
+    ) == (target.span.path, target.span.line, target.span.column)
+
+
+def test_valid_cast_target_is_not_a_declaration_nullability_warning() -> None:
+    result = analyze(
+        _parse(
+            "shape User:\n"
+            "    count: Int not null\n"
+            'source users: User is postgres.table("users")\n'
+            "table projected:\n"
+            "    from users\n"
+            "    select:\n"
+            "        value = cast(count as Float)\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+
+
 def test_unknown_type_does_not_stop_unrelated_resolution() -> None:
     result = analyze(
         _parse(

@@ -2853,16 +2853,14 @@ The controlling Phase-63 Slice-1 contract contains the complete old-owner ->
 new-owner ledger, including every former Phase-63–70 subject and every new
 ownerless subject.
 
-On 2026-10-11 the owner agreed to insert one phase after Phase69 that owns
-common expressions, functions and the project-mode SQL emission backbone, and
-placed public Timestamp/UUID meaning in the same phase. Until that phase
-delivers it, project-mode SQL emission blocks a source whose shape has a
-Timestamp or UUID field with `PIE-B1004`
-(`logical_temporal_or_uuid_meaning_missing`), even when the query does not use
-that field, and Phase69's alpha documentation states this limitation. The
-inserted phase's detailed scope is planned at its own phase start. This
-records ownership only and authorizes no implementation; Phase70 and later
-phases keep their numbers.
+The owner-authorized phase inserted after Phase69 implements common expressions,
+functions, the project-mode SQL emission backbone and public Timestamp/UUID
+meaning. Its current candidate covers the closed surface in
+[Language](language.md) and [Project and package](project-package.md), including
+qualified temporal/UUID sources and derived Date results. Numerical operations
+require compiler-owned or qualified physical evidence; caller-declared ranges
+alone do not prove arithmetic safety. Final integrated validation and publication
+remain pending. Phase70 and later phases keep their numbers and retained scope.
 
 The same day the owner placed the remaining file-header retirement steps in
 Phase75, to finish before the Phase82 freeze: first remove the headers left in
@@ -2889,8 +2887,8 @@ implementation：
 Phase 57 begins from the complete private Phase 56 capability chain.
 `CapabilityKey` remains release-free, exact profile targets retain database and
 extension releases separately, and current `EXTENSION_SIGNATURE` provider
-evidence remains empty and incomplete. `CONVERSION` remains reserved for later
-advanced-type work.
+evidence remains empty and incomplete. `CONVERSION` includes the explicit
+Int-to-Float operation; other advanced-type conversions retain their later owner.
 
 Compiler acceptance, private capability facts, backend support, database
 installation, public exposure, local graph behavior, remote I/O, solving, and

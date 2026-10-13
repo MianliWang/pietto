@@ -16,6 +16,10 @@ from pietto.ast_nodes import (
     ComparisonExpr,
     BetweenExpr,
     IsNullExpr,
+    CallExpr,
+    ConditionalExpr,
+    MembershipExpr,
+    CastExpr,
     LimitClause,
 )
 from pietto.semantic.model import ValueType
@@ -410,6 +414,10 @@ def ready(entry, indexed):
             ComparisonExpr,
             BetweenExpr,
             IsNullExpr,
+            CallExpr,
+            ConditionalExpr,
+            MembershipExpr,
+            CastExpr,
         }
         for item, uses in zip(order.items, order.inputs, strict=True):
             expected = (

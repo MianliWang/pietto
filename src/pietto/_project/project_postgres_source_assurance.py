@@ -122,6 +122,7 @@ def nodes(value, path=()):
 RESOLVE_SQL = "SELECT c.oid::bigint FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=$1 AND c.relname=$2"
 RELATION_SQL = "SELECT c.oid::bigint,n.nspname::text,c.relname::text,c.relkind::text,c.relpersistence::text,c.relowner::bigint,c.relrowsecurity,c.relforcerowsecurity,c.reloptions::text,c.relam::bigint,a.amname::text,a.amhandler::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_class'::regclass AND d.objid=c.oid AND d.deptype='e') FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_catalog.pg_am a ON a.oid=c.relam WHERE c.oid=$1::oid"
 ATTR_SQL = "SELECT a.attnum::integer,a.attname::text,a.atttypid::bigint,a.attcollation::bigint,a.attgenerated::text,CASE WHEN a.attgenerated='v' THEN d.adbin::text ELSE NULL END FROM pg_catalog.pg_attribute a LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum WHERE a.attrelid=$1::oid AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum"
+TEMPORAL_ATTR_SQL = "SELECT a.attname::text,a.atttypid::bigint,a.atttypmod::integer FROM pg_catalog.pg_attribute a WHERE a.attrelid=$1::oid AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum"
 CHILDREN_SQL = "SELECT inhrelid::bigint,inhseqno::integer,inhdetachpending FROM pg_catalog.pg_inherits WHERE inhparent=$1::oid ORDER BY inhseqno,inhrelid"
 REWRITE_SQL = "SELECT oid::bigint,rulename::text,ev_type::text,is_instead,ev_qual::text,ev_action::text FROM pg_catalog.pg_rewrite WHERE ev_class=$1::oid AND ev_type='1' ORDER BY oid"
 PROC_SQL = "SELECT p.oid::bigint,n.nspname::text,p.proname::text,l.lanname::text,p.prosrc,p.probin,p.proargtypes::text,p.prorettype::bigint,p.provolatile::text,p.prosecdef,p.prokind::text,p.proretset,p.proconfig::text,p.provariadic::bigint,EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE p.oid=$1::oid"
@@ -135,6 +136,7 @@ SQL = {
     "resolve": RESOLVE_SQL,
     "relation": RELATION_SQL,
     "attributes": ATTR_SQL,
+    "temporal_attributes": TEMPORAL_ATTR_SQL,
     "children": CHILDREN_SQL,
     "rewrite": REWRITE_SQL,
     "function": PROC_SQL,
@@ -151,6 +153,16 @@ class CatalogReply:
     arguments: tuple
     rows: tuple = field(repr=False)
     native: Any = field(repr=False, compare=False)
+
+
+def qualification_roots(sources, requirements) -> tuple[tuple[str, str], ...]:
+    """Keep source roots first; retained registries remain separate roots."""
+    if type(sources) is not tuple or type(requirements) is not tuple:
+        raise ExecutionError("POSTGRES_SOURCE_ROOTS")
+    return tuple((source.namespace, source.name) for source in sources) + tuple(
+        (requirement.registry_namespace, requirement.registry_name)
+        for requirement in requirements
+    )
 
 
 def qualification_context(owner) -> tuple:
@@ -236,8 +248,9 @@ def qualify_sources(owner):
     verify_postgres_adbc_deployment(owner.request)
     context = qualification_context(owner)
     requirements = owner.requirements
-    roots = tuple((s.namespace, s.name) for s in owner.request.artifact.request.sources)
-    roots += tuple((r.registry_namespace, r.registry_name) for r in requirements)
+    sources = owner.request.artifact.request.sources
+    source_roots = tuple((s.namespace, s.name) for s in sources)
+    roots = qualification_roots(sources, requirements)
     replies, cache, active, visited = [], {}, set(), set()
     catalog_bytes = 0
 
@@ -367,7 +380,9 @@ def qualify_sources(owner):
     premise = postgres_source_premise(owner.request)
     if premise is None:
         raise ExecutionError("POSTGRES_SOURCE_PREMISE_REQUIRED")
-    root_oids = []
+    from pietto._project.project_execution_source import requires_temporal_uuid_catalog
+
+    root_oids, source_oids = [], []
     for root in roots:
         if root[0] not in premise.schemas:
             raise ExecutionError("POSTGRES_ADBC_DEPLOYMENT_PREMISE_SCOPE")
@@ -375,7 +390,12 @@ def qualify_sources(owner):
         if len(found) != 1 or len(found[0]) != 1:
             raise ExecutionError("POSTGRES_SOURCE_CATALOG_REQUIRED")
         root_oids.append(found[0][0])
+        if len(root_oids) <= len(source_roots):
+            source_oids.append(found[0][0])
         relation(found[0][0])
+    for source, oid in zip(sources, source_oids, strict=True):
+        if requires_temporal_uuid_catalog(source):
+            fetch("temporal_attributes", (oid,))
     accepted_replies = tuple(replies)
     paths = verify_catalog(
         roots,
@@ -384,6 +404,7 @@ def qualify_sources(owner):
         context,
         premise.schemas,
         owner._context_native,
+        temporal_sources=sources,
     )
     qualification = SourceQualification(
         owner,
@@ -397,6 +418,48 @@ def qualify_sources(owner):
     owner._qualification = owner._owned_qualification = qualification
     qualification.verify(owner)
     return qualification
+
+
+def verify_temporal_uuid_catalog(qualification) -> None:
+    """Recheck Q3 source declarations from the bound native catalog replies."""
+    from pietto._project.project_execution_source import (
+        requires_temporal_uuid_catalog,
+        verify_temporal_uuid_catalog as verify_fields,
+    )
+
+    if type(qualification) is not SourceQualification:
+        raise ExecutionError("POSTGRES_SOURCE_TEMPORAL_UUID_QUALIFICATION")
+    owner = qualification.owner
+    qualification.verify(owner)
+    sources = qualification.request.artifact.request.sources
+    if type(sources) is not tuple:
+        raise ExecutionError("POSTGRES_SOURCE_TEMPORAL_UUID_QUALIFICATION")
+    replies = {
+        (reply.kind, reply.arguments): reply.rows for reply in qualification.replies
+    }
+    if len(replies) != len(qualification.replies):
+        raise ExecutionError("POSTGRES_SOURCE_TEMPORAL_UUID_QUALIFICATION")
+    for source in sources:
+        if not requires_temporal_uuid_catalog(source):
+            continue
+        root = (source.namespace, source.name)
+        resolved = replies.get(("resolve", root))
+        if (
+            type(resolved) is not tuple
+            or len(resolved) != 1
+            or type(resolved[0]) is not tuple
+            or len(resolved[0]) != 1
+            or type(resolved[0][0]) is not int
+        ):
+            raise ExecutionError("POSTGRES_SOURCE_TEMPORAL_UUID_QUALIFICATION")
+        catalog = replies.get(("temporal_attributes", (resolved[0][0],)))
+        try:
+            verify_fields(source, catalog, family="postgres")
+        except ValueError as error:
+            raise ExecutionError(
+                "POSTGRES_SOURCE_TEMPORAL_UUID_QUALIFICATION"
+            ) from error
+    qualification.verify(owner)
 
 
 def reply_state(replies):

@@ -123,12 +123,15 @@ from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleOrderReferenceFact,
 )
 from pietto._project.project_row_equivalence import ProjectRowEquivalenceInput
-from pietto._project.project_sql_plan import _operators
+from pietto._project.project_sql_plan import _callable_symbol, _operators
 from pietto._project.project_joined_row_filter import _SQL_ROW_RETENTION_EFFECTS
 from pietto.ast_nodes import (
     UnaryExpr,
     BinaryExpr,
     ComparisonExpr,
+    ConditionalExpr,
+    MembershipExpr,
+    CastExpr,
     IsNullExpr,
     BetweenExpr,
     LetBinding,
@@ -2461,6 +2464,9 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
         ComparisonExpr: row.ProjectSQLComparison,
         IsNullExpr: row.ProjectSQLIsNull,
         BetweenExpr: row.ProjectSQLBetween,
+        ConditionalExpr: row.ProjectSQLConditional,
+        MembershipExpr: row.ProjectSQLMembership,
+        CastExpr: row.ProjectSQLCast,
     }
     roles = {
         row.ProjectSQLExpressionRole.LET: ProjectModuleFactOccurrenceRole.LET_VALUE,
@@ -2496,7 +2502,11 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
             else row.ProjectSQLReference
         )
         variants[NameExpr] = variants[DottedNameExpr] = reference_type
-        variants[CallExpr] = aggregation.ProjectSQLAggregateArgumentCall
+        variants[CallExpr] = (
+            aggregation.ProjectSQLAggregateArgumentCall
+            if aggregate_site
+            else row.ProjectSQLScalarCall
+        )
         # Traverse actual source independently of the expression allocator.
         pending, nodes = (
             [site.expression if aggregate_site else site.occurrence.expression],
@@ -2515,12 +2525,20 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 and site.role is row.ProjectSQLExpressionRole.AGGREGATE_ARGUMENT
             ):
                 children = node.arguments
+            elif isinstance(node, CallExpr):
+                children = node.arguments
             elif isinstance(node, UnaryExpr):
                 children = (node.operand,)
             elif isinstance(node, IsNullExpr):
                 children = (node.value,)
             elif isinstance(node, BetweenExpr):
                 children = (node.value, node.lower, node.upper)
+            elif isinstance(node, ConditionalExpr):
+                children = (node.when_true, node.condition, node.when_false)
+            elif isinstance(node, MembershipExpr):
+                children = (node.value, *node.options)
+            elif isinstance(node, CastExpr):
+                children = (node.value,)
             elif isinstance(node, (LiteralExpr, NameExpr, DottedNameExpr)):
                 children = ()
             else:
@@ -2804,6 +2822,13 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 children = tuple(local[id(argument)].ref for argument in node.arguments)
                 if not _same(value.arguments, children):
                     return False
+            elif isinstance(value, row.ProjectSQLScalarCall):
+                children = tuple(local[id(argument)].ref for argument in node.arguments)
+                if (
+                    value.arguments != children
+                    or value.callee_symbol != _callable_symbol(node)
+                ):
+                    return False
             elif isinstance(value, (row.ProjectSQLLiteral, row.ProjectSQLBoundLiteral)):
                 children = ()
             elif isinstance(value, row.ProjectSQLUnary):
@@ -2815,6 +2840,29 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 if value.left is not children[0] or value.right is not children[1]:
                     return False
             elif isinstance(value, row.ProjectSQLIsNull):
+                children = (local[id(node.value)].ref,)
+                if value.value is not children[0]:
+                    return False
+            elif isinstance(value, row.ProjectSQLConditional):
+                children = (
+                    local[id(node.when_true)].ref,
+                    local[id(node.condition)].ref,
+                    local[id(node.when_false)].ref,
+                )
+                if (
+                    value.when_true is not children[0]
+                    or value.condition is not children[1]
+                    or value.when_false is not children[2]
+                ):
+                    return False
+            elif isinstance(value, row.ProjectSQLMembership):
+                children = (
+                    local[id(node.value)].ref,
+                    *(local[id(option)].ref for option in node.options),
+                )
+                if value.value is not children[0] or value.options != children[1:]:
+                    return False
+            elif isinstance(value, row.ProjectSQLCast):
                 children = (local[id(node.value)].ref,)
                 if value.value is not children[0]:
                     return False
@@ -4495,6 +4543,10 @@ def _result_structure(plan):
                                 ComparisonExpr,
                                 BetweenExpr,
                                 IsNullExpr,
+                                CallExpr,
+                                ConditionalExpr,
+                                MembershipExpr,
+                                CastExpr,
                             }
                         ):
                             return False
@@ -5180,7 +5232,18 @@ def _literal_schema(plan, policy):
         # Do not use the builder's classifier, type solver or host-value typing.
         R, Why = L.ProjectSQLLiteralRole, L.ProjectSQLLiteralReason
         value_type, value = position.value_type, position.literal.value
-        if policy is L.ProjectSQLLiteralPolicy.PRESERVE_LITERALS:
+        if position.role is R.WINDOW_ARGUMENT:
+            reason = Why.SPECIALIZED
+        elif value is None and (
+            type(value_type) is ValueType
+            and value_type.kind is ValueTypeKind.KNOWN
+            and value_type.resolved_type.kind is TypeKind.BUILTIN
+            and value_type.resolved_type.definition is None
+        ):
+            reason = Why.TYPED_NULL
+        elif value is None:
+            reason = Why.NULL
+        elif policy is L.ProjectSQLLiteralPolicy.PRESERVE_LITERALS:
             reason = Why.POLICY
         elif position.role in (
             R.AGGREGATE_ARGUMENT,
@@ -5205,12 +5268,19 @@ def _literal_schema(plan, policy):
             reason = Why.CALL_ARGUMENT
         elif any(
             type(parent)
-            not in (UnaryExpr, BinaryExpr, ComparisonExpr, IsNullExpr, BetweenExpr)
+            not in (
+                UnaryExpr,
+                BinaryExpr,
+                ComparisonExpr,
+                IsNullExpr,
+                BetweenExpr,
+                ConditionalExpr,
+                MembershipExpr,
+                CastExpr,
+            )
             for parent, _ in position.ancestry
         ):
             reason = Why.UNKNOWN_CONTEXT
-        elif value is None:
-            reason = Why.NULL
         elif (
             type(value_type) is not ValueType
             or value_type.kind is not ValueTypeKind.KNOWN
@@ -5219,8 +5289,9 @@ def _literal_schema(plan, policy):
         elif (
             value_type.resolved_type.kind is not TypeKind.BUILTIN
             or value_type.resolved_type.definition is not None
-            or value_type.resolved_type.name not in ("Bool", "Int", "Text", "Float")
         ):
+            reason = Why.NON_BUILTIN
+        elif value_type.resolved_type.name not in ("Bool", "Int", "Text", "Float"):
             reason = Why.NON_BUILTIN
         elif (
             value_type.resolved_type.name == "Float"
@@ -5499,6 +5570,8 @@ def _verify_compiled_sql_plan(plan):
         CompiledFixedEnvelope,
         CompiledFixedValue,
         CompiledBindUse,
+        CompiledExpressionIdentity,
+        CompiledExpressionSyntax,
     )
     from pietto._project.project_sql_plan_expressions import (
         CompiledPlanValue,
@@ -5516,6 +5589,7 @@ def _verify_compiled_sql_plan(plan):
         PHYSICAL,
         same_value,
     )
+    from pietto.ir.model import SymbolId, SymbolNamespace
 
     need(type(plan) is CompiledSQLPlan, "PLAN_ROOT")
     verify_compiled_query_block_ir(plan.ir)
@@ -5588,9 +5662,42 @@ def _verify_compiled_sql_plan(plan):
     )
     facts = {f.address: f for f in ir.completed.facts}
     expected_expressions = {
-        a for a in facts if a.kind in ("literal", "read", "operation")
+        a for a in facts if a.kind in ("literal", "null_literal", "read", "operation")
     }
     need(set(plan.expressions) == expected_expressions, "PLAN_EXPRESSION_INVENTORY")
+    expected_identities = {
+        address
+        for address, fact in facts.items()
+        if address.kind == "operation" and fact.operator is not None
+    }
+    need(
+        set(plan.expression_identities) == expected_identities,
+        "PLAN_EXPRESSION_IDENTITIES",
+    )
+    for address in expected_identities:
+        fact = facts[address]
+        role, token = fact.operator
+        identity = plan.expression_identities[address]
+        need(
+            type(identity) is CompiledExpressionIdentity
+            and identity.ref is plan.references[address]
+            and identity.value_type is fact.value_type
+            and type(identity.expression) is CompiledExpressionSyntax
+            and identity.expression.operator == token
+            and identity.expression.negated
+            is (
+                (role, token)
+                in {("membership", "not_in"), ("null_test", "is_not_null")}
+            )
+            and (
+                type(identity.callee_symbol) is SymbolId
+                and identity.callee_symbol.namespace is SymbolNamespace.CALLABLE
+                and identity.callee_symbol.name == token
+                if role == "scalar_call"
+                else identity.callee_symbol is None
+            ),
+            "PLAN_EXPRESSION_IDENTITY",
+        )
     sites = tuple(r for r in records.values() if r.address.kind == "site")
     slots = tuple(r for r in records.values() if r.address.kind == "slot")
     need(
@@ -5604,7 +5711,7 @@ def _verify_compiled_sql_plan(plan):
             CompiledBoundLiteral
             if address in bound
             else CompiledLiteral
-            if address.kind == "literal"
+            if address.kind in ("literal", "null_literal")
             else CompiledPlanValue
         )
         need(

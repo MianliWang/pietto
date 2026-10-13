@@ -63,7 +63,21 @@ from pietto._project import project_sql_plan_windows as plan_windows
 from pietto._project import project_sql_plan_aggregation as plan_aggregation
 from pietto._project import project_sql_emission_ast as ast
 from pietto._project.project_sql_plan_joins import ProjectSQLJoinPortKind
-from pietto.ast_nodes import AuthoredJoinKind
+from pietto.ast_nodes import (
+    AuthoredJoinKind,
+    BinaryExpr,
+    BetweenExpr,
+    CallExpr,
+    CastExpr,
+    ComparisonExpr,
+    ConditionalExpr,
+    DottedNameExpr,
+    IsNullExpr,
+    LiteralExpr,
+    MembershipExpr,
+    NameExpr,
+    UnaryExpr,
+)
 from pietto._project.project_sql_emission_rendering import (
     OPERATORS,
     RenderedSQL,
@@ -539,6 +553,18 @@ def _verify_value(request, value, original, expressions_seen, nodes):
             return False
         value = value.operand
     tag = parameters.tag_of(original)
+    if parameters.typed_null(original):
+        expressions_seen.append(original)
+        nodes.append(value)
+        return (
+            type(value) is parameters.SQLNull
+            and value.original is original
+            and any(value.site is site for site in plan.literal_sites)
+            and value.site.position.expression is original.ref
+            and value.site.position.literal is original.expression
+            and value.site.disposition.value == "preserved_with_reason"
+            and value.site.reason.value == "contextual_typed_null"
+        )
     if (
         type(value) is not parameters.SQLAnchor
         or value.original is not original
@@ -549,7 +575,8 @@ def _verify_value(request, value, original, expressions_seen, nodes):
     nodes.append(value)
     leaf = value.operand
     if (
-        type(leaf) not in {parameters.SQLLiteral, parameters.SQLParameter}
+        type(leaf)
+        not in {parameters.SQLLiteral, parameters.SQLNull, parameters.SQLParameter}
         or leaf.original is not original
         or not any(leaf.site is site for site in plan.literal_sites)
         or leaf.site.position.expression is not original.ref
@@ -560,10 +587,18 @@ def _verify_value(request, value, original, expressions_seen, nodes):
         return False
     expressions_seen.append(original)
     nodes.append(leaf)
+    if type(leaf) is parameters.SQLNull:
+        return (
+            type(original) is row.ProjectSQLLiteral
+            and parameters.typed_null(original)
+            and leaf.site.disposition.value == "preserved_with_reason"
+            and leaf.site.reason.value == "contextual_typed_null"
+        )
     if type(leaf) is parameters.SQLLiteral:
         # A literal stays a literal under PRESERVE, and under BIND_SAFE only in a
-        # specialized position the extraction rule never admits as a slot. That
-        # eligibility is re-derived from the retained role, never from the builder.
+        # specialized position or a retained call argument the extraction rule
+        # never admits as a slot.  Re-derive that eligibility from the original
+        # role and ancestry, never from the builder's disposition alone.
         return (
             type(original) is row.ProjectSQLLiteral
             and parameters.same_value(leaf.value, original.expression.value)
@@ -579,6 +614,17 @@ def _verify_value(request, value, original, expressions_seen, nodes):
                     == "bind_safe_literals"
                     and leaf.site.position.role.value
                     not in {"select", "let", "where", "on", "unknown"}
+                )
+                or (
+                    leaf.site.reason.value == "call_argument_subtree"
+                    and request.verification.literal_policy.value
+                    == "bind_safe_literals"
+                    and leaf.site.position.role.value
+                    in {"select", "let", "where", "on", "satisfying", "qualify"}
+                    and any(
+                        type(parent) is CallExpr
+                        for parent, _ in leaf.site.position.ancestry
+                    )
                 )
             )
         )
@@ -681,8 +727,13 @@ def verify_sql_bytes(ast, rendered):
                     "$" + str(leaf.use.server_index) if family == "postgres" else "?",
                 )
             else:
-                assert isinstance(leaf, parameters.SQLLiteral)
+                assert isinstance(leaf, (parameters.SQLLiteral, parameters.SQLNull))
                 token, _, _ = take("literal", tag, leaf.site.ref, None)
+                if type(leaf) is parameters.SQLNull:
+                    if token != "NULL":
+                        raise ValueError("typed null token")
+                    return
+                assert isinstance(leaf, parameters.SQLLiteral)
                 if tag == "Bool":
                     if token not in {"TRUE", "FALSE"}:
                         raise ValueError("Boolean literal token")
@@ -1159,26 +1210,136 @@ def _operand_children(plan):
     return result
 
 
-def _row_realization(request, expression, operands):
+def _direct_decimal_source(value):
+    return (
+        type(value) is rows.SQLStageReference
+        and value.column.field is not None
+        and value.column.source_port is not None
+    )
+
+
+def _float_literal_value(value):
+    try:
+        nodes = parameters.value_nodes(value)
+        leaf = nodes[-1]
+        if (
+            type(leaf) not in {parameters.SQLLiteral, parameters.SQLParameter}
+            or parameters.tag_of(leaf.original) != "Float"
+        ):
+            return None
+        result = parameters.result_value(value)
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return None
+    return result if type(result) is float and math.isfinite(result) else None
+
+
+def _row_realization(request, expression, operands, operand_values):
     """Read original logical evidence, then independently check the resolved law."""
     kind = {
         row.ProjectSQLIsNull: "null_test",
         row.ProjectSQLComparison: "comparison",
+        row.ProjectSQLBetween: "between",
         row.ProjectSQLUnary: "unary",
         row.ProjectSQLBinary: "binary",
+        row.ProjectSQLConditional: "conditional",
+        row.ProjectSQLMembership: "membership",
+        row.ProjectSQLCast: "cast",
+        row.ProjectSQLScalarCall: "scalar_call",
     }.get(type(expression))
     if kind is None:
         raise ValueError("logical expression kind")
     tag, nullable = rows.value_tag(expression), rows.value_nullable(expression)
     if tag is None or nullable is None:
         raise ValueError("logical type evidence")
-    operator = None if kind == "null_test" else expression.expression.operator
+    operator = (
+        None
+        if kind
+        in {"null_test", "between", "scalar_call", "conditional", "membership", "cast"}
+        else expression.expression.operator
+    )
+    if kind == "scalar_call":
+        result, problem = rows.resolved_scalar_call_realization(
+            request.family, expression.callee_symbol, tag, nullable, operands
+        )
+        if result is None:
+            raise ValueError(problem)
+        return result
+    if kind == "conditional":
+        result, problem = rows.resolved_conditional_realization(
+            request.family, tag, nullable, operands
+        )
+        if result is None:
+            raise ValueError(problem)
+        return result
+    if kind == "membership":
+        result, problem = rows.resolved_membership_realization(
+            request.family, tag, nullable, operands
+        )
+        if result is None:
+            raise ValueError(problem)
+        return result
+    if kind == "cast":
+        result, problem = rows.resolved_cast_realization(
+            request.family, tag, nullable, operands[0]
+        )
+        if result is None:
+            raise ValueError(problem)
+        return result
+    if kind == "unary" and expression.expression.operator == "not":
+        if (
+            tag != "Bool"
+            or len(operands) != 1
+            or operands[0].tag != "Bool"
+            or operands[0].domain.get("kind") != "bool01"
+        ):
+            raise ValueError("unary not domain")
+        return rows.Realization(
+            "Bool",
+            {"kind": rows.BOOL_RESULT[request.family]},
+            nullable,
+            {"kind": "bool01"},
+        )
+    if kind == "comparison":
+        if operator in {"like", "not like"}:
+            result, problem = rows.resolved_like_realization(
+                request.family, tag, nullable, operands[0], operands[1]
+            )
+        else:
+            result, problem = rows.resolved_comparison_realization(
+                request.family, tag, nullable, operands[0], operands[1], operator
+            )
+        if result is None:
+            raise ValueError(problem)
+        return result
+    float_values = tuple(_float_literal_value(value) for value in operand_values)
     return resolved_row_realization(
-        request.family, kind, operator, tag, nullable, operands
+        request.family,
+        kind,
+        operator,
+        tag,
+        nullable,
+        operands,
+        direct_decimal_sources=(
+            kind == "binary"
+            and all(_direct_decimal_source(value) for value in operand_values)
+        ),
+        float_values=(
+            None if any(value is None for value in float_values) else float_values
+        ),
     )
 
 
-def resolved_row_realization(family, kind, operator, tag, nullable, operands):
+def resolved_row_realization(
+    family,
+    kind,
+    operator,
+    tag,
+    nullable,
+    operands,
+    *,
+    direct_decimal_sources=False,
+    float_values=None,
+):
     """Existing independent physical-law checker over closed resolved inputs."""
     if kind == "null_test":
         if tag != "Bool" or nullable is not False:
@@ -1188,23 +1349,34 @@ def resolved_row_realization(family, kind, operator, tag, nullable, operands):
         )
     if kind == "comparison":
         left, right = operands
+        result, problem = rows.resolved_comparison_realization(
+            family, tag, nullable, left, right, operator
+        )
+        if result is None:
+            raise ValueError(problem)
+        return result
+    if kind == "between":
+        first, lower, upper = operands
         if (
-            operator not in rows.COMPARISONS
-            or tag != "Bool"
-            or left.tag not in rows.COMPARABLE
-            or left.tag != right.tag
+            tag != "Bool"
+            or first.tag not in rows.COMPARABLE
+            or lower.tag != first.tag
+            or upper.tag != first.tag
         ):
-            raise ValueError("comparison domain")
-        if left.tag == "Text" and tuple(
-            left.domain.get(k) for k in ("encoding", "collation", "padding")
-        ) != tuple(right.domain.get(k) for k in ("encoding", "collation", "padding")):
-            raise ValueError("text comparison domain")
-        if left.tag == "Decimal" and (
-            left.storage != right.storage
-            or tuple(left.domain.get(k) for k in ("precision", "scale"))
-            != tuple(right.domain.get(k) for k in ("precision", "scale"))
+            raise ValueError("between domain")
+        if first.tag == "Text" and any(
+            tuple(first.domain.get(k) for k in ("encoding", "collation", "padding"))
+            != tuple(value.domain.get(k) for k in ("encoding", "collation", "padding"))
+            for value in (lower, upper)
         ):
-            raise ValueError("decimal comparison parameters")
+            raise ValueError("text between domain")
+        if first.tag == "Decimal" and any(
+            first.storage != value.storage
+            or tuple(first.domain.get(k) for k in ("precision", "scale"))
+            != tuple(value.domain.get(k) for k in ("precision", "scale"))
+            for value in (lower, upper)
+        ):
+            raise ValueError("decimal between parameters")
         return rows.Realization(
             "Bool", {"kind": rows.BOOL_RESULT[family]}, nullable, {"kind": "bool01"}
         )
@@ -1217,13 +1389,78 @@ def resolved_row_realization(family, kind, operator, tag, nullable, operands):
         return rows.Realization(
             "Bool", {"kind": rows.BOOL_RESULT[family]}, nullable, {"kind": "bool01"}
         )
+    if (
+        kind == "binary"
+        and tag == "Decimal"
+        and all(item.tag == "Decimal" for item in operands)
+    ):
+        if not direct_decimal_sources:
+            raise ValueError("decimal direct source operands")
+        expected_storage = "pg_numeric" if family == "postgres" else "my_decimal"
+        parameters = []
+        for item in operands:
+            precision, scale = item.storage.get("precision"), item.storage.get("scale")
+            if (
+                item.storage.get("kind") != expected_storage
+                or type(precision) is not int
+                or type(scale) is not int
+                or not 0 <= scale <= precision <= 65
+                or item.domain
+                != {"kind": "decimal", "precision": precision, "scale": scale}
+            ):
+                raise ValueError("decimal source carrier")
+            parameters.append((precision, scale))
+        (left_precision, left_scale), (right_precision, right_scale) = parameters
+        if operator in {"+", "-"}:
+            if left_scale != right_scale:
+                raise ValueError("decimal scale mismatch")
+            scale = left_scale
+            precision = (
+                max(left_precision - left_scale, right_precision - right_scale)
+                + 1
+                + scale
+            )
+        elif operator == "*":
+            scale = left_scale + right_scale
+            precision = left_precision + right_precision
+        else:
+            raise ValueError("decimal operator")
+        if precision > 65 or scale > 30:
+            raise ValueError("decimal result outside physical range")
+        return rows.Realization(
+            "Decimal",
+            {"kind": expected_storage, "precision": precision, "scale": scale},
+            nullable,
+            {"kind": "decimal", "precision": precision, "scale": scale},
+        )
+    if (
+        kind == "binary"
+        and tag == "Float"
+        and all(item.tag == "Float" for item in operands)
+    ):
+        if float_values is None:
+            raise ValueError("float literal operands")
+        left_value, right_value = float_values
+        result = {
+            "+": left_value + right_value,
+            "-": left_value - right_value,
+            "*": left_value * right_value,
+        }.get(operator)
+        if result is None or not math.isfinite(result):
+            raise ValueError("float result outside finite range")
+        return rows.Realization(
+            "Float",
+            {"kind": "pg_float8" if family == "postgres" else "my_double"},
+            nullable,
+            {"kind": "finite_float", "format": "binary64"},
+        )
     if tag != "Int" or any(item.tag != "Int" for item in operands):
         raise ValueError("arithmetic domain")
     bounds = []
     for item in operands:
-        interval = rows.int_bounds(item)
+        interval = rows.proven_int_bounds(item)
         if interval is None:
-            raise ValueError("int range evidence")
+            raise ValueError("int range proof")
         bounds.append(interval)
     if kind == "unary":
         if operator not in {"+", "-"}:
@@ -1251,6 +1488,7 @@ def resolved_row_realization(family, kind, operator, tag, nullable, operands):
         storage,
         nullable,
         {"kind": "int_range", "min": str(low), "max": str(high)},
+        (low, high),
     )
 
 
@@ -1311,6 +1549,7 @@ def _window_result_realization(family, function, arguments, retained):
             {"kind": storage},
             False,
             {"kind": "int_range", "min": "0", "max": str(bound)},
+            (0, bound),
         )
     if function in windowing.DISTRIBUTION:
         if tag != "Float":
@@ -1366,7 +1605,13 @@ def resolved_window_value_result(family, carrier, origin, default, retained):
     if tag != "Int":
         return rows.Realization(tag, carrier.storage, bool(nullable), carrier.domain)
     storage, domain = resolved_window_integer_result(family, carrier, origin, default)
-    return rows.Realization("Int", storage, bool(nullable), domain)
+    proof = rows.proven_int_bounds(carrier)
+    if proof is None:
+        raise ValueError("window value proof")
+    number = None if default is None or default == "NULL" else int(default)
+    if number is not None:
+        proof = min(proof[0], number), max(proof[1], number)
+    return rows.Realization("Int", storage, bool(nullable), domain, proof)
 
 
 # Independent tables for R14-PG-NAVIGATION-RESULT-V1 and R15-MYSQL-WINDOW-RESULT-V1.
@@ -1410,11 +1655,13 @@ def _window_integer_result(family, read, default):
 
 def resolved_window_integer_result(family, realization, origin, default):
     """Independent original integer-width verifier on resolved origin evidence."""
-    domain = realization.domain
     kind = realization.storage.get("kind")
-    if domain.get("kind") != "int_range":
+    domain = realization.domain
+    proof = rows.proven_int_bounds(realization)
+    if domain.get("kind") != "int_range" or proof is None:
         raise ValueError("window value interval")
     low, high = int(domain["min"]), int(domain["max"])
+    proof_low, proof_high = proof
     number = None
     if default is not None and default != "NULL":
         if re.fullmatch(r"-?(0|[1-9][0-9]*)", default) is None:
@@ -1423,6 +1670,7 @@ def resolved_window_integer_result(family, realization, origin, default):
         if not _I64_MIN <= number <= _I64_MAX:
             raise ValueError("window default outside signed64")
         low, high = min(low, number), max(high, number)
+        proof_low, proof_high = min(proof_low, number), max(proof_high, number)
     if family == "postgres":
         bits = _PG_INT_BITS.get(kind)
         if bits is None:
@@ -1449,7 +1697,7 @@ def resolved_window_integer_result(family, realization, origin, default):
             display = max(display, len(str(number)) + 1)
         storage = "my_int" if display < 10 else "my_bigint"
     limits = rows.signed_range({"kind": storage})
-    if limits is None or low < limits[0] or high > limits[1]:
+    if limits is None or proof_low < limits[0] or proof_high > limits[1]:
         raise ValueError("window value interval outside its storage")
     return {"kind": storage}, {"kind": "int_range", "min": str(low), "max": str(high)}
 
@@ -1465,13 +1713,34 @@ def _aggregate_result_realization(family, function, argument, retained):
             {"kind": grouping.COUNT_STORAGE[family]},
             False,
             {"kind": "int_range", "min": "0", "max": str(grouping.COUNT_MAX)},
+            (0, grouping.COUNT_MAX),
+        )
+    if function == "avg":
+        if (
+            argument is None
+            or argument.realization.tag != "Int"
+            or tag != "Float"
+            or nullable is not True
+        ):
+            raise ValueError("avg result domain")
+        return rows.Realization(
+            "Float",
+            {"kind": "pg_float8" if family == "postgres" else "my_double"},
+            True,
+            {"kind": "finite_float", "format": "binary64"},
         )
     if function not in grouping.EXTREMA_FUNCTIONS or argument is None:
         raise ValueError("aggregate function outside the promised domain")
     carrier = argument.realization
     if tag != carrier.tag or nullable is not True:
         raise ValueError("extrema result domain")
-    return rows.Realization(carrier.tag, carrier.storage, True, carrier.domain)
+    return rows.Realization(
+        carrier.tag,
+        carrier.storage,
+        True,
+        carrier.domain,
+        carrier.proven_int_range,
+    )
 
 
 def _verify_body_scope(body, position, state):
@@ -1609,6 +1878,8 @@ def _verify_aggregate_body(
             or column.function != function
             or column.spelling != grouping.SPELLING[function]
             or column.distinct is not (function in grouping.DISTINCT_FUNCTIONS)
+            or column.argument_cast
+            != grouping.argument_cast(request.family, function, argument)
             or export is None
             or export.source is not value.ref
             or column.export is not export
@@ -1695,10 +1966,10 @@ def _range_thresholds_exact(unit, offsets, orders) -> bool:
     key = orders[0]
     realization = key.read.realization
     bits = rows.INT_WIDTHS.get(realization.storage.get("kind"))
-    domain = realization.domain
-    if bits is None or domain.get("kind") != "int_range":
+    proof = rows.proven_int_bounds(realization)
+    if bits is None or proof is None:
         return False
-    low, high = int(domain["min"]), int(domain["max"])
+    low, high = proof
     if not -(1 << (bits - 1)) <= low <= high <= (1 << (bits - 1)) - 1:
         return False
     for kind, offset in offsets:
@@ -1975,6 +2246,7 @@ def _same_realization(actual, expected):
         and (actual.tag, actual.nullable) == (expected.tag, expected.nullable)
         and actual.storage == expected.storage
         and actual.domain == expected.domain
+        and actual.proven_int_range == expected.proven_int_range
     )
 
 
@@ -2025,10 +2297,16 @@ def _verify_row_value(
     if value.original is not expression:
         raise ValueError("operation identity")
     expected_kind = {
-        row.ProjectSQLUnary: "sign",
         row.ProjectSQLIsNull: "null_test",
         row.ProjectSQLComparison: "comparison",
+        row.ProjectSQLBetween: "between",
+        row.ProjectSQLConditional: "conditional",
+        row.ProjectSQLMembership: "membership",
+        row.ProjectSQLCast: "cast",
+        row.ProjectSQLScalarCall: "scalar_call",
     }.get(type(expression))
+    if type(expression) is row.ProjectSQLUnary:
+        expected_kind = "not" if expression.expression.operator == "not" else "sign"
     if expected_kind is None:
         if type(expression) is not row.ProjectSQLBinary:
             raise ValueError("operator node")
@@ -2059,7 +2337,7 @@ def _verify_row_value(
                 reference_type=reference_type,
             )
         )
-    expected = _row_realization(request, expression, tuple(operands))
+    expected = _row_realization(request, expression, tuple(operands), value.operands)
     if not _same_realization(value.realization, expected):
         raise ValueError("operator realization")
     return value.realization
@@ -2488,6 +2766,92 @@ def _result_carrier(entry, boundary, order) -> str:
     raise ValueError("ORDER carrier")
 
 
+def _same_order_expression(left, right):
+    """Independently match a computed ORDER key to a visible projection."""
+    if type(left) is not type(right):
+        return False
+    if type(left) is NameExpr:
+        return left.name == right.name
+    if type(left) is DottedNameExpr:
+        return left.parts == right.parts
+    if type(left) is LiteralExpr:
+        return type(left.value) is type(right.value) and left.value == right.value
+    if type(left) is UnaryExpr:
+        return left.operator == right.operator and _same_order_expression(
+            left.operand, right.operand
+        )
+    if type(left) in {BinaryExpr, ComparisonExpr}:
+        return (
+            left.operator == right.operator
+            and _same_order_expression(left.left, right.left)
+            and _same_order_expression(left.right, right.right)
+        )
+    if type(left) is IsNullExpr:
+        return left.negated == right.negated and _same_order_expression(
+            left.value, right.value
+        )
+    if type(left) is BetweenExpr:
+        return (
+            _same_order_expression(left.value, right.value)
+            and _same_order_expression(left.lower, right.lower)
+            and _same_order_expression(left.upper, right.upper)
+        )
+    if type(left) is CallExpr:
+        return (
+            _same_order_expression(left.callee, right.callee)
+            and len(left.arguments) == len(right.arguments)
+            and all(
+                _same_order_expression(a, b)
+                for a, b in zip(left.arguments, right.arguments, strict=True)
+            )
+        )
+    if type(left) is ConditionalExpr:
+        return (
+            _same_order_expression(left.when_true, right.when_true)
+            and _same_order_expression(left.condition, right.condition)
+            and _same_order_expression(left.when_false, right.when_false)
+        )
+    if type(left) is MembershipExpr:
+        return (
+            left.negated == right.negated
+            and _same_order_expression(left.value, right.value)
+            and len(left.options) == len(right.options)
+            and all(
+                _same_order_expression(a, b)
+                for a, b in zip(left.options, right.options, strict=True)
+            )
+        )
+    if type(left) is CastExpr:
+        return left.target == right.target and _same_order_expression(
+            left.value, right.value
+        )
+    return False
+
+
+def _computed_order_inputs_visible(root, expressions, previous, plan) -> bool:
+    """Independently require every computed key leaf to be result-visible."""
+    pending = [root]
+    seen = set()
+    while pending:
+        node = pending.pop()
+        if node is None or node.ref in seen:
+            return False
+        seen.add(node.ref)
+        if node.use is not None:
+            if not any(
+                type(column) is RowValueColumn
+                and _same_order_expression(
+                    plan.expressions[column.expression.position].expression,
+                    node.expression,
+                )
+                for column in previous.columns
+            ):
+                return False
+            continue
+        pending.extend(expressions.get(ref) for ref in node.operands)
+    return True
+
+
 def _verify_result_body(
     request, body, definition, boundaries, position, previous, last, state
 ):
@@ -2600,8 +2964,10 @@ def _verify_result_body(
                     or f.output is not outputs[i].ref
                     or f.canonical is not exports[i]
                     or f.equivalence.reason is not None
-                    or reads[inputs[i].ref][1].realization.tag
-                    not in resulting.ORDER_TAGS
+                    or resulting.distinct_problem(
+                        family, reads[inputs[i].ref][1].realization
+                    )
+                    is not None
                     for i, f in enumerate(fields)
                 )
             ):
@@ -2648,6 +3014,23 @@ def _verify_result_body(
             ):
                 root = expressions.get(item.expression)
                 use = None if root is None or root.use is None else uses.get(root.use)
+                computed_position = None
+                if root is not None and (root.use is None or root.operands):
+                    matches = tuple(
+                        index
+                        for index, column in enumerate(previous.columns)
+                        if type(column) is RowValueColumn
+                        and _same_order_expression(
+                            plan.expressions[column.expression.position].expression,
+                            item.source.expression,
+                        )
+                    )
+                    if len(matches) == 1:
+                        computed_position = matches[0]
+                if computed_position is not None and not _computed_order_inputs_visible(
+                    root, expressions, previous, plan
+                ):
+                    computed_position = None
                 if (
                     type(realized) is not resulting.ResultOrderItem
                     or realized.item is not item
@@ -2658,19 +3041,37 @@ def _verify_result_body(
                     or root is None
                     or root.item is not item.ref
                     or root.expression is not item.source.expression
-                    or root.operands != ()
-                    or use is None
-                    or use.item is not item.ref
-                    or use.scope is not boundary.ref
-                    or use.requirement is not None
-                    or use.source.expression is not root.expression
+                    or (
+                        computed_position is None
+                        and (
+                            root.operands != ()
+                            or use is None
+                            or use.item is not item.ref
+                            or use.scope is not boundary.ref
+                            or use.requirement is not None
+                            or use.source.expression is not root.expression
+                        )
+                    )
                     or realized.expression is not root
                     or realized.use is not use
-                    or not use.ports
-                    or any(ref not in by_ref for ref in use.ports)
+                    or (
+                        computed_position is None
+                        and (
+                            use is None
+                            or not use.ports
+                            or any(ref not in by_ref for ref in use.ports)
+                        )
+                    )
                 ):
                     raise ValueError("order item authority")
-                port = min((by_ref[ref] for ref in use.ports), key=lambda p: p.position)
+                if computed_position is not None:
+                    port = inputs[computed_position]
+                else:
+                    assert use is not None
+                    port = min(
+                        (by_ref[ref] for ref in use.ports),
+                        key=lambda p: p.position,
+                    )
                 read = reads[port.ref][1]
                 direction = item.source.direction.value
                 if (
@@ -2802,9 +3203,11 @@ def resolved_set_column_realization(
     first = reads[0].realization
     storage = first.storage
     domain = dict(first.domain)
+    proofs = []
     if tag == "Int":
         widths = {rows.INT_WIDTHS.get(r.realization.storage["kind"]) for r in reads}
         bounds = [rows.int_bounds(r.realization) for r in reads]
+        proofs = [rows.proven_int_bounds(r.realization) for r in reads]
         if None in widths or len(widths) != 1 or any(b is None for b in bounds):
             raise ValueError("set int width")
         low = min(b[0] for b in bounds if b is not None)
@@ -2849,7 +3252,15 @@ def resolved_set_column_realization(
     expected = expected_nullability
     if nullable != expected:
         raise ValueError("set nullability")
-    return rows.Realization(tag, storage, nullable, domain)
+    proof = (
+        None
+        if tag != "Int" or any(b is None for b in proofs)
+        else (
+            min(b[0] for b in proofs if b is not None),
+            max(b[1] for b in proofs if b is not None),
+        )
+    )
+    return rows.Realization(tag, storage, nullable, domain, proof)
 
 
 def _verify_set_unit(request, unit, definition, body, position, produced, last, state):
@@ -3751,6 +4162,12 @@ def verify_row_bytes(query, rendered):
                 take("syntax", "unary_close", reference, ")")
                 spans.append(("unary", reference, start, offset))
                 return
+            if value.kind == "not":
+                take("syntax", "not_open", reference, "(NOT ")
+                scalar(value.operands[0], alias)
+                take("syntax", "not_close", reference, ")")
+                spans.append(("not", reference, start, offset))
+                return
             if value.kind == "null_test":
                 take("syntax", "is_null_open", reference, "(")
                 scalar(value.operands[0], alias)
@@ -3762,6 +4179,294 @@ def verify_row_bytes(query, rendered):
                 )
                 take("syntax", "is_null_close", reference, ")")
                 spans.append(("is_null", reference, start, offset))
+                return
+            if value.kind == "between":
+                take("syntax", "between_open", reference, "(")
+                scalar(value.operands[0], alias)
+                take("syntax", "between_operator", reference, " BETWEEN ")
+                scalar(value.operands[1], alias)
+                take("syntax", "between_separator", reference, " AND ")
+                scalar(value.operands[2], alias)
+                take("syntax", "between_close", reference, ")")
+                spans.append(("between", reference, start, offset))
+                return
+            if value.kind == "scalar_call":
+                name = value.original.callee_symbol.name
+                spelling = {
+                    "postgres": {
+                        "lower": "lower",
+                        "upper": "upper",
+                        "trim": "trim",
+                        "len": "length",
+                        "replace": "replace",
+                        "abs": "abs",
+                        "nullif": "NULLIF",
+                        "coalesce": "COALESCE",
+                    },
+                    "mysql": {
+                        "lower": "LOWER",
+                        "upper": "UPPER",
+                        "trim": "TRIM",
+                        "len": "CHAR_LENGTH",
+                        "replace": "REPLACE",
+                        "abs": "ABS",
+                        "nullif": "NULLIF",
+                        "coalesce": "COALESCE",
+                    },
+                }[query.request.family].get(name)
+                if name == "substr":
+                    take(
+                        "syntax",
+                        "scalar_call_open",
+                        reference,
+                        "substring("
+                        if query.request.family == "postgres"
+                        else "SUBSTRING(",
+                    )
+                    scalar(value.operands[0], alias)
+                    take(
+                        "syntax",
+                        "scalar_call_separator",
+                        reference,
+                        " FROM " if query.request.family == "postgres" else ", ",
+                    )
+                    if query.request.family == "postgres":
+                        take(
+                            "syntax",
+                            "scalar_call_index_cast_open",
+                            reference,
+                            "CAST(",
+                        )
+                    scalar(value.operands[1], alias)
+                    if query.request.family == "postgres":
+                        take(
+                            "syntax",
+                            "scalar_call_index_cast_close",
+                            reference,
+                            " AS pg_catalog.int4)",
+                        )
+                    take(
+                        "syntax",
+                        "scalar_call_separator",
+                        reference,
+                        " FOR " if query.request.family == "postgres" else ", ",
+                    )
+                    if query.request.family == "postgres":
+                        take(
+                            "syntax",
+                            "scalar_call_index_cast_open",
+                            reference,
+                            "CAST(",
+                        )
+                    scalar(value.operands[2], alias)
+                    if query.request.family == "postgres":
+                        take(
+                            "syntax",
+                            "scalar_call_index_cast_close",
+                            reference,
+                            " AS pg_catalog.int4)",
+                        )
+                    take("syntax", "scalar_call_close", reference, ")")
+                    spans.append(("scalar_call", reference, start, offset))
+                    return
+                if name == "len":
+                    assert spelling is not None
+                    take(
+                        "syntax",
+                        "scalar_call_open",
+                        reference,
+                        "CAST(" + spelling + "(",
+                    )
+                    scalar(value.operands[0], alias)
+                    take(
+                        "syntax",
+                        "scalar_call_close",
+                        reference,
+                        ") AS "
+                        + (
+                            "pg_catalog.int8"
+                            if query.request.family == "postgres"
+                            else "SIGNED"
+                        )
+                        + ")",
+                    )
+                    spans.append(("scalar_call", reference, start, offset))
+                    return
+                if name == "date_of":
+                    take(
+                        "syntax",
+                        "scalar_call_open",
+                        reference,
+                        "CAST(" if query.request.family == "postgres" else "DATE(",
+                    )
+                    scalar(value.operands[0], alias)
+                    take(
+                        "syntax",
+                        "scalar_call_close",
+                        reference,
+                        " AS date)" if query.request.family == "postgres" else ")",
+                    )
+                    spans.append(("scalar_call", reference, start, offset))
+                    return
+                if name in {"contains", "starts_with", "ends_with"}:
+                    if len(value.operands) != 2:
+                        raise ValueError("scalar call arity")
+                    if name == "contains":
+                        take(
+                            "syntax",
+                            "scalar_call_open",
+                            reference,
+                            "(strpos("
+                            if query.request.family == "postgres"
+                            else "(INSTR(",
+                        )
+                        scalar(value.operands[0], alias)
+                        take(
+                            "syntax",
+                            "scalar_call_separator",
+                            reference,
+                            ", ",
+                        )
+                        scalar(value.operands[1], alias)
+                        take("syntax", "scalar_call_close", reference, ") > 0)")
+                    else:
+                        function = {"starts_with": "left", "ends_with": "right"}[name]
+                        if query.request.family == "mysql":
+                            function = function.upper()
+                        take(
+                            "syntax",
+                            "scalar_call_open",
+                            reference,
+                            "(" + function + "(",
+                        )
+                        scalar(value.operands[0], alias)
+                        take("syntax", "scalar_call_separator", reference, ", ")
+                        take(
+                            "syntax",
+                            "scalar_call_nested_open",
+                            reference,
+                            "length("
+                            if query.request.family == "postgres"
+                            else "CHAR_LENGTH(",
+                        )
+                        scalar(value.operands[1], alias)
+                        take("syntax", "scalar_call_nested_close", reference, ")")
+                        take("syntax", "scalar_call_operator", reference, " ) = ")
+                        scalar(value.operands[1], alias)
+                        take("syntax", "scalar_call_close", reference, ")")
+                    spans.append(("scalar_call", reference, start, offset))
+                    return
+                if name in {"sign", "year", "month", "day", "hour", "minute"}:
+                    function = name.upper() if query.request.family == "mysql" else name
+                    if query.request.family == "postgres" and name in {
+                        "year",
+                        "month",
+                        "day",
+                        "hour",
+                        "minute",
+                    }:
+                        take(
+                            "syntax",
+                            "scalar_call_open",
+                            reference,
+                            "CAST(EXTRACT(" + name.upper() + " FROM ",
+                        )
+                        scalar(value.operands[0], alias)
+                        take(
+                            "syntax",
+                            "scalar_call_close",
+                            reference,
+                            ") AS pg_catalog.int8)",
+                        )
+                    else:
+                        cast_type = (
+                            "pg_catalog.int8"
+                            if query.request.family == "postgres"
+                            else "SIGNED"
+                        )
+                        take(
+                            "syntax",
+                            "scalar_call_open",
+                            reference,
+                            "CAST(" + function + "(",
+                        )
+                        scalar(value.operands[0], alias)
+                        take(
+                            "syntax",
+                            "scalar_call_close",
+                            reference,
+                            ") AS " + cast_type + ")",
+                        )
+                    spans.append(("scalar_call", reference, start, offset))
+                    return
+                if spelling is None or not value.operands:
+                    raise ValueError("scalar call spelling")
+                take("syntax", "scalar_call_open", reference, spelling + "(")
+                for position, operand in enumerate(value.operands):
+                    if position:
+                        take("syntax", "scalar_call_separator", reference, ", ")
+                    scalar(operand, alias)
+                take("syntax", "scalar_call_close", reference, ")")
+                spans.append(("scalar_call", reference, start, offset))
+                return
+            if value.kind == "conditional":
+                take("syntax", "conditional_open", reference, "(CASE WHEN ")
+                scalar(value.operands[1], alias)
+                take("syntax", "conditional_then", reference, " THEN ")
+                scalar(value.operands[0], alias)
+                take("syntax", "conditional_else", reference, " ELSE ")
+                scalar(value.operands[2], alias)
+                take("syntax", "conditional_close", reference, " END)")
+                spans.append(("conditional", reference, start, offset))
+                return
+            if value.kind == "membership":
+                if len(value.operands) == 1:
+                    take(
+                        "syntax",
+                        "membership_constant",
+                        reference,
+                        "TRUE" if value.original.expression.negated else "FALSE",
+                    )
+                else:
+                    take("syntax", "membership_open", reference, "(")
+                    scalar(value.operands[0], alias)
+                    take(
+                        "syntax",
+                        "membership_operator",
+                        reference,
+                        " NOT IN (" if value.original.expression.negated else " IN (",
+                    )
+                    for position, operand in enumerate(value.operands[1:]):
+                        if position:
+                            take("syntax", "membership_separator", reference, ", ")
+                        scalar(operand, alias)
+                    take("syntax", "membership_close", reference, "))")
+                spans.append(("membership", reference, start, offset))
+                return
+            if value.kind == "cast":
+                take("syntax", "cast_open", reference, "CAST(")
+                scalar(value.operands[0], alias)
+                take(
+                    "syntax",
+                    "cast_close",
+                    reference,
+                    " AS pg_catalog.float8)"
+                    if query.request.family == "postgres"
+                    else " AS DOUBLE)",
+                )
+                spans.append(("cast", reference, start, offset))
+                return
+            if value.kind == "comparison" and value.original.expression.operator in {
+                "like",
+                "not like",
+            }:
+                take("syntax", "comparison_open", reference, "(")
+                scalar(value.operands[0], alias)
+                take("syntax", "comparison_operator", reference, operator_token(value))
+                scalar(value.operands[1], alias)
+                take("syntax", "comparison_escape", reference, " ESCAPE '!'")
+                take("syntax", "comparison_close", reference, ")")
+                spans.append(("comparison", reference, start, offset))
                 return
             opening, operator, closing, role = OPERATORS[value.kind]
             take("syntax", opening, reference, "(")
@@ -3978,7 +4683,16 @@ def verify_row_bytes(query, rendered):
             else:
                 if column.distinct:
                     take("syntax", "aggregate_distinct", reference, "DISTINCT ")
+                if column.argument_cast is not None:
+                    take("syntax", "aggregate_argument_cast_open", reference, "CAST(")
                 scalar(column.argument, alias)
+                if column.argument_cast is not None:
+                    take(
+                        "syntax",
+                        "aggregate_argument_cast_close",
+                        reference,
+                        " AS " + column.argument_cast + ")",
+                    )
             take("syntax", "aggregate_close", reference, ")")
             spans.append(("aggregate", reference, start, offset))
 
@@ -4590,7 +5304,7 @@ def verify_row_generated_requirements(request, query, generated):
     expected = []
 
     def node_expectations(value):
-        for node in rows.value_nodes(value):
+        for node in rows.rendered_value_nodes(value):
             if type(node) in {rows.SQLStageReference, rows.SQLOperation}:
                 kind = rows.requirement_kind(node)
                 operands = (

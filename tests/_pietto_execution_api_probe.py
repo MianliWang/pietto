@@ -371,7 +371,7 @@ from pathlib import Path
 config = json.loads(sys.stdin.readline())
 for entry in reversed(config.get("path", ())):
     sys.path.insert(0, entry)
-from _pietto_phase68_slice5_cases import build
+from _pietto_execution_rows_cases import build
 from pietto._project.project_execution_template import prepare_live_template
 from pietto.execution._query import _query
 import pietto.execution as pe
@@ -826,7 +826,7 @@ def context(wheel):
 
 def prefixes(directory, recipes, *, wheel, interpreter, house_root, cache):
     """Fresh prefixes of the exact wheel, one normal resolver command each."""
-    import _pietto_phase68_slice18_probe as s18
+    import _pietto_execution_installation_probe as s18
 
     house, constraints, entries = s18.wheelhouse(house_root)
     cache = cache or directory / "uv-cache"
@@ -1100,7 +1100,7 @@ def prepare_server(resources, passwords):
     """Create the fixture as documented, turn TLS on (the S09 self-signed
     fixture certificate), replace pg_hba.conf and record what the server
     reports about them (no password or hash)."""
-    from _pietto_phase68_slice9_probe import enable_fixture_tls
+    from _pietto_execution_adbc_probe import enable_fixture_tls
 
     manager = resources.manager
     for sql in statements(passwords):

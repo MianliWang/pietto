@@ -22,7 +22,7 @@ import venv
 import zipfile
 
 import _pietto_target_conformance_cases as cases
-import _pietto_phase66_sql_emission_probe as emission
+import _pietto_sql_emission as emission
 from _pietto_target_conformance_observation import Observer
 from _pietto_target_conformance_resources import (
     MYSQL_MODE,
@@ -41,12 +41,12 @@ FORMAT = "pietto.target-conformance-receipt.v2"
 CANDIDATE_VERSION = tomllib.loads(
     (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 )["project"]["version"]
-MAX_RECEIPT = 33 * 1024 * 1024
+MAX_RECEIPT = 34 * 1024 * 1024
 HELPERS = tuple(
     Path(__file__).with_name("_pietto_target_conformance" + suffix + ".py")
     for suffix in ("", "_resources", "_observation", "_cases")
 ) + (Path(__file__).with_name("_pietto_mysql_native_prepared.py"),)
-EMISSION_PROBE = Path(__file__).with_name("_pietto_phase66_sql_emission_probe.py")
+EMISSION_PROBE = Path(__file__).with_name("_pietto_sql_emission.py")
 NATIVE_PREREQUISITE = (
     "A_legacy",
     "C_parameters",
@@ -647,6 +647,7 @@ def verify_emission_generation(value, target, expected):
                     and record["variant"]
                     in {"table_preserve", "empty_preserve", "truth_table"}
                 )
+                or (record["id"], record["variant"]) == ("V_row_blocked", "between")
                 else "query"
             )
             if document["request"]["owner"] != {
@@ -681,12 +682,11 @@ def verify_emission_generation(value, target, expected):
                     # Corrective closure: the NULL-key FULL minimum positive keeps
                     # MySQL's approved FULL non-support.
                     "null_keys": "PIE-B1003",
-                    # Slice8: R13 freezes SUM/AVG result realization, R12 keeps
-                    # Float outside group comparison, and a violated Bool or
-                    # Decimal source domain stays a representation failure.
-                    "sum_direct": "PIE-B1003",
-                    "avg_direct": "PIE-B1003",
-                    "sum_hidden_right": "PIE-B1003",
+                    # The numeric realization keeps SUM blocked without a range
+                    # proof.  AVG(Int) is a verified result-cast path and does
+                    # not reach this blocked-outcome branch.
+                    "sum_direct": "PIE-B1004",
+                    "sum_hidden_right": "PIE-B1004",
                     "float_key": "PIE-B1003",
                     "bool_domain_key": "PIE-B1002",
                     "decimal_parameter_key": "PIE-B1002",

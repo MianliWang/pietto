@@ -397,10 +397,10 @@ def range_arithmetic_problem(frame, offsets, orders) -> tuple[str, str] | None:
         return None
     key = orders[0]
     storage = rows.signed_range(key.read.realization.storage)
-    domain = rows.int_bounds(key.read.realization)
-    if storage is None or domain is None or domain[0] > domain[1]:
+    proof = rows.proven_int_bounds(key.read.realization)
+    if storage is None or proof is None:
         return "PIE-B1004", "window_range_arithmetic_evidence_missing"
-    low, high = domain
+    low, high = proof
     if low < storage[0] or high > storage[1]:
         return "PIE-B1002", "window_range_key_domain_out_of_storage_range"
     for kind, offset in offsets:
@@ -932,6 +932,7 @@ def result_realization(family: str, function: str, arguments, retained):
                 {"kind": storage},
                 False,
                 {"kind": "int_range", "min": "0", "max": str(bound)},
+                (0, bound),
             ),
             None,
         )
@@ -980,7 +981,12 @@ def resolved_value_result(family, carrier, origin, default, retained):
     if representation is None:
         return None, problem
     storage, domain = representation
-    return rows.Realization("Int", storage, bool(nullable), domain), None
+    proof = rows.proven_int_bounds(carrier)
+    assert proof is not None
+    number = None if default is None or default == "NULL" else int(default)
+    if number is not None:
+        proof = min(proof[0], number), max(proof[1], number)
+    return rows.Realization("Int", storage, bool(nullable), domain, proof), None
 
 
 def integer_value_result(family: str, read, default: str | None):
@@ -1025,15 +1031,18 @@ def integer_origin(read):
 def resolved_integer_value_result(family, realization, origin, default):
     """Original integer window width law over an exact resolved origin class."""
     bounds = rows.int_bounds(realization)
+    proof = rows.proven_int_bounds(realization)
     kind = realization.storage.get("kind")
     number = None if default is None or default == "NULL" else int(default)
-    if bounds is None:
+    if bounds is None or proof is None:
         return None, ("PIE-B1004", "window_value_argument_evidence_missing")
     if number is not None and not I64_MIN <= number <= I64_MAX:
         return None, ("PIE-B1002", "window_default_integer_out_of_signed64_range")
     low, high = bounds
+    proof_low, proof_high = proof
     if number is not None:
         low, high = min(low, number), max(high, number)
+        proof_low, proof_high = min(proof_low, number), max(proof_high, number)
     if family == "postgres":
         if kind not in PG_INT_ORDER:
             return None, ("PIE-B1004", "window_value_argument_evidence_missing")
@@ -1063,7 +1072,7 @@ def resolved_integer_value_result(family, realization, origin, default):
         storage = "my_int" if display < MYSQL_BIGINT_DISPLAY else "my_bigint"
     limits = rows.signed_range({"kind": storage})
     assert limits is not None
-    if low < limits[0] or high > limits[1]:
+    if proof_low < limits[0] or proof_high > limits[1]:
         return None, ("PIE-B1002", "window_value_domain_out_of_storage_range")
     return (
         {"kind": storage},

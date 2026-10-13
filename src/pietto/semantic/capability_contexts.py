@@ -206,7 +206,7 @@ _EXPRESSION_STAGE_FACTS: tuple[CapabilityFact, ...] = _freeze_contexts(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase17_core_scalar_expression_semantics.py",
+                    "tests/test_semantic_core_scalar_expression_semantics.py",
                     "scalar operator result tests",
                 ),
                 _evidence(
@@ -283,12 +283,12 @@ _EXPRESSION_STAGE_FACTS: tuple[CapabilityFact, ...] = _freeze_contexts(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase40_let_binding_row_level_semantics.py",
+                    "tests/test_semantic_let_binding_row_level_semantics.py",
                     "test_valid_table_and_query_let_validate_row_scope_and_succeed",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase43_let_binding_group_by_keys.py",
+                    "tests/test_semantic_let_binding_group_by_keys.py",
                     "test_group_by_direct_field_row_let_is_semantically_accepted",
                 ),
                 _evidence(
@@ -353,12 +353,12 @@ _EXPRESSION_STAGE_FACTS: tuple[CapabilityFact, ...] = _freeze_contexts(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase17_core_scalar_expression_semantics.py",
+                    "tests/test_semantic_core_scalar_expression_semantics.py",
                     "scalar expression semantics",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase40_let_binding_row_level_semantics.py",
+                    "tests/test_semantic_let_binding_row_level_semantics.py",
                     "test_unary_binary_comparison_and_is_null_value_types_are_"
                     "preserved",
                 ),
@@ -436,12 +436,12 @@ _EXPRESSION_STAGE_FACTS: tuple[CapabilityFact, ...] = _freeze_contexts(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase19_count_semantics.py",
+                    "tests/test_semantic_count_semantics.py",
                     "test_direct_aliased_count_projection_is_semantically_accepted",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase21_group_by_semantic_validation.py",
+                    "tests/test_semantic_group_by_semantic_validation.py",
                     "test_grouped_semantic_schema_for_bare_key_and_aggregates",
                 ),
                 _evidence(
@@ -497,17 +497,17 @@ _EXPRESSION_STAGE_FACTS: tuple[CapabilityFact, ...] = _freeze_contexts(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase25_satisfying_semantics.py",
+                    "tests/test_semantic_satisfying_semantics.py",
                     "test_grouped_satisfying_over_aggregate_alias_is_accepted",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase25_satisfying_semantics.py",
+                    "tests/test_semantic_satisfying_semantics.py",
                     "test_grouped_satisfying_over_group_key_alias_is_accepted",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase27_grouped_order_semantics.py",
+                    "tests/test_semantic_grouped_order_semantics.py",
                     "test_grouped_order_accepts_supported_selected_outputs",
                 ),
                 _evidence(
@@ -671,12 +671,12 @@ _CLAUSE_CAPABILITY_FACTS: tuple[CapabilityFact, ...] = _freeze_contexts(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase17_single_input_qualified_field_binding.py",
+                    "tests/test_semantic_single_input_qualified_field_binding.py",
                     "test_qualified_fields_bind_in_where_and_input_scope_ordering",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase40_let_binding_row_level_semantics.py",
+                    "tests/test_semantic_let_binding_row_level_semantics.py",
                     "test_valid_table_and_query_let_validate_row_scope_and_succeed",
                 ),
                 _evidence(
@@ -758,12 +758,12 @@ _CLAUSE_CAPABILITY_FACTS: tuple[CapabilityFact, ...] = _freeze_contexts(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase21_group_by_semantic_validation.py",
+                    "tests/test_semantic_group_by_semantic_validation.py",
                     "test_grouped_semantic_schema_for_bare_key_and_aggregates",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase43_let_binding_group_by_keys.py",
+                    "tests/test_semantic_let_binding_group_by_keys.py",
                     "test_group_by_qualified_and_chained_field_row_lets_are_"
                     "semantically_accepted",
                 ),
@@ -846,17 +846,17 @@ _CLAUSE_CAPABILITY_FACTS: tuple[CapabilityFact, ...] = _freeze_contexts(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase25_satisfying_semantics.py",
+                    "tests/test_semantic_satisfying_semantics.py",
                     "test_grouped_satisfying_over_aggregate_alias_is_accepted",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase25_satisfying_semantics.py",
+                    "tests/test_semantic_satisfying_semantics.py",
                     "test_grouped_satisfying_over_group_key_alias_is_accepted",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase43_let_binding_satisfying_aggregate_wrapped.py",
+                    "tests/test_semantic_let_binding_satisfying_aggregate_wrapped.py",
                     "test_satisfying_aggregate_wrapped_row_let_is_semantically_"
                     "accepted",
                 ),
@@ -938,22 +938,22 @@ _CLAUSE_CAPABILITY_FACTS: tuple[CapabilityFact, ...] = _freeze_contexts(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase12_order_by.py",
+                    "tests/test_semantic_order_by.py",
                     "test_semantic_accepts_input_fields_and_existing_expression_typing",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase12_order_by.py",
+                    "tests/test_semantic_order_by.py",
                     "test_projection_alias_is_not_an_order_by_name_scope",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase17_single_input_qualified_field_binding.py",
+                    "tests/test_semantic_single_input_qualified_field_binding.py",
                     "test_qualified_fields_bind_in_where_and_input_scope_ordering",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase40_let_binding_row_level_semantics.py",
+                    "tests/test_semantic_let_binding_row_level_semantics.py",
                     "test_valid_table_and_query_let_validate_row_scope_and_succeed",
                 ),
                 _evidence(
@@ -1039,12 +1039,12 @@ _CLAUSE_CAPABILITY_FACTS: tuple[CapabilityFact, ...] = _freeze_contexts(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase27_grouped_order_semantics.py",
+                    "tests/test_semantic_grouped_order_semantics.py",
                     "test_grouped_order_accepts_supported_selected_outputs",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase43_let_binding_grouped_order_by.py",
+                    "tests/test_semantic_let_binding_grouped_order_by.py",
                     "test_grouped_order_by_direct_field_row_let_is_semantically_"
                     "accepted",
                 ),
@@ -1102,7 +1102,7 @@ _CLAUSE_CAPABILITY_FACTS: tuple[CapabilityFact, ...] = _freeze_contexts(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase19_count_semantics.py",
+                    "tests/test_semantic_count_semantics.py",
                     "test_count_aggregate_diagnostics",
                 ),
                 _evidence(
@@ -1154,12 +1154,12 @@ _CLAUSE_CAPABILITY_FACTS: tuple[CapabilityFact, ...] = _freeze_contexts(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase21_group_by_parser_ast_fail_closed.py",
+                    "tests/test_parser_group_by_parser_ast_fail_closed.py",
                     "test_invalid_group_by_shapes_are_parser_errors",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase43_let_binding_group_by_keys.py",
+                    "tests/test_semantic_let_binding_group_by_keys.py",
                     "test_non_slice4_group_by_let_consumers_remain_rejected",
                 ),
                 _evidence(
@@ -1213,12 +1213,12 @@ _CLAUSE_CAPABILITY_FACTS: tuple[CapabilityFact, ...] = _freeze_contexts(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase25_satisfying_semantics.py",
+                    "tests/test_semantic_satisfying_semantics.py",
                     "test_no_group_satisfying_is_rejected",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase25_satisfying_semantics.py",
+                    "tests/test_semantic_satisfying_semantics.py",
                     "test_no_group_direct_aggregate_call_in_satisfying_uses_"
                     "aggregate_context_diagnostic",
                 ),
@@ -1280,12 +1280,12 @@ _CLAUSE_CAPABILITY_FACTS: tuple[CapabilityFact, ...] = _freeze_contexts(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase25_satisfying_semantics.py",
+                    "tests/test_semantic_satisfying_semantics.py",
                     "test_input_field_reference_in_satisfying_must_use_select_output",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase25_satisfying_semantics.py",
+                    "tests/test_semantic_satisfying_semantics.py",
                     "test_renamed_group_key_exposes_only_alias_to_satisfying",
                 ),
                 _evidence(
@@ -1337,7 +1337,7 @@ _CLAUSE_CAPABILITY_FACTS: tuple[CapabilityFact, ...] = _freeze_contexts(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase19_count_semantics.py",
+                    "tests/test_semantic_count_semantics.py",
                     "test_count_aggregate_diagnostics",
                 ),
                 _evidence(
@@ -1414,17 +1414,17 @@ _CLAUSE_CAPABILITY_FACTS: tuple[CapabilityFact, ...] = _freeze_contexts(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase21_group_by_semantic_validation.py",
+                    "tests/test_semantic_group_by_semantic_validation.py",
                     "test_unsupported_grouped_order_by_items_emit_s2321",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase27_grouped_order_semantics.py",
+                    "tests/test_semantic_grouped_order_semantics.py",
                     "test_grouped_order_rejects_unsupported_item_shapes",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_phase43_let_binding_grouped_order_by.py",
+                    "tests/test_semantic_let_binding_grouped_order_by.py",
                     "test_non_slice5_grouped_order_let_consumers_remain_rejected",
                 ),
                 _evidence(

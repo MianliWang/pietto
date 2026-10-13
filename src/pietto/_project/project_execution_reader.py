@@ -74,6 +74,7 @@ def check_native_column(
         "pg_float8": 701,
         "pg_text": 25,
         "pg_numeric": 1700,
+        "pg_date": 1082,
         "pg_timestamp": 1114,
         "pg_uuid": 2950,
         "my_smallint": 2,
@@ -86,6 +87,7 @@ def check_native_column(
         "my_varchar": 253,
         "my_utf8mb4_text": 253,
         "my_decimal": 246,
+        "my_date": 10,
         "my_datetime": 12,
         "my_uuid_bytes": 254,
     }
@@ -97,6 +99,7 @@ def check_native_column(
         "pg_float8": "double",
         "pg_text": "string",
         "pg_numeric": "extension<arrow.opaque[storage_type=string, type_name=numeric, vendor_name=PostgreSQL]>",
+        "pg_date": "date32[day]",
         "pg_timestamp": "timestamp[us]",
         "pg_uuid": "extension<arrow.opaque[storage_type=binary, type_name=uuid, vendor_name=PostgreSQL]>",
     }
@@ -194,11 +197,15 @@ def check_native_column(
         ):
             raise ResultError("EXECUTION_METADATA")
         if real.tag in ("Decimal", "UUID"):
-            typename = "numeric" if real.tag == "Decimal" else "uuid"
+            typename = {"Decimal": "numeric", "UUID": "uuid"}[real.tag]
             if (
                 meta["metadata"].get(b"ADBC:postgresql:typname".hex())
                 != typename.encode().hex()
             ):
+                raise ResultError("EXECUTION_METADATA")
+        elif real.tag == "Date":
+            typename = meta["metadata"].get(b"ADBC:postgresql:typname".hex())
+            if typename is not None and typename != b"date".hex():
                 raise ResultError("EXECUTION_METADATA")
         nullable = meta["nullable"]
     if route == "postgres_rows" and real.tag == "Decimal":
@@ -272,6 +279,7 @@ def _bind_output(output, route, metadata, *, stored):
                 "Float": "float",
                 "Text": "str",
                 "Decimal": "decimal",
+                "Date": "date",
                 "Timestamp": "datetime",
                 "UUID": "uuid" if family == "postgres" else "bytes16",
             }[real.tag],

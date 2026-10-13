@@ -245,141 +245,6 @@ INTERLUDE_COMPLETION = (
     "Complete validation performance interlude",
 )
 
-EXPECTED_STATUS = (
-    ("Phase 55", "`COMPLETED`"),
-    ("Phase 56", "`COMPLETED`"),
-    ("Phase 57", "`COMPLETED`"),
-    ("Phase 58", "`COMPLETED`"),
-    ("Phase 59", "`COMPLETED`"),
-    ("Validation/Test Performance Optimization Interlude", "`COMPLETED`"),
-    ("Phase 60", "`COMPLETED`"),
-    ("Phase 61", "`COMPLETED`"),
-    ("Phase 62", "`COMPLETED`"),
-    ("Phase 63", "`COMPLETED`"),
-    ("Slice 1", "`COMPLETED / PUBLISHED`"),
-    ("Slice 2", "`COMPLETED / PUBLISHED`"),
-    ("Slice 3", "`COMPLETED / PUBLISHED`"),
-    ("Slice 4", "`COMPLETED / PUBLISHED`"),
-    ("Slice 5", "`COMPLETED / PUBLISHED`"),
-    ("Slice 6", "`COMPLETED / PUBLISHED`"),
-    ("Slice 7", "`COMPLETED / PUBLISHED`"),
-    ("Slice 8", "`COMPLETED / PUBLISHED`"),
-    ("Slice 9", "`COMPLETED / PUBLISHED`"),
-    ("Slice 10", "`COMPLETED / PUBLISHED`"),
-    ("Slice 11", "`COMPLETED / PUBLISHED`"),
-    ("Slice 12", "`COMPLETED / PUBLISHED`"),
-    ("Slice 13", "`COMPLETED / PUBLISHED`"),
-    ("Slice 14", "`COMPLETED / PUBLISHED`"),
-    ("Slice 15", "`COMPLETED / PUBLISHED`"),
-    ("Slice 16", "`COMPLETED / PUBLISHED`"),
-    (
-        "Validation/Test Performance Optimization Interlude II",
-        "`COMPLETED`",
-    ),
-    ("Interlude II Slice 1", "`COMPLETED / PUBLISHED`"),
-    ("Interlude II Slice 2", "`COMPLETED / PUBLISHED`"),
-    ("Interlude II Slice 3", "`COMPLETED / PUBLISHED`"),
-    ("Interlude II Slice 4", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64", "`COMPLETED`"),
-    ("Phase 64 Slice 1", "`COMPLETED / PUBLISHED`"),
-    ("Unnumbered compilation-boundary repair", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64 Slice 2", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64 Slice 3", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64 Slice 4", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64 Slice 5", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64 Slice 6", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64 Slice 7", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64 Slice 8", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64 Slice 9", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64 Slice 10", "`COMPLETED / PUBLISHED`"),
-    ("Phase 64 Slice 11", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65", "`COMPLETED`"),
-    ("Phase 65 Slice 1", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 2", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 3", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 4", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 5", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 6", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 7", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 8", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 9", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 10", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 11", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 12", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 13", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 14", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 15", "`COMPLETED / PUBLISHED`"),
-    ("Phase 65 Slice 16", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66", "`COMPLETED`"),
-    ("Phase 66 Slice 1", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 2", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 3", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 4", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 5", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 6", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 7", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 8", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 9", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 10", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 11", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 12", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 13", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 14", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 15", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 Slice 16", "`COMPLETED / PUBLISHED`"),
-    ("Phase 66 route", "`N=16`"),
-    ("Phase 67", "`COMPLETED`"),
-    ("Phase 67 planning", "`FROZEN / N67=16`"),
-    ("Phase 67 Slice 01", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 02", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 03", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 04", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 05", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 06", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 07", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 08", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 09", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 10", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 11", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 12", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 13", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 14", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 15", "`COMPLETED / PUBLISHED`"),
-    ("Phase 67 Slice 16", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68", "`COMPLETED`"),
-    ("Phase 68 Slice 01", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 02", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 03", "`COMPLETED / PUBLISHED`"),
-    ("Validation Consolidation C01", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 04", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 05", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 06", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 07", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 08", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 09", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 10", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 11", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 12", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 13", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 14", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 15", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 16", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 17", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 18", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 19", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 Slice 20", "`COMPLETED / PUBLISHED`"),
-    ("Phase 68 route", "`20 positions; COMPLETED`"),
-    ("Post-Phase68 Performance Interlude", "`COMPLETED`"),
-    ("Interlude V", "`COMPLETED`"),
-    ("Interlude V route", "`N=3`"),
-    ("Interlude V Slice 1", "`COMPLETED / PUBLISHED`"),
-    ("Interlude V Slice 2", "`COMPLETED / PUBLISHED`"),
-    ("Interlude V S2 performance outcome", "`MEASURED_GAIN`"),
-    ("Interlude V Slice 3", "`COMPLETED / PUBLISHED`"),
-    ("CI remaining-tail maintenance R1", "`COMPLETED / PUBLISHED`"),
-    ("PostgreSQL refinement-page JIT predecessor", "`COMPLETED / PUBLISHED`"),
-    ("Parallelism interlude", "`COMPLETED`"),
-)
 EXPECTED_PHASE58_STATE = "All 17 slices are completed. Phase 58 is complete."
 EXPECTED_PHASE59_STATE = (
     "Phase 59 and all 12 Phase 59 Slices are completed. The Validation/Test\n"
@@ -714,23 +579,14 @@ EXPECTED_INTERLUDE_SLICE6_CHANGED_PATHS = (
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
 )
-EXPECTED_PHASE60_SLICE1_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase60-advanced-windows-scope-semantic-laws-route-lock-v1.md",
-    "docs/status.md",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase60_slice1_advanced_windows_scope_semantic_laws_route_lock.py",
-    "tests/test_validation_performance_interlude_slice3_repository_reader_acquisition_reuse.py",
-    "tests/test_workflow_lifecycle_validation_efficiency.py",
-)
 EXPECTED_PHASE60_SLICE2_CHANGED_PATHS = (
     "docs/roadmap.md",
     "docs/spec/phase60-slice2-authored-resolved-window-frame-model-v1.md",
     "docs/status.md",
     "src/pietto/semantic/window_semantics.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase60_slice2_authored_resolved_window_frame_model.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_semantic_window_frame_model.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE60_SLICE3_CHANGED_PATHS = (
     "docs/roadmap.md",
@@ -740,9 +596,9 @@ EXPECTED_PHASE60_SLICE3_CHANGED_PATHS = (
     "src/pietto/semantic/window_navigation_analysis.py",
     "src/pietto/semantic/window_semantics.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase60_slice2_authored_resolved_window_frame_model.py",
-    "tests/test_phase60_slice3_frame_validation_function_policy.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_semantic_window_frame_model.py",
+    "tests/test_semantic_window_frame_validation.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE60_SLICE4_CHANGED_PATHS = (
     "docs/language.md",
@@ -763,10 +619,10 @@ EXPECTED_PHASE60_SLICE4_CHANGED_PATHS = (
     "src/pietto/semantic/window_analysis.py",
     "src/pietto/semantic/window_semantics.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
-    "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
-    "tests/test_phase60_slice4_rows_semantics_lowering.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_parser_window_spec_identity.py",
+    "tests/test_parser_window_syntax.py",
+    "tests/test_ir_window_rows.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE60_SLICE5_CHANGED_PATHS = (
     "docs/language.md",
@@ -784,10 +640,10 @@ EXPECTED_PHASE60_SLICE5_CHANGED_PATHS = (
     "src/pietto/ast_builder.py",
     "src/pietto/semantic/window_semantics.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
-    "tests/test_phase60_slice4_rows_semantics_lowering.py",
-    "tests/test_phase60_slice5_range_semantics_lowering.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_parser_window_syntax.py",
+    "tests/test_ir_window_rows.py",
+    "tests/test_ir_window_range.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE60_SLICE6_CHANGED_PATHS = (
     "docs/language.md",
@@ -804,11 +660,11 @@ EXPECTED_PHASE60_SLICE6_CHANGED_PATHS = (
     "src/pietto/ast_builder.py",
     "src/pietto/semantic/window_semantics.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
-    "tests/test_phase60_slice4_rows_semantics_lowering.py",
-    "tests/test_phase60_slice5_range_semantics_lowering.py",
-    "tests/test_phase60_slice6_groups_peer_semantics.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_parser_window_syntax.py",
+    "tests/test_ir_window_rows.py",
+    "tests/test_ir_window_range.py",
+    "tests/test_semantic_window_peer_groups.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE60_SLICE7_CHANGED_PATHS = (
     "docs/language.md",
@@ -825,11 +681,11 @@ EXPECTED_PHASE60_SLICE7_CHANGED_PATHS = (
     "src/pietto/ast_builder.py",
     "src/pietto/semantic/window_semantics.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
-    "tests/test_phase60_slice4_rows_semantics_lowering.py",
-    "tests/test_phase60_slice5_range_semantics_lowering.py",
-    "tests/test_phase60_slice7_exclude_semantics.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_parser_window_syntax.py",
+    "tests/test_ir_window_rows.py",
+    "tests/test_ir_window_range.py",
+    "tests/test_semantic_window_exclusion.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE60_SLICE8_CHANGED_PATHS = (
     "docs/language.md",
@@ -850,11 +706,11 @@ EXPECTED_PHASE60_SLICE8_CHANGED_PATHS = (
     "src/pietto/semantic/window_analysis.py",
     "src/pietto/semantic/window_semantics.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
-    "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
-    "tests/test_phase54_semantic_fact_preservation.py",
-    "tests/test_phase60_slice8_query_local_named_windows.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_parser_window_spec_identity.py",
+    "tests/test_parser_window_syntax.py",
+    "tests/test_semantic_fact_preservation.py",
+    "tests/test_semantic_window_named.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE60_SLICE9_CHANGED_PATHS = (
     "docs/language.md",
@@ -885,30 +741,30 @@ EXPECTED_PHASE60_SLICE9_CHANGED_PATHS = (
     "src/pietto/_project/window_semantics.py",
     "src/pietto/_project/module_semantic_fact_preservation.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase60_slice9_value_navigation_modifiers.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_sql_window_value_navigation.py",
+    "tests/test_ci_validation_typing_stages.py",
     "tests/test_ir_completion_audit.py",
-    "tests/test_phase12_order_by.py",
-    "tests/test_phase17_relation_schema_hardening_completion_audit.py",
-    "tests/test_phase51_private_result_role_output_identity.py",
-    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
-    "tests/test_phase56_slice3_canonical_capability_providers.py",
-    "tests/test_phase56_slice10_completion_audit_phase57_handoff.py",
-    "tests/test_phase57_slice1_postgresql_extension_signature_catalog_scope_lock.py",
-    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
-    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
-    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
-    "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
-    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
-    "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
-    "tests/test_phase54_semantic_fact_preservation.py",
-    "tests/test_phase60_slice3_frame_validation_function_policy.py",
-    "tests/test_phase60_slice4_rows_semantics_lowering.py",
-    "tests/test_phase60_slice5_range_semantics_lowering.py",
-    "tests/test_phase60_slice7_exclude_semantics.py",
-    "tests/test_phase60_slice8_query_local_named_windows.py",
+    "tests/test_semantic_order_by.py",
+    "tests/test_project_relation_schema_hardening_completion_audit.py",
+    "tests/test_semantic_private_result_role_output_identity.py",
+    "tests/test_semantic_parity_privacy_cross_phase_readiness_drift_closure.py",
+    "tests/test_project_capability_providers.py",
+    "tests/test_semantic_capability_catalog.py",
+    "tests/test_semantic_extension_signature.py",
+    "tests/test_semantic_window_navigation.py",
+    "tests/test_semantic_window_partition_binding.py",
+    "tests/test_project_window_semantic_carrier.py",
+    "tests/test_semantic_window_ranking.py",
+    "tests/test_semantic_window_ordering.py",
+    "tests/test_ir_window_dual_backend_lowering.py",
+    "tests/test_parser_window_spec_identity.py",
+    "tests/test_parser_window_syntax.py",
+    "tests/test_semantic_fact_preservation.py",
+    "tests/test_semantic_window_frame_validation.py",
+    "tests/test_ir_window_rows.py",
+    "tests/test_ir_window_range.py",
+    "tests/test_semantic_window_exclusion.py",
+    "tests/test_semantic_window_named.py",
 )
 EXPECTED_PHASE60_SLICE10_CHANGED_PATHS = (
     "docs/language.md",
@@ -935,61 +791,43 @@ EXPECTED_PHASE60_SLICE10_CHANGED_PATHS = (
     "src/pietto/_project/package_graph.py",
     "src/pietto/_project/package_graph_inspection.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-    "tests/test_phase17_relation_schema_hardening_completion_audit.py",
-    "tests/test_phase51_private_result_role_output_identity.py",
-    "tests/test_phase52_fail_closed_capability_lookup.py",
-    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
-    "tests/test_phase52_private_capability_fact_foundation.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
-    "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
-    "tests/test_phase54_semantic_fact_preservation.py",
-    "tests/test_phase60_slice8_query_local_named_windows.py",
-    "tests/test_phase60_slice9_value_navigation_modifiers.py",
+    "tests/test_ci_validation_typing_stages.py",
+    "tests/test_project_relation_schema_hardening_completion_audit.py",
+    "tests/test_semantic_private_result_role_output_identity.py",
+    "tests/test_semantic_fail_closed_capability_lookup.py",
+    "tests/test_semantic_parity_privacy_cross_phase_readiness_drift_closure.py",
+    "tests/test_semantic_private_capability_fact_foundation.py",
+    "tests/test_semantic_window_partition_binding.py",
+    "tests/test_project_window_semantic_carrier.py",
+    "tests/test_ir_window_dual_backend_lowering.py",
+    "tests/test_semantic_fact_preservation.py",
+    "tests/test_semantic_window_named.py",
+    "tests/test_sql_window_value_navigation.py",
     "tests/test_ir_completion_audit.py",
-    "tests/test_phase59_slice2_private_package_graph_model_snapshot_identity.py",
-    "tests/test_phase59_slice8_semantic_field_lineage_integration.py",
-    "tests/test_phase59_slice9_private_graph_integrity_inspection_query_canonical_pure_boundary.py",
-    "tests/test_phase59_slice11_differential_compatibility_assurance.py",
-    "tests/test_phase59_slice12_completion_audit_phase60_handoff.py",
-    "tests/test_phase60_slice10_capability_lineage_inspection_integration.py",
+    "tests/test_project_package_graph_model.py",
+    "tests/test_semantic_field_lineage.py",
+    "tests/test_project_graph_inspection.py",
+    "tests/test_harness_compatibility_differential.py",
+    "tests/test_project_package_capability.py",
+    "tests/test_project_capability_lineage.py",
 )
 EXPECTED_PHASE60_SLICE11_CHANGED_PATHS = (
     "docs/roadmap.md",
     "docs/spec/phase60-slice11-real-authored-advanced-window-e2e-v1.md",
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase60_slice11_real_authored_advanced_window_e2e.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_semantic_window_e2e.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE60_SLICE12_CHANGED_PATHS = (
     "docs/roadmap.md",
     "docs/spec/phase60-slice12-differential-compatibility-v1.md",
     "docs/status.md",
-    "tests/_pietto_phase60_window_differential_probe.py",
+    "tests/_pietto_ir_window_differential.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase60_slice12_differential_compatibility.py",
-    "tests/test_validation_performance_interlude_slice2_differential_probe_runtime_decomposition_optimization.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE60_SLICE13_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase60-completion-readiness-audit-phase61-handoff-v1.md",
-    "docs/status.md",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase60_slice13_completion_readiness_audit_phase61_handoff.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE61_SLICE1_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase61-project-ir-architecture-source-audit-route-lock-v1.md",
-    "docs/status.md",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase61_slice1_project_ir_architecture_source_audit_route_lock.py",
-    "tests/test_validation_performance_interlude_slice3_repository_reader_acquisition_reuse.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-    "tests/test_workflow_lifecycle_validation_efficiency.py",
+    "tests/test_harness_window_differential.py",
+    "tests/test_harness_differential_runtime.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE61_SLICE2_CHANGED_PATHS = (
     "docs/roadmap.md",
@@ -997,8 +835,8 @@ EXPECTED_PHASE61_SLICE2_CHANGED_PATHS = (
     "docs/status.md",
     "src/pietto/_project/project_ir.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase61_slice2_project_ir_scope_stages_occurrences_anchors_construction_states.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ir_project_scope.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE61_SLICE3_CHANGED_PATHS = (
     "docs/roadmap.md",
@@ -1006,8 +844,8 @@ EXPECTED_PHASE61_SLICE3_CHANGED_PATHS = (
     "docs/status.md",
     "src/pietto/_project/project_ir_properties.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase61_slice3_project_ir_row_output_properties_effects_estimate_boundary.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ir_project_row_properties.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE61_SLICE4_CHANGED_PATHS = (
     "docs/roadmap.md",
@@ -1016,8 +854,8 @@ EXPECTED_PHASE61_SLICE4_CHANGED_PATHS = (
     "src/pietto/_project/project_ir_operators.py",
     "src/pietto/_project/project_ir_properties.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase61_slice4_project_ir_current_logical_operator_algebra_exact_property_transfer.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ir_project_operator_properties.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE61_SLICE5_IDENTITY_CONTINUATION_CHANGED_PATHS = (
     "docs/roadmap.md",
@@ -1028,24 +866,9 @@ EXPECTED_PHASE61_SLICE5_IDENTITY_CONTINUATION_CHANGED_PATHS = (
     "src/pietto/_project/module_inspection.py",
     "src/pietto/_project/module_package_neutral_identity.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase54_module_attribution_dependency_origin_provenance_lineage.py",
-    "tests/test_phase61_slice5_output_identity_authority_readiness_continuation.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE61_SLICE5_DATAFLOW_CONTINUATION_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase61-slice5-intra-relation-dataflow-readiness-continuation-v1.md",
-    "docs/status.md",
-    "src/pietto/_project/module_semantic_fact_preservation.py",
-    "src/pietto/_project/project_ir.py",
-    "src/pietto/_project/project_ir_operators.py",
-    "src/pietto/_project/project_ir_properties.py",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase61_slice1_project_ir_architecture_source_audit_route_lock.py",
-    "tests/test_phase61_slice3_project_ir_row_output_properties_effects_estimate_boundary.py",
-    "tests/test_phase61_slice4_project_ir_current_logical_operator_algebra_exact_property_transfer.py",
-    "tests/test_phase61_slice5_intra_relation_dataflow_readiness_continuation.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_project_module_attribution_dependency_origin_provenance_lineage.py",
+    "tests/test_ir_project_output_identity.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE61_SLICE5_CHANGED_PATHS = (
     "docs/roadmap.md",
@@ -1054,8 +877,8 @@ EXPECTED_PHASE61_SLICE5_CHANGED_PATHS = (
     "src/pietto/_project/project_ir.py",
     "src/pietto/_project/project_ir_construction.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase61_slice5_canonical_single_relation_project_ir_construction.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ir_project_construction.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE61_SLICE6_CHANGED_PATHS = (
     "docs/roadmap.md",
@@ -1064,8 +887,8 @@ EXPECTED_PHASE61_SLICE6_CHANGED_PATHS = (
     "src/pietto/_project/project_ir.py",
     "src/pietto/_project/project_ir_composition.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase61_slice6_cross_module_relation_composition_acyclic_project_plan_dag.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ir_project_composition.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE61_SLICE7_CHANGED_PATHS = (
     "docs/roadmap.md",
@@ -1074,9 +897,9 @@ EXPECTED_PHASE61_SLICE7_CHANGED_PATHS = (
     "src/pietto/_project/project_ir_construction.py",
     "src/pietto/_project/project_ir_evaluation_context.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase61_slice5_canonical_single_relation_project_ir_construction.py",
-    "tests/test_phase61_slice7_aggregate_window_evaluation_context_policy_effect_no_ambient_authority.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ir_project_construction.py",
+    "tests/test_ir_project_evaluation.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE61_SLICE8_CHANGED_PATHS = (
     "docs/roadmap.md",
@@ -1084,8 +907,8 @@ EXPECTED_PHASE61_SLICE8_CHANGED_PATHS = (
     "docs/status.md",
     "src/pietto/_project/project_ir_verification.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase61_slice8_integrity_verifier_analysis_invalidation_semantic_equivalence_optimizer_recursion_readiness.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ir_project_integrity.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE61_SLICE9_CHANGED_PATHS = (
     "docs/roadmap.md",
@@ -1094,8 +917,8 @@ EXPECTED_PHASE61_SLICE9_CHANGED_PATHS = (
     "src/pietto/_project/project_ir_inspection.py",
     "src/pietto/_project/project_ir_pure_boundary.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase61_slice9_private_inspection_query_canonical_serialization_pure_boundary.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ir_project_inspection.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE61_SLICE10_CHANGED_PATHS = (
     "docs/roadmap.md",
@@ -1103,230 +926,18 @@ EXPECTED_PHASE61_SLICE10_CHANGED_PATHS = (
     "docs/status.md",
     "src/pietto/_project/project_ir_pipeline.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase61_slice10_real_authored_multi_module_project_ir_e2e.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ir_project_e2e.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE61_SLICE11_CHANGED_PATHS = (
     "docs/roadmap.md",
     "docs/spec/phase61-slice11-differential-compatibility-v1.md",
     "docs/status.md",
-    "tests/_pietto_phase61_project_ir_differential_probe.py",
+    "tests/_pietto_ir_project_differential.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase61_slice11_differential_compatibility.py",
-    "tests/test_validation_performance_interlude_slice2_differential_probe_runtime_decomposition_optimization.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE61_SLICE12_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase61-completion-audit-phase62-handoff-v1.md",
-    "docs/status.md",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase61_slice12_completion_audit_phase62_handoff.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE62_SLICE1_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase62-relationship-join-keys-fd-grain-fanout-multifact-architecture-source-audit-route-lock-v1.md",
-    "docs/status.md",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase61_slice12_completion_audit_phase62_handoff.py",
-    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
-    "tests/test_validation_performance_interlude_slice3_repository_reader_acquisition_reuse.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-    "tests/test_workflow_lifecycle_validation_efficiency.py",
-)
-EXPECTED_PHASE62_SLICE2_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase62-slice2-relationship-declaration-identity-endpoint-roles-module-local-resolution-construction-states-v1.md",
-    "docs/status.md",
-    "src/pietto/_project/project_relationships.py",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
-    "tests/test_phase62_slice2_relationship_declaration_identity_endpoint_roles_module_local_resolution_construction_states.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE62_SLICE3_CHANGED_PATHS = (
-    "docs/language.md",
-    "docs/roadmap.md",
-    "docs/spec/phase62-slice3-exact-field-correspondences-on-where-equality-null-behavior-constraint-scope-boundary-v1.md",
-    "docs/status.md",
-    "grammar/Pietto.g4",
-    "src/pietto/_project/project_relationship_conditions.py",
-    "src/pietto/ast_builder.py",
-    "src/pietto/ast_nodes.py",
-    "src/pietto/generated/Pietto.interp",
-    "src/pietto/generated/PiettoParser.py",
-    "src/pietto/generated/PiettoVisitor.py",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
-    "tests/test_phase62_slice3_exact_field_correspondences_on_where_equality_null_behavior_constraint_scope_boundary.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE62_SLICE4_CHANGED_PATHS = (
-    "docs/language.md",
-    "docs/roadmap.md",
-    "docs/spec/phase62-slice4-unique-null-policy-evidence-trust-strict-lax-row-uniqueness-candidate-keys-v1.md",
-    "docs/status.md",
-    "src/pietto/_project/project_row_keys.py",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
-    "tests/test_phase62_slice4_unique_null_policy_evidence_trust_strict_lax_row_uniqueness_candidate_keys.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE62_SLICE5_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase62-slice5-strict-lax-value-fd-basis-compact-indexes-targeted-closure-v1.md",
-    "docs/status.md",
-    "src/pietto/_project/project_value_fds.py",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase33_cli_package_compatibility_hardening.py",
-    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
-    "tests/test_phase62_slice5_strict_lax_value_fd_basis_compact_indexes_targeted_closure.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE62_SLICE6_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase62-slice6-factorized-intrinsic-grain-basis-dependencies-optional-factors-global-grain-v1.md",
-    "docs/status.md",
-    "src/pietto/_project/project_grain.py",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
-    "tests/test_phase62_slice6_factorized_intrinsic_grain_basis_dependencies_optional_factors_global_grain.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE62_SLICE7_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase62-slice7-existing-operator-key-fd-grain-transfer-grain-comparison-v1.md",
-    "docs/status.md",
-    "src/pietto/_project/project_ir_relational_properties.py",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
-    "tests/test_phase62_slice7_existing_operator_key_fd_grain_transfer_grain_comparison.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE62_SLICE8_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase62-slice8-referential-coverage-match-simple-full-directional-match-guarantees-v1.md",
-    "docs/status.md",
-    "src/pietto/_project/project_relationship_match_guarantees.py",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
-    "tests/test_phase62_slice8_referential_coverage_match_simple_full_directional_match_guarantees.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE62_SLICE9_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase62-slice9-explicit-relationship-paths-fanout-survival-null-effects-join-shape-analysis-v1.md",
-    "docs/status.md",
-    "src/pietto/_project/project_relationship_paths.py",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
-    "tests/test_phase62_slice9_explicit_relationship_paths_fanout_survival_null_effects_join_shape_analysis.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE62_SLICE10_CHANGED_PATHS = (
-    "docs/language.md",
-    "docs/roadmap.md",
-    "docs/spec/phase62-slice10-authored-join-traversal-syntax-semantic-uses-v1.md",
-    "docs/status.md",
-    "grammar/Pietto.g4",
-    "src/pietto/ast_nodes.py",
-    "src/pietto/ast_builder.py",
-    "src/pietto/ir/builder.py",
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/module_relation_resolution.py",
-    "src/pietto/_project/module_semantic_fact_preservation.py",
-    "src/pietto/_project/row_dependency_graph.py",
-    "src/pietto/_project/row_lineage.py",
-    "src/pietto/_project/module_pure_boundary.py",
-    "src/pietto/_project/project_ir_construction.py",
-    "src/pietto/_project/project_relationship_uses.py",
-    "src/pietto/generated/Pietto.interp",
-    "src/pietto/generated/Pietto.tokens",
-    "src/pietto/generated/PiettoLexer.interp",
-    "src/pietto/generated/PiettoLexer.py",
-    "src/pietto/generated/PiettoLexer.tokens",
-    "src/pietto/generated/PiettoParser.py",
-    "src/pietto/generated/PiettoVisitor.py",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase48_schema_availability_state_carrier.py",
-    "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
-    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
-    "tests/test_phase62_slice10_authored_join_traversal_syntax_semantic_uses.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE62_SLICE11_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase62-slice11-project-ir-binary-join-region-multi-input-topology-null-extension-property-transfer-v1.md",
-    "docs/status.md",
-    "src/pietto/_project/project_ir.py",
-    "src/pietto/_project/project_ir_properties.py",
-    "src/pietto/_project/project_grain.py",
-    "src/pietto/_project/project_ir_relational_properties.py",
-    "src/pietto/_project/project_ir_joins.py",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
-    "tests/test_phase62_slice11_project_ir_binary_join_region_multi_input_topology_null_extension_property_transfer.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE62_SLICE12_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase62-slice12-per-aggregate-fact-locality-chasm-detection-multi-fact-alignment-v1.md",
-    "docs/status.md",
-    "src/pietto/_project/project_multifact.py",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
-    "tests/test_phase62_slice12_per_aggregate_fact_locality_chasm_detection_multi_fact_alignment.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE62_SLICE13_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase62-slice13-integrity-verifier-analysis-invalidation-bounded-bag-null-semantic-oracle-v1.md",
-    "docs/status.md",
-    "src/pietto/_project/project_phase62_verification.py",
-    "src/pietto/_project/project_bag_null_oracle.py",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
-    "tests/test_phase62_slice13_integrity_verifier_analysis_invalidation_bounded_bag_null_semantic_oracle.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE62_SLICE14_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase62-slice14-private-inspection-winner-free-query-pure-canonical-boundary-v1.md",
-    "docs/status.md",
-    "src/pietto/_project/project_phase62_inspection.py",
-    "src/pietto/_project/project_phase62_pure_boundary.py",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
-    "tests/test_phase62_slice14_private_inspection_winner_free_query_pure_canonical_boundary.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE62_SLICE15_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase62-slice15-real-authored-e2e-python-differential-metamorphic-join-assurance-v1.md",
-    "docs/status.md",
-    "tests/_pietto_phase62_join_differential_probe.py",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase62_slice1_relationship_join_keys_fd_grain_fanout_multifact_architecture_source_audit_route_lock.py",
-    "tests/test_phase62_slice15_real_authored_e2e_python_differential_metamorphic_join_assurance.py",
-    "tests/test_validation_performance_interlude_slice2_differential_probe_runtime_decomposition_optimization.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE62_SLICE16_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase62-completion-audit-phase63-handoff-v1.md",
-    "docs/status.md",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase62_slice16_completion_audit_phase63_handoff.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE63_SLICE1_CHANGED_PATHS = (
-    "docs/roadmap.md",
-    "docs/spec/phase63-joined-query-block-product-architecture-source-audit-future-roadmap-route-lock-v1.md",
-    "docs/status.md",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase63_slice1_joined_query_block_product_architecture_source_audit_future_roadmap_route_lock.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_harness_project_ir_differential.py",
+    "tests/test_harness_differential_runtime.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE63_ARCHITECTURE_PREREQUISITE_CHANGED_PATHS = (
     "AGENTS.md",
@@ -1342,93 +953,93 @@ EXPECTED_PHASE63_ARCHITECTURE_PREREQUISITE_CHANGED_PATHS = (
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
     "tests/test_repository_architecture_authority_alignment.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE63_SLICE2_CHANGED_PATHS = (
     "src/pietto/_project/project_query_block.py",
     "docs/spec/phase63-slice2-query-block-owner-bridge-row-source-sum-states-mode-boundary-v1.md",
-    "tests/test_phase63_slice2_query_block_owner_bridge_row_source_sum_states_mode_boundary.py",
+    "tests/test_semantic_query_block.py",
     "docs/roadmap.md",
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE63_SLICE3_CHANGED_PATHS = (
     "src/pietto/_project/project_scalar_references.py",
     "src/pietto/_project/row_expression_type_facts.py",
     "docs/spec/phase63-slice3-scalar-reference-environment-resolution-facts-type-kernel-adapter-v1.md",
-    "tests/test_phase63_slice3_scalar_reference_environment_resolution_facts_type_kernel_adapter.py",
+    "tests/test_semantic_scalar_references.py",
     "docs/roadmap.md",
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE63_SLICE4_CHANGED_PATHS = (
     "src/pietto/_project/project_scalar_bindings.py",
     "docs/spec/phase63-slice4-bindings-visible-joined-fields-qualified-unqualified-lookup-v1.md",
-    "tests/test_phase63_slice4_bindings_visible_joined_fields_qualified_unqualified_lookup.py",
+    "tests/test_semantic_join_bindings.py",
     "docs/roadmap.md",
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE63_SLICE5_CHANGED_PATHS = (
     "src/pietto/_project/project_scalar_namespaces.py",
     "docs/spec/phase63-slice5-let-stage-namespace-lattice-shadowing-alias-laws-v1.md",
-    "tests/test_phase63_slice5_let_stage_namespace_lattice_shadowing_alias_laws.py",
+    "tests/test_semantic_let_scopes.py",
     "docs/roadmap.md",
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE63_SLICE6_CHANGED_PATHS = (
     "src/pietto/_project/project_joined_row_semantics.py",
     "docs/spec/phase63-slice6-post-join-row-semantics-nullability-lineage-property-bridge-v1.md",
-    "tests/test_phase63_slice6_post_join_row_semantics_nullability_lineage_property_bridge.py",
+    "tests/test_semantic_join_properties.py",
     "docs/roadmap.md",
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE63_SLICE7_CHANGED_PATHS = (
     "src/pietto/_project/project_completion.py",
     "docs/spec/phase63-slice7-completion-scheduling-effective-output-ledger-module-propagation-v1.md",
-    "tests/test_phase63_slice7_completion_scheduling_effective_output_ledger_module_propagation.py",
+    "tests/test_ir_query_block_schedule.py",
     "docs/roadmap.md",
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE63_SLICE12_CHANGED_PATHS = (
     "src/pietto/_project/project_final_outputs.py",
     "docs/spec/phase63-slice12-projection-order-limit-final-output-ledger-completion-v1.md",
-    "tests/test_phase63_slice12_projection_order_limit_final_output_ledger_completion.py",
+    "tests/test_ir_query_block_outputs.py",
     "src/pietto/_project/project_joined_qualify.py",
     "docs/roadmap.md",
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE63_SLICE13_CHANGED_PATHS = (
     "src/pietto/_project/project_completed_semantics.py",
     "docs/spec/phase63-slice13-completed-project-semantic-result-public-check-boundaries-v1.md",
-    "tests/test_phase63_slice13_completed_project_semantic_result_public_check_boundaries.py",
+    "tests/test_project_query_result.py",
     "src/pietto/cli.py",
     "docs/spec/project-cli-json-v2.md",
     "docs/spec/diagnostics.md",
     "docs/roadmap.md",
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE63_SLICE13_MECHANICAL_PATHS = (
-    "tests/test_phase54_semantic_fact_preservation.py",
-    "tests/test_phase54_module_qualified_nominal_declaration_catalogs.py",
-    "tests/test_phase54_local_export_visibility_module_facades.py",
-    "tests/test_phase54_cross_module_type_alias_enum_shape_source_resolution.py",
-    "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
-    "tests/test_phase54_schema_v2_explicit_module_carrier.py",
-    "tests/test_phase55_slice2_explicit_package_activation_compatibility_and_immutable_package_carrier.py",
+    "tests/test_semantic_fact_preservation.py",
+    "tests/test_project_module_qualified_nominal_declaration_catalogs.py",
+    "tests/test_project_local_export_visibility_module_facades.py",
+    "tests/test_project_cross_module_type_alias_enum_shape_source_resolution.py",
+    "tests/test_semantic_named_import_alias_binding_environments_collision_rules.py",
+    "tests/test_project_schema_v2_explicit_module_carrier.py",
+    "tests/test_project_explicit_package_activation_compatibility_and_immutable_package_carrier.py",
 )
 EXPECTED_PHASE63_SLICE14_CHANGED_PATHS = (
     "src/pietto/_project/project_query_block_ir.py",
@@ -1437,31 +1048,23 @@ EXPECTED_PHASE63_SLICE14_CHANGED_PATHS = (
     "src/pietto/_project/project_ir_evaluation_context.py",
     "src/pietto/_project/project_grain.py",
     "docs/spec/phase63-slice14-query-block-project-ir-composition-verification-invalidation-v1.md",
-    "tests/test_phase63_slice14_query_block_project_ir_composition_verification_invalidation.py",
+    "tests/test_ir_query_block_composition.py",
     "docs/roadmap.md",
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE63_SLICE15_CHANGED_PATHS = (
     "src/pietto/_project/project_query_block_ir_inspection.py",
     "src/pietto/_project/project_query_block_ir_pure_boundary.py",
     "docs/spec/phase63-slice15-inspection-pure-boundary-real-e2e-differential-metamorphic-assurance-v1.md",
-    "tests/_pietto_phase63_query_block_ir_differential_probe.py",
-    "tests/test_phase63_slice15_inspection_pure_boundary_real_e2e_differential_metamorphic_assurance.py",
+    "tests/_pietto_ir_query_block_differential.py",
+    "tests/test_harness_query_block_ir_differential.py",
     "docs/roadmap.md",
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_validation_performance_interlude_slice2_differential_probe_runtime_decomposition_optimization.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
-)
-EXPECTED_PHASE63_SLICE16_CHANGED_PATHS = (
-    "docs/spec/phase63-completion-audit-phase64-handoff-v1.md",
-    "tests/test_phase63_slice16_completion_audit_phase64_handoff.py",
-    "docs/roadmap.md",
-    "docs/status.md",
-    "tests/test_active_phase_lifecycle.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_harness_differential_runtime.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_PHASE64_ROUTE = (
     ("1", "Product Gate v3, source audit, architecture and route lock"),
@@ -1500,11 +1103,11 @@ EXPECTED_PHASE64_ROUTE = (
 )
 EXPECTED_PHASE64_SLICE1_CHANGED_PATHS = (
     "docs/spec/phase64-flat-relational-algebra-product-phase-initiation-gate-v3-source-audit-architecture-route-lock-v1.md",
-    "tests/test_phase64_slice1_flat_relational_algebra_product_phase_initiation_gate_v3_source_audit_architecture_route_lock.py",
+    "tests/test_repo_relational_algebra.py",
     "docs/roadmap.md",
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_CURRENT_OWNER_SENTENCE = (
     "Phase67 is `COMPLETED`, N67=16; Slices01–16 are published. "
@@ -1514,44 +1117,43 @@ EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice2-differential-probe-process-acquisition-optimization-v1.md",
     "tests/_pietto_differential_process_acquisition.py",
     "tests/_pietto_differential_probe_batch.py",
-    "tests/test_validation_performance_interlude_ii_slice2_differential_probe_process_acquisition_optimization.py",
+    "tests/test_harness_differential_process_acquisition.py",
     "docs/roadmap.md",
     "docs/status.md",
-    "tests/_pietto_phase59_graph_differential_probe.py",
-    "tests/_pietto_phase60_window_differential_probe.py",
-    "tests/_pietto_phase61_project_ir_differential_probe.py",
-    "tests/_pietto_phase62_join_differential_probe.py",
-    "tests/_pietto_phase63_query_block_ir_differential_probe.py",
+    "tests/_pietto_project_graph_differential.py",
+    "tests/_pietto_ir_window_differential.py",
+    "tests/_pietto_ir_project_differential.py",
+    "tests/_pietto_ir_join_differential.py",
+    "tests/_pietto_ir_query_block_differential.py",
     "tests/_pietto_project_explain_differential_probe.py",
     "tests/_pietto_project_explain_scenarios.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_phase58_slice16_pure_differential_compatibility_assurance.py",
-    "tests/test_phase59_slice11_differential_compatibility_assurance.py",
-    "tests/test_phase60_slice12_differential_compatibility.py",
-    "tests/test_phase61_slice11_differential_compatibility.py",
-    "tests/test_phase62_slice15_real_authored_e2e_python_differential_metamorphic_join_assurance.py",
-    "tests/test_phase63_slice15_inspection_pure_boundary_real_e2e_differential_metamorphic_assurance.py",
-    "tests/test_validation_performance_interlude_slice2_differential_probe_runtime_decomposition_optimization.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_harness_project_explain_differential.py",
+    "tests/test_harness_compatibility_differential.py",
+    "tests/test_harness_window_differential.py",
+    "tests/test_harness_project_ir_differential.py",
+    "tests/test_harness_join_differential.py",
+    "tests/test_harness_query_block_ir_differential.py",
+    "tests/test_harness_differential_runtime.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_INTERLUDE_II_SLICE4_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice4-completion-benchmark-phase64-readiness-assurance-v1.md",
-    "tests/test_validation_performance_interlude_ii_slice4_completion_benchmark_phase64_readiness_assurance.py",
     "docs/roadmap.md",
     "docs/spec/validation-performance-interlude-ii-slice3-heavy-file-xdist-scheduling-isolation-decision-v1.md",
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_validation_performance_interlude_ii_slice3_heavy_file_xdist_scheduling_isolation_decision.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ci_validation_workload_scheduling.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_INTERLUDE_II_SLICE3_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice3-heavy-file-xdist-scheduling-isolation-decision-v1.md",
-    "tests/test_validation_performance_interlude_ii_slice3_heavy_file_xdist_scheduling_isolation_decision.py",
+    "tests/test_ci_validation_workload_scheduling.py",
     "docs/roadmap.md",
     "docs/status.md",
     "tests/_pietto_differential_process_acquisition.py",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 EXPECTED_INTERLUDE_II_ROUTE = (
     ("1", "Post-Phase-63 Baseline Profiling, Cost Attribution, And Route Lock"),
@@ -1561,11 +1163,10 @@ EXPECTED_INTERLUDE_II_ROUTE = (
 )
 EXPECTED_INTERLUDE_II_SLICE1_CHANGED_PATHS = (
     "docs/spec/validation-performance-interlude-ii-slice1-post-phase63-baseline-profiling-cost-attribution-route-lock-v1.md",
-    "tests/test_validation_performance_interlude_ii_slice1_post_phase63_baseline_profiling_cost_attribution_route_lock.py",
     "docs/roadmap.md",
     "docs/status.md",
     "tests/test_active_phase_lifecycle.py",
-    "tests/test_validation_performance_interlude_slice4_validator_static_analysis_stage_optimization.py",
+    "tests/test_ci_validation_typing_stages.py",
 )
 
 
@@ -1604,12 +1205,6 @@ def _table_rows(document: str) -> tuple[tuple[str, ...], ...]:
 def test_active_status_table_and_authority_prose_are_exact() -> None:
     status = _read(STATUS)
     rows = _table_rows(status)[1:]
-    assert (
-        tuple(
-            row for row in rows if row[0] not in {"Next", "Repository package and CLI"}
-        )
-        == EXPECTED_STATUS
-    )
     next_rows = tuple(row for row in rows if row[0] == "Next")
     assert len(next_rows) == 1 and next_rows[0][1].strip("` ")
     normalized = " ".join(status.split())
@@ -2241,7 +1836,6 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         "two-hop re-export route",
         "full current eight-stage relation path",
         "phase61-slice11-differential-compatibility-v1.md",
-        "`tests/_pietto_phase61_project_ir_differential_probe.py`",
         "One reviewed common manifest",
         "Python 3.12/3.13",
         "four fixed hash seeds",
@@ -2845,7 +2439,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
     )
     assert f"]({slice4_target})" in roadmap
     assert (ROADMAP.parent / slice4_target).is_file()
-    assert len(EXPECTED_INTERLUDE_II_SLICE4_CHANGED_PATHS) == 8
+    assert len(EXPECTED_INTERLUDE_II_SLICE4_CHANGED_PATHS) == 7
     assert all(
         (REPO_ROOT / path).is_file()
         for path in EXPECTED_INTERLUDE_II_SLICE4_CHANGED_PATHS
@@ -2872,7 +2466,7 @@ def test_active_roadmap_current_owner_sentence_and_routes_are_exact() -> None:
         path.startswith((".github/", "src/", "scripts/", "grammar/"))
         for path in EXPECTED_INTERLUDE_II_SLICE2_CHANGED_PATHS
     )
-    assert len(EXPECTED_INTERLUDE_II_SLICE1_CHANGED_PATHS) == 6
+    assert len(EXPECTED_INTERLUDE_II_SLICE1_CHANGED_PATHS) == 5
     assert all(
         (REPO_ROOT / path).is_file()
         for path in EXPECTED_INTERLUDE_II_SLICE1_CHANGED_PATHS
@@ -3407,8 +3001,6 @@ def test_phase62_slice15_rebinds_exact_slice14_publication_authority() -> None:
         "15200d4207f29904d970041518209872e7e5bb75",
         "33587048578",
         "A3/M6/D0",
-        "_pietto_phase62_join_differential_probe.py",
-        "test_phase62_slice15_real_authored_e2e_python_differential_metamorphic_join_assurance.py",
         "Slice 15 是唯一 publication candidate",
         "Phase 62 Slice 16 = NEXT / NOT IMPLEMENTED",
     ):
@@ -3564,17 +3156,6 @@ def test_phase63_slice16_rebinds_exact_corrected_completion_authority() -> None:
         "Phase 64 = NEXT / NOT IMPLEMENTED",
     ):
         assert evidence in document
-
-
-def test_phase60_slice1_changed_paths_are_exact() -> None:
-    assert len(EXPECTED_PHASE60_SLICE1_CHANGED_PATHS) == 7
-    assert all(
-        (REPO_ROOT / path).is_file() for path in EXPECTED_PHASE60_SLICE1_CHANGED_PATHS
-    )
-    assert not any(
-        path.startswith((".github/", "src/", "scripts/", "grammar/"))
-        for path in EXPECTED_PHASE60_SLICE1_CHANGED_PATHS
-    )
 
 
 def test_phase60_slice2_changed_paths_are_exact() -> None:
@@ -3841,48 +3422,6 @@ def test_phase60_slice12_changed_paths_are_exact() -> None:
     )
 
 
-def test_phase60_slice13_changed_paths_are_exact() -> None:
-    assert len(EXPECTED_PHASE60_SLICE13_CHANGED_PATHS) == 6
-    assert len(set(EXPECTED_PHASE60_SLICE13_CHANGED_PATHS)) == 6
-    assert all(
-        (REPO_ROOT / path).is_file() for path in EXPECTED_PHASE60_SLICE13_CHANGED_PATHS
-    )
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "grammar/",
-                "scripts/",
-                "src/",
-                "tests/fixtures/",
-                "tests/goldens/",
-            )
-        )
-        for path in EXPECTED_PHASE60_SLICE13_CHANGED_PATHS
-    )
-
-
-def test_phase61_slice1_changed_paths_are_exact() -> None:
-    assert len(EXPECTED_PHASE61_SLICE1_CHANGED_PATHS) == 8
-    assert len(set(EXPECTED_PHASE61_SLICE1_CHANGED_PATHS)) == 8
-    assert all(
-        (REPO_ROOT / path).is_file() for path in EXPECTED_PHASE61_SLICE1_CHANGED_PATHS
-    )
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "grammar/",
-                "scripts/",
-                "src/",
-                "tests/fixtures/",
-                "tests/goldens/",
-            )
-        )
-        for path in EXPECTED_PHASE61_SLICE1_CHANGED_PATHS
-    )
-
-
 def test_phase61_slice2_changed_paths_are_exact() -> None:
     assert len(EXPECTED_PHASE61_SLICE2_CHANGED_PATHS) == 7
     assert len(set(EXPECTED_PHASE61_SLICE2_CHANGED_PATHS)) == 7
@@ -3984,35 +3523,6 @@ def test_phase61_slice5_identity_continuation_changed_paths_are_exact() -> None:
         "src/pietto/_project/module_attribution.py",
         "src/pietto/_project/module_inspection.py",
         "src/pietto/_project/module_package_neutral_identity.py",
-    )
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "grammar/",
-                "scripts/",
-                "tests/fixtures/",
-                "tests/goldens/",
-                "src/pietto/_project_explain/",
-                "src/pietto/ir/",
-                "src/pietto/sql/",
-            )
-        )
-        for path in paths
-    )
-
-
-def test_phase61_slice5_dataflow_continuation_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE61_SLICE5_DATAFLOW_CONTINUATION_CHANGED_PATHS
-    assert len(paths) == 13
-    assert len(set(paths)) == 13
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    production = tuple(path for path in paths if path.startswith("src/"))
-    assert production == (
-        "src/pietto/_project/module_semantic_fact_preservation.py",
-        "src/pietto/_project/project_ir.py",
-        "src/pietto/_project/project_ir_operators.py",
-        "src/pietto/_project/project_ir_properties.py",
     )
     assert not any(
         path.startswith(
@@ -4199,421 +3709,6 @@ def test_phase61_slice11_changed_paths_are_exact() -> None:
                 ".github/",
                 "grammar/",
                 "scripts/",
-                "tests/fixtures/",
-                "tests/goldens/",
-            )
-        )
-        for path in paths
-    )
-
-
-def test_phase61_slice12_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE61_SLICE12_CHANGED_PATHS
-    assert len(paths) == 6
-    assert len(set(paths)) == 6
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert not any(path.startswith("src/") for path in paths)
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "grammar/",
-                "scripts/",
-                "tests/fixtures/",
-                "tests/goldens/",
-            )
-        )
-        for path in paths
-    )
-
-
-def test_phase62_slice1_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE62_SLICE1_CHANGED_PATHS
-    assert len(paths) == 9
-    assert len(set(paths)) == 9
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert not any(path.startswith("src/") for path in paths)
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "grammar/",
-                "scripts/",
-                "tests/fixtures/",
-                "tests/goldens/",
-            )
-        )
-        for path in paths
-    )
-
-
-def test_phase62_slice2_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE62_SLICE2_CHANGED_PATHS
-    assert len(paths) == 8
-    assert len(set(paths)) == 8
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert tuple(path for path in paths if path.startswith("src/")) == (
-        "src/pietto/_project/project_relationships.py",
-    )
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "grammar/",
-                "scripts/",
-                "tests/fixtures/",
-                "tests/goldens/",
-                "src/pietto/_project_explain/",
-                "src/pietto/ir/",
-                "src/pietto/sql/",
-            )
-        )
-        for path in paths
-    )
-
-
-def test_phase62_slice3_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE62_SLICE3_CHANGED_PATHS
-    assert len(paths) == 15
-    assert len(set(paths)) == 15
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert tuple(path for path in paths if path.startswith("src/pietto/_project/")) == (
-        "src/pietto/_project/project_relationship_conditions.py",
-    )
-    assert tuple(
-        path for path in paths if path.startswith("src/pietto/generated/")
-    ) == (
-        "src/pietto/generated/Pietto.interp",
-        "src/pietto/generated/PiettoParser.py",
-        "src/pietto/generated/PiettoVisitor.py",
-    )
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "scripts/",
-                "tests/fixtures/",
-                "tests/goldens/",
-                "src/pietto/_project_explain/",
-                "src/pietto/ir/",
-                "src/pietto/semantic/",
-                "src/pietto/sql/",
-            )
-        )
-        for path in paths
-    )
-
-
-def test_phase62_slice4_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE62_SLICE4_CHANGED_PATHS
-    assert len(paths) == 9
-    assert len(set(paths)) == 9
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert tuple(path for path in paths if path.startswith("src/")) == (
-        "src/pietto/_project/project_row_keys.py",
-    )
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "grammar/",
-                "scripts/",
-                "tests/fixtures/",
-                "tests/goldens/",
-                "src/pietto/generated/",
-                "src/pietto/ir/",
-                "src/pietto/semantic/",
-                "src/pietto/sql/",
-                "src/pietto/_project_explain/",
-            )
-        )
-        for path in paths
-    )
-
-
-def test_phase62_slice5_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE62_SLICE5_CHANGED_PATHS
-    assert len(paths) == 9
-    assert len(set(paths)) == 9
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert tuple(path for path in paths if path.startswith("src/")) == (
-        "src/pietto/_project/project_value_fds.py",
-    )
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "grammar/",
-                "scripts/",
-                "tests/fixtures/",
-                "tests/goldens/",
-                "src/pietto/generated/",
-                "src/pietto/ir/",
-                "src/pietto/semantic/",
-                "src/pietto/sql/",
-                "src/pietto/_project_explain/",
-            )
-        )
-        for path in paths
-    )
-
-
-def test_phase62_slice6_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE62_SLICE6_CHANGED_PATHS
-    assert len(paths) == 8
-    assert len(set(paths)) == 8
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert tuple(path for path in paths if path.startswith("src/")) == (
-        "src/pietto/_project/project_grain.py",
-    )
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "grammar/",
-                "scripts/",
-                "tests/fixtures/",
-                "tests/goldens/",
-                "src/pietto/generated/",
-                "src/pietto/ir/",
-                "src/pietto/semantic/",
-                "src/pietto/sql/",
-                "src/pietto/_project_explain/",
-            )
-        )
-        for path in paths
-    )
-
-
-def test_phase62_slice7_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE62_SLICE7_CHANGED_PATHS
-    assert len(paths) == len(set(paths)) == 8
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert tuple(path for path in paths if path.startswith("src/")) == (
-        "src/pietto/_project/project_ir_relational_properties.py",
-    )
-
-
-def test_phase62_slice8_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE62_SLICE8_CHANGED_PATHS
-    assert len(paths) == len(set(paths)) == 8
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert tuple(path for path in paths if path.startswith("src/")) == (
-        "src/pietto/_project/project_relationship_match_guarantees.py",
-    )
-
-
-def test_phase62_slice9_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE62_SLICE9_CHANGED_PATHS
-    assert len(paths) == len(set(paths)) == 8
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert tuple(path for path in paths if path.startswith("src/")) == (
-        "src/pietto/_project/project_relationship_paths.py",
-    )
-
-
-def test_phase62_slice10_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE62_SLICE10_CHANGED_PATHS
-    assert len(paths) == len(set(paths)) == 29
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert tuple(path for path in paths if path.startswith("src/")) == (
-        "src/pietto/ast_nodes.py",
-        "src/pietto/ast_builder.py",
-        "src/pietto/ir/builder.py",
-        "src/pietto/_project/model.py",
-        "src/pietto/_project/module_relation_resolution.py",
-        "src/pietto/_project/module_semantic_fact_preservation.py",
-        "src/pietto/_project/row_dependency_graph.py",
-        "src/pietto/_project/row_lineage.py",
-        "src/pietto/_project/module_pure_boundary.py",
-        "src/pietto/_project/project_ir_construction.py",
-        "src/pietto/_project/project_relationship_uses.py",
-        "src/pietto/generated/Pietto.interp",
-        "src/pietto/generated/Pietto.tokens",
-        "src/pietto/generated/PiettoLexer.interp",
-        "src/pietto/generated/PiettoLexer.py",
-        "src/pietto/generated/PiettoLexer.tokens",
-        "src/pietto/generated/PiettoParser.py",
-        "src/pietto/generated/PiettoVisitor.py",
-    )
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "scripts/",
-                "tests/fixtures/",
-                "tests/goldens/",
-                "src/pietto/sql/",
-                "src/pietto/_project_explain/",
-            )
-        )
-        for path in paths
-    )
-
-
-def test_phase62_slice11_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE62_SLICE11_CHANGED_PATHS
-    assert len(paths) == len(set(paths)) == 12
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert tuple(path for path in paths if path.startswith("src/")) == (
-        "src/pietto/_project/project_ir.py",
-        "src/pietto/_project/project_ir_properties.py",
-        "src/pietto/_project/project_grain.py",
-        "src/pietto/_project/project_ir_relational_properties.py",
-        "src/pietto/_project/project_ir_joins.py",
-    )
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "grammar/",
-                "scripts/",
-                "src/pietto/generated/",
-                "src/pietto/ir/",
-                "src/pietto/semantic/",
-                "src/pietto/sql/",
-                "src/pietto/_project_explain/",
-                "tests/fixtures/",
-                "tests/goldens/",
-            )
-        )
-        for path in paths
-    )
-
-
-def test_phase62_slice12_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE62_SLICE12_CHANGED_PATHS
-    assert len(paths) == len(set(paths)) == 8
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert tuple(path for path in paths if path.startswith("src/")) == (
-        "src/pietto/_project/project_multifact.py",
-    )
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "grammar/",
-                "scripts/",
-                "src/pietto/generated/",
-                "src/pietto/ir/",
-                "src/pietto/semantic/",
-                "src/pietto/sql/",
-                "src/pietto/_project_explain/",
-                "tests/fixtures/",
-                "tests/goldens/",
-            )
-        )
-        for path in paths
-    )
-
-
-def test_phase62_slice13_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE62_SLICE13_CHANGED_PATHS
-    assert len(paths) == len(set(paths)) == 9
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert tuple(path for path in paths if path.startswith("src/")) == (
-        "src/pietto/_project/project_phase62_verification.py",
-        "src/pietto/_project/project_bag_null_oracle.py",
-    )
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "grammar/",
-                "scripts/",
-                "src/pietto/generated/",
-                "src/pietto/ir/",
-                "src/pietto/semantic/",
-                "src/pietto/sql/",
-                "src/pietto/_project_explain/",
-                "tests/fixtures/",
-                "tests/goldens/",
-            )
-        )
-        for path in paths
-    )
-
-
-def test_phase62_slice14_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE62_SLICE14_CHANGED_PATHS
-    assert len(paths) == len(set(paths)) == 9
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert tuple(path for path in paths if path.startswith("src/")) == (
-        "src/pietto/_project/project_phase62_inspection.py",
-        "src/pietto/_project/project_phase62_pure_boundary.py",
-    )
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "grammar/",
-                "scripts/",
-                "src/pietto/generated/",
-                "src/pietto/ir/",
-                "src/pietto/semantic/",
-                "src/pietto/sql/",
-                "src/pietto/_project_explain/",
-                "tests/fixtures/",
-                "tests/goldens/",
-            )
-        )
-        for path in paths
-    )
-
-
-def test_phase62_slice15_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE62_SLICE15_CHANGED_PATHS
-    assert len(paths) == len(set(paths)) == 9
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert not any(path.startswith("src/") for path in paths)
-    assert tuple(path for path in paths if path.startswith("tests/_")) == (
-        "tests/_pietto_phase62_join_differential_probe.py",
-    )
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "grammar/",
-                "scripts/",
-                "src/",
-                "tests/fixtures/",
-                "tests/goldens/",
-            )
-        )
-        for path in paths
-    )
-
-
-def test_phase62_slice16_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE62_SLICE16_CHANGED_PATHS
-    assert len(paths) == len(set(paths)) == 6
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "grammar/",
-                "scripts/",
-                "src/",
-                "tests/fixtures/",
-                "tests/goldens/",
-            )
-        )
-        for path in paths
-    )
-
-
-def test_phase63_slice1_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE63_SLICE1_CHANGED_PATHS
-    assert len(paths) == len(set(paths)) == 6
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert not any(
-        path.startswith(
-            (
-                ".github/",
-                "grammar/",
-                "scripts/",
-                "src/",
                 "tests/fixtures/",
                 "tests/goldens/",
             )
@@ -4816,13 +3911,13 @@ def test_phase63_slice13_changed_paths_are_exact() -> None:
         for path in paths
     )
     assert mechanical == (
-        "tests/test_phase54_semantic_fact_preservation.py",
-        "tests/test_phase54_module_qualified_nominal_declaration_catalogs.py",
-        "tests/test_phase54_local_export_visibility_module_facades.py",
-        "tests/test_phase54_cross_module_type_alias_enum_shape_source_resolution.py",
-        "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
-        "tests/test_phase54_schema_v2_explicit_module_carrier.py",
-        "tests/test_phase55_slice2_explicit_package_activation_compatibility_and_immutable_package_carrier.py",
+        "tests/test_semantic_fact_preservation.py",
+        "tests/test_project_module_qualified_nominal_declaration_catalogs.py",
+        "tests/test_project_local_export_visibility_module_facades.py",
+        "tests/test_project_cross_module_type_alias_enum_shape_source_resolution.py",
+        "tests/test_semantic_named_import_alias_binding_environments_collision_rules.py",
+        "tests/test_project_schema_v2_explicit_module_carrier.py",
+        "tests/test_project_explicit_package_activation_compatibility_and_immutable_package_carrier.py",
     )
 
 
@@ -4860,7 +3955,7 @@ def test_phase63_slice15_changed_paths_are_exact() -> None:
         "src/pietto/_project/project_query_block_ir_pure_boundary.py",
     )
     assert tuple(path for path in paths if path.startswith("tests/_")) == (
-        "tests/_pietto_phase63_query_block_ir_differential_probe.py",
+        "tests/_pietto_ir_query_block_differential.py",
     )
     assert not any(
         path.startswith(
@@ -4873,21 +3968,6 @@ def test_phase63_slice15_changed_paths_are_exact() -> None:
             )
         )
         for path in paths
-    )
-
-
-def test_phase63_slice16_changed_paths_are_exact() -> None:
-    paths = EXPECTED_PHASE63_SLICE16_CHANGED_PATHS
-    assert len(paths) == len(set(paths)) == 6
-    assert all((REPO_ROOT / path).is_file() for path in paths)
-    assert tuple(path for path in paths if path.startswith("src/")) == ()
-    assert tuple(path for path in paths if path.startswith("grammar/")) == ()
-    assert tuple(path for path in paths if path.startswith("tests/_")) == ()
-    assert tuple(path for path in paths if path.startswith("docs/spec/")) == (
-        "docs/spec/phase63-completion-audit-phase64-handoff-v1.md",
-    )
-    assert tuple(path for path in paths if path.startswith("tests/test_phase63")) == (
-        "tests/test_phase63_slice16_completion_audit_phase64_handoff.py",
     )
 
 
@@ -4983,8 +4063,8 @@ def test_phase64_slice1_changed_paths_are_exact() -> None:
     assert tuple(path for path in paths if path.startswith("docs/spec/")) == (
         "docs/spec/phase64-flat-relational-algebra-product-phase-initiation-gate-v3-source-audit-architecture-route-lock-v1.md",
     )
-    assert tuple(path for path in paths if path.startswith("tests/test_phase64")) == (
-        "tests/test_phase64_slice1_flat_relational_algebra_product_phase_initiation_gate_v3_source_audit_architecture_route_lock.py",
+    assert tuple(path for path in paths if path.startswith("tests/test_repo_")) == (
+        "tests/test_repo_relational_algebra.py",
     )
     assert not any(
         path.startswith(

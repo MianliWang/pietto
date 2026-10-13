@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING
 from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
+    CastExpr,
     CallExpr,
+    ConditionalExpr,
     CheckDef,
     ComparisonExpr,
     ConstraintDef,
@@ -20,7 +22,9 @@ from pietto.ast_nodes import (
     IndexDef,
     IsNullExpr,
     LiteralExpr,
+    MembershipExpr,
     NameExpr,
+    Nullability,
     QueryDef,
     Script,
     SelectItem,
@@ -67,6 +71,22 @@ _UNKNOWN_VALUE_TYPE = ValueType(
     resolved_type=ResolvedType(name="<unknown>", kind=TypeKind.UNKNOWN),
     nullability=EffectiveNullability.UNKNOWN,
     kind=ValueTypeKind.UNKNOWN,
+)
+_NULLIF_SIGNATURE = BuiltinFunction("nullif", ("T", "T"), "T")
+_SIGN_SIGNATURE = BuiltinFunction("sign", ("Int|Decimal",), "Int")
+_Q1_FIXED_CANONICAL_FUNCTIONS = frozenset(
+    {
+        "upper",
+        "substr",
+        "replace",
+        "contains",
+        "starts_with",
+        "ends_with",
+        "abs",
+        "date_of",
+        "hour",
+        "minute",
+    }
 )
 
 
@@ -644,6 +664,45 @@ def _infer(
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
         )
+    elif isinstance(expression, ConditionalExpr):
+        value_type = _conditional_value_type(
+            expression,
+            row_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=report_unknown_name,
+            field_qualifier=field_qualifier,
+            bare_value_types=bare_value_types,
+            bare_value_expressions=bare_value_expressions,
+            suppressed_unknown_names=suppressed_unknown_names,
+            type_expansions=type_expansions,
+        )
+    elif isinstance(expression, MembershipExpr):
+        value_type = _membership_value_type(
+            expression,
+            row_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=report_unknown_name,
+            field_qualifier=field_qualifier,
+            bare_value_types=bare_value_types,
+            bare_value_expressions=bare_value_expressions,
+            suppressed_unknown_names=suppressed_unknown_names,
+            type_expansions=type_expansions,
+        )
+    elif isinstance(expression, CastExpr):
+        value_type = _cast_value_type(
+            expression,
+            row_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=report_unknown_name,
+            field_qualifier=field_qualifier,
+            bare_value_types=bare_value_types,
+            bare_value_expressions=bare_value_expressions,
+            suppressed_unknown_names=suppressed_unknown_names,
+            type_expansions=type_expansions,
+        )
     elif isinstance(expression, BinaryExpr):
         value_type = _binary_value_type(
             expression,
@@ -682,9 +741,12 @@ def _infer(
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
         )
-        value_type, expected = resolved_comparison_value_type(
-            left_type, right_type, type_expansions
-        )
+        if expression.operator in {"like", "not like"}:
+            value_type, expected = resolved_like_value_type(left_type, right_type)
+        else:
+            value_type, expected = resolved_comparison_value_type(
+                left_type, right_type, type_expansions
+            )
         if expected is not None:
             diagnostics.append(
                 _invalid_operator_operands_diagnostic(expression, expected=expected)
@@ -738,7 +800,12 @@ def _unary_value_type(
         suppressed_unknown_names=suppressed_unknown_names,
         type_expansions=type_expansions,
     )
-    result, expected = resolved_unary_value_type(operand_type)
+    if expression.operator == "not" and _is_canonical_builtin(
+        operand_type, "Bool", type_expansions
+    ):
+        result, expected = _builtin_value_type("Bool", operand_type.nullability), None
+    else:
+        result, expected = resolved_unary_value_type(expression.operator, operand_type)
     if expected is not None:
         diagnostics.append(
             _invalid_operator_operands_diagnostic(expression, expected=expected)
@@ -746,16 +813,233 @@ def _unary_value_type(
     return result
 
 
-def resolved_unary_value_type(operand_type: ValueType) -> tuple[ValueType, str | None]:
-    """Original numeric unary rule over an already resolved operand."""
+def resolved_unary_value_type(
+    operator: str | ValueType,
+    operand_type: ValueType | None = None,
+) -> tuple[ValueType, str | None]:
+    """Return the closed unary result without source lookup or elaboration.
+
+    The one-argument form remains the historic numeric rule for internal
+    callers that have not yet selected an authored operator.
+    """
+
+    if operand_type is None:
+        assert isinstance(operator, ValueType)
+        operand_type = operator
+        operator = "+"
+    assert isinstance(operator, str)
+    assert isinstance(operand_type, ValueType)
     if operand_type.kind is ValueTypeKind.UNKNOWN:
         return _UNKNOWN_VALUE_TYPE, None
+    if operator == "not":
+        if _is_builtin(operand_type, "Bool"):
+            return ValueType(
+                resolved_type=operand_type.resolved_type,
+                nullability=operand_type.nullability,
+            ), None
+        return _UNKNOWN_VALUE_TYPE, "Bool operand"
     if not _is_numeric(operand_type):
         return _UNKNOWN_VALUE_TYPE, "numeric operand"
     return ValueType(
         resolved_type=operand_type.resolved_type,
         nullability=operand_type.nullability,
     ), None
+
+
+def _conditional_value_type(
+    expression: ConditionalExpr,
+    row_schema: RowSchema,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    *,
+    report_unknown_name: bool,
+    field_qualifier: str | None,
+    bare_value_types: Mapping[str, ValueType] | None,
+    bare_value_expressions: Mapping[str, Expression] | None,
+    suppressed_unknown_names: set[str] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> ValueType:
+    """Type source-ordered conditional operands with no branch promotion."""
+
+    when_true_type = _infer(
+        expression.when_true,
+        row_schema,
+        value_types,
+        diagnostics,
+        report_unknown_name=report_unknown_name,
+        field_qualifier=field_qualifier,
+        bare_value_types=bare_value_types,
+        bare_value_expressions=bare_value_expressions,
+        suppressed_unknown_names=suppressed_unknown_names,
+        type_expansions=type_expansions,
+    )
+    condition_type = _infer(
+        expression.condition,
+        row_schema,
+        value_types,
+        diagnostics,
+        report_unknown_name=report_unknown_name,
+        field_qualifier=field_qualifier,
+        bare_value_types=bare_value_types,
+        bare_value_expressions=bare_value_expressions,
+        suppressed_unknown_names=suppressed_unknown_names,
+        type_expansions=type_expansions,
+    )
+    when_false_type = _infer(
+        expression.when_false,
+        row_schema,
+        value_types,
+        diagnostics,
+        report_unknown_name=report_unknown_name,
+        field_qualifier=field_qualifier,
+        bare_value_types=bare_value_types,
+        bare_value_expressions=bare_value_expressions,
+        suppressed_unknown_names=suppressed_unknown_names,
+        type_expansions=type_expansions,
+    )
+    branch_types = _contextual_null_literal_types(
+        (expression.when_true, expression.when_false),
+        (when_true_type, when_false_type),
+        value_types,
+        type_expansions,
+    )
+    if branch_types is not None:
+        when_true_type, when_false_type = branch_types
+    if (
+        _is_null_literal(expression.condition)
+        and condition_type.kind is ValueTypeKind.UNKNOWN
+    ):
+        condition_type = _contextual_null_literal_type("Bool")
+        value_types[expression.condition] = condition_type
+    if any(
+        value_type.kind is ValueTypeKind.UNKNOWN
+        for value_type in (when_true_type, condition_type, when_false_type)
+    ):
+        return _UNKNOWN_VALUE_TYPE
+    if not _is_canonical_builtin(condition_type, "Bool", type_expansions):
+        diagnostics.append(
+            _invalid_operator_operands_diagnostic(
+                expression,
+                expected="Bool condition",
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+    canonical = _shared_canonical_type(
+        (when_true_type, when_false_type),
+        type_expansions,
+    )
+    if canonical is None:
+        diagnostics.append(
+            _invalid_operator_operands_diagnostic(
+                expression,
+                expected="same canonical branch types",
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+    return ValueType(
+        resolved_type=canonical,
+        nullability=_join_nullability(
+            (when_true_type.nullability, when_false_type.nullability)
+        ),
+    )
+
+
+def _membership_value_type(
+    expression: MembershipExpr,
+    row_schema: RowSchema,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    *,
+    report_unknown_name: bool,
+    field_qualifier: str | None,
+    bare_value_types: Mapping[str, ValueType] | None,
+    bare_value_expressions: Mapping[str, Expression] | None,
+    suppressed_unknown_names: set[str] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> ValueType:
+    """Type fixed scalar-list membership while retaining every occurrence."""
+
+    child_types = tuple(
+        _infer(
+            child,
+            row_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=report_unknown_name,
+            field_qualifier=field_qualifier,
+            bare_value_types=bare_value_types,
+            bare_value_expressions=bare_value_expressions,
+            suppressed_unknown_names=suppressed_unknown_names,
+            type_expansions=type_expansions,
+        )
+        for child in (expression.value, *expression.options)
+    )
+    contextual = _contextual_null_literal_types(
+        (expression.value, *expression.options),
+        child_types,
+        value_types,
+        type_expansions,
+    )
+    if contextual is not None:
+        child_types = contextual
+    if any(value_type.kind is ValueTypeKind.UNKNOWN for value_type in child_types):
+        return _UNKNOWN_VALUE_TYPE
+    if _shared_canonical_type(child_types, type_expansions) is None:
+        diagnostics.append(
+            _invalid_operator_operands_diagnostic(
+                expression,
+                expected="same canonical membership operands",
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+    if not expression.options:
+        return _builtin_value_type("Bool", EffectiveNullability.NON_NULL)
+    return _builtin_value_type(
+        "Bool",
+        _join_nullability(tuple(value_type.nullability for value_type in child_types)),
+    )
+
+
+def _cast_value_type(
+    expression: CastExpr,
+    row_schema: RowSchema,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    *,
+    report_unknown_name: bool,
+    field_qualifier: str | None,
+    bare_value_types: Mapping[str, ValueType] | None,
+    bare_value_expressions: Mapping[str, Expression] | None,
+    suppressed_unknown_names: set[str] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> ValueType:
+    """Admit only the explicit portable Int-to-Float conversion."""
+
+    value_type = _infer(
+        expression.value,
+        row_schema,
+        value_types,
+        diagnostics,
+        report_unknown_name=report_unknown_name,
+        field_qualifier=field_qualifier,
+        bare_value_types=bare_value_types,
+        bare_value_expressions=bare_value_expressions,
+        suppressed_unknown_names=suppressed_unknown_names,
+        type_expansions=type_expansions,
+    )
+    if value_type.kind is ValueTypeKind.UNKNOWN:
+        return _UNKNOWN_VALUE_TYPE
+    if (
+        expression.target.name != "Float"
+        or expression.target.arguments
+        or expression.target.nullability is not Nullability.IMPLICIT
+        or not _is_canonical_builtin(value_type, "Int", type_expansions)
+    ):
+        diagnostics.append(
+            _invalid_cast_diagnostic(expression, expected="cast(Int as Float)")
+        )
+        return _UNKNOWN_VALUE_TYPE
+    return _builtin_value_type("Float", value_type.nullability)
 
 
 def _binary_value_type(
@@ -867,6 +1151,72 @@ def resolved_comparison_value_type(
     return _UNKNOWN_VALUE_TYPE, "comparable operands"
 
 
+def resolved_like_value_type(
+    left_type: ValueType,
+    right_type: ValueType,
+) -> tuple[ValueType, str | None]:
+    """Return the closed Text/Text LIKE result without collation claims."""
+
+    if (
+        left_type.kind is ValueTypeKind.UNKNOWN
+        or right_type.kind is ValueTypeKind.UNKNOWN
+    ):
+        return _UNKNOWN_VALUE_TYPE, None
+    if not (_is_builtin(left_type, "Text") and _is_builtin(right_type, "Text")):
+        return _UNKNOWN_VALUE_TYPE, "Text operands"
+    return _builtin_value_type(
+        "Bool",
+        _join_nullability((left_type.nullability, right_type.nullability)),
+    ), None
+
+
+def _canonical_resolved_type(
+    value_type: ValueType,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> ResolvedType | None:
+    if value_type.kind is ValueTypeKind.UNKNOWN:
+        return None
+    resolved = value_type.resolved_type
+    if resolved.kind is not TypeKind.TYPE_ALIAS:
+        return resolved
+    if type_expansions is None or not isinstance(resolved.definition, TypeDef):
+        return None
+    return type_expansions.get(resolved.definition.base)
+
+
+def _shared_canonical_type(
+    value_types: tuple[ValueType, ...],
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> ResolvedType | None:
+    canonical_types = tuple(
+        _canonical_resolved_type(value_type, type_expansions)
+        for value_type in value_types
+    )
+    if not canonical_types or any(value_type is None for value_type in canonical_types):
+        return None
+    canonical = canonical_types[0]
+    assert canonical is not None
+    if any(
+        value_type is None
+        or value_type.kind is not canonical.kind
+        or value_type.name != canonical.name
+        or value_type.definition is not canonical.definition
+        for value_type in canonical_types[1:]
+    ):
+        return None
+    return canonical
+
+
+def _join_nullability(
+    nullabilities: tuple[EffectiveNullability, ...],
+) -> EffectiveNullability:
+    if EffectiveNullability.NULLABLE in nullabilities:
+        return EffectiveNullability.NULLABLE
+    if EffectiveNullability.UNKNOWN in nullabilities:
+        return EffectiveNullability.UNKNOWN
+    return EffectiveNullability.NON_NULL
+
+
 def _comparison_family(
     value_type: ValueType,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
@@ -959,12 +1309,30 @@ def _call_value_type(
         suppressed_unknown_names=suppressed_unknown_names,
         type_expansions=type_expansions,
     )
-    if any(
-        argument_type.kind is ValueTypeKind.UNKNOWN for argument_type in argument_types
-    ):
-        return _UNKNOWN_VALUE_TYPE
+    if function_name in {"coalesce", "nullif"}:
+        contextual = _contextual_null_literal_types(
+            expression.arguments,
+            argument_types,
+            value_types,
+            type_expansions,
+        )
+        if contextual is None:
+            return _UNKNOWN_VALUE_TYPE
+        argument_types = contextual
+        if function_name == "coalesce":
+            return _coalesce_value_type(
+                expression, argument_types, type_expansions, diagnostics
+            )
+        return _nullif_value_type(
+            expression, argument_types, type_expansions, diagnostics
+        )
 
     if is_semantic_aggregate_call(expression):
+        if any(
+            argument_type.kind is ValueTypeKind.UNKNOWN
+            for argument_type in argument_types
+        ):
+            return _UNKNOWN_VALUE_TYPE
         if allow_aggregate_projection:
             result_type = _aggregate_value_type(
                 expression,
@@ -975,8 +1343,26 @@ def _call_value_type(
                 return result_type
         return _UNKNOWN_VALUE_TYPE
 
+    if any(
+        argument_type.kind is ValueTypeKind.UNKNOWN for argument_type in argument_types
+    ) and function_name in {"sign", "year", "month", "day"}:
+        return _UNKNOWN_VALUE_TYPE
+    if function_name == "sign":
+        return _sign_value_type(
+            expression, argument_types, diagnostics, type_expansions=type_expansions
+        )
+    if function_name in {"year", "month", "day"}:
+        return _civil_date_part_value_type(
+            expression, argument_types, diagnostics, type_expansions=type_expansions
+        )
+
     signature = BUILTIN_FUNCTIONS.get(function_name)
     if signature is None:
+        if any(
+            argument_type.kind is ValueTypeKind.UNKNOWN
+            for argument_type in argument_types
+        ):
+            return _UNKNOWN_VALUE_TYPE
         diagnostics.append(_unknown_function_diagnostic(expression, function_name))
         return _UNKNOWN_VALUE_TYPE
 
@@ -984,14 +1370,27 @@ def _call_value_type(
         diagnostics.append(_wrong_arity_diagnostic(expression, signature))
         return _UNKNOWN_VALUE_TYPE
 
+    argument_types = _contextual_fixed_null_literal_types(
+        expression.arguments,
+        argument_types,
+        signature.parameter_types,
+        value_types,
+    )
+    if any(
+        argument_type.kind is ValueTypeKind.UNKNOWN for argument_type in argument_types
+    ):
+        return _UNKNOWN_VALUE_TYPE
+
     for position, (argument_type, expected_name) in enumerate(
         zip(argument_types, signature.parameter_types, strict=True),
         start=1,
     ):
-        if (
-            argument_type.resolved_type.kind is not TypeKind.BUILTIN
-            or argument_type.resolved_type.name != expected_name
-        ):
+        matches = (
+            _is_canonical_builtin(argument_type, expected_name, type_expansions)
+            if function_name in _Q1_FIXED_CANONICAL_FUNCTIONS
+            else _is_builtin(argument_type, expected_name)
+        )
+        if not matches:
             diagnostics.append(
                 _wrong_argument_type_diagnostic(
                     expression,
@@ -1003,9 +1402,250 @@ def _call_value_type(
             )
             return _UNKNOWN_VALUE_TYPE
 
+    if function_name == "substr" and not _valid_static_substr_bounds(expression):
+        diagnostics.append(
+            _call_diagnostic(
+                expression,
+                code="PIE-S2104",
+                message=(
+                    "Invalid arguments for function substr: start must be a positive "
+                    "Int literal and count must be a non-negative Int literal"
+                ),
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+
+    if function_name == "matches":
+        return _builtin_value_type("Bool", EffectiveNullability.UNKNOWN)
+
     return _builtin_value_type(
         signature.return_type,
-        EffectiveNullability.UNKNOWN,
+        _join_nullability(
+            tuple(argument_type.nullability for argument_type in argument_types)
+        ),
+    )
+
+
+def _coalesce_value_type(
+    expression: CallExpr,
+    argument_types: tuple[ValueType, ...],
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    diagnostics: list[Diagnostic],
+) -> ValueType:
+    if len(argument_types) < 2:
+        diagnostics.append(
+            _call_diagnostic(
+                expression,
+                code="PIE-S2104",
+                message=(
+                    "Invalid arguments for function coalesce: expected at least 2, got "
+                    f"{len(argument_types)}"
+                ),
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+    canonical = _shared_canonical_type(argument_types, type_expansions)
+    if canonical is None:
+        diagnostics.append(
+            _call_diagnostic(
+                expression,
+                code="PIE-S2104",
+                message=(
+                    "Invalid argument types for function coalesce: expected same "
+                    "canonical type"
+                ),
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+    if EffectiveNullability.NON_NULL in {
+        argument_type.nullability for argument_type in argument_types
+    }:
+        nullability = EffectiveNullability.NON_NULL
+    elif EffectiveNullability.UNKNOWN in {
+        argument_type.nullability for argument_type in argument_types
+    }:
+        nullability = EffectiveNullability.UNKNOWN
+    else:
+        nullability = EffectiveNullability.NULLABLE
+    return ValueType(resolved_type=canonical, nullability=nullability)
+
+
+def _nullif_value_type(
+    expression: CallExpr,
+    argument_types: tuple[ValueType, ...],
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    diagnostics: list[Diagnostic],
+) -> ValueType:
+    if len(argument_types) != 2:
+        diagnostics.append(_wrong_arity_diagnostic(expression, _NULLIF_SIGNATURE))
+        return _UNKNOWN_VALUE_TYPE
+    canonical = _shared_canonical_type(argument_types, type_expansions)
+    if canonical is None:
+        diagnostics.append(
+            _call_diagnostic(
+                expression,
+                code="PIE-S2104",
+                message=(
+                    "Invalid argument types for function nullif: expected same "
+                    "canonical comparable type"
+                ),
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+    left_nullability = argument_types[0].nullability
+    return ValueType(
+        resolved_type=canonical,
+        nullability=(
+            EffectiveNullability.NULLABLE
+            if left_nullability is EffectiveNullability.NON_NULL
+            else left_nullability
+        ),
+    )
+
+
+def _is_null_literal(expression: Expression) -> bool:
+    return isinstance(expression, LiteralExpr) and expression.value is None
+
+
+def _contextual_null_literal_type(resolved: ResolvedType | str) -> ValueType:
+    return ValueType(
+        resolved_type=(
+            _builtin_value_type(resolved, EffectiveNullability.NULLABLE).resolved_type
+            if isinstance(resolved, str)
+            else resolved
+        ),
+        nullability=EffectiveNullability.NULLABLE,
+    )
+
+
+def _contextual_null_literal_types(
+    expressions: tuple[Expression, ...],
+    value_types: tuple[ValueType, ...],
+    recorded: dict[Expression, ValueType],
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> tuple[ValueType, ...] | None:
+    """Type only literal NULLs from one local approved common-type context."""
+
+    if any(
+        value_type.kind is ValueTypeKind.UNKNOWN and not _is_null_literal(expression)
+        for expression, value_type in zip(expressions, value_types, strict=True)
+    ):
+        return None
+    known = tuple(
+        value_type
+        for value_type in value_types
+        if value_type.kind is ValueTypeKind.KNOWN
+    )
+    if not known:
+        return None
+    canonical = _shared_canonical_type(known, type_expansions)
+    if canonical is None:
+        return value_types
+    result = []
+    for expression, value_type in zip(expressions, value_types, strict=True):
+        if value_type.kind is ValueTypeKind.UNKNOWN and _is_null_literal(expression):
+            value_type = _contextual_null_literal_type(canonical)
+            recorded[expression] = value_type
+        result.append(value_type)
+    return tuple(result)
+
+
+def _contextual_fixed_null_literal_types(
+    expressions: tuple[Expression, ...],
+    value_types: tuple[ValueType, ...],
+    parameter_types: tuple[str, ...],
+    recorded: dict[Expression, ValueType],
+) -> tuple[ValueType, ...]:
+    """Type literal NULLs only where one closed built-in parameter type selects it."""
+
+    result = []
+    for expression, value_type, parameter_type in zip(
+        expressions, value_types, parameter_types, strict=True
+    ):
+        if value_type.kind is ValueTypeKind.UNKNOWN and _is_null_literal(expression):
+            value_type = _contextual_null_literal_type(parameter_type)
+            recorded[expression] = value_type
+        result.append(value_type)
+    return tuple(result)
+
+
+def _sign_value_type(
+    expression: CallExpr,
+    argument_types: tuple[ValueType, ...],
+    diagnostics: list[Diagnostic],
+    *,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> ValueType:
+    if len(argument_types) != 1:
+        diagnostics.append(_wrong_arity_diagnostic(expression, _SIGN_SIGNATURE))
+        return _UNKNOWN_VALUE_TYPE
+    argument_type = argument_types[0]
+    if not (
+        _is_canonical_builtin(argument_type, "Int", type_expansions)
+        or _is_canonical_builtin(argument_type, "Decimal", type_expansions)
+    ):
+        diagnostics.append(
+            _call_diagnostic(
+                expression,
+                code="PIE-S2104",
+                message=(
+                    "Invalid argument type for function sign at position 1: "
+                    f"expected Int or Decimal, got {argument_type.resolved_type.name}"
+                ),
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+    return _builtin_value_type("Int", argument_type.nullability)
+
+
+def _civil_date_part_value_type(
+    expression: CallExpr,
+    argument_types: tuple[ValueType, ...],
+    diagnostics: list[Diagnostic],
+    *,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> ValueType:
+    if len(argument_types) != 1:
+        diagnostics.append(
+            _call_diagnostic(
+                expression,
+                code="PIE-S2104",
+                message=(
+                    f"Invalid arguments for function {_callee_name(expression)}: "
+                    f"expected 1, got {len(argument_types)}"
+                ),
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+    argument_type = argument_types[0]
+    if not (
+        _is_canonical_builtin(argument_type, "Date", type_expansions)
+        or _is_canonical_builtin(argument_type, "Timestamp", type_expansions)
+    ):
+        diagnostics.append(
+            _call_diagnostic(
+                expression,
+                code="PIE-S2104",
+                message=(
+                    f"Invalid argument type for function {_callee_name(expression)} at "
+                    "position 1: expected Date or Timestamp, got "
+                    f"{argument_type.resolved_type.name}"
+                ),
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+    return _builtin_value_type("Int", argument_type.nullability)
+
+
+def _valid_static_substr_bounds(expression: CallExpr) -> bool:
+    start, count = expression.arguments[1:]
+    return (
+        isinstance(start, LiteralExpr)
+        and type(start.value) is int
+        and start.value > 0
+        and isinstance(count, LiteralExpr)
+        and type(count.value) is int
+        and count.value >= 0
     )
 
 
@@ -1232,7 +1872,7 @@ def _binary_arithmetic_result_type(
             else "Int"
         )
     if (
-        operator in {"+", "-"}
+        operator in {"+", "-", "*"}
         and _is_builtin(left_type, "Decimal")
         and _is_builtin(right_type, "Decimal")
     ):
@@ -1257,6 +1897,19 @@ def _is_builtin(value_type: ValueType, name: str) -> bool:
     )
 
 
+def _is_canonical_builtin(
+    value_type: ValueType,
+    name: str,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> bool:
+    resolved = _canonical_resolved_type(value_type, type_expansions)
+    return (
+        resolved is not None
+        and resolved.kind is TypeKind.BUILTIN
+        and resolved.name == name
+    )
+
+
 def _builtin_value_type(
     name: str,
     nullability: EffectiveNullability,
@@ -1270,18 +1923,50 @@ def _builtin_value_type(
 
 
 def _invalid_operator_operands_diagnostic(
-    expression: UnaryExpr | BinaryExpr | ComparisonExpr | BetweenExpr,
+    expression: (
+        UnaryExpr
+        | BinaryExpr
+        | ComparisonExpr
+        | BetweenExpr
+        | ConditionalExpr
+        | MembershipExpr
+    ),
     *,
     expected: str,
 ) -> Diagnostic:
     """Report incompatible known operands at the full operator expression span."""
 
     span = expression.span
-    operator = "between" if isinstance(expression, BetweenExpr) else expression.operator
+    if isinstance(expression, BetweenExpr):
+        operator = "between"
+    elif isinstance(expression, ConditionalExpr):
+        operator = "conditional"
+    elif isinstance(expression, MembershipExpr):
+        operator = "in" if not expression.negated else "not in"
+    else:
+        operator = expression.operator
     return Diagnostic(
         code="PIE-S2105",
         severity=Severity.ERROR,
         message=f"Invalid operands for operator {operator}: expected {expected}",
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+    )
+
+
+def _invalid_cast_diagnostic(expression: CastExpr, *, expected: str) -> Diagnostic:
+    """Report a rejected explicit conversion at the complete cast span."""
+
+    span = expression.span
+    return Diagnostic(
+        code="PIE-S2105",
+        severity=Severity.ERROR,
+        message=f"Invalid cast: expected {expected}",
         location=SourceLocation(
             path=span.path,
             line=span.line,

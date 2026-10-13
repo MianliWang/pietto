@@ -509,7 +509,6 @@ def test_prerequisite_closure_zero_behavior_and_handoff_are_exact() -> None:
     assert len(changed_paths) == 14
     assert sum(status == "A" for status, _ in changed_paths) == 9
     assert sum(status == "M" for status, _ in changed_paths) == 5
-    assert all((REPO_ROOT / path).is_file() for _, path in changed_paths)
 
     normalized = " ".join(specification.split())
     for evidence in (

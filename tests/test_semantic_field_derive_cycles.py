@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import fields, is_dataclass
 
+import pytest
 from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
@@ -121,6 +122,26 @@ def test_is_null_dependencies_participate_in_cycle() -> None:
             "    b: Bool not null derive a is not null\n"
         )
     )
+
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2504"]
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "shape Flags:\n"
+        "    a: Bool not null derive b if true else false\n"
+        "    b: Bool not null derive a\n",
+        "shape Flags:\n"
+        "    a: Bool not null derive b in (true,)\n"
+        "    b: Bool not null derive a\n",
+    ),
+    ids=("conditional", "membership"),
+)
+def test_new_composite_expression_dependencies_participate_in_cycles(
+    source: str,
+) -> None:
+    result = analyze(_parse(source))
 
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2504"]
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 import importlib
 import math
@@ -28,6 +28,8 @@ __all__: tuple[str, ...] = ()
 # The pinned Arrow package of every public Arrow-producing flow. The route
 # owners use this at their public boundary; internal callers stay lazy.
 PYARROW = ("pyarrow", "25.0.1", "pyarrow")
+DATE_LOWER = date(1000, 1, 1)
+DATE_UPPER = date(9999, 12, 31)
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +206,8 @@ def _arrow_type(pa, bound, width, text_width, decimal_width, uuid_representation
     if kind == "Decimal":
         decimal = bound.observation.decimal
         return getattr(pa, f"decimal{decimal_width}")(decimal.precision, decimal.scale)
+    if kind == "Date":
+        return pa.date32()
     if kind == "Timestamp":
         return pa.timestamp("us", tz=None)
     if kind == "UUID":
@@ -442,6 +446,9 @@ def _value(value, bound, *, logical=False):
             or len(value) > text.max_characters
             or (bound.observation.storage == "pg_text" and "\0" in value)
         ):
+            raise ResultError("VALUE_DOMAIN")
+    elif kind == "Date":
+        if type(value) is not date or not DATE_LOWER <= value <= DATE_UPPER:
             raise ResultError("VALUE_DOMAIN")
     elif kind == "Timestamp":
         if not logical:

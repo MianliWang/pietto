@@ -11,7 +11,10 @@ from typing import TYPE_CHECKING
 from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
+    CastExpr,
     CallExpr,
+    CheckDef,
+    ConditionalExpr,
     ComparisonExpr,
     ConstraintDef,
     Definition,
@@ -19,9 +22,12 @@ from pietto.ast_nodes import (
     DottedNameExpr,
     EnumDef,
     Expression,
+    FieldDef,
     FromClause,
     IsNullExpr,
+    IndexDef,
     LiteralExpr,
+    MembershipExpr,
     NameExpr,
     Nullability,
     QueryDef,
@@ -33,6 +39,7 @@ from pietto.ast_nodes import (
     TypeExpr,
     UnaryExpr,
     WindowExpr,
+    WindowSpec,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.callables import (
@@ -153,22 +160,27 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
     diagnostics.extend(relationship_diagnostics)
 
     for type_expr in _iter_type_expressions(script):
-        resolved_type = _resolve_type(type_expr, type_symbols)
-        type_resolutions[type_expr] = resolved_type
-        type_nullability[type_expr] = _effective_nullability(type_expr)
-
-        if resolved_type.kind is TypeKind.UNKNOWN:
-            diagnostics.append(_unknown_type_diagnostic(type_expr))
-        decimal_precision_scale, decimal_diagnostic = _decimal_precision_scale_fact(
-            type_expr
+        _record_type_expression(
+            type_expr,
+            type_symbols=type_symbols,
+            type_resolutions=type_resolutions,
+            type_nullability=type_nullability,
+            decimal_precision_scales=decimal_precision_scales,
+            diagnostics=diagnostics,
+            mode=mode,
+            report_implicit_nullability=True,
         )
-        if decimal_precision_scale is not None:
-            decimal_precision_scales[type_expr] = decimal_precision_scale
-        if decimal_diagnostic is not None:
-            diagnostics.append(decimal_diagnostic)
-        implicit_diagnostic = _implicit_nullability_diagnostic(type_expr, mode)
-        if implicit_diagnostic is not None:
-            diagnostics.append(implicit_diagnostic)
+    for type_expr in _iter_cast_target_type_expressions(script):
+        _record_type_expression(
+            type_expr,
+            type_symbols=type_symbols,
+            type_resolutions=type_resolutions,
+            type_nullability=type_nullability,
+            decimal_precision_scales=decimal_precision_scales,
+            diagnostics=diagnostics,
+            mode=mode,
+            report_implicit_nullability=False,
+        )
 
     type_expansions, alias_diagnostics = expand_type_aliases(
         script,
@@ -489,6 +501,12 @@ def _expression_children(expression: Expression) -> tuple[Expression, ...]:
         return expression.arguments
     if isinstance(expression, UnaryExpr):
         return (expression.operand,)
+    if isinstance(expression, ConditionalExpr):
+        return (expression.when_true, expression.condition, expression.when_false)
+    if isinstance(expression, MembershipExpr):
+        return (expression.value, *expression.options)
+    if isinstance(expression, CastExpr):
+        return (expression.value,)
     if isinstance(expression, BinaryExpr):
         return (expression.left, expression.right)
     if isinstance(expression, ComparisonExpr):
@@ -497,7 +515,9 @@ def _expression_children(expression: Expression) -> tuple[Expression, ...]:
         return (expression.value, expression.lower, expression.upper)
     if isinstance(expression, IsNullExpr):
         return (expression.value,)
-    return ()
+    if isinstance(expression, (LiteralExpr, NameExpr, DottedNameExpr, WindowExpr)):
+        return ()
+    raise AssertionError(f"Unsupported expression: {type(expression).__name__}")
 
 
 def _analyze_relation_schema_expressions(
@@ -724,6 +744,136 @@ def _iter_type_expressions(script: Script) -> Iterator[TypeExpr]:
         elif isinstance(definition, ShapeDef):
             for field in definition.fields:
                 yield field.type_expr
+
+
+def _iter_cast_target_type_expressions(script: Script) -> Iterator[TypeExpr]:
+    """Yield cast targets without applying declaration-nullability policy."""
+
+    for definition in script.definitions:
+        if isinstance(definition, TypeDef):
+            yield from _cast_targets_in_type_arguments(definition.base)
+            for ensure in definition.ensures:
+                yield from _cast_targets_in_expression(ensure.expression)
+        elif isinstance(definition, (ConstraintDef, DeriveDef)):
+            for parameter in definition.parameters:
+                yield from _cast_targets_in_type_arguments(parameter.type)
+            yield from _cast_targets_in_type_arguments(definition.return_type)
+            yield from _cast_targets_in_expression(definition.body)
+        elif isinstance(definition, ShapeDef):
+            for item in definition.items:
+                if isinstance(item, FieldDef):
+                    yield from _cast_targets_in_type_arguments(item.type_expr)
+                    if item.derive_expression is not None:
+                        yield from _cast_targets_in_expression(item.derive_expression)
+                    for ensure in item.ensure_clauses:
+                        yield from _cast_targets_in_expression(ensure.expression)
+                elif isinstance(item, CheckDef):
+                    yield from _cast_targets_in_expression(item.expression)
+                elif isinstance(item, IndexDef) and item.predicate is not None:
+                    yield from _cast_targets_in_expression(item.predicate)
+        elif isinstance(definition, SourceDef):
+            yield from _cast_targets_in_expression(definition.connector)
+        elif isinstance(definition, (TableDef, QueryDef)):
+            yield from _relation_cast_targets(definition)
+    for relationship in script.relationships:
+        if relationship.base_match is not None:
+            yield from _cast_targets_in_expression(relationship.base_match.expression)
+
+
+def _cast_targets_in_type_arguments(type_expr: TypeExpr) -> Iterator[TypeExpr]:
+    """Yield casts written in one declaration type's value arguments."""
+
+    for argument in type_expr.arguments:
+        yield from _cast_targets_in_expression(argument.value)
+
+
+def _record_type_expression(
+    type_expr: TypeExpr,
+    *,
+    type_symbols: dict[str, Definition],
+    type_resolutions: dict[TypeExpr, ResolvedType],
+    type_nullability: dict[TypeExpr, EffectiveNullability],
+    decimal_precision_scales: dict[TypeExpr, DecimalPrecisionScale],
+    diagnostics: list[Diagnostic],
+    mode: CheckMode,
+    report_implicit_nullability: bool,
+) -> None:
+    """Resolve one declared or cast-target type without weakening validation."""
+
+    resolved_type = _resolve_type(type_expr, type_symbols)
+    type_resolutions[type_expr] = resolved_type
+    type_nullability[type_expr] = _effective_nullability(type_expr)
+    if resolved_type.kind is TypeKind.UNKNOWN:
+        diagnostics.append(_unknown_type_diagnostic(type_expr))
+    decimal_precision_scale, decimal_diagnostic = _decimal_precision_scale_fact(
+        type_expr
+    )
+    if decimal_precision_scale is not None:
+        decimal_precision_scales[type_expr] = decimal_precision_scale
+    if decimal_diagnostic is not None:
+        diagnostics.append(decimal_diagnostic)
+    if report_implicit_nullability:
+        implicit_diagnostic = _implicit_nullability_diagnostic(type_expr, mode)
+        if implicit_diagnostic is not None:
+            diagnostics.append(implicit_diagnostic)
+
+
+def _relation_cast_targets(definition: TableDef | QueryDef) -> Iterator[TypeExpr]:
+    """Yield casts from one relation body in authored clause order."""
+
+    if definition.let_clause is not None:
+        for binding in definition.let_clause.bindings:
+            yield from _cast_targets_in_expression(binding.expression)
+    if definition.where_clause is not None:
+        yield from _cast_targets_in_expression(definition.where_clause.expression)
+    if definition.group_by_clause is not None:
+        for item in definition.group_by_clause.items:
+            yield from _cast_targets_in_expression(item.key)
+    for item in definition.select_items:
+        yield from _cast_targets_in_expression(item.expression)
+    if definition.satisfying_clause is not None:
+        yield from _cast_targets_in_expression(definition.satisfying_clause.expression)
+    if definition.qualify_clause is not None:
+        yield from _cast_targets_in_expression(definition.qualify_clause.expression)
+    if definition.order_by_clause is not None:
+        for item in definition.order_by_clause.items:
+            yield from _cast_targets_in_expression(item.expression)
+    if definition.limit_clause is not None:
+        yield from _cast_targets_in_expression(definition.limit_clause.expression)
+    for join in definition.join_clauses:
+        if join.on_clause is not None:
+            yield from _cast_targets_in_expression(join.on_clause.expression)
+    for named_window in definition.named_windows:
+        if named_window.spec is not None:
+            yield from _window_spec_cast_targets(named_window.spec)
+
+
+def _cast_targets_in_expression(expression: Expression) -> Iterator[TypeExpr]:
+    """Yield every cast target while preserving expression source order."""
+
+    if isinstance(expression, CastExpr):
+        yield from _cast_targets_in_expression(expression.value)
+        yield expression.target
+        return
+    if isinstance(expression, WindowExpr):
+        yield from _cast_targets_in_expression(expression.call)
+        yield from _window_spec_cast_targets(expression.spec)
+        return
+    for child in _expression_children(expression):
+        yield from _cast_targets_in_expression(child)
+
+
+def _window_spec_cast_targets(spec: WindowSpec) -> Iterator[TypeExpr]:
+    """Yield casts in a parsed window spec without widening its semantics."""
+
+    for expression in spec.partition_by:
+        yield from _cast_targets_in_expression(expression)
+    for item in spec.order_by:
+        yield from _cast_targets_in_expression(item.expression)
+    frame = spec.frame
+    for bound in (frame.start, frame.end):
+        if bound is not None and bound.offset is not None:
+            yield from _cast_targets_in_expression(bound.offset)
 
 
 def _resolve_type(

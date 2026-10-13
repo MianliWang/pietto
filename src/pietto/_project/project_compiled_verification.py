@@ -58,6 +58,7 @@ RELATIONS = frozenset(
 VALUES = frozenset(
     {
         "literal",
+        "null_literal",
         "read",
         "operation",
         "aggregate_value",
@@ -487,7 +488,9 @@ def verify_description(value: Description) -> None:
             ref(get("owner"), {"declaration"})
             producer = ref(get("input"), RELATIONS)
             use = ref(get("use"), {"use"})
-            values = refs(get("values"), {"literal", "read", "operation"})
+            values = refs(
+                get("values"), {"literal", "null_literal", "read", "operation"}
+            )
             outputs = refs(get("outputs"), {"port"})
             need(
                 get("stage") in ("let", "where", "satisfying", "qualify", "projection")
@@ -498,7 +501,7 @@ def verify_description(value: Description) -> None:
                 "ROW_SHAPE",
             )
             if get("predicate") is not None:
-                ref(get("predicate"), {"literal", "read", "operation"})
+                ref(get("predicate"), {"literal", "null_literal", "read", "operation"})
             need(
                 (get("predicate") is not None)
                 is (get("stage") in ("where", "satisfying", "qualify")),
@@ -599,7 +602,8 @@ def verify_description(value: Description) -> None:
         elif kind == "aggregate_value":
             arguments = refs(get("arguments"), {"read"})
             need(
-                get("function") in ("count", "count_distinct", "min", "max")
+                get("function")
+                in ("count", "count_distinct", "sum", "avg", "min", "max")
                 and len(arguments) <= 1
                 and (bool(arguments) or get("function") == "count"),
                 "AGGREGATE_SIGNATURE",
@@ -653,7 +657,7 @@ def verify_description(value: Description) -> None:
                 )
             predicate = get("predicate")
             if predicate is not None:
-                ref(predicate, {"read", "operation", "literal"})
+                ref(predicate, {"read", "operation", "literal", "null_literal"})
             need(
                 (get("kind") == "cross") is (not equalities and predicate is None),
                 "JOIN_CONDITION",
@@ -955,9 +959,41 @@ def verify_description(value: Description) -> None:
                 raise CompiledError("COMPILED_OPERATOR")
             allowed = {
                 "unary": ({"+", "-"}, 1),
+                "not": ({"not"}, 1),
                 "binary": ({"+", "-", "*", "and", "or"}, 2),
-                "comparison": ({"==", "!=", "<", "<=", ">", ">="}, 2),
+                "comparison": (
+                    {"==", "!=", "<", "<=", ">", ">=", "like", "not like"},
+                    2,
+                ),
                 "null_test": ({"is_null", "is_not_null"}, 1),
+                "between": ({"between"}, 3),
+                "conditional": ({"if_else"}, 3),
+                "membership": ({"in", "not_in"}, None),
+                "cast": ({"int_to_float"}, 1),
+                "scalar_call": (
+                    {
+                        "lower",
+                        "upper",
+                        "trim",
+                        "len",
+                        "substr",
+                        "replace",
+                        "contains",
+                        "starts_with",
+                        "ends_with",
+                        "coalesce",
+                        "nullif",
+                        "abs",
+                        "sign",
+                        "date_of",
+                        "year",
+                        "month",
+                        "day",
+                        "hour",
+                        "minute",
+                    },
+                    None,
+                ),
             }
             need(
                 type(role) is str
@@ -966,12 +1002,16 @@ def verify_description(value: Description) -> None:
                 and token in allowed[role][0],
                 "OPERATOR",
             )
+            expected_arity = allowed[role][1]
             operands = record.get("operands")
             need(
-                type(operands) is tuple and len(operands) == allowed[role][1],
+                type(operands) is tuple
+                and (expected_arity is None or len(operands) == expected_arity)
+                and (role != "membership" or len(operands) >= 1)
+                and (role != "scalar_call" or len(operands) >= 1),
                 "OPERATOR_ARITY",
             )
-            refs(operands, {"literal", "read", "operation"})
+            refs(operands, {"literal", "null_literal", "read", "operation"})
     bound_literals = {
         r.get("literal"): records[r.get("site")]
         for r in records.values()
@@ -1023,7 +1063,7 @@ def verify_description(value: Description) -> None:
     # dialect trees; a compact DAG cannot allocate an exponential tree.
     costs, depths, active_values = {}, {}, set()
     for address in records:
-        if address.kind not in ("literal", "read", "operation"):
+        if address.kind not in ("literal", "null_literal", "read", "operation"):
             continue
         stack = [(address, False)]
         while stack:
@@ -1039,9 +1079,9 @@ def verify_description(value: Description) -> None:
                 stack.extend((child, False) for child in reversed(children))
                 continue
             active_values.remove(current)
-            costs[current] = (2 if current.kind == "literal" else 1) + sum(
-                costs[c] for c in children
-            )
+            costs[current] = (
+                2 if current.kind in ("literal", "null_literal") else 1
+            ) + sum(costs[c] for c in children)
             depths[current] = 1 + max((depths[c] for c in children), default=0)
             need(
                 costs[current] <= MAX_RECORDS
@@ -1477,8 +1517,11 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
     from pietto.ast_nodes import (
         UnaryExpr,
         BinaryExpr,
+        CastExpr,
         ComparisonExpr,
+        ConditionalExpr,
         IsNullExpr,
+        MembershipExpr,
         BetweenExpr,
         CallExpr,
     )
@@ -1490,6 +1533,9 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
         IsNullExpr: "null_test",
         BetweenExpr: "between",
         CallExpr: "call",
+        ConditionalExpr: "conditional",
+        MembershipExpr: "membership",
+        CastExpr: "cast",
     }
     expected_declarations = {}
 
@@ -1713,6 +1759,15 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                 and parameters.same_value(record.get("value").value, value),
                 "EXPORT_LITERAL_VALUE",
             )
+        elif type(actual) is parameters.SQLNull:
+            need(
+                record.address.kind == "null_literal"
+                and parameters.typed_null(actual.original)
+                and actual.site.position.literal.value is None
+                and actual.site.disposition.value == "preserved_with_reason"
+                and actual.site.reason.value == "contextual_typed_null",
+                "EXPORT_NULL_LITERAL",
+            )
         elif type(actual) in (parameters.SQLUnary, rows.SQLOperation):
             need(record.address.kind == "operation", "EXPORT_OPERATION")
             if type(actual) is parameters.SQLUnary:
@@ -1724,19 +1779,38 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             else:
                 role = {
                     "sign": "unary",
+                    "not": "not",
                     "arithmetic": "binary",
                     "logical": "binary",
                     "comparison": "comparison",
                     "null_test": "null_test",
-                }[actual.kind]
+                    "between": "between",
+                    "scalar_call": "scalar_call",
+                    "conditional": "conditional",
+                    "membership": "membership",
+                    "cast": "cast",
+                }.get(actual.kind)
+                need(role is not None, "EXPORT_OPERATION")
                 token = (
-                    actual.original.expression.operator
-                    if role != "null_test"
-                    else (
-                        "is_not_null"
-                        if actual.original.expression.negated
-                        else "is_null"
-                    )
+                    actual.original.callee_symbol.name
+                    if role == "scalar_call"
+                    else "not_in"
+                    if role == "membership" and actual.original.expression.negated
+                    else "in"
+                    if role == "membership"
+                    else "int_to_float"
+                    if role == "cast"
+                    else "if_else"
+                    if role == "conditional"
+                    else "between"
+                    if role == "between"
+                    else "not"
+                    if role == "not"
+                    else "is_not_null"
+                    if role == "null_test" and actual.original.expression.negated
+                    else "is_null"
+                    if role == "null_test"
+                    else actual.original.expression.operator
                 )
                 operands = actual.operands
             need(
@@ -2682,6 +2756,32 @@ def _verify_compiled_emission(artifact, request):
                     and parameters.same_value(leaf.value, facts[address].value),
                     "EMISSION_LITERAL_VALUE",
                 )
+        elif address.kind == "null_literal":
+            matches = tuple(
+                site
+                for site in plan.literal_sites
+                if site.position.expression is expected_original.ref
+            )
+            need(
+                type(actual) is parameters.SQLNull
+                and actual.original is expected_original
+                and len(matches) == 1
+                and actual.site is matches[0]
+                and expected_original.expression.value is None
+                and facts[address].value_type.resolved_type.name
+                in {
+                    "Bool",
+                    "Int",
+                    "Float",
+                    "Text",
+                    "Decimal",
+                    "Date",
+                    "Timestamp",
+                    "UUID",
+                }
+                and facts[address].value_type.nullability.value == "nullable",
+                "EMISSION_NULL_LITERAL",
+            )
         else:
             role, token = record.get("operator")
             children = record.get("operands")
@@ -2696,19 +2796,31 @@ def _verify_compiled_emission(artifact, request):
             else:
                 kind = {
                     "unary": "sign",
+                    "not": "not",
                     "comparison": "comparison",
                     "null_test": "null_test",
+                    "between": "between",
+                    "scalar_call": "scalar_call",
+                    "conditional": "conditional",
+                    "membership": "membership",
+                    "cast": "cast",
                 }.get(role, "logical" if token in ("and", "or") else "arithmetic")
                 need(
                     type(actual) is rows.SQLOperation
-                    and actual.original is expected_original
+                    and actual.original is plan.expression_identities[address]
                     and actual.kind == kind
                     and len(actual.operands) == len(children)
                     and actual.realization is facts[address].realization,
                     "EMISSION_OPERATION",
                 )
-                for item, child in zip(actual.operands, children, strict=True):
-                    scalar(item, child, producer, use, join_contexts)
+                for position in rows.rendered_operand_order(kind, len(children)):
+                    scalar(
+                        actual.operands[position],
+                        children[position],
+                        producer,
+                        use,
+                        join_contexts,
+                    )
 
     for index, (body, record) in enumerate(zip(query.bodies, units, strict=True)):
         if record.address.kind == "join":
@@ -2876,6 +2988,13 @@ def _verify_compiled_emission(artifact, request):
                         grouping.argument_problem(function, column.argument) is None,
                         "EMISSION_AGGREGATE_ARGUMENT",
                     )
+                need(
+                    column.argument_cast
+                    == grouping.argument_cast(
+                        request.family, function, column.argument
+                    ),
+                    "EMISSION_AGGREGATE_CAST",
+                )
                 origin = column.column.aggregate
                 expected_inputs = (
                     (column.argument.column.terminal,)
@@ -3121,7 +3240,10 @@ def verify_compiled_result_unit(body, record, request, produced, local_port, ext
                 and item.item.ref is extras["result_order_item", base + position]
                 and item.expression.ref
                 is extras["result_order_expression", base + position]
-                and item.use.ref is extras["result_order_use", base + position]
+                and (
+                    item.use is None
+                    or item.use.ref is extras["result_order_use", base + position]
+                )
                 and item.port is port
                 and item.read.terminal is port.ref
                 and item.read.name == produced[producer].cte_columns[i].name
@@ -3650,6 +3772,8 @@ def verify_compiled_join_unit(body, record, request, produced, sources, bindings
 
 def verify_requirement_export(records, artifact, check_declaration):
     """Read the complete original producer graph, independently of export maps."""
+    from pietto._project import project_sql_emission_parameters as parameters
+
     plan, report = artifact.request.plan, artifact.request.report.report
     origins = tuple(
         r for r in records.values() if r.address.kind == "requirement_origin"
@@ -3705,12 +3829,18 @@ def verify_requirement_export(records, artifact, check_declaration):
             scalar_anchors = tuple(
                 records[a]
                 for a in described.get("anchors")
-                if a.kind in ("literal", "read", "operation")
+                if a.kind in ("literal", "null_literal", "read", "operation")
             )
-            need(bool(scalar_anchors), "EXPORT_REQUIREMENT_EXPRESSION_ANCHOR")
+            if not scalar_anchors:
+                need(
+                    parameters.typed_null(expression),
+                    "EXPORT_REQUIREMENT_EXPRESSION_ANCHOR",
+                )
             for anchor in scalar_anchors:
                 if anchor.address.kind == "literal":
                     expected = (anchor.get("tag"), "non_null")
+                elif anchor.address.kind == "null_literal":
+                    continue
                 elif anchor.address.kind == "read":
                     expected = records[anchor.get("port")].get("logical")
                 else:
@@ -3797,6 +3927,7 @@ def verify_logical_export(description, checked, references):
     from pietto._project.project_sql_plan_windows import ProjectSQLWindowReference
     from pietto._project.project_sql_emission_aggregation import function_name
     from pietto._project.project_sql_emission_contract import source_family
+    from pietto._project.project_sql_emission_results import _same_order_expression
     from pietto._project.project_compiled_schema import scalar_wire
 
     plan = checked.plan
@@ -3863,6 +3994,9 @@ def verify_logical_export(description, checked, references):
         syntax.IsNullExpr: "null_test",
         syntax.BetweenExpr: "between",
         syntax.CallExpr: "call",
+        syntax.ConditionalExpr: "conditional",
+        syntax.MembershipExpr: "membership",
+        syntax.CastExpr: "cast",
     }
     literal_addresses = {}
     for ordinal, (site, literal, original) in enumerate(
@@ -3968,6 +4102,11 @@ def verify_logical_export(description, checked, references):
                 scalar.ProjectSQLBinary,
                 scalar.ProjectSQLComparison,
                 scalar.ProjectSQLIsNull,
+                scalar.ProjectSQLBetween,
+                scalar.ProjectSQLScalarCall,
+                scalar.ProjectSQLConditional,
+                scalar.ProjectSQLMembership,
+                scalar.ProjectSQLCast,
             ),
             "RETAINED_EXPRESSION_DOMAIN",
         )
@@ -4005,7 +4144,11 @@ def verify_logical_export(description, checked, references):
             return
         if type(original) is scalar.ProjectSQLUnary:
             expected, inputs = (
-                ("unary", original.expression.operator),
+                (
+                    ("not", "not")
+                    if original.expression.operator == "not"
+                    else ("unary", original.expression.operator)
+                ),
                 (original.operand,),
             )
         elif isinstance(
@@ -4021,6 +4164,21 @@ def verify_logical_export(description, checked, references):
                 "null_test",
                 "is_not_null" if original.expression.negated else "is_null",
             )
+            inputs = (original.value,)
+        elif type(original) is scalar.ProjectSQLBetween:
+            expected = ("between", "between")
+            inputs = (original.value, original.lower, original.upper)
+        elif type(original) is scalar.ProjectSQLScalarCall:
+            expected = ("scalar_call", original.callee_symbol.name)
+            inputs = original.arguments
+        elif type(original) is scalar.ProjectSQLConditional:
+            expected = ("conditional", "if_else")
+            inputs = (original.when_true, original.condition, original.when_false)
+        elif type(original) is scalar.ProjectSQLMembership:
+            expected = ("membership", "not_in" if original.expression.negated else "in")
+            inputs = (original.value, *original.options)
+        elif type(original) is scalar.ProjectSQLCast:
+            expected = ("cast", "int_to_float")
             inputs = (original.value,)
         else:
             raise CompiledError("COMPILED_RETAINED_EXPRESSION_DOMAIN")
@@ -4528,16 +4686,58 @@ def verify_logical_export(description, checked, references):
                 ordered_expression = next(
                     e for e in plan.order_expressions if e.ref is item.expression
                 )
-                original_use = next(
-                    u for u in plan.order_uses if u.ref is ordered_expression.use
+                order = next(
+                    order for order in plan.orders if order.ref is item.ordering
                 )
-                need(
-                    len(original_use.ports) == 1
-                    and original_use.requirement is None
-                    and direction == item.source.direction.value,
-                    "RETAINED_ORDER",
-                )
-                read(address, original_use.ports[0], input_uses)
+                if ordered_expression.use is not None:
+                    original_use = next(
+                        u for u in plan.order_uses if u.ref is ordered_expression.use
+                    )
+                    need(
+                        len(original_use.ports) == 1
+                        and original_use.requirement is None
+                        and direction == item.source.direction.value,
+                        "RETAINED_ORDER",
+                    )
+                    read(address, original_use.ports[0], input_uses)
+                else:
+                    matches = tuple(
+                        projection
+                        for projection in plan.projections
+                        if _same_order_expression(
+                            expressions[projection.expression].expression,
+                            ordered_expression.expression,
+                        )
+                    )
+                    boundary = tuple(
+                        value
+                        for value in plan.result_boundaries
+                        if value.ref is order.boundary
+                    )
+                    result_ports = {port.ref: port for port in plan.result_ports}
+
+                    def terminal_source(reference):
+                        while reference in result_ports:
+                            reference = result_ports[reference].source
+                        return reference
+
+                    inputs = (
+                        ()
+                        if len(boundary) != 1 or len(matches) != 1
+                        else tuple(
+                            value
+                            for value in boundary[0].inputs
+                            if terminal_source(value) is matches[0].ref
+                        )
+                    )
+                    need(
+                        bool(ordered_expression.operands)
+                        and len(inputs) == 1
+                        and direction == item.source.direction.value,
+                        "RETAINED_ORDER",
+                    )
+                    assert inputs
+                    read(address, inputs[0], input_uses)
             limits = tuple(
                 v
                 for v in plan.result_limits

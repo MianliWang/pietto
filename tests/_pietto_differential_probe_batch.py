@@ -20,14 +20,14 @@ import traceback
 
 FAMILY_MODULES: dict[str, str] = {
     "phase58": "_pietto_project_explain_differential_probe",
-    "phase59": "_pietto_phase59_graph_differential_probe",
-    "phase60": "_pietto_phase60_window_differential_probe",
-    "phase61": "_pietto_phase61_project_ir_differential_probe",
-    "phase62": "_pietto_phase62_join_differential_probe",
-    "phase63": "_pietto_phase63_query_block_ir_differential_probe",
-    "phase64": "_pietto_phase64_flat_ir_differential_probe",
-    "phase65": "_pietto_phase65_sql_plan_differential_probe",
-    "phase66": "_pietto_phase66_sql_emission_differential_probe",
+    "phase59": "_pietto_project_graph_differential",
+    "phase60": "_pietto_ir_window_differential",
+    "phase61": "_pietto_ir_project_differential",
+    "phase62": "_pietto_ir_join_differential",
+    "phase63": "_pietto_ir_query_block_differential",
+    "phase64": "_pietto_ir_flat_differential",
+    "phase65": "_pietto_plan_differential",
+    "phase66": "_pietto_sql_emission_differential",
 }
 FAMILY_AMBIENT: dict[str, str] = {
     "phase58": "PIETTO_SLICE16_IRRELEVANT",

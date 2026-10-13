@@ -11,12 +11,15 @@ from pietto.ast_nodes import (
     AuthoredWindowFrameKind,
     BetweenExpr,
     BinaryExpr,
+    CastExpr,
     CallExpr,
+    ConditionalExpr,
     ComparisonExpr,
     DottedNameExpr,
     Expression,
     IsNullExpr,
     LiteralExpr,
+    MembershipExpr,
     NameExpr,
     OrderItem,
     Span,
@@ -32,7 +35,9 @@ from pietto.ir.model import (
     AggregateCallIR,
     BetweenIR,
     BinaryIR,
+    CastIR,
     CallIR,
+    ConditionalIR,
     ComparisonIR,
     ExpressionIR,
     ExpressionLoweringResult,
@@ -40,6 +45,7 @@ from pietto.ir.model import (
     FieldRefIR,
     IsNullIR,
     LiteralIR,
+    MembershipIR,
     NamedWindowBaseIR,
     NamedWindowDeclarationIR,
     NamedWindowLocalSpecIR,
@@ -71,7 +77,7 @@ from pietto.ir.model import (
     WindowUseKindIR,
     WindowUseOccurrenceIR,
 )
-from pietto.semantic.catalog import BUILTIN_FUNCTIONS
+from pietto.semantic.catalog import is_builtin_function_name
 from pietto.semantic.aggregates import (
     aggregate_argument_can_use_let_scope,
     semantic_aggregate_call_name,
@@ -717,7 +723,7 @@ def _lower_expr_node(
                 **common,
             )
         callee_symbol = None
-        if callee in BUILTIN_FUNCTIONS:
+        if is_builtin_function_name(callee):
             callee_symbol = SymbolId(SymbolNamespace.CALLABLE, callee)
         return CallIR(
             callee=callee,
@@ -748,6 +754,77 @@ def _lower_expr_node(
                 let_expansions=let_expansions,
                 let_stack=let_stack,
             ),
+            **common,
+        )
+    if isinstance(expression, ConditionalExpr):
+        return ConditionalIR(
+            when_true=_lower_expr_node(
+                expression.when_true,
+                semantic_model,
+                fields=fields,
+                field_owner=field_owner,
+                field_qualifier=field_qualifier,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
+            ),
+            condition=_lower_expr_node(
+                expression.condition,
+                semantic_model,
+                fields=fields,
+                field_owner=field_owner,
+                field_qualifier=field_qualifier,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
+            ),
+            when_false=_lower_expr_node(
+                expression.when_false,
+                semantic_model,
+                fields=fields,
+                field_owner=field_owner,
+                field_qualifier=field_qualifier,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
+            ),
+            **common,
+        )
+    if isinstance(expression, MembershipExpr):
+        return MembershipIR(
+            value=_lower_expr_node(
+                expression.value,
+                semantic_model,
+                fields=fields,
+                field_owner=field_owner,
+                field_qualifier=field_qualifier,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
+            ),
+            options=tuple(
+                _lower_expr_node(
+                    option,
+                    semantic_model,
+                    fields=fields,
+                    field_owner=field_owner,
+                    field_qualifier=field_qualifier,
+                    let_expansions=let_expansions,
+                    let_stack=let_stack,
+                )
+                for option in expression.options
+            ),
+            negated=expression.negated,
+            **common,
+        )
+    if isinstance(expression, CastExpr):
+        return CastIR(
+            value=_lower_expr_node(
+                expression.value,
+                semantic_model,
+                fields=fields,
+                field_owner=field_owner,
+                field_qualifier=field_qualifier,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
+            ),
+            target=lower_canonical_type_ref(expression.target, semantic_model),
             **common,
         )
     if isinstance(expression, BinaryExpr):

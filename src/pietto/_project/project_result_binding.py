@@ -143,6 +143,7 @@ def verify_producer_binding(binding, contract, artifact) -> None:
             "Float": ("pg_float8",),
             "Text": ("pg_text",),
             "Decimal": ("pg_numeric",),
+            "Date": ("pg_date",),
             "Timestamp": ("pg_timestamp",),
             "UUID": ("pg_uuid",),
         },
@@ -152,6 +153,7 @@ def verify_producer_binding(binding, contract, artifact) -> None:
             "Float": ("my_double",),
             "Text": ("my_varchar",),
             "Decimal": ("my_decimal",),
+            "Date": ("my_date",),
             "Timestamp": ("my_datetime",),
             "UUID": ("my_uuid_bytes",),
         },
@@ -286,6 +288,10 @@ def verify_producer_binding(binding, contract, artifact) -> None:
                 raise ResultError("PRODUCER_DOMAIN")
             decimal = DecimalObservation(precision, scale)
             domain, carrier = "decimal", "decimal"
+        elif realized.tag == "Date":
+            if realized.domain != {"kind": "date"}:
+                raise ResultError("PRODUCER_DOMAIN")
+            domain, carrier = "date", "date"
         elif realized.tag in ("Timestamp", "UUID"):
             from pietto._project.project_scalar_meaning import _source_entry
 

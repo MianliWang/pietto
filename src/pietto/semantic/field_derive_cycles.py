@@ -7,13 +7,16 @@ from collections.abc import Iterator
 from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
+    CastExpr,
     CallExpr,
+    ConditionalExpr,
     ComparisonExpr,
     DottedNameExpr,
     Expression,
     FieldDef,
     IsNullExpr,
     LiteralExpr,
+    MembershipExpr,
     NameExpr,
     Script,
     ShapeDef,
@@ -136,6 +139,16 @@ def _bare_name_references(expression: Expression) -> Iterator[str]:
             yield from _bare_name_references(argument)
     elif isinstance(expression, UnaryExpr):
         yield from _bare_name_references(expression.operand)
+    elif isinstance(expression, ConditionalExpr):
+        yield from _bare_name_references(expression.when_true)
+        yield from _bare_name_references(expression.condition)
+        yield from _bare_name_references(expression.when_false)
+    elif isinstance(expression, MembershipExpr):
+        yield from _bare_name_references(expression.value)
+        for option in expression.options:
+            yield from _bare_name_references(option)
+    elif isinstance(expression, CastExpr):
+        yield from _bare_name_references(expression.value)
     elif isinstance(expression, (BinaryExpr, ComparisonExpr)):
         yield from _bare_name_references(expression.left)
         yield from _bare_name_references(expression.right)

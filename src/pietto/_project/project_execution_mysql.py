@@ -27,6 +27,7 @@ from pietto._project.project_execution_mysql_native import (
 from pietto._project.project_execution_mysql_context import (
     native_context,
     native_epoch,
+    verify_mysql_text_packet_capacity,
     qualify_sources,
     admit_sources,
     MySQLGuardContext,
@@ -145,6 +146,8 @@ class MySQLExecution:
         self._terminal: Any = None
         self.session_id: Any = None
         self.context: Any = None
+        self._mysql_packet_capacity: Any = None
+        self._mysql_text_packet_requirements: Any = None
         self._epoch: Any = None
         self._initial_epoch: Any = None
         self.environment: Any = None
@@ -263,6 +266,7 @@ class MySQLExecution:
                 raise ExecutionError("MYSQL_TRANSACTION_CHANGED")
         if not self._connection.unread_result and native_context(self) != self.context:
             raise ExecutionError("MYSQL_CONTEXT_CHANGED")
+        verify_mysql_text_packet_capacity(self)
         self._checkpoint()
 
     def _verify(self):
@@ -332,6 +336,7 @@ class MySQLExecution:
             )
             self._transaction = "OPEN"
             self.context = native_context(self)
+            verify_mysql_text_packet_capacity(self)
             self._epoch = native_epoch(self)
             self._initial_epoch = self._epoch
             self.environment = (

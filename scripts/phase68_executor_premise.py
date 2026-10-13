@@ -32,15 +32,15 @@ STATUSES = (
     "INCONCLUSIVE_ENVIRONMENT",
 )
 HELPERS = {
-    "_pietto_phase68_executor_cases",
+    "_pietto_execution_cases",
     "_pietto_target_conformance_resources",
     "_pietto_target_conformance_observation",
     "_pietto_mysql_native_prepared",
-    "_pietto_phase66_sql_emission_probe",
+    "_pietto_sql_emission",
     "_pietto_target_conformance_cases",
-    "_pietto_phase67_result_product_probe",
-    "_pietto_phase67_real_consumer_probe",
-    "_pietto_phase67_whole_result_probe",
+    "_pietto_results_product",
+    "_pietto_results_consumer",
+    "_pietto_results_conformance",
 }
 
 
@@ -53,7 +53,7 @@ def helper(name):
             "_pietto_target_conformance_resources",
         ),
         "_pietto_target_conformance_cases": (
-            "_pietto_phase66_sql_emission_probe",
+            "_pietto_sql_emission",
             "_pietto_mysql_native_prepared",
         ),
     }
@@ -110,7 +110,7 @@ def input_identity():
 
 
 def runtime_identity():
-    cases = helper("_pietto_phase68_executor_cases")
+    cases = helper("_pietto_execution_cases")
     result = {
         "python": sys.version,
         "executable": sys.executable,
@@ -485,9 +485,7 @@ class Driver:
                     types = (
                         [pa.int64(), pa.string(), pa.string(), pa.int32()]
                         if sql
-                        == helper("_pietto_phase68_executor_cases").PARAMETER_SQL[
-                            "postgres"
-                        ]
+                        == helper("_pietto_execution_cases").PARAMETER_SQL["postgres"]
                         else [
                             {
                                 bool: pa.bool_(),
@@ -587,7 +585,7 @@ class Driver:
 
 
 def check_values(record, case, route):
-    expected = helper("_pietto_phase68_executor_cases").expected_rows(case, route)
+    expected = helper("_pietto_execution_cases").expected_rows(case, route)
 
     def bag(rows):
         return Counter(json.dumps(x, sort_keys=True) for x in rows)
@@ -596,7 +594,7 @@ def check_values(record, case, route):
 
 
 def worker(config, directory):
-    cases = helper("_pietto_phase68_executor_cases")
+    cases = helper("_pietto_execution_cases")
     for name in (
         "_pietto_target_conformance_resources",
         "_pietto_target_conformance_observation",
@@ -807,7 +805,7 @@ def worker(config, directory):
             rec["injected_cleanup"] = {"type": type(exc).__name__, "natural": False}
         add("P05", "cleanup_injection", rec)
         sys.path.insert(0, str(ROOT / "src"))
-        product = helper("_pietto_phase67_result_product_probe")
+        product = helper("_pietto_results_product")
         from pietto._project.project_result_contract import build_result_contract
         from pietto._project.project_result_binding import bind_producer
 
@@ -822,7 +820,7 @@ def worker(config, directory):
             rec["producer_fields"] = len(producer.fields)
             rec["artifact_retained"] = producer.artifact is artifact
             add("P07", case, rec)
-        emission = helper("_pietto_phase66_sql_emission_probe")
+        emission = helper("_pietto_sql_emission")
         helper("_pietto_target_conformance_cases")
         fixture = emission.fixed_fixture(target, "R_fixed_direct", "bind")
         checked, outcome = emission.build_case(
@@ -906,7 +904,7 @@ def worker(config, directory):
 
 
 def setup(resources):
-    cases = helper("_pietto_phase68_executor_cases")
+    cases = helper("_pietto_execution_cases")
     target = resources.target
     columns = (
         "v_int BIGINT, v_bool BOOLEAN, v_float DOUBLE PRECISION, v_text TEXT, v_decimal NUMERIC(9,2), v_time TIMESTAMP(6), v_uuid UUID"
@@ -1185,7 +1183,7 @@ def run_child(resources, route, directory, record_observation):
 
 
 def run(directory, ledger):
-    cases = helper("_pietto_phase68_executor_cases")
+    cases = helper("_pietto_execution_cases")
     for name in (
         "_pietto_target_conformance_resources",
         "_pietto_target_conformance_observation",
@@ -1290,7 +1288,7 @@ def run(directory, ledger):
 
 def verify_report(report, expected_inputs, expected_runtime):
     """Independent data-only acceptance; never trusts a report's summary flag."""
-    cases = helper("_pietto_phase68_executor_cases")
+    cases = helper("_pietto_execution_cases")
     if (
         report.get("format") != FORMAT
         or report.get("input_identity") != expected_inputs
@@ -1459,7 +1457,7 @@ def verify_report(report, expected_inputs, expected_runtime):
             raise ValueError("compiled/producer correspondence")
         if case == "fixed_emission_values":
             literal = helper("_pietto_target_conformance_cases").fixed_rows(target)
-            emission = helper("_pietto_phase66_sql_emission_probe")
+            emission = helper("_pietto_sql_emission")
             document = emission.decode_public(observed["artifact_bytes"].encode())
             verify_submission(
                 observed,

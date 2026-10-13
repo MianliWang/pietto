@@ -33,7 +33,8 @@ CONTEXT_SQL = (
     "SELECT VERSION(),CURRENT_USER(),CURRENT_ROLE(),CONNECTION_ID(),DATABASE(),"
     "@@transaction_isolation,@@character_set_client,@@character_set_connection,"
     "@@character_set_results,@@collation_connection,@@sql_mode,@@time_zone,"
-    "@@lower_case_table_names,@@cte_max_recursion_depth,@@server_uuid"
+    "@@lower_case_table_names,@@cte_max_recursion_depth,@@server_uuid,"
+    "@@max_allowed_packet"
 )
 SQL_MODE = "ONLY_FULL_GROUP_BY,STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION"
 
@@ -74,7 +75,7 @@ def native_context(owner):
     )
     if (
         len(rows) != 1
-        or len(rows[0]) != 15
+        or len(rows[0]) != 16
         or rows[0][:10]
         != (
             owner.request.artifact.request.release,
@@ -94,9 +95,86 @@ def native_context(owner):
         or rows[0][13] < 0
         or type(rows[0][14]) is not str
         or not rows[0][14]
+        or type(rows[0][15]) is not int
+        or rows[0][15] <= 0
     ):
         raise ExecutionError("MYSQL_NATIVE_CONTEXT")
-    return rows[0]
+    capacity = rows[0][15]
+    previous = getattr(owner, "_mysql_packet_capacity", None)
+    if previous is not None and capacity != previous:
+        raise ExecutionError("MYSQL_PACKET_CAPACITY_CHANGED")
+    owner._mysql_packet_capacity = capacity
+    return rows[0][:15]
+
+
+def _same_packet_requirements(left, right) -> bool:
+    return (
+        type(left) is tuple
+        and type(right) is tuple
+        and len(left) == len(right)
+        and all(
+            type(actual) is tuple
+            and type(expected) is tuple
+            and len(actual) == len(expected) == 2
+            and actual[0] is expected[0]
+            and type(actual[1]) is int
+            and actual[1] == expected[1]
+            for actual, expected in zip(left, right, strict=True)
+        )
+    )
+
+
+def mysql_text_packet_requirements(owner) -> tuple[tuple[object, int], ...]:
+    """Derive every growing Text operation from the verified rendered AST."""
+    from pietto._project.project_sql_emission_ast import row_value_roots
+    from pietto._project.project_sql_emission_rows import SQLOperation, value_nodes
+    from pietto.ir.model import SymbolNamespace
+
+    roots = row_value_roots(owner.request.artifact.ast)
+    if type(roots) is not tuple:
+        raise ExecutionError("MYSQL_TEXT_PACKET_ROOTS")
+    requirements = []
+    for root in roots:
+        for node in value_nodes(root):
+            if type(node) is not SQLOperation:
+                continue
+            original = node.original
+            symbol = getattr(original, "callee_symbol", None)
+            if node.kind != "scalar_call":
+                continue
+            if getattr(symbol, "namespace", None) is not SymbolNamespace.CALLABLE:
+                raise ExecutionError("MYSQL_TEXT_PACKET_IDENTITY")
+            if getattr(symbol, "name", None) not in {
+                "lower",
+                "upper",
+                "replace",
+            }:
+                continue
+            maximum = node.realization.domain.get("max_characters")
+            if (
+                node.realization.tag != "Text"
+                or type(maximum) is not int
+                or not 0 <= maximum <= 16383
+            ):
+                raise ExecutionError("MYSQL_TEXT_PACKET_BOUND")
+            required = maximum * 4
+            requirements.append((original.ref, required))
+    return tuple(requirements)
+
+
+def verify_mysql_text_packet_capacity(owner) -> None:
+    """Bind the live packet ceiling to the complete verified expression closure."""
+    capacity = getattr(owner, "_mysql_packet_capacity", None)
+    if type(capacity) is not int or capacity <= 0:
+        raise ExecutionError("MYSQL_TEXT_PACKET_CONTEXT")
+    requirements = mysql_text_packet_requirements(owner)
+    previous = getattr(owner, "_mysql_text_packet_requirements", None)
+    if previous is None:
+        owner._mysql_text_packet_requirements = requirements
+    elif not _same_packet_requirements(previous, requirements):
+        raise ExecutionError("MYSQL_TEXT_PACKET_IDENTITY")
+    if any(required > capacity for _, required in requirements):
+        raise ExecutionError("MYSQL_TEXT_PACKET_CAPACITY")
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -163,6 +241,10 @@ def qualify_sources(owner) -> tuple[tuple, tuple]:
     from pietto._project.project_guard_context import (
         guard_source_schema_sql,
         verify_guard_source_columns,
+    )
+    from pietto._project.project_execution_source import (
+        requires_temporal_uuid_catalog,
+        verify_temporal_uuid_catalog,
     )
 
     owner._checkpoint()
@@ -294,6 +376,19 @@ def qualify_sources(owner) -> tuple[tuple, tuple]:
         metadata, rows = ((), ()) if sql is None else read_control(owner, sql)
         if rows:
             raise ExecutionError("MYSQL_SOURCE_SCHEMA_ROWS")
+        if requires_temporal_uuid_catalog(source):
+            _, catalog = read_control(
+                owner,
+                "SELECT COLUMN_NAME,COLUMN_TYPE FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s ORDER BY ORDINAL_POSITION",
+                (source.namespace, source.name),
+            )
+            try:
+                verify_temporal_uuid_catalog(source, tuple(catalog), family="mysql")
+            except ValueError as error:
+                raise ExecutionError(
+                    "MYSQL_SOURCE_TEMPORAL_UUID_QUALIFICATION"
+                ) from error
         verify_guard_source_columns(source, names, metadata, (), route="mysql_rows")
         schemas.append(metadata)
     owner._refresh()

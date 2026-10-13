@@ -11,7 +11,7 @@ committed tombstone first). Device/OS synchronization honesty is external.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 import errno
 import fcntl
@@ -86,7 +86,7 @@ def _unique(items):
 
 
 def coordinate_wire(value) -> list:
-    """S06 coordinate atoms as JSON: float bits, Decimal tuple, fold, UUID bytes."""
+    """S06 coordinate atoms as JSON: float bits, Decimal tuple, dates and UUID bytes."""
     from pietto._project.project_refinement_enumeration import atom
 
     try:
@@ -111,6 +111,8 @@ def read_coordinate(wire):
             value = Decimal((wire[1], tuple(wire[2]), wire[3]))
         elif kind == "datetime" and len(wire) == 3:
             value = datetime.fromisoformat(wire[1]).replace(fold=wire[2])
+        elif kind == "date" and len(wire) == 2:
+            value = date.fromisoformat(wire[1])
         elif kind == "uuid" and len(wire) == 2:
             value = UUID(bytes=bytes.fromhex(wire[1]))
         elif kind == "bytes" and len(wire) == 2:
