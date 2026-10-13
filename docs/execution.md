@@ -1,10 +1,8 @@
-# Execution (alpha, source candidate)
+# Execution (public alpha)
 
-**Status:** UNRELEASED source-candidate documentation; package version 0.1.1
-is retained until the owner chooses an upgrade after more work. This document
-does not claim a new published wheel, natural CI result, or native support
-outside the evidence stated here. The published 0.1.1 wheel does not provide
-this alpha surface.
+**Version:** This document describes the Phase69 `0.1.2` public alpha API.
+The versioned GitHub pre-release and PyPI listing determine release
+availability. The historical `0.1.1` wheel does not provide this alpha surface.
 
 `pietto.execution` compiles one query of your project, runs it explicitly on
 PostgreSQL 18.6 through the PostgreSQL rows route, and hands you typed Arrow
@@ -42,7 +40,7 @@ support. Saved-result workflows are local workspace APIs, and the reference
 sink is a local bounded endpoint. There is no CLI command that connects to a
 database.
 
-Saved-result APIs are unreleased alpha surface. Their Python calls are explicit:
+Saved-result APIs are public alpha surface. Their Python calls are explicit:
 callers name a workspace, durable operation identities, records and any source
 or sink authority. The CLI remains compilation-only; it neither opens a
 workspace nor connects to a database.
@@ -65,19 +63,15 @@ execution or a supported Windows profile.
 
 ## Install
 
-`pietto.execution` exists only in a source-candidate wheel built from this
-checkout. It is UNRELEASED, so an execution extra from an existing PyPI
-release does not provide this surface. Build the wheel here with
-`uv build --wheel`, then install it with `execute-postgres`, `execute-postgres-adbc` or
-`execute-mysql` in a fresh virtual environment. The PostgreSQL rows extra adds
-pinned `psycopg[binary]==3.3.5`; the PostgreSQL ADBC extra adds pinned
-`adbc-driver-postgresql==1.12.0` and `adbc-driver-manager==1.12.0`; the MySQL
-extra adds pinned `mysql-connector-python==26.7.0`; all select
-`pyarrow==25.0.1` (see the README's execution extras). Compiling, exporting and loading a bundle and
-an unopened `execute()` need neither. Without them, opening an attempt is
-refused with `PIE-R2001` before any connection, and no other installed driver
-is used instead. Install `pietto[execute-postgres]` or
-`pietto[execute-mysql]` for the route you select.
+The `0.1.2` distribution exposes `pietto.execution`. Install its selected
+`execute-postgres`, `execute-postgres-adbc`, or `execute-mysql` extra in a
+fresh environment, or build a wheel from the matching checkout. The PostgreSQL
+rows extra adds `psycopg[binary]==3.3.5`; PostgreSQL ADBC adds
+`adbc-driver-postgresql==1.12.0` and `adbc-driver-manager==1.12.0`; MySQL
+adds `mysql-connector-python==26.7.0`; all select `pyarrow==25.0.1`. Compiling,
+exporting and loading a bundle and an unopened `execute()` need none of these
+extras. Without the selected route closure, opening an attempt is refused with
+`PIE-R2001` before any connection; another installed driver is never a fallback.
 
 ## Example
 
@@ -215,7 +209,7 @@ except RequestRejected as error:
 
 ### Saved-result API
 
-These APIs are not in the released 0.1.1 wheel. They do not add a CLI database
+These APIs are public alpha in `0.1.2`. They do not add a CLI database
 command. Existing `check`, `emit-sql`, text output and JSON output keep their
 contracts: JSON uses `ensure_ascii=True` and one trailing newline, while
 `--output` reports its clear output error through the established CLI result
@@ -1229,6 +1223,9 @@ still running. Interpreter exit waits for the deadline timer, up to
   environment that built it); there is no migration between versions. The
   identity is read from the installed files at each call, so restart running
   processes after the installed code changes.
+  A bundle or saved-job record made under `0.1.1` can be refused under
+  `0.1.2` when that identity differs. The old data is preserved; use its
+  matching old environment. Pietto supplies no migration.
 - The pin of a bundle is a content identity, not a signature, and protects the
   bytes only when it comes from your own records. There is no signing,
   registry or revocation.

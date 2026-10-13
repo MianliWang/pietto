@@ -256,8 +256,11 @@ and the [Slice13 contract](spec/phase66-slice13-project-emit-sql-cli-explicit-co
 The core distribution depends only on `antlr4-python3-runtime==4.13.2`.
 The public selector `pietto[arrow]` adds exactly `pyarrow==25.0.1`; it changes
 available dependencies, not the public Python API or CLI. Phase67 result
-modules remain private under `pietto._project`; Phase69 owns public alpha.
-Package/CLI version is 0.1.1 and `requires-python` stays `>=3.12`.
+modules remain private under `pietto._project`; Phase69 exposes the three
+execution routes and saved-result APIs as public alpha under
+`pietto.execution`. Package/CLI version is `0.1.2` and `requires-python`
+stays `>=3.12`. Its versioned GitHub pre-release and PyPI listing determine
+distribution availability.
 The verified extra matrix is CPython3.12/3.13 on Linux x86-64 with PyArrow25.0.1.
 See [checkout and local-wheel installation](../README.md#optional-arrow-interoperability).
 This is not a broader platform/version support promise.
@@ -267,8 +270,8 @@ Phase68 S18 adds three route selectors, each Arrow plus one route's exact pins:
 (`mysql-connector-python==26.7.0`) and `execute-postgres-adbc`
 (`adbc-driver-postgresql==1.12.0`, `adbc-driver-manager==1.12.0`); see the
 [execution extras](../README.md#execution-extras). Installation never chooses
-a route, grants execution or qualifies storage; the PostgreSQL rows route is
-an [alpha interface](execution.md) and the other routes stay private. The
+a route, grants execution or qualifies storage; all three routes are
+[public alpha interfaces](execution.md). The
 [S18 contract](phases/phase-68/slice-18.md) records the verified domain.
 
 The [Phase67 audit and handoff](phases/phase-67/completion-audit.md) identifies
