@@ -7,6 +7,7 @@ from enum import StrEnum
 from math import isfinite
 from typing import TYPE_CHECKING
 
+from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
     Expression,
     LiteralExpr,
@@ -34,6 +35,24 @@ if TYPE_CHECKING:
     from pietto._project.module_catalog import ProjectDeclarationOccurrence
 
 __all__: tuple[str, ...] = ()
+
+_KNOWN_EXPRESSIONS = frozenset(
+    {
+        ast.LiteralExpr,
+        ast.NameExpr,
+        ast.DottedNameExpr,
+        ast.CallExpr,
+        ast.UnaryExpr,
+        ast.ConditionalExpr,
+        ast.MembershipExpr,
+        ast.CastExpr,
+        ast.BinaryExpr,
+        ast.ComparisonExpr,
+        ast.BetweenExpr,
+        ast.IsNullExpr,
+        ast.WindowExpr,
+    }
+)
 
 
 class ProjectSQLLiteralPolicy(StrEnum):
@@ -176,6 +195,8 @@ def literal_nodes(expression: Expression):
     links: list[tuple[Expression, int, int | None]] = []
     while pending:
         node, predecessor = pending.pop()
+        if type(node) not in _KNOWN_EXPRESSIONS:
+            raise ValueError(f"Unsupported literal expression: {type(node).__name__}")
         if type(node) is LiteralExpr:
             ancestry = []
             current = predecessor
@@ -380,6 +401,8 @@ def positions(plan: ProjectSQLPlan):
 
 def classify(position: ProjectSQLLiteralPosition, policy: ProjectSQLLiteralPolicy):
     """Builder-only positive eligibility; verification implements its own rule."""
+    if any(type(parent) not in _KNOWN_EXPRESSIONS for parent, _ in position.ancestry):
+        raise ValueError("Unsupported literal expression context")
     R, Why = ProjectSQLLiteralRole, ProjectSQLLiteralReason
     if position.role is R.WINDOW_ARGUMENT:
         return Why.SPECIALIZED

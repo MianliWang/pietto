@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
+from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
     ConstraintDef,
     Definition,
@@ -86,6 +87,19 @@ _AGGREGATE_FUNCTIONS = frozenset(
         "max",
     }
 )
+_KNOWN_DEFINITIONS = frozenset(
+    {
+        ast.TypeDef,
+        ast.EnumDef,
+        ast.ShapeDef,
+        ast.ConstraintDef,
+        ast.DeriveDef,
+        ast.SourceDef,
+        ast.TableDef,
+        ast.QueryDef,
+        ast.SetRelationDef,
+    }
+)
 
 
 def build_semantic_metadata_artifact(
@@ -149,6 +163,8 @@ def _definition_metadata(definition: Definition) -> SemanticMetadataDefinition:
 
 
 def _definition_kind(definition: Definition) -> str:
+    if type(definition) not in _KNOWN_DEFINITIONS:
+        raise ValueError(f"Unsupported definition: {type(definition).__name__}")
     if isinstance(definition, TypeDef):
         return "type"
     if isinstance(definition, EnumDef):

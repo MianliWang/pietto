@@ -318,3 +318,46 @@ def _assert_no_antlr_nodes(value: object) -> None:
     elif isinstance(value, (list, tuple)):
         for item in value:
             _assert_no_antlr_nodes(item)
+
+
+def test_unknown_definition_has_syntax_availability_diagnostic() -> None:
+    from typing import Any, cast
+
+    from pietto import ast_nodes as ast
+    from pietto._flat_relational_admission import (
+        syntax_diagnostics,
+        availability_diagnostic,
+    )
+
+    class UnknownDefinition(ast.Node):
+        pass
+
+    span = ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    unknown = UnknownDefinition(span=span)
+    assert syntax_diagnostics(cast(Any, unknown)) == (
+        availability_diagnostic(span, "Definition semantics are not implemented."),
+    )
+
+
+def test_unknown_definition_has_one_availability_diagnostic() -> None:
+    from typing import Any, cast
+
+    from pietto import ast_nodes as ast
+    from pietto.semantic.relations import resolve_relation_inputs
+    from pietto._flat_relational_admission import (
+        availability_diagnostic,
+        syntax_diagnostics,
+    )
+
+    class UnknownDefinition(ast.Node):
+        pass
+
+    span = ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    unknown = cast(Any, UnknownDefinition(span=span))
+    script = ast.Script(span=span, header=None, definitions=(unknown,))
+    resolutions, relation_diagnostics = resolve_relation_inputs(script, {})
+    # The analyzer concatenates both passes; only syntax_diagnostics reports.
+    assert resolutions == {}
+    assert [*relation_diagnostics, *syntax_diagnostics(unknown)] == [
+        availability_diagnostic(span, "Definition semantics are not implemented.")
+    ]

@@ -63,6 +63,7 @@ from pietto._project import project_sql_plan_windows as plan_windows
 from pietto._project import project_sql_plan_aggregation as plan_aggregation
 from pietto._project import project_sql_emission_ast as ast
 from pietto._project.project_sql_plan_joins import ProjectSQLJoinPortKind
+from pietto import ast_nodes
 from pietto.ast_nodes import (
     AuthoredJoinKind,
     BinaryExpr,
@@ -86,6 +87,24 @@ from pietto._project.project_sql_emission_rendering import (
 )
 
 __all__: tuple[str, ...] = ()
+
+_KNOWN_EXPRESSIONS = frozenset(
+    {
+        ast_nodes.LiteralExpr,
+        ast_nodes.NameExpr,
+        ast_nodes.DottedNameExpr,
+        ast_nodes.CallExpr,
+        ast_nodes.UnaryExpr,
+        ast_nodes.ConditionalExpr,
+        ast_nodes.MembershipExpr,
+        ast_nodes.CastExpr,
+        ast_nodes.BinaryExpr,
+        ast_nodes.ComparisonExpr,
+        ast_nodes.BetweenExpr,
+        ast_nodes.IsNullExpr,
+        ast_nodes.WindowExpr,
+    }
+)
 
 
 def _same(actual, expected):
@@ -2768,6 +2787,8 @@ def _result_carrier(entry, boundary, order) -> str:
 
 def _same_order_expression(left, right):
     """Independently match a computed ORDER key to a visible projection."""
+    if type(left) not in _KNOWN_EXPRESSIONS or type(right) not in _KNOWN_EXPRESSIONS:
+        raise ValueError("Unknown ORDER expression")
     if type(left) is not type(right):
         return False
     if type(left) is NameExpr:

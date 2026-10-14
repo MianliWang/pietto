@@ -839,3 +839,25 @@ def _assert_no_antlr_nodes(value: object) -> None:
     elif isinstance(value, (list, tuple)):
         for item in value:
             _assert_no_antlr_nodes(item)
+
+
+def test_unknown_expression_is_rejected_before_cached_inference() -> None:
+    from typing import Any
+
+    from pietto import ast_nodes as ast
+    from pietto.semantic.expressions import _infer
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    expression = UnknownExpression(
+        span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    )
+    with pytest.raises(AssertionError, match="Unsupported expression"):
+        _infer(
+            expression,
+            cast(Any, None),
+            cast(Any, {expression: None}),
+            [],
+            report_unknown_name=False,
+        )

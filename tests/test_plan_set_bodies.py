@@ -33,6 +33,26 @@ def _product(path: Path, source: str):
     return roots, plan, inspect_project_sql_plan(checked)
 
 
+def test_unknown_set_binding_definition_fails_closed(tmp_path: Path, monkeypatch):
+    from pietto import ast_nodes as ast
+    from pietto._project import project_sql_plan_verification as verification
+
+    class UnknownDefinition(ast.Node):
+        pass
+
+    source = _source("union", "all", replay=False).replace(
+        "table combined:", "table result:"
+    )
+    _, plan, _ = _product(tmp_path, source)
+    owner = plan.bindings.definitions[0].entry.owner
+    with monkeypatch.context() as patch:
+        patch.setattr(type(owner), "__setattr__", object.__setattr__)
+        patch.setattr(
+            owner, "definition", UnknownDefinition(span=owner.definition.span)
+        )
+        assert not verification._set_structure(plan)
+
+
 @pytest.mark.parametrize("kind,quantifier", OPERATIONS)
 @pytest.mark.parametrize("owner_kind", ["table", "query"])
 def test_six_direct_nonselect_bodies_have_real_positional_ports(

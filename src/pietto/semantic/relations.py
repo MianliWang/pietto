@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pietto import ast_nodes as ast
 from pietto.ast_nodes import SetRelationDef
 from pietto._flat_relational_admission import availability_diagnostic
 
@@ -20,6 +21,21 @@ from pietto.errors import Diagnostic, Severity, SourceLocation
 RelationDefinition = SourceDef | TableDef | QueryDef
 
 
+_KNOWN_DEFINITIONS = frozenset(
+    {
+        ast.TypeDef,
+        ast.EnumDef,
+        ast.ShapeDef,
+        ast.ConstraintDef,
+        ast.DeriveDef,
+        ast.SourceDef,
+        ast.TableDef,
+        ast.QueryDef,
+        ast.SetRelationDef,
+    }
+)
+
+
 def resolve_relation_inputs(
     script: Script,
     relation_symbols: Mapping[str, Definition],
@@ -30,6 +46,9 @@ def resolve_relation_inputs(
     diagnostics: list[Diagnostic] = []
 
     for definition in script.definitions:
+        if type(definition) not in _KNOWN_DEFINITIONS:
+            # syntax_diagnostics reports the one availability diagnostic.
+            continue
         if not isinstance(definition, (TableDef, QueryDef)):
             continue
 

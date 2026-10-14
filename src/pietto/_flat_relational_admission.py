@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
     AuthoredJoinKind,
     Definition,
@@ -14,6 +15,20 @@ from pietto.ast_nodes import (
 from pietto.errors import Diagnostic, Severity, SourceLocation
 
 __all__: tuple[str, ...] = ()
+
+_KNOWN_DEFINITIONS = frozenset(
+    {
+        ast.TypeDef,
+        ast.EnumDef,
+        ast.ShapeDef,
+        ast.ConstraintDef,
+        ast.DeriveDef,
+        ast.SourceDef,
+        ast.TableDef,
+        ast.QueryDef,
+        ast.SetRelationDef,
+    }
+)
 
 
 def unsupported_join(clause: JoinClause) -> bool:
@@ -41,6 +56,12 @@ def availability_diagnostic(span: Span, message: str) -> Diagnostic:
 def syntax_diagnostics(
     definition: Definition, *, allow_distinct: bool = False
 ) -> tuple[Diagnostic, ...]:
+    if type(definition) not in _KNOWN_DEFINITIONS:
+        return (
+            availability_diagnostic(
+                definition.span, "Definition semantics are not implemented."
+            ),
+        )
     if isinstance(definition, SetRelationDef):
         return (
             availability_diagnostic(

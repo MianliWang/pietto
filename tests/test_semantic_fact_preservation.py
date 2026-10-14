@@ -4120,3 +4120,29 @@ def test_schema_v2_public_api_cli_json_metadata_ir_sql_dependencies_version_and_
         encoding="utf-8"
     )
     assert "module_semantic_fact_preservation" not in project_init
+
+
+def test_unknown_direct_name_leaf_fails_closed() -> None:
+    from pietto import ast_nodes as ast
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    unknown = UnknownExpression(
+        span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    )
+    with pytest.raises(ValueError, match="Unsupported expression"):
+        preservation._direct_name_leaves(unknown)
+
+
+def test_unknown_satisfying_occurrence_fails_closed() -> None:
+    from pietto import ast_nodes as ast
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    unknown = UnknownExpression(
+        span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    )
+    with pytest.raises(ValueError, match="Unsupported satisfying expression"):
+        preservation._satisfying_occurrences(unknown)

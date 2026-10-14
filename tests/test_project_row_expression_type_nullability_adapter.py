@@ -430,3 +430,33 @@ def _value_type(
         nullability=nullability,
         kind=value_kind,
     )
+
+
+def test_unknown_row_schema_aggregate_detection_fails_closed() -> None:
+    from pietto import ast_nodes as ast
+    from pietto._project.row_expression_schema import _contains_semantic_aggregate
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    with pytest.raises(ValueError, match="Unsupported expression"):
+        _contains_semantic_aggregate(
+            UnknownExpression(
+                span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+            )
+        )
+
+
+def test_unknown_row_schema_children_fail_closed() -> None:
+    from pietto import ast_nodes as ast
+    from pietto._project.row_expression_schema import _child_expressions
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    with pytest.raises(ValueError, match="Unsupported expression"):
+        _child_expressions(
+            UnknownExpression(
+                span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+            )
+        )

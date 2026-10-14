@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
@@ -75,6 +76,25 @@ FLOAT_NULLABLE_VALUE_TYPE = ValueType(
 DECIMAL_NULLABLE_VALUE_TYPE = ValueType(
     resolved_type=ResolvedType(name="Decimal", kind=TypeKind.BUILTIN),
     nullability=EffectiveNullability.NULLABLE,
+)
+
+
+_KNOWN_EXPRESSIONS = frozenset(
+    {
+        ast.LiteralExpr,
+        ast.NameExpr,
+        ast.DottedNameExpr,
+        ast.CallExpr,
+        ast.UnaryExpr,
+        ast.ConditionalExpr,
+        ast.MembershipExpr,
+        ast.CastExpr,
+        ast.BinaryExpr,
+        ast.ComparisonExpr,
+        ast.BetweenExpr,
+        ast.IsNullExpr,
+        ast.WindowExpr,
+    }
 )
 
 
@@ -367,6 +387,10 @@ def _expand_let_references(
     let_expansions: Mapping[str, Expression],
     let_stack: frozenset[str],
 ) -> Expression:
+    if type(expression) not in _KNOWN_EXPRESSIONS:
+        raise AssertionError(
+            f"Unsupported aggregate expression: {type(expression).__name__}"
+        )
     if isinstance(expression, NameExpr) and expression.name in let_expansions:
         if expression.name in let_stack:
             return expression

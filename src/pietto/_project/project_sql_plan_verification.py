@@ -85,6 +85,7 @@ from pietto._project.project_sql_plan import (
     _origin_index,
     _field_site,
 )
+from pietto import ast_nodes
 from pietto.ast_nodes import SelectItem, WindowExpr
 from pietto.ast_nodes import (
     SourceDef,
@@ -140,6 +141,38 @@ from pietto.semantic.model import ValueTypeKind
 
 
 __all__: tuple[str, ...] = ()
+
+_KNOWN_EXPRESSIONS = frozenset(
+    {
+        ast_nodes.LiteralExpr,
+        ast_nodes.NameExpr,
+        ast_nodes.DottedNameExpr,
+        ast_nodes.CallExpr,
+        ast_nodes.UnaryExpr,
+        ast_nodes.ConditionalExpr,
+        ast_nodes.MembershipExpr,
+        ast_nodes.CastExpr,
+        ast_nodes.BinaryExpr,
+        ast_nodes.ComparisonExpr,
+        ast_nodes.BetweenExpr,
+        ast_nodes.IsNullExpr,
+        ast_nodes.WindowExpr,
+    }
+)
+_KNOWN_DEFINITIONS = frozenset(
+    {
+        ast_nodes.TypeDef,
+        ast_nodes.EnumDef,
+        ast_nodes.ShapeDef,
+        ast_nodes.ConstraintDef,
+        ast_nodes.DeriveDef,
+        ast_nodes.SourceDef,
+        ast_nodes.TableDef,
+        ast_nodes.QueryDef,
+        ast_nodes.SetRelationDef,
+    }
+)
+
 
 type _OriginSpec = tuple[
     ProjectSQLPlanScope | ProjectSQLPlanRef,
@@ -218,6 +251,11 @@ def _binding_structure(
         definitions, ProjectSQLDefinition, scope, K.DEFINITION
     ) or not _same(tuple(d.entry for d in definitions), entries):
         return False
+    if any(
+        type(definition.entry.owner.definition) not in _KNOWN_DEFINITIONS
+        for definition in definitions
+    ):
+        return False
     by_owner = {_owner_key(d.entry.owner): d for d in definitions}
     source_defs = tuple(
         d for d in definitions if isinstance(d.entry.owner.definition, SourceDef)
@@ -232,6 +270,7 @@ def _binding_structure(
         connector = ast.connector
         if (
             not isinstance(connector, CallExpr)
+            or type(connector.callee) not in _KNOWN_EXPRESSIONS
             or len(connector.arguments) != 1
             or not isinstance(connector.arguments[0], LiteralExpr)
             or type(connector.arguments[0].value) is not str
@@ -1252,6 +1291,14 @@ def _aggregate_structure(plan):
     key_count = value_count = projection_count = risk_count = stage_count = 0
     for definition in plan.bindings.definitions:
         original = aggregation.authority(plan.scope.completed, definition.entry)
+        if original is not None and (
+            any(type(key.item.key) not in _KNOWN_EXPRESSIONS for key in original.keys)
+            or any(
+                type(value.item.expression) not in _KNOWN_EXPRESSIONS
+                for value in original.aggregates
+            )
+        ):
+            return False
         stage = stages.get(definition.ref)
         if original is None:
             if stage is not None:
@@ -1587,6 +1634,15 @@ def _window_structure(plan):
                 return False
             # Independently enumerate admitted direct source roles, not the builder ledger.
             call = effective.call
+            if any(
+                type(expression) not in _KNOWN_EXPRESSIONS
+                for expression in (
+                    *call.arguments,
+                    *effective.spec.partition_by,
+                    *(item.expression for item in effective.spec.order_by),
+                )
+            ):
+                return False
             value_dependent = effective.identity.name in {
                 "lag",
                 "lead",
@@ -2514,6 +2570,8 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
         )
         while pending:
             node = pending.pop()
+            if type(node) not in _KNOWN_EXPRESSIONS:
+                return False
             nodes.append(node)
             if id(node) in atomic:
                 children = ()
@@ -4136,6 +4194,8 @@ def _result_structure(plan):
     set_columns = {column.ref: column for column in plan.set_columns}
     for definition in plan.bindings.definitions:
         entry, authored = definition.entry, definition.entry.owner.definition
+        if type(authored) not in _KNOWN_DEFINITIONS:
+            return False
         if isinstance(authored, SetRelationDef):
             if not isinstance(entry, ProjectIRCompletedSetOperationOutput):
                 return False
@@ -4181,6 +4241,11 @@ def _result_structure(plan):
             continue
         if not isinstance(authored, (TableDef, QueryDef)):
             continue
+        if authored.order_by_clause is not None and any(
+            type(item.expression) not in _KNOWN_EXPRESSIONS
+            for item in authored.order_by_clause.items
+        ):
+            return False
         expected_kinds = []
         if authored.distinct_clause is not None:
             expected_kinds.append("distinct")
@@ -4797,6 +4862,11 @@ def _set_structure(plan):
     ):
         if not _inventory(values, cls, plan.scope, kind):
             return False
+    if any(
+        type(definition.entry.owner.definition) not in _KNOWN_DEFINITIONS
+        for definition in plan.bindings.definitions
+    ):
+        return False
     definitions = tuple(
         d
         for d in plan.bindings.definitions
@@ -5188,6 +5258,12 @@ def _literal_schema(plan, policy):
             plan.literal_slots, L.ProjectSQLLiteralSlot, plan.scope, K.LITERAL_SLOT
         )
         or not _inventory(plan.bind_uses, L.ProjectSQLBindUse, plan.scope, K.BIND_USE)
+    ):
+        return False
+    if any(
+        any(type(parent) not in _KNOWN_EXPRESSIONS for parent, _ in position.ancestry)
+        for site in plan.literal_sites
+        for position in (site.position,)
     ):
         return False
     expected = tuple(L.positions(plan))

@@ -35,6 +35,129 @@ def _product(path: Path, source: str):
     return roots, plan, inspect_project_sql_plan(verification)
 
 
+def test_unknown_result_ready_definition_fails_closed():
+    from types import SimpleNamespace
+
+    from pietto import ast_nodes as ast
+
+    class UnknownDefinition(ast.Node):
+        pass
+
+    span = ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    entry = SimpleNamespace(
+        owner=SimpleNamespace(definition=UnknownDefinition(span=span))
+    )
+    with pytest.raises(ValueError, match="Unknown result definition"):
+        result.ready(entry, {})
+
+
+def test_unknown_result_build_definition_fails_closed(tmp_path: Path, monkeypatch):
+    from pietto import ast_nodes as ast
+
+    class UnknownDefinition(ast.Node):
+        pass
+
+    _, plan, _ = _product(tmp_path, _source())
+    owner = plan.bindings.definitions[0].entry.owner
+    with monkeypatch.context() as patch:
+        patch.setattr(type(owner), "__setattr__", object.__setattr__)
+        patch.setattr(
+            owner, "definition", UnknownDefinition(span=owner.definition.span)
+        )
+        with pytest.raises(ValueError, match="Unknown result definition"):
+            result.build(plan, lambda kind: object())
+
+
+def _ordered_limited_result(tmp_path: Path):
+    body = "    select:\n        value\n    order by:\n        hidden\n    limit 1\n"
+    _, plan, _ = _product(tmp_path, _source(body))
+    entry = next(
+        definition.entry
+        for definition in plan.bindings.definitions
+        if isinstance(definition.entry.owner.definition, (TableDef, QueryDef))
+    )
+    return plan, entry
+
+
+def test_unknown_result_ready_order_expression_fails_closed(
+    tmp_path: Path, monkeypatch
+):
+    from pietto import ast_nodes as ast
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    plan, entry = _ordered_limited_result(tmp_path)
+    indexed = result.order_index(plan.scope.completed)
+    assert result.ready(entry, indexed)
+    ordering = result.ordering(entry, indexed)
+    assert ordering is not None
+    item = ordering.items[0]
+    with monkeypatch.context() as patch:
+        patch.setattr(type(item), "__setattr__", object.__setattr__)
+        patch.setattr(item, "expression", UnknownExpression(span=item.expression.span))
+        with pytest.raises(ValueError, match="Unknown result order expression"):
+            result.ready(entry, indexed)
+
+
+def test_unknown_result_limit_expression_fails_closed(tmp_path: Path, monkeypatch):
+    from pietto import ast_nodes as ast
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    plan, entry = _ordered_limited_result(tmp_path)
+    authored = entry.owner.definition
+    assert isinstance(authored, (TableDef, QueryDef))
+    clause = authored.limit_clause
+    assert clause is not None
+    with monkeypatch.context() as patch:
+        patch.setattr(type(clause), "__setattr__", object.__setattr__)
+        patch.setattr(
+            clause, "expression", UnknownExpression(span=clause.expression.span)
+        )
+        with pytest.raises(ValueError, match="Unknown result limit expression"):
+            result.build(plan, lambda kind: object())
+
+
+def test_unknown_result_structure_order_expression_fails_closed(
+    tmp_path: Path, monkeypatch
+):
+    from pietto import ast_nodes as ast
+    from pietto._project import project_sql_plan_verification as verification
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    plan, entry = _ordered_limited_result(tmp_path)
+    assert verification._result_structure(plan)
+    authored = entry.owner.definition
+    assert isinstance(authored, (TableDef, QueryDef))
+    assert authored.order_by_clause is not None
+    item = authored.order_by_clause.items[0]
+    with monkeypatch.context() as patch:
+        patch.setattr(type(item), "__setattr__", object.__setattr__)
+        patch.setattr(item, "expression", UnknownExpression(span=item.expression.span))
+        assert verification._result_structure(plan) is False
+
+
+def test_unknown_result_structure_definition_fails_closed(tmp_path: Path, monkeypatch):
+    from pietto import ast_nodes as ast
+    from pietto._project import project_sql_plan_verification as verification
+
+    class UnknownDefinition(ast.Node):
+        pass
+
+    _, plan, _ = _product(tmp_path, _source())
+    owner = plan.bindings.definitions[0].entry.owner
+    with monkeypatch.context() as patch:
+        patch.setattr(type(owner), "__setattr__", object.__setattr__)
+        patch.setattr(
+            owner, "definition", UnknownDefinition(span=owner.definition.span)
+        )
+        assert not verification._result_structure(plan)
+
+
 @pytest.mark.parametrize("family,kind", [("postgres", "query"), ("mysql", "table")])
 @pytest.mark.parametrize(
     "type_name", ["Bool", "Int", "Text", "Date", "Timestamp", "UUID", "Decimal(12, 2)"]

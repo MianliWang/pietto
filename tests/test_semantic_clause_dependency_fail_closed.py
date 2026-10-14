@@ -1600,3 +1600,29 @@ def _name_occurrences(expression: Expression) -> tuple[NameExpr, ...]:
             for occurrence in _name_occurrences(argument)
         )
     return ()
+
+
+def test_unknown_satisfying_dependency_occurrences_fail_closed() -> None:
+    from pietto import ast_nodes as ast
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    unknown = UnknownExpression(
+        span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    )
+    with pytest.raises(ValueError, match="Unsupported satisfying expression"):
+        clause_module._satisfying_dependency_occurrences(unknown)
+
+
+def test_unknown_satisfying_traversal_fails_closed() -> None:
+    from pietto import ast_nodes as ast
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    unknown = UnknownExpression(
+        span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    )
+    with pytest.raises(ValueError, match="Unsupported satisfying expression"):
+        clause_module._satisfying_traversal_is_supported(unknown)

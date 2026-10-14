@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pietto import ast_nodes as ast
 from pietto.ast_nodes import SetRelationDef
 from pietto._flat_relational_admission import syntax_diagnostics
 
@@ -180,6 +181,24 @@ from pietto.semantic.window_semantics import (
 )
 
 __all__: tuple[str, ...] = ()
+
+_KNOWN_EXPRESSIONS = frozenset(
+    {
+        ast.LiteralExpr,
+        ast.NameExpr,
+        ast.DottedNameExpr,
+        ast.CallExpr,
+        ast.UnaryExpr,
+        ast.ConditionalExpr,
+        ast.MembershipExpr,
+        ast.CastExpr,
+        ast.BinaryExpr,
+        ast.ComparisonExpr,
+        ast.BetweenExpr,
+        ast.IsNullExpr,
+        ast.WindowExpr,
+    }
+)
 
 _DerivedRelation = TableDef | QueryDef
 _RelationDefinition = SourceDef | TableDef | QueryDef | SetRelationDef
@@ -3568,6 +3587,8 @@ def _expression_reference_candidates(
 def _direct_name_leaves(
     expression: Expression,
 ) -> tuple[NameExpr | DottedNameExpr, ...]:
+    if type(expression) not in _KNOWN_EXPRESSIONS:
+        raise ValueError(f"Unsupported expression: {type(expression).__name__}")
     if type(expression) in {NameExpr, DottedNameExpr}:
         return (cast(NameExpr | DottedNameExpr, expression),)
     if isinstance(expression, CallExpr):
@@ -3928,6 +3949,10 @@ def _group_key_let_expands_to_direct_name(
 def _satisfying_occurrences(
     expression: Expression,
 ) -> tuple[NameExpr | CallExpr, ...]:
+    if type(expression) not in _KNOWN_EXPRESSIONS:
+        raise ValueError(
+            f"Unsupported satisfying expression: {type(expression).__name__}"
+        )
     if type(expression) is NameExpr:
         return (cast(NameExpr, expression),)
     if isinstance(expression, LiteralExpr):

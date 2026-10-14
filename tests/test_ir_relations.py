@@ -339,3 +339,20 @@ def _walk_public_values(
     elif isinstance(value, (list, tuple)):
         for item in value:
             assertion(item)
+
+
+def test_unknown_definition_has_missing_semantic_fact_failure() -> None:
+    from typing import Any, cast
+
+    from pietto import ast_nodes as ast
+    from pietto.ir.builder import _lower_definition, _MissingSemanticFact
+
+    class UnknownDefinition(ast.Node):
+        pass
+
+    unknown = UnknownDefinition(
+        span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    )
+    with pytest.raises(_MissingSemanticFact) as raised:
+        _lower_definition(unknown, cast(Any, None))
+    assert raised.value.node is unknown

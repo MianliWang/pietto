@@ -255,3 +255,23 @@ def _walk_public_values(
     elif isinstance(value, (list, tuple)):
         for item in value:
             assertion(item)
+
+
+def test_unknown_metadata_definition_fails_closed() -> None:
+    from typing import Any, cast
+
+    from pietto import ast_nodes as ast
+    from pietto._metadata.builder import _definition_kind
+
+    class UnknownDefinition(ast.Node):
+        pass
+
+    with pytest.raises(ValueError, match="Unsupported definition"):
+        _definition_kind(
+            cast(
+                Any,
+                UnknownDefinition(
+                    span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+                ),
+            )
+        )

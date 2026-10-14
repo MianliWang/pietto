@@ -31,6 +31,7 @@ from pietto._project.model import (
 from pietto._project.row_expression_type_facts import (
     project_row_schema_to_semantic_row_schema,
 )
+from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
@@ -65,6 +66,24 @@ from pietto.semantic.relation_limits import MAX_RELATION_LIMIT
 from pietto.semantic.satisfying import check_satisfying_clauses
 
 __all__: tuple[str, ...] = ()
+
+_KNOWN_EXPRESSIONS = frozenset(
+    {
+        ast.LiteralExpr,
+        ast.NameExpr,
+        ast.DottedNameExpr,
+        ast.CallExpr,
+        ast.UnaryExpr,
+        ast.ConditionalExpr,
+        ast.MembershipExpr,
+        ast.CastExpr,
+        ast.BinaryExpr,
+        ast.ComparisonExpr,
+        ast.BetweenExpr,
+        ast.IsNullExpr,
+        ast.WindowExpr,
+    }
+)
 
 _DerivedRelation = TableDef | QueryDef
 
@@ -785,6 +804,10 @@ def _satisfying_facts(
 def _satisfying_dependency_occurrences(
     expression: Expression,
 ) -> tuple[NameExpr | CallExpr, ...]:
+    if type(expression) not in _KNOWN_EXPRESSIONS:
+        raise ValueError(
+            f"Unsupported satisfying expression: {type(expression).__name__}"
+        )
     if isinstance(expression, NameExpr):
         return (expression,)
     if isinstance(expression, LiteralExpr):
@@ -1318,6 +1341,10 @@ def _definition_let_expressions(
 
 
 def _satisfying_traversal_is_supported(expression: Expression) -> bool:
+    if type(expression) not in _KNOWN_EXPRESSIONS:
+        raise ValueError(
+            f"Unsupported satisfying expression: {type(expression).__name__}"
+        )
     if isinstance(expression, (NameExpr, LiteralExpr, CallExpr)):
         return True
     if isinstance(expression, ComparisonExpr):
@@ -1353,6 +1380,8 @@ def _source_field_identity(
 
 
 def _walk_expression(expression: Expression) -> tuple[Expression, ...]:
+    if type(expression) not in _KNOWN_EXPRESSIONS:
+        raise ValueError(f"Unsupported expression: {type(expression).__name__}")
     children: tuple[Expression, ...]
     if isinstance(expression, CallExpr):
         children = expression.arguments

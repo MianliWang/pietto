@@ -1378,3 +1378,18 @@ def _assert_non_concrete_bundle(
     assert lineage.status.value == status.value
     assert lineage.reason.value == reason.value
     assert lineage.facts == ()
+
+
+def test_unknown_grouped_expression_walk_fails_closed() -> None:
+    from pietto import ast_nodes as ast
+    from pietto._project.aggregate_grouped_clause_facts import _walk_expression
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    with pytest.raises(ValueError, match="Unsupported expression"):
+        _walk_expression(
+            UnknownExpression(
+                span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+            )
+        )

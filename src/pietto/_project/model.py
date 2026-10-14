@@ -36,6 +36,7 @@ from pietto.ast_nodes import (
     FromClause,
     IndexDef,
     IsNullExpr,
+    LiteralExpr,
     MembershipExpr,
     NameExpr,
     Nullability,
@@ -101,6 +102,38 @@ _PROJECT_BUILTIN_TYPE_NAMES = frozenset(
         "Text",
         "Timestamp",
         "UUID",
+    }
+)
+
+
+_KNOWN_EXPRESSIONS = frozenset(
+    {
+        LiteralExpr,
+        NameExpr,
+        DottedNameExpr,
+        CallExpr,
+        UnaryExpr,
+        ConditionalExpr,
+        MembershipExpr,
+        CastExpr,
+        BinaryExpr,
+        ComparisonExpr,
+        BetweenExpr,
+        IsNullExpr,
+        WindowExpr,
+    }
+)
+_KNOWN_DEFINITIONS = frozenset(
+    {
+        TypeDef,
+        EnumDef,
+        ShapeDef,
+        ConstraintDef,
+        DeriveDef,
+        SourceDef,
+        TableDef,
+        QueryDef,
+        SetRelationDef,
     }
 )
 
@@ -3020,9 +3053,13 @@ def _project_expression_location(
 def _iter_project_type_expressions(definition: Definition) -> tuple[TypeExpr, ...]:
     """Return declaration and explicit-cast type expressions in source order."""
 
+    if type(definition) not in _KNOWN_DEFINITIONS:
+        raise ValueError(f"Unsupported definition: {type(definition).__name__}")
     result: list[TypeExpr] = []
 
     def add_expression(expression: Expression) -> None:
+        if type(expression) not in _KNOWN_EXPRESSIONS:
+            raise ValueError(f"Unsupported expression: {type(expression).__name__}")
         if isinstance(expression, CastExpr):
             add_expression(expression.value)
             result.append(expression.target)

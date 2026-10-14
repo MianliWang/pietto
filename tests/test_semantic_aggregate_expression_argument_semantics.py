@@ -465,3 +465,20 @@ def _write(tmp_path: Path, name: str, source: str) -> Path:
 
 def _normalized_plan() -> str:
     return " ".join(PLAN_PATH.read_text(encoding="utf-8").split())
+
+
+def test_unknown_aggregate_let_expression_fails_closed() -> None:
+    from pietto import ast_nodes as ast
+    from pietto.semantic.aggregates import _expand_let_references
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    with pytest.raises(AssertionError, match="Unsupported aggregate expression"):
+        _expand_let_references(
+            UnknownExpression(
+                span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+            ),
+            let_expansions={},
+            let_stack=frozenset(),
+        )

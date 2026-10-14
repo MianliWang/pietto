@@ -438,3 +438,32 @@ def _derived_definition(
             if isinstance(definition, (TableDef, QueryDef)) and definition.name == name:
                 return definition
     raise AssertionError(f"Missing derived definition: {name}")
+
+
+def test_unknown_row_dependency_aggregate_detection_fails_closed() -> None:
+    from pietto import ast_nodes as ast
+    from pietto._project.row_dependency_graph import _contains_semantic_aggregate
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    with pytest.raises(ValueError, match="Unsupported expression"):
+        _contains_semantic_aggregate(
+            UnknownExpression(
+                span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+            )
+        )
+
+
+def test_unknown_row_dependency_children_fail_closed() -> None:
+    from pietto import ast_nodes as ast
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    with pytest.raises(ValueError, match="Unsupported expression"):
+        _child_expressions(
+            UnknownExpression(
+                span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+            )
+        )

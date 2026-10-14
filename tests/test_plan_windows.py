@@ -49,6 +49,23 @@ def _reachable(*roots: object) -> dict[int, Any]:
     return seen
 
 
+def test_unknown_window_order_expression_fails_closed(tmp_path: Path, monkeypatch):
+    from pietto import ast_nodes as ast
+    from pietto._project import project_sql_plan_verification as verification
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    _, plan, _, _ = _planned(tmp_path, SOURCES["ordinary_selected"])
+    order = plan.windows[0].effective.spec.order_by[0]
+    with monkeypatch.context() as patch:
+        patch.setattr(type(order), "__setattr__", object.__setattr__)
+        patch.setattr(
+            order, "expression", UnknownExpression(span=order.expression.span)
+        )
+        assert not verification._window_structure(plan)
+
+
 @pytest.mark.parametrize("case", tuple(SOURCES))
 def test_normal_translation_retains_every_original_resolution(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str

@@ -1067,3 +1067,20 @@ def test_navigation_ir_lowering_reaches_window_call_ir(case: int) -> None:
 
 
 # Phase 53 Slice 13 reader migration.
+
+
+def test_unknown_bounded_navigation_expression_fails_closed() -> None:
+    from pietto import ast_nodes as ast
+    from pietto.semantic.window_navigation_analysis import _is_bounded_value_expression
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    with pytest.raises(ValueError, match="Unsupported"):
+        _is_bounded_value_expression(
+            UnknownExpression(
+                span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+            ),
+            "rows",
+            allow_qualified_fields=False,
+        )

@@ -51,6 +51,34 @@ def _mapped(roots, policy=P.BIND_SAFE_LITERALS):
     return roots, plan, source, product, checked, view
 
 
+def test_unknown_ast_node_source_membership_fails_closed():
+    from types import SimpleNamespace
+
+    class UnknownNode(ast.Node):
+        pass
+
+    script = UnknownNode(
+        span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    )
+    authority = SimpleNamespace(
+        catalogs=SimpleNamespace(catalogs=()),
+        modules=(SimpleNamespace(parsed_input=SimpleNamespace(script=script)),),
+    )
+    plan = SimpleNamespace(
+        scope=SimpleNamespace(
+            analysis_bundle=SimpleNamespace(
+                root=SimpleNamespace(
+                    base_plan=SimpleNamespace(
+                        attribution=SimpleNamespace(_authority=authority)
+                    )
+                )
+            )
+        )
+    )
+    with pytest.raises(ValueError, match="Unknown source AST node"):
+        maps.membership(plan)
+
+
 @pytest.fixture(scope="module")
 def corpus(tmp_path_factory):
     cases = {

@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import TypeGuard
 
 from pietto._window_identity import WindowFunctionIdentity, WindowFunctionRole
+from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
     CallExpr,
     DottedNameExpr,
@@ -70,6 +71,24 @@ from pietto.semantic.window_semantics import (
 )
 
 __all__: tuple[str, ...] = ()
+
+_KNOWN_EXPRESSIONS = frozenset(
+    {
+        ast.LiteralExpr,
+        ast.NameExpr,
+        ast.DottedNameExpr,
+        ast.CallExpr,
+        ast.UnaryExpr,
+        ast.ConditionalExpr,
+        ast.MembershipExpr,
+        ast.CastExpr,
+        ast.BinaryExpr,
+        ast.ComparisonExpr,
+        ast.BetweenExpr,
+        ast.IsNullExpr,
+        ast.WindowExpr,
+    }
+)
 
 _INT_IDENTITY = LogicalTypeIdentity(name="Int", kind=TypeKind.BUILTIN)
 _TYPE_VARIABLE = TypeVariable(name="T", constraints=())
@@ -805,6 +824,10 @@ def _is_bounded_value_expression(
     *,
     allow_qualified_fields: bool,
 ) -> TypeGuard[BoundedNavigationExpression]:
+    if type(expression) not in _KNOWN_EXPRESSIONS:
+        raise ValueError(
+            f"Unsupported navigation expression: {type(expression).__name__}"
+        )
     if type(expression) is NameExpr:
         return True
     if type(expression) is DottedNameExpr:

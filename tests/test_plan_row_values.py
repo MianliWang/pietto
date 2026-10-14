@@ -615,6 +615,52 @@ def test_missing_or_foreign_contextual_evidence_cannot_remain_positive(
     assert verify_project_sql_plan(plan, *roots).verified
 
 
+def test_unknown_scalar_child_fails_closed() -> None:
+    from pietto import ast_nodes as ast
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    with pytest.raises(ValueError, match="Unsupported scalar expression"):
+        row.scalar_children(
+            UnknownExpression(
+                span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+            )
+        )
+
+
+def test_unknown_scalar_terminal_fails_closed() -> None:
+    from pietto import ast_nodes as ast
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    unknown = UnknownExpression(
+        span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    )
+    with pytest.raises(ValueError, match="Unsupported scalar expression"):
+        row.scalar_nodes(unknown, leaves=(unknown,))
+
+
+def test_unknown_row_expression_fails_verification() -> None:
+    from types import SimpleNamespace
+
+    from pietto import ast_nodes as ast
+    from pietto._project import project_sql_plan_verification as verification
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    span = ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    site = SimpleNamespace(
+        ref=object(),
+        references=(),
+        occurrence=SimpleNamespace(expression=UnknownExpression(span=span)),
+    )
+    plan = SimpleNamespace(expressions=())
+    assert verification._row_expressions(plan, ((site, ()),), {}, {}) is False
+
+
 def test_exact_stage_queries_and_no_construction_in_readers(
     row_plans, monkeypatch: pytest.MonkeyPatch
 ) -> None:

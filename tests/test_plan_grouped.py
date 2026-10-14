@@ -931,3 +931,25 @@ def test_aggregate_argument_lower_is_an_admitted_scalar_call(tmp_path: Path):
     result = build_project_sql_plan(*roots)
     assert isinstance(result, ProjectSQLPlan)
     assert verify_project_sql_plan(result, *roots).verified
+
+
+def test_unknown_aggregate_group_key_fails_closed(tmp_path: Path, monkeypatch):
+    from pietto import ast_nodes as ast
+    from pietto._project import project_sql_plan_verification as verification
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    _, plan, _ = _plan_product(tmp_path, _group_source())
+    original = next(
+        value
+        for definition in plan.bindings.definitions
+        if (value := aggregation.authority(plan.scope.completed, definition.entry))
+        is not None
+        and value.keys
+    )
+    key = original.keys[0].item
+    with monkeypatch.context() as patch:
+        patch.setattr(type(key), "__setattr__", object.__setattr__)
+        patch.setattr(key, "key", UnknownExpression(span=key.key.span))
+        assert not verification._aggregate_structure(plan)

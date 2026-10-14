@@ -45,6 +45,112 @@ from _pietto_plan_named import (
 pytest_plugins = ("_pietto_plan_reports",)
 
 
+def test_unknown_binding_definition_fails_closed(tmp_path, monkeypatch):
+    from pietto import ast_nodes as ast
+    from pietto._project import project_sql_plan_verification as verification
+
+    class UnknownDefinition(ast.Node):
+        pass
+
+    roots = _roots(tmp_path, join_source())
+    bindings = sql.build_project_sql_bindings(*roots)
+    assert isinstance(bindings, sql.ProjectSQLBindings)
+    inventory = verification._root_inventory(bindings.scope)
+    owner = bindings.definitions[0].entry.owner
+    with monkeypatch.context() as patch:
+        patch.setattr(type(owner), "__setattr__", object.__setattr__)
+        patch.setattr(
+            owner, "definition", UnknownDefinition(span=owner.definition.span)
+        )
+        assert not verification._binding_structure(bindings, *inventory)
+
+
+def test_unknown_blocker_definition_has_typed_ir_stage(tmp_path, monkeypatch):
+    from pietto import ast_nodes as ast
+
+    class UnknownDefinition(ast.Node):
+        pass
+
+    roots = _roots(tmp_path, join_source())
+    entry = sql._closure(roots[1], roots[2])[0]
+    owner = entry.owner
+    with monkeypatch.context() as patch:
+        patch.setattr(type(owner), "__setattr__", object.__setattr__)
+        patch.setattr(
+            owner, "definition", UnknownDefinition(span=owner.definition.span)
+        )
+        blockers = sql._blockers(*roots)
+    assert any(
+        blocker.kind is sql.ProjectSQLPlanBlockerKind.IR_STAGE for blocker in blockers
+    )
+
+
+def test_unknown_bound_definition_makes_plan_unavailable(tmp_path, monkeypatch):
+    from pietto import ast_nodes as ast
+
+    class UnknownDefinition(ast.Node):
+        pass
+
+    roots = _roots(tmp_path, join_source())
+    owner = sql._closure(roots[1], roots[2])[0].owner
+    with monkeypatch.context() as patch:
+        patch.setattr(type(owner), "__setattr__", object.__setattr__)
+        patch.setattr(
+            owner, "definition", UnknownDefinition(span=owner.definition.span)
+        )
+        patch.setattr(sql, "_require_roots", lambda *args: None)
+        assert isinstance(
+            sql.build_project_sql_plan(*roots), sql.ProjectSQLPlanUnavailable
+        )
+
+
+def test_unknown_dependency_definition_makes_bindings_unavailable(
+    tmp_path, monkeypatch
+):
+    from pietto import ast_nodes as ast
+
+    class UnknownDefinition(ast.Node):
+        pass
+
+    roots = _roots(tmp_path, join_source())
+    owner = next(
+        entry.owner
+        for entry in sql._closure(roots[1], roots[2])
+        if entry.owner is not roots[2]
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(type(owner), "__setattr__", object.__setattr__)
+        patch.setattr(
+            owner, "definition", UnknownDefinition(span=owner.definition.span)
+        )
+        assert isinstance(
+            sql.build_project_sql_bindings(*roots), sql.ProjectSQLPlanUnavailable
+        )
+
+
+def test_unknown_source_connector_callee_fails_binding_verification(
+    tmp_path, monkeypatch
+):
+    from pietto import ast_nodes as ast
+    from pietto._project import project_sql_plan_verification as verification
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    roots = _roots(tmp_path, join_source())
+    bindings = sql.build_project_sql_bindings(*roots)
+    assert isinstance(bindings, sql.ProjectSQLBindings)
+    inventory = verification._root_inventory(bindings.scope)
+    assert verification._binding_structure(bindings, *inventory)
+    connector = bindings.sources[0].connector
+    with monkeypatch.context() as patch:
+        patch.setattr(type(connector), "__setattr__", object.__setattr__)
+        patch.setattr(
+            connector, "callee", UnknownExpression(span=connector.callee.span)
+        )
+        assert verification._binding_structure(bindings, *inventory) is False
+
+
 def test_every_current_variant_and_meaningful_subkind_has_real_coverage(corpus):
     current_variants = set(get_args(sql.ProjectSQLDemand.__value__))
     assert set(report.DEMAND_FAMILIES) == current_variants

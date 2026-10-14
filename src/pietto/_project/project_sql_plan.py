@@ -108,6 +108,7 @@ from pietto._project.project_query_block_ir import (
 from pietto._project.project_query_block_ir_verification import (
     ProjectIRQueryBlockAnalysisBundle,
 )
+from pietto import ast_nodes as ast
 from pietto.ast_nodes import GroupByItem
 from pietto.ast_nodes import (
     AuthoredJoinKind,
@@ -148,6 +149,20 @@ from pietto.ast_nodes import (
 from pietto.errors import Diagnostic
 
 __all__: tuple[str, ...] = ()
+
+_KNOWN_DEFINITIONS = frozenset(
+    {
+        ast.TypeDef,
+        ast.EnumDef,
+        ast.ShapeDef,
+        ast.ConstraintDef,
+        ast.DeriveDef,
+        ast.SourceDef,
+        ast.TableDef,
+        ast.QueryDef,
+        ast.SetRelationDef,
+    }
+)
 
 
 def _one[T](values: tuple[T, ...], label: str) -> T:
@@ -364,6 +379,9 @@ def _blockers(
         add(K.SEMANTIC_RESULT_UNSUCCESSFUL, selected, completed)
     for entry in _closure(bundle, selected):
         owner, definition = entry.owner, entry.owner.definition
+        if type(definition) not in _KNOWN_DEFINITIONS:
+            add(K.IR_STAGE, owner, entry)
+            continue
         if isinstance(entry, ProjectIRQueryBlockTerminal):
             add(K.ACTIVE_OUTPUT_UNAVAILABLE, owner, entry)
         if isinstance(definition, SourceDef):
@@ -1679,6 +1697,15 @@ def build_project_sql_bindings(
 ) -> ProjectSQLBindings | ProjectSQLPlanUnavailable:
     """The real planner's binding seam; binding success never certifies SQL bodies."""
     _require_roots(completed, analysis_bundle, selected_owner)
+    if any(
+        type(entry.owner.definition) not in _KNOWN_DEFINITIONS
+        for entry in _closure(analysis_bundle, selected_owner)
+    ):
+        return ProjectSQLPlanUnavailable(
+            completed=completed,
+            analysis_bundle=analysis_bundle,
+            selected_owner=selected_owner,
+        )
     prerequisites = {
         ProjectSQLPlanBlockerKind.SEMANTIC_RESULT_UNSUCCESSFUL,
         ProjectSQLPlanBlockerKind.ACTIVE_OUTPUT_UNAVAILABLE,

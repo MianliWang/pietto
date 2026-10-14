@@ -22,6 +22,7 @@ from pietto._project import project_sql_plan_results as plan_results
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project.project_final_outputs import ProjectRelationOrdering
 from pietto._project.project_ir_properties import ProjectIRProvidedRelationOrdering
+from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
     BinaryExpr,
     BetweenExpr,
@@ -43,6 +44,24 @@ from pietto._project.project_query_block_ir import (
 )
 
 __all__: tuple[str, ...] = ()
+
+_KNOWN_EXPRESSIONS = frozenset(
+    {
+        ast.LiteralExpr,
+        ast.NameExpr,
+        ast.DottedNameExpr,
+        ast.CallExpr,
+        ast.UnaryExpr,
+        ast.ConditionalExpr,
+        ast.MembershipExpr,
+        ast.CastExpr,
+        ast.BinaryExpr,
+        ast.ComparisonExpr,
+        ast.BetweenExpr,
+        ast.IsNullExpr,
+        ast.WindowExpr,
+    }
+)
 
 # The retained ORDER carrier routes of R03/R19: each keeps its own input image.
 ORDINARY = "ordinary"
@@ -400,6 +419,8 @@ def bound_port(use, inputs):
 
 def _same_order_expression(left, right):
     """Match one authored computed ORDER key to one visible projection value."""
+    if type(left) not in _KNOWN_EXPRESSIONS or type(right) not in _KNOWN_EXPRESSIONS:
+        raise ValueError("Unknown ORDER expression")
     if type(left) is not type(right):
         return False
     if type(left) is NameExpr:

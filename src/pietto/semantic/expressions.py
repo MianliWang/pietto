@@ -6,6 +6,7 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
+from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
@@ -86,6 +87,25 @@ _Q1_FIXED_CANONICAL_FUNCTIONS = frozenset(
         "date_of",
         "hour",
         "minute",
+    }
+)
+
+
+_KNOWN_EXPRESSIONS = frozenset(
+    {
+        ast.LiteralExpr,
+        ast.NameExpr,
+        ast.DottedNameExpr,
+        ast.CallExpr,
+        ast.UnaryExpr,
+        ast.ConditionalExpr,
+        ast.MembershipExpr,
+        ast.CastExpr,
+        ast.BinaryExpr,
+        ast.ComparisonExpr,
+        ast.BetweenExpr,
+        ast.IsNullExpr,
+        ast.WindowExpr,
     }
 )
 
@@ -588,6 +608,8 @@ def _infer(
 ) -> ValueType:
     """Infer only the expression forms supported by this scaffold."""
 
+    if type(expression) not in _KNOWN_EXPRESSIONS:
+        raise AssertionError(f"Unsupported expression: {type(expression).__name__}")
     existing = value_types.get(expression)
     if existing is not None:
         return existing

@@ -1023,3 +1023,40 @@ def test_new_consumers_remain_private_without_dynamic_or_renderer_access():
             not {"__import__", "import_module", "entry_points", "eval", "exec", "open"}
             & facts.identifiers
         )
+
+
+def test_unknown_scalar_target_key_fails_before_missing_type() -> None:
+    from pietto import ast_nodes as ast
+    from types import SimpleNamespace
+    from typing import Any
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    demand = SimpleNamespace(
+        expression=UnknownExpression(
+            span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+        ),
+        value_type=None,
+        operand_types=(),
+    )
+    with pytest.raises(ValueError, match="Unsupported scalar expression"):
+        mapping._scalar_key(cast(Any, demand), {})
+
+
+def test_unknown_scalar_target_validation_fails_before_missing_type() -> None:
+    from pietto import ast_nodes as ast
+    from types import SimpleNamespace
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    demand = SimpleNamespace(
+        expression=UnknownExpression(
+            span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+        ),
+        value_type=None,
+        operand_types=(),
+    )
+    with pytest.raises(ValueError, match="Unsupported scalar expression"):
+        mapping._valid_scalar_key(None, demand, {})

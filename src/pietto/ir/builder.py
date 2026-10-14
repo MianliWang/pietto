@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pietto import ast_nodes as ast
 from pietto.ast_nodes import SetRelationDef
 
 from collections.abc import Mapping
@@ -101,6 +102,21 @@ RelationDefinition = SourceDef | TableDef | QueryDef
 CallableDefinition = ConstraintDef | DeriveDef
 
 
+_KNOWN_DEFINITIONS = frozenset(
+    {
+        ast.TypeDef,
+        ast.EnumDef,
+        ast.ShapeDef,
+        ast.ConstraintDef,
+        ast.DeriveDef,
+        ast.SourceDef,
+        ast.TableDef,
+        ast.QueryDef,
+        ast.SetRelationDef,
+    }
+)
+
+
 @dataclass(frozen=True, slots=True)
 class _GroupedOrderExpression:
     expression: ExpressionIR
@@ -138,6 +154,8 @@ def _lower_definition(
 ) -> DefinitionIR | None:
     """Lower one supported declaration and skip later-slice definitions."""
 
+    if type(definition) not in _KNOWN_DEFINITIONS:
+        raise _MissingSemanticFact(definition, "supported definition")
     if isinstance(definition, SetRelationDef):
         raise _MissingSemanticFact(definition.body, "set-operation lowering")
     if isinstance(definition, TypeDef):

@@ -455,3 +455,38 @@ def _write(root: Path, relative_path: str, source: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
     return path
+
+
+def test_unknown_project_type_definition_fails_closed() -> None:
+    from typing import Any, cast
+
+    from pietto import ast_nodes as ast
+    from pietto._project.model import _iter_project_type_expressions
+
+    class UnknownDefinition(ast.Node):
+        pass
+
+    with pytest.raises(ValueError, match="Unsupported definition"):
+        _iter_project_type_expressions(
+            cast(
+                Any,
+                UnknownDefinition(
+                    span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+                ),
+            )
+        )
+
+
+def test_unknown_project_type_expression_fails_closed() -> None:
+    from pietto import ast_nodes as ast
+    from pietto._project.model import _iter_project_type_expressions
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    span = ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    source = ast.SourceDef(
+        span=span, name="s", shape_name=None, connector=UnknownExpression(span=span)
+    )
+    with pytest.raises(ValueError, match="Unsupported expression"):
+        _iter_project_type_expressions(source)

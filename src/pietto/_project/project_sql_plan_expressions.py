@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_windows as windows
+from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
     Expression,
     LiteralExpr,
@@ -79,6 +80,24 @@ if TYPE_CHECKING:
     from pietto._project.project_sql_plan import ProjectSQLPlanRef, ProjectSQLSymbol
 
 __all__: tuple[str, ...] = ()
+
+_KNOWN_EXPRESSIONS = frozenset(
+    {
+        ast.LiteralExpr,
+        ast.NameExpr,
+        ast.DottedNameExpr,
+        ast.CallExpr,
+        ast.UnaryExpr,
+        ast.ConditionalExpr,
+        ast.MembershipExpr,
+        ast.CastExpr,
+        ast.BinaryExpr,
+        ast.ComparisonExpr,
+        ast.BetweenExpr,
+        ast.IsNullExpr,
+        ast.WindowExpr,
+    }
+)
 
 
 type ProjectSQLOrdinaryEvidence = (
@@ -674,6 +693,8 @@ def stage_key_label(key):
 
 
 def scalar_children(expression: Expression) -> tuple[Expression, ...]:
+    if type(expression) not in _KNOWN_EXPRESSIONS:
+        raise ValueError(f"Unsupported scalar expression: {type(expression).__name__}")
     if isinstance(expression, (BinaryExpr, ComparisonExpr)):
         return expression.left, expression.right
     if isinstance(expression, UnaryExpr):
@@ -701,6 +722,8 @@ def scalar_nodes(
     result: list[Expression] = []
     while pending:
         node = pending.pop()
+        if type(node) not in _KNOWN_EXPRESSIONS:
+            raise ValueError(f"Unsupported scalar expression: {type(node).__name__}")
         result.append(node)
         if id(node) not in terminal:
             pending.extend(reversed(scalar_children(node)))

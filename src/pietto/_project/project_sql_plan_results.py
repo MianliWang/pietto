@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
     Expression,
     NameExpr,
@@ -72,6 +73,37 @@ if TYPE_CHECKING:
     from pietto._project.project_sql_plan import ProjectSQLPlanRef, ProjectSQLPort
 
 __all__: tuple[str, ...] = ()
+
+_KNOWN_EXPRESSIONS = frozenset(
+    {
+        ast.LiteralExpr,
+        ast.NameExpr,
+        ast.DottedNameExpr,
+        ast.CallExpr,
+        ast.UnaryExpr,
+        ast.ConditionalExpr,
+        ast.MembershipExpr,
+        ast.CastExpr,
+        ast.BinaryExpr,
+        ast.ComparisonExpr,
+        ast.BetweenExpr,
+        ast.IsNullExpr,
+        ast.WindowExpr,
+    }
+)
+_KNOWN_DEFINITIONS = frozenset(
+    {
+        ast.TypeDef,
+        ast.EnumDef,
+        ast.ShapeDef,
+        ast.ConstraintDef,
+        ast.DeriveDef,
+        ast.SourceDef,
+        ast.TableDef,
+        ast.QueryDef,
+        ast.SetRelationDef,
+    }
+)
 
 
 class ProjectSQLResultKind(StrEnum):
@@ -397,6 +429,8 @@ def result_properties(entry, operator):
 
 def ready(entry, indexed):
     definition = entry.owner.definition
+    if type(definition) not in _KNOWN_DEFINITIONS:
+        raise ValueError("Unknown result definition")
     order = ordering(entry, indexed)
     if definition.order_by_clause is not None:
         if (
@@ -420,6 +454,8 @@ def ready(entry, indexed):
             CastExpr,
         }
         for item, uses in zip(order.items, order.inputs, strict=True):
+            if type(item.expression) not in _KNOWN_EXPRESSIONS:
+                raise ValueError("Unknown result order expression")
             expected = (
                 tuple(
                     node
@@ -673,6 +709,8 @@ def build(plan, ref):
     for definition in plan.bindings.definitions:
         entry = definition.entry
         authored = entry.owner.definition
+        if type(authored) not in _KNOWN_DEFINITIONS:
+            raise ValueError("Unknown result definition")
         if isinstance(authored, SourceDef):
             terminals.update((value.ref, value) for value in definition.exports)
             continue
@@ -953,6 +991,8 @@ def build(plan, ref):
             else:
                 source = entry.active_properties.cardinality
                 clause = authored.limit_clause
+                if type(clause.expression) not in _KNOWN_EXPRESSIONS:
+                    raise ValueError("Unknown result limit expression")
                 assert isinstance(
                     source,
                     (ProjectRelationLimit, ProjectIRProvidedCardinalityUpperBound),

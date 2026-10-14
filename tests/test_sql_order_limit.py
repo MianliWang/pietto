@@ -373,3 +373,30 @@ def test_an_ordinary_named_use_reads_the_post_limit_terminal(target):
     assert f"FROM {q}{limited[0]}{q} AS" in final
     assert "LIMIT" not in final and "ORDER BY" not in final
     assert labels(outcome) == ["a"]
+
+
+def test_unknown_order_expression_builder_comparison_fails_closed() -> None:
+    from pietto import ast_nodes as ast
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    span = ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    with pytest.raises(ValueError, match="Unknown ORDER expression"):
+        resulting._same_order_expression(
+            ast.NameExpr(span=span, name="a"), UnknownExpression(span=span)
+        )
+
+
+def test_unknown_order_expression_verifier_comparison_fails_closed() -> None:
+    from pietto import ast_nodes as ast
+    from pietto._project import project_sql_emission_verification as verification
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    span = ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    with pytest.raises(ValueError, match="Unknown ORDER expression"):
+        verification._same_order_expression(
+            UnknownExpression(span=span), ast.NameExpr(span=span, name="a")
+        )

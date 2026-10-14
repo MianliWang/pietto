@@ -22,6 +22,7 @@ from pietto._project.model import (
     ProjectRowField,
 )
 from pietto._project.aggregate_grouped_schema import ProjectAggregateExpressionAnalysis
+from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
     LiteralExpr,
     UnaryExpr,
@@ -41,6 +42,24 @@ from pietto.semantic.capability_facts import CapabilityDomain as D, CapabilityKe
 from pietto.ir.model import SymbolNamespace
 
 __all__: tuple[str, ...] = ()
+
+_KNOWN_EXPRESSIONS = frozenset(
+    {
+        ast.LiteralExpr,
+        ast.NameExpr,
+        ast.DottedNameExpr,
+        ast.CallExpr,
+        ast.UnaryExpr,
+        ast.ConditionalExpr,
+        ast.MembershipExpr,
+        ast.CastExpr,
+        ast.BinaryExpr,
+        ast.ComparisonExpr,
+        ast.BetweenExpr,
+        ast.IsNullExpr,
+        ast.WindowExpr,
+    }
+)
 
 
 class PropositionKind(StrEnum):
@@ -287,6 +306,8 @@ def _scalar_key(
     demand: row.ProjectSQLExpressionDemand, expressions
 ) -> CapabilityKey | None:
     expr = demand.expression
+    if type(expr) not in _KNOWN_EXPRESSIONS:
+        raise ValueError(f"Unsupported scalar expression: {type(expr).__name__}")
     result = _builtin(demand.value_type)
     operands = tuple(_builtin(value) for value in demand.operand_types)
     if type(expr) is LiteralExpr:
@@ -593,6 +614,8 @@ def _valid_literal_key(key, value):
 
 def _valid_scalar_key(key, demand, expressions):
     expression, result = demand.expression, _builtin(demand.value_type)
+    if type(expression) not in _KNOWN_EXPRESSIONS:
+        raise ValueError(f"Unsupported scalar expression: {type(expression).__name__}")
     values = tuple(_builtin(value) for value in demand.operand_types)
     if type(expression) is LiteralExpr:
         return _valid_literal_key(key, demand.value_type)

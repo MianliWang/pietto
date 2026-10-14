@@ -36,6 +36,76 @@ from pietto.semantic.model import ValueType
 
 __all__: tuple[str, ...] = ()
 
+_KNOWN_NODES = frozenset(
+    {
+        ast.Node,
+        ast.Header,
+        ast.Expression,
+        ast.LiteralExpr,
+        ast.NameExpr,
+        ast.DottedNameExpr,
+        ast.CallExpr,
+        ast.UnaryExpr,
+        ast.ConditionalExpr,
+        ast.MembershipExpr,
+        ast.CastExpr,
+        ast.BinaryExpr,
+        ast.ComparisonExpr,
+        ast.BetweenExpr,
+        ast.IsNullExpr,
+        ast.AuthoredWindowNullTreatment,
+        ast.AuthoredWindowNthDirection,
+        ast.NamedWindowReference,
+        ast.TypeArgument,
+        ast.TypeExpr,
+        ast.Parameter,
+        ast.EnsureClause,
+        ast.Annotation,
+        ast.TypeDef,
+        ast.EnumDef,
+        ast.FieldDef,
+        ast.CheckDef,
+        ast.UniqueDef,
+        ast.IndexDef,
+        ast.ShapeDef,
+        ast.ConstraintDef,
+        ast.DeriveDef,
+        ast.SourceDef,
+        ast.RelationshipEndpoint,
+        ast.RelationshipMatchClause,
+        ast.RelationshipMetadata,
+        ast.ImportItem,
+        ast.ImportStatement,
+        ast.ExportItem,
+        ast.ExportStatement,
+        ast.FromClause,
+        ast.JoinOnClause,
+        ast.JoinTraversalStep,
+        ast.JoinClause,
+        ast.LetBinding,
+        ast.LetClause,
+        ast.WhereClause,
+        ast.GroupByItem,
+        ast.GroupByClause,
+        ast.SelectItem,
+        ast.SatisfyingClause,
+        ast.QualifyClause,
+        ast.OrderItem,
+        ast.WindowSpec,
+        ast.NamedWindowDeclaration,
+        ast.WindowExpr,
+        ast.OrderByClause,
+        ast.LimitClause,
+        ast.DistinctClause,
+        ast.TableDef,
+        ast.QueryDef,
+        ast.SetOperand,
+        ast.SetOperationBody,
+        ast.SetRelationDef,
+        ast.Script,
+    }
+)
+
 
 class ProjectSQLSourceNature(StrEnum):
     SYNTAX_CORRESPONDENCE = "syntax_correspondence"
@@ -346,6 +416,8 @@ def membership(plan):
         seen = set()
         while pending:
             value, owner, container = pending.pop()
+            if isinstance(value, ast.Node) and type(value) not in _KNOWN_NODES:
+                raise ValueError("Unknown source AST node")
             declaration = owners.get((id(module), id(value)))
             if declaration is not None:
                 owner, container = declaration, value

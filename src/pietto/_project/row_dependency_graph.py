@@ -20,6 +20,7 @@ from pietto._project.model import (
     ProjectSymbol,
     ProjectSymbolKind,
 )
+from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
@@ -46,6 +47,25 @@ _DerivedRelation = TableDef | QueryDef
 
 _SEMANTIC_AGGREGATE_NAMES = frozenset(
     {"count", "count_distinct", "sum", "avg", "min", "max"}
+)
+
+
+_KNOWN_EXPRESSIONS = frozenset(
+    {
+        ast.LiteralExpr,
+        ast.NameExpr,
+        ast.DottedNameExpr,
+        ast.CallExpr,
+        ast.UnaryExpr,
+        ast.ConditionalExpr,
+        ast.MembershipExpr,
+        ast.CastExpr,
+        ast.BinaryExpr,
+        ast.ComparisonExpr,
+        ast.BetweenExpr,
+        ast.IsNullExpr,
+        ast.WindowExpr,
+    }
 )
 
 
@@ -588,6 +608,8 @@ def _contains_semantic_aggregate(expression: Expression) -> bool:
 
 
 def _child_expressions(expression: Expression) -> tuple[Expression, ...]:
+    if type(expression) not in _KNOWN_EXPRESSIONS:
+        raise ValueError(f"Unsupported expression: {type(expression).__name__}")
     if isinstance(expression, CallExpr):
         return expression.arguments
     if isinstance(expression, UnaryExpr):

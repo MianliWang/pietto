@@ -1024,3 +1024,50 @@ def test_unsupported_prerequisites_are_not_preserved_transport_success(
             assert not roots[0].ok and code in [d.code for d in roots[0].diagnostics]
         else:
             assert roots[0].ok and code in [b.kind.value for b in plan.blockers]
+
+
+def test_unknown_literal_traversal_fails_closed() -> None:
+    from pietto import ast_nodes as ast
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    with pytest.raises(ValueError, match="Unsupported literal expression"):
+        tuple(
+            literal.literal_nodes(
+                UnknownExpression(
+                    span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+                )
+            )
+        )
+
+
+def test_unknown_literal_ancestry_fails_before_policy_exit() -> None:
+    from pietto import ast_nodes as ast
+    from types import SimpleNamespace
+    from typing import Any, cast
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    span = ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    position = SimpleNamespace(ancestry=((UnknownExpression(span=span), 0),))
+    with pytest.raises(ValueError, match="Unsupported literal expression context"):
+        literal.classify(cast(Any, position), P.PRESERVE_LITERALS)
+
+
+def test_unknown_literal_schema_ancestry_fails_closed(products) -> None:
+    from pietto import ast_nodes as ast
+
+    class UnknownExpression(ast.Expression):
+        pass
+
+    _, plan, _, _ = products[0]
+    assert verification._literal_schema(plan, P.BIND_SAFE_LITERALS)
+    site = plan.literal_slots[0].site
+    unknown = UnknownExpression(span=site.position.literal.span)
+    bad = _graft(site, position=_graft(site.position, ancestry=((unknown, 0),)))
+    candidate = _graft(
+        plan, literal_sites=_tuple_replaced(plan.literal_sites, site, bad)
+    )
+    assert verification._literal_schema(candidate, P.BIND_SAFE_LITERALS) is False
