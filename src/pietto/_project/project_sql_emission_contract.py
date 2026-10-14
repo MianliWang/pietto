@@ -419,7 +419,12 @@ def prepare_project_sql_emission(
             ),
             diagnostics=diagnostics,
         )
-    if scalar_meaning is not None:
+    if scalar_meaning is None:
+        if view is not None:
+            from pietto._project.project_scalar_meaning import intrinsic_scalar_meaning
+
+            scalar_meaning = intrinsic_scalar_meaning(verification)
+    else:
         from pietto._project.project_scalar_meaning import (
             verify_scalar_meaning,
             ScalarMeaningError,

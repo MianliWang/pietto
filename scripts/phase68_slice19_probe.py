@@ -83,8 +83,8 @@ def main():
     root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(root / "src"))
     sys.path.insert(0, str(root / "tests"))
-    import _pietto_phase68_slice18_probe as s18
-    import _pietto_phase68_slice19_probe as probe
+    import _pietto_execution_installation_probe as s18
+    import _pietto_execution_matrix_probe as probe
 
     def env(recipe):
         return args.install / (s18.PREFIX + "env-" + recipe) / "bin/python"
@@ -197,7 +197,7 @@ def main():
             uv_cache=args.cache,
         )
     else:
-        import _pietto_phase68_slice19_check as check
+        import _pietto_execution_matrix_check as check
 
         report = check.campaign_check(
             args.directory,

@@ -5,7 +5,7 @@ zero, owns its pending page, and advances only after a checked normal terminal.
 """
 
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 import re
 import math
@@ -107,6 +107,8 @@ def atom(value):
         return ("float", value.hex())
     if type(value) is Decimal:
         return ("decimal", value.as_tuple())
+    if type(value) is date:
+        return ("date", value.isoformat())
     if type(value) is datetime:
         return ("datetime", value.isoformat(), value.fold)
     if type(value) is UUID:
@@ -162,7 +164,7 @@ def _size(value, limit):
         return len(value)
     if type(value) is Decimal:
         return len(value.as_tuple().digits) + 32
-    if type(value) in (datetime, UUID):
+    if type(value) in (date, datetime, UUID):
         return 16
     raise ValueError("REFINEMENT_CARRIER")
 

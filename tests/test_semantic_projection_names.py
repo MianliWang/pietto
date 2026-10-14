@@ -54,7 +54,7 @@ def test_explicit_alias_becomes_output_name_with_expression_type() -> None:
 
     assert list(schema.fields) == ["email_norm"]
     assert schema.fields["email_norm"].resolved_type.name == "Text"
-    assert schema.fields["email_norm"].nullability is EffectiveNullability.UNKNOWN
+    assert schema.fields["email_norm"].nullability is EffectiveNullability.NULLABLE
     assert result.diagnostics == ()
 
 

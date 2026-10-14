@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime
 from decimal import Decimal
 import json
 import hashlib
 from typing import Any
-import _pietto_phase66_sql_emission_probe as emission
+from uuid import UUID
+import _pietto_sql_emission as emission
 from _pietto_mysql_native_prepared import API, verify_native
 
 TARGETS = ("postgres", "mysql")
@@ -26,6 +28,19 @@ CASE_IDS = (
 )
 BIG = 9007199254740993
 TEXT = "雪?%s e\u0301 😀"
+MEANING_VARIANTS = frozenset({"timestamp_meaning", "uuid_meaning"})
+MEANING_TIMESTAMPS = (
+    datetime(1969, 12, 31, 23, 59, 59, 999999),
+    datetime(1969, 12, 31, 23, 59, 59, 999999),
+    datetime(1970, 1, 1),
+    datetime(1970, 1, 1, 0, 0, 0, 1),
+)
+MEANING_UUID_HEX = (
+    "00112233445566778899aabbccddeeff",
+    "00112233445566778899aabbccddeeff",
+    "00000000000000000000000000000000",
+    "ffffffffffffffffffffffffffffffff",
+)
 
 
 def legacy_source(target: str) -> str:
@@ -202,11 +217,25 @@ def row_domain_expectation(target, variant):
 def emission_setup(target):
     if target == "postgres":
         columns = '"order.id" BIGINT NOT NULL, "flag value" BOOLEAN, "text `""é" TEXT COLLATE "C" NOT NULL, "amount value" NUMERIC(9,2) NOT NULL, "ratio value" DOUBLE PRECISION NOT NULL'
+        safe_columns = '"order.id" INTEGER NOT NULL, "flag value" BOOLEAN, "text `""é" TEXT COLLATE "C" NOT NULL, "amount value" NUMERIC(9,2) NOT NULL, "ratio value" DOUBLE PRECISION NOT NULL'
         names = ('"phase66 source é"', '"phase66 empty é"')
+        safe_names = ('"phase66 safe int source"', '"phase66 safe int empty"')
+        timestamp_name, uuid_name = (
+            '"phase66 timestamp source"',
+            '"phase66 uuid source"',
+        )
+        timestamp_type, uuid_type = "TIMESTAMP(6)", "UUID"
         parameters = "$1, $2, $3, $4, $5"
     else:
         columns = '`order.id` BIGINT NOT NULL, `flag value` TINYINT, `text ``"é` VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL, `amount value` DECIMAL(9,2) NOT NULL, `ratio value` DOUBLE NOT NULL'
+        safe_columns = '`order.id` INT NOT NULL, `flag value` TINYINT, `text ``"é` VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL, `amount value` DECIMAL(9,2) NOT NULL, `ratio value` DOUBLE NOT NULL'
         names = ("`phase66 source é`", "`phase66 empty é`")
+        safe_names = ("`phase66 safe int source`", "`phase66 safe int empty`")
+        timestamp_name, uuid_name = (
+            "`phase66 timestamp source`",
+            "`phase66 uuid source`",
+        )
+        timestamp_type, uuid_type = "DATETIME(6)", "BINARY(16)"
         parameters = "?, ?, ?, ?, ?"
     rows = (
         (
@@ -227,11 +256,57 @@ def emission_setup(target):
         (1, None, "a ", Decimal("-0.01"), 0.0),
     )
     collision = '"p0"' if target == "postgres" else "`p0`"
+    safe_rows = (
+        (5, True if target == "postgres" else 1, "trail 😀  ", Decimal("12.30"), -0.0),
+        (5, True if target == "postgres" else 1, "trail 😀  ", Decimal("12.30"), -0.0),
+        (0, False if target == "postgres" else 0, "A", Decimal("0.00"), 1.5),
+        (1, None, "a ", Decimal("-0.01"), 0.0),
+    )
+    uuid_values = tuple(
+        UUID(hex=value) if target == "postgres" else bytes.fromhex(value)
+        for value in MEANING_UUID_HEX
+    )
+    timestamp_rows = tuple(
+        (*row[:4], value) for row, value in zip(rows, MEANING_TIMESTAMPS, strict=True)
+    )
+    uuid_rows = tuple(
+        (*row[:4], value) for row, value in zip(rows, uuid_values, strict=True)
+    )
+    meaning_prefix = (
+        '"order.id" BIGINT NOT NULL, "flag value" BOOLEAN, "text `""é" TEXT COLLATE "C" NOT NULL, "amount value" NUMERIC(9,2) NOT NULL, '
+        if target == "postgres"
+        else '`order.id` BIGINT NOT NULL, `flag value` TINYINT, `text ``"é` VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL, `amount value` DECIMAL(9,2) NOT NULL, '
+    )
+    meaning_ratio = '"ratio value"' if target == "postgres" else "`ratio value`"
     return (
         tuple((f"CREATE TABLE {name} ({columns})", ()) for name in names)
         + tuple((f"INSERT INTO {names[0]} VALUES ({parameters})", row) for row in rows)
         + ((f"CREATE TABLE {collision} ({columns})", ()),)
         + tuple((f"INSERT INTO {collision} VALUES ({parameters})", row) for row in rows)
+        + tuple((f"CREATE TABLE {name} ({safe_columns})", ()) for name in safe_names)
+        + tuple(
+            (f"INSERT INTO {safe_names[0]} VALUES ({parameters})", row)
+            for row in safe_rows
+        )
+        + (
+            (
+                f"CREATE TABLE {timestamp_name} ({meaning_prefix}{meaning_ratio} {timestamp_type} NOT NULL)",
+                (),
+            ),
+        )
+        + tuple(
+            (f"INSERT INTO {timestamp_name} VALUES ({parameters})", row)
+            for row in timestamp_rows
+        )
+        + (
+            (
+                f"CREATE TABLE {uuid_name} ({meaning_prefix}{meaning_ratio} {uuid_type} NOT NULL)",
+                (),
+            ),
+        )
+        + tuple(
+            (f"INSERT INTO {uuid_name} VALUES ({parameters})", row) for row in uuid_rows
+        )
         + aggregate_setup(target)
     )
 
@@ -390,10 +465,105 @@ def emission_rows(target, *, empty=False):
     ]
 
 
+def safe_int_emission_rows(target, *, empty=False):
+    if empty:
+        return []
+    result = []
+    for row, identifier in zip(emission_rows(target), (5, 5, 0, 1), strict=True):
+        copied = [*row]
+        copied[1] = {"kind": "int", "value": str(identifier)}
+        result.append(copied)
+    return result
+
+
+def meaning_rows(target, variant):
+    """Typed projected rows for the two qualified source-meaning witnesses."""
+    if variant not in MEANING_VARIANTS:
+        raise ValueError("unknown meaning variant")
+    values = (
+        [
+            {"kind": "datetime", "value": value.isoformat()}
+            for value in MEANING_TIMESTAMPS
+        ]
+        if variant == "timestamp_meaning"
+        else [
+            {
+                "kind": "uuid" if target == "postgres" else "bytes",
+                "value": value,
+            }
+            for value in MEANING_UUID_HEX
+        ]
+    )
+    result = []
+    for row, value in zip(emission_rows(target), values, strict=True):
+        copied = [*row]
+        copied[-1] = value
+        result.append(copied)
+    return result
+
+
+def meaning_metadata(target, variant):
+    if variant == "timestamp_meaning":
+        physical = 1114 if target == "postgres" else 12
+    elif variant == "uuid_meaning":
+        physical = 2950 if target == "postgres" else 254
+    else:
+        raise ValueError("unknown meaning variant")
+    return (
+        [25, 20, 16, 1700, physical]
+        if target == "postgres"
+        else [253, 8, 1, 246, physical]
+    )
+
+
+def meaning_logical(variant):
+    if variant not in MEANING_VARIANTS:
+        raise ValueError("unknown meaning variant")
+    return (
+        *emission.LOGICAL[:4],
+        "Timestamp" if variant == "timestamp_meaning" else "UUID",
+    )
+
+
+def between_rows(target):
+    return [
+        [_bool(target, int(row[1]["value"]) in {0, 1})] for row in emission_rows(target)
+    ]
+
+
+def between_metadata(target):
+    return [16 if target == "postgres" else 8]
+
+
 def emission_setup_parameters(target):
     # Independent expected insertion order; never use the observer as an oracle.
     rows = [[row[1], row[2], row[0], row[3], row[4]] for row in emission_rows(target)]
-    return [[], [], *rows, [], *rows]
+    safe_rows = [
+        [row[1], row[2], row[0], row[3], row[4]]
+        for row in safe_int_emission_rows(target)
+    ]
+    timestamp_rows = [
+        [row[1], row[2], row[0], row[3], row[4]]
+        for row in meaning_rows(target, "timestamp_meaning")
+    ]
+    uuid_rows = [
+        [row[1], row[2], row[0], row[3], row[4]]
+        for row in meaning_rows(target, "uuid_meaning")
+    ]
+    return [
+        [],
+        [],
+        *rows,
+        [],
+        *rows,
+        [],
+        [],
+        *safe_rows,
+        [],
+        *timestamp_rows,
+        [],
+        *uuid_rows,
+    ]
 
 
 def chain_rows(target, *, empty=False):
@@ -434,9 +604,9 @@ def row_result_rows(target, *, empty=False):
         else {"kind": "int", "value": "0"}
     )
     duplicate = [
-        {"kind": "int", "value": "9007199254740993"},
-        {"kind": "int", "value": "9007199254740994"},
-        {"kind": "int", "value": "18014398509481988"},
+        {"kind": "int", "value": "5"},
+        {"kind": "int", "value": "6"},
+        {"kind": "int", "value": "12"},
         true,
         true,
         false,
@@ -525,7 +695,7 @@ def truth_rows(target):
 def row_result_metadata(target):
     """Physical result metadata observed from the fixed targets, not desired tags."""
     return (
-        [20, 20, 20, 16, 16, 16, 16] if target == "postgres" else [8, 8, 8, 8, 8, 8, 8]
+        [23, 20, 20, 16, 16, 16, 16] if target == "postgres" else [3, 8, 8, 8, 8, 8, 8]
     )
 
 
@@ -605,11 +775,11 @@ def join_rows(variant):
         # null-extends the retained source value, the literal, the computed value
         # and the LET result together.
         matched = [
-            _int(BIG_TEXT),
-            _int(BIG_TEXT),
+            _int("5"),
+            _int("5"),
             _int("1"),
-            _int("18014398509481986"),
-            _int("9007199254740994"),
+            _int("6"),
+            _int("6"),
         ]
         return (
             [matched] * 4
@@ -653,7 +823,15 @@ def join_rows(variant):
 
 
 def join_metadata(target, variant):
-    """Physical result metadata: every published JOIN column here is a BIGINT."""
+    """Physical result metadata from each fixture's actual source carriers."""
+    if variant == "left_marker":
+        return [
+            23 if target == "postgres" else 3,
+            23 if target == "postgres" else 3,
+            20 if target == "postgres" else 8,
+            20 if target == "postgres" else 8,
+            20 if target == "postgres" else 8,
+        ]
     width = len(emission.JOIN_LABELS[variant])
     return [20 if target == "postgres" else 8] * width
 
@@ -736,13 +914,17 @@ AGGREGATE_EXPECTED = {
     ),
 }
 AGGREGATE_TYPE_CODES = {
-    "postgres": {"Int": 20, "Bool": 16, "Text": 25, "Decimal": 1700},
-    "mysql": {"Int": 8, "Bool": 1, "Text": 253, "Decimal": 246},
+    "postgres": {"Int": 20, "Bool": 16, "Text": 25, "Decimal": 1700, "Float": 701},
+    "mysql": {"Int": 8, "Bool": 1, "Text": 253, "Decimal": 246, "Float": 5},
 }
 
 
 def aggregate_rows(target, case, variant):
     """The exact typed BAG one aggregate case must observe on this target."""
+    if (case, variant) == ("V_aggregate_blocked", "avg_direct"):
+        # The qualified `value` carrier contributes 10, 20 and 30; AVG's
+        # selected target cast publishes their exact binary64 mean.
+        return [[_float(20.0)]]
     if (case, variant) == ("X_aggregate_grouped", "visible"):
         return [
             [_bool(target, flag), _maybe(key), _maybe(key), _integer(str(total))]
@@ -1216,6 +1398,33 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
         ]:
             raise ValueError("native identifier metadata")
         return
+    if case_id == "L_emission_blocked" and variant_name in MEANING_VARIANTS:
+        expected_rows = meaning_rows(target, variant_name)
+        if Counter(
+            json.dumps(row, sort_keys=True) for row in observation["rows"]
+        ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
+            raise ValueError("qualified meaning typed BAG mismatch")
+        expected_logical = meaning_logical(variant_name)
+        if (
+            [m[0] for m in observation["metadata"]] != list(emission.LABELS)
+            or [m[1] for m in observation["metadata"]]
+            != meaning_metadata(target, variant_name)
+            or [c["logical_type"]["name"] for c in document["columns"]]
+            != list(expected_logical)
+        ):
+            raise ValueError("qualified meaning positional physical/logical metadata")
+        return
+    if (case_id, variant_name) == ("V_row_blocked", "between"):
+        if (
+            Counter(json.dumps(row, sort_keys=True) for row in observation["rows"])
+            != Counter(json.dumps(row, sort_keys=True) for row in between_rows(target))
+            or [m[0] for m in observation["metadata"]] != ["inside"]
+            or [m[1] for m in observation["metadata"]] != between_metadata(target)
+            or [(c["label"], c["logical_type"]["name"]) for c in document["columns"]]
+            != [("inside", "Bool")]
+        ):
+            raise ValueError("between typed BAG or metadata mismatch")
+        return
     if variant_name == "truth_table":
         expected_rows = truth_rows(target)
         # BAG multiplicity, not order: this query authors no ordering.
@@ -1419,6 +1628,9 @@ def check_relations(receipt_cases):
 
     # L: every rows.id; an ANTI join against an empty right input keeps them all.
     left = bag("O_result_membership", "anti_limit0")
+    # W/left_marker has its own qualified INT source; retain its authored bag
+    # instead of comparing it to the separate BIGINT corpus used by L.
+    safe_left = _bag([[_int(value)] for value in ("5", "5", "0", "1")])
     # A = sa.key (`b except all a` with an empty a); S_set_forms unions A with B.
     union_all = bag("S_set_forms", "union_all")
     a = bag("S_set_multiplicity", "empty_right")
@@ -1556,7 +1768,7 @@ def check_relations(receipt_cases):
             len({row[i] == NULL for i in (1, 2, 3, 4)}) == 1
             for row in rows["W_join_values", "left_marker"]
         )
-        and _support(columns("W_join_values", "left_marker", 0)) == _support(left),
+        and _support(columns("W_join_values", "left_marker", 0)) == _support(safe_left),
         "F10 right": _support(columns("W_join_values", "right_accumulated", 1))
         == _support(left),
         "F10 chain": _support(
@@ -1681,8 +1893,8 @@ WINDOW_EXPECTATIONS["A_window_frame_rows"] = [
 WINDOW_EXPECTATIONS["A_window_frame_range"] = [
     [_integer("0"), _integer("0"), _integer("1")],
     [_integer("1"), _integer("0"), _integer("1")],
-    [_integer(WINDOW_BIG), _integer(WINDOW_BIG), _integer("1")],
-    [_integer(WINDOW_BIG), _integer(WINDOW_BIG), _integer("1")],
+    [_integer("5"), _integer("5"), _integer("1")],
+    [_integer("5"), _integer("5"), _integer("1")],
 ]
 # GROUPS counts peer groups and EXCLUDE CURRENT ROW removes only this row, so a
 # peer of the same group stays in the frame and the first row's frame is empty.
@@ -1759,6 +1971,12 @@ WINDOW_LABELS = {
 def window_metadata(target: str, key: str) -> list[int]:
     """The physical type each window output column actually arrives as."""
 
+    if key == "A_window_frame_range":
+        return [
+            23 if target == "postgres" else 3,
+            23 if target == "postgres" else 8,
+            20 if target == "postgres" else 8,
+        ]
     widths = WINDOW_WIDTHS.get(key) or WINDOW_COLUMNS[key]
     return [WINDOW_PHYSICAL[target][name] for name in widths]
 

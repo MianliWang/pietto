@@ -6,12 +6,15 @@ from pietto.ir.model import (
     AggregateCallIR,
     BetweenIR,
     BinaryIR,
+    CastIR,
     CallIR,
+    ConditionalIR,
     ComparisonIR,
     ExpressionIR,
     FieldRefIR,
     IsNullIR,
     LiteralIR,
+    MembershipIR,
     NullabilityIR,
     OrderDirectionIR,
     SourceSpan,
@@ -50,6 +53,8 @@ _COMPARISON_OPERATORS = {
     "<=": "<=",
     ">": ">",
     ">=": ">=",
+    "like": "LIKE",
+    "not like": "NOT LIKE",
 }
 _BINARY_OPERATORS = {
     "and": "AND",
@@ -63,17 +68,37 @@ _BINARY_OPERATORS = {
 _UNARY_OPERATORS = {
     "+": "+",
     "-": "-",
+    "not": "NOT ",
 }
 _FUNCTION_NAMES = {
     "lower": "lower",
+    "upper": "upper",
     "trim": "trim",
     "len": "length",
+    "replace": "replace",
+    "abs": "abs",
+    "sign": "sign",
 }
 _FUNCTION_ARITIES = {
     "lower": 1,
+    "upper": 1,
     "trim": 1,
     "len": 1,
     "matches": 2,
+    "nullif": 2,
+    "substr": 3,
+    "replace": 3,
+    "contains": 2,
+    "starts_with": 2,
+    "ends_with": 2,
+    "abs": 1,
+    "sign": 1,
+    "date_of": 1,
+    "year": 1,
+    "month": 1,
+    "day": 1,
+    "hour": 1,
+    "minute": 1,
 }
 _NUMERIC_AGGREGATE_NAMES = {
     "sum": "SUM",
@@ -108,6 +133,8 @@ _WINDOW_FUNCTION_NAMES = {
 _ZERO_ARGUMENT_WINDOW_FUNCTIONS = frozenset(
     {"row_number", "rank", "dense_rank", "percent_rank", "cume_dist"}
 )
+_DATE_PARTS = frozenset({"year", "month", "day", "hour", "minute"})
+_COMPOUND_CALLS = frozenset({"matches", "contains", "starts_with", "ends_with"})
 
 
 def render_expression_sql(expression: ExpressionIR) -> str:
@@ -159,6 +186,21 @@ def expression_uses_qualified_field(expression: ExpressionIR) -> bool:
             expression_uses_qualified_field(argument)
             for argument in expression.arguments
         )
+    if isinstance(expression, ConditionalIR):
+        return any(
+            expression_uses_qualified_field(part)
+            for part in (
+                expression.when_true,
+                expression.condition,
+                expression.when_false,
+            )
+        )
+    if isinstance(expression, MembershipIR):
+        return expression_uses_qualified_field(expression.value) or any(
+            expression_uses_qualified_field(option) for option in expression.options
+        )
+    if isinstance(expression, CastIR):
+        return expression_uses_qualified_field(expression.value)
     if isinstance(expression, (ComparisonIR, BinaryIR)):
         return expression_uses_qualified_field(
             expression.left
@@ -193,8 +235,37 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         return render_window_call_sql(expression)
     if isinstance(expression, CallIR):
         sql = _render_call(expression)
-        return f"({sql})" if nested and expression.callee == "matches" else sql
-    if isinstance(expression, ComparisonIR):
+        return f"({sql})" if nested and expression.callee in _COMPOUND_CALLS else sql
+    if isinstance(expression, ConditionalIR):
+        sql = (
+            "CASE WHEN "
+            f"{_render_expression_sql(expression.condition, nested=True)} THEN "
+            f"{_render_expression_sql(expression.when_true, nested=True)} ELSE "
+            f"{_render_expression_sql(expression.when_false, nested=True)} END"
+        )
+    elif isinstance(expression, MembershipIR):
+        value_sql = _render_expression_sql(expression.value, nested=True)
+        if not expression.options:
+            return "TRUE" if expression.negated else "FALSE"
+        operator = "NOT IN" if expression.negated else "IN"
+        options = ", ".join(
+            _render_expression_sql(option, nested=True) for option in expression.options
+        )
+        sql = f"{value_sql} {operator} ({options})"
+    elif isinstance(expression, CastIR):
+        if not (
+            expression.value.value_type.canonical_kind is TypeKindIR.BUILTIN
+            and expression.value.value_type.canonical_name == "Int"
+            and expression.target.canonical_kind is TypeKindIR.BUILTIN
+            and expression.target.canonical_name == "Float"
+        ):
+            raise ValueError("PostgreSQL supports only explicit Int to Float casts")
+        sql = (
+            "CAST("
+            f"{_render_expression_sql(expression.value, nested=True)} "
+            "AS double precision)"
+        )
+    elif isinstance(expression, ComparisonIR):
         operator = _supported_operator(
             _COMPARISON_OPERATORS,
             expression.operator,
@@ -204,6 +275,8 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
             f"{_render_expression_sql(expression.left, nested=True)} {operator} "
             f"{_render_expression_sql(expression.right, nested=True)}"
         )
+        if expression.operator in {"like", "not like"}:
+            sql += " ESCAPE '!'"
     elif isinstance(expression, IsNullIR):
         operator = "IS NOT NULL" if expression.negated else "IS NULL"
         sql = f"{_render_expression_sql(expression.value, nested=True)} {operator}"
@@ -750,6 +823,24 @@ def _has_builtin_type(
 
 
 def _render_call(expression: CallIR) -> str:
+    expected_symbol = SymbolId(SymbolNamespace.CALLABLE, expression.callee)
+    if expression.callee_symbol != expected_symbol:
+        raise ValueError(
+            f"Unsupported PostgreSQL function identity: {expression.callee}"
+        )
+    if expression.callee == "coalesce":
+        if len(expression.arguments) < 2:
+            raise ValueError(
+                "PostgreSQL function coalesce expects at least 2 argument(s)"
+            )
+        return (
+            "COALESCE("
+            + ", ".join(
+                _render_expression_sql(argument, nested=True)
+                for argument in expression.arguments
+            )
+            + ")"
+        )
     if expression.callee not in _FUNCTION_ARITIES:
         raise ValueError(f"Unsupported PostgreSQL function call: {expression.callee}")
     expected_arity = _FUNCTION_ARITIES[expression.callee]
@@ -765,6 +856,31 @@ def _render_call(expression: CallIR) -> str:
     )
     if expression.callee == "matches":
         return f"{arguments[0]} ~ {arguments[1]}"
+    if expression.callee == "nullif":
+        return f"NULLIF({arguments[0]}, {arguments[1]})"
+    if expression.callee == "substr":
+        if any(
+            type(index) is LiteralIR
+            and type(index.value) is int
+            and not -(1 << 31) <= index.value <= (1 << 31) - 1
+            for index in expression.arguments[1:]
+        ):
+            raise ValueError("PostgreSQL substring index is outside signed int32 range")
+        return f"substring({arguments[0]} FROM {arguments[1]} FOR {arguments[2]})"
+    if expression.callee == "replace":
+        return f"replace({arguments[0]}, {arguments[1]}, {arguments[2]})"
+    if expression.callee == "contains":
+        return f"position({arguments[1]} IN {arguments[0]}) > 0"
+    if expression.callee == "starts_with":
+        return f"left({arguments[0]}, length({arguments[1]})) = {arguments[1]}"
+    if expression.callee == "ends_with":
+        return f"right({arguments[0]}, length({arguments[1]})) = {arguments[1]}"
+    if expression.callee == "date_of":
+        return f"CAST({arguments[0]} AS date)"
+    if expression.callee in _DATE_PARTS:
+        return (
+            f"CAST(EXTRACT({expression.callee.upper()} FROM {arguments[0]}) AS bigint)"
+        )
     return f"{_FUNCTION_NAMES[expression.callee]}({arguments[0]})"
 
 

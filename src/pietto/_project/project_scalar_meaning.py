@@ -186,6 +186,18 @@ def acquire_scalar_meaning(verification) -> ScalarMeaningBundle:
     return bundle
 
 
+def intrinsic_scalar_meaning(verification) -> ScalarMeaningBundle | None:
+    """Derive the closed builtin law without accepting caller authority."""
+
+    try:
+        bundle = acquire_scalar_meaning(verification)
+    except ScalarMeaningError as exc:
+        if exc.category != "MEANING_FIELDS":
+            raise
+        return None
+    return bundle if bundle.entries else None
+
+
 def verify_scalar_meaning(bundle, verification) -> None:
     if (
         type(bundle) is not ScalarMeaningBundle
@@ -220,25 +232,127 @@ def _source_entry(bundle, field):
     return matches[0] if matches else None
 
 
+def operations_admitted(bundle) -> bool:
+    """Accept only source-identified Q3 carriers through existing row operations."""
+    if type(bundle) is not ScalarMeaningBundle:
+        return False
+    verification = bundle.verification
+    if (
+        type(verification) is not ProjectSQLPlanVerification
+        or type(verification.plan) is not ProjectSQLPlan
+    ):
+        return False
+    try:
+        from pietto._project.project_sql_emission_scopes import reference_source_ports
+        from pietto._project import project_sql_plan_expressions as expressions
+        from pietto.ast_nodes import AuthoredJoinKind
+
+        plan = verification.plan
+        temporal_join_ports = any(
+            port.field.evidence.resolved_type.name in {"Timestamp", "UUID"}
+            for port in plan.join_ports
+        )
+        if temporal_join_ports and any(
+            join.kind
+            not in {
+                AuthoredJoinKind.INNER,
+                AuthoredJoinKind.LEFT,
+                AuthoredJoinKind.RIGHT,
+            }
+            for join in plan.joins
+        ):
+            return False
+        references = reference_source_ports(plan)
+        direct = {
+            expressions.ProjectSQLReference,
+            expressions.ProjectSQLJoinedReference,
+        }
+        for expression in plan.expressions:
+            kind = expression.value_type.resolved_type
+            if kind.kind is not ProjectResolvedTypeKind.BUILTIN or kind.name not in {
+                "Timestamp",
+                "UUID",
+            }:
+                continue
+            if type(expression) not in direct:
+                return False
+            source = references.get(expression.ref)
+            if source is None:
+                return False
+            entry = _source_entry(bundle, source[1].field)
+            if entry is None or entry.canonical is not kind:
+                return False
+        return True
+    except (AttributeError, TypeError, ValueError, KeyError, ScalarMeaningError):
+        return False
+
+
 def _output_entry(bundle, port):
     if bundle is None:
         return None
     if type(bundle.verification) is CompiledSQLPlanVerification:
         return _compiled_output_entry(bundle, port)
     plan = bundle.verification.plan
-    origins = {p.ref: p for p in plan.source_ports}
-    for projection in plan.projections:
-        if projection.source_port in origins:
-            origins[projection.export] = origins[projection.source_port]
-    source = origins.get(port.ref)
-    entry = None if source is None else _source_entry(bundle, source.field)
     kind = port.field.evidence.resolved_type
-    if (
-        kind.kind is ProjectResolvedTypeKind.BUILTIN
-        and kind.name in ("Timestamp", "UUID")
-        and entry is None
+    if kind.kind is not ProjectResolvedTypeKind.BUILTIN or kind.name not in (
+        "Timestamp",
+        "UUID",
     ):
+        return None
+    source_entries = {entry.source_port.ref: entry for entry in bundle.entries}
+    edges: dict[Any, list[Any]] = {}
+
+    def add(target, source):
+        if target is None or source is None:
+            return
+        targets = edges.setdefault(target, [])
+        if all(source is not item for item in targets):
+            targets.append(source)
+
+    for input_port in plan.input_ports:
+        add(input_port.ref, input_port.producer_port)
+    for stage_port in plan.stage_ports:
+        add(stage_port.ref, stage_port.source)
+    for join_port in plan.join_ports:
+        add(join_port.ref, join_port.source)
+    for key in plan.group_keys:
+        add(key.ref, key.input)
+    for projection in plan.projections:
+        source = projection.source_port or projection.input_port
+        if source is None:
+            expression = plan.expressions[projection.expression.position]
+            source = getattr(expression, "port", None)
+        add(projection.ref, source)
+        add(projection.export, source)
+    for projection in plan.aggregate_projections:
+        add(projection.ref, projection.input)
+        add(projection.export, projection.input)
+    for result_port in plan.result_ports:
+        add(result_port.ref, result_port.source)
+    for export in plan.result_exports:
+        add(export.canonical.ref, export.port)
+    pending = [port.ref]
+    seen, found = set(), []
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        entry = source_entries.get(current)
+        if entry is not None:
+            if all(entry is not item for item in found):
+                found.append(entry)
+            continue
+        next_values = edges.get(current)
+        if not next_values:
+            raise ScalarMeaningError("MEANING_OUTPUT")
+        pending.extend(next_values)
+    if len(found) != 1:
         raise ScalarMeaningError("MEANING_OUTPUT")
+    entry = found[0]
+    if entry.canonical.name != kind.name:
+        raise ScalarMeaningError("MEANING_OUTPUT")
+    verify_law(entry.law, kind.name)
     return entry
 
 
@@ -271,6 +385,8 @@ def _compiled_output_entry(bundle, port):
             pending.append(record.get("source"))
         elif address.kind == "read":
             pending.append(record.get("port"))
+        elif address.kind == "join_value":
+            pending.append(record.get("input"))
         elif address.kind == "window_value":
             pending.extend(a for role, a in record.get("arguments") if role == "value")
         else:

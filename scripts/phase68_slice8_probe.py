@@ -34,7 +34,7 @@ def main():
     sys.path.insert(0, str(root / "tests"))
     if args.origin == "source":
         sys.path.insert(0, str(root / "src"))
-    from _pietto_phase68_slice8_probe import worker, campaign, control_family
+    from _pietto_execution_deployment_probe import worker, campaign, control_family
 
     if args.mode == "worker":
         if args.input is None:

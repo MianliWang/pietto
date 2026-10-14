@@ -15,7 +15,10 @@ from pietto.ast_nodes import (
     ComparisonExpr,
     IsNullExpr,
     BetweenExpr,
+    CastExpr,
     CallExpr,
+    ConditionalExpr,
+    MembershipExpr,
     Span,
 )
 from pietto.semantic.model import ValueType, ValueTypeKind, TypeKind
@@ -68,6 +71,7 @@ class ProjectSQLLiteralReason(StrEnum):
     CALL_ARGUMENT = "call_argument_subtree"
     UNKNOWN_CONTEXT = "unknown_extraction_context"
     NULL = "untyped_null"
+    TYPED_NULL = "contextual_typed_null"
     TYPE_UNAVAILABLE = "literal_type_unavailable"
     NON_BUILTIN = "not_an_admitted_builtin"
     VALUE_REPRESENTATION = "original_scalar_representation_unavailable"
@@ -187,6 +191,12 @@ def literal_nodes(expression: Expression):
             children = (node.value,)
         elif isinstance(node, BetweenExpr):
             children = (node.value, node.lower, node.upper)
+        elif isinstance(node, ConditionalExpr):
+            children = (node.when_true, node.condition, node.when_false)
+        elif isinstance(node, MembershipExpr):
+            children = (node.value, *node.options)
+        elif isinstance(node, CastExpr):
+            children = (node.value,)
         elif isinstance(node, CallExpr):
             children = node.arguments
         else:
@@ -371,6 +381,18 @@ def positions(plan: ProjectSQLPlan):
 def classify(position: ProjectSQLLiteralPosition, policy: ProjectSQLLiteralPolicy):
     """Builder-only positive eligibility; verification implements its own rule."""
     R, Why = ProjectSQLLiteralRole, ProjectSQLLiteralReason
+    if position.role is R.WINDOW_ARGUMENT:
+        return Why.SPECIALIZED
+    if position.literal.value is None:
+        value_type = position.value_type
+        if (
+            type(value_type) is ValueType
+            and value_type.kind is ValueTypeKind.KNOWN
+            and value_type.resolved_type.kind is TypeKind.BUILTIN
+            and value_type.resolved_type.definition is None
+        ):
+            return Why.TYPED_NULL
+        return Why.NULL
     if policy is ProjectSQLLiteralPolicy.PRESERVE_LITERALS:
         return Why.POLICY
     if position.role not in (R.SELECT, R.LET, R.WHERE, R.ON, R.UNKNOWN):
@@ -381,21 +403,26 @@ def classify(position: ProjectSQLLiteralPosition, policy: ProjectSQLLiteralPolic
         return Why.CALL_ARGUMENT
     if any(
         type(parent)
-        not in (UnaryExpr, BinaryExpr, ComparisonExpr, IsNullExpr, BetweenExpr)
+        not in (
+            UnaryExpr,
+            BinaryExpr,
+            ComparisonExpr,
+            IsNullExpr,
+            BetweenExpr,
+            ConditionalExpr,
+            MembershipExpr,
+            CastExpr,
+        )
         for parent, _ in position.ancestry
     ):
         return Why.UNKNOWN_CONTEXT
-    if position.literal.value is None:
-        return Why.NULL
     value_type = position.value_type
     if type(value_type) is not ValueType or value_type.kind is not ValueTypeKind.KNOWN:
-        return Why.TYPE_UNAVAILABLE
+        return Why.NULL if position.literal.value is None else Why.TYPE_UNAVAILABLE
     resolved = value_type.resolved_type
-    if (
-        resolved.kind is not TypeKind.BUILTIN
-        or resolved.definition is not None
-        or resolved.name not in ProjectSQLLiteralTag
-    ):
+    if resolved.kind is not TypeKind.BUILTIN or resolved.definition is not None:
+        return Why.NULL if position.literal.value is None else Why.NON_BUILTIN
+    if resolved.name not in ProjectSQLLiteralTag:
         return Why.NON_BUILTIN
     tag = ProjectSQLLiteralTag(resolved.name)
     value = position.literal.value

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -911,12 +912,14 @@ def derive_compiled_semantics(root, values):
         resolved_unary_value_type,
         resolved_binary_value_type,
         resolved_comparison_value_type,
+        resolved_like_value_type,
     )
     from pietto.semantic.model import (
         EffectiveNullability,
         ResolvedType,
         TypeKind,
         ValueType,
+        ValueTypeKind,
     )
 
     if type(root) is not CompiledProjectInput or type(values) is not tuple:
@@ -936,13 +939,29 @@ def derive_compiled_semantics(root, values):
             raise CompiledError("COMPILED_BINDING_VALUE")
         replacements[slot.get("literal")] = value
     facts, active = {}, set()
+    null_parents = {}
+    for record in records.values():
+        if record.address.kind != "operation":
+            continue
+        for position, operand in enumerate(record.get("operands")):
+            if operand.kind == "null_literal":
+                null_parents.setdefault(operand, []).append((record, position))
 
     def declared(value):
         if (
             type(value) is not tuple
             or len(value) != 2
             or value[0]
-            not in ("Int", "Bool", "Float", "Text", "Decimal", "Timestamp", "UUID")
+            not in (
+                "Int",
+                "Bool",
+                "Float",
+                "Text",
+                "Decimal",
+                "Date",
+                "Timestamp",
+                "UUID",
+            )
             or value[1] not in ("non_null", "nullable", "unknown")
         ):
             raise CompiledError("COMPILED_LOGICAL_TYPE")
@@ -993,6 +1012,7 @@ def derive_compiled_semantics(root, values):
         "port",
         "read",
         "literal",
+        "null_literal",
         "operation",
         "aggregate_value",
         "window_value",
@@ -1001,6 +1021,10 @@ def derive_compiled_semantics(root, values):
     }
     for address in records:
         if address.kind not in scalar_kinds:
+            continue
+        if address.kind == "null_literal":
+            # A contextual NULL has no leaf type. Its retained parent edge supplies
+            # the only admitted local constraint after the non-NULL siblings exist.
             continue
         pending = [(address, False)]
         while pending:
@@ -1021,7 +1045,17 @@ def derive_compiled_semantics(root, values):
                     for child in children
                 ):
                     raise CompiledError("COMPILED_VALUE_DEPENDENCY")
-                pending.extend((child, False) for child in reversed(children))
+                pending.extend(
+                    (child, False)
+                    for child in reversed(
+                        tuple(
+                            sorted(
+                                children,
+                                key=lambda child: child.kind == "null_literal",
+                            )
+                        )
+                    )
+                )
                 continue
             active.remove(ref)
             kind, get = record.address.kind, record.get
@@ -1036,12 +1070,16 @@ def derive_compiled_semantics(root, values):
                 typed = declared(get("logical"))
                 if physical_required:
                     described = json.loads(get("physical"))
-                    realized = physical.Realization(
-                        typed.resolved_type.name,
-                        described["storage"],
-                        described["nullable"],
-                        described["domain"],
+                    realized = physical.source_realization(
+                        physical.Realization(
+                            typed.resolved_type.name,
+                            described["storage"],
+                            described["nullable"],
+                            described["domain"],
+                        )
                     )
+                    if realized is None:
+                        raise CompiledError("COMPILED_FIELD_DOMAIN")
                 else:
                     realized = None
             elif kind == "literal":
@@ -1060,6 +1098,63 @@ def derive_compiled_semantics(root, values):
                         described["storage"],
                         described["nullable"],
                         described["domain"],
+                        (value, value)
+                        if original.tag == "Int" and type(value) is int
+                        else None,
+                    )
+                else:
+                    realized = None
+            elif kind == "null_literal":
+                site = records[get("site")]
+                if site.get("reason") != "contextual_typed_null":
+                    raise CompiledError("COMPILED_NULL_CONTEXT")
+                candidates = []
+                for parent, position in null_parents.get(ref, ()):
+                    role, token = parent.get("operator")
+                    parent_operands = parent.get("operands")
+                    if role == "conditional" and position == 1:
+                        candidates.append("Bool")
+                    elif role == "conditional" and position in (0, 2):
+                        sibling = parent_operands[2 if position == 0 else 0]
+                        if sibling in facts:
+                            candidates.append(facts[sibling].value_type)
+                    elif role in {"membership", "scalar_call"} and (
+                        role == "membership" or token in {"coalesce", "nullif"}
+                    ):
+                        candidates.extend(
+                            facts[operand].value_type
+                            for operand in parent_operands
+                            if operand != ref and operand in facts
+                        )
+                    elif role == "scalar_call":
+                        from pietto.semantic.catalog import BUILTIN_FUNCTIONS
+
+                        signature = BUILTIN_FUNCTIONS.get(token)
+                        if signature is not None and position < len(
+                            signature.parameter_types
+                        ):
+                            candidates.append(signature.parameter_types[position])
+                resolved = []
+                for candidate in candidates:
+                    if isinstance(candidate, str):
+                        if candidate in {"Int|Decimal", "T"}:
+                            continue
+                        candidate = ValueType(
+                            ResolvedType(candidate, TypeKind.BUILTIN),
+                            EffectiveNullability.NULLABLE,
+                        )
+                    if candidate.kind is ValueTypeKind.KNOWN:
+                        resolved.append(candidate.resolved_type)
+                if not resolved or any(item != resolved[0] for item in resolved[1:]):
+                    raise CompiledError("COMPILED_NULL_CONTEXT")
+                typed = ValueType(resolved[0], EffectiveNullability.NULLABLE)
+                origin = "literal"
+                if physical_required:
+                    realized = physical.Realization(
+                        typed.resolved_type.name,
+                        {"kind": "typed_null"},
+                        True,
+                        {"kind": "typed_null"},
                     )
                 else:
                     realized = None
@@ -1282,8 +1377,12 @@ def derive_compiled_semantics(root, values):
                 role, token = operator
                 arguments = tuple(facts[child].value_type for child in operands)
                 error = None
-                if role == "unary" and token in ("+", "-") and len(arguments) == 1:
-                    typed, error = resolved_unary_value_type(arguments[0])
+                if (
+                    role in {"unary", "not"}
+                    and token in ("+", "-", "not")
+                    and len(arguments) == 1
+                ):
+                    typed, error = resolved_unary_value_type(token, arguments[0])
                     origin = input_origin = facts[operands[0]].origin
                     if input_origin != "literal":
                         origin = "unsupported"
@@ -1295,10 +1394,14 @@ def derive_compiled_semantics(root, values):
                     typed, error = resolved_binary_value_type(token, *arguments)
                 elif (
                     role == "comparison"
-                    and token in ("==", "!=", "<", "<=", ">", ">=")
+                    and token in ("==", "!=", "<", "<=", ">", ">=", "like", "not like")
                     and len(arguments) == 2
                 ):
-                    typed, error = resolved_comparison_value_type(*arguments)
+                    typed, error = (
+                        resolved_like_value_type(*arguments)
+                        if token in ("like", "not like")
+                        else resolved_comparison_value_type(*arguments)
+                    )
                 elif (
                     role == "null_test"
                     and token in ("is_null", "is_not_null")
@@ -1308,6 +1411,146 @@ def derive_compiled_semantics(root, values):
                         ResolvedType("Bool", TypeKind.BUILTIN),
                         EffectiveNullability.NON_NULL,
                     )
+                elif role == "between" and len(arguments) == 3:
+                    checked = tuple(
+                        resolved_comparison_value_type(arguments[0], bound)
+                        for bound in arguments[1:]
+                    )
+                    error = next((problem for _, problem in checked if problem), None)
+                    typed = ValueType(
+                        ResolvedType("Bool", TypeKind.BUILTIN),
+                        EffectiveNullability.UNKNOWN,
+                    )
+                elif role == "conditional" and len(arguments) == 3:
+                    branches = (arguments[0], arguments[2])
+                    error = (
+                        None
+                        if arguments[1].resolved_type.name == "Bool"
+                        and branches[0].resolved_type == branches[1].resolved_type
+                        else "conditional operands"
+                    )
+                    typed = ValueType(
+                        branches[0].resolved_type,
+                        max(
+                            branches[0].nullability,
+                            branches[1].nullability,
+                            key=lambda item: ("non_null", "unknown", "nullable").index(
+                                item.value
+                            ),
+                        ),
+                    )
+                elif role == "membership" and arguments:
+                    error = (
+                        None
+                        if all(
+                            item.resolved_type == arguments[0].resolved_type
+                            for item in arguments
+                        )
+                        else "membership operands"
+                    )
+                    typed = ValueType(
+                        ResolvedType("Bool", TypeKind.BUILTIN),
+                        EffectiveNullability.NON_NULL
+                        if len(arguments) == 1
+                        else max(
+                            (item.nullability for item in arguments),
+                            key=lambda item: ("non_null", "unknown", "nullable").index(
+                                item.value
+                            ),
+                        ),
+                    )
+                elif role == "cast" and token == "int_to_float" and len(arguments) == 1:
+                    error = (
+                        None
+                        if arguments[0].resolved_type.name == "Int"
+                        else "cast operand"
+                    )
+                    typed = ValueType(
+                        ResolvedType("Float", TypeKind.BUILTIN),
+                        arguments[0].nullability,
+                    )
+                elif role == "scalar_call":
+                    from pietto.semantic.catalog import BUILTIN_FUNCTIONS
+
+                    if token in {"coalesce", "nullif"}:
+                        error = (
+                            None
+                            if (
+                                len(arguments) >= 2
+                                if token == "coalesce"
+                                else len(arguments) == 2
+                            )
+                            and all(
+                                item.resolved_type == arguments[0].resolved_type
+                                for item in arguments
+                            )
+                            else "common call operands"
+                        )
+                        nullability = (
+                            EffectiveNullability.NON_NULL
+                            if token == "coalesce"
+                            and any(
+                                item.nullability is EffectiveNullability.NON_NULL
+                                for item in arguments
+                            )
+                            else EffectiveNullability.UNKNOWN
+                            if token == "coalesce"
+                            and any(
+                                item.nullability is EffectiveNullability.UNKNOWN
+                                for item in arguments
+                            )
+                            else EffectiveNullability.NULLABLE
+                            if token == "coalesce"
+                            else EffectiveNullability.NULLABLE
+                            if arguments[0].nullability is EffectiveNullability.NON_NULL
+                            else arguments[0].nullability
+                        )
+                        typed = ValueType(arguments[0].resolved_type, nullability)
+                    else:
+                        signature = BUILTIN_FUNCTIONS.get(token)
+                        special = token in {"sign", "year", "month", "day"}
+                        error = (
+                            None
+                            if token == "sign"
+                            and len(arguments) == 1
+                            and arguments[0].resolved_type.name in {"Int", "Decimal"}
+                            else None
+                            if token in {"year", "month", "day"}
+                            and len(arguments) == 1
+                            and arguments[0].resolved_type.name in {"Date", "Timestamp"}
+                            else "scalar call signature"
+                            if signature is None
+                            or len(arguments) != len(signature.parameter_types)
+                            or any(
+                                argument.resolved_type.name != expected
+                                for argument, expected in zip(
+                                    arguments, signature.parameter_types, strict=True
+                                )
+                            )
+                            else None
+                        )
+                        typed = ValueType(
+                            ResolvedType(
+                                "Int"
+                                if special
+                                else "<unknown>"
+                                if signature is None
+                                else signature.return_type,
+                                TypeKind.BUILTIN
+                                if special or signature is not None
+                                else TypeKind.UNKNOWN,
+                            ),
+                            EffectiveNullability.UNKNOWN
+                            if signature is None and not special
+                            else max(
+                                (item.nullability for item in arguments),
+                                key=lambda item: (
+                                    "non_null",
+                                    "unknown",
+                                    "nullable",
+                                ).index(item.value),
+                            ),
+                        )
                 else:
                     raise CompiledError("COMPILED_OPERATOR")
                 if error is not None or typed != declared(get("logical")):
@@ -1321,13 +1564,64 @@ def derive_compiled_semantics(root, values):
                     nullable = physical.NULLABILITY[typed.nullability]
                     tag = typed.resolved_type.name
                     problem = None
-                    if role == "binary":
+                    if role == "scalar_call":
+                        from pietto.ir.model import SymbolId, SymbolNamespace
+
+                        realized, problem = physical.resolved_scalar_call_realization(
+                            family,
+                            SymbolId(SymbolNamespace.CALLABLE, token),
+                            tag,
+                            nullable,
+                            inputs,
+                        )
+                    elif role == "conditional":
+                        realized, problem = physical.resolved_conditional_realization(
+                            family, tag, nullable, inputs
+                        )
+                    elif role == "membership":
+                        realized, problem = physical.resolved_membership_realization(
+                            family, tag, nullable, inputs
+                        )
+                    elif role == "cast":
+                        realized, problem = physical.resolved_cast_realization(
+                            family, tag, nullable, inputs[0]
+                        )
+                    elif role == "between":
+                        realized, problem = physical.resolved_between_realization(
+                            family, tag, nullable, inputs
+                        )
+                    elif role in {"unary", "not"} and token == "not":
+                        realized = physical._bool(family, nullable)
+                    elif role == "binary":
                         realized, problem = physical.resolved_binary_realization(
-                            family, token, tag, nullable, *inputs
+                            family,
+                            token,
+                            tag,
+                            nullable,
+                            *inputs,
+                            direct_decimal_sources=all(
+                                item.origin == "field" for item in input_facts
+                            ),
+                            float_values=(
+                                tuple(item.value for item in input_facts)
+                                if all(
+                                    item.origin == "literal"
+                                    and type(item.value) is float
+                                    and math.isfinite(item.value)
+                                    for item in input_facts
+                                )
+                                else None
+                            ),
                         )
                     elif role == "comparison":
-                        realized, problem = physical.resolved_comparison_realization(
-                            family, tag, nullable, *inputs
+                        realized, problem = (
+                            physical.resolved_like_realization(
+                                family, tag, nullable, *inputs
+                            )
+                            if token in ("like", "not like")
+                            else physical.resolved_comparison_realization(
+                                family, tag, nullable, *inputs, operator=token
+                            )
                         )
                     elif role == "null_test":
                         realized = physical._bool(family, False)
@@ -1343,10 +1637,13 @@ def derive_compiled_semantics(root, values):
                             described["storage"],
                             described["nullable"],
                             described["domain"],
+                            (value, value)
+                            if tag == "Int" and type(value) is int
+                            else None,
                         )
                     else:
                         inner = inputs[0]
-                        interval = physical.int_bounds(inner)
+                        interval = physical.proven_int_bounds(inner)
                         if tag != "Int" or interval is None:
                             raise CompiledError("COMPILED_UNARY_DOMAIN")
                         low, high = (
@@ -1377,6 +1674,10 @@ def derive_compiled_semantics(root, values):
                 introduction=introduction,
                 nulling=nulling,
             )
+    if set(facts) != {
+        r.address for r in records.values() if r.address.kind in scalar_kinds
+    }:
+        raise CompiledError("COMPILED_NULL_CONTEXT")
     retention = tuple(
         (r.address, project_joined_row_filter._SQL_ROW_RETENTION_EFFECTS)
         for r in records.values()
@@ -1398,6 +1699,7 @@ def derive_compiled_semantics(root, values):
 def verify_compiled_semantics(value):
     """Independently inspect derived facts; never invoke their constructor."""
     import json
+    from pietto._project import project_sql_emission_rows as physical
     from pietto._project.project_compiled_schema import Address
     from pietto._project.project_compiled_verification import need
     from pietto._project.project_sql_emission_parameters import (
@@ -1414,12 +1716,14 @@ def verify_compiled_semantics(value):
         resolved_unary_value_type,
         resolved_binary_value_type,
         resolved_comparison_value_type,
+        resolved_like_value_type,
     )
     from pietto.semantic.model import (
         EffectiveNullability,
         ResolvedType,
         TypeKind,
         ValueType,
+        ValueTypeKind,
     )
 
     need(type(value) is CompiledCompletedSemanticResult, "SEMANTIC_ROOT")
@@ -1499,6 +1803,13 @@ def verify_compiled_semantics(value):
     for slot, scalar in zip(slots, value.values, strict=True):
         need(value_valid(slot.get("tag"), scalar, family), "SEMANTIC_BINDING")
         replacements[slot.get("literal")] = scalar
+    null_parents = {}
+    for record in records.values():
+        if record.address.kind != "operation":
+            continue
+        for position, operand in enumerate(record.get("operands")):
+            if operand.kind == "null_literal":
+                null_parents.setdefault(operand, []).append((record, position))
     expected_records = tuple(
         r
         for r in records.values()
@@ -1508,6 +1819,7 @@ def verify_compiled_semantics(value):
             "port",
             "read",
             "literal",
+            "null_literal",
             "operation",
             "aggregate_value",
             "window_value",
@@ -1540,6 +1852,8 @@ def verify_compiled_semantics(value):
         by_address[record.address] = fact
     checked, active = set(), set()
     for address in by_address:
+        if address.kind == "null_literal":
+            continue
         stack = [(address, False)]
         while stack:
             current, returning = stack.pop()
@@ -1591,7 +1905,17 @@ def verify_compiled_semantics(value):
                 need(current not in active, "SEMANTIC_CYCLE")
                 active.add(current)
                 stack.append((current, True))
-                stack.extend((c, False) for c in reversed(children))
+                stack.extend(
+                    (c, False)
+                    for c in reversed(
+                        tuple(
+                            sorted(
+                                children,
+                                key=lambda child: child.kind == "null_literal",
+                            )
+                        )
+                    )
+                )
                 continue
             active.remove(current)
             inputs = tuple(by_address[c] for c in children)
@@ -1609,12 +1933,16 @@ def verify_compiled_semantics(value):
                 )
                 if physical_required:
                     expected = json.loads(get("physical"))
-                    realization = Realization(
-                        name,
-                        expected["storage"],
-                        expected["nullable"],
-                        expected["domain"],
+                    realization = physical.source_realization(
+                        Realization(
+                            name,
+                            expected["storage"],
+                            expected["nullable"],
+                            expected["domain"],
+                        )
                     )
+                    if realization is None:
+                        raise ValueError("COMPILED_SEMANTIC_FIELD_DOMAIN")
                 else:
                     realization = None
             elif kind == "literal":
@@ -1630,9 +1958,69 @@ def verify_compiled_semantics(value):
                         expected["storage"],
                         expected["nullable"],
                         expected["domain"],
+                        (expected_value, expected_value)
+                        if get("tag") == "Int" and type(expected_value) is int
+                        else None,
                     )
                 else:
                     realization = None
+            elif kind == "null_literal":
+                site = records[get("site")]
+                need(site.get("reason") == "contextual_typed_null", "SEMANTIC_NULL")
+                candidates = []
+                for parent, position in null_parents.get(current, ()):
+                    role, token = parent.get("operator")
+                    parent_operands = parent.get("operands")
+                    if role == "conditional" and position == 1:
+                        candidates.append("Bool")
+                    elif role == "conditional" and position in (0, 2):
+                        sibling = parent_operands[2 if position == 0 else 0]
+                        if sibling in by_address:
+                            candidates.append(by_address[sibling].value_type)
+                    elif role in {"membership", "scalar_call"} and (
+                        role == "membership" or token in {"coalesce", "nullif"}
+                    ):
+                        candidates.extend(
+                            by_address[operand].value_type
+                            for operand in parent_operands
+                            if operand != current and operand in by_address
+                        )
+                    elif role == "scalar_call":
+                        from pietto.semantic.catalog import BUILTIN_FUNCTIONS
+
+                        signature = BUILTIN_FUNCTIONS.get(token)
+                        if signature is not None and position < len(
+                            signature.parameter_types
+                        ):
+                            candidates.append(signature.parameter_types[position])
+                resolved = []
+                for candidate in candidates:
+                    if isinstance(candidate, str):
+                        if candidate in {"Int|Decimal", "T"}:
+                            continue
+                        candidate = ValueType(
+                            ResolvedType(candidate, TypeKind.BUILTIN),
+                            EffectiveNullability.NULLABLE,
+                        )
+                    if candidate.kind is ValueTypeKind.KNOWN:
+                        resolved.append(candidate.resolved_type)
+                need(
+                    bool(resolved)
+                    and all(item == resolved[0] for item in resolved[1:]),
+                    "SEMANTIC_NULL",
+                )
+                typed = ValueType(resolved[0], EffectiveNullability.NULLABLE)
+                origin = "literal"
+                realization = (
+                    Realization(
+                        typed.resolved_type.name,
+                        {"kind": "typed_null"},
+                        True,
+                        {"kind": "typed_null"},
+                    )
+                    if physical_required
+                    else None
+                )
             elif kind == "aggregate_value":
                 origin = "aggregate"
                 from pietto.semantic.aggregates import (
@@ -1838,24 +2226,183 @@ def verify_compiled_semantics(value):
             else:
                 operator = get("operator")
                 role, token = operator
-                if role == "unary":
+                if role in {"unary", "not"}:
                     origin = (
                         "literal" if inputs[0].origin == "literal" else "unsupported"
                     )
-                    typed, problem = resolved_unary_value_type(inputs[0].value_type)
+                    typed, problem = resolved_unary_value_type(
+                        token, inputs[0].value_type
+                    )
                 elif role == "binary":
                     typed, problem = resolved_binary_value_type(
                         token, *(i.value_type for i in inputs)
                     )
                 elif role == "comparison":
-                    typed, problem = resolved_comparison_value_type(
-                        *(i.value_type for i in inputs)
+                    typed, problem = (
+                        resolved_like_value_type(*(i.value_type for i in inputs))
+                        if token in ("like", "not like")
+                        else resolved_comparison_value_type(
+                            *(i.value_type for i in inputs)
+                        )
                     )
-                else:
+                elif (
+                    role == "null_test"
+                    and token in ("is_null", "is_not_null")
+                    and len(inputs) == 1
+                ):
                     problem = None
                     typed = ValueType(
                         ResolvedType("Bool", TypeKind.BUILTIN),
                         EffectiveNullability.NON_NULL,
+                    )
+                elif role == "between" and len(inputs) == 3:
+                    checks = tuple(
+                        resolved_comparison_value_type(
+                            inputs[0].value_type, item.value_type
+                        )
+                        for item in inputs[1:]
+                    )
+                    problem = next((item for _, item in checks if item), None)
+                    typed = ValueType(
+                        ResolvedType("Bool", TypeKind.BUILTIN),
+                        EffectiveNullability.UNKNOWN,
+                    )
+                elif role == "conditional" and len(inputs) == 3:
+                    branches = (inputs[0].value_type, inputs[2].value_type)
+                    problem = (
+                        None
+                        if inputs[1].value_type.resolved_type.name == "Bool"
+                        and branches[0].resolved_type == branches[1].resolved_type
+                        else "conditional operands"
+                    )
+                    typed = ValueType(
+                        branches[0].resolved_type,
+                        max(
+                            (item.nullability for item in branches),
+                            key=lambda item: ("non_null", "unknown", "nullable").index(
+                                item.value
+                            ),
+                        ),
+                    )
+                elif role == "membership" and inputs:
+                    problem = (
+                        None
+                        if all(
+                            item.value_type.resolved_type
+                            == inputs[0].value_type.resolved_type
+                            for item in inputs
+                        )
+                        else "membership operands"
+                    )
+                    typed = ValueType(
+                        ResolvedType("Bool", TypeKind.BUILTIN),
+                        EffectiveNullability.NON_NULL
+                        if len(inputs) == 1
+                        else max(
+                            (item.value_type.nullability for item in inputs),
+                            key=lambda item: ("non_null", "unknown", "nullable").index(
+                                item.value
+                            ),
+                        ),
+                    )
+                elif role == "cast" and token == "int_to_float" and len(inputs) == 1:
+                    problem = (
+                        None
+                        if inputs[0].value_type.resolved_type.name == "Int"
+                        else "cast operand"
+                    )
+                    typed = ValueType(
+                        ResolvedType("Float", TypeKind.BUILTIN),
+                        inputs[0].value_type.nullability,
+                    )
+                elif role == "scalar_call":
+                    from pietto.semantic.catalog import BUILTIN_FUNCTIONS
+
+                    arguments = tuple(item.value_type for item in inputs)
+                    if token in {"coalesce", "nullif"}:
+                        problem = (
+                            None
+                            if (
+                                len(arguments) >= 2
+                                if token == "coalesce"
+                                else len(arguments) == 2
+                            )
+                            and all(
+                                item.resolved_type == arguments[0].resolved_type
+                                for item in arguments
+                            )
+                            else "common call operands"
+                        )
+                        nullability = (
+                            EffectiveNullability.NON_NULL
+                            if token == "coalesce"
+                            and any(
+                                item.nullability is EffectiveNullability.NON_NULL
+                                for item in arguments
+                            )
+                            else EffectiveNullability.UNKNOWN
+                            if token == "coalesce"
+                            and any(
+                                item.nullability is EffectiveNullability.UNKNOWN
+                                for item in arguments
+                            )
+                            else EffectiveNullability.NULLABLE
+                            if token == "coalesce"
+                            else EffectiveNullability.NULLABLE
+                            if arguments[0].nullability is EffectiveNullability.NON_NULL
+                            else arguments[0].nullability
+                        )
+                        typed = ValueType(arguments[0].resolved_type, nullability)
+                    else:
+                        signature = BUILTIN_FUNCTIONS.get(token)
+                        special = token in {"sign", "year", "month", "day"}
+                        problem = (
+                            None
+                            if token == "sign"
+                            and len(arguments) == 1
+                            and arguments[0].resolved_type.name in {"Int", "Decimal"}
+                            else None
+                            if token in {"year", "month", "day"}
+                            and len(arguments) == 1
+                            and arguments[0].resolved_type.name in {"Date", "Timestamp"}
+                            else "scalar call signature"
+                            if signature is None
+                            or len(arguments) != len(signature.parameter_types)
+                            or any(
+                                argument.resolved_type.name != expected
+                                for argument, expected in zip(
+                                    arguments, signature.parameter_types, strict=True
+                                )
+                            )
+                            else None
+                        )
+                        typed = ValueType(
+                            ResolvedType(
+                                "Int"
+                                if special
+                                else "<unknown>"
+                                if signature is None
+                                else signature.return_type,
+                                TypeKind.BUILTIN
+                                if special or signature is not None
+                                else TypeKind.UNKNOWN,
+                            ),
+                            EffectiveNullability.UNKNOWN
+                            if signature is None and not special
+                            else max(
+                                (item.nullability for item in arguments),
+                                key=lambda item: (
+                                    "non_null",
+                                    "unknown",
+                                    "nullable",
+                                ).index(item.value),
+                            ),
+                        )
+                else:
+                    problem = "operator"
+                    typed = ValueType(
+                        ResolvedType("<unknown>", TypeKind.UNKNOWN),
+                        EffectiveNullability.UNKNOWN,
                     )
                 need(problem is None, "SEMANTIC_TYPE")
                 if role == "unary" and type(inputs[0].value) in (int, float):
@@ -1863,7 +2410,96 @@ def verify_compiled_semantics(value):
                         -inputs[0].value if token == "-" else +inputs[0].value
                     )
                 if physical_required:
-                    if role == "unary" and type(inputs[0].value) in (int, float):
+                    if role == "scalar_call":
+                        from pietto._project import (
+                            project_sql_emission_rows as physical,
+                        )
+                        from pietto.ir.model import SymbolId, SymbolNamespace
+
+                        realization, problem = (
+                            physical.resolved_scalar_call_realization(
+                                family,
+                                SymbolId(SymbolNamespace.CALLABLE, token),
+                                typed.resolved_type.name,
+                                NULLABILITY[typed.nullability],
+                                tuple(item.realization for item in inputs),
+                            )
+                        )
+                        need(
+                            realization is not None and problem is None,
+                            "SEMANTIC_DOMAIN",
+                        )
+                    elif role == "conditional":
+                        from pietto._project import (
+                            project_sql_emission_rows as physical,
+                        )
+
+                        realization, problem = (
+                            physical.resolved_conditional_realization(
+                                family,
+                                typed.resolved_type.name,
+                                NULLABILITY[typed.nullability],
+                                tuple(item.realization for item in inputs),
+                            )
+                        )
+                        need(
+                            realization is not None and problem is None,
+                            "SEMANTIC_DOMAIN",
+                        )
+                    elif role == "membership":
+                        from pietto._project import (
+                            project_sql_emission_rows as physical,
+                        )
+
+                        realization, problem = physical.resolved_membership_realization(
+                            family,
+                            typed.resolved_type.name,
+                            NULLABILITY[typed.nullability],
+                            tuple(item.realization for item in inputs),
+                        )
+                        need(
+                            realization is not None and problem is None,
+                            "SEMANTIC_DOMAIN",
+                        )
+                    elif role == "cast":
+                        from pietto._project import (
+                            project_sql_emission_rows as physical,
+                        )
+
+                        realization, problem = physical.resolved_cast_realization(
+                            family,
+                            typed.resolved_type.name,
+                            NULLABILITY[typed.nullability],
+                            inputs[0].realization,
+                        )
+                        need(
+                            realization is not None and problem is None,
+                            "SEMANTIC_DOMAIN",
+                        )
+                    elif role == "between":
+                        from pietto._project import (
+                            project_sql_emission_rows as physical,
+                        )
+
+                        realization, problem = physical.resolved_between_realization(
+                            family,
+                            typed.resolved_type.name,
+                            NULLABILITY[typed.nullability],
+                            tuple(item.realization for item in inputs),
+                        )
+                        need(
+                            realization is not None and problem is None,
+                            "SEMANTIC_DOMAIN",
+                        )
+                    elif role == "not":
+                        from pietto._project import (
+                            project_sql_emission_rows as physical,
+                        )
+
+                        realization = physical._bool(
+                            family, NULLABILITY[typed.nullability]
+                        )
+                    elif role == "unary" and type(inputs[0].value) in (int, float):
                         expected_value = (
                             -inputs[0].value if token == "-" else +inputs[0].value
                         )
@@ -1875,6 +2511,10 @@ def verify_compiled_semantics(value):
                             expected["storage"],
                             expected["nullable"],
                             expected["domain"],
+                            (expected_value, expected_value)
+                            if typed.resolved_type.name == "Int"
+                            and type(expected_value) is int
+                            else None,
                         )
                     else:
                         realization = resolved_row_realization(
@@ -1884,9 +2524,28 @@ def verify_compiled_semantics(value):
                             typed.resolved_type.name,
                             NULLABILITY[typed.nullability],
                             tuple(i.realization for i in inputs),
+                            direct_decimal_sources=all(
+                                item.origin == "field" for item in inputs
+                            ),
+                            float_values=(
+                                tuple(item.value for item in inputs)
+                                if all(
+                                    item.origin == "literal"
+                                    and type(item.value) is float
+                                    and math.isfinite(item.value)
+                                    for item in inputs
+                                )
+                                else None
+                            ),
                         )
                 else:
                     realization = None
+            if kind == "operation":
+                need(
+                    get("logical")
+                    == (typed.resolved_type.name, typed.nullability.value),
+                    "SEMANTIC_LOGICAL",
+                )
             need(
                 actual.value_type == typed
                 and actual.origin == origin
@@ -1925,6 +2584,7 @@ def verify_compiled_semantics(value):
             else:
                 need(actual.realization is None, "SEMANTIC_LOGICAL_ONLY")
             checked.add(current)
+    need(checked == set(by_address), "SEMANTIC_NULL")
     expected_retention = tuple(
         (r.address, project_joined_row_filter._SQL_ROW_RETENTION_EFFECTS)
         for r in records.values()

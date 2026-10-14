@@ -66,7 +66,7 @@ def test_r2_bridge_observer_calls_each_original_once_and_redacts_failure():
 def test_public_journey_reports_mysql_constructor_failure_without_acquire(
     tmp_path, monkeypatch
 ):
-    import _pietto_phase68_slice11_probe as workspace_probe
+    import _pietto_execution_jobs_probe as workspace_probe
     import _pietto_target_conformance_resources as resources
 
     calls = []
@@ -192,7 +192,7 @@ def test_r2_target_inputs_remain_explicit_route_callers():
 
 def test_mysql_r2_fixture_adds_its_two_context_grants(monkeypatch):
     import _pietto_execution_recovery_cases as recovery
-    import _pietto_phase68_slice6_probe as fixture
+    import _pietto_execution_source_assurance_probe as fixture
 
     providers = ({"provider": "fixture"},)
     grants = []
@@ -209,7 +209,7 @@ def test_mysql_r2_fixture_adds_its_two_context_grants(monkeypatch):
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_r2_cross_fixture_has_four_ordered_sources_and_two_slots(tmp_path, target):
     import _pietto_execution_recovery_cases as recovery
-    from _pietto_phase68_slice6_cases import fixture as source_fixture
+    from _pietto_execution_source_assurance_cases import fixture as source_fixture
 
     source = source_fixture(target, "R2_bound", "values")
     providers = tuple(
@@ -291,7 +291,7 @@ def test_public_journey_refuses_route_bundle_identity_and_premise_before_source(
     if not {"save", "create_workspace"} <= set(execution.__all__):
         pytest.skip("S18 preflight waits for the integrated saved-result surface")
     import _pietto_execution_api as api
-    import _pietto_phase68_slice11_probe as workspace_probe
+    import _pietto_execution_jobs_probe as workspace_probe
     from pietto._project import project_job_runtime as runtime
 
     if not workspace_probe.qualified(tmp_path):

@@ -14,6 +14,54 @@ class SourceAdmissionError(ValueError):
     pass
 
 
+def requires_temporal_uuid_catalog(source) -> bool:
+    """Whether this source has a Q3 physical type that cursor metadata cannot prove."""
+    from pietto._project.project_sql_emission_rows import field_realization
+
+    return any(
+        (realization := field_realization(source_field)) is not None
+        and realization.tag in ("Timestamp", "UUID")
+        for source_field in source.fields
+    )
+
+
+def verify_temporal_uuid_catalog(source, rows, *, family: str) -> None:
+    """Require actual catalog types for every Timestamp/UUID source occurrence.
+
+    Cursor and Arrow result metadata deliberately do not substitute for this
+    source qualification: PostgreSQL needs its type modifier and MySQL needs
+    the declared COLUMN_TYPE.
+    """
+    from pietto._project.project_sql_emission_rows import field_realization
+
+    if family not in ("postgres", "mysql") or type(rows) is not tuple:
+        raise SourceAdmissionError("SOURCE_TEMPORAL_UUID_CATALOG")
+    catalog = {}
+    for row in rows:
+        if (
+            type(row) is not tuple
+            or (len(row) != 3 if family == "postgres" else len(row) != 2)
+            or type(row[0]) is not str
+            or row[0] in catalog
+        ):
+            raise SourceAdmissionError("SOURCE_TEMPORAL_UUID_CATALOG")
+        catalog[row[0]] = row[1:]
+    for source_field in source.fields:
+        realization = field_realization(source_field)
+        if realization is None or realization.tag not in ("Timestamp", "UUID"):
+            continue
+        observed = catalog.get(source_field.column)
+        expected = (
+            ((1114, 6) if realization.tag == "Timestamp" else (2950, -1))
+            if family == "postgres"
+            else (
+                ("datetime(6)",) if realization.tag == "Timestamp" else ("binary(16)",)
+            )
+        )
+        if observed != expected:
+            raise SourceAdmissionError("SOURCE_TEMPORAL_UUID_CATALOG")
+
+
 @dataclass(frozen=True, slots=True, eq=False)
 class RetainedSourceRequirement:
     source: BoundSource = field(repr=False)

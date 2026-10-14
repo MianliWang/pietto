@@ -94,87 +94,87 @@ dependency_profile = "core"
 # Maintain them by ordinary reviewed commits; health may recommend, never edit.
 
 [[file_costs]]
-path = "tests/test_phase65_slice14_portable_boundary_minimal_process_integration.py"
+path = "tests/test_harness_plan_portability.py"
 seconds = 730
 
 [[file_costs]]
-path = "tests/test_phase68_slice10_compiled_families.py"
+path = "tests/test_execution_compiled_families.py"
 seconds = 450
 
 [[file_costs]]
-path = "tests/test_phase66_slice14_private_emission_observation_process_integration.py"
+path = "tests/test_harness_sql_emission_portability.py"
 seconds = 430
 
 [[file_costs]]
-path = "tests/test_phase68_slice10_source_free.py"
+path = "tests/test_execution_compiled_source_free.py"
 seconds = 430
 
 [[file_costs]]
-path = "tests/test_phase68_slice14_extraction.py"
+path = "tests/test_jobs_recovery.py"
 seconds = 390
 
 [[file_costs]]
-path = "tests/test_phase65_slice15_whole_selected_plan_real_source_differential_conformance.py"
+path = "tests/test_harness_plan_conformance.py"
 seconds = 360
 
 [[file_costs]]
-path = "tests/test_phase66_slice2_isolated_target_conformance_facility.py"
+path = "tests/test_harness_target_conformance.py"
 seconds = 140
 
 [[file_costs]]
-path = "tests/test_phase68_slice7_guards.py"
+path = "tests/test_execution_guard_programs.py"
 seconds = 140
 
 [[file_costs]]
-path = "tests/test_phase64_slice10_ir_observation_and_differential.py"
+path = "tests/test_harness_ir_differential.py"
 seconds = 130
 
 [[file_costs]]
-path = "tests/test_phase68_slice15_delivery.py"
+path = "tests/test_jobs_delivery.py"
 seconds = 80
 
 [[file_costs]]
-path = "tests/test_phase68_slice16_publication.py"
+path = "tests/test_jobs_publication.py"
 seconds = 80
 
 [[file_costs]]
-path = "tests/test_phase68_slice13_replay.py"
+path = "tests/test_jobs_saved_replay.py"
 seconds = 50
 
 [[file_costs]]
-path = "tests/test_phase68_slice14_process_histories.py"
+path = "tests/test_jobs_recovery_histories.py"
 seconds = 50
 
 [[file_costs]]
-path = "tests/test_phase68_slice17_collection.py"
+path = "tests/test_jobs_collection.py"
 seconds = 50
 
 [[file_costs]]
-path = "tests/test_phase68_slice17_runtime.py"
+path = "tests/test_jobs_runtime.py"
 seconds = 40
 
 [[file_costs]]
-path = "tests/test_phase68_slice13_process_histories.py"
+path = "tests/test_jobs_saved_replay_histories.py"
 seconds = 30
 
 [[file_costs]]
-path = "tests/test_phase68_slice15_process_histories.py"
+path = "tests/test_jobs_delivery_histories.py"
 seconds = 30
 
 [[file_costs]]
-path = "tests/test_phase66_pre_slice16_completion_corrective_closure.py"
+path = "tests/test_sql_emission_closure.py"
 seconds = 20
 
 [[file_costs]]
-path = "tests/test_phase66_slice13_project_emit_sql_cli_contract_atomic_output.py"
+path = "tests/test_cli_project_emit_sql.py"
 seconds = 20
 
 [[file_costs]]
-path = "tests/test_phase68_slice11_job_store.py"
+path = "tests/test_jobs_store.py"
 seconds = 20
 
 [[file_costs]]
-path = "tests/test_phase68_slice16_process_histories.py"
+path = "tests/test_jobs_publication_histories.py"
 seconds = 20
 
 [[groups]]
@@ -183,65 +183,65 @@ observer = "differential"
 purpose = "complete-compiler-differential"
 
 [[legacy_files]]
-path = "tests/test_phase58_slice16_pure_differential_compatibility_assurance.py"
+path = "tests/test_harness_project_explain_differential.py"
 kind = "shared-acquisition"
 family = "compiler-differential"
 
 [[legacy_files]]
-path = "tests/test_phase59_slice11_differential_compatibility_assurance.py"
+path = "tests/test_harness_compatibility_differential.py"
 kind = "shared-acquisition"
 family = "compiler-differential"
 
 [[legacy_files]]
-path = "tests/test_phase60_slice12_differential_compatibility.py"
+path = "tests/test_harness_window_differential.py"
 kind = "shared-acquisition"
 family = "compiler-differential"
 
 [[legacy_files]]
-path = "tests/test_phase61_slice11_differential_compatibility.py"
+path = "tests/test_harness_project_ir_differential.py"
 kind = "shared-acquisition"
 family = "compiler-differential"
 
 [[legacy_files]]
-path = "tests/test_phase62_slice15_real_authored_e2e_python_differential_metamorphic_join_assurance.py"
+path = "tests/test_harness_join_differential.py"
 kind = "shared-acquisition"
 family = "compiler-differential"
 
 [[legacy_files]]
-path = "tests/test_phase63_slice15_inspection_pure_boundary_real_e2e_differential_metamorphic_assurance.py"
+path = "tests/test_harness_query_block_ir_differential.py"
 kind = "shared-acquisition"
 family = "compiler-differential"
 
 [[legacy_files]]
-path = "tests/test_phase64_slice10_ir_observation_and_differential.py"
+path = "tests/test_harness_ir_differential.py"
 kind = "shared-acquisition"
 family = "compiler-differential"
 
 [[legacy_files]]
-path = "tests/test_phase65_slice14_portable_boundary_minimal_process_integration.py"
+path = "tests/test_harness_plan_portability.py"
 kind = "shared-acquisition"
 family = "compiler-differential"
 
 [[legacy_files]]
-path = "tests/test_phase65_slice15_whole_selected_plan_real_source_differential_conformance.py"
+path = "tests/test_harness_plan_conformance.py"
 kind = "shared-acquisition"
 family = "compiler-differential"
 
 [[legacy_files]]
-path = "tests/test_phase66_slice14_private_emission_observation_process_integration.py"
+path = "tests/test_harness_sql_emission_portability.py"
 kind = "shared-acquisition"
 family = "compiler-differential"
 
 [[legacy_nodes]]
-function = "tests/test_phase65_slice14_portable_boundary_minimal_process_integration.py::test_standalone_forward_reverse_batch_and_atomic_failure"
+function = "tests/test_harness_plan_portability.py::test_standalone_forward_reverse_batch_and_atomic_failure"
 modes = ["checkout", "relocated", "installed"]
 kind = "process-portability"
 family = "plan"
-exception_to = "tests/test_phase65_slice14_portable_boundary_minimal_process_integration.py"
+exception_to = "tests/test_harness_plan_portability.py"
 
 [[legacy_nodes]]
-function = "tests/test_phase66_slice14_private_emission_observation_process_integration.py::test_standalone_forward_reverse_batches_beside_older_families"
+function = "tests/test_harness_sql_emission_portability.py::test_standalone_forward_reverse_batches_beside_older_families"
 modes = ["checkout", "relocated", "installed"]
 kind = "process-portability"
 family = "emission"
-exception_to = "tests/test_phase66_slice14_private_emission_observation_process_integration.py"
+exception_to = "tests/test_harness_sql_emission_portability.py"

@@ -120,6 +120,10 @@ ANCHOR = Shape(
         "project_sql_comparison",
         "project_sql_is_null",
         "project_sql_between",
+        "project_sql_conditional",
+        "project_sql_membership",
+        "project_sql_cast",
+        "project_sql_scalar_call",
         "project_sql_expression_operand",
         "project_sql_stage_port",
         "project_sql_let_value",
@@ -206,6 +210,10 @@ ANCHOR = Shape(
         "project_logical_module",
         "source_def",
         "call_expr",
+        "conditional_expr",
+        "membership_expr",
+        "cast_expr",
+        "ir_symbol_id",
         "project_ir_cross_relation_edge",
         "project_completion_dependency",
         "project_resolved_module_relation_symbol",
@@ -1205,6 +1213,10 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                             ref("project_sql_comparison"),
                             ref("project_sql_is_null"),
                             ref("project_sql_between"),
+                            ref("project_sql_conditional"),
+                            ref("project_sql_membership"),
+                            ref("project_sql_cast"),
+                            ref("project_sql_scalar_call"),
                             ref("project_sql_result_reference"),
                             ref("project_sql_window_reference"),
                             ref("project_sql_aggregate_argument_call"),
@@ -1593,6 +1605,86 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("value", ref("project_sql_plan_ref")),
                 FieldRule("lower", ref("project_sql_plan_ref")),
                 FieldRule("upper", ref("project_sql_plan_ref")),
+            ),
+        ),
+        "project_sql_conditional": RecordRule(
+            "project_sql_conditional",
+            (
+                FieldRule("ref", ref("project_sql_plan_ref")),
+                FieldRule(
+                    "site",
+                    union(
+                        ref("project_sql_expression_site"),
+                        ref("project_sql_joined_site"),
+                        ref("project_sql_match_site"),
+                        ref("project_sql_aggregate_site"),
+                        ref("project_sql_qualify_site"),
+                    ),
+                ),
+                FieldRule("value_type", ref("value_type")),
+                FieldRule("expression", ref("conditional_expr")),
+                FieldRule("when_true", ref("project_sql_plan_ref")),
+                FieldRule("condition", ref("project_sql_plan_ref")),
+                FieldRule("when_false", ref("project_sql_plan_ref")),
+            ),
+        ),
+        "project_sql_membership": RecordRule(
+            "project_sql_membership",
+            (
+                FieldRule("ref", ref("project_sql_plan_ref")),
+                FieldRule(
+                    "site",
+                    union(
+                        ref("project_sql_expression_site"),
+                        ref("project_sql_joined_site"),
+                        ref("project_sql_match_site"),
+                        ref("project_sql_aggregate_site"),
+                        ref("project_sql_qualify_site"),
+                    ),
+                ),
+                FieldRule("value_type", ref("value_type")),
+                FieldRule("expression", ref("membership_expr")),
+                FieldRule("value", ref("project_sql_plan_ref")),
+                FieldRule("options", seq(ref("project_sql_plan_ref"))),
+            ),
+        ),
+        "project_sql_cast": RecordRule(
+            "project_sql_cast",
+            (
+                FieldRule("ref", ref("project_sql_plan_ref")),
+                FieldRule(
+                    "site",
+                    union(
+                        ref("project_sql_expression_site"),
+                        ref("project_sql_joined_site"),
+                        ref("project_sql_match_site"),
+                        ref("project_sql_aggregate_site"),
+                        ref("project_sql_qualify_site"),
+                    ),
+                ),
+                FieldRule("value_type", ref("value_type")),
+                FieldRule("expression", ref("cast_expr")),
+                FieldRule("value", ref("project_sql_plan_ref")),
+            ),
+        ),
+        "project_sql_scalar_call": RecordRule(
+            "project_sql_scalar_call",
+            (
+                FieldRule("ref", ref("project_sql_plan_ref")),
+                FieldRule(
+                    "site",
+                    union(
+                        ref("project_sql_expression_site"),
+                        ref("project_sql_joined_site"),
+                        ref("project_sql_match_site"),
+                        ref("project_sql_aggregate_site"),
+                        ref("project_sql_qualify_site"),
+                    ),
+                ),
+                FieldRule("value_type", ref("value_type")),
+                FieldRule("expression", ref("call_expr")),
+                FieldRule("callee_symbol", ref("ir_symbol_id")),
+                FieldRule("arguments", seq(ref("project_sql_plan_ref"))),
             ),
         ),
         "project_sql_expression_operand": RecordRule(
@@ -3542,6 +3634,39 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("arguments", seq(ANCHOR)),
             ),
         ),
+        "conditional_expr": RecordRule(
+            "conditional_expr",
+            (
+                FieldRule("span", ref("span")),
+                FieldRule("when_true", ANCHOR),
+                FieldRule("condition", ANCHOR),
+                FieldRule("when_false", ANCHOR),
+            ),
+        ),
+        "membership_expr": RecordRule(
+            "membership_expr",
+            (
+                FieldRule("span", ref("span")),
+                FieldRule("value", ANCHOR),
+                FieldRule("options", seq(ANCHOR)),
+                FieldRule("negated", BOOLEAN),
+            ),
+        ),
+        "cast_expr": RecordRule(
+            "cast_expr",
+            (
+                FieldRule("span", ref("span")),
+                FieldRule("value", ANCHOR),
+                FieldRule("target", ref("type_expr")),
+            ),
+        ),
+        "ir_symbol_id": RecordRule(
+            "ir_symbol_id",
+            (
+                FieldRule("namespace", enum("type", "callable", "relation")),
+                FieldRule("name", TEXT),
+            ),
+        ),
         "project_ir_cross_relation_edge": RecordRule(
             "project_ir_cross_relation_edge",
             (
@@ -4081,7 +4206,6 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("value", ANCHOR),
                 FieldRule("lower", ANCHOR),
                 FieldRule("upper", ANCHOR),
-                FieldRule("negated", ANCHOR),
             ),
         ),
         "is_null_expr": RecordRule(

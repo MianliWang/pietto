@@ -87,7 +87,9 @@ from pietto._window_identity import WindowFunctionIdentity
 from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
+    CastExpr,
     CallExpr,
+    ConditionalExpr,
     ComparisonExpr,
     DottedNameExpr,
     Expression,
@@ -95,6 +97,7 @@ from pietto.ast_nodes import (
     IsNullExpr,
     LetBinding,
     LiteralExpr,
+    MembershipExpr,
     NameExpr,
     OrderItem,
     QueryDef,
@@ -3571,6 +3574,16 @@ def _direct_name_leaves(
         children = expression.arguments
     elif isinstance(expression, UnaryExpr):
         children = (expression.operand,)
+    elif isinstance(expression, ConditionalExpr):
+        children = (
+            expression.when_true,
+            expression.condition,
+            expression.when_false,
+        )
+    elif isinstance(expression, MembershipExpr):
+        children = (expression.value, *expression.options)
+    elif isinstance(expression, CastExpr):
+        children = (expression.value,)
     elif isinstance(expression, BinaryExpr):
         children = (expression.left, expression.right)
     elif isinstance(expression, ComparisonExpr):

@@ -11,14 +11,18 @@ from antlr4.Token import Token
 
 from pietto.ast_nodes import (
     BetweenExpr,
+    CastExpr,
     CallExpr,
+    ConditionalExpr,
     ComparisonExpr,
     Expression,
     IsNullExpr,
     LiteralExpr,
+    MembershipExpr,
     NameExpr,
     Script,
     TableDef,
+    UnaryExpr,
 )
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
@@ -35,6 +39,13 @@ SOURCE = (
     "shape User:\n"
     "    id: UUID not null\n"
     "    email: Text nullable\n"
+    'source users: User is postgres.table("users")\n'
+)
+Q1_SOURCE = (
+    "shape User:\n"
+    "    count: Int not null\n"
+    "    name: Text nullable\n"
+    "    active: Bool nullable\n"
     'source users: User is postgres.table("users")\n'
 )
 
@@ -167,6 +178,253 @@ def test_simple_comparison_maps_to_bool_and_types_operands() -> None:
     assert result.model.expression_value_types[expression.right].resolved_type.name == (
         "Text"
     )
+
+
+def test_q1_conditional_membership_and_explicit_cast_have_closed_types() -> None:
+    result = analyze(
+        _parse(
+            Q1_SOURCE + "table projected:\n"
+            "    from users\n"
+            "    where count in ()\n"
+            "    select:\n"
+            '        label = "present" if name is not null else "missing"\n'
+            "        converted = cast(count as Float)\n"
+        )
+    )
+    table = _table(result)
+    assert table.where_clause is not None
+    membership = table.where_clause.expression
+    conditional = table.select_items[0].expression
+    cast = table.select_items[1].expression
+
+    assert isinstance(membership, MembershipExpr)
+    assert membership.options == ()
+    assert result.model.expression_value_types[membership].resolved_type.name == "Bool"
+    assert (
+        result.model.expression_value_types[membership].nullability
+        is EffectiveNullability.NON_NULL
+    )
+    assert isinstance(conditional, ConditionalExpr)
+    assert result.model.expression_value_types[conditional].resolved_type.name == "Text"
+    assert (
+        result.model.expression_value_types[conditional].nullability
+        is EffectiveNullability.NON_NULL
+    )
+    assert isinstance(cast, CastExpr)
+    assert result.model.expression_value_types[cast].resolved_type.name == "Float"
+
+
+def test_q1_not_and_like_preserve_sql_nullability() -> None:
+    result = analyze(
+        _parse(
+            Q1_SOURCE + "table projected:\n"
+            "    from users\n"
+            "    where not (name is null)\n"
+            "    select:\n"
+            '        matching = name like "A%"\n'
+        )
+    )
+    table = _table(result)
+    assert table.where_clause is not None
+    where_type = result.model.expression_value_types[table.where_clause.expression]
+    matching_type = result.model.expression_value_types[
+        table.select_items[0].expression
+    ]
+
+    assert result.diagnostics == ()
+    assert where_type.resolved_type.name == "Bool"
+    assert where_type.nullability is EffectiveNullability.NON_NULL
+    assert matching_type.resolved_type.name == "Bool"
+    assert matching_type.nullability is EffectiveNullability.NULLABLE
+
+
+def test_q1_local_null_contexts_record_typed_children_and_three_valued_membership() -> (
+    None
+):
+    result = analyze(
+        _parse(
+            Q1_SOURCE + "table projected:\n"
+            "    from users\n"
+            "    where count not in (1, null)\n"
+            "    select:\n"
+            "        filled = coalesce(null, count)\n"
+            "        absent = nullif(count, null)\n"
+            '        label = "present" if null else name\n'
+        )
+    )
+    table = _table(result)
+    assert table.where_clause is not None
+    membership = table.where_clause.expression
+    filled = table.select_items[0].expression
+    absent = table.select_items[1].expression
+    conditional = table.select_items[2].expression
+
+    assert isinstance(membership, MembershipExpr) and membership.negated
+    assert isinstance(filled, CallExpr) and isinstance(absent, CallExpr)
+    assert isinstance(conditional, ConditionalExpr)
+    typed_nulls = (
+        filled.arguments[0],
+        absent.arguments[1],
+        membership.options[1],
+        conditional.condition,
+    )
+    assert all(
+        isinstance(expression, LiteralExpr) and expression.value is None
+        for expression in typed_nulls
+    )
+    assert [
+        result.model.expression_value_types[expression].resolved_type.name
+        for expression in typed_nulls
+    ] == ["Int", "Int", "Int", "Bool"]
+    assert all(
+        result.model.expression_value_types[expression].nullability
+        is EffectiveNullability.NULLABLE
+        for expression in typed_nulls
+    )
+    assert result.model.expression_value_types[membership].resolved_type.name == "Bool"
+    assert (
+        result.model.expression_value_types[membership].nullability
+        is EffectiveNullability.NULLABLE
+    )
+    assert (
+        result.model.expression_value_types[filled].nullability
+        is EffectiveNullability.NON_NULL
+    )
+    assert (
+        result.model.expression_value_types[absent].nullability
+        is EffectiveNullability.NULLABLE
+    )
+
+
+def test_q1_all_null_and_unknown_names_do_not_gain_contextual_types() -> None:
+    result = analyze(
+        _parse(
+            Q1_SOURCE + "table projected:\n"
+            "    from users\n"
+            "    select:\n"
+            "        all_null = coalesce(null, null)\n"
+            "        unknown = coalesce(missing, count)\n"
+        )
+    )
+    table = _table(result)
+    all_null = table.select_items[0].expression
+    unknown = table.select_items[1].expression
+    assert isinstance(all_null, CallExpr) and isinstance(unknown, CallExpr)
+    assert result.model.expression_value_types[all_null].kind is ValueTypeKind.UNKNOWN
+    assert result.model.expression_value_types[unknown].kind is ValueTypeKind.UNKNOWN
+    assert all(
+        result.model.expression_value_types[expression].kind is ValueTypeKind.UNKNOWN
+        for expression in all_null.arguments
+    )
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2102"]
+
+
+def test_q1_new_type_checks_expand_source_aliases_without_changing_child_identity() -> (
+    None
+):
+    result = analyze(
+        _parse(
+            "type Age = Int\n"
+            "type Flag = Bool\n"
+            "type Moment = Timestamp\n"
+            "type Money = Decimal(9, 2)\n"
+            "shape Event:\n"
+            "    age: Age not null\n"
+            "    flag: Flag not null\n"
+            "    happened: Moment not null\n"
+            "    amount: Money not null\n"
+            'source events: Event is postgres.table("events")\n'
+            "table projected:\n"
+            "    from events\n"
+            "    where not flag\n"
+            "    select:\n"
+            "        converted = cast(age as Float)\n"
+            "        choice = 1 if flag else 2\n"
+            "        direction = sign(age)\n"
+            "        calendar = year(happened)\n"
+            "        magnitude = abs(amount)\n"
+        )
+    )
+    table = _table(result)
+    assert not [
+        diagnostic
+        for diagnostic in result.diagnostics
+        if diagnostic.severity is Severity.ERROR
+    ]
+    assert table.where_clause is not None
+    predicate = table.where_clause.expression
+    converted = table.select_items[0].expression
+    assert isinstance(predicate, UnaryExpr)
+    assert isinstance(converted, CastExpr)
+    flag = predicate.operand
+    age = converted.value
+    assert (
+        result.model.expression_value_types[flag].resolved_type.kind
+        is TypeKind.TYPE_ALIAS
+    )
+    assert (
+        result.model.expression_value_types[age].resolved_type.kind
+        is TypeKind.TYPE_ALIAS
+    )
+    assert [
+        result.model.expression_value_types[item.expression].resolved_type.name
+        for item in table.select_items
+    ] == ["Float", "Int", "Int", "Int", "Decimal"]
+
+
+def test_q1_nominal_enum_is_not_a_bool_alias() -> None:
+    result = analyze(
+        _parse(
+            "enum Flag:\n"
+            "    yes\n"
+            "shape Event:\n"
+            "    flag: Flag not null\n"
+            'source events: Event is postgres.table("events")\n'
+            "table projected:\n"
+            "    from events\n"
+            "    where not flag\n"
+            "    select:\n"
+            "        flag\n"
+        )
+    )
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2105"]
+
+
+@pytest.mark.parametrize(
+    ("expression", "code", "message"),
+    [
+        ("1 if count else 2", "PIE-S2105", "expected Bool condition"),
+        ('coalesce(count, "unknown")', "PIE-S2104", "expected same canonical type"),
+        (
+            'nullif(count, "unknown")',
+            "PIE-S2104",
+            "expected same canonical comparable type",
+        ),
+        ("name like count", "PIE-S2105", "expected Text operands"),
+        ("cast(count as Text)", "PIE-S2105", "expected cast(Int as Float)"),
+        ('substr("abc", 0, 2)', "PIE-S2104", "start must be a positive Int literal"),
+    ],
+)
+def test_q1_closed_expression_rules_fail_with_deterministic_diagnostics(
+    expression: str,
+    code: str,
+    message: str,
+) -> None:
+    result = analyze(
+        _parse(
+            Q1_SOURCE + "table projected:\n"
+            "    from users\n"
+            "    select:\n"
+            f"        value = {expression}\n"
+        )
+    )
+
+    matching = [
+        diagnostic
+        for diagnostic in result.diagnostics
+        if diagnostic.code == code and message in diagnostic.message
+    ]
+    assert len(matching) == 1
 
 
 COMPARISON_SOURCE = (

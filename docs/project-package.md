@@ -251,17 +251,44 @@ same pinned-root trust rules as project sources; legacy-flat and package-root pr
 rejected as `config_schema`. See the [README example](../README.md#project-sql-emission)
 and the [Slice13 contract](spec/phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md).
 
+The selected project path carries only contract-qualified physical values.
+Timestamp requires PostgreSQL `timestamp without time zone(6)` or MySQL
+`DATETIME(6)` and the fixed civil law; UUID requires PostgreSQL `uuid` or MySQL
+`BINARY(16)` and standard big-endian bytes. It does not infer either law from a
+declared logical type, result metadata, or a compatible-looking backend value.
+The same boundary admits the closed Q1 scalar surface and the bounded Q2 numeric
+results only when their retained carrier/range facts close. PostgreSQL `substr`
+requires statically proved signed-`int32` start and count bounds before its
+selected-project argument casts. `date_of` accepts only the exact qualified
+Timestamp carrier and emits a derived Date with PostgreSQL `DATE` or MySQL
+`DATE`, preserving NULL; the Date result has no independent selected-project
+source, literal, parsing, arithmetic, or timezone admission. Q1 conditionals
+retain SQL `CASE` order for parameter occurrences (condition, true branch,
+false branch); a bind-safe artifact therefore requires its exact
+`fixed_values` and `parameter_uses`, rather than SQL text alone. A computed
+relation ORDER item must reuse a visible established selected expression, with
+its authored direction and target NULL/collation behavior; hidden-input reuse
+is rejected. Q2 accepts only independently proved numeric realizations:
+signed-range Int arithmetic and direct `avg(Int)` with an input range and a
+target Float carrier. `sum(Int)`, Decimal `sum`/`avg`, and Float `sum`/`avg`
+remain fail-closed without their aggregate-range, exact-division, or finite
+result proof; caller JSON cannot supply that proof.
+
+Version `0.1.2` is an unpublished candidate in this worktree. This document
+describes the candidate contract; Git publication and natural exact-head CI
+remain the lifecycle authority.
+
 ## Optional Arrow dependency
 
 The core distribution depends only on `antlr4-python3-runtime==4.13.2`.
-The public selector `pietto[arrow]` adds exactly `pyarrow==25.0.1`; it changes
+The public selector `pietto[arrow]` adds exactly `pyarrow==26.0.0`; it changes
 available dependencies, not the public Python API or CLI. Phase67 result
 modules remain private under `pietto._project`; Phase69 exposes the three
 execution routes and saved-result APIs as public alpha under
 `pietto.execution`. Package/CLI version is `0.1.2` and `requires-python`
 stays `>=3.12`. Its versioned GitHub pre-release and PyPI listing determine
 distribution availability.
-The verified extra matrix is CPython3.12/3.13 on Linux x86-64 with PyArrow25.0.1.
+The verified extra matrix is CPython3.12/3.13 on Linux x86-64 with PyArrow26.0.0.
 See [checkout and local-wheel installation](../README.md#optional-arrow-interoperability).
 This is not a broader platform/version support promise.
 

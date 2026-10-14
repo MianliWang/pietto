@@ -12,6 +12,18 @@ ACTIVE_READER = TESTS_ROOT / "test_active_phase_lifecycle.py"
 POLICY = REPO_ROOT / "docs/spec/workflow-lifecycle-reader-validation-efficiency-v1.md"
 DEVELOPMENT = REPO_ROOT / "docs/development.md"
 POLICY_TEST = Path(__file__).resolve()
+PRODUCT_TEST_PREFIXES = (
+    "test_parser_",
+    "test_semantic_",
+    "test_project_",
+    "test_ir_",
+    "test_plan_",
+    "test_sql_",
+    "test_cli_",
+    "test_results_",
+    "test_execution_",
+    "test_jobs_",
+)
 
 _MUTABLE_LIFECYCLE = re.compile(
     r"Phase 58 is active,.*(?:current|next / unstarted)"
@@ -37,15 +49,9 @@ def _section(document: str, heading: str) -> str:
 def _product_tests() -> tuple[Path, ...]:
     return tuple(
         sorted(
-            {
-                *TESTS_ROOT.glob("test_phase56_*.py"),
-                *TESTS_ROOT.glob("test_phase57_*.py"),
-                *TESTS_ROOT.glob("test_phase58_slice*.py"),
-                *TESTS_ROOT.glob("test_phase59_slice*.py"),
-                *TESTS_ROOT.glob("test_phase60_slice*.py"),
-                *TESTS_ROOT.glob("test_phase61_slice*.py"),
-                *TESTS_ROOT.glob("test_phase62_slice*.py"),
-            }
+            path
+            for path in TESTS_ROOT.glob("test_*.py")
+            if path.name.startswith(PRODUCT_TEST_PREFIXES)
         )
     )
 
@@ -80,18 +86,13 @@ def test_product_tests_have_no_mutable_lifecycle_or_roadmap_dependency() -> None
         assert path not in status_readers
         assert path not in roadmap_readers
         assert _MUTABLE_LIFECYCLE.search(source) is None, path
-        if path.name.startswith(
-            ("test_phase59_", "test_phase60_", "test_phase61_", "test_phase62_")
-        ):
-            assert ACTIVE_READER.stem not in facts.imported_modules, path
+        assert ACTIVE_READER.stem not in facts.imported_modules, path
 
-    phase58_sources = "\n".join(
-        REPOSITORY_FACTS.python(path).text
-        for path in product_tests
-        if path.name.startswith("test_phase58_")
+    product_sources = "\n".join(
+        REPOSITORY_FACTS.python(path).text for path in product_tests
     )
-    assert "LIFECYCLE_READERS" not in phase58_sources
-    assert "EXPECTED_CHANGED_PATHS" not in phase58_sources
+    assert "LIFECYCLE_READERS" not in product_sources
+    assert "EXPECTED_CHANGED_PATHS" not in product_sources
 
 
 def test_layered_validation_policy_and_product_separation_are_locked() -> None:

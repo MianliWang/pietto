@@ -71,6 +71,7 @@ KINDS = {
     "Text": "str",
     "Float": "float",
     "Decimal": "decimal",
+    "Date": "date",
     "Timestamp": "datetime",
     "UUID": "uuid",
 }

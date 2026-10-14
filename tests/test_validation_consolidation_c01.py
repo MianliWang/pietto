@@ -10,7 +10,7 @@ import shutil
 import pytest
 
 from _pietto_repository_facts import RepositoryFactIndex
-import test_phase57_slice1_postgresql_extension_signature_catalog_scope_lock as scanner
+import _pietto_project_extension_scope as scanner
 
 ROOT = Path(__file__).resolve().parents[1]
 

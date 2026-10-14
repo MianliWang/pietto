@@ -162,7 +162,7 @@ def _declaration_evidence(subject: str) -> tuple[CapabilityEvidence, ...]:
             "_resolve_type",
             "TypeKind.ENUM",
             "TypeKindIR.ENUM and EnumIR",
-            "tests/test_phase36_enum_support_resolution.py",
+            "tests/test_semantic_enum_support_resolution.py",
             "docs/spec/enum-support-resolution-v1.md",
         ),
         "shape": (
@@ -290,9 +290,9 @@ def _unsupported_logical_evidence(subject: str) -> tuple[CapabilityEvidence, ...
         else "docs/spec/type-alias-domain-refinement-boundary-v1.md"
     )
     test_path = (
-        "tests/test_phase36_datetime_time_interval_boundary.py"
+        "tests/test_semantic_datetime_time_interval_boundary.py"
         if temporal
-        else "tests/test_phase36_type_alias_domain_refinement_boundary.py"
+        else "tests/test_semantic_type_alias_domain_refinement_boundary.py"
     )
     return (
         _evidence(
@@ -336,12 +336,12 @@ def _decimal_precision_scale_evidence() -> tuple[CapabilityEvidence, ...]:
         ),
         _evidence(
             CapabilityEvidenceSource.TEST,
-            "tests/test_phase41_decimal_precision_scale_type_carrier.py",
+            "tests/test_semantic_decimal_precision_scale_type_carrier.py",
             "Decimal precision-scale carrier",
         ),
         _evidence(
             CapabilityEvidenceSource.TEST,
-            "tests/test_phase41_decimal_precision_scale_semantic_validation.py",
+            "tests/test_semantic_decimal_precision_scale_semantic_validation.py",
             "Decimal precision-scale validation",
         ),
         _evidence(
@@ -818,7 +818,7 @@ def _nullability_evidence(
         ),
         _evidence(
             CapabilityEvidenceSource.TEST,
-            "tests/test_phase30_nullability_propagation_contract.py",
+            "tests/test_semantic_nullability_propagation_contract.py",
             f"{subject} nullability contract",
         ),
         _evidence(

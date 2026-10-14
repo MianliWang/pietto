@@ -136,7 +136,8 @@ documentation does not supersede that evidence.
 | CI remaining-tail maintenance R1 | `COMPLETED / PUBLISHED` |
 | PostgreSQL refinement-page JIT predecessor | `COMPLETED / PUBLISHED` |
 | Parallelism interlude | `COMPLETED` |
-| Next | S01–S20 completed/published; S21 audit candidate. Phase69 becomes `COMPLETED / PUBLISHED` only when its ordinary S21 audit commit is FF pushed and natural exact-head CI accepts all required consumers; no post-CI reader commit follows. |
+| Phase69 | `COMPLETED / PUBLISHED`; S01–S21 closed at `177c2e18`, natural exact-head CI `38342155897` attempt 1 accepted all required consumers |
+| Next | Post-Phase69 test ownership/acquisition cleanup, resource measurements, VR1 development tooling and the approved expressions/project SQL/types feature phase are integrated candidates; final validation and publication are pending |
 
 ## Phase67 当前路线
 

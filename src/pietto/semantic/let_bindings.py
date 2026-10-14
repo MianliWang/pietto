@@ -8,7 +8,9 @@ from typing import cast
 from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
+    CastExpr,
     CallExpr,
+    ConditionalExpr,
     ComparisonExpr,
     Definition,
     DottedNameExpr,
@@ -16,6 +18,8 @@ from pietto.ast_nodes import (
     FromClause,
     IsNullExpr,
     LetBinding,
+    LiteralExpr,
+    MembershipExpr,
     NameExpr,
     QueryDef,
     SelectItem,
@@ -346,6 +350,15 @@ def _walk_expressions(expression: Expression) -> tuple[Expression, ...]:
         children.extend(expression.arguments)
     elif isinstance(expression, UnaryExpr):
         children.append(expression.operand)
+    elif isinstance(expression, ConditionalExpr):
+        children.extend(
+            (expression.when_true, expression.condition, expression.when_false)
+        )
+    elif isinstance(expression, MembershipExpr):
+        children.append(expression.value)
+        children.extend(expression.options)
+    elif isinstance(expression, CastExpr):
+        children.append(expression.value)
     elif isinstance(expression, BinaryExpr):
         children.extend((expression.left, expression.right))
     elif isinstance(expression, ComparisonExpr):
@@ -354,6 +367,8 @@ def _walk_expressions(expression: Expression) -> tuple[Expression, ...]:
         children.extend((expression.value, expression.lower, expression.upper))
     elif isinstance(expression, IsNullExpr):
         children.append(expression.value)
+    elif not isinstance(expression, (LiteralExpr, NameExpr, DottedNameExpr)):
+        raise AssertionError(f"Unsupported expression: {type(expression).__name__}")
 
     walked: list[Expression] = [expression]
     for child in children:

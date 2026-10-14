@@ -701,6 +701,7 @@ def _check_provider(query):
         D.BINARY_OPERATOR,
         D.COMPARISON,
         D.NULL_TEST,
+        D.CONVERSION,
     ):
         facts = {
             D.SCALAR_FUNCTION: signatures._SCALAR_FUNCTION_FACTS,
@@ -708,6 +709,7 @@ def _check_provider(query):
             D.BINARY_OPERATOR: signatures._BINARY_OPERATOR_FACTS,
             D.COMPARISON: signatures._COMPARISON_FACTS,
             D.NULL_TEST: signatures._NULL_TEST_FACTS,
+            D.CONVERSION: signatures._CONVERSION_FACTS,
         }[key.domain]
         complete = signatures._schema_is_complete(key)
         reason = None if complete else signatures._unknown_reason(key)

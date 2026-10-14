@@ -53,7 +53,7 @@ jobs:
           uv run python scripts/package_smoke.py --dist-dir "$RUNNER_TEMP/result-dist" --extra-env "$RUNNER_TEMP/arrow-ready"
       - name: Run real isolated Arrow readiness consumer
         run: |
-          "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_phase67_arrow_compatibility_probe.py --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.12.json"
+          "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_results_arrow_compatibility.py --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.12.json"
           uv run python scripts/ci_validation.py check-arrow --python 3.12 --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.12.json"
       - name: Upload exact Arrow readiness
         if: always()
@@ -78,7 +78,7 @@ jobs:
             --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
       - name: Run installed result product consumer
         run: |
-          "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_phase67_result_product_probe.py --repository "$GITHUB_WORKSPACE" --report "$RUNNER_TEMP/product-reports/result-product-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.12.json"
+          "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_results_product.py --repository "$GITHUB_WORKSPACE" --report "$RUNNER_TEMP/product-reports/result-product-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.12.json"
           uv run python scripts/ci_validation.py check-product --python 3.12 --report "$RUNNER_TEMP/product-reports/result-product-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.12.json"
       - name: Upload exact installed result product evidence
         if: always()
@@ -425,7 +425,7 @@ jobs:
           uv run python scripts/package_smoke.py --dist-dir "$RUNNER_TEMP/result-dist" --extra-env "$RUNNER_TEMP/arrow-ready"
       - name: Run real isolated Arrow readiness consumer
         run: |
-          "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_phase67_arrow_compatibility_probe.py --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13.json"
+          "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_results_arrow_compatibility.py --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13.json"
           uv run python scripts/ci_validation.py check-arrow --python 3.13 --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13.json"
       - name: Upload exact Arrow readiness
         if: always()
@@ -450,7 +450,7 @@ jobs:
             --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
       - name: Run installed result product consumer
         run: |
-          "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_phase67_result_product_probe.py --repository "$GITHUB_WORKSPACE" --report "$RUNNER_TEMP/product-reports/result-product-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13.json"
+          "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_results_product.py --repository "$GITHUB_WORKSPACE" --report "$RUNNER_TEMP/product-reports/result-product-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13.json"
           uv run python scripts/ci_validation.py check-product --python 3.13 --report "$RUNNER_TEMP/product-reports/result-product-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13.json"
       - name: Upload exact installed result product evidence
         if: always()
@@ -877,13 +877,13 @@ jobs:
             --compiler-status "$COMPILER_STATUS" --target-status "$TARGET_STATUS"
       - name: Prepare isolated Arrow-extra integration consumer
         run: |
-          uv run python tests/_pietto_phase67_real_consumer_probe.py prepare --repository "$GITHUB_WORKSPACE" --environment "$RUNNER_TEMP/phase67-consumer-extra" --dist-dir "$RUNNER_TEMP/phase67-consumer-dist"
+          uv run python tests/_pietto_results_consumer.py prepare --repository "$GITHUB_WORKSPACE" --environment "$RUNNER_TEMP/phase67-consumer-extra" --dist-dir "$RUNNER_TEMP/phase67-consumer-dist"
       - name: Replay strictly verified current native observations
         run: |
           set -- "$RUNNER_TEMP"/phase67-consumer-dist/pietto-*-py3-none-any.whl
           test "$#" -eq 1 && test -f "$1" || exit 1
-          "$RUNNER_TEMP/phase67-consumer-extra/bin/python" -I tests/_pietto_phase67_real_consumer_probe.py replay --repository "$GITHUB_WORKSPACE" --receipts "$RUNNER_TEMP/phase66-receipts" --wheel "$1" --report "$RUNNER_TEMP/integration-reports/phase67-consumer-integration-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json" --expected-commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT"
-          uv run python tests/_pietto_phase67_real_consumer_probe.py verify --repository "$GITHUB_WORKSPACE" --receipts "$RUNNER_TEMP/phase66-receipts" --wheel "$1" --report "$RUNNER_TEMP/integration-reports/phase67-consumer-integration-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json" --expected-commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --python 3.13
+          "$RUNNER_TEMP/phase67-consumer-extra/bin/python" -I tests/_pietto_results_consumer.py replay --repository "$GITHUB_WORKSPACE" --receipts "$RUNNER_TEMP/phase66-receipts" --wheel "$1" --report "$RUNNER_TEMP/integration-reports/phase67-consumer-integration-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json" --expected-commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT"
+          uv run python tests/_pietto_results_consumer.py verify --repository "$GITHUB_WORKSPACE" --receipts "$RUNNER_TEMP/phase66-receipts" --wheel "$1" --report "$RUNNER_TEMP/integration-reports/phase67-consumer-integration-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json" --expected-commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --python 3.13
       - name: Upload required real-consumer integration
         if: always()
         id: integration
@@ -904,7 +904,7 @@ jobs:
         run: |
           set -- "$RUNNER_TEMP"/phase67-consumer-dist/pietto-*-py3-none-any.whl
           test "$#" -eq 1 && test -f "$1" || exit 1
-          uv run python tests/_pietto_phase67_real_consumer_probe.py verify --repository "$GITHUB_WORKSPACE" --receipts "$RUNNER_TEMP/phase66-receipts" --wheel "$1" --report "$RUNNER_TEMP/integration-reports/phase67-consumer-integration-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json" --expected-commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --python 3.13 --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
+          uv run python tests/_pietto_results_consumer.py verify --repository "$GITHUB_WORKSPACE" --receipts "$RUNNER_TEMP/phase66-receipts" --wheel "$1" --report "$RUNNER_TEMP/integration-reports/phase67-consumer-integration-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json" --expected-commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --python 3.13 --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
       - name: Report workload health and bounded trusted history
         env:
           CI_HEALTH_TOKEN: ${{ github.token }}

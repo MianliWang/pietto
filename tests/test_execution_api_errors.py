@@ -142,6 +142,11 @@ def test_value_and_bundle_refusal_text_is_fixed_vocabulary():
         (ex.ExecutionError("POSTGRES_TRANSACTION_CHANGED"), {}, "PIE-R2006"),
         (ex.ExecutionError("POSTGRES_SOURCE_NATIVE_CONTEXT"), {}, "PIE-R2006"),
         (ex.ExecutionError("POSTGRES_SOURCE_RLS_NOT_QUALIFIED"), {}, "PIE-R2007"),
+        (
+            ex.ExecutionError("MYSQL_SOURCE_TEMPORAL_UUID_QUALIFICATION"),
+            {},
+            "PIE-R2007",
+        ),
         (ex.ExecutionError("POSTGRES_ADBC_DEPLOYMENT_PREMISE_SCOPE"), {}, "PIE-R2007"),
         (TimeoutError("EXECUTION_DEADLINE"), {}, "PIE-R3001"),
         (DriverError("canceled", "57014"), {"deadline": True}, "PIE-R3001"),

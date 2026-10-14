@@ -73,6 +73,7 @@ def canonical_capability_provider_inputs(
         CapabilityDomain.BINARY_OPERATOR,
         CapabilityDomain.COMPARISON,
         CapabilityDomain.NULL_TEST,
+        CapabilityDomain.CONVERSION,
     }:
         facts, complete, reason = signature_lookup_inputs(key)
     elif key.domain in {

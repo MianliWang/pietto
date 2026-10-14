@@ -225,6 +225,33 @@ class Resources:
             self.docker(kind, "inspect", reference, "--format", fields, timeout=timeout)
         )
 
+    def measurement_container_observation(
+        self, *, timeout: float = 10
+    ) -> dict[str, Any]:
+        """Read the current owned container identity for an explicit measurement.
+
+        The caller still has to prove ownership before it uses this observation.
+        This method deliberately has no lifecycle effect and is not called by
+        ordinary target setup or execution.
+        """
+        if self.container_id is None:
+            raise ValueError("measurement requires an acquired container")
+        fields = (
+            '{"id":{{json .Id}},"name":{{json .Name}},"image":{{json .Image}},'
+            '"labels":{{json .Config.Labels}},"running":{{json .State.Running}},'
+            '"pid":{{json .State.Pid}},"started_at":{{json .State.StartedAt}}}'
+        )
+        return json.loads(
+            self.docker(
+                "container",
+                "inspect",
+                self.container_id,
+                "--format",
+                fields,
+                timeout=timeout,
+            )
+        )
+
     def owned(self, kind: str, value: dict[str, Any]) -> bool:
         expected = self.name if kind == "container" else self.network_name
         return (

@@ -20,6 +20,8 @@ from pietto.ir import (
     RelationIR,
     ScriptIR,
     SourceIR,
+    SymbolId,
+    SymbolNamespace,
     build_ir,
 )
 from pietto.sql import SqlArtifactKind
@@ -199,7 +201,11 @@ def test_invalid_projection_expression_emits_no_partial_artifact() -> None:
     assert isinstance(projection.expression, CallIR)
     bad_projection = replace(
         projection,
-        expression=replace(projection.expression, callee="unknown"),
+        expression=replace(
+            projection.expression,
+            callee="unknown",
+            callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "unknown"),
+        ),
     )
     bad_relation = replace(relation, projections=(bad_projection,))
     definitions = tuple(
@@ -283,7 +289,7 @@ def test_supported_artifacts_and_diagnostics_preserve_definition_order() -> None
         "table second:\n"
         "    from users\n"
         "    select:\n"
-        "        age\n"
+        "        email\n"
         "table third:\n"
         "    from users\n"
         "    select:\n"
@@ -291,15 +297,18 @@ def test_supported_artifacts_and_diagnostics_preserve_definition_order() -> None
     )
     second = _definition(script_ir, RelationIR, "second")
     projection = second.projections[0]
-    bad_expression = ComparisonIR(
+    bad_expression = CallIR(
         span=projection.expression.span,
         value_type=projection.expression.value_type,
-        left=projection.expression,
-        operator="like",
-        right=LiteralIR(
-            span=projection.expression.span,
-            value_type=projection.expression.value_type,
-            value="2",
+        callee="matches",
+        callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "matches"),
+        arguments=(
+            projection.expression,
+            LiteralIR(
+                span=projection.expression.span,
+                value_type=projection.expression.value_type,
+                value="@",
+            ),
         ),
     )
     bad_second = replace(
@@ -316,7 +325,7 @@ def test_supported_artifacts_and_diagnostics_preserve_definition_order() -> None
     assert [artifact.name for artifact in result.artifacts] == ["first", "third"]
     assert len(result.diagnostics) == 1
     assert "second" in result.diagnostics[0].message
-    assert "comparison operator: like" in result.diagnostics[0].message
+    assert "Unsupported MySQL function call: matches" in result.diagnostics[0].message
 
 
 def test_metadata_remains_non_emitting() -> None:

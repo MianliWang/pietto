@@ -19,13 +19,24 @@ from pietto._project.path_trust import ProjectPinnedRoot
 from pietto._project.selected_input_index import ProjectSelectedInputIndex
 from pietto._project.trusted_source import ProjectTrustedSourceSnapshot
 from pietto.ast_nodes import (
+    BetweenExpr,
+    BinaryExpr,
+    CallExpr,
+    CastExpr,
+    CheckDef,
+    ComparisonExpr,
+    ConditionalExpr,
     ConstraintDef,
     Definition,
     DeriveDef,
     DottedNameExpr,
     EnumDef,
+    Expression,
     FieldDef,
     FromClause,
+    IndexDef,
+    IsNullExpr,
+    MembershipExpr,
     NameExpr,
     Nullability,
     QueryDef,
@@ -36,6 +47,7 @@ from pietto.ast_nodes import (
     TableDef,
     TypeDef,
     TypeExpr,
+    UnaryExpr,
     WindowExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
@@ -3006,17 +3018,92 @@ def _project_expression_location(
 
 
 def _iter_project_type_expressions(definition: Definition) -> tuple[TypeExpr, ...]:
-    """Return supported top-level type expressions in source order."""
+    """Return declaration and explicit-cast type expressions in source order."""
+
+    result: list[TypeExpr] = []
+
+    def add_expression(expression: Expression) -> None:
+        if isinstance(expression, CastExpr):
+            add_expression(expression.value)
+            result.append(expression.target)
+        elif isinstance(expression, (BinaryExpr, ComparisonExpr)):
+            add_expression(expression.left)
+            add_expression(expression.right)
+        elif isinstance(expression, UnaryExpr):
+            add_expression(expression.operand)
+        elif isinstance(expression, IsNullExpr):
+            add_expression(expression.value)
+        elif isinstance(expression, BetweenExpr):
+            add_expression(expression.value)
+            add_expression(expression.lower)
+            add_expression(expression.upper)
+        elif isinstance(expression, ConditionalExpr):
+            add_expression(expression.when_true)
+            add_expression(expression.condition)
+            add_expression(expression.when_false)
+        elif isinstance(expression, MembershipExpr):
+            add_expression(expression.value)
+            for option in expression.options:
+                add_expression(option)
+        elif isinstance(expression, CallExpr):
+            for argument in expression.arguments:
+                add_expression(argument)
+        elif isinstance(expression, WindowExpr):
+            add_expression(expression.call)
+            for item in expression.spec.partition_by:
+                add_expression(item)
+            for item in expression.spec.order_by:
+                add_expression(item.expression)
+
+    def add_type(type_expr: TypeExpr) -> None:
+        result.append(type_expr)
+        for argument in type_expr.arguments:
+            add_expression(argument.value)
 
     if isinstance(definition, TypeDef):
-        return (definition.base,)
-    if isinstance(definition, (ConstraintDef, DeriveDef)):
-        return tuple(parameter.type for parameter in definition.parameters) + (
-            definition.return_type,
-        )
-    if isinstance(definition, ShapeDef):
-        return tuple(field.type_expr for field in definition.fields)
-    return ()
+        add_type(definition.base)
+        for clause in definition.ensures:
+            add_expression(clause.expression)
+    elif isinstance(definition, (ConstraintDef, DeriveDef)):
+        for parameter in definition.parameters:
+            add_type(parameter.type)
+        add_type(definition.return_type)
+        add_expression(definition.body)
+    elif isinstance(definition, ShapeDef):
+        for item in definition.items:
+            if isinstance(item, FieldDef):
+                add_type(item.type_expr)
+                if item.derive_expression is not None:
+                    add_expression(item.derive_expression)
+                for clause in item.ensure_clauses:
+                    add_expression(clause.expression)
+            elif isinstance(item, CheckDef):
+                add_expression(item.expression)
+            elif isinstance(item, IndexDef) and item.predicate is not None:
+                add_expression(item.predicate)
+    elif isinstance(definition, SourceDef):
+        add_expression(definition.connector)
+    elif isinstance(definition, (TableDef, QueryDef)):
+        if definition.let_clause is not None:
+            for binding in definition.let_clause.bindings:
+                add_expression(binding.expression)
+        if definition.where_clause is not None:
+            add_expression(definition.where_clause.expression)
+        for item in definition.select_items:
+            add_expression(item.expression)
+        if definition.satisfying_clause is not None:
+            add_expression(definition.satisfying_clause.expression)
+        if definition.qualify_clause is not None:
+            add_expression(definition.qualify_clause.expression)
+        if definition.order_by_clause is not None:
+            for item in definition.order_by_clause.items:
+                add_expression(item.expression)
+        if definition.limit_clause is not None:
+            add_expression(definition.limit_clause.expression)
+        for join in definition.join_clauses:
+            if join.on_clause is not None:
+                add_expression(join.on_clause.expression)
+    return tuple(result)
 
 
 def _resolve_project_type(

@@ -353,6 +353,12 @@ class _Writer:
             self.emit(")", "syntax", "unary_close", reference)
             self.enclose("unary", reference, start)
             return
+        if value.kind == "not":
+            self.emit("(NOT ", "syntax", "not_open", reference)
+            self.scalar(value.operands[0], alias)
+            self.emit(")", "syntax", "not_close", reference)
+            self.enclose("not", reference, start)
+            return
         if value.kind == "null_test":
             self.emit("(", "syntax", "is_null_open", reference)
             self.scalar(value.operands[0], alias)
@@ -364,6 +370,278 @@ class _Writer:
             )
             self.emit(")", "syntax", "is_null_close", reference)
             self.enclose("is_null", reference, start)
+            return
+        if value.kind == "between":
+            self.emit("(", "syntax", "between_open", reference)
+            self.scalar(value.operands[0], alias)
+            self.emit(" BETWEEN ", "syntax", "between_operator", reference)
+            self.scalar(value.operands[1], alias)
+            self.emit(" AND ", "syntax", "between_separator", reference)
+            self.scalar(value.operands[2], alias)
+            self.emit(")", "syntax", "between_close", reference)
+            self.enclose("between", reference, start)
+            return
+        if value.kind == "scalar_call":
+            name = value.original.callee_symbol.name
+            spelling = {
+                "postgres": {
+                    "lower": "lower",
+                    "upper": "upper",
+                    "trim": "trim",
+                    "len": "length",
+                    "replace": "replace",
+                    "abs": "abs",
+                    "nullif": "NULLIF",
+                    "coalesce": "COALESCE",
+                },
+                "mysql": {
+                    "lower": "LOWER",
+                    "upper": "UPPER",
+                    "trim": "TRIM",
+                    "len": "CHAR_LENGTH",
+                    "replace": "REPLACE",
+                    "abs": "ABS",
+                    "nullif": "NULLIF",
+                    "coalesce": "COALESCE",
+                },
+            }[self.request.family].get(name)
+            if name == "substr":
+                self.emit(
+                    "substring(" if self.request.family == "postgres" else "SUBSTRING(",
+                    "syntax",
+                    "scalar_call_open",
+                    reference,
+                )
+                self.scalar(value.operands[0], alias)
+                self.emit(
+                    " FROM " if self.request.family == "postgres" else ", ",
+                    "syntax",
+                    "scalar_call_separator",
+                    reference,
+                )
+                if self.request.family == "postgres":
+                    self.emit(
+                        "CAST(",
+                        "syntax",
+                        "scalar_call_index_cast_open",
+                        reference,
+                    )
+                self.scalar(value.operands[1], alias)
+                if self.request.family == "postgres":
+                    self.emit(
+                        " AS pg_catalog.int4)",
+                        "syntax",
+                        "scalar_call_index_cast_close",
+                        reference,
+                    )
+                self.emit(
+                    " FOR " if self.request.family == "postgres" else ", ",
+                    "syntax",
+                    "scalar_call_separator",
+                    reference,
+                )
+                if self.request.family == "postgres":
+                    self.emit(
+                        "CAST(",
+                        "syntax",
+                        "scalar_call_index_cast_open",
+                        reference,
+                    )
+                self.scalar(value.operands[2], alias)
+                if self.request.family == "postgres":
+                    self.emit(
+                        " AS pg_catalog.int4)",
+                        "syntax",
+                        "scalar_call_index_cast_close",
+                        reference,
+                    )
+                self.emit(")", "syntax", "scalar_call_close", reference)
+                self.enclose("scalar_call", reference, start)
+                return
+            if name == "len":
+                assert spelling is not None
+                self.emit(
+                    "CAST(" + spelling + "(",
+                    "syntax",
+                    "scalar_call_open",
+                    reference,
+                )
+                self.scalar(value.operands[0], alias)
+                self.emit(
+                    ") AS "
+                    + (
+                        "pg_catalog.int8"
+                        if self.request.family == "postgres"
+                        else "SIGNED"
+                    )
+                    + ")",
+                    "syntax",
+                    "scalar_call_close",
+                    reference,
+                )
+                self.enclose("scalar_call", reference, start)
+                return
+            if name == "date_of":
+                if self.request.family == "postgres":
+                    self.emit("CAST(", "syntax", "scalar_call_open", reference)
+                    self.scalar(value.operands[0], alias)
+                    self.emit(" AS date)", "syntax", "scalar_call_close", reference)
+                else:
+                    self.emit("DATE(", "syntax", "scalar_call_open", reference)
+                    self.scalar(value.operands[0], alias)
+                    self.emit(")", "syntax", "scalar_call_close", reference)
+                self.enclose("scalar_call", reference, start)
+                return
+            if name in {"contains", "starts_with", "ends_with"}:
+                if len(value.operands) != 2:
+                    raise ValueError("unrenderable scalar call")
+                if name == "contains":
+                    self.emit(
+                        "(strpos(" if self.request.family == "postgres" else "(INSTR(",
+                        "syntax",
+                        "scalar_call_open",
+                        reference,
+                    )
+                    self.scalar(value.operands[0], alias)
+                    self.emit(
+                        ", ",
+                        "syntax",
+                        "scalar_call_separator",
+                        reference,
+                    )
+                    self.scalar(value.operands[1], alias)
+                    self.emit(") > 0)", "syntax", "scalar_call_close", reference)
+                else:
+                    function = {"starts_with": "left", "ends_with": "right"}[name]
+                    if self.request.family == "mysql":
+                        function = function.upper()
+                    self.emit(
+                        "(" + function + "(", "syntax", "scalar_call_open", reference
+                    )
+                    self.scalar(value.operands[0], alias)
+                    self.emit(", ", "syntax", "scalar_call_separator", reference)
+                    self.emit(
+                        "length("
+                        if self.request.family == "postgres"
+                        else "CHAR_LENGTH(",
+                        "syntax",
+                        "scalar_call_nested_open",
+                        reference,
+                    )
+                    self.scalar(value.operands[1], alias)
+                    self.emit(")", "syntax", "scalar_call_nested_close", reference)
+                    self.emit(" ) = ", "syntax", "scalar_call_operator", reference)
+                    self.scalar(value.operands[1], alias)
+                    self.emit(")", "syntax", "scalar_call_close", reference)
+                self.enclose("scalar_call", reference, start)
+                return
+            if name in {"sign", "year", "month", "day", "hour", "minute"}:
+                function = name.upper() if self.request.family == "mysql" else name
+                if self.request.family == "postgres" and name in {
+                    "year",
+                    "month",
+                    "day",
+                    "hour",
+                    "minute",
+                }:
+                    self.emit(
+                        "CAST(EXTRACT(" + name.upper() + " FROM ",
+                        "syntax",
+                        "scalar_call_open",
+                        reference,
+                    )
+                    self.scalar(value.operands[0], alias)
+                    self.emit(
+                        ") AS pg_catalog.int8)",
+                        "syntax",
+                        "scalar_call_close",
+                        reference,
+                    )
+                else:
+                    cast_type = (
+                        "pg_catalog.int8"
+                        if self.request.family == "postgres"
+                        else "SIGNED"
+                    )
+                    self.emit(
+                        "CAST(" + function + "(",
+                        "syntax",
+                        "scalar_call_open",
+                        reference,
+                    )
+                    self.scalar(value.operands[0], alias)
+                    self.emit(
+                        ") AS " + cast_type + ")",
+                        "syntax",
+                        "scalar_call_close",
+                        reference,
+                    )
+                self.enclose("scalar_call", reference, start)
+                return
+            if spelling is None or not value.operands:
+                raise ValueError("unrenderable scalar call")
+            self.emit(spelling + "(", "syntax", "scalar_call_open", reference)
+            for position, operand in enumerate(value.operands):
+                if position:
+                    self.emit(", ", "syntax", "scalar_call_separator", reference)
+                self.scalar(operand, alias)
+            self.emit(")", "syntax", "scalar_call_close", reference)
+            self.enclose("scalar_call", reference, start)
+            return
+        if value.kind == "conditional":
+            self.emit("(CASE WHEN ", "syntax", "conditional_open", reference)
+            self.scalar(value.operands[1], alias)
+            self.emit(" THEN ", "syntax", "conditional_then", reference)
+            self.scalar(value.operands[0], alias)
+            self.emit(" ELSE ", "syntax", "conditional_else", reference)
+            self.scalar(value.operands[2], alias)
+            self.emit(" END)", "syntax", "conditional_close", reference)
+            self.enclose("conditional", reference, start)
+            return
+        if value.kind == "membership":
+            if len(value.operands) == 1:
+                self.emit(
+                    "TRUE" if value.original.expression.negated else "FALSE",
+                    "syntax",
+                    "membership_constant",
+                    reference,
+                )
+            else:
+                self.emit("(", "syntax", "membership_open", reference)
+                self.scalar(value.operands[0], alias)
+                self.emit(
+                    " NOT IN (" if value.original.expression.negated else " IN (",
+                    "syntax",
+                    "membership_operator",
+                    reference,
+                )
+                for position, operand in enumerate(value.operands[1:]):
+                    if position:
+                        self.emit(", ", "syntax", "membership_separator", reference)
+                    self.scalar(operand, alias)
+                self.emit("))", "syntax", "membership_close", reference)
+            self.enclose("membership", reference, start)
+            return
+        if value.kind == "cast":
+            physical = (
+                "pg_catalog.float8" if self.request.family == "postgres" else "DOUBLE"
+            )
+            self.emit("CAST(", "syntax", "cast_open", reference)
+            self.scalar(value.operands[0], alias)
+            self.emit(" AS " + physical + ")", "syntax", "cast_close", reference)
+            self.enclose("cast", reference, start)
+            return
+        if value.kind == "comparison" and value.original.expression.operator in {
+            "like",
+            "not like",
+        }:
+            self.emit("(", "syntax", "comparison_open", reference)
+            self.scalar(value.operands[0], alias)
+            self.emit(operator_token(value), "syntax", "comparison_operator", reference)
+            self.scalar(value.operands[1], alias)
+            self.emit(" ESCAPE '!'", "syntax", "comparison_escape", reference)
+            self.emit(")", "syntax", "comparison_close", reference)
+            self.enclose("comparison", reference, start)
             return
         opening, operator, closing, role = OPERATORS[value.kind]
         self.emit("(", "syntax", opening, reference)
@@ -394,7 +672,16 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
     else:
         if column.distinct:
             w.emit("DISTINCT ", "syntax", "aggregate_distinct", reference)
+        if column.argument_cast is not None:
+            w.emit("CAST(", "syntax", "aggregate_argument_cast_open", reference)
         w.scalar(column.argument, alias)
+        if column.argument_cast is not None:
+            w.emit(
+                " AS " + column.argument_cast + ")",
+                "syntax",
+                "aggregate_argument_cast_close",
+                reference,
+            )
     w.emit(")", "syntax", "aggregate_close", reference)
     w.enclose("aggregate", reference, start)
 

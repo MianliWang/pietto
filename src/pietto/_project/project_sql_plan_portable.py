@@ -17,6 +17,7 @@ from pietto._project import project_sql_plan_target_assessment as targets
 from pietto._project import project_sql_plan_portable_schema as schema
 from pietto._project import project_sql_plan_pure_boundary as pure
 from pietto._project.project_sql_plan_verification import ProjectSQLPlanVerification
+from pietto.ir import model as ir_model
 
 
 # Runtime carrier imports.
@@ -505,6 +506,10 @@ _ADAPTERS: Mapping[type, str] = {
     project_sql_plan_expressions.ProjectSQLComparison: "project_sql_comparison",
     project_sql_plan_expressions.ProjectSQLIsNull: "project_sql_is_null",
     project_sql_plan_expressions.ProjectSQLBetween: "project_sql_between",
+    project_sql_plan_expressions.ProjectSQLConditional: "project_sql_conditional",
+    project_sql_plan_expressions.ProjectSQLMembership: "project_sql_membership",
+    project_sql_plan_expressions.ProjectSQLCast: "project_sql_cast",
+    project_sql_plan_expressions.ProjectSQLScalarCall: "project_sql_scalar_call",
     project_sql_plan_expressions.ProjectSQLExpressionOperand: "project_sql_expression_operand",
     project_sql_plan_expressions.ProjectSQLStagePort: "project_sql_stage_port",
     project_sql_plan_expressions.ProjectSQLLetValue: "project_sql_let_value",
@@ -591,6 +596,10 @@ _ADAPTERS: Mapping[type, str] = {
     module_carrier.ProjectLogicalModule: "project_logical_module",
     ast_nodes.SourceDef: "source_def",
     ast_nodes.CallExpr: "call_expr",
+    ast_nodes.ConditionalExpr: "conditional_expr",
+    ast_nodes.MembershipExpr: "membership_expr",
+    ast_nodes.CastExpr: "cast_expr",
+    ir_model.SymbolId: "ir_symbol_id",
     project_ir_composition.ProjectIRCrossRelationEdge: "project_ir_cross_relation_edge",
     project_completion.ProjectCompletionDependency: "project_completion_dependency",
     module_relation_resolution.ProjectResolvedModuleRelationSymbol: "project_resolved_module_relation_symbol",
@@ -1001,6 +1010,7 @@ _ADAPTERS: Mapping[type, str] = {
 }
 
 _ENUMS: tuple[type[Enum], ...] = (
+    ir_model.SymbolNamespace,
     plans.ProjectSQLPlanRefKind,
     plans.ProjectSQLBoundaryReason,
     plans.ProjectSQLSymbolNamespace,

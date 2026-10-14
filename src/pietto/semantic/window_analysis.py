@@ -53,7 +53,6 @@ from pietto.semantic.window_semantics import (
     NamedWindowResolutionIssueKind,
     NamedWindowUseResolutionFailure,
     NavigationWindowComputation,
-    NavigationWindowSemanticFact,
     RankingAdvancePolicy,
     RankingWindowSemanticFact,
     ResolvedNamedWindowNamespace,
@@ -300,146 +299,8 @@ def analyze_window_expression(
         diagnostics=diagnostics,
         let_value_types=let_value_types,
         let_expressions=let_expressions,
-        family=None,
         named_window_namespace=named_window_namespace,
     )
-
-
-def analyze_distribution_window_expression(
-    *,
-    definition: TableDef | QueryDef,
-    item: SelectItem,
-    selected_output_ordinal: int,
-    source_id: str,
-    input_schema: RowSchema,
-    field_qualifier: str,
-    value_types: dict[Expression, ValueType],
-    diagnostics: list[Diagnostic],
-    let_value_types: Mapping[str, ValueType] | None = None,
-    let_expressions: Mapping[str, Expression] | None = None,
-) -> DistributionWindowSemanticFact | WindowExpressionUnsupported:
-    """Analyze one direct selected distribution expression transiently."""
-
-    result = _analyze_recognized_window_expression(
-        definition=definition,
-        item=item,
-        selected_output_ordinal=selected_output_ordinal,
-        source_id=source_id,
-        input_schema=input_schema,
-        field_qualifier=field_qualifier,
-        value_types=value_types,
-        diagnostics=diagnostics,
-        let_value_types=let_value_types,
-        let_expressions=let_expressions,
-        family="distribution",
-    )
-    if isinstance(result, WindowExpressionUnsupported):
-        return result
-    if result.distribution_fact is None:
-        raise AssertionError("distribution analyzer returned no distribution fact")
-    return result.distribution_fact
-
-
-def analyze_ranking_window_expression(
-    *,
-    definition: TableDef | QueryDef,
-    item: SelectItem,
-    selected_output_ordinal: int,
-    source_id: str,
-    input_schema: RowSchema,
-    field_qualifier: str,
-    value_types: dict[Expression, ValueType],
-    diagnostics: list[Diagnostic],
-    let_value_types: Mapping[str, ValueType] | None = None,
-    let_expressions: Mapping[str, Expression] | None = None,
-) -> RankingWindowSemanticFact | WindowExpressionUnsupported:
-    """Analyze one direct selected ranking expression without publishing it."""
-
-    result = _analyze_recognized_window_expression(
-        definition=definition,
-        item=item,
-        selected_output_ordinal=selected_output_ordinal,
-        source_id=source_id,
-        input_schema=input_schema,
-        field_qualifier=field_qualifier,
-        value_types=value_types,
-        diagnostics=diagnostics,
-        let_value_types=let_value_types,
-        let_expressions=let_expressions,
-        family="ranking",
-    )
-    if isinstance(result, WindowExpressionUnsupported):
-        return result
-    if result.ranking_fact is None:
-        raise AssertionError("ranking analyzer returned no ranking fact")
-    return result.ranking_fact
-
-
-def analyze_navigation_window_expression(
-    *,
-    definition: TableDef | QueryDef,
-    item: SelectItem,
-    selected_output_ordinal: int,
-    source_id: str,
-    input_schema: RowSchema,
-    field_qualifier: str,
-    value_types: dict[Expression, ValueType],
-    diagnostics: list[Diagnostic],
-    let_value_types: Mapping[str, ValueType] | None = None,
-    let_expressions: Mapping[str, Expression] | None = None,
-) -> NavigationWindowSemanticFact | WindowExpressionUnsupported:
-    """Analyze one direct selected navigation expression transiently."""
-
-    result = _analyze_recognized_window_expression(
-        definition=definition,
-        item=item,
-        selected_output_ordinal=selected_output_ordinal,
-        source_id=source_id,
-        input_schema=input_schema,
-        field_qualifier=field_qualifier,
-        value_types=value_types,
-        diagnostics=diagnostics,
-        let_value_types=let_value_types,
-        let_expressions=let_expressions,
-        family="navigation",
-    )
-    if isinstance(result, WindowExpressionUnsupported):
-        return result
-    if result.navigation_fact is None:
-        raise AssertionError("navigation analyzer returned no navigation fact")
-    return result.navigation_fact
-
-
-def analyze_row_number_window_expression(
-    *,
-    definition: TableDef | QueryDef,
-    item: SelectItem,
-    selected_output_ordinal: int,
-    source_id: str,
-    input_schema: RowSchema,
-    field_qualifier: str,
-    value_types: dict[Expression, ValueType],
-    diagnostics: list[Diagnostic],
-    let_value_types: Mapping[str, ValueType] | None = None,
-    let_expressions: Mapping[str, Expression] | None = None,
-) -> WindowExpressionSemanticFact | WindowExpressionUnsupported:
-    """Retain the Slice 7 core-fact result shape through the ranking analyzer."""
-
-    result = analyze_ranking_window_expression(
-        definition=definition,
-        item=item,
-        selected_output_ordinal=selected_output_ordinal,
-        source_id=source_id,
-        input_schema=input_schema,
-        field_qualifier=field_qualifier,
-        value_types=value_types,
-        diagnostics=diagnostics,
-        let_value_types=let_value_types,
-        let_expressions=let_expressions,
-    )
-    if isinstance(result, WindowExpressionUnsupported):
-        return result
-    return result.semantic_fact
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -461,7 +322,6 @@ def _analyze_recognized_window_expression(
     diagnostics: list[Diagnostic],
     let_value_types: Mapping[str, ValueType] | None,
     let_expressions: Mapping[str, Expression] | None,
-    family: str | None,
     named_window_namespace: ResolvedNamedWindowNamespace | None = None,
 ) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
     """Keep the selected-output API as a compatibility wrapper."""
@@ -597,7 +457,6 @@ def _analyze_recognized_window_expression(
         allow_qualified_fields=(
             True if input_scope is None else input_scope.allows_qualified_fields
         ),
-        family=family,
         named_composition=named_composition,
         admission_failure=admission,
     )
@@ -621,7 +480,6 @@ def analyze_window_computation(
     diagnostics: list[Diagnostic],
     bare_value_types: Mapping[str, ValueType] | None = None,
     allow_qualified_fields: bool = True,
-    family: str | None = None,
     named_composition: ComposedNamedWindowUse | None = None,
     admission_failure: _WindowComputationAdmissionFailure | None = None,
     prepare_inputs: Callable[[WindowExpr], None] | None = None,
@@ -652,20 +510,10 @@ def analyze_window_computation(
     if prepare_inputs is not None and not callable(prepare_inputs):
         raise TypeError("window computation input preparation must be callable")
 
-    advance_policy = (
-        _ranking_policy(expression) if family in {None, "ranking"} else None
-    )
-    distribution_definition = (
-        _distribution_definition(expression)
-        if family in {None, "distribution"}
-        else None
-    )
-    navigation = (
-        navigation_direction(expression) if family in {None, "navigation"} else None
-    )
-    frame_value = (
-        frame_value_function(expression) if family in {None, "frame_value"} else None
-    )
+    advance_policy = _ranking_policy(expression)
+    distribution_definition = _distribution_definition(expression)
+    navigation = navigation_direction(expression)
+    frame_value = frame_value_function(expression)
     if (
         advance_policy is None
         and distribution_definition is None

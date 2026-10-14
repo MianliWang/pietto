@@ -56,6 +56,8 @@ from pietto._project.project_final_outputs import ProjectNoJoinScalarExpression
 from pietto._project.project_joined_row_filter import _SQL_ROW_RETENTION_EFFECTS
 from pietto._project.model import ProjectRowField
 from pietto.semantic.model import ValueType, ValueTypeKind
+from pietto.semantic.catalog import is_builtin_function_name
+from pietto.ir.model import SymbolId, SymbolNamespace
 
 from pietto._project.model import (
     ProjectResolvedType,
@@ -115,11 +117,14 @@ from pietto.ast_nodes import (
     BinaryExpr,
     ComparisonExpr,
     BetweenExpr,
+    CastExpr,
+    ConditionalExpr,
     IsNullExpr,
     CallExpr,
     DottedNameExpr,
     FromClause,
     LiteralExpr,
+    MembershipExpr,
     NameExpr,
     QueryDef,
     SelectItem,
@@ -419,7 +424,11 @@ def _blockers(
                                     qualify
                                 ).items()
                             }
-                            if any(isinstance(node, CallExpr) for node in nodes):
+                            if any(
+                                isinstance(node, CallExpr)
+                                and _callable_symbol(node) is None
+                                for node in nodes
+                            ):
                                 add(K.CALL_AUTHORITY, owner, entry, clause)
                             elif any(
                                 type(node)
@@ -433,6 +442,10 @@ def _blockers(
                                     ComparisonExpr,
                                     IsNullExpr,
                                     BetweenExpr,
+                                    ConditionalExpr,
+                                    MembershipExpr,
+                                    CastExpr,
+                                    CallExpr,
                                 }
                                 or id(node) not in types
                                 or types[id(node)].kind is not ValueTypeKind.KNOWN
@@ -537,10 +550,14 @@ def _row_blockers(completed, entry):
         ComparisonExpr,
         IsNullExpr,
         BetweenExpr,
+        ConditionalExpr,
+        MembershipExpr,
+        CastExpr,
+        CallExpr,
     }
     for site, evidence, references in sites:
         nodes = row.scalar_nodes(site.expression)
-        if any(isinstance(n, CallExpr) for n in nodes):
+        if any(isinstance(n, CallExpr) and _callable_symbol(n) is None for n in nodes):
             blockers.append((K.CALL_AUTHORITY, site))
         elif evidence is None or any(type(n) not in supported for n in nodes):
             blockers.append((K.EXPRESSION_EVIDENCE, site))
@@ -879,7 +896,9 @@ def _match_blocker(condition):
 
 def _scalar_blocker(expression, evidence, aggregate=None):
     nodes = row.scalar_nodes(expression)
-    if any(isinstance(node, CallExpr) for node in nodes) and aggregate is None:
+    if aggregate is None and any(
+        isinstance(node, CallExpr) and _callable_symbol(node) is None for node in nodes
+    ):
         return ProjectSQLPlanBlockerKind.CALL_AUTHORITY
     if aggregate is not None and (
         aggregation.argument_evidence(aggregate) is not evidence
@@ -896,9 +915,11 @@ def _scalar_blocker(expression, evidence, aggregate=None):
         ComparisonExpr,
         IsNullExpr,
         BetweenExpr,
+        ConditionalExpr,
+        MembershipExpr,
+        CastExpr,
+        CallExpr,
     }
-    if aggregate is not None:
-        supported.add(CallExpr)
     values = {
         id(node): (node, value) for node, value in row.evidence_types(evidence).items()
     }
@@ -911,6 +932,15 @@ def _scalar_blocker(expression, evidence, aggregate=None):
     ):
         return ProjectSQLPlanBlockerKind.EXPRESSION_EVIDENCE
     return None
+
+
+def _callable_symbol(call: CallExpr) -> SymbolId | None:
+    """Return the canonical builtin callable identity, never a callee spelling."""
+    if type(call.callee) is not NameExpr or not is_builtin_function_name(
+        call.callee.name
+    ):
+        return None
+    return SymbolId(SymbolNamespace.CALLABLE, call.callee.name)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -2205,20 +2235,32 @@ def build_project_sql_plan(
                             symbol=symbol,
                         )
             elif isinstance(node, CallExpr):
-                if (
-                    not isinstance(site, aggregation.ProjectSQLAggregateSite)
-                    or site.role is not row.ProjectSQLExpressionRole.AGGREGATE_ARGUMENT
-                ):
-                    raise ValueError(
-                        "Scalar calls require retained aggregate argument authority"
+                if isinstance(site, aggregation.ProjectSQLAggregateSite):
+                    if site.role is not row.ProjectSQLExpressionRole.AGGREGATE_ARGUMENT:
+                        raise ValueError(
+                            "Scalar calls require retained aggregate argument authority"
+                        )
+                    value = aggregation.ProjectSQLAggregateArgumentCall(
+                        ref=node_ref,
+                        site=site,
+                        expression=node,
+                        value_type=value_type,
+                        arguments=children,
                     )
-                value = aggregation.ProjectSQLAggregateArgumentCall(
-                    ref=node_ref,
-                    site=site,
-                    expression=node,
-                    value_type=value_type,
-                    arguments=children,
-                )
+                else:
+                    symbol = _callable_symbol(node)
+                    if symbol is None:
+                        raise ValueError(
+                            "Scalar call lacks canonical callable authority"
+                        )
+                    value = row.ProjectSQLScalarCall(
+                        ref=node_ref,
+                        site=site,
+                        expression=node,
+                        value_type=value_type,
+                        callee_symbol=symbol,
+                        arguments=children,
+                    )
             elif isinstance(node, UnaryExpr):
                 value = row.ProjectSQLUnary(
                     ref=node_ref,
@@ -2262,6 +2304,33 @@ def build_project_sql_plan(
                     value=children[0],
                     lower=children[1],
                     upper=children[2],
+                )
+            elif isinstance(node, ConditionalExpr):
+                value = row.ProjectSQLConditional(
+                    ref=node_ref,
+                    site=site,
+                    expression=node,
+                    value_type=value_type,
+                    when_true=children[0],
+                    condition=children[1],
+                    when_false=children[2],
+                )
+            elif isinstance(node, MembershipExpr):
+                value = row.ProjectSQLMembership(
+                    ref=node_ref,
+                    site=site,
+                    expression=node,
+                    value_type=value_type,
+                    value=children[0],
+                    options=children[1:],
+                )
+            elif isinstance(node, CastExpr):
+                value = row.ProjectSQLCast(
+                    ref=node_ref,
+                    site=site,
+                    expression=node,
+                    value_type=value_type,
+                    value=children[0],
                 )
             else:
                 raise ValueError("Unsupported contextual expression variant.")
@@ -4045,6 +4114,24 @@ class CompiledFixedEnvelope:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class CompiledExpressionSyntax:
+    """Closed source-free expression spelling needed by SQL rendering."""
+
+    operator: str | None
+    negated: bool = False
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledExpressionIdentity:
+    """Reconstructed canonical identity for one compiled expression occurrence."""
+
+    ref: CompiledIRReference
+    value_type: ValueType
+    expression: CompiledExpressionSyntax
+    callee_symbol: SymbolId | None = None
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class CompiledSQLSingleMatch:
     ref: CompiledIRReference
     request: CompiledSingleMatchRequest = field(repr=False)
@@ -4082,6 +4169,9 @@ class CompiledSQLPlan:
     ports: Mapping[Address, CompiledSQLPort] = field(repr=False)
     exports: tuple[CompiledSQLPort, ...]
     expressions: Mapping[Address, row.CompiledPlanValue] = field(repr=False)
+    expression_identities: Mapping[Address, CompiledExpressionIdentity] = field(
+        repr=False
+    )
     literal_policy: literals.ProjectSQLLiteralPolicy
     literal_sites: tuple[CompiledLiteralSite, ...]
     literal_slots: tuple[CompiledLiteralSlot, ...]
@@ -4145,6 +4235,27 @@ def build_compiled_sql_plan(ir):
     for address in records:
         if address.kind == "null_literal":
             primitives[address] = row.CompiledExpressionPrimitive(None, None, False)
+    identities = {}
+    for address, fact in facts.items():
+        if address.kind != "operation" or fact.operator is None:
+            continue
+        role, token = fact.operator
+        if type(role) is not str or type(token) is not str:
+            raise CompiledError("COMPILED_PLAN_OPERATOR")
+        identities[address] = CompiledExpressionIdentity(
+            refs[address],
+            fact.value_type,
+            CompiledExpressionSyntax(
+                token,
+                (role, token)
+                in {("membership", "not_in"), ("null_test", "is_not_null")},
+            ),
+            (
+                SymbolId(SymbolNamespace.CALLABLE, token)
+                if role == "scalar_call"
+                else None
+            ),
+        )
     sites = {}
     for record in records.values():
         if record.address.kind != "site":
@@ -4184,8 +4295,6 @@ def build_compiled_sql_plan(ir):
             literal_slots[record.get("literal")] = slot
     expressions = {}
     for address, primitive in primitives.items():
-        if address.kind == "null_literal":
-            continue
         fact = facts[address]
         arguments = (
             refs[address],
@@ -4197,7 +4306,7 @@ def build_compiled_sql_plan(ir):
             expressions[address] = row.CompiledBoundLiteral(
                 *arguments, CompiledBindUse(literal_slots[address], refs[address])
             )
-        elif address.kind == "literal":
+        elif address.kind in ("literal", "null_literal"):
             expressions[address] = row.CompiledLiteral(*arguments)
         else:
             expressions[address] = row.CompiledPlanValue(*arguments)
@@ -4303,6 +4412,7 @@ def build_compiled_sql_plan(ir):
         MappingProxyType(ports),
         tuple(ports[p] for p in entry.get("exports")),
         MappingProxyType(expressions),
+        MappingProxyType(identities),
         literals.ProjectSQLLiteralPolicy(
             records[Address("policy", 0)].get("literal_policy")
         ),

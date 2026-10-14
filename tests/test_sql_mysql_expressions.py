@@ -10,12 +10,15 @@ import pietto.sql.mysql_expressions as expression_module
 from pietto.ir.model import (
     BetweenIR,
     BinaryIR,
+    CastIR,
     CallIR,
+    ConditionalIR,
     ComparisonIR,
     ExpressionIR,
     FieldRefIR,
     IsNullIR,
     LiteralIR,
+    MembershipIR,
     NullabilityIR,
     SourceSpan,
     StaticValue,
@@ -43,6 +46,24 @@ UNKNOWN_TYPE = TypeRefIR(
     kind=TypeKindIR.UNKNOWN,
     canonical_kind=TypeKindIR.UNKNOWN,
     nullability=NullabilityIR.UNKNOWN,
+)
+FLOAT_TYPE = TypeRefIR(
+    symbol=None,
+    canonical_symbol=None,
+    declared_name="Float",
+    canonical_name="Float",
+    kind=TypeKindIR.BUILTIN,
+    canonical_kind=TypeKindIR.BUILTIN,
+    nullability=NullabilityIR.NON_NULL,
+)
+INT_TYPE = TypeRefIR(
+    symbol=None,
+    canonical_symbol=None,
+    declared_name="Int",
+    canonical_name="Int",
+    kind=TypeKindIR.BUILTIN,
+    canonical_kind=TypeKindIR.BUILTIN,
+    nullability=NullabilityIR.NON_NULL,
 )
 
 
@@ -90,6 +111,138 @@ def test_approved_function_mappings_are_uppercase_and_recursive() -> None:
     assert render_mysql_expression(_call("len", _field("email"))) == (
         "CHAR_LENGTH(`email`)"
     )
+
+
+def test_q1_control_expressions_and_fixed_like_escape_render() -> None:
+    condition = ComparisonIR(
+        span=SPAN,
+        value_type=UNKNOWN_TYPE,
+        left=_field("age"),
+        operator=">=",
+        right=_literal(18),
+    )
+    conditional = ConditionalIR(
+        span=SPAN,
+        value_type=UNKNOWN_TYPE,
+        when_true=_literal("adult"),
+        condition=condition,
+        when_false=_literal("minor"),
+    )
+    membership = MembershipIR(
+        span=SPAN,
+        value_type=UNKNOWN_TYPE,
+        value=_field("id"),
+        options=(_literal(1), _literal(2)),
+        negated=True,
+    )
+    like = ComparisonIR(
+        span=SPAN,
+        value_type=UNKNOWN_TYPE,
+        left=_field("label"),
+        operator="not like",
+        right=_literal("100!%%"),
+    )
+
+    assert render_mysql_expression(conditional) == (
+        "CASE WHEN (`age` >= 18) THEN 'adult' ELSE 'minor' END"
+    )
+    assert render_mysql_expression(membership) == "`id` NOT IN (1, 2)"
+    assert render_mysql_expression(like) == "`label` NOT LIKE '100!%%' ESCAPE '!'"
+    assert (
+        render_mysql_expression(
+            UnaryIR(
+                span=SPAN,
+                value_type=UNKNOWN_TYPE,
+                operator="not",
+                operand=membership,
+            )
+        )
+        == "NOT (`id` NOT IN (1, 2))"
+    )
+
+
+@pytest.mark.parametrize(
+    ("negated", "expected"),
+    [(False, "FALSE"), (True, "TRUE")],
+)
+def test_q1_empty_membership_is_a_checked_boolean_constant(
+    negated: bool,
+    expected: str,
+) -> None:
+    expression = MembershipIR(
+        span=SPAN,
+        value_type=UNKNOWN_TYPE,
+        value=_field("id"),
+        options=(),
+        negated=negated,
+    )
+
+    assert render_mysql_expression(expression) == expected
+    with pytest.raises(MySqlRenderError):
+        render_mysql_expression(
+            MembershipIR(
+                span=SPAN,
+                value_type=UNKNOWN_TYPE,
+                value=_call("unknown", _literal(1)),
+                options=(),
+                negated=negated,
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        (
+            _call(
+                "coalesce", _field("nickname"), _field("name"), _literal("anonymous")
+            ),
+            "COALESCE(`nickname`, `name`, 'anonymous')",
+        ),
+        (_call("nullif", _field("name"), _literal("")), "NULLIF(`name`, '')"),
+        (_call("upper", _field("name")), "UPPER(`name`)"),
+        (
+            _call("substr", _field("name"), _literal(2), _literal(3)),
+            "SUBSTRING(`name`, 2, 3)",
+        ),
+        (
+            _call("replace", _field("name"), _literal("a"), _literal("b")),
+            "REPLACE(`name`, 'a', 'b')",
+        ),
+        (_call("contains", _field("name"), _literal("et")), "INSTR(`name`, 'et') > 0"),
+        (
+            _call("starts_with", _field("name"), _literal("pi")),
+            "LEFT(`name`, CHAR_LENGTH('pi')) = 'pi'",
+        ),
+        (
+            _call("ends_with", _field("name"), _literal("to")),
+            "RIGHT(`name`, CHAR_LENGTH('to')) = 'to'",
+        ),
+        (_call("abs", _field("amount")), "ABS(`amount`)"),
+        (_call("sign", _field("amount")), "SIGN(`amount`)"),
+        (_call("date_of", _field("happened_at")), "DATE(`happened_at`)"),
+        (_call("year", _field("happened_at")), "YEAR(`happened_at`)"),
+    ],
+)
+def test_q1_closed_function_rendering(expression: ExpressionIR, expected: str) -> None:
+    assert render_mysql_expression(expression) == expected
+
+
+def test_q1_int_to_float_cast_uses_explicit_double() -> None:
+    cast = CastIR(
+        span=SPAN,
+        value_type=FLOAT_TYPE,
+        value=FieldRefIR(
+            span=SPAN,
+            value_type=INT_TYPE,
+            name="id",
+            qualifier=(),
+            field=None,
+        ),
+        target=FLOAT_TYPE,
+    )
+
+    assert render_mysql_expression(cast) == "CAST(`id` AS DOUBLE)"
 
 
 @pytest.mark.parametrize(
@@ -228,18 +381,12 @@ def test_nested_compound_expressions_are_parenthesized() -> None:
             callee_symbol=None,
             arguments=(_literal("a"),),
         ),
-        ComparisonIR(
+        CallIR(
             span=SPAN,
             value_type=UNKNOWN_TYPE,
-            left=_literal(1),
-            operator="like",
-            right=_literal("1"),
-        ),
-        UnaryIR(
-            span=SPAN,
-            value_type=UNKNOWN_TYPE,
-            operator="not",
-            operand=_literal(True),
+            callee="lower",
+            callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "upper"),
+            arguments=(_literal("a"),),
         ),
         BinaryIR(
             span=SPAN,

@@ -88,7 +88,7 @@ class SQLLiteralColumn:
     symbol: SQLSymbol
     label: str
     origin: parameters.LiteralOrigin
-    value: parameters.SQLAnchor | parameters.SQLUnary | None
+    value: parameters.SQLNull | parameters.SQLAnchor | parameters.SQLUnary | None
     producer: TerminalBinding | None
 
 
@@ -477,18 +477,22 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
             raise ValueError("inconsistent retained meaning")
     except (ValueError, TypeError, AttributeError):
         return (Blocker("PIE-B1008", "scalar_meaning_correspondence"),)
-    if meaning is not None and meaning.entries and not projection_chain_shape(plan):
-        return (
-            *result,
-            Blocker("PIE-B1003", "scalar_meaning_requires_field_projection"),
-        )
+    projection_only = projection_chain_shape(plan)
+    if meaning is not None and meaning.entries and not projection_only:
+        from pietto._project.project_scalar_meaning import operations_admitted
+
+        if not operations_admitted(meaning):
+            return (
+                *result,
+                Blocker("PIE-B1003", "scalar_meaning_requires_field_projection"),
+            )
 
     def add(code, detail, subject=None, location=None):
         result.append(Blocker(code, detail, subject, location))
 
     if RELEASES.get(request.family) != request.release:
         add("PIE-B1003", "target_release_not_reviewed")
-    admitted = projection_chain_shape(plan)
+    admitted = projection_only
     realization = None
     if not admitted and (
         admitted_row_shape(plan) or joining.admitted_join_shape(plan, _guarded=_guarded)
@@ -961,6 +965,11 @@ ADMITTED_EXPRESSIONS = (
     row.ProjectSQLBinary,
     row.ProjectSQLComparison,
     row.ProjectSQLIsNull,
+    row.ProjectSQLBetween,
+    row.ProjectSQLConditional,
+    row.ProjectSQLMembership,
+    row.ProjectSQLCast,
+    row.ProjectSQLScalarCall,
 )
 ADMITTED_STAGE_EXPRESSIONS = (
     *ADMITTED_EXPRESSIONS,
@@ -1624,7 +1633,7 @@ def realize_rows(request, *, _guarded=None):
     occurrences = []
     for reference in ordered:
         try:
-            chains = rows.constant_chains(plan, reference)
+            chains = rows.rendered_constant_chains(plan, reference)
         except ValueError:
             add("PIE-B1008", "expression_tree_structure", reference)
             continue
@@ -2144,7 +2153,7 @@ def value_requirements(request, value):
     """One requirement per actual node, in the exact order it is rendered."""
     family = request.family
     result = []
-    for node in rows.value_nodes(value):
+    for node in rows.rendered_value_nodes(value):
         if type(node) in {rows.SQLStageReference, rows.SQLOperation}:
             kind = rows.requirement_kind(node)
             operands = (
@@ -2536,7 +2545,7 @@ def row_parameter_leaves(query):
             if body.predicate is not None:
                 values.append(body.predicate.value)
         for value in values:
-            for node in rows.value_nodes(value):
+            for node in rows.rendered_value_nodes(value):
                 if type(node) in {rows.SQLStageReference, rows.SQLOperation}:
                     continue
                 result.extend(
@@ -2544,6 +2553,36 @@ def row_parameter_leaves(query):
                     for leaf in parameters.value_nodes(node)
                     if type(leaf) is parameters.SQLParameter
                 )
+    return tuple(result)
+
+
+def row_value_roots(query):
+    """Rendered value roots in unit and SELECT-list order.
+
+    This is deliberately a private view of the already verified AST.  It does
+    not synthesize a second carrier: consumers which need a target-specific
+    premise must derive it from these exact rendered roots.
+    """
+    result = []
+    for body in getattr(query, "units", query.bodies):
+        if type(body) is joining.JoinBody:
+            if body.predicate is not None:
+                result.append(body.predicate)
+            continue
+        if type(body) is not RowBody:
+            continue
+        for column in body.columns:
+            if type(column) is RowValueColumn:
+                result.append(column.value)
+            elif (
+                type(column) is grouping.AggregateValueColumn
+                and column.argument is not None
+            ):
+                result.append(column.argument)
+            elif type(column) is windowing.WindowColumn:
+                result.extend(column.arguments)
+        if body.predicate is not None:
+            result.append(body.predicate.value)
     return tuple(result)
 
 

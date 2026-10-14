@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import time
 from typing import Any
 
-import _pietto_phase68_slice11_probe as workspace_probe
+import _pietto_execution_jobs_probe as workspace_probe
 
 
 @dataclass(slots=True)
@@ -126,7 +126,7 @@ def unstarted_saved_generation(directory) -> UnstartedSavedGeneration | None:
     """Build the real v7 metadata needed by control-only public consumers."""
     if not workspace_probe.qualified(directory):
         return None
-    from _pietto_phase68_slice12_probe import store
+    from _pietto_execution_capture_probe import store
     from pietto._project import project_job_workspace as private_workspace
     from pietto.execution import WorkspaceRef
 

@@ -30,7 +30,7 @@ def main():
     sys.path.insert(0, str(root / "tests"))
     if args.origin in ("source", "both"):
         sys.path.insert(0, str(root / "src"))
-    probe = importlib.import_module("_pietto_phase68_slice9_probe")
+    probe = importlib.import_module("_pietto_execution_adbc_probe")
 
     if args.mode == "worker":
         if args.origin == "both" or args.input is None or sys.stdin.read(1) != "1":

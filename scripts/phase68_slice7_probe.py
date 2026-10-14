@@ -26,7 +26,7 @@ def main():
     sys.path.insert(0, str(root / "tests"))
     if args.origin == "source":
         sys.path.insert(0, str(root / "src"))
-    from _pietto_phase68_slice7_probe import (
+    from _pietto_execution_guard_probe import (
         small_family,
         native_group,
         worker,

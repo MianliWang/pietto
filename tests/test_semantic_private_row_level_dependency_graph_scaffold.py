@@ -1,0 +1,440 @@
+from __future__ import annotations
+
+from dataclasses import FrozenInstanceError, is_dataclass
+import json
+from pathlib import Path
+
+import pytest
+
+from pietto._project.check import check_project_parse_only
+from pietto._project.json_v2 import project_check_result_to_json_dict
+from pietto._project.model import (
+    ProjectParseCheckResult,
+    ProjectRowFieldProvenanceKind,
+    ProjectSemanticResult,
+    build_empty_project_semantic_result,
+)
+from pietto._project.row_dependency_graph import (
+    ProjectRelationRowDependencyGraph,
+    ProjectRowDependencyEdge,
+    ProjectRowDependencyEdgeKind,
+    ProjectRowDependencyGraphReason,
+    ProjectRowDependencyGraphStatus,
+    ProjectRowDependencyNode,
+    ProjectRowDependencyNodeKind,
+    _child_expressions,
+)
+from pietto._project.module_semantic_fact_preservation import _direct_name_leaves
+from pietto.ast_nodes import (
+    CastExpr,
+    ConditionalExpr,
+    Expression,
+    LiteralExpr,
+    MembershipExpr,
+    NameExpr,
+    Nullability,
+    QueryDef,
+    Span,
+    TableDef,
+    TypeExpr,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+PRIVATE_JSON_FACTS = (
+    "relation_row_dependency_graphs",
+    "ProjectRelationRowDependencyGraph",
+    "ProjectRowDependencyGraphStatus",
+    "ProjectRowDependencyGraphReason",
+    "ProjectRowDependencyNode",
+    "ProjectRowDependencyEdge",
+    "output_field",
+    "upstream_field",
+    "let_binding",
+    "computed_expression",
+    "let_output",
+    "let_expression",
+    "dependency",
+    "lineage",
+    "relation_row_schemas",
+    "relation_let_scope_facts",
+    "ProjectRowSchema",
+    "ProjectRowField",
+    "provenance",
+)
+
+
+def test_row_dependency_graph_carriers_are_private_frozen_dataclasses() -> None:
+    for model_type in (
+        ProjectRowDependencyNode,
+        ProjectRowDependencyEdge,
+        ProjectRelationRowDependencyGraph,
+    ):
+        assert is_dataclass(model_type)
+        assert hasattr(model_type, "__slots__")
+
+    node = ProjectRowDependencyNode(
+        kind=ProjectRowDependencyNodeKind.OUTPUT_FIELD,
+        name="id",
+        relation_name="projected",
+        output_name="id",
+    )
+    graph = ProjectRelationRowDependencyGraph(
+        status=ProjectRowDependencyGraphStatus.CONCRETE,
+        reason=ProjectRowDependencyGraphReason.DIRECT_SOURCE_CONCRETE,
+        nodes=(node,),
+    )
+
+    assert graph.nodes == (node,)
+    assert not hasattr(graph, "__dict__")
+    with pytest.raises(FrozenInstanceError):
+        setattr(graph, "nodes", ())
+
+
+def test_direct_renamed_and_computed_output_dependencies_are_recorded(
+    tmp_path: Path,
+) -> None:
+    parse_result, semantic_result = _project_semantic_result(
+        _project(
+            tmp_path,
+            "query projected:\n"
+            "    from users\n"
+            "    select:\n"
+            "        id\n"
+            "        user_email = email\n"
+            "        normalized = lower(status)\n"
+            "        total = score + bonus\n",
+        )
+    )
+
+    assert semantic_result.ok
+    assert semantic_result.model is not None
+    projected = _derived_definition(parse_result, "projected")
+    graph = semantic_result.model.relation_row_dependency_graphs[projected]
+    projected_schema = semantic_result.model.relation_row_schemas[projected]
+
+    assert graph.status is ProjectRowDependencyGraphStatus.CONCRETE
+    assert graph.reason is ProjectRowDependencyGraphReason.DIRECT_SOURCE_CONCRETE
+    assert (
+        projected_schema.fields["total"].provenance is not None
+        and projected_schema.fields["total"].provenance.kind
+        is ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION
+    )
+    assert _edge_values(graph, ProjectRowDependencyEdgeKind.DIRECT_PROJECTION) == (
+        ("id", "users.id"),
+    )
+    assert _edge_values(graph, ProjectRowDependencyEdgeKind.RENAMED_PROJECTION) == (
+        ("user_email", "users.email"),
+    )
+    assert _edge_values(graph, ProjectRowDependencyEdgeKind.COMPUTED_EXPRESSION) == (
+        ("normalized", "users.status"),
+        ("total", "users.score"),
+        ("total", "users.bonus"),
+    )
+    assert "lower" not in {node.name for node in graph.nodes}
+
+
+def test_selected_let_outputs_and_let_expression_dependencies_are_recorded(
+    tmp_path: Path,
+) -> None:
+    parse_result, semantic_result = _project_semantic_result(
+        _project(
+            tmp_path,
+            "query projected:\n"
+            "    from users\n"
+            "    let:\n"
+            "        total = score + bonus\n"
+            "        label = lower(status)\n"
+            "        adjusted = total + score\n"
+            "    select:\n"
+            "        total\n"
+            "        exported = adjusted\n",
+        )
+    )
+
+    assert semantic_result.ok
+    assert semantic_result.model is not None
+    projected = _derived_definition(parse_result, "projected")
+    graph = semantic_result.model.relation_row_dependency_graphs[projected]
+    projected_schema = semantic_result.model.relation_row_schemas[projected]
+
+    for output_name in ("total", "exported"):
+        field = projected_schema.fields[output_name]
+        assert field.field_def is None
+        assert field.provenance is not None
+        assert field.provenance.kind is ProjectRowFieldProvenanceKind.LET_DERIVED
+
+    assert _edge_values(graph, ProjectRowDependencyEdgeKind.LET_OUTPUT) == (
+        ("total", "total"),
+        ("exported", "adjusted"),
+    )
+    assert _edge_values(graph, ProjectRowDependencyEdgeKind.LET_EXPRESSION) == (
+        ("total", "users.score"),
+        ("total", "users.bonus"),
+        ("label", "users.status"),
+        ("adjusted", "total"),
+        ("adjusted", "users.score"),
+    )
+    assert "lower" not in {node.name for node in graph.nodes}
+
+
+def test_multi_hop_dependency_remains_immediate_upstream_only(
+    tmp_path: Path,
+) -> None:
+    parse_result, semantic_result = _project_semantic_result(
+        _project(
+            tmp_path,
+            "query seed:\n"
+            "    from users\n"
+            "    select:\n"
+            "        total = score + bonus\n"
+            "query exported:\n"
+            "    from seed\n"
+            "    select:\n"
+            "        total\n",
+        )
+    )
+
+    assert semantic_result.ok
+    assert semantic_result.model is not None
+    exported = _derived_definition(parse_result, "exported")
+    graph = semantic_result.model.relation_row_dependency_graphs[exported]
+
+    assert _edge_values(graph, ProjectRowDependencyEdgeKind.DIRECT_PROJECTION) == (
+        ("total", "seed.total"),
+    )
+    assert "users.score" not in {node.name for node in graph.nodes}
+    assert "users.bonus" not in {node.name for node in graph.nodes}
+
+
+def test_non_concrete_row_schema_states_produce_non_concrete_graphs(
+    tmp_path: Path,
+) -> None:
+    unknown_parse, unknown_semantic = _project_semantic_result(
+        _project(
+            tmp_path / "unknown",
+            "query broken:\n    from users\n    select:\n        missing\n",
+        )
+    )
+    grouped_parse, grouped_semantic = _project_semantic_result(
+        _project(
+            tmp_path / "grouped",
+            "query grouped:\n"
+            "    from users\n"
+            "    group by:\n"
+            "        status\n"
+            "    select:\n"
+            "        status\n"
+            "        total = sum(score)\n",
+        )
+    )
+    cycle_parse, cycle_semantic = _project_semantic_result(
+        _project(
+            tmp_path / "cycle",
+            "query first:\n"
+            "    from second\n"
+            "    select:\n"
+            "        id\n"
+            "query second:\n"
+            "    from first\n"
+            "    select:\n"
+            "        id\n",
+            include_source=False,
+        )
+    )
+
+    assert unknown_semantic.model is not None
+    broken = _derived_definition(unknown_parse, "broken")
+    broken_graph = unknown_semantic.model.relation_row_dependency_graphs[broken]
+    assert broken_graph.status is ProjectRowDependencyGraphStatus.UNKNOWN
+    assert broken_graph.reason is ProjectRowDependencyGraphReason.UNKNOWN_SCHEMA
+    assert broken_graph.nodes == ()
+    assert broken_graph.edges == ()
+
+    assert grouped_semantic.model is not None
+    grouped = _derived_definition(grouped_parse, "grouped")
+    grouped_graph = grouped_semantic.model.relation_row_dependency_graphs[grouped]
+    assert grouped_graph.status is ProjectRowDependencyGraphStatus.CONCRETE
+    assert grouped_graph.reason is (
+        ProjectRowDependencyGraphReason.DIRECT_SOURCE_CONCRETE
+    )
+    assert _edge_values(
+        grouped_graph,
+        ProjectRowDependencyEdgeKind.DIRECT_PROJECTION,
+    ) == (("status", "users.status"),)
+    assert _edge_values(
+        grouped_graph,
+        ProjectRowDependencyEdgeKind.AGGREGATE_ARGUMENT,
+    ) == (("total", "users.score"),)
+
+    assert cycle_semantic.model is not None
+    first = _derived_definition(cycle_parse, "first")
+    first_graph = cycle_semantic.model.relation_row_dependency_graphs[first]
+    assert first_graph.status is ProjectRowDependencyGraphStatus.BLOCKED
+    assert first_graph.reason is ProjectRowDependencyGraphReason.CYCLE_BLOCKED
+
+
+def test_project_json_v2_keeps_row_dependency_graph_private(tmp_path: Path) -> None:
+    parse_result, semantic_result = _project_semantic_result(
+        _project(
+            tmp_path,
+            "query projected:\n"
+            "    from users\n"
+            "    let:\n"
+            "        total = score + bonus\n"
+            "    select:\n"
+            "        id\n"
+            "        total\n",
+        )
+    )
+    document = project_check_result_to_json_dict(
+        parse_result,
+        semantic_diagnostics=semantic_result.diagnostics,
+    )
+    serialized = json.dumps(document)
+
+    assert semantic_result.ok
+    assert semantic_result.model is not None
+    assert semantic_result.model.relation_row_dependency_graphs
+    assert tuple(document) == (
+        "schema_version",
+        "command",
+        "mode",
+        "ok",
+        "project",
+        "inputs",
+        "diagnostics",
+        "cli_errors",
+        "result",
+    )
+    for private_fact in PRIVATE_JSON_FACTS:
+        assert private_fact not in serialized
+
+
+def test_row_dependency_graph_module_does_not_call_full_semantic_analyze() -> None:
+    module = (REPO_ROOT / "src/pietto/_project/row_dependency_graph.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "semantic_api.analyze" not in module
+    assert "from pietto.semantic import analyze" not in module
+    assert "import pietto.semantic as semantic_api" not in module
+
+
+def test_new_expression_readers_preserve_source_order_and_repeated_occurrences() -> (
+    None
+):
+    span = Span(path="reader.pietto", line=1, column=1, end_line=1, end_column=2)
+    when_true = NameExpr(span=span, name="value")
+    condition = NameExpr(span=span, name="value")
+    when_false = NameExpr(span=span, name="fallback")
+    conditional = ConditionalExpr(
+        span=span,
+        when_true=when_true,
+        condition=condition,
+        when_false=when_false,
+    )
+    membership = MembershipExpr(
+        span=span,
+        value=NameExpr(span=span, name="value"),
+        options=(
+            LiteralExpr(span=span, value=1),
+            NameExpr(span=span, name="option"),
+            NameExpr(span=span, name="option"),
+        ),
+        negated=True,
+    )
+    cast = CastExpr(
+        span=span,
+        value=NameExpr(span=span, name="value"),
+        target=TypeExpr(
+            span=span,
+            name="Float",
+            arguments=(),
+            nullability=Nullability.IMPLICIT,
+        ),
+    )
+
+    assert _child_expressions(conditional) == (when_true, condition, when_false)
+    assert _child_expressions(membership) == (
+        membership.value,
+        *membership.options,
+    )
+    assert _child_expressions(cast) == (cast.value,)
+    assert _direct_name_leaf_names(conditional) == (
+        "value",
+        "value",
+        "fallback",
+    )
+    assert _direct_name_leaf_names(membership) == (
+        "value",
+        "option",
+        "option",
+    )
+    assert _direct_name_leaf_names(cast) == ("value",)
+
+
+def _direct_name_leaf_names(expression: Expression) -> tuple[str, ...]:
+    names: list[str] = []
+    for leaf in _direct_name_leaves(expression):
+        assert isinstance(leaf, NameExpr)
+        names.append(leaf.name)
+    return tuple(names)
+
+
+def _edge_values(
+    graph: ProjectRelationRowDependencyGraph,
+    kind: ProjectRowDependencyEdgeKind,
+) -> tuple[tuple[str, str], ...]:
+    return tuple(
+        (edge.from_node.name, edge.to_node.name)
+        for edge in graph.edges
+        if edge.kind is kind
+    )
+
+
+def _project_semantic_result(
+    root: Path,
+) -> tuple[ProjectParseCheckResult, ProjectSemanticResult]:
+    parse_result = check_project_parse_only(root)
+    assert parse_result.ok
+    return parse_result, build_empty_project_semantic_result(parse_result)
+
+
+def _project(
+    root: Path,
+    relation_source: str,
+    *,
+    include_source: bool = True,
+) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "pietto.toml").write_text(
+        'schema_version = 1\n\n[sources]\ninclude = ["models.pietto"]\n',
+        encoding="utf-8",
+    )
+    source_prefix = (
+        "shape User:\n"
+        "    id: Int not null\n"
+        "    email: Text nullable\n"
+        "    score: Int not null\n"
+        "    bonus: Int nullable\n"
+        "    status: Text not null\n"
+    )
+    if include_source:
+        source_prefix += 'source users: User is postgres.table("users")\n'
+    (root / "models.pietto").write_text(
+        source_prefix + relation_source,
+        encoding="utf-8",
+    )
+    return root
+
+
+def _derived_definition(
+    parse_result: ProjectParseCheckResult,
+    name: str,
+) -> TableDef | QueryDef:
+    for parsed_input in parse_result.parsed_inputs:
+        for definition in parsed_input.script.definitions:
+            if isinstance(definition, (TableDef, QueryDef)) and definition.name == name:
+                return definition
+    raise AssertionError(f"Missing derived definition: {name}")

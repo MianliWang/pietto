@@ -18,7 +18,14 @@ __all__: tuple[str, ...] = ()
 # R13's first-version aggregate promise, spelled exactly. Nothing here grants a
 # generic inline DISTINCT, an aggregate FILTER, internal ordering or any other
 # function: every other retained aggregate keeps its own typed non-support.
-SPELLING = {"count": "COUNT", "count_distinct": "COUNT", "min": "MIN", "max": "MAX"}
+SPELLING = {
+    "count": "COUNT",
+    "count_distinct": "COUNT",
+    "sum": "SUM",
+    "avg": "AVG",
+    "min": "MIN",
+    "max": "MAX",
+}
 DISTINCT_FUNCTIONS = frozenset({"count_distinct"})
 COUNTING_FUNCTIONS = frozenset({"count", "count_distinct"})
 EXTREMA_FUNCTIONS = frozenset({"min", "max"})
@@ -28,7 +35,7 @@ COUNT_STORAGE = {"postgres": "pg_int8", "mysql": "my_bigint"}
 COUNT_MAX = (1 << 63) - 1
 # R12 group comparison stays inside the reviewed V01-V04 domains. V05 keeps its
 # meaning limits and V06 transport never becomes Float grouping or equality.
-GROUPING_TAGS = frozenset({"Int", "Bool", "Text", "Decimal"})
+GROUPING_TAGS = frozenset({"Int", "Bool", "Text", "Decimal", "Timestamp", "UUID"})
 TEXT_DOMAIN_KEYS = ("encoding", "collation", "padding")
 DECIMAL_DOMAIN_KEYS = ("precision", "scale")
 STAGE_KINDS = (
@@ -162,6 +169,7 @@ class AggregateValueColumn:
     function: str
     spelling: str
     distinct: bool
+    argument_cast: str | None
     argument: Any
     symbol: Any
     label: str
@@ -174,6 +182,7 @@ class AggregateValueColumn:
             f"AggregateValueColumn(ordinal={self.ordinal!r}, "
             f"label={_scalar(self.label)}, function={_scalar(self.function)}, "
             f"spelling={_scalar(self.spelling)}, distinct={self.distinct!r}, "
+            f"argument_cast={_scalar(self.argument_cast)}, "
             f"argument={_present(self.argument)}, aggregate=..., "
             "export=..., symbol=..., column=...)"
         )
@@ -298,6 +307,20 @@ def grouping_problem(realization: rows.Realization):
         return "PIE-B1004", "group_key_decimal_parameters_missing"
     if realization.tag == "Int" and realization.domain.get("kind") != "int_range":
         return "PIE-B1004", "group_key_int_range_evidence_missing"
+    if realization.tag == "Timestamp" and (
+        realization.storage
+        not in (
+            {"kind": "pg_timestamp", "fractional_seconds": 6},
+            {"kind": "my_datetime", "fractional_seconds": 6},
+        )
+        or realization.domain != {"kind": "timestamp"}
+    ):
+        return "PIE-B1002", "group_key_temporal_physical_representation_mismatch"
+    if realization.tag == "UUID" and (
+        realization.storage not in ({"kind": "pg_uuid"}, {"kind": "my_uuid_bytes"})
+        or realization.domain != {"kind": "uuid", "encoding": "standard_bytes"}
+    ):
+        return "PIE-B1002", "group_key_uuid_physical_representation_mismatch"
     return None
 
 
@@ -326,11 +349,23 @@ def result_realization(family: str, function: str, argument, retained):
         if tag != "Int" or nullable is not False:
             return None, ("PIE-B1002", "count_result_not_non_null_int")
         return (
+            rows._checked_int({"kind": COUNT_STORAGE[family]}, 0, COUNT_MAX, False),
+            None,
+        )
+    if function == "avg":
+        if (
+            argument is None
+            or argument.realization.tag != "Int"
+            or tag != "Float"
+            or nullable is not True
+        ):
+            return None, ("PIE-B1002", "avg_result_logical_type_or_argument_drift")
+        return (
             rows.Realization(
-                "Int",
-                {"kind": COUNT_STORAGE[family]},
-                False,
-                {"kind": "int_range", "min": "0", "max": str(COUNT_MAX)},
+                "Float",
+                {"kind": "pg_float8" if family == "postgres" else "my_double"},
+                True,
+                {"kind": "finite_float", "format": "binary64"},
             ),
             None,
         )
@@ -341,7 +376,13 @@ def result_realization(family: str, function: str, argument, retained):
     if nullable is not True:
         return None, ("PIE-B1002", "extrema_result_must_admit_empty_input_null")
     return (
-        rows.Realization(carrier.tag, carrier.storage, True, carrier.domain),
+        rows.Realization(
+            carrier.tag,
+            carrier.storage,
+            True,
+            carrier.domain,
+            carrier.proven_int_range,
+        ),
         None,
     )
 
@@ -359,9 +400,34 @@ def resolved_argument_problem(function: str, direct_reference: bool, realization
     """The same R13 argument law for an already-resolved input port."""
     if not direct_reference:
         return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
-    if realization is None or realization.tag != "Int":
+    if realization is None:
         return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
-    return None
+    if function == "avg" and realization.tag == "Int":
+        if rows.proven_int_bounds(realization) is None:
+            return "PIE-B1004", "avg_int_range_evidence_missing"
+        return None
+    if function == "sum" and realization.tag == "Int":
+        return "PIE-B1004", "sum_int_aggregate_range_proof_missing"
+    if realization.tag == "Decimal":
+        return "PIE-B1004", "decimal_aggregate_range_proof_missing"
+    if realization.tag == "Float":
+        return "PIE-B1004", "float_aggregate_finite_result_proof_missing"
+    if function in COUNTING_FUNCTIONS and realization.tag in {"Timestamp", "UUID"}:
+        return grouping_problem(realization)
+    if realization.tag != "Int":
+        return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
+    if function in {"count", "count_distinct", "min", "max"}:
+        return None
+    return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
+
+
+def argument_cast(family: str, function: str, argument) -> str | None:
+    """One target-native binary64 input for the reviewed AVG(Int) operation."""
+    if function != "avg":
+        return None
+    if argument is None or argument.realization.tag != "Int":
+        raise ValueError("AVG input cast requires its proven Int argument")
+    return "pg_catalog.float8" if family == "postgres" else "DOUBLE"
 
 
 def unsupported_function(function: str | None):
@@ -657,6 +723,7 @@ def build_stage(
             function,
             SPELLING[function],
             function in DISTINCT_FUNCTIONS,
+            argument_cast(family, function, argument),
             argument,
             symbol(index + 1, export.ref, label),
             label,
@@ -858,6 +925,9 @@ def build_compiled_stage(plan, record, arguments):
                 function,
                 SPELLING[function],
                 function in DISTINCT_FUNCTIONS,
+                argument_cast(
+                    records[Address("target", 0)].get("family"), function, argument
+                ),
                 argument,
                 symbol,
                 port.identity.name,

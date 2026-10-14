@@ -18,6 +18,8 @@ from pietto.ir import (
     RelationIR,
     ScriptIR,
     SourceIR,
+    SymbolId,
+    SymbolNamespace,
     build_ir,
 )
 from pietto.sql import SqlArtifactKind, emit_postgres_sql
@@ -249,7 +251,11 @@ def test_unsupported_projection_expression_becomes_pie_b1000() -> None:
     assert isinstance(projection.expression, CallIR)
     bad_projection = replace(
         projection,
-        expression=replace(projection.expression, callee="unsupported"),
+        expression=replace(
+            projection.expression,
+            callee="unsupported",
+            callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "unsupported"),
+        ),
     )
     bad_relation = replace(relation, projections=(bad_projection,))
     definitions = tuple(

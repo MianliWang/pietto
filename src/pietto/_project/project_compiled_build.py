@@ -247,8 +247,11 @@ class _Export:
         from pietto.ast_nodes import (
             UnaryExpr,
             BinaryExpr,
+            CastExpr,
             ComparisonExpr,
+            ConditionalExpr,
             IsNullExpr,
+            MembershipExpr,
             BetweenExpr,
             CallExpr,
         )
@@ -260,6 +263,9 @@ class _Export:
             IsNullExpr: "null_test",
             BetweenExpr: "between",
             CallExpr: "call",
+            ConditionalExpr: "conditional",
+            MembershipExpr: "membership",
+            CastExpr: "cast",
         }
         for index, site in enumerate(plan.literal_sites):
             p = site.position
@@ -371,7 +377,11 @@ class _Export:
             return self.read(value.column, producer, use)
         if type(value) is parameters.SQLAnchor:
             return self.scalar(value.operand, producer, use, join_inputs)
-        if type(value) in (parameters.SQLLiteral, parameters.SQLParameter):
+        if type(value) in (
+            parameters.SQLLiteral,
+            parameters.SQLNull,
+            parameters.SQLParameter,
+        ):
             return self.literals[id(value.original.expression)]
         if type(value) is parameters.SQLUnary:
             inner = self.scalar(value.operand, producer, use, join_inputs)
@@ -385,18 +395,42 @@ class _Export:
         if type(value) is rows.SQLOperation:
             original = value.original
             operator = original.expression
-            token = (
-                operator.operator
-                if value.kind != "null_test"
-                else ("is_not_null" if operator.negated else "is_null")
-            )
             role = {
                 "sign": "unary",
+                "not": "not",
                 "arithmetic": "binary",
                 "logical": "binary",
                 "comparison": "comparison",
                 "null_test": "null_test",
-            }[value.kind]
+                "between": "between",
+                "scalar_call": "scalar_call",
+                "conditional": "conditional",
+                "membership": "membership",
+                "cast": "cast",
+            }.get(value.kind)
+            if role is None:
+                raise CompiledError("COMPILED_EXPORT_SCALAR")
+            token = (
+                original.callee_symbol.name
+                if role == "scalar_call"
+                else "not_in"
+                if role == "membership" and operator.negated
+                else "in"
+                if role == "membership"
+                else "int_to_float"
+                if role == "cast"
+                else "if_else"
+                if role == "conditional"
+                else "between"
+                if role == "between"
+                else "not"
+                if role == "not"
+                else "is_not_null"
+                if role == "null_test" and operator.negated
+                else "is_null"
+                if role == "null_test"
+                else operator.operator
+            )
             return self.add(
                 "operation",
                 (role, token),
@@ -908,8 +942,10 @@ class _Export:
                 for item, (read, _direction) in zip(
                     unit.order.items, self.records[address].get("ordering"), strict=True
                 ):
-                    for reference in (item.item.ref, item.expression.ref, item.use.ref):
+                    for reference in (item.item.ref, item.expression.ref):
                         self.anchor(reference, read)
+                    if item.use is not None:
+                        self.anchor(item.use.ref, read)
             if unit.limit is not None:
                 self.anchor(
                     unit.limit.limit.ref, self.records[address].get("limit_literal")
@@ -1334,7 +1370,11 @@ class _LogicalExport(_Export):
             return self.read_port(original.port, uses)
         if type(original) is expressions.ProjectSQLUnary:
             token, children = (
-                ("unary", original.expression.operator),
+                (
+                    ("not", "not")
+                    if original.expression.operator == "not"
+                    else ("unary", original.expression.operator)
+                ),
                 (original.operand,),
             )
         elif type(original) in (
@@ -1354,6 +1394,39 @@ class _LogicalExport(_Export):
                 "is_not_null" if original.expression.negated else "is_null",
             )
             children = (original.value,)
+        elif type(original) is expressions.ProjectSQLBetween:
+            token, children = (
+                ("between", "between"),
+                (
+                    original.value,
+                    original.lower,
+                    original.upper,
+                ),
+            )
+        elif type(original) is expressions.ProjectSQLScalarCall:
+            token, children = (
+                ("scalar_call", original.callee_symbol.name),
+                original.arguments,
+            )
+        elif type(original) is expressions.ProjectSQLConditional:
+            token, children = (
+                ("conditional", "if_else"),
+                (
+                    original.when_true,
+                    original.condition,
+                    original.when_false,
+                ),
+            )
+        elif type(original) is expressions.ProjectSQLMembership:
+            token, children = (
+                (
+                    "membership",
+                    "not_in" if original.expression.negated else "in",
+                ),
+                (original.value, *original.options),
+            )
+        elif type(original) is expressions.ProjectSQLCast:
+            token, children = ("cast", "int_to_float"), (original.value,)
         else:
             raise CompiledError("COMPILED_RETAINED_EXPRESSION")
         return self.add(
@@ -1811,6 +1884,10 @@ class _LogicalExport(_Export):
         return address
 
     def logical_results(self, definition, boundaries, previous):
+        from pietto._project.project_sql_emission_results import (
+            _same_order_expression,
+        )
+
         address = self.reserve("result")
         (use,) = self.inputs(address, (previous,))
         incoming = self.records[use].get("ports")
@@ -1827,16 +1904,49 @@ class _LogicalExport(_Export):
                 expression = next(
                     e for e in self.plan.order_expressions if e.ref is item.expression
                 )
-                if expression.use is None:
-                    raise CompiledError("COMPILED_RETAINED_ORDER")
-                input_use = next(
-                    u for u in self.plan.order_uses if u.ref is expression.use
-                )
-                if input_use.requirement is not None or len(input_use.ports) != 1:
-                    raise CompiledError("COMPILED_RETAINED_ORDER")
+                if expression.use is not None:
+                    input_use = next(
+                        u for u in self.plan.order_uses if u.ref is expression.use
+                    )
+                    if input_use.requirement is not None or len(input_use.ports) != 1:
+                        raise CompiledError("COMPILED_RETAINED_ORDER")
+                    order_port = input_use.ports[0]
+                else:
+                    matches = tuple(
+                        projection
+                        for projection in self.plan.projections
+                        if _same_order_expression(
+                            self.expressions[projection.expression].expression,
+                            expression.expression,
+                        )
+                    )
+                    boundary = tuple(
+                        value
+                        for value in self.plan.result_boundaries
+                        if value.ref is order.boundary
+                    )
+                    result_ports = {port.ref: port for port in self.plan.result_ports}
+
+                    def source(reference):
+                        while reference in result_ports:
+                            reference = result_ports[reference].source
+                        return reference
+
+                    inputs = (
+                        ()
+                        if len(boundary) != 1 or len(matches) != 1
+                        else tuple(
+                            value
+                            for value in boundary[0].inputs
+                            if source(value) is matches[0].ref
+                        )
+                    )
+                    if len(inputs) != 1:
+                        raise CompiledError("COMPILED_RETAINED_ORDER")
+                    order_port = inputs[0]
                 ordering.append(
                     (
-                        self.read_port(input_use.ports[0], (use,)),
+                        self.read_port(order_port, (use,)),
                         item.source.direction.value,
                     )
                 )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from functools import cache
 import hashlib
 import importlib.metadata
@@ -61,6 +62,128 @@ def values(items):
     from _pietto_target_conformance_observation import scalar
 
     return [scalar(item) for item in items]
+
+
+def native_data(observation, *, session=17, statement=3):
+    """Synthetic receipt data only, never a live/installed transport witness."""
+    metadata = observation["metadata"]
+    count = (
+        1
+        if any(f.get("stage") == "parameter_count" for f in observation["failures"])
+        else len(observation["parameters"])
+    )
+    parameters = [
+        ["?", 253, None, None, None, None, True, 0, 255] for _ in range(count)
+    ]
+    eof = {"warning_count": 0, "status_flag": 2}
+    ok = {
+        "field_count": 0,
+        "affected_rows": 1,
+        "insert_id": 0,
+        "status_flag": 2,
+        "warning_count": 0,
+    }
+    prepare_failed = any(f["stage"] == "prepare" for f in observation["failures"])
+    executed = observation["execute"] in {"success", "failed"}
+    prepared = {
+        "statement_id": statement,
+        "num_params": len(parameters),
+        "parameters": parameters,
+        "num_columns": len(metadata or []),
+        "columns": metadata or [],
+        "warning_count": 0,
+    }
+    events = []
+
+    def event(name, value):
+        events.append({"event": name, "session_id": session, "value": deepcopy(value)})
+
+    def send(command, payload, response=True):
+        fact = {"command": command, "payload": payload, "expect_response": response}
+        event("_send_cmd.call", fact)
+        event("_send_cmd.return", dict(fact))
+
+    sql = observation["sql"].encode().hex()
+    event("cmd_stmt_prepare.call", sql)
+    send(22, sql)
+    event("cmd_stmt_prepare.return", None if prepare_failed else prepared)
+    native = {
+        "adapter": API,
+        "driver_version": "26.7.0",
+        "driver_sources": driver_sources(),
+        "session_id": session,
+        "statement_id": None if prepare_failed else statement,
+        "prepare": "started" if prepare_failed else "success",
+        "parameter_count": None if prepare_failed else len(parameters),
+        "parameter_metadata": None if prepare_failed else parameters,
+        "result_metadata": metadata,
+        "metadata_eof": eof if metadata else None,
+        "terminal": None,
+        "unread_final": False,
+        "close_send": "no_returned_statement" if prepare_failed else "complete_no_ack",
+        "events": events,
+    }
+    if not prepare_failed:
+        identity = statement.to_bytes(4, "little").hex()
+        if executed:
+            event(
+                "cmd_stmt_execute.call",
+                {
+                    "statement_id": statement,
+                    "data": observation["parameters"],
+                    "parameters": parameters,
+                    "flags": 0,
+                },
+            )
+            event(
+                "make_stmt_execute.call",
+                {
+                    "statement_id": statement,
+                    "data": observation["parameters"],
+                    "parameters": parameters,
+                    "flags": 0,
+                    "charset": "utf8mb4",
+                    "long_data_used": {},
+                    "query_attrs": [],
+                    "converter_str_fallback": False,
+                },
+            )
+            event("make_stmt_execute.return", identity + "0001000000")
+            send(23, identity + "0001000000")
+            event(
+                "cmd_stmt_execute.return",
+                (
+                    None
+                    if observation["execute"] == "failed"
+                    else [len(metadata), metadata, eof]
+                    if metadata
+                    else ok
+                ),
+            )
+            if observation["fetch"] == "success":
+                event(
+                    "get_rows.call",
+                    {"binary": True, "columns": metadata, "count": 1000},
+                )
+                event("get_rows.return", {"rows": observation["rows"], "eof": eof})
+                native["terminal"] = {"kind": "rowset_eof", "packet": eof}
+            elif observation["fetch"] == "not_applicable":
+                native["terminal"] = {"kind": "ok", "packet": ok}
+            elif observation["fetch"] == "failed":
+                event(
+                    "get_rows.call",
+                    {
+                        "binary": True,
+                        "columns": metadata,
+                        "count": 1000,
+                    },
+                )
+                event("get_rows.return", None)
+        event("cmd_stmt_close.call", statement)
+        send(25, identity, False)
+        event("cmd_stmt_close.return", statement)
+    observation.update(api=API, native=native, prepared=True, cursor_type=None)
+    return observation
 
 
 class NativeStatement:

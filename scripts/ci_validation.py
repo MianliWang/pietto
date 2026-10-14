@@ -637,7 +637,7 @@ def readiness_inputs():
     return tuple(
         hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
         for path in (
-            "tests/_pietto_phase67_arrow_compatibility_probe.py",
+            "tests/_pietto_results_arrow_compatibility.py",
             "ci/phase67-arrow-compatibility-requirements.txt",
         )
     )
@@ -659,7 +659,7 @@ def health_name(context, part):
 
 
 def check_product(path, context):
-    probe = importlib.import_module("_pietto_phase67_result_product_probe")
+    probe = importlib.import_module("_pietto_results_product")
     if path is None:
         raise ValueError("missing required installed product evidence")
     return probe.verify_report(read_report(path), context, probe.input_closure(ROOT))

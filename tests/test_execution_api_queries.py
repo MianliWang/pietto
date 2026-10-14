@@ -112,6 +112,23 @@ def project_with(directory, body):
     return project, text
 
 
+def test_public_compile_and_bundle_accept_a_computed_order_key(tmp_path):
+    """A computed ORDER key retains its expression provenance without a use."""
+    project, _ = project_with(
+        tmp_path / "computed-order",
+        "table active_items:\n    from items\n    select:\n        label\n        normalized = upper(label)\n"
+        "    order by:\n        upper(label)\n",
+    )
+
+    query = compiled(project)
+    exported = execution.export_bundle(query)
+    loaded = load(exported)
+
+    assert query.origin == "live"
+    assert loaded.origin == "bundle"
+    assert facts(loaded) == facts(query)
+
+
 def literals(query, text):
     """The source text of each slot's literal, in slot order, found as the
     documentation says: slot i is fixed_values[i] of the bind-safe emission,
@@ -515,7 +532,7 @@ def test_bundles_with_a_guard_program_or_refinement_are_not_executable_here(
     """Only what compile_query can produce is executable through the public
     entry: a guarded bundle with its own records, and a root whose policy
     names a refinement, are refused."""
-    from _pietto_phase68_slice7_cases import case_preparation, manifest
+    from _pietto_execution_guard_cases import case_preparation, manifest
 
     case = next(c for c in manifest() if c["name"] == "bag_one")
     guarded = case_preparation(tmp_path / "guarded", "postgres", case)
@@ -823,7 +840,7 @@ def test_the_premise_bounds_what_a_bundle_reads(bundle, unconnected):
 def test_a_mysql_bundle_loads_and_prepares_its_selected_route(
     tmp_path, unconnected, monkeypatch
 ):
-    from _pietto_phase68_slice4_probe import template
+    from _pietto_execution_postgres_rows_probe import template
     from pietto._project import project_execution_mysql_native as mysql_native
 
     def forbidden(*arguments, **keywords):
@@ -866,6 +883,68 @@ def test_a_mysql_bundle_loads_and_prepares_its_selected_route(
         and handle._owner.request.binding.arguments == values
     )
     assert execution.export_bundle(query).payload == built.payload
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_conditional_parameter_uses_follow_sql_order_through_bundle_load(
+    tmp_path, target
+):
+    from _pietto_execution_postgres_rows_probe import template
+    from _pietto_results_product import source
+
+    prepared = template(
+        tmp_path / target,
+        source(target).replace("renamed = id", "choice = 10 if id == 1 else 20"),
+        target=target,
+    )
+    artifact = prepared.artifact
+    assert [value.value for value in artifact.fixed_values] == [10, 1, 20]
+    assert [use.original.expression.value for use in artifact.parameter_uses] == [
+        1,
+        10,
+        20,
+    ]
+    assert [(use.ordinal, use.server_index) for use in artifact.parameter_uses] == [
+        (0, 1),
+        (1, 2),
+        (2, 3),
+    ]
+    if target == "postgres":
+        assert b"= CAST($1 AS pg_catalog.int8)) THEN CAST($2" in artifact.rendered.sql
+
+    built = build_compiled(artifact)
+    query = execution.load_bundle(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility[-1],
+    )
+    if target == "postgres":
+        handle = execution.execute(
+            query,
+            route="postgres_rows",
+            access=access(),
+            premise=execution.PostgresDeploymentPremise(
+                schemas=("public", "pg_catalog")
+            ),
+        )
+    else:
+        handle = execution.execute(
+            query,
+            route="mysql_rows",
+            access=execution.MySQLAccess(
+                "127.0.0.1",
+                3306,
+                "phase66",
+                "pietto_query",
+                PASSWORD,
+                "/explicit/ca.pem",
+                "pietto_query",
+            ),
+            premise=execution.MySQLDeploymentPremise(schemas=("phase66",)),
+        )
+    assert query.origin == "bundle"
+    assert handle._owner.request.binding.arguments == (1, 10, 20)
 
 
 def test_values_replace_the_bind_safe_fixed_values_slot_by_slot(
@@ -954,13 +1033,19 @@ def test_each_slot_is_one_literal_in_the_compiler_order(tmp_path, unconnected):
         '    where id > 1 and label != "x"\n    select:\n        id\n'
         "        more = bonus + 7\n",
     )
+    contract_path = stages / "contract.json"
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    contract["sources"][0]["fields"][0]["representation"]["storage"] = {
+        "kind": "pg_int4"
+    }
+    contract_path.write_text(json.dumps(contract), encoding="utf-8")
     query = compiled(stages)
     assert query.slots == ("Int", "Int", "Text", "Int")
     assert literals(query, text) == ["30", "1", '"x"', "7"]
     # Inside arithmetic a slot takes only values whose results stay
-    # representable for every id the contract allows (0 to 100): bonus = id + v
-    # and more = bonus + 7 must stay below 2**63.
-    largest = 2**63 - 1 - 100 - 7
+    # The source's full int4 range is proved; each literal anchors the result
+    # in int8. Both bonus = id + v and more = bonus + 7 must fit that carrier.
+    largest = 2**63 - 1 - (2**31 - 1) - 7
     assert bound(run(query, (largest, 1, "x", 7)))[1] == (largest, 1, "x", 7)
     assert refused(run, query, (largest + 1, 1, "x", 7)) == (
         "PIE-R1004",

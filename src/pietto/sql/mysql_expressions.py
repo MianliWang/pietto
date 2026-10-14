@@ -6,12 +6,15 @@ from pietto.ir.model import (
     AggregateCallIR,
     BetweenIR,
     BinaryIR,
+    CastIR,
     CallIR,
+    ConditionalIR,
     ComparisonIR,
     ExpressionIR,
     FieldRefIR,
     IsNullIR,
     LiteralIR,
+    MembershipIR,
     NullabilityIR,
     OrderDirectionIR,
     SourceSpan,
@@ -51,6 +54,8 @@ _COMPARISON_OPERATORS = {
     "<=": "<=",
     ">": ">",
     ">=": ">=",
+    "like": "LIKE",
+    "not like": "NOT LIKE",
 }
 _BINARY_OPERATORS = {
     "and": "AND",
@@ -64,11 +69,36 @@ _BINARY_OPERATORS = {
 _UNARY_OPERATORS = {
     "+": "+",
     "-": "-",
+    "not": "NOT ",
 }
 _FUNCTION_NAMES = {
     "lower": "LOWER",
+    "upper": "UPPER",
     "trim": "TRIM",
     "len": "CHAR_LENGTH",
+    "replace": "REPLACE",
+    "abs": "ABS",
+    "sign": "SIGN",
+}
+_FUNCTION_ARITIES = {
+    "lower": 1,
+    "upper": 1,
+    "trim": 1,
+    "len": 1,
+    "nullif": 2,
+    "substr": 3,
+    "replace": 3,
+    "contains": 2,
+    "starts_with": 2,
+    "ends_with": 2,
+    "abs": 1,
+    "sign": 1,
+    "date_of": 1,
+    "year": 1,
+    "month": 1,
+    "day": 1,
+    "hour": 1,
+    "minute": 1,
 }
 _NUMERIC_AGGREGATE_NAMES = {
     "sum": "SUM",
@@ -103,6 +133,8 @@ _WINDOW_FUNCTION_NAMES = {
 _ZERO_ARGUMENT_WINDOW_FUNCTIONS = frozenset(
     {"row_number", "rank", "dense_rank", "percent_rank", "cume_dist"}
 )
+_DATE_PARTS = frozenset({"year", "month", "day", "hour", "minute"})
+_COMPOUND_CALLS = frozenset({"contains", "starts_with", "ends_with"})
 
 
 def render_mysql_expression(expression: ExpressionIR) -> str:
@@ -127,8 +159,37 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
             )
         return render_mysql_window_call(expression)
     if isinstance(expression, CallIR):
-        return _render_call(expression)
-    if isinstance(expression, ComparisonIR):
+        sql = _render_call(expression)
+        return f"({sql})" if nested and expression.callee in _COMPOUND_CALLS else sql
+    if isinstance(expression, ConditionalIR):
+        sql = (
+            "CASE WHEN "
+            f"{_render_mysql_expression(expression.condition, nested=True)} THEN "
+            f"{_render_mysql_expression(expression.when_true, nested=True)} ELSE "
+            f"{_render_mysql_expression(expression.when_false, nested=True)} END"
+        )
+    elif isinstance(expression, MembershipIR):
+        value_sql = _render_mysql_expression(expression.value, nested=True)
+        if not expression.options:
+            return "TRUE" if expression.negated else "FALSE"
+        operator = "NOT IN" if expression.negated else "IN"
+        options = ", ".join(
+            _render_mysql_expression(option, nested=True)
+            for option in expression.options
+        )
+        sql = f"{value_sql} {operator} ({options})"
+    elif isinstance(expression, CastIR):
+        if not (
+            expression.value.value_type.canonical_kind is TypeKindIR.BUILTIN
+            and expression.value.value_type.canonical_name == "Int"
+            and expression.target.canonical_kind is TypeKindIR.BUILTIN
+            and expression.target.canonical_name == "Float"
+        ):
+            raise MySqlRenderError("MySQL supports only explicit Int to Float casts")
+        sql = (
+            f"CAST({_render_mysql_expression(expression.value, nested=True)} AS DOUBLE)"
+        )
+    elif isinstance(expression, ComparisonIR):
         operator = _supported_operator(
             _COMPARISON_OPERATORS,
             expression.operator,
@@ -138,6 +199,8 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
             f"{_render_mysql_expression(expression.left, nested=True)} {operator} "
             f"{_render_mysql_expression(expression.right, nested=True)}"
         )
+        if expression.operator in {"like", "not like"}:
+            sql += " ESCAPE '!'"
     elif isinstance(expression, IsNullIR):
         operator = "IS NOT NULL" if expression.negated else "IS NULL"
         sql = f"{_render_mysql_expression(expression.value, nested=True)} {operator}"
@@ -692,20 +755,52 @@ def _has_builtin_type(
 def _render_call(expression: CallIR) -> str:
     if expression.callee == "matches":
         raise MySqlRenderError("Unsupported MySQL function call: matches")
-    function_name = _FUNCTION_NAMES.get(expression.callee)
-    if function_name is None:
-        raise MySqlRenderError(f"Unsupported MySQL function call: {expression.callee}")
     expected_symbol = SymbolId(SymbolNamespace.CALLABLE, expression.callee)
     if expression.callee_symbol != expected_symbol:
         raise MySqlRenderError(
             f"Unsupported MySQL function identity: {expression.callee}"
         )
-    if len(expression.arguments) != 1:
-        raise MySqlRenderError(
-            f"MySQL function {expression.callee} expects 1 argument(s)"
+    if expression.callee == "coalesce":
+        if len(expression.arguments) < 2:
+            raise MySqlRenderError(
+                "MySQL function coalesce expects at least 2 argument(s)"
+            )
+        return (
+            "COALESCE("
+            + ", ".join(
+                _render_mysql_expression(argument, nested=True)
+                for argument in expression.arguments
+            )
+            + ")"
         )
-    argument = _render_mysql_expression(expression.arguments[0], nested=True)
-    return f"{function_name}({argument})"
+    if expression.callee not in _FUNCTION_ARITIES:
+        raise MySqlRenderError(f"Unsupported MySQL function call: {expression.callee}")
+    expected_arity = _FUNCTION_ARITIES[expression.callee]
+    if len(expression.arguments) != expected_arity:
+        raise MySqlRenderError(
+            f"MySQL function {expression.callee} expects {expected_arity} argument(s)"
+        )
+    arguments = tuple(
+        _render_mysql_expression(argument, nested=True)
+        for argument in expression.arguments
+    )
+    if expression.callee == "nullif":
+        return f"NULLIF({arguments[0]}, {arguments[1]})"
+    if expression.callee == "substr":
+        return f"SUBSTRING({arguments[0]}, {arguments[1]}, {arguments[2]})"
+    if expression.callee == "replace":
+        return f"REPLACE({arguments[0]}, {arguments[1]}, {arguments[2]})"
+    if expression.callee == "contains":
+        return f"INSTR({arguments[0]}, {arguments[1]}) > 0"
+    if expression.callee == "starts_with":
+        return f"LEFT({arguments[0]}, CHAR_LENGTH({arguments[1]})) = {arguments[1]}"
+    if expression.callee == "ends_with":
+        return f"RIGHT({arguments[0]}, CHAR_LENGTH({arguments[1]})) = {arguments[1]}"
+    if expression.callee == "date_of":
+        return f"DATE({arguments[0]})"
+    if expression.callee in _DATE_PARTS:
+        return f"{expression.callee.upper()}({arguments[0]})"
+    return f"{_FUNCTION_NAMES[expression.callee]}({arguments[0]})"
 
 
 def _supported_operator(
