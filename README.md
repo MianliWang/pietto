@@ -89,7 +89,7 @@ uv run pietto --help
 ### Optional Arrow interoperability
 
 The core compiler and CLI need no PyArrow. The `pietto[arrow]` selector
-selects exactly `pyarrow==25.0.1`; the execution extras
+selects exactly `pyarrow==26.0.0`; the execution extras
 below add one database route's pinned drivers.
 From this checkout, install it into a separate environment:
 
@@ -109,7 +109,7 @@ For a core-only wheel install, omit `[arrow]` and use a fresh environment.
 These are checkout/local-wheel instructions; from PyPI, install
 `"pietto[arrow]"` as shown above.
 The candidate package and CLI version are **0.1.2**. The verified optional-extra matrix
-is **CPython 3.12 and 3.13, Linux x86-64, PyArrow 25.0.1**; other platforms,
+is **CPython 3.12 and 3.13, Linux x86-64, PyArrow 26.0.0**; other platforms,
 interpreters and Arrow versions are not covered by this evidence.
 Installing the extra only makes its dependency available; it does not select a
 route, grant execution, open a source, or qualify storage. The public result

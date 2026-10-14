@@ -121,7 +121,7 @@ because rows 0 and 0b are not satisfied.
 | 4 | Docker and native campaigns | `/var/run/docker.sock`, linux/amd64, pinned images, qualified storage | Satisfied | Not satisfied: needs row 3 | — |
 | 5 | Generated audit | Java 21, `tools/antlr-4.13.2-complete.jar` matching its recorded SHA-256, the generator input closure | Satisfied | Not verified; not planned | — |
 | 6 | Golden audit | Locked environment, the compiler and fixture input closure | Satisfied | Not verified; not planned | — |
-| 7 | Package, Arrow and installed consumers | The build backend and the locked dependency wheels, pyarrow 25.0.1 included, from the package index or, on a runner without network, from an offline cache or wheelhouse | Satisfied | Not planned | — |
+| 7 | Package, Arrow and installed consumers | The build backend and the locked dependency wheels, pyarrow 26.0.0 included, from the package index or, on a runner without network, from an offline cache or wheelhouse | Satisfied | Not planned | — |
 | 8 | Steps that need GitHub credentials or network | Authorized GitHub credentials and network access | Satisfied | Not satisfied: holds no credentials (R10); compute nodes have no network (observed 2026-10-09T03:29Z) | — |
 
 The observed storage profile decides row 3; a declared storage environment

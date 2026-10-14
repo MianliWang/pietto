@@ -657,7 +657,7 @@ def origin_observation() -> dict[str, Any]:
     ):
         raise ValueError("candidate distribution identity")
     wheel = Path(urllib.parse.unquote(url.path)).resolve()
-    if wheel.suffix != ".whl" or importlib.metadata.version("pyarrow") != "25.0.1":
+    if wheel.suffix != ".whl" or importlib.metadata.version("pyarrow") != "26.0.0":
         raise ValueError("candidate wheel/Arrow pin")
     prefix = Path(sys.prefix).resolve()
     origins = {}
@@ -753,7 +753,7 @@ def verify_origins(value, inputs):
     arrow = value["pyarrow"]
     if (
         set(arrow) != {"version", "path"}
-        or arrow["version"] != "25.0.1"
+        or arrow["version"] != "26.0.0"
         or not Path(arrow["path"]).is_relative_to(prefix)
         or not arrow["path"].endswith("/site-packages/pyarrow/__init__.py")
     ):

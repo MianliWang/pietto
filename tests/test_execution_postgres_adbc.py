@@ -521,7 +521,7 @@ def test_explicit_tls_files_cannot_fall_back_to_user_home(
     }
 
     def version(name):
-        return "25.0.1" if name == "pyarrow" else "1.12.0"
+        return "26.0.0" if name == "pyarrow" else "1.12.0"
 
     monkeypatch.setattr(importlib, "import_module", modules.__getitem__)
     monkeypatch.setattr(importlib.metadata, "version", version)

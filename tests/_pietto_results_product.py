@@ -42,7 +42,7 @@ def _whole():
 
 
 FORMAT = "pietto.result-product.v1"
-PIN = "25.0.1"
+PIN = "26.0.0"
 BIG = 9007199254740993
 LOW, HIGH = -(2**63), 2**63 - 1
 PRODUCTS = (

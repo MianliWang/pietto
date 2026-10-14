@@ -281,14 +281,14 @@ remain the lifecycle authority.
 ## Optional Arrow dependency
 
 The core distribution depends only on `antlr4-python3-runtime==4.13.2`.
-The public selector `pietto[arrow]` adds exactly `pyarrow==25.0.1`; it changes
+The public selector `pietto[arrow]` adds exactly `pyarrow==26.0.0`; it changes
 available dependencies, not the public Python API or CLI. Phase67 result
 modules remain private under `pietto._project`; Phase69 exposes the three
 execution routes and saved-result APIs as public alpha under
 `pietto.execution`. Package/CLI version is `0.1.2` and `requires-python`
 stays `>=3.12`. Its versioned GitHub pre-release and PyPI listing determine
 distribution availability.
-The verified extra matrix is CPython3.12/3.13 on Linux x86-64 with PyArrow25.0.1.
+The verified extra matrix is CPython3.12/3.13 on Linux x86-64 with PyArrow26.0.0.
 See [checkout and local-wheel installation](../README.md#optional-arrow-interoperability).
 This is not a broader platform/version support promise.
 

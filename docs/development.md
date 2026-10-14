@@ -497,7 +497,7 @@ health通过required报告与GitHub Job Summary进入正常CI；最终aggregate�
 和bounded main history，artifact字节按ID/size/digest/context验证。只有此job有actions:read，无写权限。
 health不足历史可为INSUFFICIENT_EVIDENCE；slow正确结果不失败，不自动调参、改配置、retry或省略测试。
 
-两compiler/package jobs各在独立环境跑真实PyArrow25.0.1 probe，completion要求完整readiness；core安装与CLI
+两compiler/package jobs各在独立环境跑真实PyArrow26.0.0 probe，completion要求完整readiness；core安装与CLI
 仍无Arrow。开发机统一外部launcher固定既有project解释器，隔离实验明确指定现有解释器，禁止环境重建。
 本次Gate2仅一次3.13完整equivalent：static、独立U、四分区串行、全部对账/health、auxiliary和精确输入匹配的
 两解释器小probe；不能另加monolithic/full3.12/cold-matrix。本期 [brief](phases/phase-67/brief.md)、
@@ -529,7 +529,7 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 
 ## Slice05 Text result检查
 
-[Slice05](phases/phase-67/slice-05.md) 沿用required product consumer：38个命名案例与36个report-damage controls，同步末端exact assertions；原9 SDK组、30product cases和6份canonical文档保留。新增4份Text/mixed文档完整bytes在local及downloaded CI报告跨runtime比较。UTF-8/offset资源和NULL槽由真实PyArrow25.0.1验证；普通pytest保持Arrow-free，fresh native receipts仍绑定当前input closure。
+[Slice05](phases/phase-67/slice-05.md) 沿用required product consumer：38个命名案例与36个report-damage controls，同步末端exact assertions；原9 SDK组、30product cases和6份canonical文档保留。新增4份Text/mixed文档完整bytes在local及downloaded CI报告跨runtime比较。UTF-8/offset资源和NULL槽由真实PyArrow25.0.1验证（已封存的Slice05测量）；普通pytest保持Arrow-free，fresh native receipts仍绑定当前input closure。
 
 ## Slice06 Decimal result checks
 
@@ -562,14 +562,14 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 ## Slice13 optional Arrow extra 与安装隔离
 
 [Slice13](phases/phase-67/slice-13.md) 通过唯一 `pietto[arrow]` 选择精确
-`pyarrow==25.0.1`，默认 locked setup 与既有core `.venv` 保持Arrow-free。
+`pyarrow==26.0.0`，默认 locked setup 与既有core `.venv` 保持Arrow-free。
 两compiler/package jobs由 `scripts/package_smoke.py --dist-dir ... --extra-env ...`
 各构建或消费同一个wheel/sdist，先在全新core环境验证无PyArrow、lazy imports、真实缺依赖
 拒绝及原CLI/SQL，再在另一个全新prefix以候选wheel的 `[arrow]` 安装。hash-pinned
 requirements仅预置并校验tested dependencies，随后wheel extra完整解析，不使用 `--no-deps`
 绕过selector。独立SDK9、product102/100及原22份neutral全文仍走既有required reports。
 
-实测矩阵只覆盖Linux x86-64、CPython3.12/3.13、PyArrow25.0.1；不是环境marker或其他平台
+当前实测矩阵只覆盖Linux x86-64、CPython3.12/3.13、PyArrow26.0.0；不是环境marker或其他平台
 支持承诺。安装日志记录exact wheel SHA、distribution metadata与resolved site-packages
 origins；raw/native闭合分别证明CI产物与既有native设施，不宣称数据库执行安装测试。
 

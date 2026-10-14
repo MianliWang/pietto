@@ -27,7 +27,7 @@ from pietto._project.project_result_binding import (
 __all__: tuple[str, ...] = ()
 # The pinned Arrow package of every public Arrow-producing flow. The route
 # owners use this at their public boundary; internal callers stay lazy.
-PYARROW = ("pyarrow", "25.0.1", "pyarrow")
+PYARROW = ("pyarrow", "26.0.0", "pyarrow")
 DATE_LOWER = date(1000, 1, 1)
 DATE_UPPER = date(9999, 12, 31)
 

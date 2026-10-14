@@ -27,7 +27,7 @@ def report():
             "origins": {"pietto": origin, "mysql.connector.connection": origin},
             "drivers": {
                 "mysql-connector-python": "26.7.0",
-                "pyarrow": "25.0.1",
+                "pyarrow": "26.0.0",
             },
         },
         "telemetry": {

@@ -45,18 +45,18 @@ from pietto._project.project_job_workspace import JobStoreError
 
 # The selections chosen by the S18 dispatch, stated independently of pyproject.
 EXTRAS = {
-    "arrow": ["pyarrow==25.0.1"],
-    "execute-postgres": ["pyarrow==25.0.1", "psycopg[binary]==3.3.5"],
-    "execute-mysql": ["pyarrow==25.0.1", "mysql-connector-python==26.7.0"],
+    "arrow": ["pyarrow==26.0.0"],
+    "execute-postgres": ["pyarrow==26.0.0", "psycopg[binary]==3.3.5"],
+    "execute-mysql": ["pyarrow==26.0.0", "mysql-connector-python==26.7.0"],
     "execute-postgres-adbc": [
-        "pyarrow==25.0.1",
+        "pyarrow==26.0.0",
         "adbc-driver-postgresql==1.12.0",
         "adbc-driver-manager==1.12.0",
     ],
 }
 ROUTES = ("execute-postgres", "execute-mysql", "execute-postgres-adbc")
 CORE = {"antlr4-python3-runtime==4.13.2"}
-ARROW = CORE | {"pyarrow==25.0.1"}
+ARROW = CORE | {"pyarrow==26.0.0"}
 POSTGRES = ARROW | {
     "psycopg==3.3.5",
     "psycopg-binary==3.3.5 ; implementation_name != 'pypy'",
@@ -138,7 +138,7 @@ def test_selections_are_exactly_the_dispatch_extras_and_core_is_unchanged():
         "mysql-connector-python": "26.7.0",
         "psycopg": "3.3.5",
         "psycopg-binary": "3.3.5",
-        "pyarrow": "25.0.1",
+        "pyarrow": "26.0.0",
         "ruff": "0.16.10",
         "typing-extensions": "4.16.0",
     }
@@ -241,8 +241,8 @@ ROUTE_DAMAGE = {
     ): REQUIREMENTS_DIFFER,
     # An optional dependency is moved into the unconditional core.
     (
-        b"Requires-Dist: pyarrow==25.0.1; extra == 'execute-mysql'\n",
-        b"Requires-Dist: pyarrow==25.0.1\n",
+        b"Requires-Dist: pyarrow==26.0.0; extra == 'execute-mysql'\n",
+        b"Requires-Dist: pyarrow==26.0.0\n",
     ): REQUIREMENTS_DIFFER,
     (
         b"Requires-Dist: adbc-driver-manager==1.12.0;",
@@ -418,7 +418,7 @@ def test_each_route_checks_exactly_its_declared_selection():
         "psycopg": "3.3.5",
         "psycopg-binary": "3.3.5",
     }
-    assert declared["execute-postgres"] == {"pyarrow": "25.0.1", "psycopg": "3.3.5"}
+    assert declared["execute-postgres"] == {"pyarrow": "26.0.0", "psycopg": "3.3.5"}
     assert arrow.PYARROW == (
         "pyarrow",
         declared["execute-postgres"]["pyarrow"],
