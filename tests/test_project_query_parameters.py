@@ -1,0 +1,478 @@
+"""Entry-query header parameters: admission per project mode and their diagnostics."""
+
+from __future__ import annotations
+
+import io
+import json
+from contextlib import redirect_stdout
+from pathlib import Path
+
+import pytest
+
+from pietto import cli
+from pietto._project.check import check_project_parse_only
+
+HEADER = """shape Row:
+    id: Int not null
+    plain: Int not null
+    label: Text not null
+source rows: Row is postgres.table("rows")
+"""
+FIRST = HEADER.count("\n") + 1
+POSITION = "PIE-S2355"
+COLLISION = "PIE-S2354"
+DECLARATION = "PIE-S2353"
+INPUT = "PIE-S2356"
+
+
+def _project(root: Path, body: str, *, schema: int = 2) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "pietto.toml").write_text(
+        f'schema_version = {schema}\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    (root / "main.pietto").write_text(HEADER + body, encoding="utf-8")
+    return root
+
+
+def _check(root: Path) -> tuple[int, list[tuple[str, int, int]]]:
+    out = io.StringIO()
+    with redirect_stdout(out):
+        code = cli.main(["check", "--project", str(root), "--format", "json"])
+    document = json.loads(out.getvalue())
+    return code, [
+        (
+            item["code"],
+            item["location"]["line"] - FIRST + 1,
+            item["location"]["column"],
+        )
+        for item in document["diagnostics"]
+    ]
+
+
+VALID = (
+    "query q(cutoff: Int not null, label2: Text nullable):\n"
+    "    from rows\n"
+    "    let:\n"
+    "        next = cutoff + 1\n"
+    "    where id > cutoff and label == label2\n"
+    "    select:\n"
+    "        id\n"
+    "        bumped = next\n"
+)
+
+
+def test_only_an_explicit_module_project_admits_a_header(tmp_path: Path) -> None:
+    assert _check(_project(tmp_path / "explicit", VALID)) == (0, [])
+    assert _check(_project(tmp_path / "flat", VALID, schema=1)) == (
+        1,
+        [("PIE-S2346", 1, 9), ("PIE-S2346", 1, 31)],
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    (
+        (
+            "    let recent:\n        from rows\n        where id > cutoff\n"
+            "        select:\n            id\n    from recent\n    select:\n"
+            "        id\n",
+            [("PIE-S2346", 1)],
+        ),
+        ("    union all:\n        from rows\n        from rows\n", [("PIE-S2346", 1)]),
+        (
+            "    values(id: Int not null):\n        1\n",
+            [("PIE-S2346", 1), ("PIE-S2347", 2)],
+        ),
+        (
+            "    from generate_series(1, 31, 1) as n\n    select:\n        n\n",
+            [("PIE-S2346", 1), ("PIE-S2352", 2)],
+        ),
+    ),
+    ids=("relation_let", "set_operation", "values", "table_function"),
+)
+def test_a_header_without_a_relation_from_body_stays_unadmitted(
+    tmp_path: Path, body: str, expected: list[tuple[str, int]]
+) -> None:
+    source = "query q(cutoff: Int not null):\n" + body
+    parsed = check_project_parse_only(_project(tmp_path, source))
+    assert [
+        (d.code, d.location.line - FIRST + 1) for d in parsed.diagnostics
+    ] == expected
+
+
+@pytest.mark.parametrize(
+    ("declaration", "expected"),
+    (
+        ("a: Int", [(DECLARATION, 1, 9)]),
+        ("a: Decimal(3, 1) not null", [(DECLARATION, 1, 9)]),
+        ("a: UUID nullable", [(DECLARATION, 1, 9)]),
+        ("a: Int not null, a: Bool nullable", [("PIE-S2001", 1, 26)]),
+    ),
+    ids=("implicit_nullability", "type_arguments", "other_builtin", "duplicate"),
+)
+def test_header_declarations_are_checked_before_semantics(
+    tmp_path: Path, declaration: str, expected: list[tuple[str, int, int]]
+) -> None:
+    body = f"query q({declaration}):\n    from rows\n    select:\n        id\n"
+    assert _check(_project(tmp_path, body)) == (1, expected)
+
+
+def test_at_most_sixty_four_parameters(tmp_path: Path) -> None:
+    allowed = ", ".join(f"p{i}: Int not null" for i in range(64))
+    body = f"query q({allowed}, extra: Int not null):\n    from rows\n"
+    body += "    select:\n        id\n"
+    column = len("query q(") + len(allowed) + len(", ") + 1
+    assert _check(_project(tmp_path, body)) == (1, [(DECLARATION, 1, column)])
+
+
+REFUSED = {
+    "order_key_through_let": (
+        "    let:\n        s = cutoff * 2\n    select:\n        id\n"
+        "    order by:\n        s\n",
+        [(POSITION, 8, 9)],
+    ),
+    "order_key_through_output": (
+        "    select:\n        id\n        k = cutoff\n    order by:\n        k\n",
+        [(POSITION, 7, 9)],
+    ),
+    "limit": ("    select:\n        id\n    limit cutoff\n", [(POSITION, 5, 11)]),
+    "call_argument": (
+        "    where id > abs(cutoff)\n    select:\n        id\n",
+        [(POSITION, 3, 20)],
+    ),
+    "group_key": (
+        "    group by:\n        cutoff\n    select:\n        n = count()\n",
+        [(POSITION, 4, 9)],
+    ),
+    "grouped_select": (
+        "    group by:\n        id\n    select:\n        id\n"
+        "        n = count()\n        c = cutoff\n",
+        [(POSITION, 8, 13)],
+    ),
+    "aggregate_of_dependent_let": (
+        "    let:\n        s = cutoff * 2\n    select:\n        n = count(s)\n",
+        [(POSITION, 6, 19)],
+    ),
+    "satisfying": (
+        "    group by:\n        id\n    select:\n        id\n        n = count()\n"
+        "    satisfying:\n        n > cutoff\n",
+        [(POSITION, 9, 13)],
+    ),
+    "window_argument": (
+        "    select:\n        id\n        w = lag(id, cutoff) window:\n"
+        "            order by:\n                id\n",
+        [(POSITION, 5, 21)],
+    ),
+    "window_order": (
+        "    let:\n        s = cutoff * 2\n    select:\n        id\n"
+        "        r = row_number() window:\n            order by:\n                s\n",
+        [(POSITION, 9, 17)],
+    ),
+    "qualify": (
+        "    select:\n        id\n        r = row_number() window:\n"
+        "            order by:\n                id\n    qualify:\n        r <= cutoff\n",
+        [(POSITION, 9, 14)],
+    ),
+    "order_key": (
+        "    select:\n        id\n    order by:\n        cutoff\n",
+        [(POSITION, 6, 9)],
+    ),
+    "aggregate_without_group_by": (
+        "    select:\n        n = count()\n        v = cutoff\n",
+        [(POSITION, 5, 13)],
+    ),
+    "named_window": (
+        "    select:\n        id\n        r = row_number() window w\n"
+        "    window w:\n        order by:\n            cutoff\n",
+        [(POSITION, 8, 13)],
+    ),
+    "frame_offset": (
+        "    select:\n        id\n        f = first_value(id) window:\n"
+        "            order by:\n                id\n"
+        "            rows between cutoff preceding and current row\n",
+        [(POSITION, 8, 26)],
+    ),
+    "named_window_frame_offset": (
+        "    select:\n        id\n        f = first_value(id) window w\n"
+        "    window w:\n        order by:\n            id\n"
+        "        range between current row and cutoff following\n",
+        [(POSITION, 9, 39)],
+    ),
+    "frame_offset_through_let": (
+        "    let:\n        k = cutoff\n    select:\n        id\n"
+        "        f = first_value(id) window:\n            order by:\n"
+        "                id\n            groups between k preceding and current row\n",
+        [(POSITION, 10, 28)],
+    ),
+}
+
+
+@pytest.mark.parametrize(("clauses", "expected"), REFUSED.values(), ids=tuple(REFUSED))
+def test_positions_outside_the_row_roles_are_refused(
+    tmp_path: Path, clauses: str, expected: list[tuple[str, int, int]]
+) -> None:
+    body = "query q(cutoff: Int not null):\n    from rows\n" + clauses
+    assert _check(_project(tmp_path, body)) == (1, expected)
+
+
+@pytest.mark.parametrize(
+    ("header", "clauses", "expected"),
+    (
+        ("id: Int not null", "    select:\n        a = plain\n", [(COLLISION, 1, 9)]),
+        ("rows: Int not null", "    select:\n        id\n", [(COLLISION, 1, 9)]),
+        (
+            "s: Int not null",
+            "    let:\n        s = 1\n    select:\n        id\n",
+            [(COLLISION, 1, 9)],
+        ),
+        ("a: Int not null", "    select:\n        a = plain\n", [(COLLISION, 1, 9)]),
+        (
+            "w: Int not null",
+            "    select:\n        id\n    window w:\n        order by:\n"
+            "            id\n",
+            [(COLLISION, 1, 9)],
+        ),
+        (
+            "c: Int not null",
+            "    select:\n        id\n        c\n",
+            [(COLLISION, 5, 9)],
+        ),
+    ),
+    ids=("field", "relation", "let", "output", "named_window", "unaliased_read"),
+)
+def test_a_header_name_never_shadows_another_name(
+    tmp_path: Path, header: str, clauses: str, expected: list[tuple[str, int, int]]
+) -> None:
+    body = f"query q({header}):\n    from rows\n" + clauses
+    assert _check(_project(tmp_path, body)) == (1, expected)
+
+
+def test_an_output_taints_only_the_clauses_that_read_outputs(tmp_path: Path) -> None:
+    # Outside ORDER BY, QUALIFY, SATISFYING and LIMIT `label` reads the input
+    # field that the output alias shadows.
+    body = (
+        "query q(p: Text not null):\n"
+        "    from rows\n"
+        "    let:\n"
+        "        n = lower(label)\n"
+        '    where lower(label) == "x"\n'
+        "    select:\n"
+        "        label = p\n"
+        "        m = lower(label)\n"
+    )
+    assert _check(_project(tmp_path / "rows", body)) == (0, [])
+    ordered = body + "    order by:\n        label\n"
+    assert _check(_project(tmp_path / "order", ordered)) == (1, [(POSITION, 10, 9)])
+    # A named window key reads the shadowed input field too; a name with no
+    # input field is unknown there, as in an inline window.
+    for clause in ("partition by", "order by"):
+        for name, expected in (("label", []), ("k", [("PIE-S2102", 12, 13)])):
+            ordered_by_id = "        order by:\n            id\n"
+            windowed = (
+                body.replace("label = p", f"{name} = p")
+                + "        r = row_number() window w\n"
+                + f"    window w:\n        {clause}:\n            {name}\n"
+                + ordered_by_id * (clause == "partition by")
+            )
+            root = tmp_path / f"{clause.split()[0]}-{name}"
+            assert _check(_project(root, windowed)) == (int(bool(expected)), expected)
+
+
+def test_a_join_binding_and_its_fields_are_collisions(tmp_path: Path) -> None:
+    body = (
+        "query q(r: Int not null, plain: Int not null):\n"
+        "    from rows\n"
+        "    inner join rows as r:\n"
+        "        from rows\n"
+        "        on rows.id == r.id\n"
+        "    select:\n"
+        "        a = rows.id\n"
+    )
+    assert _check(_project(tmp_path, body)) == (
+        1,
+        [(COLLISION, 1, 9), (COLLISION, 1, 26)],
+    )
+
+
+def test_a_parameterized_query_is_never_a_relation_input(tmp_path: Path) -> None:
+    body = (
+        "query q(cutoff: Int not null):\n"
+        "    from rows\n"
+        "    where id > cutoff\n"
+        "    select:\n"
+        "        id\n"
+        "table t:\n"
+        "    from q\n"
+        "    select:\n"
+        "        id\n"
+        "table u:\n"
+        "    from rows\n"
+        "    inner join q as k:\n"
+        "        from rows\n"
+        "        on rows.id == k.id\n"
+        "    select:\n"
+        "        a = rows.id\n"
+        "table v:\n"
+        "    union all:\n"
+        "        from t\n"
+        "        from q\n"
+    )
+    code, diagnostics = _check(_project(tmp_path, body))
+    assert code == 1
+    assert [item for item in diagnostics if item[0] == INPUT] == [
+        (INPUT, 7, 5),
+        (INPUT, 12, 5),
+        (INPUT, 20, 9),
+    ]
+
+
+PARAMETERIZED = (
+    "query p(c: Int not null):\n"
+    "    from rows\n"
+    "    where id > c\n"
+    "    select:\n"
+    "        id\n"
+)
+
+
+def test_a_relation_let_or_block_body_never_reads_a_parameterized_query(
+    tmp_path: Path,
+) -> None:
+    body = PARAMETERIZED + (
+        "query let_from:\n"
+        "    let a:\n"
+        "        from p\n"
+        "        select:\n"
+        "            id\n"
+        "    from a\n"
+        "    select:\n"
+        "        id\n"
+        "query let_join:\n"
+        "    let a:\n"
+        "        from rows\n"
+        "        inner join p as k:\n"
+        "            from rows\n"
+        "            on rows.id == k.id\n"
+        "        select:\n"
+        "            id = rows.id\n"
+        "    from a\n"
+        "    select:\n"
+        "        id\n"
+        "query body_from:\n"
+        "    let a:\n"
+        "        from rows\n"
+        "        select:\n"
+        "            id\n"
+        "    from p\n"
+        "    inner join a as b:\n"
+        "        from p\n"
+        "        on p.id == b.id\n"
+        "    select:\n"
+        "        id = p.id\n"
+        "table set_operand:\n"
+        "    let a:\n"
+        "        from rows\n"
+        "        select:\n"
+        "            id\n"
+        "    union all:\n"
+        "        from a\n"
+        "        from p\n"
+    )
+    assert _check(_project(tmp_path / "inputs", body)) == (
+        1,
+        [(INPUT, 8, 9), (INPUT, 17, 9), (INPUT, 30, 5), (INPUT, 43, 9)],
+    )
+    # A let named like the query hides nothing: its reads resolve to no relation.
+    hiding = PARAMETERIZED + (
+        "query r:\n"
+        "    let p:\n"
+        "        from rows\n"
+        "        select:\n"
+        "            id\n"
+        "    from p\n"
+        "    select:\n"
+        "        id\n"
+    )
+    assert _check(_project(tmp_path / "hiding", hiding)) == (
+        1,
+        [("PIE-S2001", 7, 5), ("PIE-S2333", 6, 1)],
+    )
+
+
+LET_INPUT = (
+    "query r:\n"
+    "    let a:\n"
+    "        from rows\n"
+    "        select:\n"
+    "            id\n"
+    "            extra = plain\n"
+    "    from a\n"
+    "    select:\n"
+    "        id\n"
+    "        extra\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("inputs", "relation", "line"),
+    (
+        (LET_INPUT, "r", 11),
+        (
+            "query r:\n"
+            "    let a:\n"
+            "        from rows\n"
+            "        select:\n"
+            "            id\n"
+            "            extra = plain\n"
+            "    from rows\n"
+            "    inner join a as b:\n"
+            "        from rows\n"
+            "        on rows.id == b.id\n"
+            "    select:\n"
+            "        id = rows.id\n"
+            "        extra = b.extra\n",
+            "r",
+            14,
+        ),
+        (
+            "table g:\n"
+            "    from rows\n"
+            "    group by:\n"
+            "        id\n"
+            "    select:\n"
+            "        id\n"
+            "        extra = count()\n",
+            "g",
+            8,
+        ),
+        (
+            "table j:\n"
+            "    from rows\n"
+            "    inner join rows as o:\n"
+            "        from rows\n"
+            "        on rows.id == o.id\n"
+            "    select:\n"
+            "        id = rows.id\n"
+            "        extra = o.plain\n",
+            "j",
+            9,
+        ),
+    ),
+    ids=("let_block", "let_join", "grouped", "join"),
+)
+def test_a_header_name_never_shadows_a_completed_input_field(
+    tmp_path: Path, inputs: str, relation: str, line: int
+) -> None:
+    entry = (
+        "query q(extra: Int not null):\n"
+        f"    from {relation}\n"
+        "    where id > extra\n"
+        "    select:\n"
+        "        id\n"
+    )
+    assert _check(_project(tmp_path / "field", inputs + entry)) == (
+        1,
+        [(COLLISION, line, 9)],
+    )
+    distinct = entry.replace("extra", "other")
+    assert _check(_project(tmp_path / "distinct", inputs + distinct)) == (0, [])

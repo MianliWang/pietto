@@ -35,6 +35,7 @@ from pietto._project.project_sql_emission_ast import (
     projection_chain_shape,
     realize_rows,
     resource_limits,
+    row_binding_obligations,
     row_parameter_leaves,
 )
 from pietto._project import project_sql_emission_aggregation as grouping
@@ -43,7 +44,9 @@ from pietto._project import project_sql_emission_results as resulting
 from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_rows as rows
+from pietto._project import project_sql_plan_expressions as row
 from pietto._project.project_sql_plan_literals import ProjectSQLFixedLiteralValue
+from pietto._project.query_parameters import parameter_ordinals
 from pietto._project.project_sql_emission_rendering import (
     RenderedSQL,
     SQLSizeLimit,
@@ -59,6 +62,9 @@ from pietto._project.project_sql_emission_verification import (
 
 __all__: tuple[str, ...] = ()
 FORMAT = "pietto.sql-emission.v1"
+# A VERIFIED template of a query with header parameters; every other document
+# (including every failure) keeps the frozen v1 shape.
+PARAMETERIZED_FORMAT = "pietto.sql-emission.v2"
 REPR_SCALAR_LIMIT = 32
 
 
@@ -835,6 +841,9 @@ def _document(outcome, artifact, request, columns, source_map, slots):
                 ]
             else:
                 evidence = [{"operator": expression.expression.operator}]
+        elif item.kind == "query_parameter":
+            expression = request.plan.expressions[item.subject.position]
+            evidence = [{"parameter": expression.parameter.ordinal}]
         elif item.kind in {
             "distinct_quotient",
             "relation_ordering",
@@ -886,6 +895,7 @@ def _document(outcome, artifact, request, columns, source_map, slots):
                     "logical",
                     "literal",
                     "parameter",
+                    "query_parameter",
                     "type_anchor",
                     "unary",
                     "distinct_quotient",
@@ -909,8 +919,8 @@ def _document(outcome, artifact, request, columns, source_map, slots):
                 "evidence": evidence,
             }
         )
-    return {
-        "format": FORMAT,
+    document = {
+        "format": PARAMETERIZED_FORMAT if request.plan.parameters else FORMAT,
         "status": "VERIFIED",
         "target": {
             "family": request.family,
@@ -948,7 +958,7 @@ def _document(outcome, artifact, request, columns, source_map, slots):
         "parameter_uses": [
             {
                 "use": use.ordinal,
-                "slot": slots[use.slot],
+                **_use_owner(use, slots, bool(request.plan.parameters)),
                 "server_index": use.server_index,
                 "physical_type": use.physical_type,
                 "range": {"start": token.start, "end": token.end},
@@ -964,6 +974,50 @@ def _document(outcome, artifact, request, columns, source_map, slots):
         "requirements": requirements,
         "diagnostics": [asdict(d) for d in outcome.diagnostics],
     }
+    if not request.plan.parameters:
+        return document
+    reads: dict[int, list[Any]] = {}
+    for expression in request.plan.expressions:
+        if type(expression) is row.ProjectSQLParameterRead:
+            reads.setdefault(expression.parameter.ordinal, []).append(expression)
+    document["parameters"] = [
+        {
+            "parameter": parameter.ordinal,
+            "name": parameter.declaration.name,
+            "tag": parameter.tag,
+            "nullable": parameter.value_type.nullability.value == "nullable",
+            "reads": [_ref(read.ref) for read in reads.get(parameter.ordinal, ())],
+        }
+        for parameter in request.plan.parameters
+    ]
+    # A projection chain renders no operation, so it has no obligation.
+    obligations = (
+        () if type(artifact.ast) is SQLSelect else row_binding_obligations(artifact.ast)
+    )
+    definition = request.plan.parameters[0].owner.definition
+    document["binding_obligations"] = [
+        {
+            "obligation": i,
+            "kind": node.realization.obligation,
+            "subject": _ref(node.original.ref),
+            # A let reaches its readers as a stage column, never as a
+            # placeholder, so dependence is read from the authored expression.
+            "parameters": sorted(
+                parameter_ordinals(definition, node.original.expression)
+            ),
+        }
+        for i, node in enumerate(obligations)
+    ]
+    return document
+
+
+def _use_owner(use, slots, parameterized):
+    """v1 names a slot; v2 names a closed owner, a slot or a header parameter."""
+    if not parameterized:
+        return {"slot": slots[use.slot]}
+    if use.parameter is not None:
+        return {"owner": {"kind": "parameter", "parameter": use.parameter.ordinal}}
+    return {"owner": {"kind": "slot", "slot": slots[use.slot]}}
 
 
 def serialize_project_sql_emission(outcome: EmissionOutcome) -> bytes:

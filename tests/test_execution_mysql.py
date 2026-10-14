@@ -7,6 +7,7 @@ import pytest
 from _pietto_execution_mysql_access import access
 from _pietto_execution_guard_cases import manifest, case_preparation
 from _pietto_execution_refinement import capabilities, refined
+from _pietto_sql_query_parameters import parameterized_case
 from pietto._project.project_execution import (
     PostgresAccess,
     ExecutionError,
@@ -94,6 +95,16 @@ def test_access_and_value_mutation_precede_any_connection(tmp_path):
     with pytest.raises(ExecutionError, match="EXECUTION_RESOURCE_IDENTITY"):
         owner.open()
     assert owner._connections == [] and owner.control_joined
+
+
+def test_a_parameterized_template_is_refused_before_any_connection(tmp_path):
+    body = "query result(low: Int not null):\n    from rows\n    where id > low\n"
+    body += "    select:\n        display_text = text\n"
+    _, outcome = parameterized_case(tmp_path, "mysql", body)
+    assert outcome.status == "VERIFIED"
+    # No live binder exists for a header parameter yet.
+    with pytest.raises(ExecutionError, match="EXECUTION_PRODUCER_NOT_DELIVERED"):
+        prepare_execution(outcome.artifact, access())
 
 
 def test_native_statement_rejects_foreign_owner():

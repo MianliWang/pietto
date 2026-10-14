@@ -327,6 +327,27 @@ class _Writer:
             )
             self.enclose("unary" if unary else "anchor", node.original.ref, start)
 
+    def parameter_read(self, value):
+        """CAST(<placeholder> AS <carrier>): the same anchor a bound literal uses."""
+        start = self.offset
+        reference = value.original.ref
+        self.emit("CAST(", "syntax", "anchor_open", reference)
+        self.emit(
+            "$" + str(value.use.server_index)
+            if self.request.family == "postgres"
+            else "?",
+            "parameter",
+            value.original.parameter.tag,
+            reference,
+        )
+        self.emit(
+            parameters.anchor_suffix(value.physical_type),
+            "syntax",
+            "anchor_close",
+            reference,
+        )
+        self.enclose("anchor", reference, start)
+
     def scalar(self, value, alias):
         """One admitted tree; a reference with its own scope reads that relation."""
         start = self.offset
@@ -337,6 +358,9 @@ class _Writer:
             self.emit(".", "syntax", "value_qualifier", reference)
             self.identifier(value.column.name, "value_column", value.column.terminal)
             self.enclose("reference", reference, start)
+            return
+        if type(value) is rows.SQLParameterRead:
+            self.parameter_read(value)
             return
         if type(value) is not rows.SQLOperation:
             self.constant(value)

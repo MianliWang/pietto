@@ -3207,6 +3207,11 @@ def test_named_windows_publish_project_facts_after_semantic_resolution(
             "            id\n",
             "PIE-S2113",
         ),
+        (
+            "keyed",
+            "    window keyed:\n        order by:\n            nothere\n",
+            "PIE-S2102",
+        ),
     ),
 )
 def test_named_window_resolution_diagnostics_remain_project_failures(

@@ -553,12 +553,15 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
                 chain = parameters.original_chain(plan, projection.expression)
                 assert chain is not None
                 scalar_nodes += 3 + len(chain[0])  # origin, anchor, leaf, every sign
+    # The parameter protocol is needed exactly when a placeholder is rendered:
+    # a bind-safe literal slot or a header-parameter read, never an unread header.
+    reads = sum(type(e) is row.ProjectSQLParameterRead for e in plan.expressions)
     if scalar_nodes or realization is not None:
         for problem in operator_premise_problems(
-            request.premises, request.family, bool(plan.literal_slots)
+            request.premises, request.family, bool(plan.literal_slots) or reads > 0
         ):
             add(*problem, plan.scope)
-    if len(plan.bind_uses) > limits["parameters"]:
+    if len(plan.bind_uses) + reads > limits["parameters"]:
         add("PIE-B1007", "parameter_occurrence_limit", plan.scope)
     bodies = tuple(
         d
@@ -960,6 +963,7 @@ def build_requirements(request, ast):
 ADMITTED_EXPRESSIONS = (
     row.ProjectSQLLiteral,
     row.ProjectSQLBoundLiteral,
+    row.ProjectSQLParameterRead,
     row.ProjectSQLReference,
     row.ProjectSQLUnary,
     row.ProjectSQLBinary,
@@ -1634,10 +1638,29 @@ def realize_rows(request, *, _guarded=None):
     for reference in ordered:
         try:
             chains = rows.rendered_constant_chains(plan, reference)
+            rendered = rows.rendered_tree_nodes(plan, reference)
         except ValueError:
             add("PIE-B1008", "expression_tree_structure", reference)
             continue
-        for chain, leaf in chains:
+        # Parameter reads join the literal chains in the one rendering order.
+        order = {id(node): i for i, node in enumerate(rendered)}
+        native = sorted(
+            (
+                *((order[id(leaf)], chain, leaf) for chain, leaf in chains),
+                *(
+                    (order[id(node)], None, node)
+                    for node in rendered
+                    if type(node) is row.ProjectSQLParameterRead
+                ),
+            ),
+            key=lambda item: item[0],
+        )
+        for _, chain, leaf in native:
+            if type(leaf) is row.ProjectSQLParameterRead:
+                occurrences.append(
+                    (leaf, parameters.PHYSICAL[family][leaf.parameter.tag])
+                )
+                continue
             problem = parameters.chain_problem(plan, chain, family)
             if problem is not None:
                 add(*problem, chain, leaf.site.occurrence.span)
@@ -2115,6 +2138,9 @@ def _value_node_count(value):
         total += (
             1
             if type(node) in {rows.SQLStageReference, rows.SQLOperation}
+            # A read renders one anchor around one native placeholder.
+            else 2
+            if type(node) is rows.SQLParameterRead
             else len(parameters.value_nodes(node))
         )
     return total
@@ -2127,7 +2153,7 @@ def _value_column_image(request, value, position, label, export, terminal, famil
         return replace(
             value.column, position=position, name=label, terminal=terminal.ref
         )
-    if type(value) is not rows.SQLOperation:
+    if type(value) not in {rows.SQLOperation, rows.SQLParameterRead}:
         return rows.StageColumn(
             position,
             label,
@@ -2154,6 +2180,16 @@ def value_requirements(request, value):
     family = request.family
     result = []
     for node in rows.rendered_value_nodes(value):
+        if type(node) is rows.SQLParameterRead:
+            result.append(
+                GeneratedRequirement(
+                    "query_parameter",
+                    node.original.ref,
+                    rows.REQUIREMENT_RULES["query_parameter"],
+                    node_premises(request, node.realization, (), "parameter"),
+                )
+            )
+            continue
         if type(node) in {rows.SQLStageReference, rows.SQLOperation}:
             kind = rows.requirement_kind(node)
             operands = (
@@ -2546,6 +2582,9 @@ def row_parameter_leaves(query):
                 values.append(body.predicate.value)
         for value in values:
             for node in rows.rendered_value_nodes(value):
+                if type(node) is rows.SQLParameterRead:
+                    result.append(node)
+                    continue
                 if type(node) in {rows.SQLStageReference, rows.SQLOperation}:
                     continue
                 result.extend(
@@ -2554,6 +2593,16 @@ def row_parameter_leaves(query):
                     if type(leaf) is parameters.SQLParameter
                 )
     return tuple(result)
+
+
+def row_binding_obligations(query):
+    """Operations whose check waits for a binding, in exact rendering order."""
+    return tuple(
+        node
+        for value in row_value_roots(query)
+        for node in rows.rendered_value_nodes(value)
+        if type(node) is rows.SQLOperation and node.realization.obligation is not None
+    )
 
 
 def row_value_roots(query):

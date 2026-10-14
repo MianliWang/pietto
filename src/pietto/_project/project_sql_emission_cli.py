@@ -563,7 +563,17 @@ def _render_verified(document: dict[str, Any]) -> str:
         document["sql"],
         "end sql",
         *_records("fixed_values", document["fixed_values"]),
+        *(
+            _records("parameters", document["parameters"])
+            if "parameters" in document
+            else ()
+        ),
         *_records("parameter_uses", document["parameter_uses"]),
+        *(
+            _records("binding_obligations", document["binding_obligations"])
+            if "binding_obligations" in document
+            else ()
+        ),
         *_records("columns", document["columns"]),
         *_records("requirements", document["requirements"]),
         *_records("ranges", document["ranges"]),

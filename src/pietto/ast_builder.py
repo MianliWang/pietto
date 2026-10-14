@@ -63,6 +63,7 @@ from pietto.ast_nodes import (
     OrderByClause,
     OrderItem,
     Parameter,
+    ParameterRefExpr,
     QualifyClause,
     QueryDef,
     QueryParameter,
@@ -140,6 +141,8 @@ class AstBuilder(PiettoVisitor):
         """Create a builder whose AST spans use the supplied source path."""
 
         self.path = source_path(path)
+        # Header parameters of the entry query whose body is being built.
+        self._header: dict[str, tuple[int, QueryParameter]] = {}
 
     def visitScript(self, ctx: _AntlrContext) -> Script:
         """Build the root script node."""
@@ -515,9 +518,14 @@ class AstBuilder(PiettoVisitor):
                 )
                 for item in header.parameterList().parameter()
             )
-        return self._relation_definition(
-            ctx, ModuleDeclarationKind.QUERY, header.identifier(), parameters
-        )
+        for ordinal, parameter in enumerate(parameters):
+            self._header.setdefault(parameter.name, (ordinal, parameter))
+        try:
+            return self._relation_definition(
+                ctx, ModuleDeclarationKind.QUERY, header.identifier(), parameters
+            )
+        finally:
+            self._header = {}
 
     def _relation_definition(
         self,
@@ -531,14 +539,17 @@ class AstBuilder(PiettoVisitor):
         name = name_ctx.getText()
         let_relations = tuple(self.visit(item) for item in ctx.letRelationDefinition())
         body = self._relation_body_node(ctx)
-        if not parameters and not let_relations:
-            if type(body) is SetOperationBody:
+        if not let_relations:
+            if type(body) is SetOperationBody and not parameters:
                 return SetRelationDef(
                     span=self._span(ctx), name=name, kind=kind, body=body
                 )
             if type(body) is SelectBody and type(body.from_clause) is FromClause:
                 relation = TableDef if kind is ModuleDeclarationKind.TABLE else QueryDef
+                # Only an entry query has a header; it keeps the query class.
+                header = {"parameters": parameters} if parameters else {}
                 return relation(
+                    **header,
                     span=self._span(ctx),
                     name=name,
                     from_clause=body.from_clause,
@@ -1323,7 +1334,7 @@ class AstBuilder(PiettoVisitor):
 
         callee = self._dotted_name_expr(ctx.dottedName())
         if ctx.callSuffix() is None:
-            return callee
+            return self._value_name(callee)
         return self._call_expr(ctx.dottedName(), ctx.callSuffix())
 
     def visitQualifyPrimaryExpression(self, ctx: _AntlrContext) -> Expression:
@@ -1345,11 +1356,31 @@ class AstBuilder(PiettoVisitor):
 
         callee = self._dotted_name_expr(ctx.dottedName())
         if ctx.qualifyCallSuffix() is None:
-            return callee
+            return self._value_name(callee)
         return self._call_expr_from_arguments(
             ctx.dottedName(),
             ctx.qualifyCallSuffix(),
             ctx.qualifyCallSuffix().qualifyExpression(),
+        )
+
+    def _value_name(
+        self, name: NameExpr | DottedNameExpr
+    ) -> NameExpr | DottedNameExpr | ParameterRefExpr:
+        """A bare value name equal to a header parameter reads that parameter.
+
+        Names that also denote a field, let, relation, output or window are a
+        compile error, so this syntactic choice never changes meaning.
+        """
+
+        if type(name) is not NameExpr or name.name not in self._header:
+            return name
+        ordinal, parameter = self._header[name.name]
+        return ParameterRefExpr(
+            span=name.span,
+            name=name.name,
+            ordinal=ordinal,
+            type_name=parameter.type.name,
+            nullability=parameter.type.nullability,
         )
 
     def _relation_read(

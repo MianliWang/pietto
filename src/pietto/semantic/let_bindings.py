@@ -21,6 +21,7 @@ from pietto.ast_nodes import (
     LiteralExpr,
     MembershipExpr,
     NameExpr,
+    ParameterRefExpr,
     QueryDef,
     SelectItem,
     SetRelationDef,
@@ -367,7 +368,9 @@ def _walk_expressions(expression: Expression) -> tuple[Expression, ...]:
         children.extend((expression.value, expression.lower, expression.upper))
     elif isinstance(expression, IsNullExpr):
         children.append(expression.value)
-    elif not isinstance(expression, (LiteralExpr, NameExpr, DottedNameExpr)):
+    elif not isinstance(
+        expression, (LiteralExpr, NameExpr, DottedNameExpr, ParameterRefExpr)
+    ):
         raise AssertionError(f"Unsupported expression: {type(expression).__name__}")
 
     walked: list[Expression] = [expression]

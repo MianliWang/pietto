@@ -6,6 +6,7 @@ import pytest
 from _pietto_execution_rows_cases import build
 from _pietto_execution_guard_cases import manifest, case_preparation
 from _pietto_execution_refinement import capabilities
+from _pietto_sql_query_parameters import parameterized_case
 from pietto._project.project_execution import (
     AMBIENT_TLS,
     ExecutionRequest,
@@ -70,6 +71,22 @@ def test_explicit_route_and_premise_preserve_rows(artifact):
     with pytest.raises(ExecutionError, match="EXECUTION_TARGET"):
         PostgresExecution(request)
     assert "not-a-live-secret" not in repr(request)
+
+
+def test_a_parameterized_template_is_refused_before_any_connection(tmp_path):
+    body = "query result(low: Int not null):\n    from rows\n    where id > low\n"
+    body += "    select:\n        display_text = text\n"
+    _, outcome = parameterized_case(tmp_path, "postgres", body)
+    assert outcome.status == "VERIFIED"
+    a = access()
+    premise = PostgresADBCDeploymentPremise(
+        a, outcome.artifact.request.sources, ("public", "pg_catalog")
+    )
+    # No live binder exists for a header parameter yet.
+    with pytest.raises(ExecutionError, match="EXECUTION_PRODUCER_NOT_DELIVERED"):
+        prepare_execution(
+            outcome.artifact, a, route="postgres_adbc", postgres_adbc_deployment=premise
+        )
 
 
 def test_compiled_adbc_uses_its_fresh_route_bound_premise(artifact):

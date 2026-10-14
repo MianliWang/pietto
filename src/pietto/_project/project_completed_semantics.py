@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from pietto.semantic.model import ValueType
 
 
+from pietto._project.query_parameters import query_parameter_semantic_diagnostics
 from pietto._project.project_set_operations import ProjectSetFailure
 from pietto._project.module_relation_resolution import ProjectResolvedSetOperand
 
@@ -397,6 +398,24 @@ class _ProjectCompletedSemanticRoots:
                 ),
                 *operative.diagnostics,
                 *source_diagnostics,
+                *query_parameter_semantic_diagnostics(
+                    self.semantic_result.module_relation_resolutions,
+                    self.semantic_result.module_catalogs,
+                    {
+                        entry.owner: frozenset(
+                            project_final_outputs._entry_schema(entry).fields
+                        )
+                        for entry in effective_outputs.entries
+                        if isinstance(
+                            entry,
+                            (
+                                ProjectExistingEffectiveOutput,
+                                ProjectCompletedEffectiveOutput,
+                                ProjectCompletedSetOutput,
+                            ),
+                        )
+                    },
+                ),
             ),
         )
 

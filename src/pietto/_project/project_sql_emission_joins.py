@@ -135,6 +135,7 @@ def admitted_join_shape(plan, *, _guarded=None) -> bool:
         not in {
             row.ProjectSQLLiteral,
             row.ProjectSQLBoundLiteral,
+            row.ProjectSQLParameterRead,
             row.ProjectSQLReference,
             row.ProjectSQLJoinedReference,
             row.ProjectSQLMatchReference,

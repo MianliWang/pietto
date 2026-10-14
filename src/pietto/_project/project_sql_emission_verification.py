@@ -1499,15 +1499,31 @@ def resolved_row_realization(
         storage = rows._arithmetic_storage(family, operands[0], operands[1])
     if storage is None:
         raise ValueError("integer result has no physical type")
+    binding = any(item.binding for item in operands)
     limits = rows.signed_range(storage)
-    if limits is None or low < limits[0] or high > limits[1]:
+    if limits is None:
         raise ValueError("integer result outside its physical range")
+    if low < limits[0] or high > limits[1]:
+        if not binding:
+            raise ValueError("integer result outside its physical range")
+        # The range is proved per binding; the template keeps its carrier.
+        low, high = limits
+        return rows.Realization(
+            "Int",
+            storage,
+            nullable,
+            {"kind": "int_range", "min": str(low), "max": str(high)},
+            (low, high),
+            binding=True,
+            obligation=rows.INT_RANGE_OBLIGATION,
+        )
     return rows.Realization(
         "Int",
         storage,
         nullable,
         {"kind": "int_range", "min": str(low), "max": str(high)},
         (low, high),
+        binding=binding,
     )
 
 
@@ -2266,6 +2282,8 @@ def _same_realization(actual, expected):
         and actual.storage == expected.storage
         and actual.domain == expected.domain
         and actual.proven_int_range == expected.proven_int_range
+        and actual.binding is expected.binding
+        and actual.obligation == expected.obligation
     )
 
 
@@ -2305,6 +2323,34 @@ def _verify_row_value(
             raise ValueError("reference scope")
         state["expressions"].append(expression)
         state["nodes"] += 1
+        return value.realization
+    if type(value) is rows.SQLParameterRead:
+        if type(expression) is not row.ProjectSQLParameterRead:
+            raise ValueError("parameter read node")
+        parameter = expression.parameter
+        tag, nullable = parameter.tag, rows.value_nullable(expression)
+        use = value.use
+        if (
+            value.original is not expression
+            or reference in children
+            or not any(parameter is item for item in plan.parameters)
+            or rows.value_tag(expression) != tag
+            or type(nullable) is not bool
+            or value.physical_type != parameters.PHYSICAL[request.family].get(tag)
+            or type(use) is not parameters.NativeUse
+            or use.original is not expression
+            or use.slot is not None
+            or use.parameter is not parameter
+            or use.physical_type != value.physical_type
+        ):
+            raise ValueError("parameter read correspondence")
+        if not _same_realization(
+            value.realization,
+            rows.parameter_realization(request.family, tag, nullable),
+        ):
+            raise ValueError("parameter read realization")
+        state["expressions"].append(expression)
+        state["nodes"] += 2
         return value.realization
     if type(value) is not rows.SQLOperation:
         if not _verify_value(
@@ -3934,7 +3980,10 @@ def verify_row_query(request, query, *, _guarded=None):
                         )
                     ):
                         return False
-                    if type(column.value) is rows.SQLOperation:
+                    if type(column.value) in {
+                        rows.SQLOperation,
+                        rows.SQLParameterRead,
+                    }:
                         if image.literal is not None:
                             return False
                     elif (
@@ -4169,6 +4218,25 @@ def verify_row_bytes(query, rendered):
                     identifier=True,
                 )
                 spans.append(("reference", reference, start, offset))
+                return
+            if type(value) is rows.SQLParameterRead:
+                reference = value.original.ref
+                take("syntax", "anchor_open", reference, "CAST(")
+                take(
+                    "parameter",
+                    value.original.parameter.tag,
+                    reference,
+                    "$" + str(value.use.server_index)
+                    if request.family == "postgres"
+                    else "?",
+                )
+                take(
+                    "syntax",
+                    "anchor_close",
+                    reference,
+                    parameters.anchor_suffix(value.physical_type),
+                )
+                spans.append(("anchor", reference, start, offset))
                 return
             if type(value) is not rows.SQLOperation:
                 constant(value)
@@ -5326,6 +5394,16 @@ def verify_row_generated_requirements(request, query, generated):
 
     def node_expectations(value):
         for node in rows.rendered_value_nodes(value):
+            if type(node) is rows.SQLParameterRead:
+                expected.append(
+                    (
+                        "query_parameter",
+                        node.original.ref,
+                        "R04",
+                        node_premises(request, node.realization, (), "parameter"),
+                    )
+                )
+                continue
             if type(node) in {rows.SQLStageReference, rows.SQLOperation}:
                 kind = rows.requirement_kind(node)
                 operands = (
@@ -5701,24 +5779,27 @@ def verify_row_parameters(artifact):
     for ordinal, (use, leaf, token) in enumerate(
         zip(artifact.parameter_uses, leaves, tokens, strict=True)
     ):
-        slot = leaf.original.use.slot
-        if slot not in seen:
-            seen[slot] = (len(seen) + 1, use.physical_type)
-        index, physical = seen[slot]
+        named = type(leaf) is rows.SQLParameterRead
+        owner = leaf.original.parameter if named else leaf.original.use.slot
+        if owner not in seen:
+            seen[owner] = (len(seen) + 1, use.physical_type)
+        index, physical = seen[owner]
         if (
             type(use) is not parameters.NativeUse
             or use is not leaf.use
             or use.original is not leaf.original
-            or use.slot is not slot
+            or (use.slot, use.parameter) != ((None, owner) if named else (owner, None))
             or type(use.ordinal) is not int
             or use.ordinal != ordinal
             or type(use.server_index) is not int
             or use.server_index
             != (ordinal + 1 if artifact.request.family == "mysql" else index)
             or use.physical_type != physical
-            or token.subject is not leaf.site.ref
+            or token.subject is not (leaf.original.ref if named else leaf.site.ref)
         ):
             return False
-    return len(seen) == len(plan.literal_slots) and all(
-        slot in seen for slot in plan.literal_slots
+    # Every slot is used; a declared parameter may be unread.
+    return all(slot in seen for slot in plan.literal_slots) and all(
+        owner in plan.literal_slots or any(owner is p for p in plan.parameters)
+        for owner in seen
     )

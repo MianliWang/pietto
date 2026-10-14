@@ -245,7 +245,9 @@ Their historical-looking names do not make them lifecycle status authority;
 
 `pietto emit-sql --project ROOT --module LOGICAL_MODULE --kind {table,query} --name NAME
 --dialect {postgres,mysql} --emission-contract FILE` compiles exactly one declaration of an
-explicit-module project (`schema_version = 2`) into the `pietto.sql-emission.v1` artifact.
+explicit-module project (`schema_version = 2`) into the `pietto.sql-emission.v1` artifact
+(`pietto.sql-emission.v2` for a VERIFIED query with header parameters, see
+[project CLI JSON v2](spec/project-cli-json-v2.md#emit-sql-result)).
 The emission contract is a normalized project-relative JSON file read once through the
 same pinned-root trust rules as project sources; legacy-flat and package-root projects are
 rejected as `config_schema`. See the [README example](../README.md#project-sql-emission)

@@ -95,11 +95,12 @@ def test_parse_only_project_check_adds_gate_diagnostics_beside_parse_errors(
         for diagnostic in result.diagnostics
         if diagnostic.location.path == "a.pietto"
     } == {"PIE-P1000"}
+    # An explicit-module project admits a SELECT-body query header.
     assert [
         (diagnostic.code, diagnostic.location.line, diagnostic.location.column)
         for diagnostic in result.diagnostics
         if diagnostic.location.path == "b.pietto"
-    ] == [("PIE-S2346", 1, 9), ("PIE-S2349", 7, 11)]
+    ] == [("PIE-S2346", 1, 9)] * (schema == 1) + [("PIE-S2349", 7, 11)]
 
 
 def test_parse_only_project_check_reports_source_read_errors_and_continues(

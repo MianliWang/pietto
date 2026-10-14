@@ -197,6 +197,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.BetweenExpr,
         ast.IsNullExpr,
         ast.WindowExpr,
+        ast.ParameterRefExpr,
     }
 )
 
@@ -874,7 +875,8 @@ def _window_diagnostic_location_is_owned(
 ) -> bool:
     if _diagnostic_location_is_within_span(diagnostic.location, item.expression.span):
         return True
-    return diagnostic.code in _NAMED_WINDOW_DIAGNOSTIC_CODES and any(
+    # A named window's keys and frame are analyzed for each window that uses it.
+    return any(
         _diagnostic_location_is_within_span(diagnostic.location, declaration.span)
         for declaration in definition.named_windows
     )

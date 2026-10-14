@@ -26,6 +26,8 @@ from pietto.ast_nodes import (
     ConditionalExpr,
     MembershipExpr,
     LetBinding,
+    ParameterRefExpr,
+    QueryParameter,
     SelectItem,
     WhereClause,
 )
@@ -96,6 +98,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.BetweenExpr,
         ast.IsNullExpr,
         ast.WindowExpr,
+        ast.ParameterRefExpr,
     }
 )
 
@@ -209,6 +212,25 @@ class ProjectSQLBoundLiteral(ProjectSQLExpressionBase):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLQueryParameter:
+    """One header parameter of the selected entry query, in header order."""
+
+    owner: ProjectDeclarationOccurrence
+    ordinal: int
+    declaration: QueryParameter
+    tag: str
+    value_type: ValueType
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLParameterRead(ProjectSQLExpressionBase):
+    """One read of a header parameter; a placeholder under every literal policy."""
+
+    expression: ParameterRefExpr
+    parameter: ProjectSQLQueryParameter
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSQLReference(ProjectSQLExpressionBase):
     expression: NameExpr | DottedNameExpr
     reference: ProjectModuleExpressionReferenceFact
@@ -297,6 +319,7 @@ class ProjectSQLScalarCall(ProjectSQLExpressionBase):
 type ProjectSQLExpression = (
     ProjectSQLLiteral
     | ProjectSQLBoundLiteral
+    | ProjectSQLParameterRead
     | ProjectSQLReference
     | ProjectSQLJoinedReference
     | ProjectSQLMatchReference

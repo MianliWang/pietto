@@ -410,6 +410,10 @@ def _verify_execution_structure(request, *, guarded=None) -> None:
         ):
             raise ExecutionError("EXECUTION_TARGET")
         verify_postgres_adbc_deployment(request)
+        if view.request.plan.parameters:
+            # A header-parameter template has no live binding yet; refuse it
+            # before any route opens a connection.
+            raise ExecutionError("EXECUTION_PRODUCER_NOT_DELIVERED")
     if view.request.family != family:
         raise ExecutionError("EXECUTION_TARGET")
     verify_result_contract(request.contract, view.request.verification)

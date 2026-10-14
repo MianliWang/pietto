@@ -57,6 +57,7 @@ from pietto._project.project_joined_row_filter import _SQL_ROW_RETENTION_EFFECTS
 from pietto._project.model import ProjectRowField
 from pietto.semantic.model import ValueType, ValueTypeKind
 from pietto.semantic.catalog import is_builtin_function_name
+from pietto.semantic.expressions import query_parameter_value_type
 from pietto.ir.model import SymbolId, SymbolNamespace
 
 from pietto._project.model import (
@@ -125,6 +126,7 @@ from pietto.ast_nodes import (
     DottedNameExpr,
     FromClause,
     LiteralExpr,
+    ParameterRefExpr,
     MembershipExpr,
     NameExpr,
     QueryDef,
@@ -548,6 +550,7 @@ def _row_blockers(completed, entry):
     selection_ordinals = {id(f.item): i for i, f in enumerate(authority.selections)}
     supported = {
         LiteralExpr,
+        ParameterRefExpr,
         NameExpr,
         DottedNameExpr,
         UnaryExpr,
@@ -913,6 +916,7 @@ def _scalar_blocker(expression, evidence, aggregate=None):
         return ProjectSQLPlanBlockerKind.EXPRESSION_EVIDENCE
     supported = {
         LiteralExpr,
+        ParameterRefExpr,
         NameExpr,
         DottedNameExpr,
         UnaryExpr,
@@ -1322,6 +1326,7 @@ class ProjectSQLBindings:
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False, init=False)
 class ProjectSQLPlan:
     literal_policy: literals.ProjectSQLLiteralPolicy
+    parameters: tuple[row.ProjectSQLQueryParameter, ...]
     literal_sites: tuple[literals.ProjectSQLLiteralSite, ...]
     literal_slots: tuple[literals.ProjectSQLLiteralSlot, ...]
     bind_uses: tuple[literals.ProjectSQLBindUse, ...]
@@ -2047,6 +2052,35 @@ def build_project_sql_bindings(
     return bindings
 
 
+def _query_parameters(
+    bindings: ProjectSQLBindings, selected_owner: ProjectDeclarationOccurrence
+) -> tuple[row.ProjectSQLQueryParameter, ...]:
+    """Header parameters of the selected entry query; no input may declare any."""
+    for definition in bindings.definitions:
+        owner = definition.entry.owner
+        if (
+            owner is not selected_owner
+            and type(owner.definition) is QueryDef
+            and owner.definition.parameters
+        ):
+            raise ValueError("A query with parameters cannot be a relation input.")
+    declaration = selected_owner.definition
+    if type(declaration) is not QueryDef:
+        return ()
+    return tuple(
+        row.ProjectSQLQueryParameter(
+            owner=selected_owner,
+            ordinal=ordinal,
+            declaration=parameter,
+            tag=parameter.type.name,
+            value_type=query_parameter_value_type(
+                parameter.type.name, parameter.type.nullability
+            ),
+        )
+        for ordinal, parameter in enumerate(declaration.parameters)
+    )
+
+
 def build_project_sql_plan(
     completed: ProjectConcreteCompletedSemanticResult,
     analysis_bundle: ProjectIRQueryBlockAnalysisBundle,
@@ -2066,6 +2100,7 @@ def build_project_sql_plan(
     bindings = build_project_sql_bindings(completed, analysis_bundle, selected_owner)
     if isinstance(bindings, ProjectSQLPlanUnavailable):
         return bindings
+    query_parameters = _query_parameters(bindings, selected_owner)
     K, R, P = ProjectSQLPlanRefKind, ProjectSQLOriginRole, ProjectSQLOriginProvenance
     blocks: list[ProjectSQLSelectBlock] = []
     projections: list[ProjectSQLProjection] = []
@@ -2167,6 +2202,24 @@ def build_project_sql_plan(
             if isinstance(node, LiteralExpr):
                 value = row.ProjectSQLLiteral(
                     ref=node_ref, site=site, expression=node, value_type=value_type
+                )
+            elif isinstance(node, ParameterRefExpr):
+                if site.owner is not selected_owner or not (
+                    0 <= node.ordinal < len(query_parameters)
+                ):
+                    raise ValueError("Parameter read is outside its entry query.")
+                parameter = query_parameters[node.ordinal]
+                if (
+                    parameter.declaration.name != node.name
+                    or value_type != parameter.value_type
+                ):
+                    raise ValueError("Parameter read lost its declared type.")
+                value = row.ProjectSQLParameterRead(
+                    ref=node_ref,
+                    site=site,
+                    expression=node,
+                    value_type=value_type,
+                    parameter=parameter,
                 )
             elif (
                 isinstance(node, (NameExpr, DottedNameExpr)) or id(node) in terminal_ids
@@ -3909,6 +3962,7 @@ def build_project_sql_plan(
     )
     plan = object.__new__(ProjectSQLPlan)
     for name, value in dict(
+        parameters=query_parameters,
         scope=bindings.scope,
         bindings=bindings,
         sources=bindings.sources,
@@ -4211,6 +4265,7 @@ class CompiledSQLPlan:
     aggregate_risks: tuple = ()
     window_policies: tuple = ()
     semantic_references: Mapping = field(default_factory=dict, repr=False)
+    parameters: tuple = ()
 
 
 def build_compiled_sql_plan(ir):

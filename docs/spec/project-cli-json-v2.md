@@ -86,8 +86,10 @@ unimplemented proposal of a postgres-only whole-project emit envelope with a
 `project.default_dialect` fallback: the implemented command selects exactly one
 owner, requires an explicit `--dialect` and an explicit `--emission-contract`,
 and emits the `pietto.sql-emission.v1` artifact documented in the
-[Slice13 contract](phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md).
-Its exit codes follow the same classes as below.
+[Slice13 contract](phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md),
+or the `pietto.sql-emission.v2` document of a VERIFIED query with header
+parameters ([below](#emit-sql-result)). Its exit codes follow the same classes
+as below.
 
 ## Exit Codes
 
@@ -256,8 +258,46 @@ reason, or private diagnostic metadata.
 Project `emit-sql` does not produce this schema. Its output is the closed
 `pietto.sql-emission.v1` tagged union (`VERIFIED`, `INPUT_REJECTED`,
 `BLOCKED`) frozen by the Phase66 route lock and delivered by the
-[Slice13 contract](phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md);
-the `mode: "project"` JSON v2 envelope applies to `check` only.
+[Slice13 contract](phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md),
+or the v2 document below; the `mode: "project"` JSON v2 envelope applies to
+`check` only.
+
+`pietto.sql-emission.v1` stays frozen. Only a `VERIFIED` document whose
+selected query declares header parameters is tagged
+`"format": "pietto.sql-emission.v2"` (D70.02, D70.08); every other document,
+including every `INPUT_REJECTED` and `BLOCKED` one, is v1 byte for byte, and a
+v1 reader rejects v2 by its tag. v2 is v1 with these differences:
+
+- `parameters`: one object per header parameter in header order,
+  `{"parameter": j, "name", "tag", "nullable", "reads": [expression refs]}`;
+  `reads` lists every read in plan order.
+- `parameter_uses[i]` names its owner instead of a slot:
+  `{"use", "owner": {"kind": "slot", "slot": i} | {"kind": "parameter",
+  "parameter": j}, "server_index", "physical_type", "range"}`. Reads and
+  bind-safe slots share one occurrence order: PostgreSQL gives each owner one
+  `server_index`, MySQL one per occurrence.
+- `binding_obligations`: `[{"obligation": k, "kind", "subject", "parameters"}]`
+  in rendering order, one per operation whose check waits for a binding.
+  `kind` is `int_range_representable` (an Int result range) or
+  `text_result_width` (a Text result width); `parameters` lists every
+  parameter the subject depends on, directly or through `let:` bindings. It
+  may name a parameter whose value cannot change the check, never omit one
+  that can.
+- A generated requirement of kind `query_parameter` (rule R04, evidence
+  `[{"parameter": j}]`) describes each read.
+- A value whose range or width cannot be proven without a binding keeps its
+  declared carrier: an Int domain spans the full signed 64-bit range and a
+  Text domain has `"max_characters": null`; on MySQL a bare Text read keeps
+  storage `my_utf8mb4_text` and a Text operation result is `my_varchar` with
+  `"length": null`. A range or width that does not depend on a binding is
+  still proven statically: `cutoff * 0` has domain `[0, 0]`, and a conditional
+  takes its range or width from its branches. A binding fixes the exact domain
+  without changing the SQL.
+
+`fixed_values` still lists bind-safe literal slots only. In `--format text` a
+v2 document prints its tag in the banner and adds a `parameters (N):` block
+before `parameter_uses (N):` and a `binding_obligations (N):` block after it,
+one canonical JSON line per record.
 
 ## Input File Object
 

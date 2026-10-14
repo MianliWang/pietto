@@ -36,6 +36,7 @@ from pietto.ast_nodes import (
     NameExpr,
     DottedNameExpr,
     MembershipExpr,
+    ParameterRefExpr,
 )
 from pietto.semantic.model import ValueType, TypeKind, ValueTypeKind, ResolvedType
 from pietto.semantic.capability_facts import CapabilityDomain as D, CapabilityKey
@@ -58,6 +59,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.BetweenExpr,
         ast.IsNullExpr,
         ast.WindowExpr,
+        ast.ParameterRefExpr,
     }
 )
 
@@ -310,7 +312,7 @@ def _scalar_key(
         raise ValueError(f"Unsupported scalar expression: {type(expr).__name__}")
     result = _builtin(demand.value_type)
     operands = tuple(_builtin(value) for value in demand.operand_types)
-    if type(expr) is LiteralExpr:
+    if type(expr) in {LiteralExpr, ParameterRefExpr}:
         return _literal_key(demand.value_type)
     if result is None:
         return None
@@ -617,7 +619,7 @@ def _valid_scalar_key(key, demand, expressions):
     if type(expression) not in _KNOWN_EXPRESSIONS:
         raise ValueError(f"Unsupported scalar expression: {type(expression).__name__}")
     values = tuple(_builtin(value) for value in demand.operand_types)
-    if type(expression) is LiteralExpr:
+    if type(expression) in {LiteralExpr, ParameterRefExpr}:
         return _valid_literal_key(key, demand.value_type)
     if result is None:
         return key is None

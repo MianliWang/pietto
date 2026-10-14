@@ -154,7 +154,10 @@ def _lower_definition(
 ) -> DefinitionIR | None:
     """Lower one supported declaration and skip later-slice definitions."""
 
-    if type(definition) not in _KNOWN_DEFINITIONS:
+    if type(definition) not in _KNOWN_DEFINITIONS or (
+        type(definition) is QueryDef and definition.parameters
+    ):
+        # Header parameters exist only in explicit-module projects.
         raise _MissingSemanticFact(definition, "supported definition")
     if isinstance(definition, SetRelationDef):
         raise _MissingSemanticFact(definition.body, "set-operation lowering")

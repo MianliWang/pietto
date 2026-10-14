@@ -302,8 +302,9 @@ multi-relation SQL lowering remains unavailable. Join-free behavior is unchanged
 ## Relation blocks and relation references
 
 The parser accepts the following forms. In an EXPLICIT_MODULES project a closed
-relation let is available, as described after the example; every other form is
-not available yet:
+relation let and the header of an entry query whose FROM reads a relation and
+that declares no relation let are available, as described after the example;
+every other form is not available yet:
 
 ```pietto
 query vip_report(cutoff: Int not null, label: Text nullable):
@@ -420,10 +421,11 @@ forms receives its temporary ERROR diagnostic in every check mode before any
 semantic reader runs: PIE-S2345 relation let,
 PIE-S2346 query header parameter, PIE-S2347 VALUES body, PIE-S2348 scalar read,
 PIE-S2349 EXISTS reference, PIE-S2350 IN reference, PIE-S2351 capture line and
-PIE-S2352 table-function FROM input. That run then reports no other semantic
-diagnostic. Single-file `check`, `explain` and `emit-sql` report them from
-semantic analysis; LEGACY_FLAT and EXPLICIT_MODULES project checks, project
-`emit-sql` and `compile_query` report them with the owning file's parse
+PIE-S2352 table-function FROM input. The one exception is a query header that
+an EXPLICIT_MODULES project admits (see below). That run then reports no other
+semantic diagnostic. Single-file `check`, `explain` and `emit-sql` report them
+from semantic analysis; LEGACY_FLAT and EXPLICIT_MODULES project checks,
+project `emit-sql` and `compile_query` report them with the owning file's parse
 diagnostics, alongside other files' parse errors.
 Single-file/LEGACY_FLAT/PACKAGE_ROOT retain their existing availability
 boundaries: relation lets and every later family become available only for
@@ -431,6 +433,59 @@ EXPLICIT_MODULES.
 PACKAGE_ROOT `explain --project` does not read relation bodies, so a package
 module using these forms can be explained; that does not make its relations
 available.
+
+### Query header parameters in explicit-module projects
+
+An EXPLICIT_MODULES project admits the header of an entry query whose body
+reads a relation with `from` (not a table function) and declares no relation
+let:
+
+```pietto
+query orders_since(cutoff: Int not null, label: Text nullable):
+    from orders
+    let:
+        next_day = cutoff + 1
+    where order_day >= next_day and note == label
+    select:
+        id
+        first_day = cutoff
+```
+
+Each parameter names exactly `Bool`, `Int`, `Float` or `Text` and writes `not
+null` or `nullable`; a query declares at most 64 (PIE-S2353), and a repeated
+name is PIE-S2001. In that query's body a bare name equal to a parameter reads
+the parameter. A parameter name that is also an input field, a `let:` name, a
+relation name of the module, a JOIN binding, a SELECT output or a named window
+is an error (PIE-S2354), so a read never changes meaning; a SELECT item that
+only reads a parameter needs its own alias.
+
+A read is available in `let:` bindings, `where`, JOIN `on` and the SELECT items
+of a query without GROUP BY, SATISFYING or aggregates, beneath unary, binary,
+comparison, null-test, BETWEEN, conditional, literal-list `in` and `cast`
+operators. Every other position is refused (PIE-S2355), whether it reads the
+parameter or a `let:` binding or output that reads it: call arguments, window
+expressions and named windows (frame offsets included), GROUP BY keys,
+SATISFYING, QUALIFY, ORDER BY, LIMIT and grouped SELECT items. An output that
+reads a parameter counts only in SATISFYING, QUALIFY, ORDER BY and LIMIT;
+elsewhere its name reads the input field it may shadow. A query with parameters
+is never the input of another relation, a relation let or the body of a
+declaration with lets included (PIE-S2356). Headers stay PIE-S2346 in
+single-file analysis, in LEGACY_FLAT projects and beside relation lets, VALUES,
+set-operation or table-function FROM bodies.
+
+`emit-sql --project` renders every read as a typed placeholder under both
+literal policies (`CAST($n AS pg_catalog.int8)`, `CAST(? AS SIGNED)`, with the
+Text collation): PostgreSQL reuses one `$n` for every read of a parameter,
+MySQL writes one `?` per read, and bind-safe literal slots share the same
+numbering in rendering order. The SQL never depends on a value. The unbound
+template keeps each parameter's declared carrier; a check that needs the value,
+such as the range of `cutoff + 1` or of a later `next_day + 1`, is listed as a
+binding obligation naming every parameter it depends on and runs at every
+binding. A query whose parameters are all unread still emits this template;
+like any statement that renders no placeholder, it needs no `parameter_protocol`
+premise.
+Compiling a parameterized query for execution is refused with PIE-R1004 until
+compiled records carry parameter reads.
 
 ## Expressions
 

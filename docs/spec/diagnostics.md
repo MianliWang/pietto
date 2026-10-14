@@ -34,7 +34,7 @@ stored separately and is never encoded in the code.
 
 | Code | Meaning |
 |---|---|
-| `PIE-S2001` | Duplicate name in one semantic scope or namespace, including a schema-v2 local type/source/relation bucket and an EXPLICIT_MODULES relation let named like another let of its declaration, a module relation name (including a relation import binding that does not resolve) or a JOIN binding of its declaration; reported at the let |
+| `PIE-S2001` | Duplicate name in one semantic scope or namespace, including a schema-v2 local type/source/relation bucket and an EXPLICIT_MODULES relation let named like another let of its declaration, a module relation name (including a relation import binding that does not resolve) or a JOIN binding of its declaration (reported at the let), and a repeated query header parameter name (reported at the later parameter) |
 | `PIE-S2002` | Unknown local or explicit-module type reference |
 | `PIE-S2003` | Local type alias cycle, including within one acyclic schema-v2 module |
 | `PIE-S2004` | Invalid Decimal precision-scale type arguments |
@@ -93,14 +93,18 @@ stored separately and is never encoded in the code.
 | `PIE-S2342` | A set operand has no concrete completed input or its visible width differs; ERROR at the operand span for unavailable inputs or the operation span for width mismatch, without partial output or first-available fallback. Existing precise missing/ambiguous input diagnostics remain. |
 | `PIE-S2343` | Corresponding set fields lack exact compatible canonical types or independently validated identical Decimal precision/scale; ERROR at the operand span. Unknown types do not match themselves. |
 | `PIE-S2344` | A set operation requiring row equivalence has an unsupported participating field; ERROR at the operand span for UNION DISTINCT and both INTERSECT/EXCEPT forms. Includes Float/aliases deferred to Phase 72, Any/Bytes/Json and unavailable equality evidence. UNION ALL requires exact shape/type compatibility but no row equivalence. |
-| `PIE-S2345` | A relation `let NAME:` declaration is parsed but not yet available; ERROR in LOOSE/CHECKED/STRICT at the declaration span. Like PIE-S2346..PIE-S2352, it is a temporary pre-admission diagnostic: every occurrence, including nested ones, is reported in (path, line, column, code) order before any semantic analysis, which then does not run. In an EXPLICIT_MODULES project the let declaration itself is admitted: a let whose body is VALUES or starts with `capture` reports only that form's own code (PIE-S2347, PIE-S2351), and PIE-S2345 is instead a semantic ERROR at the let declaration for a let that is never read, read more than once, or read by itself or an earlier let of its declaration. |
-| `PIE-S2346` | An entry-query header parameter is parsed but not yet available; ERROR in every check mode at each parameter span. |
+| `PIE-S2345` | A relation `let NAME:` declaration is parsed but not yet available; ERROR in LOOSE/CHECKED/STRICT at the declaration span. Like PIE-S2346..PIE-S2352 (except a query header an EXPLICIT_MODULES project admits), it is a temporary pre-admission diagnostic: every occurrence, including nested ones, is reported in (path, line, column, code) order before any semantic analysis, which then does not run. In an EXPLICIT_MODULES project the let declaration itself is admitted: a let whose body is VALUES or starts with `capture` reports only that form's own code (PIE-S2347, PIE-S2351), and PIE-S2345 is instead a semantic ERROR at the let declaration for a let that is never read, read more than once, or read by itself or an earlier let of its declaration. |
+| `PIE-S2346` | An entry-query header parameter is parsed but not available here; ERROR in every check mode at each parameter span. It applies in single-file analysis, in LEGACY_FLAT projects, and in EXPLICIT_MODULES projects to a header whose query also declares a relation let or has a VALUES, set-operation or table-function FROM body. An EXPLICIT_MODULES query whose FROM reads a relation admits its header (PIE-S2353..PIE-S2356). |
 | `PIE-S2347` | A typed VALUES body, including its zero-row header form, is parsed but not yet available; ERROR in every check mode at the VALUES body span. |
 | `PIE-S2348` | A `scalar relation.column` read is parsed but not yet available; ERROR in every check mode at the expression span. |
 | `PIE-S2349` | An `exists relation` reference is parsed but not yet available; ERROR in every check mode at the expression span. The call `exists(name)` is unchanged. |
 | `PIE-S2350` | An `in relation` or `not in relation` reference is parsed but not yet available; ERROR in every check mode at the membership expression span. Literal lists such as `in (vip)` are unchanged. |
 | `PIE-S2351` | A `capture` line of a relation let is parsed but not yet available; ERROR in every check mode at the line span. |
 | `PIE-S2352` | A table-function FROM input such as `from generate_series(1, 31, 1) as n` is parsed but not yet available; ERROR in every check mode at the FROM clause span. |
+| `PIE-S2353` | An admitted query header parameter declaration is invalid: its type is not exactly `Bool`, `Int`, `Float` or `Text` without arguments, it omits `not null`/`nullable`, or it is a parameter after the 64th; ERROR at the parameter span before semantic analysis. A repeated parameter name reports `PIE-S2001` at the later parameter. |
+| `PIE-S2354` | A query header parameter name is also an input field, a `let:` name, a relation name visible in the module, a JOIN binding, a SELECT output or a named window of that query; ERROR at the parameter span. An unaliased SELECT item that reads a parameter would name its output after it and reports this code at the read. |
+| `PIE-S2355` | A query header parameter is read outside the available positions; ERROR at the read, before semantic analysis. Reads are available only in `let:` bindings, `where`, JOIN `on` and the SELECT items of a query without GROUP BY, SATISFYING or aggregates, and only beneath unary, binary, comparison, null-test, BETWEEN, conditional, literal-list IN and CAST operators. A call argument, window expression or named window (frame offsets included), GROUP BY key, SATISFYING, QUALIFY, ORDER BY, LIMIT or grouped SELECT item that reads a parameter, directly or through a `let:` binding or output that reads one, reports this code. An output name counts only in SATISFYING, QUALIFY, ORDER BY and LIMIT; elsewhere the same name reads the input field it shadows. |
+| `PIE-S2356` | A FROM, JOIN or set operand names a query that declares header parameters, including one in a relation let or in the body of a declaration with lets; ERROR at the input. A query with parameters is only an entry query. |
 | `PIE-S2357` | An EXPLICIT_MODULES table or query declares more than 64 relation lets; ERROR at each let after the 64th, reported with the pre-admission diagnostics before any semantic analysis, which then does not run. |
 | `PIE-S2401` | Constraint return type does not expand to `Bool` |
 | `PIE-S2402` | Callable or field derive body type mismatch |
@@ -140,7 +144,8 @@ stored separately and is never encoded in the code.
 | `PIE-B1008` | ARTIFACT_INTEGRITY: actual SQL AST, final bytes, ranges, parameters, requirements or current input roots fail correspondence |
 
 These additional codes are implemented by the private Phase66 Slice3 emission
-pipeline and its `pietto.sql-emission.v1` serialization. They do not expand the
+pipeline and its `pietto.sql-emission.v1` serialization (`pietto.sql-emission.v2`
+for a VERIFIED query with header parameters). They do not expand the
 legacy emitter's `PIE-B1000` domain or implement later operator families.
 
 ## Runtime Diagnostics

@@ -26,6 +26,7 @@ from pietto.ast_nodes import (
     MembershipExpr,
     NameExpr,
     Nullability,
+    ParameterRefExpr,
     QueryDef,
     Script,
     SelectItem,
@@ -106,8 +107,23 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.BetweenExpr,
         ast.IsNullExpr,
         ast.WindowExpr,
+        ast.ParameterRefExpr,
     }
 )
+QUERY_PARAMETER_TYPES = ("Bool", "Int", "Float", "Text")
+_QUERY_PARAMETER_NULLABILITY = {
+    Nullability.NOT_NULL: EffectiveNullability.NON_NULL,
+    Nullability.NULLABLE: EffectiveNullability.NULLABLE,
+}
+
+
+def query_parameter_value_type(type_name: str, nullability: Nullability) -> ValueType:
+    """The value type of a validated header parameter or of one of its reads."""
+
+    effective = _QUERY_PARAMETER_NULLABILITY.get(nullability)
+    if type_name not in QUERY_PARAMETER_TYPES or effective is None:
+        raise ValueError("Query parameter lacks a validated declaration.")
+    return _builtin_value_type(type_name, effective)
 
 
 def type_callable_bodies(
@@ -625,6 +641,10 @@ def _infer(
 
     if isinstance(expression, LiteralExpr):
         value_type = _literal_value_type(expression)
+    elif isinstance(expression, ParameterRefExpr):
+        value_type = query_parameter_value_type(
+            expression.type_name, expression.nullability
+        )
     elif isinstance(expression, NameExpr):
         value_type = _name_value_type(
             expression,

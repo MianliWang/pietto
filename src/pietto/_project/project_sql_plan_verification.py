@@ -96,8 +96,10 @@ from pietto.ast_nodes import (
     LiteralExpr,
     NameExpr,
     DottedNameExpr,
+    ParameterRefExpr,
 )
 from pietto.errors import Severity
+from pietto.semantic.expressions import query_parameter_value_type
 
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project.project_scalar_namespaces import ProjectScalarNamespaceStage
@@ -187,6 +189,7 @@ type _OriginSpec = tuple[
 
 class ProjectSQLPlanVerificationIssue(StrEnum):
     LITERAL_TRANSPORT = "literal_transport"
+    QUERY_PARAMETERS = "query_parameters"
     NON_CONCRETE = "non_concrete"
     ROOT_CONTINUITY = "root_continuity"
     UNSUPPORTED_SHAPE = "unsupported_shape"
@@ -2513,6 +2516,7 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
     position = operand_position = 0
     variants = {
         LiteralExpr: row.ProjectSQLLiteral,
+        ParameterRefExpr: row.ProjectSQLParameterRead,
         NameExpr: row.ProjectSQLReference,
         DottedNameExpr: row.ProjectSQLReference,
         UnaryExpr: row.ProjectSQLUnary,
@@ -2570,7 +2574,7 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
         )
         while pending:
             node = pending.pop()
-            if type(node) not in _KNOWN_EXPRESSIONS:
+            if type(node) not in _KNOWN_EXPRESSIONS | {ParameterRefExpr}:
                 return False
             nodes.append(node)
             if id(node) in atomic:
@@ -2598,6 +2602,8 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
             elif isinstance(node, CastExpr):
                 children = (node.value,)
             elif isinstance(node, (LiteralExpr, NameExpr, DottedNameExpr)):
+                children = ()
+            elif isinstance(node, ParameterRefExpr):
                 children = ()
             else:
                 return False
@@ -2888,6 +2894,19 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 ):
                     return False
             elif isinstance(value, (row.ProjectSQLLiteral, row.ProjectSQLBoundLiteral)):
+                children = ()
+            elif isinstance(value, row.ProjectSQLParameterRead):
+                parameters = plan.parameters
+                if (
+                    site.owner is not plan.scope.selected_owner
+                    or not 0 <= node.ordinal < len(parameters)
+                    or value.parameter is not parameters[node.ordinal]
+                    or value.parameter.declaration.name != node.name
+                    or value.value_type
+                    != query_parameter_value_type(node.type_name, node.nullability)
+                    or value.value_type != value.parameter.value_type
+                ):
+                    return False
                 children = ()
             elif isinstance(value, row.ProjectSQLUnary):
                 children = (local[id(node.operand)].ref,)
@@ -5546,6 +5565,38 @@ def _literal_origins_and_demands(plan, origin_position, demand_position):
     )
 
 
+def _query_parameters(plan, selected) -> bool:
+    """Only the selected query declares parameters; each is its header entry."""
+    if any(
+        d.entry.owner is not selected
+        and type(d.entry.owner.definition) is QueryDef
+        and d.entry.owner.definition.parameters
+        for d in plan.bindings.definitions
+    ):
+        return False
+    definition = selected.definition
+    declared = definition.parameters if type(definition) is QueryDef else ()
+    return (
+        type(plan.parameters) is tuple
+        and len(plan.parameters) == len(declared)
+        and all(
+            type(actual) is row.ProjectSQLQueryParameter
+            and actual.owner is selected
+            and type(actual.ordinal) is int
+            and actual.ordinal == ordinal
+            and actual.declaration is parameter
+            and actual.tag == parameter.type.name
+            and actual.value_type
+            == query_parameter_value_type(
+                parameter.type.name, parameter.type.nullability
+            )
+            for ordinal, (actual, parameter) in enumerate(
+                zip(plan.parameters, declared)
+            )
+        )
+    )
+
+
 def _verify(plan, completed, bundle, selected, policy, envelope):
     Issue = ProjectSQLPlanVerificationIssue
     if type(plan) is not ProjectSQLPlan:
@@ -5554,6 +5605,8 @@ def _verify(plan, completed, bundle, selected, policy, envelope):
         issues = _verify_bindings(plan.bindings, completed, bundle, selected)
         if issues:
             return issues
+        if not _query_parameters(plan, selected):
+            return (Issue.QUERY_PARAMETERS,)
         issues = _whole_plan(plan)
         if issues:
             return issues

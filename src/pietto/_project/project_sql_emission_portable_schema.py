@@ -720,8 +720,11 @@ DERIVED: dict[str, frozenset[str]] = {
 # Runtime-only fields of emission-owned objects that are deliberately not
 # transported: verification invocation roots, private caches and upstream
 # semantic evidence whose consumed facts are carried by derived fields.
+# Header-parameter facts (a use's parameter owner, a realization's binding
+# obligation) exist only beside a parameter read, whose emission stays outside
+# this observation.
 CUTOFF: dict[str, frozenset[str]] = {
-    "realization": frozenset({"proven_int_range"}),
+    "realization": frozenset({"proven_int_range", "binding", "obligation"}),
     "request": frozenset(
         {
             "verification",
@@ -736,6 +739,7 @@ CUTOFF: dict[str, frozenset[str]] = {
     "bound_field": frozenset(
         {"field", "resolution", "decimal_expression", "scalar_meaning"}
     ),
+    "native_use": frozenset({"parameter"}),
 }
 
 RULES = frozenset(f"R{number:02d}" for number in range(1, 27))

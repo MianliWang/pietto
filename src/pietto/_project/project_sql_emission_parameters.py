@@ -39,11 +39,14 @@ SQL_TYPES = {
 
 @dataclass(frozen=True, slots=True, eq=False)
 class NativeUse:
+    """One native placeholder occurrence; its owner is a slot or a parameter."""
+
     ordinal: int
     original: Any
     slot: Any
     physical_type: str
     server_index: int
+    parameter: Any = None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -200,30 +203,42 @@ def allocate_uses(family, occurrences, limit):
         raise ValueError("native occurrence limit or target")
     seen = {}
     result = []
-    for ordinal, (original, physical) in enumerate(occurrences):
-        if type(original) not in (row.ProjectSQLBoundLiteral, row.CompiledBoundLiteral):
+    for ordinal, (item, physical) in enumerate(occurrences):
+        kind = type(item)
+        named = kind is row.ProjectSQLParameterRead
+        if not named and kind not in (
+            row.ProjectSQLBoundLiteral,
+            row.CompiledBoundLiteral,
+        ):
             raise ValueError("original bound occurrence required")
-        slot = original.use.slot
-        tag = tag_of(original)
-        if slot in seen and seen[slot][0] != physical:
+        original: Any = item
+        owner = original.parameter if named else original.use.slot
+        if owner in seen and seen[owner][0] != physical:
             raise ValueError("incompatible_slot_context")
-        if (
-            tag is None
+        if named:
+            if physical != PHYSICAL[family].get(owner.tag):
+                raise ValueError("original parameter/context correspondence")
+        elif (
+            (tag := tag_of(original)) is None
             or physical != PHYSICAL[family].get(tag)
             or original.use.expression is not original.ref
-            or slot.site.position.expression is not original.ref
-            or slot.site.position.literal is not original.expression
-            or slot.tag.value != tag_of(original)
+            or owner.site.position.expression is not original.ref
+            or owner.site.position.literal is not original.expression
+            or owner.tag.value != tag
         ):
             raise ValueError("original slot/context correspondence")
         if family == "mysql":
             index = ordinal + 1
-        elif slot in seen:
-            index = seen[slot][1]
+        elif owner in seen:
+            index = seen[owner][1]
         else:
             index = len(seen) + 1
-        seen[slot] = physical, index
-        result.append(NativeUse(ordinal, original, slot, physical, index))
+        seen[owner] = physical, index
+        result.append(
+            NativeUse(ordinal, original, None, physical, index, owner)
+            if named
+            else NativeUse(ordinal, original, owner, physical, index)
+        )
     return tuple(result)
 
 

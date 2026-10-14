@@ -18,6 +18,7 @@ from pietto.ast_nodes import (
     LiteralExpr,
     MembershipExpr,
     NameExpr,
+    ParameterRefExpr,
     UnaryExpr,
     WindowExpr,
 )
@@ -94,6 +95,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.BetweenExpr,
         ast.IsNullExpr,
         ast.WindowExpr,
+        ast.ParameterRefExpr,
     }
 )
 
@@ -263,7 +265,10 @@ def child_expressions(expression: Expression) -> tuple[Expression, ...]:
         return (expression.value, expression.lower, expression.upper)
     if isinstance(expression, IsNullExpr):
         return (expression.value,)
-    if isinstance(expression, (LiteralExpr, NameExpr, DottedNameExpr, WindowExpr)):
+    if isinstance(
+        expression,
+        (LiteralExpr, NameExpr, DottedNameExpr, WindowExpr, ParameterRefExpr),
+    ):
         return ()
     raise AssertionError(f"Unsupported expression: {type(expression).__name__}")
 

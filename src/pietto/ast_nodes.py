@@ -123,6 +123,21 @@ class RelationScalarExpr(Expression):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ParameterRefExpr(Expression):
+    """A bare-name read of one header parameter of the enclosing entry query.
+
+    ``ordinal`` is the header position of the first parameter with ``name``;
+    ``type_name`` and ``nullability`` repeat that declaration's authored type,
+    so a reader types the read without a scope lookup.
+    """
+
+    name: str
+    ordinal: int
+    type_name: str
+    nullability: Nullability
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class CastExpr(Expression):
     """An explicit source-level conversion to a parsed type expression."""
 
@@ -846,7 +861,11 @@ class TableDef(Node):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class QueryDef(Node):
-    """A parse-only query definition."""
+    """A parse-only query definition.
+
+    ``parameters`` holds an entry-query header; bare body names equal to one
+    of them are built as ``ParameterRefExpr``.
+    """
 
     name: str
     from_clause: FromClause
@@ -861,6 +880,7 @@ class QueryDef(Node):
     named_windows: tuple[NamedWindowDeclaration, ...] = ()
     join_clauses: tuple[JoinClause, ...] = ()
     distinct_clause: DistinctClause | None = None
+    parameters: tuple[QueryParameter, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.named_windows) is not tuple or any(
@@ -871,6 +891,10 @@ class QueryDef(Node):
             type(item) is not JoinClause for item in self.join_clauses
         ):
             raise TypeError("query joins must be an exact clause tuple")
+        if type(self.parameters) is not tuple or any(
+            type(item) is not QueryParameter for item in self.parameters
+        ):
+            raise TypeError("query parameters must be an exact declaration tuple")
 
 
 class SetOperationKind(StrEnum):

@@ -371,6 +371,36 @@ def test_compile_stops_at_an_unadmitted_relation_let_without_internal_error(
 
 
 @pytest.mark.parametrize(
+    "clauses",
+    (
+        "    where id > low\n    select:\n        id\n",
+        # Unread parameters still make a parameterized template.
+        "    select:\n        id\n",
+    ),
+    ids=("read", "unread"),
+)
+def test_compile_of_a_parameterized_query_stops_at_the_compiled_boundary(
+    tmp_path, clauses
+):
+    """The command emits the unbound template; until compiled records carry a
+    parameter read, compiling it refuses deterministically before any binding."""
+    project = api.write_example(tmp_path)
+    main = project / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8")
+        + "\nquery since(low: Int not null):\n    from items\n"
+        + clauses
+    )
+    with pytest.raises(execution.RequestRejected) as refused:
+        compiled(project, kind="query", name="since")
+    assert (refused.value.code, refused.value.detail) == (
+        "PIE-R1004",
+        "COMPILED_EXPORT_SCALAR",
+    )
+    assert compiled(project).literal_policy == "preserve"
+
+
+@pytest.mark.parametrize(
     "change,code",
     (
         ({"module": None}, "PIE-R1001"),

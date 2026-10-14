@@ -8,14 +8,16 @@ from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
 from pietto.ast_nodes import (
+    BinaryExpr,
     BlockRelationDef,
     CallExpr,
+    ComparisonExpr,
     DottedNameExpr,
     FromClause,
     IsNullExpr,
-    ModuleDeclarationKind,
     NameExpr,
     Nullability,
+    ParameterRefExpr,
     QueryDef,
     QueryParameter,
     SelectBody,
@@ -333,12 +335,9 @@ def test_entry_query_header_parameters_are_located_nodes() -> None:
     assert result.diagnostics == ()
     assert result.ast is not None
     (definition,) = result.ast.definitions
-    assert type(definition) is BlockRelationDef
-    assert (definition.kind, definition.name) == (
-        ModuleDeclarationKind.QUERY,
-        "orders_since",
-    )
-    assert definition.let_relations == ()
+    # A SELECT body keeps the query class every reader knows; the header rides on it.
+    assert type(definition) is QueryDef
+    assert definition.name == "orders_since"
     assert [type(item) for item in definition.parameters] == [QueryParameter] * 2
     assert [
         (item.name, item.type.name, item.type.nullability)
@@ -353,11 +352,117 @@ def test_entry_query_header_parameters_are_located_nodes() -> None:
     assert definition.parameters[1].span == Span(
         path=path, line=1, column=42, end_line=1, end_column=62
     )
-    body = definition.body
-    assert type(body) is SelectBody and type(body.from_clause) is FromClause
-    assert body.from_clause.source_name == "orders"
-    assert body.span == Span(path=path, line=2, column=5, end_line=5, end_column=11)
+    assert type(definition.from_clause) is FromClause
+    assert definition.from_clause.source_name == "orders"
+    assert definition.where_clause is not None
+    condition = definition.where_clause.expression
+    assert type(condition) is ComparisonExpr
+    assert condition.left == NameExpr(
+        span=Span(path=path, line=3, column=11, end_line=3, end_column=20),
+        name="order_day",
+    )
+    assert condition.right == ParameterRefExpr(
+        span=Span(path=path, line=3, column=24, end_line=3, end_column=30),
+        name="cutoff",
+        ordinal=0,
+        type_name="Int",
+        nullability=Nullability.NOT_NULL,
+    )
     _assert_no_antlr_nodes(definition)
+
+
+def test_header_names_become_parameter_reads_only_as_bare_values() -> None:
+    result = parse_source(
+        "query q(k: Int not null, lower: Text nullable, k: Bool not null):\n"
+        "    from rows\n"
+        "    let:\n"
+        "        s = k + rows.k\n"
+        "    where lower(lower) == lower\n"
+        "    group by:\n"
+        "        k\n"
+        "    select:\n"
+        "        k\n"
+        "    qualify:\n"
+        "        k > 1\n"
+    )
+
+    assert result.diagnostics == () and result.ast is not None
+    (definition,) = result.ast.definitions
+    assert type(definition) is QueryDef
+    assert definition.let_clause is not None
+    (binding,) = definition.let_clause.bindings
+    assert type(binding.expression) is BinaryExpr
+    read, qualified = binding.expression.left, binding.expression.right
+    # A repeated header name reads its first declaration.
+    assert type(read) is ParameterRefExpr
+    assert (read.ordinal, read.type_name, read.nullability) == (
+        0,
+        "Int",
+        Nullability.NOT_NULL,
+    )
+    assert type(qualified) is DottedNameExpr
+    assert definition.where_clause is not None
+    where = definition.where_clause.expression
+    assert type(where) is ComparisonExpr and type(where.left) is CallExpr
+    assert type(where.left.callee) is NameExpr
+    assert [type(item) for item in where.left.arguments] == [ParameterRefExpr]
+    assert type(where.right) is ParameterRefExpr and where.right.ordinal == 1
+    assert definition.group_by_clause is not None
+    assert type(definition.group_by_clause.items[0].key) is NameExpr
+    assert type(definition.select_items[0].expression) is ParameterRefExpr
+    assert definition.qualify_clause is not None
+    qualify = definition.qualify_clause.expression
+    assert type(qualify) is ComparisonExpr and type(qualify.left) is ParameterRefExpr
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "query q:\n    from rows\n    where k > 1\n    select:\n        k\n",
+        "table t:\n    from rows\n    where k > 1\n    select:\n        k\n",
+        (
+            "query a(k: Int not null):\n    from rows\n    select:\n"
+            "        v = k\n"
+            "query b:\n    from rows\n    where k > 1\n    select:\n        k\n"
+        ),
+    ],
+)
+def test_names_outside_a_header_stay_names(source: str) -> None:
+    result = parse_source(source)
+
+    assert result.diagnostics == () and result.ast is not None
+    definition = result.ast.definitions[-1]
+    assert isinstance(definition, (QueryDef, TableDef))
+    assert definition.where_clause is not None
+    condition = definition.where_clause.expression
+    assert isinstance(condition, ComparisonExpr)
+    assert type(condition.left) is NameExpr
+    assert getattr(definition, "parameters", ()) == ()
+
+
+def test_headers_of_other_bodies_keep_the_block_form() -> None:
+    result = parse_source(
+        "query q(k: Int not null):\n"
+        "    let inner:\n"
+        "        from rows\n"
+        "        where id > k\n"
+        "        select:\n"
+        "            id\n"
+        "    from inner\n"
+        "    select:\n"
+        "        id\n"
+    )
+
+    assert result.diagnostics == () and result.ast is not None
+    (definition,) = result.ast.definitions
+    assert type(definition) is BlockRelationDef
+    assert [item.name for item in definition.parameters] == ["k"]
+    (inner,) = definition.let_relations
+    assert isinstance(inner.body, SelectBody)
+    assert inner.body.where_clause is not None
+    condition = inner.body.where_clause.expression
+    assert isinstance(condition, ComparisonExpr)
+    assert type(condition.right) is ParameterRefExpr
 
 
 @pytest.mark.parametrize(

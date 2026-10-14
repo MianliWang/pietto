@@ -246,11 +246,12 @@ def test_project_check_json_reports_gate_diagnostics_beside_parse_errors(
     assert {item["code"] for item in diagnostics[: paths.count("a.pietto")]} == {
         "PIE-P1000"
     }
+    # An explicit-module project admits a SELECT-body query header.
     assert [
         (item["code"], item["location"]["line"], item["location"]["column"])
         for item in diagnostics
         if item["location"]["path"] == "b.pietto"
-    ] == [("PIE-S2346", 1, 9), ("PIE-S2349", 7, 11)]
+    ] == [("PIE-S2346", 1, 9)] * (schema == 1) + [("PIE-S2349", 7, 11)]
 
 
 def test_project_check_rejects_path_and_project_together(

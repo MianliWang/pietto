@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import math
 from typing import Any
@@ -53,13 +53,95 @@ NULLABILITY = {
 
 @dataclass(frozen=True, slots=True, eq=False)
 class Realization:
-    """One value's checked logical tag, physical storage and exact value domain."""
+    """One value's checked logical tag, physical storage and exact value domain.
+
+    ``binding`` marks a value whose exact domain is fixed only when its query
+    parameters are bound; the template keeps the declared carrier (the full
+    signed range for Int, an unknown width for Text). ``obligation`` names the
+    check this node defers to every binding.
+    """
 
     tag: str
     storage: dict[str, Any]
     nullable: bool | str
     domain: dict[str, Any]
     proven_int_range: tuple[int, int] | None = None
+    binding: bool = False
+    obligation: str | None = None
+
+
+INT_RANGE_OBLIGATION = "int_range_representable"
+TEXT_WIDTH_OBLIGATION = "text_result_width"
+TEXT_PROFILE = {
+    "postgres": ("UTF8", "C", "NO PAD"),
+    "mysql": ("utf8mb4", "utf8mb4_0900_bin", "NO PAD"),
+}
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class SQLParameterRead:
+    """One header-parameter read rendered as a typed native placeholder."""
+
+    original: Any
+    use: Any
+    physical_type: str
+    realization: Realization
+
+
+def parameter_realization(family: str, tag: str, nullable: bool) -> Realization:
+    """The unbound template image of one read: its declared carrier only."""
+    storage = {"kind": parameters.PHYSICAL[family][tag]}
+    if tag == "Bool":
+        return Realization(tag, storage, nullable, {"kind": "bool01"})
+    if tag == "Float":
+        return Realization(
+            tag, storage, nullable, {"kind": "finite_float", "format": "binary64"}
+        )
+    if tag == "Int":
+        low, high = -(1 << 63), (1 << 63) - 1
+        return Realization(
+            tag,
+            storage,
+            nullable,
+            {"kind": "int_range", "min": str(low), "max": str(high)},
+            (low, high),
+            binding=True,
+        )
+    if tag != "Text":
+        raise ValueError("query parameter type")
+    encoding, collation, padding = TEXT_PROFILE[family]
+    return Realization(
+        tag,
+        storage,
+        nullable,
+        {
+            "kind": "text",
+            "max_characters": None,
+            "encoding": encoding,
+            "collation": collation,
+            "padding": padding,
+        },
+        binding=True,
+    )
+
+
+def deferred_int(storage: dict[str, Any] | None, nullable) -> Realization | None:
+    """An Int result whose range is proved only at binding, within its carrier."""
+    if storage is None:
+        return None
+    limits = signed_range(storage)
+    if limits is None:
+        return None
+    low, high = limits
+    return Realization(
+        "Int",
+        storage,
+        nullable,
+        {"kind": "int_range", "min": str(low), "max": str(high)},
+        (low, high),
+        binding=True,
+        obligation=INT_RANGE_OBLIGATION,
+    )
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -310,6 +392,8 @@ def _text_result(family, value, nullable, maximum):
         else ("utf8mb4", "utf8mb4_0900_bin", "NO PAD")
     )
     domain = value.domain
+    if value.binding and maximum is None:
+        return _binding_text_result(family, value, nullable, expected)
     if (
         value.tag != "Text"
         or type(maximum) is not int
@@ -353,11 +437,66 @@ def _text_result(family, value, nullable, maximum):
     )
 
 
+def _binding_text_result(family, value, nullable, expected):
+    """A Text result whose width each binding fixes and checks (MySQL caps it)."""
+    domain = value.domain
+    if (
+        value.tag != "Text"
+        or set(domain) != {"kind", "max_characters", "encoding", "collation", "padding"}
+        or domain["kind"] != "text"
+        or domain["max_characters"] is not None
+        or _text_domain(value) != expected
+        or value.storage
+        not in (
+            ({"kind": "pg_text"},)
+            if family == "postgres"
+            else (
+                {"kind": "my_utf8mb4_text"},
+                {"kind": "my_varchar", "length": None},
+            )
+        )
+    ):
+        return None
+    return Realization(
+        "Text",
+        {"kind": "pg_text"}
+        if family == "postgres"
+        else {"kind": "my_varchar", "length": None},
+        nullable,
+        dict(domain),
+        binding=True,
+        obligation=TEXT_WIDTH_OBLIGATION,
+    )
+
+
 def _text_carrier_result(family, values, nullable, maximum=None):
     """Keep one Text profile while deriving an explicitly bounded result carrier."""
     carrier = _concrete_values(values)
     if carrier is None or carrier.tag != "Text":
         return None
+    if maximum is None and any(value.binding for value in values):
+        # A binding fixes the width; every branch keeps the one Text profile.
+        if any(
+            not _typed_null(value)
+            and (
+                _text_domain(value) != _text_domain(carrier)
+                or _text_result(
+                    family,
+                    value,
+                    value.nullable,
+                    None if value.binding else value.domain.get("max_characters"),
+                )
+                is None
+            )
+            for value in values
+        ):
+            return None
+        return _binding_text_result(
+            family,
+            next(value for value in values if value.binding),
+            nullable,
+            TEXT_PROFILE.get(family),
+        )
     widths = []
     for value in values:
         if _typed_null(value):
@@ -404,10 +543,16 @@ def _int_carrier_result(family, values, nullable, preserve_input=False):
         bounds.append((value, current))
     if not bounds:
         return None
+    binding = any(value.binding for value in values)
     if preserve_input and not _typed_null(values[0]):
         value, _ = bounds[0]
         return Realization(
-            "Int", value.storage, nullable, value.domain, value.proven_int_range
+            "Int",
+            value.storage,
+            nullable,
+            value.domain,
+            value.proven_int_range,
+            binding=binding,
         )
     low = min(current[0] for _, current in bounds)
     high = max(current[1] for _, current in bounds)
@@ -420,7 +565,8 @@ def _int_carrier_result(family, values, nullable, preserve_input=False):
             64: {"kind": "pg_int8"},
         }[max(INT_WIDTHS[value.storage["kind"]] for value, _ in bounds)]
     )
-    return _checked_int(storage, low, high, nullable)
+    checked = _checked_int(storage, low, high, nullable)
+    return None if checked is None else replace(checked, binding=binding)
 
 
 def _bool_carrier_result(family, values, nullable, preserve_input=False):
@@ -568,6 +714,22 @@ def build_row_value(
         if problem is not None:
             return None, problem
         return parameters.build_value(plan, reference, family, uses), None
+    if type(expression) is row.ProjectSQLParameterRead:
+        use = uses.get(expression.ref)
+        if use is None or use.parameter is not expression.parameter:
+            return None, ("PIE-B1008", "native_occurrence_allocation")
+        nullable = value_nullable(expression)
+        if type(nullable) is not bool:
+            return None, ("PIE-B1004", "expression_logical_type_evidence_missing")
+        return (
+            SQLParameterRead(
+                expression,
+                use,
+                use.physical_type,
+                parameter_realization(family, expression.parameter.tag, nullable),
+            ),
+            None,
+        )
     tag, nullable = value_tag(expression), value_nullable(expression)
     if tag is None or nullable is None:
         return None, ("PIE-B1004", "expression_logical_type_evidence_missing")
@@ -641,6 +803,10 @@ def build_row_value(
         )
         storage = _arithmetic_storage(family, inner, inner)
         checked = _checked_int(storage, low, high, nullable)
+        if checked is None and inner.binding:
+            checked = deferred_int(storage, nullable)
+        elif checked is not None:
+            checked = replace(checked, binding=inner.binding)
         if checked is None:
             return None, ("PIE-B1002", "unary_result_outside_physical_range")
         return SQLOperation(expression, "sign", (operand,), checked), None
@@ -880,9 +1046,13 @@ def resolved_binary_realization(
     if left_bounds is None or right_bounds is None:
         return None, ("PIE-B1004", "int_range_proof_missing")
     low, high = _interval(operator, left_bounds, right_bounds)
-    checked = _checked_int(
-        _arithmetic_storage(family, left, right), low, high, nullable
-    )
+    storage = _arithmetic_storage(family, left, right)
+    binding = left.binding or right.binding
+    checked = _checked_int(storage, low, high, nullable)
+    if checked is None and binding:
+        checked = deferred_int(storage, nullable)
+    elif checked is not None:
+        checked = replace(checked, binding=binding)
     if checked is None:
         return None, ("PIE-B1002", "arithmetic_outside_physical_range")
     return checked, None
@@ -1370,7 +1540,7 @@ def resolved_scalar_call_realization(family, symbol, tag, nullable, values):
 
 
 def realization_of(value, family: str) -> Realization:
-    if type(value) in {SQLStageReference, SQLOperation}:
+    if type(value) in {SQLStageReference, SQLOperation, SQLParameterRead}:
         return value.realization
     return constant_realization(value, family)
 
@@ -1411,7 +1581,7 @@ def operand_refs(value) -> tuple[Any, ...]:
 
 
 def root_expression(value):
-    if type(value) in {SQLStageReference, SQLOperation}:
+    if type(value) in {SQLStageReference, SQLOperation, SQLParameterRead}:
         return value.original
     return parameters.value_nodes(value)[0].original
 
@@ -1419,6 +1589,8 @@ def root_expression(value):
 def requirement_kind(node) -> str:
     if type(node) is SQLStageReference:
         return "reference"
+    if type(node) is SQLParameterRead:
+        return "query_parameter"
     assert type(node) is SQLOperation
     return {
         "sign": "arithmetic",
@@ -1436,6 +1608,7 @@ def requirement_kind(node) -> str:
 
 
 REQUIREMENT_RULES = {
+    "query_parameter": "R04",
     "reference": "R05",
     "arithmetic": "R05",
     "comparison": "R05",

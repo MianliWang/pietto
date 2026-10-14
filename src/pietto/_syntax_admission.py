@@ -10,6 +10,7 @@ from pietto.ast_nodes import (
     CaptureClause,
     LetRelationDef,
     Node,
+    QueryDef,
     QueryParameter,
     RelationExistsExpr,
     RelationMembershipExpr,
@@ -82,7 +83,9 @@ def unadmitted_syntax_diagnostics(
 
     Single-file and LEGACY_FLAT callers keep every family gated; an
     EXPLICIT_MODULES caller admits the families its readers implement, up to
-    ``_MAX_RELATION_LETS`` relation lets per table or query.
+    ``_MAX_RELATION_LETS`` relation lets per table or query, and the header of
+    an entry query built as a ``QueryDef`` (its FROM reads a relation and it
+    declares no relation let); headers of any other body stay unadmitted.
     """
 
     found: list[Diagnostic] = []
@@ -116,7 +119,11 @@ def unadmitted_syntax_diagnostics(
                     _MAX_RELATION_LETS:
                 ]
             )
-        pending.extend(getattr(value, item.name) for item in fields(value))
+        pending.extend(
+            getattr(value, item.name)
+            for item in fields(value)
+            if not (explicit_modules and kind is QueryDef and item.name == "parameters")
+        )
     return tuple(
         sorted(
             found,

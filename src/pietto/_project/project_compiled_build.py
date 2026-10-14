@@ -2145,6 +2145,9 @@ def build_compiled(artifact, *, guarded=None, refinement=None) -> CompiledBuild:
 
     if type(artifact) not in (EmissionArtifact, GuardedArtifact):
         raise BindingError("BINDING_ARTIFACT")
+    if artifact.request.plan.parameters:
+        # A header-parameter read has no compiled record kind yet.
+        raise CompiledError("COMPILED_EXPORT_SCALAR")
     primary = _Export(artifact, guarded, refinement)
     description = primary.run()
     verify_export(description, artifact, guarded=guarded, refinement=refinement)
